@@ -6,6 +6,7 @@ import { loadConfig } from "./lib/config.ts";
 import { ingest } from "./stages/ingest.ts";
 import { transcribe } from "./stages/transcribe.ts";
 import { detect } from "./stages/detect.ts";
+import { plan } from "./stages/plan.ts";
 
 const program = new Command();
 program
@@ -77,8 +78,17 @@ program
   });
 
 program
+  .command("plan <dir>")
+  .description("LLM で意味カット・章立て・タイトル案を生成(cutplan.json ほか)")
+  .action(async (dir: string) => {
+    const cfg = loadConfig(program.opts().config);
+    const p = await plan(resolveDir(dir), cfg);
+    printPlanSummary(p.segments);
+  });
+
+program
   .command("run <dir>")
-  .description("ingest → transcribe → detect を順に実行(承認ゲートまで)")
+  .description("ingest → transcribe → detect → plan を順に実行(承認ゲートまで)")
   .action(async (dir: string) => {
     const cfg = loadConfig(program.opts().config);
     const abs = resolveDir(dir);
@@ -90,11 +100,24 @@ program
     console.log(
       `detect 完了: ${c.originalDurationSec}秒 → ${c.keptDurationSec}秒`,
     );
-    console.log(
-      "\n次のステップ: plan(意味カット・章立て)は未実装です。" +
-        "cuts.auto.json を確認してください。",
-    );
+    console.log("plan 実行中(LLM でカット判断・章立てを生成)...");
+    const p = await plan(abs, cfg);
+    printPlanSummary(p.segments);
   });
+
+function printPlanSummary(
+  segments: { action: "keep" | "cut"; reason: string }[],
+): void {
+  const cuts = segments.filter((s) => s.action === "cut");
+  console.log(
+    `plan 完了: ${segments.length}区間中 ${cuts.length}区間をカット提案`,
+  );
+  for (const c of cuts) console.log(`  カット案: ${c.reason}`);
+  console.log(
+    "\n次のステップ: cutplan.json を確認・編集し、" +
+      'approved を true にしてから render に進んでください(render は未実装)。',
+  );
+}
 
 program.parseAsync().catch((err: Error) => {
   console.error(`エラー: ${err.message}`);

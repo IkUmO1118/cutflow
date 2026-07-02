@@ -81,3 +81,14 @@ export interface PlanSegment {
   action: "keep" | "cut";
   reason: string;
 }
+
+/** plan が生成(chapters.json)。YouTube チャプター用の章立て */
+export interface Chapters {
+  chapters: { start: number; title: string }[];
+}
+
+/** plan が生成(meta.json)。タイトル案と概要欄の下書き */
+export interface Meta {
+  titles: string[];
+  description: string;
+}
