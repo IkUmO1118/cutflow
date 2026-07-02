@@ -16,7 +16,7 @@ OBS収録 (raw.mkv)
   ├─ ingest      映像解析・マイク音声抽出          → manifest.json
   ├─ transcribe  whisper.cpp で文字起こし          → transcript.json / .srt
   ├─ detect      無音検出(ffmpeg・決定的)         → cuts.auto.json
-  ├─ plan        LLMで意味カット・章立て [未実装]  → cutplan.json / chapters.json
+  ├─ plan        LLMで意味カット・章立て           → cutplan.json / chapters.json / meta.json
   │
   ├─ ★ 人間がカット案を確認・修正(承認ゲート)
   │
@@ -53,7 +53,15 @@ node src/cli.ts run ~/Movies/cutflow/2026-07-02-my-recording
 node src/cli.ts ingest     <dir>
 node src/cli.ts transcribe <dir>
 node src/cli.ts detect     <dir>
+node src/cli.ts plan       <dir>
 ```
+
+plan は LLM に「残す候補区間」の番号リストを渡し、番号単位で
+カット判断させます(理由付き)。結果の `cutplan.json` を確認・編集して
+`approved` を `true` にすると render に進めます。収録フォルダに
+`brief.md`(企画ブリーフのコピー)を置いておくと、その「見せ場リスト」が
+誤カット防止の材料として LLM に渡ります。プロンプトは
+[prompts/plan.md](prompts/plan.md) で自由に調整できます。
 
 ## 設定
 
@@ -71,7 +79,8 @@ LLM バックエンド:
 
 - [x] ingest / transcribe / detect(検証済み: 16秒素材の文字起こしが
       Apple M5 で約1秒)
-- [ ] plan(LLM 意味カット・章立て)
+- [x] plan(LLM 意味カット・章立て・タイトル案。合成音声テストで
+      言い直し・脱線の検出を確認済み)
 - [ ] preview(カット結果の低解像度確認動画)
 - [ ] render(Remotion 合成: ワイプ+字幕+章カード)
 
