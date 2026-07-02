@@ -17,8 +17,9 @@ OBS収録 (raw.mkv)
   ├─ transcribe  whisper.cpp で文字起こし          → transcript.json / .srt
   ├─ detect      無音検出(ffmpeg・決定的)         → cuts.auto.json
   ├─ plan        LLMで意味カット・章立て           → cutplan.json / chapters.json / meta.json
+  ├─ preview     カット結果の確認用動画            → preview.mp4
   │
-  ├─ ★ 人間がカット案を確認・修正(承認ゲート)
+  ├─ ★ 人間が preview を見て cutplan.json を修正・承認(承認ゲート)
   │
   └─ render      Remotion で合成 [未実装]          → final.mp4
 ```
@@ -54,6 +55,7 @@ node src/cli.ts ingest     <dir>
 node src/cli.ts transcribe <dir>
 node src/cli.ts detect     <dir>
 node src/cli.ts plan       <dir>
+node src/cli.ts preview    <dir>   # カット結果の確認用動画(承認前に見る)
 ```
 
 plan は LLM に「残す候補区間」の番号リストを渡し、番号単位で
@@ -81,7 +83,7 @@ LLM バックエンド:
       Apple M5 で約1秒)
 - [x] plan(LLM 意味カット・章立て・タイトル案。合成音声テストで
       言い直し・脱線の検出を確認済み)
-- [ ] preview(カット結果の低解像度確認動画)
+- [x] preview(カット結果の低解像度確認動画。検証済み)
 - [ ] render(Remotion 合成: ワイプ+字幕+章カード)
 
 ## License

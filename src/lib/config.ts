@@ -21,6 +21,7 @@ export interface Config {
     minKeepSec: number;
   };
   llm: { backend: "claude-cli" | "api"; model: string };
+  preview: { width: number };
 }
 
 /** "~/foo" をホームディレクトリに展開する */

@@ -7,6 +7,7 @@ import { ingest } from "./stages/ingest.ts";
 import { transcribe } from "./stages/transcribe.ts";
 import { detect } from "./stages/detect.ts";
 import { plan } from "./stages/plan.ts";
+import { preview } from "./stages/preview.ts";
 
 const program = new Command();
 program
@@ -84,6 +85,18 @@ program
     const cfg = loadConfig(program.opts().config);
     const p = await plan(resolveDir(dir), cfg);
     printPlanSummary(p.segments);
+  });
+
+program
+  .command("preview <dir>")
+  .description("cutplan.json の keep 区間を繋いだ確認用動画を生成(preview.mp4)")
+  .action(async (dir: string) => {
+    const cfg = loadConfig(program.opts().config);
+    const out = await preview(resolveDir(dir), cfg);
+    console.log(`preview 完了: ${out}`);
+    console.log(
+      "テンポと見せ場を確認し、直したい場合は cutplan.json を編集して再実行してください。",
+    );
   });
 
 program
