@@ -140,8 +140,8 @@ function printPlanSummary(
   );
   for (const c of cuts) console.log(`  カット案: ${c.reason}`);
   console.log(
-    "\n次のステップ: cutplan.json を確認・編集し、" +
-      'approved を true にしてから render に進んでください(render は未実装)。',
+    "\n次のステップ: preview で確認し、cutplan.json を必要に応じて編集、" +
+      "approved を true にしてから render を実行してください。",
   );
 }
 
