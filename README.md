@@ -1,0 +1,80 @@
+# cutflow
+
+撮影後の編集を自動化する、ローカルファーストな動画パイプライン。
+
+OBS で録りっぱなしにした素材(画面+カメラ+マイク)から、文字起こし →
+カット案の生成 → **人間の承認** → 最終レンダーまでを CLI で行います。
+文字起こしと無音検出は完全ローカル(無料)。LLM を使うのは意味的な
+カット判断・章立てのみで、Claude Code のサブスク(`claude` CLI)でも
+従量課金 API でも動きます。
+
+## パイプライン
+
+```
+OBS収録 (raw.mkv)
+  │
+  ├─ ingest      映像解析・マイク音声抽出          → manifest.json
+  ├─ transcribe  whisper.cpp で文字起こし          → transcript.json / .srt
+  ├─ detect      無音検出(ffmpeg・決定的)         → cuts.auto.json
+  ├─ plan        LLMで意味カット・章立て [未実装]  → cutplan.json / chapters.json
+  │
+  ├─ ★ 人間がカット案を確認・修正(承認ゲート)
+  │
+  └─ render      Remotion で合成 [未実装]          → final.mp4
+```
+
+各ステージは JSON を読んで JSON を書くだけなので、単独で再実行できます。
+
+## セットアップ
+
+必要なもの: macOS / Node.js 23.6+ / Homebrew
+
+```sh
+brew install ffmpeg whisper-cpp
+mkdir -p ~/Models/whisper
+curl -L -o ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin
+npm install
+```
+
+収録方法(OBS の設定)は [docs/recording-guide.md](docs/recording-guide.md) を
+参照してください。**キャンバスを 3840x1080 にして左に画面・右にカメラを並べる
+「拡張キャンバス方式」を前提**にしています。
+
+## 使い方
+
+収録1本 = 1フォルダ(中に mkv/mp4/mov を1本)。
+
+```sh
+# まとめて実行(承認ゲートまで)
+node src/cli.ts run ~/Movies/cutflow/2026-07-02-my-recording
+
+# ステージ個別実行
+node src/cli.ts ingest     <dir>
+node src/cli.ts transcribe <dir>
+node src/cli.ts detect     <dir>
+```
+
+## 設定
+
+すべて [config.yaml](config.yaml) で変更できます(収録レイアウト、無音判定の
+閾値、whisper モデル、LLM バックエンド等)。コード側にハードコードされた
+設定はありません。
+
+LLM バックエンド:
+
+- `claude-cli`(デフォルト): `claude` CLI をサブプロセス実行。API キー不要
+- `api`: 従量課金 API。`.env` に `ANTHROPIC_API_KEY` を設定し、
+  `llm.model` にモデル名を指定
+
+## 開発状況
+
+- [x] ingest / transcribe / detect(検証済み: 16秒素材の文字起こしが
+      Apple M5 で約1秒)
+- [ ] plan(LLM 意味カット・章立て)
+- [ ] preview(カット結果の低解像度確認動画)
+- [ ] render(Remotion 合成: ワイプ+字幕+章カード)
+
+## License
+
+MIT

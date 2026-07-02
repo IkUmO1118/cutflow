@@ -1,0 +1,38 @@
+# cutflow 設定ファイル
+# パスの ~ はホームディレクトリに展開されます
+
+# 収録データの置き場所(リポジトリ外に置く。1収録=1フォルダ、中に raw.mkv)
+recordingsDir: ~/Movies/cutflow
+
+# 収録レイアウト(OBS拡張キャンバス方式)
+# キャンバス 3840x1080: 左半分=画面キャプチャ、右半分=カメラ
+# 収録設定を変えた場合はここを合わせる(docs/recording-guide.md 参照)
+ingest:
+  screenRegion: { x: 0, y: 0, w: 1920, h: 1080 }
+  cameraRegion: { x: 1920, y: 0, w: 1920, h: 1080 }
+  # OBSの音声トラック番号(1始まり)。トラック1=マイク、トラック2=システム音声
+  micTrack: 1
+  systemTrack: 2
+
+# 文字起こし(whisper.cpp)
+whisper:
+  bin: whisper-cli
+  model: ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin
+  language: ja
+
+# 無音検出(機械的カットの候補づくり)
+detect:
+  # この音量(dB)以下が minSilenceSec 秒以上続いたら無音とみなす
+  silenceDb: -35
+  minSilenceSec: 0.7
+  # カット時に前後へ残す余白(秒)。詰まりすぎた編集になるのを防ぐ
+  padSec: 0.15
+  # これより短い「残す区間」は断片(呼吸音等)とみなして捨てる(秒)
+  minKeepSec: 0.5
+
+# 意味カット・章立て・タイトル案の生成
+llm:
+  # claude-cli: Claude Code のサブスクで実行(APIキー不要)
+  # api:        従量課金API(ANTHROPIC_API_KEY と model の指定が必要)
+  backend: claude-cli
+  model: ""
