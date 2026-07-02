@@ -1,0 +1,21 @@
+{
+  "name": "cutflow",
+  "version": "0.1.0",
+  "description": "撮影後の編集を自動化するローカルファーストな動画パイプライン(文字起こし→カット案→人間承認→レンダー)",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=23.6"
+  },
+  "scripts": {
+    "cutflow": "node src/cli.ts"
+  },
+  "dependencies": {
+    "commander": "^13.1.0",
+    "yaml": "^2.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.8.0"
+  }
+}
