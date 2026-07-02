@@ -60,10 +60,17 @@ node src/cli.ts render     <dir>   # 承認後の最終レンダー(要 approved
 ```
 
 render は2段構成です。まず ffmpeg が keep 区間をフル解像度のまま結合して
-`cut.mp4` を作り、次に Remotion がその上に「画面クロップ+右下ワイプ+
-字幕+章カード」を合成して `final.mp4` を出力します。ワイプの大きさや
-字幕サイズは config.yaml の `render` セクションで変更できます。
-初回実行時は Remotion が headless Chrome を自動ダウンロードします(数分)。
+`cut.mp4` を作り(音声はツーパスの loudnorm で **-14 LUFS に自動正規化**)、
+次に Remotion がその上に「画面クロップ+右下ワイプ+字幕+章カード」を
+合成して `final.mp4` を出力します。収録フォルダに `bgm.mp3` を置けば
+**BGM も自動で合成**されます(ループ+終端フェードアウト)。
+ワイプの大きさ・字幕サイズ・目標音量・BGM音量は config.yaml の `render`
+セクションで変更できます。初回実行時は Remotion が headless Chrome を
+自動ダウンロードします(数分)。
+
+**人間がテロップやカットを調整しながら使う手順(どのJSONを直すと何が
+変わるか、plan 再実行の注意点、Remotion Studio の使い方)は
+[docs/usage.md](docs/usage.md) を参照してください。**
 
 plan は LLM に「残す候補区間」の番号リストを渡し、番号単位で
 カット判断させます(理由付き)。結果の `cutplan.json` を確認・編集して

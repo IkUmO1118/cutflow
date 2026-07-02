@@ -2,3 +2,6 @@ node_modules/
 .env
 *.log
 .DS_Store
+
+# Remotion Studio 用の一時ファイル置き場(動画は収録フォルダに置く)
+public/
