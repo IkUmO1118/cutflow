@@ -45,6 +45,15 @@ render:
   captionFontSizePx: 44
   # 章タイトルカードを章の頭に表示する秒数
   chapterCardSec: 3
+  # 音声ラウドネス正規化の目標値(LUFS)。YouTube の基準は -14
+  # 収録音量が多少ばらついても、最終出力はこの音量に自動で揃う
+  targetLufs: -14
+  # BGM。収録フォルダに bgm.mp3 / bgm.m4a / bgm.wav があれば自動で合成される
+  bgm:
+    # BGMの音量(dB)。0で原音量。声より20dB前後小さくするのが目安
+    volumeDb: -22
+    # 動画終端でのフェードアウト秒数
+    fadeOutSec: 2
 
 # 意味カット・章立て・タイトル案の生成
 llm:

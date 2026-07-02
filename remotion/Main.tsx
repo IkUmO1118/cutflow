@@ -1,5 +1,6 @@
 import {
   AbsoluteFill,
+  Audio,
   OffthreadVideo,
   interpolate,
   staticFile,
@@ -20,9 +21,12 @@ const JP_FONT =
  */
 export const Main = (props: RenderProps) => {
   const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
+  const { fps, durationInFrames } = useVideoConfig();
   const t = frame / fps;
-  const src = staticFile(props.videoFile);
+  // videoFile が空 = Studio をリポジトリ直下で開いた状態(cut.mp4 が無い)。
+  // 動画の代わりにプレースホルダーを出してデザイン調整だけできるようにする
+  const hasVideo = props.videoFile !== "";
+  const src = hasVideo ? staticFile(props.videoFile) : "";
 
   const wipeH = Math.round(
     (props.wipe.widthPx * props.cameraRegion.h) / props.cameraRegion.w,
@@ -32,16 +36,23 @@ export const Main = (props: RenderProps) => {
     (c) => t >= c.start && t < c.start + props.chapterCardSec,
   );
 
+  const bgmGain = props.bgm ? Math.pow(10, props.bgm.volumeDb / 20) : 0;
+  const bgmFadeFrames = props.bgm ? props.bgm.fadeOutSec * fps : 0;
+
   return (
     <AbsoluteFill style={{ backgroundColor: "black" }}>
-      <CroppedVideo
-        src={src}
-        canvas={props.canvas}
-        region={props.screenRegion}
-        width={props.width}
-        height={props.height}
-        muted={false}
-      />
+      {hasVideo ? (
+        <CroppedVideo
+          src={src}
+          canvas={props.canvas}
+          region={props.screenRegion}
+          width={props.width}
+          height={props.height}
+          muted={false}
+        />
+      ) : (
+        <Placeholder label="画面(screenRegion)" />
+      )}
 
       <div
         style={{
@@ -55,15 +66,35 @@ export const Main = (props: RenderProps) => {
           boxShadow: "0 4px 24px rgba(0,0,0,0.5)",
         }}
       >
-        <CroppedVideo
-          src={src}
-          canvas={props.canvas}
-          region={props.cameraRegion}
-          width={props.wipe.widthPx}
-          height={wipeH}
-          muted
-        />
+        {hasVideo ? (
+          <CroppedVideo
+            src={src}
+            canvas={props.canvas}
+            region={props.cameraRegion}
+            width={props.wipe.widthPx}
+            height={wipeH}
+            muted
+          />
+        ) : (
+          <Placeholder label="カメラ" />
+        )}
       </div>
+
+      {props.bgm && (
+        <Audio
+          loop
+          src={staticFile(props.bgm.file)}
+          volume={(f) =>
+            bgmGain *
+            interpolate(
+              f,
+              [durationInFrames - bgmFadeFrames, durationInFrames],
+              [1, 0],
+              { extrapolateLeft: "clamp", extrapolateRight: "clamp" },
+            )
+          }
+        />
+      )}
 
       {caption && (
         <div
@@ -107,6 +138,22 @@ export const Main = (props: RenderProps) => {
     </AbsoluteFill>
   );
 };
+
+/** Studio で実データなしにレイアウト確認するためのプレースホルダー */
+const Placeholder = ({ label }: { label: string }) => (
+  <AbsoluteFill
+    style={{
+      backgroundColor: "#2a2d35",
+      alignItems: "center",
+      justifyContent: "center",
+      color: "#8b93a5",
+      fontFamily: JP_FONT,
+      fontSize: 32,
+    }}
+  >
+    {label}
+  </AbsoluteFill>
+);
 
 /** 拡張キャンバス動画から region 部分だけを width x height に切り出して表示する */
 const CroppedVideo = ({

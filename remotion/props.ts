@@ -21,8 +21,11 @@ export interface ChapterCard {
 }
 
 export interface RenderProps {
-  /** publicDir(収録フォルダ)内のカット済み動画ファイル名 */
+  /** publicDir(収録フォルダ)内のカット済み動画ファイル名。
+   * 空文字列なら動画なしのプレースホルダー表示(Remotion Studio 用) */
   videoFile: string;
+  /** BGM。収録フォルダに bgm.* が無ければ null */
+  bgm: { file: string; volumeDb: number; fadeOutSec: number } | null;
   durationSec: number;
   fps: number;
   /** 出力解像度(通常は screenRegion と同じ 1920x1080) */
@@ -40,9 +43,12 @@ export interface RenderProps {
   chapters: ChapterCard[];
 }
 
-/** Remotion Studio でプレビューする時のダミー値。実レンダーでは --props で上書きされる */
+/** Remotion Studio でプレビューする時のダミー値。実レンダーでは --props で上書きされる。
+ * videoFile が空なのは、リポジトリ直下で Studio を開くと cut.mp4 が存在せず
+ * 再生エラーになるため(実データで見る方法は docs/usage.md 参照) */
 export const defaultProps: RenderProps = {
-  videoFile: "cut.mp4",
+  videoFile: "",
+  bgm: null,
   durationSec: 10,
   fps: 30,
   width: 1920,

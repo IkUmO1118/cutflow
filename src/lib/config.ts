@@ -27,6 +27,8 @@ export interface Config {
     wipeMarginPx: number;
     captionFontSizePx: number;
     chapterCardSec: number;
+    targetLufs: number;
+    bgm: { volumeDb: number; fadeOutSec: number };
   };
 }
 

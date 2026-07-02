@@ -48,9 +48,9 @@ export async function render(dir: string, cfg: Config): Promise<string> {
     throw new Error("keep 区間が0件です(cutplan.json を確認してください)");
   }
 
-  // 1. keep 区間をフル解像度で結合(音声はマイクトラック)
+  // 1. keep 区間をフル解像度で結合(音声はマイクトラック、ラウドネス正規化込み)
   const cutPath = join(dir, "cut.mp4");
-  await cutFullRes(dir, manifest, keeps, cutPath);
+  await cutFullRes(dir, manifest, keeps, cutPath, cfg.render.targetLufs);
 
   // 2. 字幕・章の時刻をカット後のタイムラインに変換して props を作る
   const timeline = buildTimeline(keeps);
@@ -73,9 +73,22 @@ export async function render(dir: string, cfg: Config): Promise<string> {
     })
     .filter((c) => c !== null);
 
+  // 収録フォルダに bgm.* があれば BGM として合成する
+  const bgmFile =
+    ["bgm.mp3", "bgm.m4a", "bgm.wav"].find((f) => existsSync(join(dir, f))) ??
+    null;
+  if (bgmFile) console.log(`BGM を合成します: ${bgmFile}`);
+
   const durationSec = keeps.reduce((sum, k) => sum + (k.end - k.start), 0);
   const props: RenderProps = {
     videoFile: "cut.mp4",
+    bgm: bgmFile
+      ? {
+          file: bgmFile,
+          volumeDb: cfg.render.bgm.volumeDb,
+          fadeOutSec: cfg.render.bgm.fadeOutSec,
+        }
+      : null,
     durationSec: Math.round(durationSec * 100) / 100,
     fps: Math.round(manifest.video.fps) || 30,
     width: cfg.ingest.screenRegion.w,
@@ -109,34 +122,86 @@ export async function render(dir: string, cfg: Config): Promise<string> {
   return outPath;
 }
 
-/** keep 区間を trim+concat してフル解像度の cut.mp4 を作る */
+/**
+ * keep 区間を trim+concat し、音声をラウドネス正規化してフル解像度の
+ * cut.mp4 を作る。正規化はツーパス方式:ワンパスの loudnorm は流しながら
+ * 調整するため、入力が目標から遠いと数dB届かない(実測で確認済み)。
+ * 1パス目で音声のみ実測し、2パス目に実測値を渡して線形正規化する。
+ */
 async function cutFullRes(
   dir: string,
   manifest: Manifest,
   keeps: { start: number; end: number }[],
   output: string,
+  targetLufs: number,
 ): Promise<void> {
+  const input = join(dir, manifest.source);
   const mic = manifest.audio.micStream;
-  const parts: string[] = [];
-  const labels: string[] = [];
+
+  const videoParts: string[] = [];
+  const audioParts: string[] = [];
+  const vLabels: string[] = [];
+  const aLabels: string[] = [];
   keeps.forEach((k, i) => {
-    parts.push(
+    videoParts.push(
       `[0:v]trim=start=${k.start}:end=${k.end},setpts=PTS-STARTPTS[v${i}]`,
+    );
+    audioParts.push(
       `[0:a:${mic}]atrim=start=${k.start}:end=${k.end},asetpts=PTS-STARTPTS[a${i}]`,
     );
-    labels.push(`[v${i}][a${i}]`);
+    vLabels.push(`[v${i}]`);
+    aLabels.push(`[a${i}]`);
   });
-  parts.push(`${labels.join("")}concat=n=${keeps.length}:v=1:a=1[vc][ac]`);
+  const audioConcat = `${aLabels.join("")}concat=n=${keeps.length}:v=0:a=1[ac]`;
+
+  // 1パス目: カット後音声のラウドネス実測(音声のみなので数秒で終わる)
+  const loudnormBase = `loudnorm=I=${targetLufs}:TP=-1.5:LRA=11`;
+  const { stderr } = await run("ffmpeg", [
+    "-i", input,
+    "-filter_complex",
+    [...audioParts, audioConcat, `[ac]${loudnormBase}:print_format=json[aout]`].join(";"),
+    "-map", "[aout]",
+    "-f", "null", "-",
+  ]);
+  const m = parseLoudnormJson(stderr);
+
+  // 2パス目: 実測値を渡した線形正規化で本エンコード
+  const interleaved = keeps.flatMap((_, i) => [`[v${i}]`, `[a${i}]`]).join("");
+  const parts = [
+    ...videoParts,
+    ...audioParts,
+    `${interleaved}concat=n=${keeps.length}:v=1:a=1[vc][ac]`,
+    `[ac]${loudnormBase}:measured_I=${m.input_i}:measured_TP=${m.input_tp}` +
+      `:measured_LRA=${m.input_lra}:measured_thresh=${m.input_thresh}` +
+      `:offset=${m.target_offset}:linear=true[aout]`,
+  ];
 
   // 中間ファイルなので世代劣化を抑えるため高ビットレートで出す
-  // (M5 のハードウェアエンコーダなら高速)
+  // (M5 のハードウェアエンコーダなら高速。loudnorm は内部で
+  // 192kHz にアップサンプルするため 48kHz に戻す)
   await run("ffmpeg", [
     "-y", "-v", "error",
-    "-i", join(dir, manifest.source),
+    "-i", input,
     "-filter_complex", parts.join(";"),
-    "-map", "[vc]", "-map", "[ac]",
+    "-map", "[vc]", "-map", "[aout]",
     "-c:v", "h264_videotoolbox", "-b:v", "20000k",
-    "-c:a", "aac", "-b:a", "192k",
+    "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
     output,
   ]);
+}
+
+/** loudnorm が stderr に出す実測 JSON を取り出す */
+function parseLoudnormJson(stderr: string): {
+  input_i: string;
+  input_tp: string;
+  input_lra: string;
+  input_thresh: string;
+  target_offset: string;
+} {
+  const start = stderr.lastIndexOf("{");
+  const end = stderr.lastIndexOf("}");
+  if (start === -1 || end <= start) {
+    throw new Error("loudnorm の実測結果が取得できませんでした");
+  }
+  return JSON.parse(stderr.slice(start, end + 1));
 }
