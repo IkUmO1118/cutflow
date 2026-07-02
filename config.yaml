@@ -11,6 +11,7 @@ ingest:
   screenRegion: { x: 0, y: 0, w: 1920, h: 1080 }
   cameraRegion: { x: 1920, y: 0, w: 1920, h: 1080 }
   # OBSの音声トラック番号(1始まり)。トラック1=マイク、トラック2=システム音声
+  # トラック2は任意。収録ファイルに存在しなければ自動的に無視される
   micTrack: 1
   systemTrack: 2
 
