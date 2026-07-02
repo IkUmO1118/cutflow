@@ -22,6 +22,12 @@ export interface Config {
   };
   llm: { backend: "claude-cli" | "api"; model: string };
   preview: { width: number };
+  render: {
+    wipeWidthPx: number;
+    wipeMarginPx: number;
+    captionFontSizePx: number;
+    chapterCardSec: number;
+  };
 }
 
 /** "~/foo" をホームディレクトリに展開する */

@@ -36,6 +36,16 @@ preview:
   # 出力する横幅(px)。キャンバス全体を縮小するので確認には十分な小ささでよい
   width: 1280
 
+# 最終レンダー(Remotion 合成)のレイアウト
+render:
+  # 右下ワイプ(カメラ)の横幅と、画面端からの余白(px、1920x1080基準)
+  wipeWidthPx: 480
+  wipeMarginPx: 32
+  # 字幕のフォントサイズ(px)。初学者の見やすさ優先で大きめ
+  captionFontSizePx: 44
+  # 章タイトルカードを章の頭に表示する秒数
+  chapterCardSec: 3
+
 # 意味カット・章立て・タイトル案の生成
 llm:
   # claude-cli: Claude Code のサブスクで実行(APIキー不要)

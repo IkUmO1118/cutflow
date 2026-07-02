@@ -8,6 +8,7 @@ import { transcribe } from "./stages/transcribe.ts";
 import { detect } from "./stages/detect.ts";
 import { plan } from "./stages/plan.ts";
 import { preview } from "./stages/preview.ts";
+import { render } from "./stages/render.ts";
 
 const program = new Command();
 program
@@ -97,6 +98,18 @@ program
     console.log(
       "テンポと見せ場を確認し、直したい場合は cutplan.json を編集して再実行してください。",
     );
+  });
+
+program
+  .command("render <dir>")
+  .description(
+    "承認済み cutplan.json から最終動画を生成(ワイプ+字幕+章カード → final.mp4)",
+  )
+  .action(async (dir: string) => {
+    const cfg = loadConfig(program.opts().config);
+    console.log("render 実行中(初回は headless Chrome の取得で数分かかります)...");
+    const out = await render(resolveDir(dir), cfg);
+    console.log(`render 完了: ${out}`);
   });
 
 program

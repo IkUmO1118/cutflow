@@ -15,11 +15,12 @@ export interface ExecResult {
 export async function run(
   cmd: string,
   args: string[],
-  opts: { allowFailure?: boolean; input?: string } = {},
+  opts: { allowFailure?: boolean; input?: string; cwd?: string } = {},
 ): Promise<ExecResult> {
   try {
     const promise = execFileAsync(cmd, args, {
       maxBuffer: 64 * 1024 * 1024,
+      cwd: opts.cwd,
     });
     // input があれば標準入力に流し込む(claude -p へのプロンプト渡しに使う。
     // 引数渡しだと長いプロンプトで ARG_MAX を超えるため)

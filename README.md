@@ -21,7 +21,7 @@ OBS収録 (raw.mkv)
   │
   ├─ ★ 人間が preview を見て cutplan.json を修正・承認(承認ゲート)
   │
-  └─ render      Remotion で合成 [未実装]          → final.mp4
+  └─ render      Remotion で合成                   → cut.mp4(中間)/ final.mp4
 ```
 
 各ステージは JSON を読んで JSON を書くだけなので、単独で再実行できます。
@@ -56,7 +56,14 @@ node src/cli.ts transcribe <dir>
 node src/cli.ts detect     <dir>
 node src/cli.ts plan       <dir>
 node src/cli.ts preview    <dir>   # カット結果の確認用動画(承認前に見る)
+node src/cli.ts render     <dir>   # 承認後の最終レンダー(要 approved: true)
 ```
+
+render は2段構成です。まず ffmpeg が keep 区間をフル解像度のまま結合して
+`cut.mp4` を作り、次に Remotion がその上に「画面クロップ+右下ワイプ+
+字幕+章カード」を合成して `final.mp4` を出力します。ワイプの大きさや
+字幕サイズは config.yaml の `render` セクションで変更できます。
+初回実行時は Remotion が headless Chrome を自動ダウンロードします(数分)。
 
 plan は LLM に「残す候補区間」の番号リストを渡し、番号単位で
 カット判断させます(理由付き)。結果の `cutplan.json` を確認・編集して
@@ -84,7 +91,8 @@ LLM バックエンド:
 - [x] plan(LLM 意味カット・章立て・タイトル案。合成音声テストで
       言い直し・脱線の検出を確認済み)
 - [x] preview(カット結果の低解像度確認動画。検証済み)
-- [ ] render(Remotion 合成: ワイプ+字幕+章カード)
+- [x] render(Remotion 合成: ワイプ+字幕+章カード。合成素材で
+      レイアウト・タイムライン変換とも検証済み)
 
 ## License
 
