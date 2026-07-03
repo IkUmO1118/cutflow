@@ -1,0 +1,676 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>cutflow editor</title>
+<style>
+  :root {
+    --bg: #131519;
+    --panel: #1c1f26;
+    --panel2: #262a33;
+    --border: #333845;
+    --text: #d7dce5;
+    --dim: #8b93a5;
+    --accent: #2563eb;
+    --warn: #d97706;
+    --danger: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif;
+    font-size: 13px;
+    overflow: hidden;
+  }
+  #root { height: 100%; }
+  button {
+    background: var(--panel2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 5px 12px;
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  }
+  button:hover:not(:disabled) { background: #2f3542; border-color: var(--dim); }
+  button:active:not(:disabled) { background: #272c37; }
+  button:disabled { opacity: 0.45; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: white; }
+  button.primary:hover:not(:disabled) { background: #1d4ed8; border-color: #1d4ed8; }
+  button.warn { background: var(--warn); border-color: var(--warn); color: white; }
+  button.warn:hover:not(:disabled) { background: #b45309; border-color: #b45309; }
+  button.danger { background: none; border-color: var(--danger); color: #f87171; }
+  button.danger:hover:not(:disabled) { background: rgba(220, 38, 38, 0.12); border-color: #f87171; }
+  button.icon { padding: 3px 9px; }
+  input, select {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 4px 6px;
+    font-size: 13px;
+    font-family: inherit;
+  }
+  input.num { width: 76px; text-align: right; font-variant-numeric: tabular-nums; }
+  input.invalid { border-color: var(--danger); }
+  input:focus, select:focus { outline: none; border-color: var(--accent); }
+  .mono { font-variant-numeric: tabular-nums; }
+  .dim { color: var(--dim); }
+  .spacer { flex: 1; }
+  .error { color: #f87171; }
+  .fatal { padding: 40px; font-size: 15px; }
+  .hint { font-size: 11px; line-height: 1.6; }
+  .row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+  .row .reason {
+    font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    flex: 1; min-width: 0;
+  }
+
+  /* ---- 全体レイアウト(上から header / banner / stage(左パネル+プレビュー/トランスポート) / timeline) ---- */
+  .app { display: flex; flex-direction: column; height: 100%; }
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 7px 14px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  header .path { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  header .approve {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--dim); cursor: pointer;
+    white-space: nowrap;
+  }
+  header .approve input { accent-color: var(--accent); cursor: pointer; }
+  header .externalChange {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; color: #fbbf24; white-space: nowrap;
+  }
+  .banner {
+    display: flex; align-items: center; gap: 12px;
+    padding: 7px 14px;
+    background: #3b2a10;
+    border-bottom: 1px solid var(--warn);
+    color: #fbbf24;
+    flex-shrink: 0;
+  }
+  .stage { display: flex; flex: 1; min-height: 0; }
+  /* プレビューとトランスポートを縦に並べる右側カラム */
+  .viewerCol {
+    flex: 1; min-width: 0;
+    display: flex; flex-direction: column;
+  }
+  .viewer {
+    flex: 1; min-width: 0; min-height: 0;
+    background: black;
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+  }
+
+  /* ---- 左パネル(タブ: 素材 / テロップ / プロパティ) ---- */
+  .sidePanel {
+    flex-shrink: 0; min-width: 280px;
+    display: flex; flex-direction: column;
+    background: var(--panel);
+  }
+  .sidePanel .tabs {
+    display: flex; flex-shrink: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .sidePanel .tabs button {
+    flex: 1;
+    background: none; border: none; border-radius: 0;
+    padding: 8px 0;
+    color: var(--dim); font-size: 12px;
+    border-bottom: 2px solid transparent;
+  }
+  .sidePanel .tabs button:hover:not(.active) { color: var(--text); background: var(--panel2); }
+  .sidePanel .tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
+  .panelBody { flex: 1; min-height: 0; overflow-y: auto; }
+  .panelHead {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px;
+    font-size: 12px;
+  }
+  /* 分割バー(左右: 上部の幅 / 上下: タイムラインの高さをドラッグで変更) */
+  .splitter {
+    width: 5px; flex-shrink: 0;
+    cursor: col-resize;
+    background: var(--border);
+    transition: background-color 0.12s ease;
+  }
+  .splitter:hover, .splitter:active { background: var(--accent); }
+  .splitter.h { width: auto; height: 5px; cursor: row-resize; }
+
+  /* ---- 素材タブ(サムネイル+名前だけのシンプルなグリッド) ---- */
+  .matGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 12px 10px;
+    padding: 0 14px 12px;
+  }
+  .matCard { cursor: grab; }
+  .matCard:active { cursor: grabbing; }
+  .matThumb {
+    display: block; width: 100%;
+    aspect-ratio: 16 / 9; object-fit: cover;
+    background: black;
+    border-radius: 4px;
+    outline: 1px solid transparent;
+    transition: outline-color 0.12s ease;
+    pointer-events: none;
+  }
+  .matCard:hover .matThumb { outline-color: var(--dim); }
+  .matName {
+    font-size: 11px; color: var(--dim);
+    text-align: center; padding: 4px 2px 0;
+    overflow: hidden; white-space: nowrap;
+  }
+  .matCard:hover .matName { color: var(--text); }
+
+  /* ---- テロップタブ(一覧+その場編集) ---- */
+  .capList { padding: 6px 0; }
+  .capRow {
+    padding: 7px 14px 9px;
+    border-bottom: 1px solid #1e2128;
+    cursor: pointer;
+    border-left: 2px solid transparent;
+  }
+  .capRow:hover { background: rgba(255, 255, 255, 0.03); }
+  .capRow.sel { background: var(--panel2); border-left-color: var(--accent); }
+  .capRowMeta {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 11px; margin-bottom: 5px;
+  }
+  .capTrackBadge {
+    font-size: 10px; padding: 0 6px; border-radius: 4px;
+    background: var(--bg); border: 1px solid var(--border); color: var(--dim);
+  }
+  .capRow .capEdit {
+    display: block; width: 100%;
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 8px; font-family: inherit; font-size: 13px;
+    resize: vertical;
+  }
+  .capRow .capEdit:focus { outline: none; border-color: var(--accent); }
+  .noPreview {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+    color: var(--dim);
+  }
+  /* プレビュー上のテロップ移動レイヤー(本体はクリックを素通しする) */
+  .capOverlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+  .capOverlay.dragging { cursor: grabbing; }
+  .capBox {
+    position: absolute; transform: translate(-50%, -50%);
+    width: max-content; text-align: center;
+    color: transparent; /* 当たり判定用。実体は Player 側の字幕 */
+    pointer-events: auto; cursor: grab;
+    border: 1px dashed transparent; border-radius: 4px;
+    user-select: none; white-space: pre-wrap;
+  }
+  .capBox:hover { border-color: rgba(96, 165, 250, 0.6); }
+  .capBox.sel { border-color: var(--accent, #60a5fa); }
+  .btnRow { display: flex; gap: 6px; margin: 8px 0; }
+  .btnRow button { font-size: 11px; }
+  button.linkish {
+    background: none; border: none; padding: 0;
+    color: var(--accent, #60a5fa); text-decoration: underline; font-size: 11px;
+  }
+  .warnbox {
+    position: absolute; left: 10px; bottom: 10px;
+    font-size: 12px; color: #fbbf24;
+    background: rgba(0,0,0,0.6); border-radius: 6px; padding: 6px 10px;
+  }
+  /* ---- インスペクタ(プロパティタブ) ---- */
+  .insp { padding: 14px; }
+  .insp h3 { margin: 0 0 12px; font-size: 13px; }
+  .insp .field { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+  .insp .field label { width: 110px; flex-shrink: 0; color: var(--dim); font-size: 12px; }
+  .insp .capEdit {
+    width: 100%; margin-bottom: 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 10px; font-family: inherit; font-size: 13px;
+    resize: vertical;
+  }
+  .insp .capEdit:focus { outline: none; border-color: var(--accent); }
+  .insp button.danger { margin-top: 8px; }
+  .insp input[type="color"] {
+    width: 40px; height: 24px; padding: 1px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    cursor: pointer;
+  }
+
+  /* ---- トランスポート(上段: シークバー / 下段: 時刻・再生ボタン・音量) ---- */
+  .transport {
+    display: flex; flex-direction: column;
+    padding: 3px 14px 6px;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  /* シークバー(細いバー+縦棒のつまみ。当たり判定は高さいっぱい) */
+  .transport .scrub {
+    position: relative; height: 14px; flex-shrink: 0;
+    cursor: pointer;
+    touch-action: none;
+  }
+  .transport .scrub::before {
+    content: ""; position: absolute; left: 0; right: 0;
+    top: 50%; height: 4px; transform: translateY(-50%);
+    background: var(--border); border-radius: 2px;
+  }
+  .transport .scrubFill {
+    position: absolute; left: 0; top: 50%; height: 4px; transform: translateY(-50%);
+    background: #565e70; border-radius: 2px;
+    pointer-events: none;
+  }
+  .transport .scrubThumb {
+    position: absolute; top: 50%; transform: translate(-50%, -50%);
+    width: 3px; height: 11px; border-radius: 2px;
+    background: #e8ecf3;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+    pointer-events: none;
+  }
+  .transport .scrub:hover .scrubThumb { background: white; }
+  /* 下段: 左右のグループが同じ幅を取り合うので中央グループが常にセンターに来る */
+  .transport .tRow { display: flex; align-items: center; gap: 8px; }
+  .transport .tLeft, .transport .tRight {
+    flex: 1; min-width: 0;
+    display: flex; align-items: center; gap: 8px;
+    overflow: hidden;
+  }
+  .transport .tRight { justify-content: flex-end; }
+  .transport .tCenter { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+  .transport .tCenter .loop { margin-left: 8px; }
+  .transport button.icon.active { color: var(--accent); }
+  /* 再生まわりは枠なしのゴーストボタン(ホバーで浮く) */
+  .transport button.icon, .transport button.mute {
+    display: inline-flex; align-items: center; justify-content: center;
+    background: none; border-color: transparent;
+    padding: 5px 9px; border-radius: 8px; font-size: 14px;
+    color: var(--text);
+  }
+  .transport button.icon:hover:not(:disabled),
+  .transport button.mute:hover:not(:disabled) {
+    background: var(--panel2); border-color: transparent;
+  }
+  .transport .play {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 5px 0; width: 52px; height: 28px;
+    border-radius: 17px;
+    background: var(--panel2); border: 1px solid var(--border);
+  }
+  .transport .play:hover:not(:disabled) { background: #333a48; border-color: var(--dim); }
+  /* 時刻表示は小さめの等幅数字(値=明るめ・補足=dim で控えめに) */
+  .transport .tcode { font-size: 12px; white-space: nowrap; color: var(--dim); }
+  .transport .tcode b { font-weight: 600; letter-spacing: 0.02em; }
+  .transport .tcode:not(.dim) b { color: var(--text); }
+
+  /* ---- 音量(普段はアイコンのみ。ホバー/ドラッグ中だけバーが横に伸びる) ---- */
+  .transport .volCtl { display: flex; align-items: center; }
+  .transport .volume {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 0; height: 4px;
+    opacity: 0;
+    transition: width 0.18s ease, opacity 0.18s ease;
+    flex-shrink: 0;
+    border-radius: 2px;
+    background: var(--border);
+    border: none; outline: none; padding: 0;
+    cursor: pointer;
+  }
+  /* ドラッグ中(:active)とキーボードフォーカス中は畳まない */
+  .transport .volCtl:hover .volume,
+  .transport .volCtl:focus-within .volume,
+  .transport .volume:active {
+    width: 78px; opacity: 1;
+  }
+  .transport .volume::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 13px; height: 13px; border-radius: 50%;
+    background: #e8ecf3;
+    border: none;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+    transition: transform 0.12s ease;
+  }
+  .transport .volume:hover::-webkit-slider-thumb { transform: scale(1.15); background: white; }
+  .transport .volume::-moz-range-thumb {
+    width: 13px; height: 13px; border-radius: 50%;
+    background: #e8ecf3; border: none;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+  }
+  .transport .volume::-moz-range-track {
+    height: 4px; border-radius: 2px; background: transparent;
+  }
+
+  /* ---- タイムライン(高さは分割バーのドラッグで可変。インラインで指定) ---- */
+  .timeline {
+    height: 300px; flex-shrink: 1; min-height: 140px;
+    display: flex; flex-direction: column;
+    background: var(--bg);
+    user-select: none;
+  }
+  .tlToolbar {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 14px;
+    font-size: 11px;
+    border-bottom: 1px solid var(--border);
+  }
+  /* タイムライン操作の説明(クリックでトグル表示する控えめな ? アイコン)。
+     タイムラインは画面下部にあるため吹き出しは上向きに開く */
+  .tlToolbar .helpTip {
+    position: relative;
+    width: 16px; height: 16px; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid var(--border); border-radius: 50%;
+    color: var(--dim); font-size: 10px;
+    cursor: pointer;
+    transition: color 0.12s ease, border-color 0.12s ease;
+  }
+  .tlToolbar .helpTip:hover,
+  .tlToolbar .helpTip.open { color: var(--text); border-color: var(--dim); }
+  .helpTip .menuBackdrop { position: fixed; inset: 0; z-index: 19; }
+  .helpTipPop {
+    position: absolute; bottom: calc(100% + 6px); left: -4px; z-index: 30;
+    width: max-content;
+    max-height: min(60vh, 420px); overflow-y: auto;
+    padding: 8px 12px;
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 7px;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+    color: var(--text); font-size: 11px; line-height: 1.8;
+    white-space: pre;
+    opacity: 0; visibility: hidden;
+    transition: opacity 0.1s ease, visibility 0.1s ease;
+    pointer-events: none;
+  }
+  .helpTip.open .helpTipPop { opacity: 1; visibility: visible; pointer-events: auto; }
+  /* ズーム操作(−/全体/＋を1つのセグメントグループにまとめる) */
+  .tlZoom {
+    display: inline-flex; align-items: stretch;
+    border: 1px solid var(--border); border-radius: 7px;
+    overflow: hidden;
+  }
+  .tlZoom button {
+    min-width: 30px;
+    background: none; border: none; border-radius: 0;
+    padding: 3px 10px; font-size: 12px;
+  }
+  .tlZoom button + button { border-left: 1px solid var(--border); }
+  .tlZoom button:hover:not(:disabled) { background: var(--panel2); }
+  /* トラック追加の＋ボタンとその種類メニュー */
+  .addTrack { position: relative; display: inline-flex; }
+  .addTrack .menuBackdrop { position: fixed; inset: 0; z-index: 19; }
+  .addTrack .menu {
+    position: absolute; top: 100%; left: 0; z-index: 20;
+    margin-top: 2px; padding: 3px;
+    display: flex; flex-direction: column; gap: 1px;
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 6px;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+    white-space: nowrap;
+  }
+  .addTrack .menu button {
+    padding: 4px 12px; font-size: 11px; text-align: left;
+    background: none; border: none; border-radius: 4px;
+  }
+  .addTrack .menu button:hover { background: var(--panel); }
+  /* undo/redo: アイコンだけのゴーストボタンを1つの枠にまとめる(ペアで1機能)。
+     ヘルプ・トラック追加とは機能グループが違うので少し広めに離す */
+  .tlToolbar .histGroup {
+    display: inline-flex; align-items: center;
+    margin-left: 4px;
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 1px;
+  }
+  .tlToolbar .histGroup button {
+    display: inline-flex; align-items: center; justify-content: center;
+    background: none; border: none;
+    padding: 3px 8px; border-radius: 5px;
+    color: var(--dim);
+  }
+  .tlToolbar .histGroup button:hover:not(:disabled) { background: #2f3542; color: var(--text); }
+  .tlToolbar .histGroup button:active:not(:disabled) { background: #272c37; }
+  .tlToolbar .histGroup button:disabled { opacity: 0.35; }
+  .tlBody { display: flex; flex: 1; min-height: 0; }
+  .tlLabels {
+    width: 170px; flex-shrink: 0;
+    display: flex; flex-direction: column;
+    border-right: 1px solid var(--border);
+    font-size: 11px; color: var(--dim);
+  }
+  .tlRulerSpacer { height: 24px; flex-shrink: 0; border-bottom: 1px solid var(--border); }
+  /* 縦スクロールは tlScroll 側が持ち、scrollTop をここへ同期する */
+  .tlLabelScroll { flex: 1; min-height: 0; overflow: hidden; }
+  /* tlScroll に横スクロールバーが出たぶんの同期ずれを吸収する余白 */
+  .tlLabelScroll::after { content: ""; display: block; height: 14px; }
+  .tlLabel {
+    height: 26px; padding: 0 8px;
+    display: flex; align-items: center; gap: 6px;
+    border-bottom: 1px solid #1e2128;
+    overflow: hidden; white-space: nowrap;
+    position: relative;
+  }
+  /* ラベル下端のつまみ(ドラッグでトラックの高さを変更) */
+  .tlLabel .tlResize {
+    position: absolute; left: 0; right: 0; bottom: -2px;
+    height: 5px;
+    cursor: ns-resize;
+  }
+  .tlLabel .tlResize:hover { background: var(--accent); opacity: 0.6; }
+  .tlLabel.reorderable { cursor: grab; }
+  .tlLabel.reorderable:active { cursor: grabbing; }
+  .tlLabel.dragging { background: var(--panel2); color: var(--text); }
+  /* テロップトラック名の編集欄(ラベルのダブルクリックで表示) */
+  .tlLabel .tlRename {
+    width: 100%; min-width: 0;
+    font-size: 11px; padding: 1px 4px;
+    background: var(--panel2); color: var(--text);
+    border: 1px solid var(--accent, #60a5fa); border-radius: 3px;
+  }
+  .tlLabel .grip { margin-left: auto; opacity: 0.45; font-size: 10px; }
+  /* 音声トラック(映像・BGM)のミュートボタン。ミュート中は赤で常時表示 */
+  .tlLabel .trackMute {
+    margin-left: auto;
+    display: inline-flex; align-items: center;
+    padding: 3px 5px; border-radius: 4px;
+    background: none; border: none; color: var(--dim);
+  }
+  .tlLabel .trackMute:hover { color: var(--text); background: var(--panel2); }
+  .tlLabel .trackMute.muted { color: #f87171; }
+  /* レイヤーの目トグル(一時非表示。プレビューのみ)。表示中はホバー時だけ
+     見せて列を静かに保ち、非表示中はオレンジで常時出す(状態を隠さない) */
+  .tlLabel .trackEye {
+    margin-left: auto;
+    display: inline-flex; align-items: center;
+    padding: 3px 5px; border-radius: 4px;
+    background: none; border: none; color: var(--dim);
+    visibility: hidden;
+  }
+  .tlLabel:hover .trackEye { visibility: visible; }
+  .tlLabel .trackEye:hover { color: var(--text); background: var(--panel2); }
+  .tlLabel .trackEye.off { visibility: visible; color: #f59e0b; }
+  .tlLabel .trackDel {
+    margin-left: auto;
+    padding: 0 4px; font-size: 11px; line-height: 1;
+    background: none; border: none; color: var(--dim);
+    visibility: hidden;
+  }
+  .tlLabel:hover .trackDel { visibility: visible; }
+  .tlLabel .trackDel:hover { color: #f87171; }
+  /* × と ⠿ が両方あるときは × 側だけ右寄せ */
+  .tlLabel .trackDel + .grip { margin-left: 0; }
+  /* 目トグルより右の要素は右寄せを重ねない(目側が margin-left: auto を持つ) */
+  .tlLabel .trackEye ~ .trackDel,
+  .tlLabel .trackEye ~ .grip { margin-left: 0; }
+  /* 非表示中トラックはクリップを淡くして状態をタイムライン側でも見せる */
+  .tlTrack.layerHidden .tlClip { opacity: 0.35; }
+  .tlScroll { flex: 1; overflow: auto; }
+  .tlContent { position: relative; min-height: 100%; }
+  /* 縦スクロールしてもルーラーは上に貼り付く */
+  .tlRuler {
+    position: sticky; top: 0; z-index: 2; height: 24px;
+    border-bottom: 1px solid var(--border);
+    cursor: col-resize;
+    background: var(--panel);
+  }
+  .tlTick {
+    position: absolute; top: 0; height: 100%;
+    border-left: 1px solid var(--border);
+    padding: 4px 0 0 4px;
+    font-size: 10px; color: var(--dim);
+    pointer-events: none;
+  }
+  .tlTrack {
+    position: relative; height: 26px;
+    border-bottom: 1px solid #1e2128;
+  }
+  .tlTrack:nth-child(odd) { background: #16181d; }
+  .tlClip {
+    position: absolute; top: 3px; bottom: 3px;
+    border-radius: 4px;
+    overflow: hidden;
+    display: flex; align-items: center;
+    cursor: grab;
+    border: 1px solid transparent;
+  }
+  .tlClip.sel { border-color: white; }
+  /* 映像クリップのマイク波形。クリップ全面に敷き、ラベル等は上に重ねる */
+  .tlWave {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+  .tlClipLabel {
+    font-size: 10px; padding: 0 6px;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+    pointer-events: none;
+    flex: 1;
+    position: relative; z-index: 1;
+  }
+  /* クリップ色: 種別ベース(素材はトラック番号ごとにインラインで色分け) */
+  .tlClip.cut { background: #31435f; }
+  .tlClip.insert { background: #9a3412; }
+  .tlClip.chapter { background: #7a5a12; }
+  .tlClip.caption { background: #3b3f4d; }
+  .tlClip.overlays { background: #14532d; }
+  .tlClip.wipe { background: #123a46; }
+  .tlClip.wipeFull { background: #0e7490; top: 5px; bottom: 5px; }
+  .tlClip.bgm { background: #1d4029; }
+  /* ワイプ本体・BGM は背景レイヤー表示(ポインタ素通し・選択不可) */
+  .tlClip.static { pointer-events: none; border-radius: 0; opacity: 0.8; }
+  .tlClip.static .tlClipLabel { color: var(--dim); }
+  .tlEdge {
+    width: 7px; align-self: stretch; flex-shrink: 0;
+    cursor: ew-resize;
+    position: relative; z-index: 1;
+  }
+  .tlEdge:hover { background: rgba(255,255,255,0.25); }
+  /* 映像トラックの継ぎ目にある「カットされた区間」の印(▼+切れ目の縦線)。
+     クリックで選択し、Inspector から動画に戻せる */
+  .tlCutMark {
+    position: absolute; top: 0; bottom: 0;
+    width: 11px;
+    transform: translateX(-50%);
+    cursor: pointer;
+    z-index: 2;
+  }
+  .tlCutMark::before {
+    content: ""; position: absolute; top: 0; bottom: 0; left: 50%;
+    border-left: 1px dashed var(--warn);
+  }
+  .tlCutMark::after {
+    content: ""; position: absolute; top: 0; left: 50%;
+    transform: translateX(-50%);
+    border: 5px solid transparent;
+    border-top-color: var(--warn);
+  }
+  .tlCutMark:hover::before { border-left-color: #fbbf24; }
+  .tlCutMark:hover::after { border-top-color: #fbbf24; }
+  .tlCutMark.sel::before { border-left: 1px solid white; }
+  .tlCutMark.sel::after { border-top-color: white; }
+  .tlGhost {
+    position: absolute; top: 3px; bottom: 3px;
+    background: rgba(37, 99, 235, 0.4);
+    border: 1px dashed var(--accent);
+    border-radius: 4px;
+    pointer-events: none;
+  }
+  /* ---- 素材のドラッグ&ドロップ(Premiere 風のゴースト・トラック強調・スナップ線) ---- */
+  /* 置けるトラックを淡く持ち上げ、ドロップ先は枠で強調する */
+  .tlTrack.dropOk { background: rgba(37, 99, 235, 0.07); }
+  .tlTrack.dropActive {
+    background: rgba(37, 99, 235, 0.16);
+    box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.6);
+  }
+  .tlLabel.dropActive { background: var(--panel2); color: var(--text); }
+  /* ドロップ先に出すクリップ形のゴースト(素材の実尺どおりの幅) */
+  .tlDropGhost {
+    position: absolute; top: 3px; bottom: 3px;
+    border-radius: 4px;
+    display: flex; align-items: center;
+    border: 1px dashed rgba(255, 255, 255, 0.75);
+    opacity: 0.85;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 2;
+  }
+  /* 映像トラックへのドロップはインサート。挿入位置の縦線も出す */
+  .tlDropGhost.insert { background: #9a3412; }
+  .tlDropGhost.insert::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0;
+    width: 2px; background: #fb923c;
+  }
+  /* クリップ境界・再生ヘッドへ吸着したときのスナップ線 */
+  .tlSnapLine {
+    position: absolute; top: 0; bottom: 0; width: 1px; z-index: 4;
+    background: var(--accent);
+    box-shadow: 0 0 5px rgba(37, 99, 235, 0.9);
+    pointer-events: none;
+  }
+  /* 素材カードのドラッグ像(カード全体の半透明像の代わりの小さなチップ) */
+  .dragChip {
+    position: fixed; top: -100px; left: -100px;
+    max-width: 180px;
+    padding: 4px 10px;
+    background: #14532d;
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    border-radius: 4px;
+    font-size: 11px; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .tlPlayhead {
+    position: absolute; top: 0; bottom: 0; width: 1px; z-index: 3;
+    background: #fff;
+    box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
+    pointer-events: none;
+  }
+  /* 再生ヘッド上部のつまみ。sticky なルーラー内に置き、縦スクロールしても上部に固定する */
+  .tlPlayheadCap {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+    width: 11px;
+    height: 14px;
+    background: #fff;
+    border-radius: 2px;
+    clip-path: polygon(0 0, 100% 0, 100% 60%, 50% 100%, 0 60%);
+    pointer-events: none;
+    z-index: 1;
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="/bundle.js"></script>
+</body>
+</html>

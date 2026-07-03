@@ -1,0 +1,256 @@
+// 指定時刻のフレームを最終合成と同じ見た目で PNG に書き出す知覚コマンド。
+// AI(Claude Code)は動画を再生できないが画像は読めるので、テロップの位置・
+// ワイプとの被り・素材の見え方をこれで自己確認する(人間の確認は preview /
+// エディタが担い、これは「AI が自分の編集結果を見る目」)。
+//
+// 仕組み: render と同じ Remotion コンポジション(remotion/Main.tsx)を
+// @remotion/renderer の Node API で1フレームずつレンダーする。バンドルと
+// headless Chrome は1回だけ用意して全フレームで使い回す(CLI の
+// `remotion still` を時刻ごとに spawn すると、その両方が枚数ぶん発生して
+// 遅いため)。ベース映像はエディタのプレビューと同じ proxy.mp4
+// (videoIsSource: true。無ければ自動生成)なので、cut.mp4 を作らずに
+// 現在の cutplan/transcript/overlays が即反映される。
+//
+// frames/ 内の PNG は実行のたびに全削除してから書き直す。ファイル名が
+// 出力秒ベースなので、cutplan 編集で時刻の写像が変わると旧ファイルが
+// 別名のまま残り、AI が編集前の絵を読む事故が起きるため(全ファイル
+// いつでも再生成できる中間生成物であり、消して困るものは無い)。
+
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { bundle } from "@remotion/bundler";
+import {
+  ensureBrowser,
+  openBrowser,
+  renderStill,
+  selectComposition,
+} from "@remotion/renderer";
+import { fmtT } from "../lib/fmt.ts";
+import { buildRenderProps } from "../lib/renderProps.ts";
+import {
+  buildTimeline,
+  mergeIntervals,
+  snapToOutput,
+  toOutputTime,
+} from "../lib/timeline.ts";
+import { buildProxy } from "./proxy.ts";
+import type { Config } from "../lib/config.ts";
+import type { CutPlan, Manifest, Overlays, Transcript } from "../types.ts";
+
+export interface FrameShot {
+  /** 指定された時刻(秒。times は axis の軸 / captions・every は出力の秒) */
+  requested: number;
+  /** 実際にレンダーした出力(カット後)の秒 */
+  outSec: number;
+  /** 書き出した PNG(絶対パス) */
+  file: string;
+  /** スナップ・丸めの説明や、そのフレームに映っているテロップの内容 */
+  note?: string;
+}
+
+/** 何のフレームを撮るか。times = 時刻指定 / captions = テロップ全件の
+ * 一巡監査(各テロップの表示中間で1枚)/ every = 出力全体の定間隔サンプル */
+export type FrameRequest =
+  | { mode: "times"; times: number[]; axis: "source" | "output" }
+  | { mode: "captions" }
+  | { mode: "every"; stepSec: number };
+
+export async function frames(
+  dir: string,
+  req: FrameRequest,
+  cfg: Config,
+): Promise<FrameShot[]> {
+  const readJson = <T>(file: string, fallback: T | null): T => {
+    const p = join(dir, file);
+    if (!existsSync(p)) {
+      if (fallback !== null) return fallback;
+      throw new Error(`${file} がありません。先にパイプライン(run)を実行してください`);
+    }
+    return JSON.parse(readFileSync(p, "utf8")) as T;
+  };
+  const manifest = readJson<Manifest>("manifest.json", null);
+  const cutplan = readJson<CutPlan>("cutplan.json", null);
+  const transcript = readJson<Transcript>("transcript.json", null);
+  const overlays = readJson<Overlays>("overlays.json", {});
+
+  const keeps = mergeIntervals(
+    cutplan.segments.filter((s) => s.action === "keep"),
+  );
+  if (keeps.length === 0) {
+    throw new Error("keep 区間が0件です(cutplan.json を確認してください)");
+  }
+
+  // ベース映像はエディタと同じ軽量プロキシ。無ければここで作る(収録ごとに1回)
+  if (!existsSync(join(dir, "proxy.mp4"))) {
+    console.log("proxy.mp4 がないので生成します(初回のみ・数十秒)...");
+    await buildProxy(dir, cfg);
+  }
+
+  const props = buildRenderProps({
+    manifest,
+    keeps,
+    transcript,
+    overlays,
+    renderCfg: cfg.render,
+    width: cfg.ingest.screenRegion.w,
+    height: cfg.ingest.screenRegion.h,
+    videoFile: "proxy.mp4",
+    videoIsSource: true,
+    bgm: null, // 静止画に音は無関係
+    overlayExists: (f) => existsSync(join(dir, f)),
+    warn: (msg) => console.warn(`警告: ${msg}`),
+  });
+  const outDir = join(dir, "frames");
+  mkdirSync(outDir, { recursive: true });
+  // 前回の実行が残した PNG を全削除(冒頭コメント参照)
+  for (const f of readdirSync(outDir)) {
+    if (f.endsWith(".png")) rmSync(join(outDir, f));
+  }
+  const propsPath = join(outDir, "props.json");
+  writeFileSync(propsPath, JSON.stringify(props, null, 2));
+
+  const maxOut = Math.max(0, props.durationSec - 1 / props.fps);
+  const targets = buildTargets(req, props, maxOut, dir, overlays, keeps);
+  if (targets.length === 0) {
+    throw new Error(
+      req.mode === "captions"
+        ? "テロップが0件です(transcript.json を確認してください)"
+        : "撮るフレームが0件です",
+    );
+  }
+
+  // 同じフレームに落ちる指定は1枚にまとめる(説明は結合して残す)
+  const byFrame = new Map<number, Target>();
+  for (const t of targets) {
+    const frame = Math.round(t.outSec * props.fps);
+    const prev = byFrame.get(frame);
+    if (prev) prev.notes.push(...t.notes);
+    else byFrame.set(frame, { ...t, notes: [...t.notes] });
+  }
+  const unique = [...byFrame.entries()].sort((a, b) => a[0] - b[0]);
+
+  // バンドル(webpack)とブラウザは1回だけ用意して全フレームで使い回す。
+  // 収録フォルダ(publicDir)はコピーせず symlink で参照する
+  await ensureBrowser();
+  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+  const serveUrl = await bundle({
+    entryPoint: join(repoRoot, "remotion", "index.ts"),
+    publicDir: dir,
+    symlinkPublicDir: true,
+  });
+  const inputProps = props as unknown as Record<string, unknown>;
+  const browser = await openBrowser("chrome");
+  const shots: FrameShot[] = [];
+  try {
+    const composition = await selectComposition({
+      serveUrl,
+      id: "Main",
+      inputProps,
+      puppeteerInstance: browser,
+      logLevel: "warn",
+    });
+    for (const [frame, t] of unique) {
+      const outPath = join(outDir, `out${t.outSec.toFixed(2)}s.png`);
+      await renderStill({
+        composition,
+        serveUrl,
+        output: outPath,
+        frame,
+        inputProps,
+        puppeteerInstance: browser,
+        overwrite: true,
+        logLevel: "warn",
+      });
+      const note = t.notes.join(" / ");
+      shots.push({
+        requested: t.requested,
+        outSec: t.outSec,
+        file: outPath,
+        ...(note ? { note } : {}),
+      });
+    }
+  } finally {
+    await browser.close({ silent: true });
+  }
+  return shots;
+}
+
+interface Target {
+  requested: number;
+  outSec: number;
+  notes: string[];
+}
+
+/** リクエストを「出力秒のリスト」に展開する */
+function buildTargets(
+  req: FrameRequest,
+  props: ReturnType<typeof buildRenderProps>,
+  maxOut: number,
+  dir: string,
+  overlays: Overlays,
+  keeps: { start: number; end: number }[],
+): Target[] {
+  const clamp = (sec: number) => Math.min(Math.max(0, sec), maxOut);
+
+  if (req.mode === "captions") {
+    // props.captions は出力秒へ変換・表示対象の絞り込みが済んだ「実際に
+    // 描画されるテロップ」そのもの。ここから中間時刻を取れば transcript の
+    // 再解釈(カット判定・時刻換算)を繰り返さずに全件を一巡できる
+    return props.captions.map((c) => {
+      const mid = clamp((c.start + c.end) / 2);
+      const label =
+        c.text.length > 24 ? `${c.text.slice(0, 24)}…` : c.text;
+      return {
+        requested: mid,
+        outSec: mid,
+        notes: [`テロップ${c.track > 1 ? `(track${c.track})` : ""}「${label}」`],
+      };
+    });
+  }
+
+  if (req.mode === "every") {
+    if (!(req.stepSec > 0)) {
+      throw new Error(`間隔は正の秒数で指定してください: ${req.stepSec}`);
+    }
+    const targets: Target[] = [];
+    for (let t = 0; t < maxOut; t += req.stepSec) {
+      targets.push({ requested: t, outSec: clamp(t), notes: [] });
+    }
+    targets.push({ requested: maxOut, outSec: maxOut, notes: ["最終フレーム"] });
+    return targets;
+  }
+
+  // 元収録の秒 → カット後の秒(カット内なら直後の keep へスナップ)
+  const timeline = buildTimeline(
+    keeps,
+    (overlays.inserts ?? []).filter((i) => existsSync(join(dir, i.file))),
+  );
+  return req.times.map((t) => {
+    let outSec: number;
+    const notes: string[] = [];
+    if (req.axis === "output") {
+      outSec = t;
+      if (outSec > maxOut) notes.push(`出力の長さ(${fmtT(props.durationSec)})を超えるため末尾へ丸め`);
+    } else {
+      const direct = toOutputTime(t, timeline);
+      const snapped = direct ?? snapToOutput(t, timeline);
+      if (snapped === null) {
+        // 最後の keep より後ろのカット内 → 末尾フレームで代用
+        outSec = maxOut;
+        notes.push("カット区間内でスナップ先もないため最終フレームで代用");
+      } else {
+        outSec = snapped;
+        if (direct === null) notes.push(`カット区間内のため直後の keep 先頭(出力 ${fmtT(snapped)})へスナップ`);
+      }
+    }
+    return { requested: t, outSec: clamp(outSec), notes };
+  });
+}

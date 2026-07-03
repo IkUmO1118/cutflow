@@ -22,13 +22,26 @@ export interface Config {
   };
   llm: { backend: "claude-cli" | "api"; model: string };
   preview: { width: number };
+  /** エディタ(GUI)設定。省略可(古い config.yaml との互換) */
+  editor?: {
+    /** 素材アップロード(/api/upload)の1ファイルの上限(MB)。省略時は既定値 */
+    maxUploadMb?: number;
+  };
   render: {
     wipeWidthPx: number;
     wipeMarginPx: number;
     captionFontSizePx: number;
     chapterCardSec: number;
     targetLufs: number;
-    bgm: { volumeDb: number; fadeOutSec: number };
+    /** システム音声(ingest.systemTrack)のミックス設定。
+     * 省略時はミックスしない(古い config.yaml との互換) */
+    systemAudio?: { mix: boolean; volumeDb: number };
+    bgm: {
+      volumeDb: number;
+      fadeOutSec: number;
+      /** 発話中に BGM を下げるダッキング。省略か duckDb: 0 で無効 */
+      ducking?: { duckDb: number; fadeSec: number };
+    };
   };
 }
 

@@ -38,22 +38,43 @@ preview:
 
 # 最終レンダー(Remotion 合成)のレイアウト
 render:
-  # 右下ワイプ(カメラ)の横幅と、画面端からの余白(px、1920x1080基準)
+  # 右下ワイプ(カメラ)の横幅(px、1920x1080基準)。ワイプは右下角に隙間なく配置される
   wipeWidthPx: 480
+  # 字幕・テロップの画面端からの余白(px)。ワイプの位置には影響しない
   wipeMarginPx: 32
   # 字幕のフォントサイズ(px)。初学者の見やすさ優先で大きめ
-  captionFontSizePx: 44
-  # 章タイトルカードを章の頭に表示する秒数
+  captionFontSizePx: 52
+  # plan が章タイトルのテロップ(「章」トラック)を作るときの表示秒数
   chapterCardSec: 3
   # 音声ラウドネス正規化の目標値(LUFS)。YouTube の基準は -14
   # 収録音量が多少ばらついても、最終出力はこの音量に自動で揃う
   targetLufs: -14
+  # システム音声(ingest.systemTrack で収録したアプリ音・デモ音)の扱い
+  systemAudio:
+    # true: 収録にシステム音声トラックがあればマイクと合成して出力に入れる
+    # (render / preview / proxy 共通)。false: 従来どおりマイクのみ
+    mix: true
+    # 合成時のシステム音声の音量(dB)。0で原音量。合成後の全体が
+    # targetLufs へ正規化されるので、ここでは声とのバランスだけを決める
+    volumeDb: 0
   # BGM。収録フォルダに bgm.mp3 / bgm.m4a / bgm.wav があれば自動で合成される
   bgm:
     # BGMの音量(dB)。0で原音量。声より20dB前後小さくするのが目安
     volumeDb: -22
     # 動画終端でのフェードアウト秒数
     fadeOutSec: 2
+    # 発話中の自動ダッキング(無音検出 cuts.auto.json の発話区間で BGM を下げる)
+    ducking:
+      # 発話中にさらに下げる量(dB)。0 でダッキング無効
+      duckDb: -8
+      # 下げ・戻しにかける秒数
+      fadeSec: 0.4
+
+# GUI エディタ(npm run editor)
+editor:
+  # 素材アップロード1ファイルの上限(MB)。動画素材も置けるよう大きめ。
+  # ローカル限定サーバーだが、暴走したアップロードでディスクを埋めない歯止め
+  maxUploadMb: 2048
 
 # 意味カット・章立て・タイトル案の生成
 llm:
