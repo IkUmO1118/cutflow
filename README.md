@@ -55,15 +55,28 @@ node src/cli.ts ingest     <dir>
 node src/cli.ts transcribe <dir>
 node src/cli.ts detect     <dir>
 node src/cli.ts plan       <dir>
+node src/cli.ts remeta     <dir>   # 章立て・タイトル案・概要欄だけ作り直す(カットは触らない)
+node src/cli.ts editor     <dir>   # GUI エディタをブラウザで開く(カット・テロップ・演出を編集)
 node src/cli.ts preview    <dir>   # カット結果の確認用動画(承認前に見る)
+node src/cli.ts validate   <dir>   # 編集した JSON の整合性チェック(手編集・AI編集の後に)
+node src/cli.ts describe   <dir>   # タイムラインのテキスト要約(元秒⇔カット後秒の対応付き)
+node src/cli.ts frames     <dir> --t 90,2:30  # 指定時刻を最終合成の見た目で frames/*.png に
 node src/cli.ts render     <dir>   # 承認後の最終レンダー(要 approved: true)
 ```
 
+編集は GUI エディタ(`editor`)でも、収録フォルダ内の JSON 直接編集でも行えます。
+GUI はブラウザ上でカット境界のドラッグ・テロップの配置・素材の挿入・承認・
+プレビュー生成・レンダーまで完結でき、外部(手編集や AI)による JSON の変更は
+ホットリロードで反映されます。手順の詳細は [docs/usage.md](docs/usage.md) を
+参照してください。
+
 render は2段構成です。まず ffmpeg が keep 区間をフル解像度のまま結合して
-`cut.mp4` を作り(音声はツーパスの loudnorm で **-14 LUFS に自動正規化**)、
+`cut.mp4` を作り(音声はマイクと**システム音声(OBS トラック2)の自動ミックス**を
+ツーパスの loudnorm で **-14 LUFS に自動正規化**)、
 次に Remotion がその上に「画面クロップ+右下ワイプ+字幕+章カード」を
 合成して `final.mp4` を出力します。収録フォルダに `bgm.mp3` を置けば
-**BGM も自動で合成**されます(ループ+終端フェードアウト)。
+**BGM も自動で合成**されます(ループ+終端フェードアウト+**発話中の自動
+ダッキング**)。
 ワイプの大きさ・字幕サイズ・目標音量・BGM音量は config.yaml の `render`
 セクションで変更できます。初回実行時は Remotion が headless Chrome を
 自動ダウンロードします(数分)。
@@ -98,8 +111,15 @@ LLM バックエンド:
 - [x] plan(LLM 意味カット・章立て・タイトル案。合成音声テストで
       言い直し・脱線の検出を確認済み)
 - [x] preview(カット結果の低解像度確認動画。検証済み)
-- [x] render(Remotion 合成: ワイプ+字幕+章カード。合成素材で
-      レイアウト・タイムライン変換とも検証済み)
+- [x] render(Remotion 合成: ワイプ+字幕+章カード。マイク+システム音声の
+      ミックス、BGM の発話ダッキング。合成素材でレイアウト・タイムライン変換とも
+      検証済み)
+- [x] validate / describe / frames(編集ファイルの整合性検査、タイムラインの
+      テキスト要約、指定フレームの目視確認用 PNG 出力。AI が編集→検証→自己確認を
+      CLI で完結できる)
+- [x] remeta(cutplan を触らず章立て・タイトル案・概要欄だけを再生成)
+- [x] editor(ブラウザ GUI: カット・テロップ・演出の編集、承認、プレビュー生成・
+      レンダー、外部変更のホットリロード)
 
 ## License
 
