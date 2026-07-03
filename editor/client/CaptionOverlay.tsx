@@ -1,0 +1,126 @@
+import { useEffect, useRef, useState } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
+import {
+  CAPTION_DEFAULT_FONT_FAMILY,
+  CAPTION_DEFAULT_FONT_WEIGHT,
+} from "../../src/types.ts";
+import type { CaptionPos } from "../../src/types.ts";
+
+/** プレビューに表示中のテロップ1つ分(座標はコンポジションのpx)。
+ * pos は実効表示位置(個別指定 → トラック標準 → 下部中央の近似)で、
+ * anchor がその解釈(center=テキスト中心 / topLeft=左上)を決める */
+export interface OverlayCaption {
+  /** transcript.segments の添字 */
+  index: number;
+  text: string;
+  /** 実効表示位置 */
+  pos: CaptionPos;
+  /** 座標の解釈(トラック標準の anchor。既定 center) */
+  anchor: "center" | "topLeft";
+  /** 実効フォントサイズ(コンポジションpx)。style 解決済みで渡す */
+  fontSizePx: number;
+  /** 実効フォント種(style 解決済み)。当たり判定を本編の字幕に合わせる */
+  fontFamily?: string;
+  /** 実効の太さ(style 解決済み) */
+  fontWeight?: number;
+}
+
+/**
+ * プレビュー(@remotion/player)の上に重ねる透明レイヤー。表示中のテロップと
+ * 同じ位置・寸法の掴めるボックスを出し、PowerPoint のテキストのように
+ * ドラッグで移動できるようにする。座標変換(コンポジション⇔画面)だけを持ち、
+ * ドキュメントの更新は onMove(コンポジションpx)に委ねる。
+ */
+export const CaptionOverlay = ({
+  width,
+  height,
+  captions,
+  selection,
+  onSelect,
+  onMove,
+}: {
+  /** コンポジションの解像度 */
+  width: number;
+  height: number;
+  captions: OverlayCaption[];
+  /** 選択中のテロップ(transcript.segments の添字) */
+  selection: number | null;
+  onSelect: (index: number) => void;
+  onMove: (index: number, pos: CaptionPos) => void;
+}) => {
+  const ref = useRef<HTMLDivElement>(null);
+  const [box, setBox] = useState({ w: 0, h: 0 });
+  const [dragging, setDragging] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() =>
+      setBox({ w: el.clientWidth, h: el.clientHeight }),
+    );
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Player は親いっぱいに広がり、コンポジションはレターボックスで内接する
+  const scale = box.w > 0 && box.h > 0 ? Math.min(box.w / width, box.h / height) : 0;
+  const dx = (box.w - width * scale) / 2;
+  const dy = (box.h - height * scale) / 2;
+
+  const onDown = (e: ReactPointerEvent, c: OverlayCaption) => {
+    if (e.button !== 0 || scale === 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    onSelect(c.index);
+    setDragging(true);
+    const x0 = e.clientX;
+    const y0 = e.clientY;
+    // ドラッグは掴んだ時点の実効位置に Δ を足すだけ(anchor は変えないので
+    // 中心基準・左上基準どちらのトラックでも同じ計算でよい)
+    const p0 = c.pos;
+    const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
+    const move = (ev: PointerEvent) =>
+      onMove(c.index, {
+        x: clamp(Math.round(p0.x + (ev.clientX - x0) / scale), 0, width),
+        y: clamp(Math.round(p0.y + (ev.clientY - y0) / scale), 0, height),
+      });
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      setDragging(false);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
+
+  return (
+    <div className={`capOverlay${dragging ? " dragging" : ""}`} ref={ref}>
+      {scale > 0 &&
+        captions.map((c) => (
+          <div
+            key={c.index}
+            className={`capBox${selection === c.index ? " sel" : ""}`}
+            style={{
+              left: dx + c.pos.x * scale,
+              top: dy + c.pos.y * scale,
+              // CSS(.capBox)は中心基準の translate を持つので左上基準では外す
+              ...(c.anchor === "topLeft" ? { transform: "none" } : {}),
+              // 本編の字幕(OutlinedText)と同じフォント計量で当たり判定を合わせる
+              fontFamily: c.fontFamily ?? CAPTION_DEFAULT_FONT_FAMILY,
+              fontSize: c.fontSizePx * scale,
+              fontWeight: c.fontWeight ?? CAPTION_DEFAULT_FONT_WEIGHT,
+              lineHeight: 1.4,
+              whiteSpace: "pre-line",
+              width: "max-content",
+            }}
+            title="ドラッグでテロップを移動(位置は transcript.json の pos に保存)"
+            onPointerDown={(e) => onDown(e, c)}
+          >
+            {c.text}
+          </div>
+        ))}
+    </div>
+  );
+};
