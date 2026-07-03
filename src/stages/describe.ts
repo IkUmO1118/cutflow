@@ -1,0 +1,159 @@
+// 編集状態のテキスト要約。AI(Claude Code)や人間が JSON 群を全部読まずに
+// 「どこが残っていて・どこが切られ・そこで何を喋っているか」を把握するための
+// 知覚コマンド。時刻は「元 = 元収録の秒 / 出力 = カット後(preview/final)の秒」を
+// 併記する(人間は preview を見て出力秒で話し、編集ファイルは元秒で書くため)。
+
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fmtT } from "../lib/fmt.ts";
+import {
+  buildTimeline,
+  insertSpans,
+  mergeIntervals,
+  remapInterval,
+  snapToOutput,
+  toOutputTime,
+} from "../lib/timeline.ts";
+import { captionTrack } from "../types.ts";
+import type {
+  Chapters,
+  CutPlan,
+  Manifest,
+  Meta,
+  Overlays,
+  Transcript,
+} from "../types.ts";
+
+export function describe(dir: string): string {
+  const readJson = <T>(file: string, fallback: T | null): T => {
+    const p = join(dir, file);
+    if (!existsSync(p)) {
+      if (fallback !== null) return fallback;
+      throw new Error(`${file} がありません。先にパイプライン(run)を実行してください`);
+    }
+    return JSON.parse(readFileSync(p, "utf8")) as T;
+  };
+  const manifest = readJson<Manifest>("manifest.json", null);
+  const cutplan = readJson<CutPlan>("cutplan.json", null);
+  const transcript = readJson<Transcript>("transcript.json", null);
+  const overlays = readJson<Overlays>("overlays.json", {});
+  const chapters = readJson<Chapters>("chapters.json", { chapters: [] });
+  const meta = readJson<Meta>("meta.json", { titles: [], description: "" });
+
+  const keeps = mergeIntervals(
+    cutplan.segments.filter((s) => s.action === "keep"),
+  );
+  const cutRecords = cutplan.segments.filter((s) => s.action === "cut");
+  const inserts = (overlays.inserts ?? []).filter((i) =>
+    existsSync(join(dir, i.file)),
+  );
+  const timeline = buildTimeline(keeps, inserts);
+  const keptSec = keeps.reduce((a, k) => a + (k.end - k.start), 0);
+  const outDur = keptSec + inserts.reduce((a, i) => a + i.durationSec, 0);
+
+  const quote = (text: string): string => {
+    const t = text.trim().replace(/\s+/g, " ");
+    return t.length > 36 ? `${t.slice(0, 36)}…` : t;
+  };
+  /** 区間 [start, end) と 0.05 秒以上重なるか */
+  const overlaps = (s: { start: number; end: number }, start: number, end: number) =>
+    Math.min(s.end, end) - Math.max(s.start, start) > 0.05;
+
+  // 各テロップの置き場所: 見えるものは「最初に重なる keep」、
+  // 完全にカット内で消えるものは「重なるカット区間」に出す
+  const keepIndexOf = (s: { start: number; end: number }): number | null => {
+    if (remapInterval(s.start, s.end, timeline).length === 0) return null;
+    const i = keeps.findIndex((k) => overlaps(s, k.start, k.end));
+    return i >= 0 ? i : null;
+  };
+
+  const lines: string[] = [];
+  lines.push(
+    `収録: ${manifest.source} ${fmtT(manifest.durationSec)} → 出力 ${fmtT(outDur)}` +
+      `(keep ${keeps.length}区間、${fmtT(manifest.durationSec - keptSec)} をカット)`,
+  );
+  lines.push(
+    `approved: ${cutplan.approved} / テロップ ${transcript.segments.length}件 / ` +
+      `BGM ${["bgm.mp3", "bgm.m4a", "bgm.wav"].find((f) => existsSync(join(dir, f))) ?? "なし"}`,
+  );
+  lines.push("");
+  lines.push(
+    "時刻は「元 = 元収録の秒(編集ファイルに書く値)/ 出力 = カット後の秒(preview/final の再生位置)」",
+  );
+  lines.push("");
+
+  /* ---- タイムライン(カットと keep の交互。テロップ・カット理由を添える) ---- */
+
+  for (let i = 0; i <= keeps.length; i++) {
+    // keep[i] の手前のカット区間(収録先頭・末尾のカットも含む)
+    const gapStart = i === 0 ? 0 : keeps[i - 1].end;
+    const gapEnd = i < keeps.length ? keeps[i].start : manifest.durationSec;
+    if (gapEnd - gapStart > 0.05) {
+      lines.push(
+        `✂ カット 元 ${fmtT(gapStart)}–${fmtT(gapEnd)}(${(gapEnd - gapStart).toFixed(1)}秒)`,
+      );
+      for (const r of cutRecords) {
+        if (overlaps(r, gapStart, gapEnd) && r.reason) lines.push(`    理由: ${r.reason}`);
+      }
+      for (const s of transcript.segments) {
+        if (overlaps(s, gapStart, gapEnd) && keepIndexOf(s) === null) {
+          lines.push(`    消える発言 ${fmtT(s.start)}「${quote(s.text)}」`);
+        }
+      }
+    }
+    if (i >= keeps.length) break;
+
+    const k = keeps[i];
+    const outStart = toOutputTime(k.start, timeline) ?? 0;
+    lines.push(
+      `■ keep${i + 1} 元 ${fmtT(k.start)}–${fmtT(k.end)} → 出力 ${fmtT(outStart)}–` +
+        `${fmtT(outStart + (k.end - k.start))}(${(k.end - k.start).toFixed(1)}秒)`,
+    );
+    for (const s of transcript.segments) {
+      if (keepIndexOf(s) !== i) continue;
+      const track = captionTrack(s);
+      lines.push(`    ${fmtT(s.start)}${track > 1 ? ` [T${track}]` : ""}「${quote(s.text)}」`);
+    }
+  }
+
+  /* ---- 演出・章・メタ ---- */
+
+  const ovList = overlays.overlays ?? [];
+  const wipeList = overlays.wipeFull ?? [];
+  if (ovList.length + inserts.length + wipeList.length > 0) {
+    lines.push("");
+    lines.push("演出:");
+    for (const o of ovList) {
+      lines.push(
+        `  素材 V${o.track ?? (o.layer === "over" ? 2 : 1)} 元 ${fmtT(o.start)}–${fmtT(o.end)} ${o.file}` +
+          (existsSync(join(dir, o.file)) ? "" : "(⚠ ファイルなし)"),
+      );
+    }
+    insertSpans(keeps, inserts).forEach((sp) => {
+      const ins = inserts[sp.index];
+      lines.push(
+        `  挿入 元 ${fmtT(ins.at)} の手前に ${ins.file}(${ins.durationSec}秒)→ 出力 ${fmtT(sp.start)}–${fmtT(sp.end)}`,
+      );
+    });
+    for (const w of wipeList) {
+      lines.push(`  ワイプ全画面 元 ${fmtT(w.start)}–${fmtT(w.end)}`);
+    }
+  }
+
+  if (chapters.chapters.length > 0) {
+    lines.push("");
+    lines.push("章(YouTube 概要欄用):");
+    for (const c of chapters.chapters) {
+      const out = snapToOutput(c.start, timeline);
+      lines.push(
+        `  元 ${fmtT(c.start)} → 出力 ${out !== null ? fmtT(out) : "(カット内・スナップ先なし)"} ${c.title}`,
+      );
+    }
+  }
+
+  if (meta.titles.length > 0) {
+    lines.push("");
+    lines.push(`タイトル案: ${meta.titles.slice(0, 3).join(" / ")}`);
+  }
+  return lines.join("\n");
+}
