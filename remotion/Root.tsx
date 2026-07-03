@@ -1,7 +1,7 @@
 import { Composition } from "remotion";
-import { Main } from "./Main";
-import { defaultProps } from "./props";
-import type { RenderProps } from "./props";
+import { Main } from "./Main.tsx";
+import { defaultProps } from "./props.ts";
+import type { RenderProps } from "./props.ts";
 
 export const RemotionRoot = () => (
   <Composition
