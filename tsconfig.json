@@ -11,5 +11,11 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "remotion/**/*.ts", "remotion/**/*.tsx"]
+  "include": [
+    "src/**/*.ts",
+    "remotion/**/*.ts",
+    "remotion/**/*.tsx",
+    "editor/**/*.ts",
+    "editor/**/*.tsx"
+  ]
 }
