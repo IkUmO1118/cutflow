@@ -44,6 +44,12 @@ render:
   wipeMarginPx: 32
   # 字幕のフォントサイズ(px)。初学者の見やすさ優先で大きめ
   captionFontSizePx: 52
+  # テロップ既定の見た目(GUI エディタの設定画面 ⌘, からも変更できる)。
+  # 個別のテロップ・トラック標準スタイルで指定の無い項目に効く
+  captionColor: "#ffffff"
+  captionOutlineColor: "#2563eb" # "none" で縁取りなし
+  captionFontFamily: '"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif'
+  captionFontWeight: 700 # 100〜900
   # plan が章タイトルのテロップ(「章」トラック)を作るときの表示秒数
   chapterCardSec: 3
   # 音声ラウドネス正規化の目標値(LUFS)。YouTube の基準は -14
@@ -75,6 +81,8 @@ editor:
   # 素材アップロード1ファイルの上限(MB)。動画素材も置けるよう大きめ。
   # ローカル限定サーバーだが、暴走したアップロードでディスクを埋めない歯止め
   maxUploadMb: 2048
+  # タイムラインに置く画像素材・尺不明素材の既定の尺(秒)
+  defaultImageDurationSec: 4
 
 # 意味カット・章立て・タイトル案の生成
 llm:

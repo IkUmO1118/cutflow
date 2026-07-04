@@ -1,5 +1,8 @@
 import { useState } from "react";
+// ConfigPatch はサーバー側モジュールの型だが import type なのでバンドルには入らない
+import type { ConfigPatch } from "../../src/lib/configEdit.ts";
 import type {
+  ConfigSaveResult,
   DraftData,
   PeaksData,
   ProjectData,
@@ -46,6 +49,12 @@ export async function deleteDraft(): Promise<void> {
 /** proxy.mp4(元収録の軽量プロキシ)の生成。収録ごとに1回でよい */
 export async function postProxy(): Promise<void> {
   await request("/api/proxy", {});
+}
+
+/** 設定画面の保存。config.yaml の該当キーを書き換え(コメント保持)、
+ * サーバー内の設定にも即反映される。戻り値は解決済みの新しい設定 */
+export async function postConfig(patch: ConfigPatch): Promise<ConfigSaveResult> {
+  return (await request("/api/config", patch)) as ConfigSaveResult;
 }
 
 /** カット確認用プレビュー(preview.mp4)の生成。完了までに時間がかかる。

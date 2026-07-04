@@ -44,6 +44,8 @@ import { CaptionOverlay } from "./CaptionOverlay.tsx";
 import type { OverlayCaption } from "./CaptionOverlay.tsx";
 import { Inspector } from "./Inspector.tsx";
 import { CaptionsPanel, MaterialsPanel } from "./Panels.tsx";
+import { SettingsModal, buildConfigPatch, patchTouchesProxy } from "./SettingsModal.tsx";
+import type { CfgValues } from "./SettingsModal.tsx";
 import { Timeline } from "./Timeline.tsx";
 import { buildTracks } from "./model.ts";
 import type {
@@ -67,6 +69,7 @@ import {
   fmtTime,
   getPeaks,
   getProject,
+  postConfig,
   postDraft,
   postPreview,
   postProxy,
@@ -115,6 +118,9 @@ const selectionValid = (sel: Selection, d: HistoryDocs): boolean => {
   }
   return true; // wipe / bgm は表示専用の常駐クリップ
 };
+
+/** 再生速度の選択肢(プレビューのみ。書き出しには影響しない) */
+const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 /** 左パネルのタブ(素材一覧・テロップ一覧・選択クリップのプロパティ) */
 const PANEL_TABS = [
@@ -233,12 +239,95 @@ export const App = () => {
   /** ヘッダー右の「書き出し」ポップオーバー(preview / 承認 / render)の開閉 */
   const [exportOpen, setExportOpen] = useState(false);
 
+  /* ---------------- 設定モーダル ---------------- */
+
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  /** モーダルを開いた時点の設定の深いコピー(キャンセル復元・保存 diff の
+   * 基準)。null = モーダルを開いていない */
+  const settingsSnapRef = useRef<CfgValues | null>(null);
+  /** proxy.mp4 に焼き込まれる設定(targetLufs / systemAudio / preview.width)を
+   * 保存した後、プレビューへ反映するには再生成が要ることを促すバナー */
+  const [proxyStale, setProxyStale] = useState(false);
+  /** 再生速度(プレビューのみ)。次回起動時も引き継ぐ */
+  const [playbackRate, setPlaybackRate] = useState(() => {
+    const saved = Number(localStorage.getItem("cutflow.editor.playbackRate"));
+    return PLAYBACK_RATES.includes(saved) ? saved : 1;
+  });
+  useEffect(() => {
+    localStorage.setItem("cutflow.editor.playbackRate", String(playbackRate));
+  }, [playbackRate]);
+
+  const cfgValuesOf = (p: ProjectData): CfgValues => ({
+    renderCfg: p.renderCfg,
+    previewCfg: p.previewCfg,
+    editorCfg: p.editorCfg,
+  });
+  const openSettings = () => {
+    if (!proj) return;
+    settingsSnapRef.current = structuredClone(cfgValuesOf(proj));
+    setSettingsError(null);
+    setSettingsOpen(true);
+  };
+  /** キャンセル: ライブ反映済みの編集をモーダルを開いた時点へ戻す */
+  const cancelSettings = () => {
+    const snap = settingsSnapRef.current;
+    if (snap) setProj((p) => p && { ...p, ...structuredClone(snap) });
+    settingsSnapRef.current = null;
+    setSettingsOpen(false);
+  };
+  /** 保存: スナップショットとの差分だけを config.yaml へ書く */
+  const saveSettings = async () => {
+    const snap = settingsSnapRef.current;
+    if (!proj || !snap) return;
+    const patch = buildConfigPatch(snap, cfgValuesOf(proj));
+    if (!patch) {
+      settingsSnapRef.current = null;
+      setSettingsOpen(false);
+      return;
+    }
+    setSettingsSaving(true);
+    setSettingsError(null);
+    try {
+      const res = await postConfig(patch);
+      // サーバーが解決した実値で確定(editor の既定値解決なども反映)
+      setProj(
+        (p) =>
+          p && {
+            ...p,
+            renderCfg: res.renderCfg,
+            previewCfg: res.previewCfg,
+            editorCfg: res.editorCfg,
+          },
+      );
+      if (patchTouchesProxy(patch)) setProxyStale(true);
+      settingsSnapRef.current = null;
+      setSettingsOpen(false);
+    } catch (e) {
+      setSettingsError((e as Error).message);
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
+
   /** ディスクの内容で全ドキュメントを読み込み直す。undo/redo は
    * 古いドキュメント由来で外部の編集を巻き戻してしまうので破棄する */
   const reloadFromDisk = async () => {
     try {
       const p = await getProject();
-      setProj(p);
+      // 設定モーダルの編集中は、ライブ反映済みの設定値をリロードで失わない
+      // (config.yaml はこのモーダル以外から変わらないので、現値の温存で正しい)
+      setProj((prev) =>
+        settingsSnapRef.current && prev
+          ? {
+              ...p,
+              renderCfg: prev.renderCfg,
+              previewCfg: prev.previewCfg,
+              editorCfg: prev.editorCfg,
+            }
+          : p,
+      );
       setCutplan(p.cutplan);
       setOverlays(p.overlays);
       setTranscript(p.transcript);
@@ -440,6 +529,8 @@ export const App = () => {
   const duration = built?.props.durationSec ?? 0;
   const durationInFrames = Math.max(1, Math.round(duration * fps));
   const srcDur = proj?.manifest.durationSec ?? 0;
+  /** 画像素材・尺不明素材を置くときの既定の尺(秒)。config で変更できる */
+  const defaultImgSec = proj?.editorCfg.defaultImageDurationSec ?? 4;
 
   const anyDirty =
     !!proj &&
@@ -742,8 +833,10 @@ export const App = () => {
           pos: pos ?? stdCaptionPos,
           anchor: pos ? captionAnchorOf(s, overlays) : ("center" as const),
           fontSizePx: style?.fontSizePx ?? built.props.caption.fontSizePx,
-          fontFamily: style?.fontFamily,
-          fontWeight: style?.fontWeight,
+          // config の既定(render.caption*)まで解決して渡す(当たり判定の
+          // フォント計量を本編の見た目と一致させる)
+          fontFamily: style?.fontFamily ?? built.props.caption.fontFamily,
+          fontWeight: style?.fontWeight ?? built.props.caption.fontWeight,
         },
       ];
     });
@@ -1181,7 +1274,7 @@ export const App = () => {
       const outT = at?.outT ?? time.out;
       const s = srcAt(outT);
       if (s === null) return;
-      const dur = res.durationSec ?? 4;
+      const dur = res.durationSec ?? defaultImgSec;
       const track = (at ? ovNum(at.track) : null) ?? ovTracks; // 既定は一番手前
       addOverlaySpan(round2(s), round2(Math.min(s + dur, srcDur)), track, res.file);
     } catch (e) {
@@ -1261,7 +1354,11 @@ export const App = () => {
     pushHistory();
     const list = [
       ...(overlays.inserts ?? []),
-      { at: round2(anchorSrc), file, durationSec: round2(Math.max(MIN_SPAN, durationSec ?? 4)) },
+      {
+        at: round2(anchorSrc),
+        file,
+        durationSec: round2(Math.max(MIN_SPAN, durationSec ?? defaultImgSec)),
+      },
     ];
     setOverlays({ ...overlays, inserts: list });
     setSelection({ kind: "insert", index: list.length - 1 });
@@ -1376,18 +1473,25 @@ export const App = () => {
 
   /** proxy.mp4(元収録の軽量プロキシ)を生成 → プレイヤー再読み込み。
    * 収録ごとに1回だけ。カットは焼き込まないので編集による再生成は不要 */
-  const generateProxy = async () => {
+  const generateProxy = async (): Promise<boolean> => {
     setProxyBusy(true);
     setError(null);
     try {
       await postProxy();
       setProj((p) => p && { ...p, proxyExists: true });
       setVideoVersion((v) => v + 1);
+      return true;
     } catch (e) {
       setError((e as Error).message);
+      return false;
     } finally {
       setProxyBusy(false);
     }
+  };
+
+  /** 設定バナーからのプロキシ再生成。成功したらバナーを下げる */
+  const regenProxyForSettings = async () => {
+    if (await generateProxy()) setProxyStale(false);
   };
 
   /** 書き出し(preview / render)を GUI から起動する。preview / render は
@@ -1516,7 +1620,7 @@ export const App = () => {
     const s = srcAt(outT);
     if (s === null) return;
     const track = (at ? ovNum(at.track) : null) ?? ovTracks; // 既定は一番手前
-    addOverlaySpan(round2(s), round2(Math.min(s + (dur ?? 4), srcDur)), track, file);
+    addOverlaySpan(round2(s), round2(Math.min(s + (dur ?? defaultImgSec), srcDur)), track, file);
   };
 
   const onDropMaterial = (track: TrackId, outT: number, file: string) => {
@@ -1554,9 +1658,22 @@ export const App = () => {
         if (busy === null) void onSave();
         return;
       }
+      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+        e.preventDefault();
+        if (settingsOpen) cancelSettings();
+        else openSettings();
+        return;
+      }
       const t = e.target as HTMLElement;
+      const inField = ["INPUT", "SELECT", "TEXTAREA"].includes(t.tagName);
+      if (settingsOpen) {
+        // モーダル表示中は再生・削除などのグローバルショートカットを止める。
+        // Escape で閉じる(入力欄の中は NumInput の入力破棄が先なので閉じない)
+        if (e.key === "Escape" && !inField && !settingsSaving) cancelSettings();
+        return;
+      }
       // 入力欄の中はブラウザ標準の undo/redo に任せる(下の guard で除外)
-      if (["INPUT", "SELECT", "TEXTAREA"].includes(t.tagName)) return;
+      if (inField) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
         e.preventDefault();
         if (e.shiftKey) redoEdit();
@@ -1649,12 +1766,38 @@ export const App = () => {
             )}
           </span>
         )}
+        {proxyStale && (
+          <span
+            className="externalChange"
+            title={
+              "ラウドネス・システム音声・プレビュー幅は proxy.mp4 に焼き込まれるため、" +
+              "再生成するまでエディタのプレビューには反映されません(書き出しには反映済み)"
+            }
+          >
+            設定をプレビューに反映するにはプロキシの再生成が必要です
+            <button
+              className="warn"
+              disabled={proxyBusy}
+              onClick={() => void regenProxyForSettings()}
+            >
+              {proxyBusy ? "再生成中…" : "プロキシを再生成"}
+            </button>
+            <button onClick={() => setProxyStale(false)}>後で</button>
+          </span>
+        )}
         <span
           className={anyDirty ? "saveStatus dirty" : "saveStatus"}
           title="変更は ⌘S で保存。未保存の編集は自動退避され、閉じる前に確認が出ます"
         >
           {busy === "save" ? "保存中…" : anyDirty ? "● 未保存 (⌘S)" : "保存済み"}
         </span>
+        <button
+          className={settingsOpen ? "active" : ""}
+          title="設定 (⌘,)。ワイプ・テロップ既定・音声などの全収録共通の設定(config.yaml)"
+          onClick={() => (settingsOpen ? cancelSettings() : openSettings())}
+        >
+          設定
+        </button>
         <div className="exportMenu">
           <button
             className={exportOpen ? "active" : ""}
@@ -1714,6 +1857,24 @@ export const App = () => {
         </div>
       </header>
 
+      {settingsOpen && (
+        <>
+          {/* backdrop クリック = キャンセル(未保存の設定編集を復元して閉じる) */}
+          <div
+            className="settingsBackdrop"
+            onClick={() => !settingsSaving && cancelSettings()}
+          />
+          <SettingsModal
+            cfg={cfgValuesOf(proj)}
+            onChange={(patch) => setProj((p) => p && { ...p, ...patch })}
+            onSave={() => void saveSettings()}
+            onCancel={cancelSettings}
+            saving={settingsSaving}
+            error={settingsError}
+          />
+        </>
+      )}
+
       <div className="stage" ref={stageRef}>
         <aside
           className="sidePanel"
@@ -1764,7 +1925,7 @@ export const App = () => {
                 ovTracks={ovTracks}
                 capTracks={capTracks}
                 stdCaptionPos={stdCaptionPos}
-                captionFontSizePx={built.props.caption.fontSizePx}
+                captionDefaults={built.props.caption}
                 setCaptionTrackDefault={setCaptionTrackDefault}
                 updateCutSeg={updateCutSeg}
                 cutKeepSeg={cutKeepSeg}
@@ -1798,6 +1959,7 @@ export const App = () => {
                 compositionHeight={built.props.height}
                 fps={fps}
                 loop={loop}
+                playbackRate={playbackRate}
                 initialVolume={playerVolume}
                 // 共有 <audio> タグのプールは AudioContext の作り直しで登録が
                 // ずれて落ちる(unregisterAudio の TypeError / No audio ref found)。
@@ -1933,6 +2095,18 @@ export const App = () => {
           </button>
         </div>
         <div className="tRight">
+          <select
+            className="rate"
+            value={playbackRate}
+            title="再生速度(プレビューのみ。書き出しには影響しない)"
+            onChange={(e) => setPlaybackRate(Number(e.target.value))}
+          >
+            {PLAYBACK_RATES.map((rate) => (
+              <option key={rate} value={rate}>
+                {rate}x
+              </option>
+            ))}
+          </select>
           <button className="icon" title="1秒戻る (Shift+←)" onClick={() => stepFrames(-fps)}>
             <StepIcon dir="back" double />
           </button>
@@ -1980,6 +2154,7 @@ export const App = () => {
         onToggleTrackMute={toggleTrackMute}
         hiddenLayers={hiddenLayers}
         onToggleTrackHide={toggleTrackHide}
+        defaultDurationSec={defaultImgSec}
       />
     </div>
   );

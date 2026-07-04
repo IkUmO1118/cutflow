@@ -173,7 +173,21 @@ export function buildRenderProps(args: {
       widthPx: renderCfg.wipeWidthPx,
       marginPx: renderCfg.wipeMarginPx,
     },
-    caption: { fontSizePx: renderCfg.captionFontSizePx },
+    // 既定スタイルは config(render.caption*)→ 無ければ描画側の定数。
+    // undefined のキーは載せない(props を JSON に書く render.props.json を汚さない)
+    caption: {
+      fontSizePx: renderCfg.captionFontSizePx,
+      ...(renderCfg.captionColor ? { color: renderCfg.captionColor } : {}),
+      ...(renderCfg.captionOutlineColor
+        ? { outlineColor: renderCfg.captionOutlineColor }
+        : {}),
+      ...(renderCfg.captionFontFamily
+        ? { fontFamily: renderCfg.captionFontFamily }
+        : {}),
+      ...(renderCfg.captionFontWeight
+        ? { fontWeight: renderCfg.captionFontWeight }
+        : {}),
+    },
     captions,
     overlays: overlayItems,
     wipeFull: remapSpans(overlays.wipeFull),

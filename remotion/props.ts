@@ -82,7 +82,16 @@ export type RenderProps = {
   screenRegion: Region;
   cameraRegion: Region;
   wipe: { widthPx: number; marginPx: number };
-  caption: { fontSizePx: number };
+  /** テロップの既定の見た目(config.yaml の render.caption* を buildRenderProps が
+   * 解決)。fontSizePx 以外は省略可で、無ければ描画側の定数
+   * (CAPTION_DEFAULT_*)が最終フォールバックになる */
+  caption: {
+    fontSizePx: number;
+    color?: string;
+    outlineColor?: string;
+    fontFamily?: string;
+    fontWeight?: number;
+  };
   /** テロップ(位置・スタイルは解決済み) */
   captions: Caption[];
   /** 素材オーバーレイ(overlays.json 由来。無ければ空) */

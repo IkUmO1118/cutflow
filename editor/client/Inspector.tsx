@@ -16,6 +16,7 @@ import type {
   Overlays,
   Transcript,
 } from "../../src/types.ts";
+import type { RenderProps } from "../../remotion/props.ts";
 import type { Selection } from "./model.ts";
 import { NumInput, fmtTime } from "./widgets.tsx";
 
@@ -36,7 +37,7 @@ export const Inspector = ({
   ovTracks,
   capTracks,
   stdCaptionPos,
-  captionFontSizePx,
+  captionDefaults,
   setCaptionTrackDefault,
   updateCutSeg,
   cutKeepSeg,
@@ -59,8 +60,9 @@ export const Inspector = ({
   capTracks: number;
   /** 位置未指定テロップの標準位置(数値欄のプレースホルダに使う) */
   stdCaptionPos: CaptionPos;
-  /** スタイル未指定テロップのフォントサイズ(config の render.captionFontSizePx) */
-  captionFontSizePx: number;
+  /** スタイル未指定テロップの既定の見た目(config の render.caption* を
+   * buildRenderProps が解決したもの = built.props.caption) */
+  captionDefaults: RenderProps["caption"];
   /** テロップトラックの標準位置・標準スタイルを設定(null で解除、undefined は現状維持) */
   setCaptionTrackDefault: (
     track: number,
@@ -108,21 +110,29 @@ export const Inspector = ({
     /** 座標の解釈(トラック標準の anchor)。数値欄の説明に使う */
     const posLabel =
       captionAnchorOf(s, overlays) === "topLeft" ? "テキスト左上" : "テキスト中心";
-    /** 個別指定の無い項目の値(トラック標準 → 既定)。色入力・placeholder に使う */
+    /** 個別指定の無い項目の値(トラック標準 → config の既定 → 定数)。
+     * 色入力・placeholder に使う */
     const base: CaptionStyle = {
-      fontSizePx: captionFontSizePx,
-      color: CAPTION_DEFAULT_COLOR,
-      outlineColor: CAPTION_DEFAULT_OUTLINE,
-      fontFamily: CAPTION_DEFAULT_FONT_FAMILY,
-      fontWeight: CAPTION_DEFAULT_FONT_WEIGHT,
+      fontSizePx: captionDefaults.fontSizePx,
+      color: captionDefaults.color ?? CAPTION_DEFAULT_COLOR,
+      outlineColor: captionDefaults.outlineColor ?? CAPTION_DEFAULT_OUTLINE,
+      fontFamily: captionDefaults.fontFamily ?? CAPTION_DEFAULT_FONT_FAMILY,
+      fontWeight: captionDefaults.fontWeight ?? CAPTION_DEFAULT_FONT_WEIGHT,
       ...trackDef?.style,
     };
-    /** いま効いているフォント種(個別 → トラック標準 → 既定)。select の値に使う */
-    const effFamily = s.style?.fontFamily ?? base.fontFamily;
-    /** プリセットに無い手書きのフォント種はそのまま選択肢に足して残す */
-    const familyOptions = FONT_PRESETS.some((p) => p.value === effFamily)
-      ? FONT_PRESETS
-      : [...FONT_PRESETS, { label: "(その他)", value: effFamily! }];
+    /** 「標準」= 個別指定なし(トラック標準 → config の既定)のフォント種 */
+    const defaultFamily = base.fontFamily ?? CAPTION_DEFAULT_FONT_FAMILY;
+    /** いま効いているフォント種(個別 → 標準)。select の値に使う */
+    const effFamily = s.style?.fontFamily ?? defaultFamily;
+    /** 先頭は「標準」。同値のプリセットは除外(option の key 重複防止)し、
+     * プリセットに無い手書きのフォント種はそのまま選択肢に足して残す */
+    const familyOptions = [
+      { label: "標準", value: defaultFamily },
+      ...FONT_PRESETS.filter((p) => p.value !== defaultFamily),
+      ...(effFamily !== defaultFamily && !FONT_PRESETS.some((p) => p.value === effFamily)
+        ? [{ label: "(その他)", value: effFamily }]
+        : []),
+    ];
     /** セグメントの style を項目単位で更新(undefined で項目を消し、空なら key ごと消す) */
     const patchStyle = (p: Partial<CaptionStyle>) => {
       const st: CaptionStyle = { ...s.style, ...p };
@@ -250,11 +260,11 @@ export const Inspector = ({
           <select
             value={effFamily}
             style={{ flex: 1, minWidth: 0 }}
-            title="このテロップのフォント種。空欄=標準(トラック標準 → 既定のゴシック)"
+            title="このテロップのフォント種。標準=トラック標準 → config の既定"
             onChange={(e) =>
               patchStyle({
                 fontFamily:
-                  e.target.value === CAPTION_DEFAULT_FONT_FAMILY ? undefined : e.target.value,
+                  e.target.value === defaultFamily ? undefined : e.target.value,
               })
             }
           >
@@ -567,8 +577,8 @@ export const Inspector = ({
 };
 
 /** フォント種のプリセット(macOS 標準の日本語フォント)。
- * 値はそのまま CSS font-family として使う */
-const FONT_PRESETS: { label: string; value: string }[] = [
+ * 値はそのまま CSS font-family として使う(設定モーダルとも共有) */
+export const FONT_PRESETS: { label: string; value: string }[] = [
   { label: "ゴシック(標準)", value: CAPTION_DEFAULT_FONT_FAMILY },
   {
     label: "丸ゴシック",

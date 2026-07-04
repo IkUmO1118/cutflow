@@ -28,11 +28,33 @@ export interface ProjectData {
    * 無ければ POST /api/proxy で生成する(収録ごとに1回) */
   proxyExists: boolean;
   renderCfg: Config["render"];
+  /** カット確認用プレビュー動画・プロキシの横幅(config の preview.width) */
+  previewCfg: { width: number };
+  /** エディタ設定(サーバー側で省略時の既定値まで解決した実値) */
+  editorCfg: EditorCfg;
   /** 最終レンダーの出力解像度(config の screenRegion) */
   output: { w: number; h: number };
   /** 前回のセッションが保存せずに終わった(クラッシュ等)ときに残る
    * 未保存編集の退避(.editor-draft.json)。無ければ null */
   draft: DraftData | null;
+}
+
+/** エディタ設定の解決済み実値(config.yaml editor セクション+既定値) */
+export interface EditorCfg {
+  maxUploadMb: number;
+  /** タイムラインに置く画像素材・尺不明素材の既定の尺(秒) */
+  defaultImageDurationSec: number;
+}
+
+/** POST /api/config のレスポンス。保存後の解決済み設定(クライアントは
+ * これで proj の該当フィールドを差し替える)。リクエストボディは
+ * ConfigPatch(src/lib/configEdit.ts。クライアントからは import type のみ=
+ * yaml パッケージをバンドルに入れない) */
+export interface ConfigSaveResult {
+  ok: true;
+  renderCfg: Config["render"];
+  previewCfg: { width: number };
+  editorCfg: EditorCfg;
 }
 
 /** POST /api/draft のボディ = .editor-draft.json の中身。未保存の編集を
