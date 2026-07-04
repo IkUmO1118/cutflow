@@ -110,6 +110,40 @@
   }
   header .exportMenu .approve { padding: 2px; }
   header .exportMenu .menu button { width: 100%; justify-content: center; }
+  /* 設定モーダル(ヘッダーの「設定」/ ⌘,)。exportMenu と同じ backdrop
+     パターンだが中央固定で、モーダルであることが分かるよう背面を薄く暗くする */
+  header > button.active { background: #2f3542; border-color: var(--dim); }
+  .settingsBackdrop {
+    position: fixed; inset: 0; z-index: 19;
+    background: rgba(0, 0, 0, 0.35);
+  }
+  .settingsModal {
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    z-index: 20; width: 640px; max-width: calc(100vw - 40px);
+    max-height: min(82vh, 720px); overflow-y: auto;
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+    padding: 14px 18px 16px;
+  }
+  .settingsModal h3 { margin: 0 0 2px; font-size: 15px; }
+  .settingsModal h4 {
+    margin: 14px 0 6px; font-size: 12px; color: var(--dim);
+    border-bottom: 1px solid var(--border); padding-bottom: 4px;
+  }
+  .settingsModal .field { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+  .settingsModal .field > label {
+    width: 190px; flex: none; color: var(--dim); font-size: 12px;
+  }
+  .settingsModal .field label.hint {
+    display: inline-flex; align-items: center; gap: 4px; color: var(--dim);
+  }
+  .settingsModal .foot {
+    display: flex; justify-content: flex-end; align-items: center;
+    gap: 8px; margin-top: 16px;
+  }
+  .settingsModal .foot .error { margin-right: auto; font-size: 12px; }
+  /* トランスポート右端の再生速度 */
+  .transport select.rate { padding: 2px 4px; font-size: 12px; }
   .banner {
     display: flex; align-items: center; gap: 12px;
     padding: 7px 14px;
@@ -397,6 +431,8 @@
   }
   .tlToolbar .helpTip:hover,
   .tlToolbar .helpTip.open { color: var(--text); border-color: var(--dim); }
+  /* 吸着トグル(ON のとき点灯) */
+  .tlToolbar > button.active { color: var(--accent); border-color: var(--accent); }
   .helpTip .menuBackdrop { position: fixed; inset: 0; z-index: 19; }
   .helpTipPop {
     position: absolute; bottom: calc(100% + 6px); left: -4px; z-index: 30;

@@ -158,10 +158,10 @@ export const Main = (props: RenderProps) => {
         <OutlinedText
           text={caption.text}
           fontSizePx={caption.style?.fontSizePx ?? props.caption.fontSizePx}
-          color={caption.style?.color}
-          outlineColor={caption.style?.outlineColor}
-          fontFamily={caption.style?.fontFamily}
-          fontWeight={caption.style?.fontWeight}
+          color={caption.style?.color ?? props.caption.color}
+          outlineColor={caption.style?.outlineColor ?? props.caption.outlineColor}
+          fontFamily={caption.style?.fontFamily ?? props.caption.fontFamily}
+          fontWeight={caption.style?.fontWeight ?? props.caption.fontWeight}
           background={caption.style?.background}
           maxWidth={maxWidth}
         />

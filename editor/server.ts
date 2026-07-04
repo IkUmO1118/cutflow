@@ -5,6 +5,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  renameSync,
   rmSync,
   statSync,
   watch,
@@ -23,6 +24,13 @@ import { preview } from "../src/stages/preview.ts";
 import { findBgm, render } from "../src/stages/render.ts";
 import { validateDocs } from "../src/stages/validate.ts";
 import type { Config } from "../src/lib/config.ts";
+import {
+  applyConfigEdits,
+  resolvedEditorCfg,
+  syncEditorCfgFromYaml,
+  validateConfigPatch,
+} from "../src/lib/configEdit.ts";
+import type { ConfigPatch } from "../src/lib/configEdit.ts";
 import type {
   AutoCuts,
   CutPlan,
@@ -30,7 +38,12 @@ import type {
   Overlays,
   Transcript,
 } from "../src/types.ts";
-import type { DraftData, ProjectData, SaveRequest } from "./client/apiTypes.ts";
+import type {
+  ConfigSaveResult,
+  DraftData,
+  ProjectData,
+  SaveRequest,
+} from "./client/apiTypes.ts";
 
 /**
  * cutflow エディタのローカルサーバー。
@@ -41,7 +54,12 @@ import type { DraftData, ProjectData, SaveRequest } from "./client/apiTypes.ts";
  *   カットは焼き込まず Player が keep 区間を飛び飛びに再生する方式なので、
  *   proxy.mp4 は収録ごとに1回作れば編集中の再生成は不要
  */
-export async function startEditor(dir: string, cfg: Config): Promise<void> {
+export async function startEditor(
+  dir: string,
+  cfg: Config,
+  /** 設定画面(POST /api/config)が書き戻す config.yaml のパス */
+  cfgPath: string,
+): Promise<void> {
   const editorDir = dirname(fileURLToPath(import.meta.url));
 
   // クライアントは起動時に一度だけメモリ上へバンドルする(~100ms)
@@ -77,7 +95,7 @@ export async function startEditor(dir: string, cfg: Config): Promise<void> {
   });
 
   const server = createServer((req, res) => {
-    handle(req, res, dir, cfg, { bundleJs, indexHtml }, hub).catch((err: Error) => {
+    handle(req, res, dir, cfg, cfgPath, { bundleJs, indexHtml }, hub).catch((err: Error) => {
       // HttpError は想定内の拒否(不正な保存=400、大きすぎる素材=413 等)。
       // それ以外は想定外なのでログに残して 500 で返す
       if (err instanceof HttpError) {
@@ -134,6 +152,7 @@ async function handle(
   res: ServerResponse,
   dir: string,
   cfg: Config,
+  cfgPath: string,
   assets: { bundleJs: string; indexHtml: string },
   hub: EventHub,
 ): Promise<void> {
@@ -205,6 +224,39 @@ async function handle(
       rmSync(join(dir, DRAFT_FILE), { force: true });
     }
     sendJson(res, 200, { ok: true });
+    return;
+  }
+  if (req.method === "POST" && path === "/api/config") {
+    // 設定画面の保存。config.yaml を部分更新(コメント保持)し、プロセス内の
+    // cfg も更新する(以後の preview / render / proxy に即反映)。
+    // ボディの受信は非同期で、その間にジョブが始まると 409 判定をすり抜けかね
+    // ない。先にボディを読み切り、以降は同期処理だけにして書き込みの窓を閉じる
+    const patch = (await readBody(req)) as ConfigPatch;
+    if (heavyJob || proxyBuilding) {
+      throw new HttpError(
+        409,
+        "書き出し・プロキシ生成の実行中は設定を保存できません。完了までお待ちください",
+      );
+    }
+    const errors = validateConfigPatch(patch);
+    if (errors.length > 0) {
+      throw new HttpError(400, `設定を保存できません: ${errors.join(" / ")}`);
+    }
+    // 現在のディスク内容(外部編集ぶんを含む)を土台にパッチを当て、一時ファイル
+    // + rename でアトミックに置き換える(並行する CLI が半端な YAML を読まない)。
+    // メモリ上の cfg も書き込んだ YAML から取り込み直す(外部編集ぶんも反映)
+    const nextYaml = applyConfigEdits(readFileSync(cfgPath, "utf8"), patch);
+    const tmp = `${cfgPath}.tmp-${process.pid}`;
+    writeFileSync(tmp, nextYaml);
+    renameSync(tmp, cfgPath);
+    syncEditorCfgFromYaml(cfg, nextYaml);
+    const result: ConfigSaveResult = {
+      ok: true,
+      renderCfg: cfg.render,
+      previewCfg: { width: cfg.preview.width },
+      editorCfg: resolvedEditorCfg(cfg, DEFAULT_MAX_UPLOAD_MB),
+    };
+    sendJson(res, 200, result);
     return;
   }
   if (req.method === "POST" && path === "/api/upload") {
@@ -306,6 +358,8 @@ function loadProject(dir: string, cfg: Config): ProjectData {
     silences: readJson<AutoCuts | null>("cuts.auto.json", null)?.silences ?? null,
     proxyExists: existsSync(join(dir, "proxy.mp4")),
     renderCfg: cfg.render,
+    previewCfg: { width: cfg.preview.width },
+    editorCfg: resolvedEditorCfg(cfg, DEFAULT_MAX_UPLOAD_MB),
     output: { w: cfg.ingest.screenRegion.w, h: cfg.ingest.screenRegion.h },
     draft,
   };

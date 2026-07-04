@@ -3,7 +3,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Command } from "commander";
 import { backupEditableFiles } from "./lib/backup.ts";
-import { loadConfig } from "./lib/config.ts";
+import { loadConfig, resolveConfigPath } from "./lib/config.ts";
 import { ingest } from "./stages/ingest.ts";
 import { transcribe } from "./stages/transcribe.ts";
 import { detect } from "./stages/detect.ts";
@@ -276,10 +276,13 @@ program
     "GUI エディタを起動(overlays / transcript / cutplan をブラウザで編集)",
   )
   .action(async (dir: string) => {
-    const cfg = loadConfig(program.opts().config);
+    const explicit = program.opts().config as string | undefined;
+    const cfg = loadConfig(explicit);
+    // 設定画面(POST /api/config)が書き戻す先。読んだ config.yaml と同じパス
+    const cfgPath = resolveConfigPath(explicit);
     // esbuild 等のエディタ専用依存を CLI 起動時に読ませないため動的 import
     const { startEditor } = await import("../editor/server.ts");
-    await startEditor(resolveDir(dir), cfg);
+    await startEditor(resolveDir(dir), cfg, cfgPath);
   });
 
 program

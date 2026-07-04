@@ -98,6 +98,8 @@ const Waveform = memo(
 const ROW_H_MIN = ROW_H;
 const ROW_H_MAX = 96;
 const ROW_H_STORE = "cutflow.editor.trackHeights";
+/** ドロップ吸着 ON/OFF の保存キー(既定 ON) */
+const SNAP_STORE = "cutflow.editor.snapEnabled";
 
 /**
  * 画面下部のマルチトラックタイムライン。横軸はカット後の秒、上=前面。
@@ -135,6 +137,7 @@ export const Timeline = ({
   onToggleTrackMute,
   hiddenLayers,
   onToggleTrackHide,
+  defaultDurationSec,
 }: {
   /** タイムライン全体の高さ(px)。上部との分割バーのドラッグで変わる */
   height: number;
@@ -186,6 +189,8 @@ export const Timeline = ({
   /** 一時非表示中のレイヤー(ラベルの目トグル。プレビューのみ) */
   hiddenLayers: LayerId[];
   onToggleTrackHide: (id: LayerId) => void;
+  /** 画像・尺不明素材の既定の尺(秒)。config の editor.defaultImageDurationSec */
+  defaultDurationSec: number;
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   /** 左のラベル列(縦スクロールを tlScroll と同期させる) */
@@ -199,6 +204,13 @@ export const Timeline = ({
   const [helpOpen, setHelpOpen] = useState(false);
   /** トラック名の編集中(テロップトラックのラベルをダブルクリック) */
   const [renaming, setRenaming] = useState<{ id: TrackId; value: string } | null>(null);
+  /** ドロップ時の吸着(クリップ境界・再生ヘッド・0/末尾)の ON/OFF */
+  const [snapOn, setSnapOn] = useState(
+    () => localStorage.getItem(SNAP_STORE) !== "false",
+  );
+  useEffect(() => {
+    localStorage.setItem(SNAP_STORE, String(snapOn));
+  }, [snapOn]);
   /** トラックごとの高さ(px)。ラベル下端のドラッグで変更、次回起動時も引き継ぐ */
   const [trackHeights, setTrackHeights] = useState<Record<string, number>>(() => {
     try {
@@ -446,8 +458,8 @@ export const Timeline = ({
     if (!dragMaterial) setDrop(null);
   }, [dragMaterial]);
 
-  /** ゴーストの幅に使う尺(秒)。画像・不明は配置時の既定と同じ4秒 */
-  const dragDurSec = dragMaterial?.durationSec ?? 4;
+  /** ゴーストの幅に使う尺(秒)。画像・不明は配置時の既定と同じ */
+  const dragDurSec = dragMaterial?.durationSec ?? defaultDurationSec;
   const dragName = dragMaterial
     ? dragMaterial.file.replace(/^materials\//, "")
     : "ファイル";
@@ -465,9 +477,11 @@ export const Timeline = ({
     return null;
   };
 
-  /** ゴーストの左右端をクリップ境界・再生ヘッド・0/末尾に吸着する */
+  /** ゴーストの左右端をクリップ境界・再生ヘッド・0/末尾に吸着する。
+   * snapOn が false のときは素通し(細かい位置を狙うとき用のトグル) */
   const SNAP_PX = 8;
   const snapDropT = (t: number): { t: number; snapLine: number | null } => {
+    if (!snapOn) return { t, snapLine: null };
     const cands = [0, playhead, duration];
     for (const c of clips) cands.push(c.outStart, c.outEnd);
     let best: { t: number; line: number; px: number } | null = null;
@@ -617,6 +631,13 @@ export const Timeline = ({
           </button>
         </span>
         <span className="spacer" />
+        <button
+          className={snapOn ? "active" : ""}
+          title="素材ドロップ時の吸着(クリップ境界・再生ヘッド・0/末尾)。細かい位置を狙うときは OFF に"
+          onClick={() => setSnapOn((v) => !v)}
+        >
+          吸着
+        </button>
         <span className="tlZoom">
           <button title="縮小(⌘+スクロールでも可)" disabled={zoom <= 1} onClick={() => applyZoom(1 / 1.5)}>
             −
