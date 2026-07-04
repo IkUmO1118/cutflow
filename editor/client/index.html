@@ -91,6 +91,25 @@
     display: flex; align-items: center; gap: 8px;
     font-size: 12px; color: #fbbf24; white-space: nowrap;
   }
+  header .saveStatus { font-size: 12px; color: var(--dim); white-space: nowrap; }
+  header .saveStatus.dirty { color: #fbbf24; }
+  /* ヘッダー右「書き出し」ポップオーバー(preview / 承認 / render)。
+     Timeline のトラック追加メニューと同じ backdrop + 絶対配置パターン */
+  header .exportMenu { position: relative; display: inline-flex; }
+  header .exportMenu button.active { background: #2f3542; border-color: var(--dim); }
+  header .exportMenu .menuBackdrop { position: fixed; inset: 0; z-index: 19; }
+  header .exportMenu .menu {
+    position: absolute; top: 100%; right: 0; z-index: 20;
+    margin-top: 4px; padding: 8px; min-width: 210px;
+    display: flex; flex-direction: column; gap: 6px;
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+  }
+  header .exportMenu .exportTitle {
+    font-size: 12px; color: var(--dim); padding: 0 2px 2px;
+  }
+  header .exportMenu .approve { padding: 2px; }
+  header .exportMenu .menu button { width: 100%; justify-content: center; }
   .banner {
     display: flex; align-items: center; gap: 12px;
     padding: 7px 14px;
