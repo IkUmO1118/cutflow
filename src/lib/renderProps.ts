@@ -147,7 +147,13 @@ export function buildRenderProps(args: {
   }
   const insertItems = insertSpans(keeps, activeInserts).map((sp) => {
     const ins = activeInserts[sp.index];
-    return { start: sp.start, end: sp.end, file: ins.file, fit: ins.fit ?? "contain" as const };
+    return {
+      start: sp.start,
+      end: sp.end,
+      file: ins.file,
+      fit: ins.fit ?? "contain" as const,
+      ...(ins.startFrom ? { startFrom: round2(ins.startFrom) } : {}),
+    };
   });
 
   const durationSec =

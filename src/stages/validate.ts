@@ -255,6 +255,9 @@ export function validateDocs(
         if (!isNum(o.durationSec) || o.durationSec <= 0) {
           err(f, w, `durationSec(挿入する尺)は正の数です: ${JSON.stringify(o.durationSec)}`);
         }
+        if (o.startFrom !== undefined && (!isNum(o.startFrom) || o.startFrom < 0)) {
+          err(f, w, `startFrom(頭出し・素材内の開始秒)は0以上の数です: ${JSON.stringify(o.startFrom)}`);
+        }
         checkFile(w, o.file);
         checkFit(w, o.fit);
       },

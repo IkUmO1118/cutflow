@@ -44,6 +44,13 @@ test("approved が真偽値でないとエラー", () => {
   assert.ok(r.errors.some((e) => e.where === "approved"));
 });
 
+test("insert の startFrom が負だとエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    overlays: { inserts: [{ at: 5, file: "materials/x.mp4", durationSec: 3, startFrom: -1 }] },
+  }));
+  assert.ok(r.errors.some((e) => e.message.includes("startFrom")));
+});
+
 test("keep が時系列で重なるとエラー", () => {
   const r = validateDocs(DIR, baseDocs({
     cutplan: {

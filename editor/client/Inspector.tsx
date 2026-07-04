@@ -382,6 +382,18 @@ export const Inspector = ({
           />
         </div>
         <div className="field">
+          <label title="素材ファイル内の再生開始位置。0=頭から。左端ドラッグでも調整できる">
+            頭出し(秒)
+          </label>
+          <NumInput
+            value={ins.startFrom ?? 0}
+            onCommit={(v) =>
+              v !== undefined &&
+              updateInsert(selection.index, { startFrom: Math.max(0, v) })
+            }
+          />
+        </div>
+        <div className="field">
           <label>ファイル</label>
           <select
             value={ins.file}
