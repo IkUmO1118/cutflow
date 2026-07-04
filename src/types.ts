@@ -254,6 +254,10 @@ export interface Overlays {
     file: string;
     /** 挿入する尺(秒)。動画の実尺より長いと最後のフレームで止まる */
     durationSec: number;
+    /** 頭出し(In点)。素材ファイル内の再生開始位置(秒)。省略時 0(頭から)。
+     *  動画素材のみ有効(画像では無視)。startFrom + durationSec が素材の
+     *  実尺を超えると、超えた分は最後のフレームで止まる */
+    startFrom?: number;
     /** contain: 全体を見せる(余白は黒) / cover: 画面を埋める。省略時 contain */
     fit?: "contain" | "cover";
   }[];

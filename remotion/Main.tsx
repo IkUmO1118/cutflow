@@ -230,6 +230,7 @@ export const Main = (props: RenderProps) => {
               <OffthreadVideo
                 muted={props.muteBase ?? false}
                 src={staticFile(ins.file)}
+                startFrom={Math.round((ins.startFrom ?? 0) * fps)}
                 style={{ width: "100%", height: "100%", objectFit: ins.fit }}
               />
             )}

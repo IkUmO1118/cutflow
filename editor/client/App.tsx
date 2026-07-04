@@ -594,15 +594,16 @@ export const App = () => {
       });
     });
     // 映像トラックへの挿入クリップ(インサート編集)。音声ごと合成されるので
-    // 波形は素材ファイル自身の音(先頭から再生される)
+    // 波形は素材ファイル自身の音(頭出し startFrom の位置から再生される)。
+    // 左端=頭出し(In点トリム)、右端=尺の調整
     insertSpans(keeps, inserts).forEach((sp) => {
       const ins = inserts[sp.index];
       cs.push({
         kind: "insert", index: sp.index, track: "cut",
         outStart: sp.start, outEnd: sp.end,
         label: `↳ ${ins.file.replace(/^materials\//, "")}`,
-        editable: true, noTrimStart: true, // 左端=アンカー。長さは右端で調整
-        wave: { src: ins.file, startSec: 0 },
+        editable: true,
+        wave: { src: ins.file, startSec: ins.startFrom ?? 0 },
       });
     });
     // BGM: 収録フォルダの bgm.*(表示のみ。音量などは config.yaml)。
@@ -913,8 +914,20 @@ export const App = () => {
           ...ins,
           durationSec: round2(Math.max(MIN_SPAN, ins.durationSec + d)),
         };
+      } else if (mode === "trim-start") {
+        // 頭出し(In点トリム / ripple-trim-in): 割り込み位置 at は固定。素材の頭を
+        // 削り(startFrom 増・尺減)、out 点(startFrom+尺)は保つ。左端は動かず
+        // 右端が縮み、後続はカット後タイムラインで左へ詰まる(ベースは前に増えない)。
+        // 頭が削れていることは波形(startSec=startFrom)が後ろへずれることで分かる
+        const sf0 = ins.startFrom ?? 0;
+        const out = sf0 + ins.durationSec;
+        const sf1 = clamp(round2(sf0 + d), 0, round2(out - MIN_SPAN));
+        const next = { ...ins, durationSec: round2(out - sf1) };
+        if (sf1 > 0) next.startFrom = sf1;
+        else delete next.startFrom;
+        arr[sel.index] = next;
       } else {
-        // 自分を除いた写像の上でアンカー(元収録の秒)を追従させる
+        // move: 自分を除いた写像の上でアンカー(元収録の秒)を追従させる
         const others = arr.filter((_, j) => j !== sel.index);
         const tlx = buildTimeline(keepsOf(ctx.cutplan), others);
         const durX = tlx.length > 0 ? tlx[tlx.length - 1].end + tlx[tlx.length - 1].offset : 0;
@@ -1259,7 +1272,9 @@ export const App = () => {
     setOverlays((prev) => {
       if (!prev) return prev;
       const arr = [...(prev.inserts ?? [])];
-      arr[i] = { ...arr[i], ...patch };
+      const merged = { ...arr[i], ...patch };
+      if (!merged.startFrom) delete merged.startFrom; // 0/未指定は省略して JSON を汚さない
+      arr[i] = merged;
       return { ...prev, inserts: arr };
     });
   };
