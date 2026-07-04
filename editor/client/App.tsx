@@ -230,6 +230,8 @@ export const App = () => {
   const [externalChange, setExternalChange] = useState(false);
   /** 前回のセッションの未保存編集(自動退避)。復元するか人間が選ぶまで保持 */
   const [draftOffer, setDraftOffer] = useState<DraftData | null>(null);
+  /** ヘッダー右の「書き出し」ポップオーバー(preview / 承認 / render)の開閉 */
+  const [exportOpen, setExportOpen] = useState(false);
 
   /** ディスクの内容で全ドキュメントを読み込み直す。undo/redo は
    * 古いドキュメント由来で外部の編集を巻き戻してしまうので破棄する */
@@ -1647,45 +1649,69 @@ export const App = () => {
             )}
           </span>
         )}
-        <label
-          className="approve"
-          title="プレビューで確認できたらチェック(cutplan.json の approved。render の実行に必要)"
+        <span
+          className={anyDirty ? "saveStatus dirty" : "saveStatus"}
+          title="変更は ⌘S で保存。未保存の編集は自動退避され、閉じる前に確認が出ます"
         >
-          <input
-            type="checkbox"
-            checked={cutplan.approved}
-            onChange={(e) => {
-              pushHistory();
-              setCutplan((p) => p && { ...p, approved: e.target.checked });
-            }}
-          />
-          承認済み
-        </label>
-        <button
-          className="primary"
-          disabled={!anyDirty || busy !== null}
-          onClick={() => void onSave()}
-        >
-          {busy === "save" ? "保存中…" : anyDirty ? "保存 ⌘S ●" : "保存済み"}
-        </button>
-        <button
-          disabled={job?.status === "running" || busy !== null}
-          title="カット確認用の軽い動画(preview.mp4)を生成する。未保存の編集は自動で保存してから走る"
-          onClick={() => void runExport("preview")}
-        >
-          プレビュー生成
-        </button>
-        <button
-          disabled={!cutplan.approved || job?.status === "running" || busy !== null}
-          title={
-            cutplan.approved
-              ? "最終レンダー(final.mp4)を生成する。完了すると Finder で開く"
-              : "先に「承認済み」にチェックしてください(render の承認ゲート)"
-          }
-          onClick={() => void runExport("render")}
-        >
-          レンダー
-        </button>
+          {busy === "save" ? "保存中…" : anyDirty ? "● 未保存 (⌘S)" : "保存済み"}
+        </span>
+        <div className="exportMenu">
+          <button
+            className={exportOpen ? "active" : ""}
+            onClick={() => setExportOpen((o) => !o)}
+          >
+            書き出し ▾
+          </button>
+          {exportOpen && (
+            <>
+              <div className="menuBackdrop" onClick={() => setExportOpen(false)} />
+              <div className="menu exportPanel">
+                <div className="exportTitle">書き出し</div>
+                <label
+                  className="approve"
+                  title="プレビューで確認できたらチェック(cutplan.json の approved。render の実行に必要)"
+                >
+                  <input
+                    type="checkbox"
+                    checked={cutplan.approved}
+                    onChange={(e) => {
+                      pushHistory();
+                      setCutplan((p) => p && { ...p, approved: e.target.checked });
+                    }}
+                  />
+                  承認済み
+                </label>
+                <button
+                  className="primary"
+                  disabled={
+                    !cutplan.approved || job?.status === "running" || busy !== null
+                  }
+                  title={
+                    cutplan.approved
+                      ? "最終レンダー(final.mp4)を生成する。完了すると Finder で開く"
+                      : "先に「承認済み」にチェックしてください(render の承認ゲート)"
+                  }
+                  onClick={() => {
+                    setExportOpen(false);
+                    void runExport("render");
+                  }}
+                >
+                  レンダー
+                </button>
+                <button
+                  disabled={job?.status === "running" || busy !== null}
+                  title="カット確認用の軽い動画(preview.mp4)を生成する。未保存の編集は自動で保存してから走る"
+                  onClick={() => {
+                    setExportOpen(false);
+                    void runExport("preview");
+                  }}
+                >
+                  プレビュー生成
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </header>
 
       <div className="stage" ref={stageRef}>
