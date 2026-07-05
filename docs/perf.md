@@ -114,3 +114,45 @@ render.ts の remotion CLI 呼び出しに反映。`--log verbose` で
 クロップ・ワイプ・テロップのレイアウト崩れは無し(画面キャプチャの
 細かい文字の可読性はプロキシ解像度画像では判断できないため、最終判断は
 人間の preview に委ねる)。
+
+## フェーズ3: proxy/preview のエンコーダ切替(2026-07-05)
+
+`proxy.ts` / `preview.ts` のビデオエンコード引数を `src/lib/videoEncode.ts`
+に切り出し、config.yaml `preview.videoEncoder` で `h264_videotoolbox`
+(既定・`-q:v 50`)と従来の `libx264 -preset ultrafast -crf 28` を切替可能に
+した。`-g 30`(GOP 1秒)と `+faststart` はどちらでも必ず付く。
+
+同一収録(実際の proxy/preview 生成パイプライン、loudnorm 実測込み)での実測:
+
+| コマンド | libx264(従来) | h264_videotoolbox(新既定) |
+|---|---|---|
+| `proxy`(`frames` 経由の自動生成) | 10.3秒 / 18.5MB | 10.1〜10.2秒 / 6.5MB |
+| `preview` | 8.1秒 / 12.6MB | 7.9〜8.0秒 / 4.5MB |
+
+**所見**: 生成時間はフェーズ2の Remotion と同様にほぼ差が無かった
+(decode・scale・loudnorm 実測側が支配的で、この解像度・尺では
+エンコード自体がボトルネックではない)。一方でファイルサイズは
+`h264_videotoolbox` が libx264 の 1/3〜1/2.8 程度と明確に小さい。
+画質はターミナルの文字・顔とも同一フレームで目視比較し、プレビュー
+解像度(1280px)では判別できる劣化は無かった。
+
+生成時間で明確な勝者が出なかったため、判断基準は
+「同等の速度・画質でファイルサイズが小さい」という点に置き、
+`h264_videotoolbox` を新しい既定にした(`videoEncoder: libx264` で
+いつでも従来動作に戻せる)。cut.mp4(cutFullRes)側はもともと
+`h264_videotoolbox` を無条件で使っており、今回の変更でこの前提と
+揃った。
+
+エディタのスモークテスト: `node src/cli.ts editor` を再起動した上で
+(クライアントは起動時バンドルのため)確認。この環境には Chrome が
+無く chrome-devtools MCP でのブラウザ操作(実クリック・シーク)は
+実行できなかったため、代わりにサーバー配信側を検証した:
+`/media/proxy.mp4` への Range リクエストで `206 Partial Content` +
+正しい `Content-Range` を確認(Player のシークが依存する経路)、
+`ftyp→moov→mdat` の順(+faststart 効いている)とキーフレーム間隔
+ちょうど1秒(`-g 30` 反映)を実ファイルから直接確認した。ブラウザでの
+実際の見た目・操作感の最終確認は人間に委ねる。
+
+preview.mp4 を proxy.mp4 から切り出す案(音声正規化の二重適用と
+staleness 連鎖の懸念あり)は、proxy 高速化後の `preview` 生成が
+7.9〜8.1秒(30秒超の痛点なし)のため、今回は提案のみに留め実装しない。
