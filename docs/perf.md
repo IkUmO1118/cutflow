@@ -41,3 +41,30 @@ loudnorm 実測は誤差程度(2.3秒)。
 - フェーズ3(proxy/preview のエンコーダ切替)は `proxy`(10.2秒)・
   `preview`(9.0秒)が対象。すでに軽いので改善余地は小さいが、
   収録が長くなるほど効いてくる。
+
+## フェーズ1: cut.mp4 キャッシュ(2026-07-05)
+
+`cut.keeps.json`(mergeIntervals 済み keeps・`targetLufs`・
+`systemAudio.mix/volumeDb`・`manifest.audio.micStream/systemStream`・
+元収録ファイルの mtime+size をキーとして記録)が `cut.mp4` と一致すれば
+render はそのまま再利用し、loudnorm実測+ffmpeg cut を省略する。
+
+同一収録での実測:
+
+| シナリオ | ffmpeg cut 段 | render 合計 |
+|---|---|---|
+| 初回(cut.keeps.json なし) | loudnorm実測 2.3秒 + ffmpeg cut 21.2秒 | 221.2秒 |
+| 再実行・変更なし | スキップ(「cut.mp4 を再利用します」) | 205.7秒 |
+| `targetLufs` を変更(-14→-16) | loudnorm実測 2.4秒 + ffmpeg cut 21.2秒(再生成) | 216.7秒 |
+| `transcript.json` だけ編集(keeps不変) | スキップ(再利用) | 234.5秒/250.6秒 |
+
+**所見**: keeps・音声設定・元収録ファイルが不変な再実行(テロップ・演出の
+微調整サイクル)では ffmpeg cut 段(約23.5秒)が丸ごと消える。`targetLufs`
+変更時は正しく検知して再生成された(単体テスト: `test/cutCache.test.ts`
+で keeps / targetLufs / systemAudio / manifest.audio / 元ファイルの
+mtime・size のいずれの変化も不一致として検出することを固定済み)。
+render 合計の分散は Remotion 段(192〜251秒)の実行時ばらつきが支配的で、
+ffmpeg cut のスキップ自体の効果は内訳行で確認できる。
+
+**切り戻し**: `cut.keeps.json` と `cut.mp4` を削除すれば次回 render は
+常にフル再生成に戻る。
