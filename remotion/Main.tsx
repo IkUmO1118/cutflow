@@ -24,6 +24,7 @@ import {
 import type { CaptionBackground, LayerId } from "../src/types.ts";
 import { frameSpans } from "../src/lib/renderProps.ts";
 import { buildCaptionIndex, lookupCaption } from "../src/lib/captionIndex.ts";
+import { duckFactorAt } from "../src/lib/duck.ts";
 import type { OverlayItem, Region, RenderProps, Span } from "./props.ts";
 
 const JP_FONT = CAPTION_DEFAULT_FONT_FAMILY;
@@ -307,23 +308,11 @@ const BgmTrack = ({
   const fadeOutFrames = (track.fadeOutSec ?? 0) * fps;
   const duck = track.duck;
   const duckGain = duck ? Math.pow(10, duck.duckDb / 20) : 1;
-  /** 発話ダッキングの係数(1=通常、duckGain=下げ切り)。区間の手前
-   * fadeSec 秒で下げ、後ろ fadeSec 秒で戻す。重なりは小さい方を採る */
-  const duckFactorAt = (sec: number): number => {
-    if (!duck) return 1;
-    const fade = Math.max(duck.fadeSec, 1 / fps);
-    let g = 1;
-    for (const s of duck.spans) {
-      let v = 1;
-      if (sec >= s.start && sec < s.end) v = duckGain;
-      else if (sec >= s.start - fade && sec < s.start)
-        v = 1 - ((sec - (s.start - fade)) / fade) * (1 - duckGain);
-      else if (sec >= s.end && sec < s.end + fade)
-        v = duckGain + ((sec - s.end) / fade) * (1 - duckGain);
-      if (v < g) g = v;
-    }
-    return g;
-  };
+  // 発話ダッキングの係数(1=通常、duckGain=下げ切り)を区間の手前 fadeSec 秒で
+  // 下げ、後ろ fadeSec 秒で戻す。duck.spans は非重複・隙間 > fadeSec×2 が
+  // 保証されているので lib/duck.ts の二分探索に落とせる(毎フレーム
+  // duck.spans 全件を線形走査していたのを解消)
+  const duckFade = duck ? Math.max(duck.fadeSec, 1 / fps) : 0;
   return (
     <Sequence from={from} durationInFrames={durationInFrames}>
       <Audio
@@ -350,7 +339,8 @@ const BgmTrack = ({
                   extrapolateRight: "clamp",
                 })
               : 1;
-          return gain * duckFactorAt(sec) * fadeIn * fadeOut;
+          const duckFactor = duck ? duckFactorAt(duck.spans, sec, duckFade, duckGain) : 1;
+          return gain * duckFactor * fadeIn * fadeOut;
         }}
       />
     </Sequence>
