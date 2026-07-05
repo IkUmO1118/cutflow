@@ -41,7 +41,7 @@ import {
   snapToOutput,
   toOutputTime,
 } from "../lib/timeline.ts";
-import { buildProxy } from "./proxy.ts";
+import { buildProxy, isProxyStale } from "./proxy.ts";
 import type { Config } from "../lib/config.ts";
 import type { CutPlan, Manifest, Overlays, Transcript } from "../types.ts";
 
@@ -88,9 +88,14 @@ export async function frames(
     throw new Error("keep 区間が0件です(cutplan.json を確認してください)");
   }
 
-  // ベース映像はエディタと同じ軽量プロキシ。無ければここで作る(収録ごとに1回)
+  // ベース映像はエディタと同じ軽量プロキシ。無ければここで作る(収録ごとに1回)。
+  // 焼き込み済みの設定(ラウドネス・システム音声・プレビュー幅・エンコーダ)か
+  // 元収録ファイルが前回の生成から変わっていれば陳腐化しているので作り直す
   if (!existsSync(join(dir, "proxy.mp4"))) {
     console.log("proxy.mp4 がないので生成します(初回のみ・数十秒)...");
+    await buildProxy(dir, cfg);
+  } else if (isProxyStale(dir, cfg)) {
+    console.log("proxy.mp4 が設定・元収録と食い違っているので作り直します...");
     await buildProxy(dir, cfg);
   }
 

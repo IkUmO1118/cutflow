@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { build } from "esbuild";
 import { run } from "../src/lib/exec.ts";
-import { buildProxy } from "../src/stages/proxy.ts";
+import { buildProxy, isProxyStale } from "../src/stages/proxy.ts";
 import { preview } from "../src/stages/preview.ts";
 import { findBgm, render } from "../src/stages/render.ts";
 import { validateDocs } from "../src/stages/validate.ts";
@@ -373,6 +373,7 @@ function loadProject(dir: string, cfg: Config): ProjectData {
     bgmFile: findBgm(dir),
     silences: readJson<AutoCuts | null>("cuts.auto.json", null)?.silences ?? null,
     proxyExists: existsSync(join(dir, "proxy.mp4")),
+    proxyStale: isProxyStale(dir, cfg),
     renderCfg: cfg.render,
     previewCfg: { width: cfg.preview.width },
     editorCfg: resolvedEditorCfg(cfg, DEFAULT_MAX_UPLOAD_MB),

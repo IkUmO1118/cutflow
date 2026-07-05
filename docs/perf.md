@@ -278,3 +278,32 @@ mtime・size / hardwareAcceleration のいずれの変化も固定済み。
 
 **切り戻し**: `render.key.json` を削除すれば次回 render は常にフル再生成に
 戻る。
+
+## フェーズ6: proxy.mp4 陳腐化キー(2026-07-05)
+
+`proxy.key.json`(ラウドネス・システム音声・プレビュー幅・エンコーダ・
+元収録ファイルの mtime+size をキーとして記録)を GET /api/project が
+`isProxyStale` で照合し、レスポンスの `proxyStale` に載せる。既存のエディタ
+設定バナー(`proxyStale` state・`regenProxyForSettings`)はこのセッション中の
+設定保存で楽観的に立てていたが、別セッション・別ツール(Claude Code の
+`config.yaml` 直接編集など)での変更やエディタ再起動後は検知できなかった。
+サーバー側の判定を起動時・外部変更のリロード時に取り込むことで解消した。
+
+同一収録(`2026-07-02-whisper-bench`)でエディタサーバーを起動し、
+`/api/project` / `/api/config` / `/api/proxy` を直接叩いて確認(完了基準):
+
+| 手順 | proxyStale |
+|---|---|
+| 初回起動時(proxy.key.json 未生成の古い proxy.mp4) | false(判定材料なしなので「陳腐化なし」扱い) |
+| `/api/proxy` でキーを生成した直後 | false |
+| `targetLufs` を -14→-16 へ変更 | **true** |
+| `/api/proxy` で再生成 | false(戻る) |
+
+**所見**: キー未生成時は誤って再生成を促さない(false)、設定変更は
+即座に不一致として検知され、再生成で正しく解消することを確認。
+`test/proxyCache.test.ts` で targetLufs / systemAudio / preview.width /
+videoEncoder / 元ファイルの mtime・size・ファイル名のいずれの変化も
+不一致として固定済み。
+
+**切り戻し**: `proxy.key.json` を削除すれば常に「陳腐化なし」判定に戻る
+(誤って古い proxy.mp4 を再生成させることはない)。

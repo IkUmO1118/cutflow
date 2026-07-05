@@ -274,6 +274,11 @@ export const App = () => {
         setOverlays(p.overlays);
         setTranscript(p.transcript);
         setBgm(p.bgm);
+        // proxy.mp4 の陳腐化はサーバーが proxy.key.json とファイルから毎回
+        // 判定する(config.yaml が別セッション・別ツールで変わった場合も
+        // 拾える)。false→true 方向だけ反映し、既にバナーが出ている
+        // (このセッション中の設定保存で立てた)ものは消さない
+        if (p.proxyStale) setProxyStale(true);
         // 前回のセッションが保存せずに終わっていたら(クラッシュ等)、
         // 退避された編集の復元を人間に選ばせる。中身が正のデータと同じなら
         // 復元するものが無いので黙って片付ける
@@ -388,6 +393,7 @@ export const App = () => {
       setOverlays(p.overlays);
       setTranscript(p.transcript);
       setBgm(p.bgm);
+      if (p.proxyStale) setProxyStale(true);
       undoRef.current = [];
       redoRef.current = [];
       historyKeyRef.current = null;
