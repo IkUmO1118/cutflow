@@ -58,6 +58,11 @@ export interface Config {
       /** 発話中に BGM を下げるダッキング。省略か duckDb: 0 で無効 */
       ducking?: { duckDb: number; fadeSec: number };
     };
+    /** Remotion 合成段のハードウェアエンコーダ利用。if-possible: 使えれば
+     * 使う(macOS は VideoToolbox。使えない環境はソフトウェアへ自動
+     * フォールバック)。disable: 常にソフトウェアエンコード(従来動作)。
+     * 省略時 "if-possible" */
+    hardwareAcceleration?: "if-possible" | "disable";
   };
 }
 

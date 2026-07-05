@@ -68,3 +68,49 @@ ffmpeg cut のスキップ自体の効果は内訳行で確認できる。
 
 **切り戻し**: `cut.keeps.json` と `cut.mp4` を削除すれば次回 render は
 常にフル再生成に戻る。
+
+## フェーズ2: Remotion ハードウェアエンコーダ(2026-07-05)
+
+事前に Remotion 4.0.484 の実装(`node_modules/@remotion/renderer/dist/
+get-codec-name.js` / `probe-encoder.js`)と公式ドキュメント
+(remotion.dev/docs/hardware-acceleration・/docs/encoding)を確認:
+`--hardware-acceleration` は `disable`(Remotion 既定)/ `if-possible` /
+`required` を受け付け、macOS + codec h264 では `if-possible`/`required` で
+`h264_videotoolbox` を選ぶ(利用可否は ffmpeg の `-encoders` で実際に
+probe する)。`if-possible` はエンコーダが無い環境ではソフトウェア
+(`libx264`)へ自動フォールバックし失敗しない。制約: `crf` /
+`encodingMaxRate` / `encodingBufferSize` を指定すると `required` はエラー、
+`if-possible` は警告してソフトウェアへ落ちる(本ツールの Remotion 呼び出し
+はこれらを指定していないため影響なし)。
+
+config.yaml に `render.hardwareAcceleration`(既定 `if-possible`、
+`disable` で従来の Remotion 既定=ソフトウェアエンコードに戻せる)を追加し、
+render.ts の remotion CLI 呼び出しに反映。`--log verbose` で
+`Encoder: h264_videotoolbox, hardware accelerated: true` を確認済み
+(実際に GPU エンコーダが使われている)。
+
+**実測(Remotion 段のみ、`--hardware-acceleration if-possible`)**:
+
+| 条件 | Remotion 段 |
+|---|---|
+| フェーズ0ベースライン(ハードウェアエンコーダ未指定=ソフトウェア) | 192.8秒 |
+| `if-possible`(h264_videotoolbox 使用) | 195.1秒 |
+| `if-possible` + `--concurrency 10`(全コア。既定は5) | 229.5秒 |
+| `if-possible`(既定 concurrency、2回目) | 241.8秒 |
+
+**所見**: ハードウェアエンコーダへの切り替え自体では明確な短縮が
+見られなかった。連続実行で 195→230→242秒と実行のたびに悪化しており、
+ファンレス機体(MacBook Air M5)の熱制限による変動の影響が実測差より
+大きく、単発測定ではエンコーダ・concurrency 変更の効果を切り分けられ
+なかった。ボトルネックは最終エンコードではなく Remotion のフレーム
+レンダー(headless Chrome でのコンポジット)側にあると考えられる
+(`stitchFramesToVideo()` のログで実際に `h264_videotoolbox` 使用を確認
+済みだが総時間は変わらないため)。`--concurrency 10` はむしろ悪化した
+ため既定(5)のままとし、config 化は見送った。
+
+`hardwareAcceleration: if-possible` は失敗しない設計(未対応環境は自動
+フォールバック)なので実害はなく既定のまま残すが、体感速度への効果は
+限定的という前提で報告する。画質は `frames --every 30` で目視し、
+クロップ・ワイプ・テロップのレイアウト崩れは無し(画面キャプチャの
+細かい文字の可読性はプロキシ解像度画像では判断できないため、最終判断は
+人間の preview に委ねる)。
