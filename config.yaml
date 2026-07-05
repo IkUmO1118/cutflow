@@ -75,6 +75,13 @@ render:
     # 合成時のシステム音声の音量(dB)。0で原音量。合成後の全体が
     # targetLufs へ正規化されるので、ここでは声とのバランスだけを決める
     volumeDb: 0
+  # マイク音声のノイズ除去(ffmpeg afftdn)。システム音声(アプリ音・デモ音)は
+  # デジタル由来でノイズが無く、通すと音楽・効果音が劣化するため対象外
+  denoise:
+    # true でマイク音声にノイズ除去(ffmpeg afftdn)をかける。既定 false
+    mic: false
+    # afftdn のノイズフロア(dB)。下げるほど控えめ、上げるほど強い
+    noiseFloorDb: -25
   # BGM。区間ごとに流すなら収録フォルダの bgm.json(tracks[]。区間・曲の
   # 切り替え・重奏ができる)。bgm.json が無ければ収録フォルダ直下の
   # bgm.mp3 / bgm.m4a / bgm.wav を全編1曲で流す(後方互換)。下の volumeDb /

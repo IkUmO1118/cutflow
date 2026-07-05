@@ -10,6 +10,7 @@ export interface CutCacheKey {
   keeps: Interval[];
   targetLufs: number;
   systemAudio: { mix: boolean; volumeDb: number };
+  denoise: { mic: boolean; noiseFloorDb: number };
   micStream: number;
   systemStream: number | null;
   source: { file: string; mtimeMs: number; size: number };
@@ -29,6 +30,10 @@ export function buildCutCacheKey(args: {
     systemAudio: {
       mix: cfg.render.systemAudio?.mix ?? false,
       volumeDb: cfg.render.systemAudio?.volumeDb ?? 0,
+    },
+    denoise: {
+      mic: cfg.render.denoise?.mic ?? false,
+      noiseFloorDb: cfg.render.denoise?.noiseFloorDb ?? -25,
     },
     micStream: manifest.audio.micStream,
     systemStream: manifest.audio.systemStream,

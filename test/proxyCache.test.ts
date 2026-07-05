@@ -80,3 +80,25 @@ test("buildProxyCacheKey: systemAudio 省略時は mix:false/volumeDb:0 に落�
   });
   assert.deepEqual(key.systemAudio, { mix: false, volumeDb: 0 });
 });
+
+test("buildProxyCacheKey: denoise 省略時は mic:false/noiseFloorDb:-25 に落ちる(config の後方互換)", () => {
+  const key = buildProxyCacheKey({
+    cfg: { preview: { width: 1280 }, render: { targetLufs: -14 } } as Config,
+    sourceFile: "raw.mkv",
+    sourceMtimeMs: 1000,
+    sourceSize: 2000,
+  });
+  assert.deepEqual(key.denoise, { mic: false, noiseFloorDb: -25 });
+});
+
+test("proxyCacheKeyEquals: denoise.mic / noiseFloorDb が変わると不一致", () => {
+  const a = keyOf({});
+  const micOn = keyOf({
+    cfg: { ...CFG, render: { ...CFG.render, denoise: { mic: true, noiseFloorDb: -25 } } } as Config,
+  });
+  assert.ok(!proxyCacheKeyEquals(a, micOn));
+  const floorChanged = keyOf({
+    cfg: { ...CFG, render: { ...CFG.render, denoise: { mic: true, noiseFloorDb: -18 } } } as Config,
+  });
+  assert.ok(!proxyCacheKeyEquals(micOn, floorChanged));
+});

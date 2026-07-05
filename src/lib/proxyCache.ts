@@ -2,13 +2,14 @@ import type { Config } from "./config.ts";
 
 /**
  * proxy.mp4 の陳腐化を決めるキャッシュキー(proxy.key.json の内容)。
- * proxy.mp4 に焼き込まれる設定(ラウドネス・システム音声・プレビュー幅・
- * エンコーダ)か元収録ファイルが前回の生成から変われば、proxy.mp4 は
+ * proxy.mp4 に焼き込まれる設定(ラウドネス・システム音声・ノイズ除去・
+ * プレビュー幅・エンコーダ)か元収録ファイルが前回の生成から変われば、proxy.mp4 は
  * 古い(陳腐化した)ことになる。cutCache.ts と同じ「JSON.stringify 一致」判定
  */
 export interface ProxyCacheKey {
   targetLufs: number;
   systemAudio: { mix: boolean; volumeDb: number };
+  denoise: { mic: boolean; noiseFloorDb: number };
   previewWidth: number;
   videoEncoder: "libx264" | "videotoolbox";
   source: { file: string; mtimeMs: number; size: number };
@@ -26,6 +27,10 @@ export function buildProxyCacheKey(args: {
     systemAudio: {
       mix: cfg.render.systemAudio?.mix ?? false,
       volumeDb: cfg.render.systemAudio?.volumeDb ?? 0,
+    },
+    denoise: {
+      mic: cfg.render.denoise?.mic ?? false,
+      noiseFloorDb: cfg.render.denoise?.noiseFloorDb ?? -25,
     },
     previewWidth: cfg.preview.width,
     videoEncoder: cfg.preview.videoEncoder ?? "videotoolbox",
