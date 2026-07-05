@@ -90,6 +90,11 @@ render:
   # (macOS は VideoToolbox。使えない環境はソフトウェアへ自動フォールバック)。
   # disable: 常にソフトウェアエンコード(従来動作)。実測は docs/perf.md 参照
   hardwareAcceleration: if-possible
+  # チャンク単位の差分レンダー(render chunk cache)。直前フルレンダー以降、
+  # 映像に効く要素(テロップ・位置・ワイプ等)だけを変えた再実行で、変わった
+  # チャンクだけを再レンダーして連結する。音声・keeps・全域設定を変えたときは
+  # 自動でフルレンダーに戻る。chunkSec がチャンクの目標長(秒)。0 で無効。
+  chunkSec: 15
 
 # GUI エディタ(npm run editor)
 editor:
