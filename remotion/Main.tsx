@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef } from "react";
+import { Fragment, useEffect, useMemo, useRef } from "react";
 import type { ReactNode, RefObject } from "react";
 import {
   AbsoluteFill,
@@ -23,9 +23,25 @@ import {
 } from "../src/types.ts";
 import type { CaptionBackground, LayerId } from "../src/types.ts";
 import { frameSpans } from "../src/lib/renderProps.ts";
+import { buildCaptionIndex, lookupCaption } from "../src/lib/captionIndex.ts";
 import type { OverlayItem, Region, RenderProps, Span } from "./props.ts";
 
 const JP_FONT = CAPTION_DEFAULT_FONT_FAMILY;
+
+/** 素材が無いトラックに毎回新しい [] を渡さないための共有の空配列 */
+const EMPTY_OVERLAYS: OverlayItem[] = [];
+
+/** 素材オーバーレイをトラック番号別にまとめる(配列順は保つ)。layerNode が
+ * 毎フレーム props.overlays.filter(...) で全件走査+配列確保していたのを解消 */
+function groupOverlaysByTrack(overlays: OverlayItem[]): Map<number, OverlayItem[]> {
+  const m = new Map<number, OverlayItem[]>();
+  for (const o of overlays) {
+    const arr = m.get(o.track);
+    if (arr) arr.push(o);
+    else m.set(o.track, [o]);
+  }
+  return m;
+}
 
 // ---- Player 専用: 再生補助の切り分けフラグ ----
 // エディタの URL にクエリを付けると、再生補助の機構を個別に無効化して
@@ -87,12 +103,20 @@ export const Main = (props: RenderProps) => {
   // ベース区間・挿入の Sequence のフレーム区間。独立に丸めると境界に
   // 1フレームの黒穴や音の二重再生ができるので、隣接区間で境界フレームを
   // 共有させる(詳細は frameSpans のコメント)
-  const seqFrames = frameSpans({
-    baseSegments: baseSegs,
-    inserts: props.inserts ?? [],
-    fps,
-    durationInFrames,
-  });
+  // frameSpans は props にのみ依存する純関数だが、useCurrentFrame より下で
+  // 呼ぶので memo しないと再生中フレームごとに O(baseSegments log n) のソートと
+  // 配列確保が走る(長尺=keep 数百でプロキシのベース区間もその数になる)。
+  // 入力は再生中に変わらないので memo 化で毎フレームの再計算・確保を消す
+  const seqFrames = useMemo(
+    () =>
+      frameSpans({
+        baseSegments: baseSegs,
+        inserts: props.inserts ?? [],
+        fps,
+        durationInFrames,
+      }),
+    [baseSegs, props.inserts, fps, durationInFrames],
+  );
   const continuous =
     baseSegs.length === 1 && baseSegs[0].start === 0 && baseSegs[0].videoStart === 0;
   const renderBase = (region: Region, width: number, height: number, muted: boolean) =>
@@ -130,9 +154,19 @@ export const Main = (props: RenderProps) => {
     );
 
   // テロップトラックごとの表示中テロップ。旧式データ(track なし)は 1 扱い。
-  // 位置・スタイルはテロップごとに解決済み(hideCaption は全テロップトラックに効く)
-  const captionAt = (track: number) =>
-    props.captions.find((c) => (c.track ?? 1) === track && t >= c.start && t < c.end);
+  // 位置・スタイルはテロップごとに解決済み(hideCaption は全テロップトラックに効く)。
+  // 索引(トラック別・start 昇順)を memo 化して、毎フレームの線形走査
+  // (props.captions 全件)を二分探索に落とす。ただし同一トラックのテロップが
+  // 時間的に重なる手編集データでは .find の「配列順で最初の一致」と二分探索の
+  // 「直前に始まった1件」が食い違うため、重なりの無い"clean"なトラックだけ
+  // 二分探索し、重なりのあるトラックは従来どおり .find で厳密一致を保つ
+  // (プレビューと最終レンダーの絵を1ピクセルも変えない)
+  const captionIndex = useMemo(() => buildCaptionIndex(props.captions), [props.captions]);
+  const captionAt = (track: number) => lookupCaption(captionIndex, track, t);
+
+  // 素材オーバーレイもトラック別に前計算(layerNode が毎フレーム
+  // props.overlays.filter(...) で全件走査+配列確保していたのを解消)
+  const overlaysByTrack = useMemo(() => groupOverlaysByTrack(props.overlays), [props.overlays]);
 
   const wipeLayer: ReactNode = (
     <div
@@ -160,7 +194,7 @@ export const Main = (props: RenderProps) => {
     if (n !== null) {
       return (
         <OverlayLayer
-          items={props.overlays.filter((o) => o.track === n)}
+          items={overlaysByTrack.get(n) ?? EMPTY_OVERLAYS}
           fps={fps}
         />
       );
