@@ -108,6 +108,11 @@ render:
   # チャンクだけを再レンダーして連結する。音声・keeps・全域設定を変えたときは
   # 自動でフルレンダーに戻る。chunkSec がチャンクの目標長(秒)。0 で無効。
   chunkSec: 15
+  # ズーム演出(overlays.json の zooms)の既定設定。zooms[].easeSec で
+  # 個別指定があればそちらが優先する
+  zoom:
+    # ズームイン/アウトの遷移秒数
+    easeSec: 0.4
 
 # GUI エディタ(npm run editor)
 editor:

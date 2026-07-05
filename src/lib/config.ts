@@ -90,6 +90,12 @@ export interface Config {
      * 省略・0 で機能オフ(常にフルレンダー。従来どおり render.chunks/ には
      * 一切触れない)。詳細は docs/render-chunk-cache.md */
     chunkSec?: number;
+    /** ズーム演出(overlays.json の zooms)の既定設定。省略可 */
+    zoom?: {
+      /** ズームイン/アウトの遷移秒数。省略時 DEFAULT_ZOOM_EASE_SEC(0.4)。
+       * zooms[].easeSec で個別指定があればそちらが優先 */
+      easeSec?: number;
+    };
   };
 }
 

@@ -196,6 +196,7 @@ export function chunkVideoKey(
         .map(videoInsertProjection),
     ),
     wipeFull: sortStable((props.wipeFull ?? []).filter((s) => overlaps(s.start, s.end))),
+    zooms: sortStable((props.zooms ?? []).filter((z) => overlaps(z.start, z.end))),
     hideCaption: sortStable((props.hideCaption ?? []).filter((s) => overlaps(s.start, s.end))),
     cutTransition:
       cutBoundariesHere.length > 0 ? { sec: cutSec, boundaries: cutBoundariesHere } : null,

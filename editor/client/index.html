@@ -100,6 +100,10 @@
   }
   header .saveStatus { font-size: 12px; color: var(--dim); white-space: nowrap; }
   header .saveStatus.dirty { color: #fbbf24; }
+  header .modeSwitch, header .shortBar {
+    display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
+  }
+  header .modeSwitch select { max-width: 160px; }
   /* レイアウト切替(VSCode 風)。アイコンの塗られた面 = 表示中のパネル。
      設定の歯車と同じ「枠付きのアイコンだけボタン」で並べる */
   header .layoutBtns { display: inline-flex; gap: 4px; }
@@ -926,7 +930,9 @@
   .tlClip.overlays { background: #14532d; }
   .tlClip.wipe { background: #123a46; }
   .tlClip.wipeFull { background: #0e7490; top: 5px; bottom: 5px; }
+  .tlClip.zoom { background: #6d28d9; top: 5px; bottom: 5px; }
   .tlClip.bgm { background: #1d4029; }
+  .tlClip.short { background: #b45309; }
   /* ワイプ本体・BGM は背景レイヤー表示(ポインタ素通し・選択不可) */
   .tlClip.static { pointer-events: none; border-radius: 0; opacity: 0.8; }
   .tlClip.static .tlClipLabel { color: var(--dim); }

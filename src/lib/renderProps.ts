@@ -167,6 +167,24 @@ export function buildRenderProps(args: {
     0.004,
   );
 
+  // ズーム演出もカット後タイムラインへ写像する。重なりは無い前提(validate が
+  // エラーにする)ので wipeFull と違い区間どうしのマージはしない
+  // (rect が異なるエントリを1本にまとめると情報が失われるため)。
+  // 挿入で割れた断片は wipeFull と同じ考え方で先頭〜末尾をひと続きに扱う
+  // (挿入中はベース映像が無く見えないので安全)
+  const zoomSpans = (overlays.zooms ?? []).flatMap((z) => {
+    const parts = remapInterval(z.start, z.end, timeline);
+    if (parts.length === 0) return [];
+    return [
+      {
+        start: parts[0].start,
+        end: parts[parts.length - 1].end,
+        rect: z.rect,
+        easeSec: z.easeSec ?? renderCfg.zoom?.easeSec ?? DEFAULT_ZOOM_EASE_SEC,
+      },
+    ];
+  });
+
   // ベース映像の再生区間。「カット後のどこで、動画内のどの時刻から再生
   // するか」に分割する。動画内の時刻は videoFile が何かで変わる:
   // - render の cut.mp4 は keeps のみの動画 → 挿入なし写像でのカット後時刻
@@ -268,6 +286,7 @@ export function buildRenderProps(args: {
     captions,
     overlays: overlayItems,
     wipeFull: wipeSpans,
+    ...(zoomSpans.length > 0 ? { zooms: zoomSpans } : {}),
     ...(renderCfg.cutTransition?.type === "dip-to-black"
       ? {
           cutTransition: { sec: renderCfg.cutTransition.sec ?? DEFAULT_CUT_TRANSITION_SEC },
