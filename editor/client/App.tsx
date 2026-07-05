@@ -94,6 +94,9 @@ const isMaterialFile = (f: string) =>
   f.startsWith("materials/") &&
   /\.(png|jpe?g|webp|gif|bmp|avif|mp4|mov|webm|mp3|m4a|wav|aac|ogg|flac)$/i.test(f);
 
+/** 画像素材か(startFrom 頭出しの効かないもの)。動画・音声は false */
+const isImageFile = (f: string) => /\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(f);
+
 const keepsOf = (plan: CutPlan) => plan.segments.filter((s) => s.action === "keep");
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
@@ -1358,6 +1361,19 @@ export const App = () => {
           delete e.layer; // 旧式指定はここで track へ移行する
           if (n > 1) e.track = n;
           else delete e.track;
+        }
+      }
+      // 動画素材の左端(In点)トリム: 左端を右へ削ったら頭出し(startFrom)を
+      // 同量進めて素材の out 点(startFrom+尺)を保つ = 動画の先頭が削れる
+      // (右端トリムは尺が縮むだけ = 後尾から削れる)。進める量はカット後
+      // (出力)秒。画像は頭が無いので従来どおり表示窓を縮めるだけ(bgm と同じ流儀)
+      if (kind === "overlays" && mode === "trim-start" && !isImageFile((sp as OverlayEntry).file)) {
+        const o1 = toOutputTime(t.start, tl);
+        if (o1 !== null) {
+          const e = entry as OverlayEntry;
+          const sf = round2(((sp as OverlayEntry).startFrom ?? 0) + (o1 - ctx.grabOutStart));
+          if (sf > 0) e.startFrom = sf;
+          else delete e.startFrom;
         }
       }
       arr[sel.index] = entry;
