@@ -31,6 +31,10 @@ export interface ProjectData {
   /** proxy.mp4(元収録の軽量プロキシ。エディタの再生ソース)があるか。
    * 無ければ POST /api/proxy で生成する(収録ごとに1回) */
   proxyExists: boolean;
+  /** proxy.mp4 が焼き込み済みの設定(ラウドネス・システム音声・プレビュー幅・
+   * エンコーダ)か元収録ファイルと食い違っている(古い)か。proxyExists が
+   * false のときは常に false(未生成であって陳腐化ではない) */
+  proxyStale: boolean;
   renderCfg: Config["render"];
   /** カット確認用プレビュー動画・プロキシの横幅(config の preview.width) */
   previewCfg: { width: number };
