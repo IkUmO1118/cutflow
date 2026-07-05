@@ -253,3 +253,28 @@ Main.tsx 側:
   実測し、残っていた毎フレーム O(n) を除去したところまで。切り戻しは
   `remotion/Main.tsx` の memo 化と `captionIndex.ts` の revert で従来動作へ戻る
   (出力は元から不変)。
+
+## フェーズ5: final.mp4 全スキップキャッシュ(2026-07-05)
+
+`render.key.json`(`buildRenderProps` の返り値 = render.props.json の内容 +
+`cut.mp4` の mtime/size + props が参照する素材ファイル(overlays / inserts /
+bgm の `file`。重複排除・ソート済み)各々の mtime/size + `hardwareAcceleration`
+設定をキーとして記録)が `final.mp4` と一致すれば、render は Remotion 実行
+そのものを丸ごとスキップする(`cut.mp4` 再利用と同じ「成功後にのみキーを
+書く」中断安全パターン)。
+
+同一収録(`2026-07-02-whisper-bench`)での実測:
+
+| シナリオ | render 合計 |
+|---|---|
+| 初回(render.key.json なし。Remotion 実行) | 215.1秒 |
+| 再実行・変更なし(3回中央値。実行順: 0.17秒→0.13秒→0.15秒) | 0.15秒 |
+
+**所見**: cut.mp4・編集内容(props)・参照素材・エンコーダ設定のいずれも
+不変な再実行では Remotion 段(既存計測で 192〜251秒)が丸ごと消え、
+render 合計は完了基準の10秒を大きく下回る。キーの不一致検知は
+`test/renderKey.test.ts` で props / cut.mp4 の mtime・size / 素材ファイルの
+mtime・size / hardwareAcceleration のいずれの変化も固定済み。
+
+**切り戻し**: `render.key.json` を削除すれば次回 render は常にフル再生成に
+戻る。

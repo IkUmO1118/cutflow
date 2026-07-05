@@ -8,10 +8,12 @@ import {
   keepAudioParts,
   measuredLoudnormFilter,
 } from "../lib/loudness.ts";
+import { buildRenderCacheKey, renderCacheKeyEquals } from "../lib/renderKey.ts";
 import { buildRenderProps } from "../lib/renderProps.ts";
 import { mergeIntervals } from "../lib/timeline.ts";
 import { timed } from "../lib/timing.ts";
 import type { CutCacheKey } from "../lib/cutCache.ts";
+import type { RenderCacheKey } from "../lib/renderKey.ts";
 import type { Config } from "../lib/config.ts";
 import type {
   AutoCuts,
@@ -129,6 +131,36 @@ export async function render(dir: string, cfg: Config): Promise<string> {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
   const outPath = join(dir, "final.mp4");
   const hardwareAcceleration = cfg.render.hardwareAcceleration ?? "if-possible";
+
+  // final.mp4 全スキップキャッシュ(render.key.json)。props(テロップ・演出・
+  // BGM配置)・cut.mp4・参照素材ファイル・hardwareAcceleration が前回の render
+  // と全て一致すれば Remotion 実行そのものを丸ごとスキップする(cut.mp4 再利用
+  // と同じ「成功後にのみキーを書く」中断安全パターン。削除すれば常にフル再生成
+  // に戻る)
+  const renderKeyPath = join(dir, "render.key.json");
+  const cutStat = statSync(cutPath);
+  const renderKey = buildRenderCacheKey({
+    props,
+    dir,
+    cut: { mtimeMs: cutStat.mtimeMs, size: cutStat.size },
+    hardwareAcceleration,
+    statFile: (p) => {
+      const s = statSync(p);
+      return { mtimeMs: s.mtimeMs, size: s.size };
+    },
+  });
+  const cachedRenderKey = existsSync(renderKeyPath)
+    ? (JSON.parse(readFileSync(renderKeyPath, "utf8")) as RenderCacheKey)
+    : null;
+  if (
+    existsSync(outPath) &&
+    cachedRenderKey &&
+    renderCacheKeyEquals(cachedRenderKey, renderKey)
+  ) {
+    console.log("final.mp4 を再利用します(編集内容・素材に変更なし)");
+    return outPath;
+  }
+
   await timed("Remotion", () =>
     run(
       "npx",
@@ -143,6 +175,7 @@ export async function render(dir: string, cfg: Config): Promise<string> {
       { cwd: repoRoot },
     ),
   );
+  writeFileSync(renderKeyPath, JSON.stringify(renderKey, null, 2));
   return outPath;
 }
 
