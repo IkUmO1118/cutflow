@@ -3,6 +3,7 @@
 
 import type { Config } from "../../src/lib/config.ts";
 import type {
+  Bgm,
   CutPlan,
   Interval,
   Manifest,
@@ -20,6 +21,9 @@ export interface ProjectData {
   overlays: Overlays;
   /** 収録フォルダ内の全ファイル(相対パス)。素材選択と存在チェック用 */
   dirFiles: string[];
+  /** bgm.json(BGM の区間配置)。無ければ null で、その場合は bgmFile を
+   * 全編1曲として流す(後方互換)。エディタでは編集せず表示・再生のみ */
+  bgm: Bgm | null;
   bgmFile: string | null;
   /** cuts.auto.json の無音区間(BGM ダッキングをプレビューでも再現する
    * ために渡す)。detect 未実行なら null */
@@ -66,6 +70,8 @@ export interface DraftData {
   cutplan: CutPlan;
   overlays: Overlays;
   transcript: Transcript;
+  /** BGM の区間配置(bgm.json)。未設定なら null */
+  bgm: Bgm | null;
 }
 
 /** GET /api/peaks のレスポンス。マイク音声の波形ピーク(タイムライン描画用)。
@@ -94,4 +100,7 @@ export interface SaveRequest {
   cutplan?: CutPlan;
   overlays?: Overlays;
   transcript?: Transcript;
+  /** BGM の区間配置。`null` / 空 tracks は bgm.json を削除する(= 全編1曲の
+   * 後方互換へ戻す)。`undefined`(キー無し)は bgm.json を触らない */
+  bgm?: Bgm | null;
 }

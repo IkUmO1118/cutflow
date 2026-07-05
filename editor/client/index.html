@@ -74,13 +74,20 @@
   /* ---- 全体レイアウト(上から header / banner / stage(左パネル+プレビュー/トランスポート) / timeline) ---- */
   .app { display: flex; flex-direction: column; height: 100%; }
   header {
+    position: relative;
     display: flex; align-items: center; gap: 12px;
     padding: 7px 14px;
     background: var(--panel);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
   }
-  header .path { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 収録フォルダ名は左右のツール群と重ならないようヘッダー中央に絶対配置する */
+  header .path {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    max-width: 40%;
+    font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    pointer-events: none;
+  }
   header .approve {
     display: flex; align-items: center; gap: 6px;
     font-size: 12px; color: var(--dim); cursor: pointer;
@@ -93,6 +100,27 @@
   }
   header .saveStatus { font-size: 12px; color: var(--dim); white-space: nowrap; }
   header .saveStatus.dirty { color: #fbbf24; }
+  /* レイアウト切替(VSCode 風)。アイコンの塗られた面 = 表示中のパネル。
+     設定の歯車と同じ「枠付きのアイコンだけボタン」で並べる */
+  header .layoutBtns { display: inline-flex; gap: 4px; }
+  header .layoutBtns .hIcon {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 5px; color: var(--dim);
+  }
+  header .layoutBtns .hIcon:hover:not(:disabled) { color: var(--text); }
+  header .layoutBtns .hIcon svg { display: block; }
+  /* 設定は歯車アイコンのみ(ラベルは title / aria-label に持たせる) */
+  header .settingsBtn {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 5px; color: var(--dim);
+  }
+  header .settingsBtn svg {
+    display: block; width: 17px; height: 17px;
+    stroke: currentColor; fill: none; stroke-width: 1.6;
+    stroke-linecap: round; stroke-linejoin: round;
+  }
+  header .settingsBtn:hover:not(:disabled) { color: var(--text); }
+  header .settingsBtn.active { background: #2f3542; border-color: var(--dim); color: var(--text); }
   /* ヘッダー右「書き出し」ポップオーバー(preview / 承認 / render)。
      Timeline のトラック追加メニューと同じ backdrop + 絶対配置パターン */
   header .exportMenu { position: relative; display: inline-flex; }
@@ -153,11 +181,67 @@
     flex-shrink: 0;
   }
   .stage { display: flex; flex: 1; min-height: 0; }
-  /* プレビューとトランスポートを縦に並べる右側カラム */
+  /* パネル最大化(⇧F)。左パネル・分割バー・タイムラインを一時的に隠して
+     プレビュー+トランスポートをウィンドウいっぱいに広げる(表示だけの
+     切替。コンポーネントは外さないのでタイムラインの状態は保たれる) */
+  .app.max .sidePanel,
+  .app.max .stage > .splitter,
+  .app.max > .splitter.h,
+  .app.max .timeline { display: none; }
+  /* パネルの開閉(ヘッダー右のレイアウト切替 / 分割バーを端へ寄せる)。
+     コンポーネントは外さず隠すだけ(タブ・スクロール位置・ズームを保つ)。
+     左右の分割バーは残す(ドラッグ・ダブルクリックで開き直せる) */
+  .app.hideL .sidePanel { display: none; }
+  .app.hideR .inspPanel { display: none; }
+  .app.hideB > .splitter.h,
+  .app.hideB .timeline { display: none; }
+  /* プレビューとトランスポートを縦に並べる右側カラム。トランスポートの
+     段階的な畳み(下のコンテナクエリ)の基準になる */
   .viewerCol {
+    position: relative;
     flex: 1; min-width: 0;
     display: flex; flex-direction: column;
+    container-type: inline-size;
   }
+  /* プレビュー列が狭くて1段に収まらないときは2段に折り返す
+     (上段=再生まわりを中央に、下段=時刻・音量と補助ボタン)。
+     通常時の tLeft/tRight は flex: 1(基準0)+overflow: hidden なので、
+     収まらないとゾーンごと潰れてボタンが黙って見切れる——それを
+     折り返しモードでは実幅ベース(flex-basis: auto)に切り替えて、
+     ボタンを隠さない・切らない・スクロールもさせない */
+  @container (max-width: 700px) {
+    .transport .tRow { flex-wrap: wrap; row-gap: 0; }
+    .transport .tCenter { order: 1; width: 100%; justify-content: center; }
+    .transport .tLeft { order: 2; }
+    .transport .tRight { order: 3; }
+    .transport .tLeft, .transport .tRight { flex: 1 1 auto; overflow: visible; }
+    /* 音量バーのホバー展開で下段が一時的に折れないよう控えめに */
+    .transport .volCtl:hover .volume,
+    .transport .volCtl:focus-within .volume,
+    .transport .volume:active { width: 60px; }
+  }
+  @container (max-width: 460px) {
+    .transport .volCtl:hover .volume,
+    .transport .volCtl:focus-within .volume,
+    .transport .volume:active { width: 44px; }
+  }
+  /* 下段すら収まらない極端な狭さでは 1秒送りだけ畳む(Shift+←→ で代替可) */
+  @container (max-width: 400px) {
+    .transport .sec { display: none; }
+  }
+  /* フルスクリーン再生(F)。viewerCol ごと OS フルスクリーンにして映像を
+     実寸まで広げる。トランスポートは下端に重ね、普段は透明(場所は取らず
+     当たり判定だけ残る)でマウスを寄せると出る */
+  .viewerCol:fullscreen { background: black; }
+  .viewerCol:fullscreen .transport {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    border-top: none;
+    background: rgba(19, 21, 25, 0.92);
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+  .viewerCol:fullscreen .transport:hover,
+  .viewerCol:fullscreen .transport:focus-within { opacity: 1; }
   .viewer {
     flex: 1; min-width: 0; min-height: 0;
     background: black;
@@ -207,7 +291,13 @@
     gap: 12px 10px;
     padding: 0 14px 12px;
   }
-  .matCard { cursor: grab; }
+  .matCard {
+    cursor: grab;
+    /* 画面外のカードは描画をスキップ(素材が大量でも一覧が重くならない)。
+       intrinsic-size はサムネイル+名前のおおよその高さ */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 100px;
+  }
   .matCard:active { cursor: grabbing; }
   .matThumb {
     display: block; width: 100%;
@@ -225,6 +315,23 @@
     overflow: hidden; white-space: nowrap;
   }
   .matCard:hover .matName { color: var(--text); }
+  /* 素材カードの右クリックメニュー(配置・削除)。backdrop で外側クリックを
+     受けて閉じる(exportMenu / addTrack と同じパターンだが位置はポインタ基準) */
+  .ctxBackdrop { position: fixed; inset: 0; z-index: 29; }
+  .ctxMenu {
+    position: fixed; z-index: 30;
+    padding: 4px; min-width: 180px;
+    display: flex; flex-direction: column; gap: 1px;
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+  }
+  .ctxMenu button {
+    padding: 5px 12px; font-size: 12px; text-align: left;
+    background: none; border: none; border-radius: 5px;
+  }
+  .ctxMenu button:hover:not(:disabled) { background: var(--panel); border: none; }
+  .ctxMenu button.danger { color: #f87171; }
+  .ctxMenu button.danger:hover:not(:disabled) { background: rgba(220, 38, 38, 0.12); }
 
   /* ---- テロップタブ(一覧+その場編集) ---- */
   .capList { padding: 6px 0; }
@@ -233,6 +340,11 @@
     border-bottom: 1px solid #1e2128;
     cursor: pointer;
     border-left: 2px solid transparent;
+    /* 画面外の行は描画をスキップ(長尺の数千行でもテロップ一覧が軽い)。
+       intrinsic-size はメタ行+1行 textarea のおおよその高さ。
+       scrollIntoView(選択時の自動スクロール)はスキップ中の行にも効く */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 72px;
   }
   .capRow:hover { background: rgba(255, 255, 255, 0.03); }
   .capRow.sel { background: var(--panel2); border-left-color: var(--accent); }
@@ -269,8 +381,36 @@
   }
   .capBox:hover { border-color: rgba(96, 165, 250, 0.6); }
   .capBox.sel { border-color: var(--accent, #60a5fa); }
-  .btnRow { display: flex; gap: 6px; margin: 8px 0; }
-  .btnRow button { font-size: 11px; }
+  /* 素材(部分配置)の移動・リサイズ枠。テロップ枠と同じ流儀(掴めるのは枠と
+     ハンドルだけ、実体は Player 側の素材) */
+  .matOverlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+  .matOverlay.dragging { cursor: grabbing; }
+  .matBox {
+    position: absolute; box-sizing: border-box;
+    pointer-events: auto; cursor: move;
+    border: 1px dashed rgba(96, 165, 250, 0.55);
+  }
+  .matBox:hover { border-color: rgba(96, 165, 250, 0.85); }
+  .matBox.sel {
+    border-style: solid; border-color: var(--accent, #60a5fa);
+    background: rgba(96, 165, 250, 0.08);
+  }
+  .matHandle {
+    position: absolute; width: 10px; height: 10px;
+    background: var(--accent, #60a5fa); border: 1px solid #fff; border-radius: 2px;
+    transform: translate(-50%, -50%); pointer-events: auto;
+  }
+  .matHandle.nw { left: 0; top: 0; cursor: nwse-resize; }
+  .matHandle.n { left: 50%; top: 0; cursor: ns-resize; }
+  .matHandle.ne { left: 100%; top: 0; cursor: nesw-resize; }
+  .matHandle.e { left: 100%; top: 50%; cursor: ew-resize; }
+  .matHandle.se { left: 100%; top: 100%; cursor: nwse-resize; }
+  .matHandle.s { left: 50%; top: 100%; cursor: ns-resize; }
+  .matHandle.sw { left: 0; top: 100%; cursor: nesw-resize; }
+  .matHandle.w { left: 0; top: 50%; cursor: ew-resize; }
+  /* ボタンは語中で折らず、入り切らないときは行ごと折り返す */
+  .btnRow { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+  .btnRow button { font-size: 11px; white-space: nowrap; }
   button.linkish {
     background: none; border: none; padding: 0;
     color: var(--accent, #60a5fa); text-decoration: underline; font-size: 11px;
@@ -280,11 +420,47 @@
     font-size: 12px; color: #fbbf24;
     background: rgba(0,0,0,0.6); border-radius: 6px; padding: 6px 10px;
   }
-  /* ---- インスペクタ(プロパティタブ) ---- */
-  .insp { padding: 14px; }
-  .insp h3 { margin: 0 0 12px; font-size: 13px; }
+  /* ---- 右側の常設インスペクタ(選択クリップのプロパティ) ---- */
+  .inspPanel {
+    flex-shrink: 0; min-width: 300px;
+    display: flex; flex-direction: column;
+    background: var(--panel);
+  }
+  .inspPanel .panelBody { flex: 1; min-height: 0; overflow-y: auto; }
+  .app.max .inspPanel { display: none; }
+  .insp { padding: 12px 14px 16px; }
+  /* アイデンティティヘッダー(何を選んでいるか: サムネ+種別+名前+チップ) */
+  .inspHead { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+  .inspThumb {
+    width: 84px; aspect-ratio: 16 / 9; object-fit: cover;
+    border-radius: 4px; background: black; flex-shrink: 0;
+  }
+  .inspHeadText { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
+  .inspKind { font-size: 11px; color: var(--dim); }
+  .inspTitle {
+    font-size: 13px; font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .inspChips { display: flex; gap: 4px; flex-wrap: wrap; }
+  .chip {
+    font-size: 10px; padding: 0 6px; border-radius: 4px;
+    background: var(--bg); border: 1px solid var(--border); color: var(--dim);
+    white-space: nowrap;
+  }
+  /* セクション(小見出し+区切り線)。使用頻度・役割で項目をグループ化する */
+  .inspSec { margin-top: 12px; padding-top: 10px; border-top: 1px solid #262a33; }
+  .inspSec > h4 {
+    margin: 0 0 8px; font-size: 11px; color: var(--dim);
+    font-weight: 600; letter-spacing: 0.04em;
+  }
+  /* 生の秒などの低頻度項目の折りたたみ */
+  .inspDetails { margin: 6px 0 2px; }
+  .inspDetails summary { font-size: 11px; color: var(--dim); cursor: pointer; margin-bottom: 6px; }
   .insp .field { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
-  .insp .field label { width: 110px; flex-shrink: 0; color: var(--dim); font-size: 12px; }
+  .insp .field label { width: 96px; flex-shrink: 0; color: var(--dim); font-size: 12px; }
+  .insp input.num { width: 64px; }
+  /* 長い選択肢(座標の基準など)でもパネルからはみ出さない */
+  .insp .field select { min-width: 0; max-width: 100%; }
   .insp .capEdit {
     width: 100%; margin-bottom: 10px;
     background: var(--bg); color: var(--text);
@@ -293,12 +469,127 @@
     resize: vertical;
   }
   .insp .capEdit:focus { outline: none; border-color: var(--accent); }
-  .insp button.danger { margin-top: 8px; }
+  .insp button.danger { margin-top: 4px; }
   .insp input[type="color"] {
     width: 40px; height: 24px; padding: 1px;
     background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
     cursor: pointer;
   }
+  .insp button.active { background: #2f3542; border-color: var(--dim); }
+  /* セグメントコントロール(fit の contain/cover)。現在値と選択肢が一目で分かる */
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .seg button {
+    border: none; border-radius: 0; padding: 3px 10px;
+    font-size: 12px; background: none; color: var(--dim);
+  }
+  .seg button + button { border-left: 1px solid var(--border); }
+  .seg button.on { background: var(--panel2); color: var(--text); }
+  .seg.disabled { opacity: 0.5; }
+  /* %スライダー(音量・不透明度)。塗りは JSX 側の linear-gradient */
+  .pctSlider {
+    -webkit-appearance: none; appearance: none;
+    width: 90px; height: 4px; margin: 0; padding: 0;
+    border-radius: 2px; border: none; cursor: pointer;
+  }
+  .pctSlider::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 12px; height: 12px; border-radius: 50%;
+    background: #e8ecf3; border: none;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  }
+  .pctSlider::-moz-range-thumb {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: #e8ecf3; border: none;
+  }
+  .pctSlider::-moz-range-track { height: 4px; border-radius: 2px; background: transparent; }
+  .pctVal { font-size: 11px; width: 40px; text-align: right; flex-shrink: 0; }
+  /* テロップの9点配置プリセット+座標欄(狭い幅では縦に折り返す) */
+  .posRow { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: flex-start; margin-bottom: 6px; }
+  .posGrid { display: grid; grid-template-columns: repeat(3, 26px); gap: 3px; flex-shrink: 0; }
+  .posGrid button {
+    width: 26px; height: 22px; padding: 0;
+    font-size: 11px; color: var(--dim); line-height: 1;
+  }
+  .posGrid button:hover { color: var(--text); }
+  .posFields { flex: 1; min-width: 176px; }
+  .posFields .field label { width: 72px; }
+  /* 素材の差し替えピッカー(ボタンで開く。常設 select にしない) */
+  .inspPicker {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+    gap: 8px; margin: 8px 0; padding: 8px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    max-height: 220px; overflow-y: auto;
+  }
+  .inspPicker .pickItem {
+    display: flex; flex-direction: column; gap: 3px;
+    padding: 4px; background: none; border: 1px solid transparent; border-radius: 5px;
+  }
+  .inspPicker .pickItem.on { border-color: var(--accent); }
+  .inspPicker .pickItem:hover { border-color: var(--dim); }
+  .inspPicker .pickItem img, .inspPicker .pickItem video {
+    width: 100%; aspect-ratio: 16 / 9; object-fit: cover;
+    border-radius: 3px; background: black; pointer-events: none;
+  }
+  .inspPicker .pickItem span {
+    font-size: 10px; color: var(--dim);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
+  }
+  /* 素材の表示領域プリセット(全画面/四隅/半分/中央) */
+  .rectPresets { display: flex; flex-wrap: wrap; gap: 4px; }
+  .rectPresets button { padding: 2px 8px; font-size: 11px; color: var(--dim); }
+  .rectPresets button:hover { color: var(--text); }
+  .rectPresets button.on { color: var(--text); border-color: var(--accent); }
+  /* テロップの実効スタイルのサンプル(市松模様の上に本編と同じ描き方で) */
+  .capSample {
+    background: repeating-conic-gradient(#20242c 0% 25%, #181b21 0% 50%) 0 / 16px 16px;
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 12px 8px; margin-bottom: 4px;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+  /* 素材ファイルのどこを使っているかのバー(頭出し+使用尺 vs 実尺) */
+  .srcRange {
+    position: relative; flex: 1; height: 10px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 3px;
+  }
+  .srcRangeUse {
+    position: absolute; top: 0; bottom: 0;
+    background: var(--accent); border-radius: 2px; opacity: 0.8;
+  }
+  .warnText { color: #fbbf24; }
+  /* 未選択時のプロジェクト要約 */
+  .projRows {
+    display: grid; grid-template-columns: auto 1fr; gap: 5px 14px;
+    font-size: 12px; margin: 10px 0;
+  }
+  .projRows dt { color: var(--dim); }
+  .projRows dd { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  /* 操作ガイド(未選択時のインスペクタ)。小見出し+箇条書き */
+  .guide h5 { margin: 10px 0 4px; font-size: 11px; color: var(--text); font-weight: 600; }
+  .guide ul {
+    margin: 0; padding-left: 16px;
+    font-size: 11px; line-height: 1.7; color: var(--dim);
+  }
+  .guide li { margin: 2px 0; }
+  .guide kbd {
+    font-family: inherit; font-size: 10px;
+    padding: 0 4px; border-radius: 3px;
+    background: var(--bg); border: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  /* 映像クリップの「この区間の発言」(transcript の抜粋) */
+  .speechList {
+    max-height: 200px; overflow-y: auto;
+    border: 1px solid var(--border); border-radius: 6px; background: var(--bg);
+  }
+  .speechRow {
+    display: flex; gap: 8px; padding: 5px 8px;
+    font-size: 12px; line-height: 1.5; cursor: pointer;
+    border-bottom: 1px solid #1e2128;
+  }
+  .speechRow:last-child { border-bottom: none; }
+  .speechRow:hover { background: rgba(255, 255, 255, 0.04); }
+  .speechRow .t { color: var(--dim); font-size: 11px; flex-shrink: 0; padding-top: 1px; }
 
   /* ---- トランスポート(上段: シークバー / 下段: 時刻・再生ボタン・音量) ---- */
   .transport {
@@ -418,49 +709,83 @@
     font-size: 11px;
     border-bottom: 1px solid var(--border);
   }
-  /* タイムライン操作の説明(クリックでトグル表示する控えめな ? アイコン)。
-     タイムラインは画面下部にあるため吹き出しは上向きに開く */
-  .tlToolbar .helpTip {
-    position: relative;
-    width: 16px; height: 16px; flex-shrink: 0;
+  /* 吸着トグル(馬蹄マグネットのアイコンボタン。ON で「磁化」して点灯) */
+  .tlToolbar .tlSnap {
     display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 24px;
+    padding: 0;
+    background: none; border: 1px solid transparent; border-radius: 6px;
+    color: var(--dim);
+    transition: background-color 0.12s ease, border-color 0.12s ease,
+                color 0.12s ease, transform 0.12s ease;
+  }
+  .tlToolbar .tlSnap:hover { background: #2f3542; color: var(--text); }
+  .tlToolbar .tlSnap:active { transform: scale(0.92); }
+  /* ON: アクセント色で点灯し、うっすら塗りと枠で「押されている」状態を示す */
+  .tlToolbar .tlSnap.active {
+    color: var(--accent);
+    background: rgba(37, 99, 235, 0.16);
+    border-color: rgba(37, 99, 235, 0.45);
+  }
+  .tlToolbar .tlSnap.active:hover { background: rgba(37, 99, 235, 0.26); }
+  /* ツールバー左の単機能アイコンボタン(＋ / undo / redo / 分割 / 削除)。
+     それぞれ独立したゴーストボタンとして少し離して並べる */
+  .tlToolbar .tlTool {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 26px; height: 24px;
+    padding: 0 6px;
+    background: none; border: none; border-radius: 5px;
+    color: var(--dim); font-size: 14px;
+  }
+  .tlToolbar .tlTool:hover:not(:disabled) { background: #2f3542; color: var(--text); }
+  .tlToolbar .tlTool:active:not(:disabled) { background: #272c37; }
+  .tlToolbar .tlTool:disabled { opacity: 0.35; }
+  /* ＋ ボタンを他のアイコンと区切る縦線 */
+  .tlToolbar .tlDivider {
+    width: 1px; height: 18px; flex-shrink: 0;
+    margin: 0 3px;
+    background: var(--border);
+  }
+  /* ズーム操作(⊖ スライダー ⊕)。両端の丸ボタンで段階ズーム、
+     中央のスライダーで連続ズーム(ダブルクリックで全体表示) */
+  .tlZoom { display: inline-flex; align-items: center; gap: 9px; }
+  .tlZoom .zoomBtn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; flex-shrink: 0;
+    padding: 0;
+    background: none; color: var(--dim);
     border: 1px solid var(--border); border-radius: 50%;
-    color: var(--dim); font-size: 10px;
-    cursor: pointer;
     transition: color 0.12s ease, border-color 0.12s ease;
   }
-  .tlToolbar .helpTip:hover,
-  .tlToolbar .helpTip.open { color: var(--text); border-color: var(--dim); }
-  /* 吸着トグル(ON のとき点灯) */
-  .tlToolbar > button.active { color: var(--accent); border-color: var(--accent); }
-  .helpTip .menuBackdrop { position: fixed; inset: 0; z-index: 19; }
-  .helpTipPop {
-    position: absolute; bottom: calc(100% + 6px); left: -4px; z-index: 30;
-    width: max-content;
-    max-height: min(60vh, 420px); overflow-y: auto;
-    padding: 8px 12px;
-    background: var(--panel2); border: 1px solid var(--border); border-radius: 7px;
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
-    color: var(--text); font-size: 11px; line-height: 1.8;
-    white-space: pre;
-    opacity: 0; visibility: hidden;
-    transition: opacity 0.1s ease, visibility 0.1s ease;
-    pointer-events: none;
+  /* +/− はテキスト字形だと中心がずれるので SVG の線で描いて確実に中央へ */
+  .tlZoom .zoomBtn svg {
+    display: block; width: 12px; height: 12px;
+    stroke: currentColor; stroke-width: 1.6; stroke-linecap: round;
   }
-  .helpTip.open .helpTipPop { opacity: 1; visibility: visible; pointer-events: auto; }
-  /* ズーム操作(−/全体/＋を1つのセグメントグループにまとめる) */
-  .tlZoom {
-    display: inline-flex; align-items: stretch;
-    border: 1px solid var(--border); border-radius: 7px;
-    overflow: hidden;
+  .tlZoom .zoomBtn:hover:not(:disabled) { color: var(--text); border-color: var(--dim); }
+  .tlZoom .zoomBtn:disabled { opacity: 0.3; }
+  .tlZoom .zoomSlider {
+    -webkit-appearance: none; appearance: none;
+    width: 104px; height: 2px; margin: 0; padding: 0;
+    border-radius: 2px; cursor: pointer;
+    /* トラックの塗り(アクセント + 溝)は JSX 側の linear-gradient で与える */
   }
-  .tlZoom button {
-    min-width: 30px;
-    background: none; border: none; border-radius: 0;
-    padding: 3px 10px; font-size: 12px;
+  .tlZoom .zoomSlider::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 11px; height: 11px; border-radius: 50%;
+    background: var(--text); border: 2px solid var(--bg);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+    cursor: pointer;
   }
-  .tlZoom button + button { border-left: 1px solid var(--border); }
-  .tlZoom button:hover:not(:disabled) { background: var(--panel2); }
+  .tlZoom .zoomSlider::-moz-range-thumb {
+    width: 11px; height: 11px; border-radius: 50%;
+    background: var(--text); border: 2px solid var(--bg);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+    cursor: pointer;
+  }
+  .tlZoom .zoomSlider::-moz-range-track {
+    height: 2px; border-radius: 2px; background: transparent;
+  }
   /* トラック追加の＋ボタンとその種類メニュー */
   .addTrack { position: relative; display: inline-flex; }
   .addTrack .menuBackdrop { position: fixed; inset: 0; z-index: 19; }
@@ -477,25 +802,6 @@
     background: none; border: none; border-radius: 4px;
   }
   .addTrack .menu button:hover { background: var(--panel); }
-  /* undo/redo: アイコンだけのゴーストボタンを1つの枠にまとめる(ペアで1機能)。
-     ヘルプ・トラック追加とは機能グループが違うので少し広めに離す */
-  .tlToolbar .histGroup {
-    display: inline-flex; align-items: center;
-    margin-left: 4px;
-    background: var(--panel2);
-    border: 1px solid var(--border);
-    border-radius: 7px;
-    padding: 1px;
-  }
-  .tlToolbar .histGroup button {
-    display: inline-flex; align-items: center; justify-content: center;
-    background: none; border: none;
-    padding: 3px 8px; border-radius: 5px;
-    color: var(--dim);
-  }
-  .tlToolbar .histGroup button:hover:not(:disabled) { background: #2f3542; color: var(--text); }
-  .tlToolbar .histGroup button:active:not(:disabled) { background: #272c37; }
-  .tlToolbar .histGroup button:disabled { opacity: 0.35; }
   .tlBody { display: flex; flex: 1; min-height: 0; }
   .tlLabels {
     width: 170px; flex-shrink: 0;

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 // ConfigPatch はサーバー側モジュールの型だが import type なのでバンドルには入らない
 import type { ConfigPatch } from "../../src/lib/configEdit.ts";
 import type {
@@ -69,6 +69,12 @@ export async function postRender(): Promise<{ path: string }> {
   return (await request("/api/render", {})) as { path: string };
 }
 
+/** 素材ファイル(materials/)を収録フォルダから削除する。ファイルの削除は
+ * JSON の編集と違って undo(⌘Z)できないので、呼ぶ側で確認を挟むこと */
+export async function deleteMaterial(file: string): Promise<void> {
+  await request(`/api/material?file=${encodeURIComponent(file)}`, undefined, "DELETE");
+}
+
 /** 素材ファイルを収録フォルダの materials/ へアップロードする */
 export async function uploadMaterial(f: File): Promise<UploadResult> {
   const res = await fetch(`/api/upload?name=${encodeURIComponent(f.name)}`, {
@@ -112,18 +118,195 @@ async function request(
 /** 動画素材の拡張子(尺の取得・サムネイル表示の分岐に使う) */
 export const VIDEO_EXT_RE = /\.(mp4|mov|webm)$/i;
 
+/** 音声のみの拡張子(BGM 専用。素材・映像トラックには置けない) */
+export const AUDIO_EXT_RE = /\.(mp3|m4a|wav|aac|ogg|flac)$/i;
+
 /** 既存素材の尺(秒)をブラウザのメタデータ読み込みで調べる。
  * 画像・取得失敗は null(呼び出し側で既定の 4 秒などにする) */
 export function probeMaterialDuration(file: string): Promise<number | null> {
   if (!VIDEO_EXT_RE.test(file)) return Promise.resolve(null);
-  return new Promise((resolve) => {
-    const v = document.createElement("video");
-    v.preload = "metadata";
-    v.onloadedmetadata = () => resolve(Number.isFinite(v.duration) ? v.duration : null);
-    v.onerror = () => resolve(null);
-    v.src = `media/${file}`;
-  });
+  return probeMaterialMeta(file).then((m) => m.durationSec);
 }
+
+/** 素材のメタ情報。ブラウザのメタデータ読み込みで調べる(実尺は動画のみ) */
+export interface MaterialMeta {
+  durationSec: number | null;
+  width: number | null;
+  height: number | null;
+}
+
+// セッション中に素材ファイルは変わらない前提でモジュール内にキャッシュする
+const materialMetaCache = new Map<string, MaterialMeta | Promise<MaterialMeta>>();
+
+/** 素材の実尺・解像度を調べる(結果はキャッシュ)。取得失敗は null 埋め */
+export function probeMaterialMeta(file: string): Promise<MaterialMeta> {
+  const hit = materialMetaCache.get(file);
+  if (hit) return Promise.resolve(hit);
+  const none: MaterialMeta = { durationSec: null, width: null, height: null };
+  const p: Promise<MaterialMeta> = VIDEO_EXT_RE.test(file)
+    ? new Promise((resolve) => {
+        const v = document.createElement("video");
+        v.preload = "metadata";
+        v.onloadedmetadata = () =>
+          resolve({
+            durationSec: Number.isFinite(v.duration) ? v.duration : null,
+            width: v.videoWidth || null,
+            height: v.videoHeight || null,
+          });
+        v.onerror = () => resolve(none);
+        v.src = `media/${file}`;
+      })
+    : new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () =>
+          resolve({
+            durationSec: null,
+            width: img.naturalWidth || null,
+            height: img.naturalHeight || null,
+          });
+        img.onerror = () => resolve(none);
+        img.src = `media/${file}`;
+      });
+  materialMetaCache.set(file, p);
+  void p.then((m) => materialMetaCache.set(file, m));
+  return p;
+}
+
+/** 素材メタ情報の React フック。取得が済むまでは null(描画側は省略表示) */
+export function useMaterialMeta(file: string | null): MaterialMeta | null {
+  const resolved = (f: string | null): MaterialMeta | null => {
+    const hit = f ? materialMetaCache.get(f) : null;
+    return hit && !(hit instanceof Promise) ? hit : null;
+  };
+  const [meta, setMeta] = useState<MaterialMeta | null>(() => resolved(file));
+  useEffect(() => {
+    let alive = true;
+    setMeta(resolved(file));
+    if (file) {
+      void probeMaterialMeta(file).then((m) => {
+        if (alive) setMeta(m);
+      });
+    }
+    return () => {
+      alive = false;
+    };
+  }, [file]);
+  return meta;
+}
+
+/** CSS カラーを hex(#rrggbb)+不透明度(0〜1)に分解する。
+ * 対応: #rgb / #rrggbb / #rrggbbaa / rgb() / rgba()。それ以外は白扱い
+ * (座布団の色+透明度スライダーが GUI で編集できるようにするため) */
+export function splitColor(c: string): { hex: string; alpha: number } {
+  const s = c.trim();
+  let m = /^#([0-9a-f]{3})$/i.exec(s);
+  if (m) {
+    const [r, g, b] = m[1].split("");
+    return { hex: `#${r}${r}${g}${g}${b}${b}`.toLowerCase(), alpha: 1 };
+  }
+  m = /^#([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(s);
+  if (m) {
+    return { hex: `#${m[1].toLowerCase()}`, alpha: m[2] ? parseInt(m[2], 16) / 255 : 1 };
+  }
+  m = /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?\)$/i.exec(s);
+  if (m) {
+    const to2 = (v: string) =>
+      Math.max(0, Math.min(255, Math.round(Number(v)))).toString(16).padStart(2, "0");
+    return {
+      hex: `#${to2(m[1])}${to2(m[2])}${to2(m[3])}`,
+      alpha: m[4] !== undefined ? Math.max(0, Math.min(1, Number(m[4]))) : 1,
+    };
+  }
+  return { hex: "#ffffff", alpha: 1 };
+}
+
+/** hex+不透明度を CSS カラーへ(不透明なら hex のまま、半透明は rgba()) */
+export function joinColor(hex: string, alpha: number): string {
+  if (alpha >= 1) return hex;
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${Math.round(alpha * 100) / 100})`;
+}
+
+/** テロップの表示寸法(出力px)の近似。位置プリセットの計算に使う。
+ * 幅は最長行の実測(canvas)、高さは行数 x 行送り 1.4(remotion/Main.tsx と同じ) */
+let measureCtx: CanvasRenderingContext2D | null = null;
+export function measureCaption(
+  text: string,
+  fontSizePx: number,
+  fontFamily: string,
+  fontWeight: number,
+): { w: number; h: number } {
+  if (!measureCtx) measureCtx = document.createElement("canvas").getContext("2d");
+  const lines = (text.trim() || "テロップ").split("\n");
+  let w = fontSizePx; // 計測不能時のフォールバック(1文字ぶん)
+  if (measureCtx) {
+    measureCtx.font = `${fontWeight} ${fontSizePx}px ${fontFamily}`;
+    w = 0;
+    for (const line of lines) w = Math.max(w, measureCtx.measureText(line).width);
+  }
+  return { w: Math.ceil(w), h: Math.ceil(lines.length * fontSizePx * 1.4) };
+}
+
+/** 2〜3択のセグメントコントロール(fit の contain/cover など)。
+ * ドロップダウンと違い、選択肢の全体と現在値が一目で分かる */
+export const Segmented = <T extends string,>({
+  value,
+  options,
+  onChange,
+  disabled = false,
+}: {
+  value: T;
+  options: { value: T; label: string; title?: string }[];
+  onChange: (v: T) => void;
+  disabled?: boolean;
+}) => (
+  <div className={`seg${disabled ? " disabled" : ""}`}>
+    {options.map((o) => (
+      <button
+        key={o.value}
+        className={o.value === value ? "on" : ""}
+        title={o.title}
+        disabled={disabled}
+        onClick={() => onChange(o.value)}
+      >
+        {o.label}
+      </button>
+    ))}
+  </div>
+);
+
+/** %スライダー(音量・不透明度)。値の表示付き。ドラッグ中は連続で
+ * onChange が届くので、呼び出し側は undo のまとめ(coalesce)を使うこと */
+export const PctSlider = ({
+  pct,
+  max = 100,
+  title,
+  onChange,
+}: {
+  pct: number;
+  max?: number;
+  title?: string;
+  onChange: (pct: number) => void;
+}) => (
+  <>
+    <input
+      type="range"
+      className="pctSlider"
+      min={0}
+      max={max}
+      step={5}
+      value={pct}
+      title={title}
+      style={{
+        background: `linear-gradient(to right, var(--accent) ${(pct / max) * 100}%, var(--border) ${(pct / max) * 100}%)`,
+      }}
+      onChange={(e) => onChange(Number(e.target.value))}
+    />
+    <span className="mono dim pctVal">{pct}%</span>
+  </>
+);
 
 /** スピーカーアイコン(線画 SVG)。mute は ×、low/high は波の数で音量を表す */
 export const VolumeIcon = ({
@@ -182,6 +365,43 @@ export const EyeIcon = ({
     <path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12z" />
     <circle cx="12" cy="12" r="2.8" />
     {!open && <line x1="4.5" y1="3.5" x2="19.5" y2="20.5" />}
+  </svg>
+);
+
+/** パネル開閉トグルのアイコン(VSCode のレイアウト切替と同じ意匠)。
+ * 枠の中の該当部分(左/右/下)が塗られている = そのパネルが表示中 */
+export const PanelIcon = ({
+  side,
+  on,
+  size = 16,
+}: {
+  side: "left" | "right" | "bottom";
+  on: boolean;
+  size?: number;
+}) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.6}
+    strokeLinejoin="round"
+    aria-hidden
+  >
+    <rect x="3" y="4" width="18" height="16" rx="2.5" />
+    {side === "left" && <line x1="9.5" y1="4" x2="9.5" y2="20" />}
+    {side === "right" && <line x1="14.5" y1="4" x2="14.5" y2="20" />}
+    {side === "bottom" && <line x1="3" y1="14.5" x2="21" y2="14.5" />}
+    {on && side === "left" && (
+      <rect x="4.4" y="5.4" width="3.8" height="13.2" rx="1" fill="currentColor" stroke="none" />
+    )}
+    {on && side === "right" && (
+      <rect x="15.8" y="5.4" width="3.8" height="13.2" rx="1" fill="currentColor" stroke="none" />
+    )}
+    {on && side === "bottom" && (
+      <rect x="4.4" y="15.8" width="15.2" height="2.8" rx="1" fill="currentColor" stroke="none" />
+    )}
   </svg>
 );
 
@@ -302,6 +522,49 @@ export const SplitIcon = ({ size = 16 }: { size?: number }) => (
   </svg>
 );
 
+/** 削除(ゴミ箱)アイコン(線画 SVG)。選択中クリップの削除用 */
+export const TrashIcon = ({ size = 16 }: { size?: number }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden
+  >
+    <polyline points="3 6 5 6 21 6" />
+    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+    <path d="M10 11v6M14 11v6" />
+    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+  </svg>
+);
+
+/** 吸着(スナップ)アイコン = 馬蹄形マグネット(線画 SVG)。
+ * 両脚の先に極のバンドを描いて「くっつく」意味を表す。ドロップ吸着トグル用 */
+export const MagnetIcon = ({ size = 16 }: { size?: number }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden
+  >
+    {/* 外側の U(左脚→上のアーチ→右脚) */}
+    <path d="M4 20 V13 a8 8 0 0 1 16 0 V20" />
+    {/* 内側の U */}
+    <path d="M9 20 V13 a3 3 0 0 1 6 0 V20" />
+    {/* 両極のバンド(脚先の帯) */}
+    <path d="M4 15.5 H9 M15 15.5 H20" />
+  </svg>
+);
+
 /** ループ再生アイコン(線画 SVG) */
 export const LoopIcon = ({ size = 16 }: { size?: number }) => (
   <svg
@@ -319,6 +582,80 @@ export const LoopIcon = ({ size = 16 }: { size?: number }) => (
     <path d="M4 12.5v-2a4 4 0 0 1 4-4h12" />
     <polyline points="7.5 21 4 17.5 7.5 14" />
     <path d="M20 11.5v2a4 4 0 0 1-4 4H4" />
+  </svg>
+);
+
+/** パネル最大化アイコン(対角の矢印)。active のとき内向き(=元に戻す) */
+export const MaximizeIcon = ({
+  active,
+  size = 16,
+}: {
+  active?: boolean;
+  size?: number;
+}) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden
+  >
+    {active ? (
+      <>
+        <polyline points="4 14 10 14 10 20" />
+        <polyline points="20 10 14 10 14 4" />
+        <line x1="14" y1="10" x2="21" y2="3" />
+        <line x1="3" y1="21" x2="10" y2="14" />
+      </>
+    ) : (
+      <>
+        <polyline points="15 3 21 3 21 9" />
+        <polyline points="9 21 3 21 3 15" />
+        <line x1="21" y1="3" x2="14" y2="10" />
+        <line x1="3" y1="21" x2="10" y2="14" />
+      </>
+    )}
+  </svg>
+);
+
+/** フルスクリーンアイコン(四隅の枠)。active のとき内向き(=解除) */
+export const FullscreenIcon = ({
+  active,
+  size = 16,
+}: {
+  active?: boolean;
+  size?: number;
+}) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden
+  >
+    {active ? (
+      <>
+        <path d="M8 3v3a2 2 0 0 1-2 2H3" />
+        <path d="M21 8h-3a2 2 0 0 1-2-2V3" />
+        <path d="M3 16h3a2 2 0 0 1 2 2v3" />
+        <path d="M16 21v-3a2 2 0 0 1 2-2h3" />
+      </>
+    ) : (
+      <>
+        <path d="M8 3H5a2 2 0 0 0-2 2v3" />
+        <path d="M21 8V5a2 2 0 0 0-2-2h-3" />
+        <path d="M3 16v3a2 2 0 0 0 2 2h3" />
+        <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+      </>
+    )}
   </svg>
 );
 
