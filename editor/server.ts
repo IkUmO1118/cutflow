@@ -33,6 +33,7 @@ import {
 import type { ConfigPatch } from "../src/lib/configEdit.ts";
 import type {
   AutoCuts,
+  Bgm,
   CutPlan,
   Manifest,
   Overlays,
@@ -264,6 +265,20 @@ async function handle(
     sendJson(res, 200, saved);
     return;
   }
+  if (req.method === "DELETE" && path === "/api/material") {
+    // 素材ファイルの削除(materials/ 内のみ。トラバーサルは normalize 後の
+    // 前方一致で弾く)。タイムラインで参照中かの判定はクライアント側の仕事
+    // (未保存の編集を含めた最新の使用状況を知っているのはクライアントだけ)
+    const rel = url.searchParams.get("file") ?? "";
+    const abs = normalize(join(dir, rel));
+    if (!abs.startsWith(join(resolve(dir), "materials") + sep)) {
+      throw new HttpError(400, `materials/ 内のファイルだけ削除できます: ${rel}`);
+    }
+    if (!existsSync(abs)) throw new HttpError(404, `素材が見つかりません: ${rel}`);
+    rmSync(abs);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
   if (req.method === "POST" && path === "/api/proxy") {
     // 二重生成防止: 実行中ならその結果を待って同じレスポンスを返す
     proxyBuilding ??= buildProxy(dir, cfg).finally(() => {
@@ -354,6 +369,7 @@ function loadProject(dir: string, cfg: Config): ProjectData {
     cutplan,
     overlays: readJson<Overlays>("overlays.json", {}),
     dirFiles,
+    bgm: readJson<Bgm | null>("bgm.json", null),
     bgmFile: findBgm(dir),
     silences: readJson<AutoCuts | null>("cuts.auto.json", null)?.silences ?? null,
     proxyExists: existsSync(join(dir, "proxy.mp4")),
@@ -520,7 +536,7 @@ function readWav(abs: string): {
   };
 }
 
-const MATERIAL_EXT = /^\.(png|jpe?g|webp|gif|bmp|avif|mp4|mov|webm)$/;
+const MATERIAL_EXT = /^\.(png|jpe?g|webp|gif|bmp|avif|mp4|mov|webm|mp3|m4a|wav|aac|ogg|flac)$/;
 const VIDEO_EXT = /^\.(mp4|mov|webm)$/;
 
 /** アップロードのバイト列を通しつつ、累積が上限を超えたら 413 で打ち切る。
@@ -612,6 +628,7 @@ function saveProject(dir: string, body: SaveRequest): void {
     cutplan: body.cutplan ?? readDisk("cutplan.json"),
     transcript: body.transcript ?? readDisk("transcript.json"),
     overlays: body.overlays ?? readDisk("overlays.json"),
+    bgm: body.bgm !== undefined ? body.bgm : readDisk("bgm.json"),
     chapters: readDisk("chapters.json"),
     meta: readDisk("meta.json"),
   });
@@ -620,13 +637,25 @@ function saveProject(dir: string, body: SaveRequest): void {
     throw new HttpError(400, `保存できません(整合性エラー ${errors.length}件): ${detail}`);
   }
 
-  const write = (file: string, data: CutPlan | Overlays | Transcript) => {
+  const write = (file: string, data: CutPlan | Overlays | Transcript | Bgm) => {
     selfWroteAt.set(file, Date.now());
     writeFileSync(join(dir, file), JSON.stringify(data, null, 2));
   };
   if (body.cutplan) write("cutplan.json", body.cutplan);
   if (body.overlays) write("overlays.json", body.overlays);
   if (body.transcript) write("transcript.json", body.transcript);
+  // BGM: 区間があれば bgm.json を書き、null / 空なら削除して全編1曲(後方互換)へ戻す
+  if (body.bgm !== undefined) {
+    if (body.bgm && body.bgm.tracks.length > 0) {
+      write("bgm.json", body.bgm);
+    } else {
+      const p = join(dir, "bgm.json");
+      if (existsSync(p)) {
+        selfWroteAt.set("bgm.json", Date.now());
+        rmSync(p);
+      }
+    }
+  }
 }
 
 const MIME: Record<string, string> = {
@@ -658,13 +687,25 @@ function serveMedia(
     sendJson(res, 404, { error: `not found: ${rel}` });
     return;
   }
-  const size = statSync(abs).size;
+  const st = statSync(abs);
+  const size = st.size;
+  // no-store だと <video> 要素ごと・シークごとに同じバイト列を毎回取り直し、
+  // カット境界の先読み(premount)が重くなる。再検証付きキャッシュ(no-cache
+  // + ETag)なら、ファイルが変わらない限り 304 で済み、proxy.mp4 や素材を
+  // 作り直した瞬間に ETag が変わって古いキャッシュは自然に外れる
+  const etag = `"${size}-${Math.round(st.mtimeMs)}"`;
   const headers: Record<string, string> = {
     "Content-Type": MIME[extname(abs).toLowerCase()] ?? "application/octet-stream",
     "Accept-Ranges": "bytes",
-    // proxy.mp4 や素材は作り直されることがあるのでキャッシュさせない
-    "Cache-Control": "no-store",
+    "Cache-Control": "no-cache",
+    ETag: etag,
+    "Last-Modified": st.mtime.toUTCString(),
   };
+  if (req.headers["if-none-match"] === etag) {
+    res.writeHead(304, headers);
+    res.end();
+    return;
+  }
   const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? "");
   if (range && (range[1] || range[2])) {
     // suffix 形式(bytes=-N)は末尾 N バイト。end はファイル末尾へ丸める(RFC 9110)

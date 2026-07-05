@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from "react";
 import { capNum, ovNum } from "../../src/types.ts";
 import type { LayerId } from "../../src/types.ts";
@@ -12,8 +12,38 @@ import type {
   TrackId,
 } from "./model.ts";
 import { MATERIAL_MIME, ROW_H } from "./model.ts";
-import { EyeIcon, UndoIcon, VolumeIcon, fmtTime } from "./widgets.tsx";
+import { playhead, usePlayheadSelector } from "./playhead.ts";
+import { AUDIO_EXT_RE, EyeIcon, MagnetIcon, SplitIcon, TrashIcon, UndoIcon, VolumeIcon, fmtTime } from "./widgets.tsx";
 import type { Peaks } from "./widgets.tsx";
+
+/** 再生ヘッドの縦線(ルーラーのつまみ・トラック上の線)。再生中の毎フレーム
+ * 更新をこの1要素に閉じ込める(Timeline 全体は再レンダーしない) */
+const PlayheadMark = ({ className, pps }: { className: string; pps: number }) => {
+  const left = usePlayheadSelector((t) => t * pps);
+  return <div className={className} style={{ left }} />;
+};
+
+/** 分割ボタン。活性が再生ヘッド位置で変わるため、ボタン単体で購読する */
+const SplitButton = ({
+  getDisabled,
+  onSplit,
+}: {
+  getDisabled: (outT: number) => boolean;
+  onSplit: () => void;
+}) => {
+  const disabled = usePlayheadSelector(getDisabled);
+  return (
+    <button
+      className="tlTool"
+      aria-label="分割"
+      title="再生ヘッド位置でクリップを分割 (⌘K)。割っただけでは映像は変わらず、端をトリムして詰める・片側を削除して使う"
+      disabled={disabled}
+      onClick={onSplit}
+    >
+      <SplitIcon size={14} />
+    </button>
+  );
+};
 
 /** 素材クリップの色。トラック番号で巡回(V1=緑、V2=紫は従来と同じ) */
 const OV_COLORS = ["#14532d", "#4c1d95", "#7c2d12", "#134e4a", "#701a75", "#1e3a8a"];
@@ -93,6 +123,16 @@ const Waveform = memo(
   },
 );
 
+/** 水平仮想化のチャンク幅(px)。スクロールがチャンク境界を跨いだときだけ
+ * 再レンダーし、可視域±1チャンクに重なるクリップ・目盛り・カット印だけを
+ * DOM に置く(長尺収録では全クリップの常時 DOM 化が最大の負荷になる) */
+const VIRT_CHUNK = 512;
+
+/** ズームの絶対上限(px/秒)。ズーム上限は「フィット比×64」との大きい方に
+ * するので、長尺でもこの密度までは必ず拡大できる(相対上限だけだと2時間の
+ * 収録で最大 十数px/秒 になり、テロップ単位の編集が物理的にできない) */
+const MAX_PPS = 240;
+
 /** トラック高さの範囲と localStorage キー(最小 = 既定の ROW_H。
  * 既定より低くは潰せず、広げる方向だけ) */
 const ROW_H_MIN = ROW_H;
@@ -110,12 +150,13 @@ const SNAP_STORE = "cutflow.editor.snapEnabled";
 export const Timeline = ({
   height,
   duration,
-  playhead,
   clips,
   cutMarks,
   peaks,
   tracks,
   selection,
+  multiCaption,
+  onToggleCaptionSel,
   onSeek,
   onSelect,
   onDragStart,
@@ -128,6 +169,10 @@ export const Timeline = ({
   canRedo,
   onUndo,
   onRedo,
+  onSplit,
+  getSplitDisabled,
+  onDelete,
+  deleteDisabled,
   onRemoveTrack,
   onRenameTrack,
   onDropFile,
@@ -142,7 +187,6 @@ export const Timeline = ({
   /** タイムライン全体の高さ(px)。上部との分割バーのドラッグで変わる */
   height: number;
   duration: number;
-  playhead: number;
   clips: Clip[];
   /** 映像トラックの継ぎ目に出す「カットされた区間」の印(クリックで選択
    * → Inspector で復元)。位置はカット後秒なので幅は持たない */
@@ -153,6 +197,10 @@ export const Timeline = ({
   /** 表示順(上=前面)。App が layerOrder から組み立てる */
   tracks: TrackDef[];
   selection: Selection;
+  /** 複数選択中のテロップ(transcript.segments の添字。2件以上のときだけ) */
+  multiCaption: number[];
+  /** テロップクリップの⌘クリック(選択への追加/解除) */
+  onToggleCaptionSel: (index: number) => void;
   onSeek: (outT: number) => void;
   onSelect: (sel: Selection) => void;
   /** clip: 掴んだクリップ(カットで割れたスパンはフラグメントの位置を持つ) */
@@ -171,6 +219,14 @@ export const Timeline = ({
   canRedo: boolean;
   onUndo: () => void;
   onRedo: () => void;
+  /** 再生ヘッド位置でクリップを分割(⌘K)。getSplitDisabled = 分割できる
+   * 位置にないか(ボタンが再生ヘッドを購読して都度評価する) */
+  onSplit: () => void;
+  getSplitDisabled: (outT: number) => boolean;
+  /** 選択中のクリップを削除(映像クリップはカット記録へ倒す)。
+   * deleteDisabled = 選択なし */
+  onDelete: () => void;
+  deleteDisabled: boolean;
   /** 空の素材/テロップトラックを削除する(番号は詰め直される) */
   onRemoveTrack: (id: TrackId) => void;
   /** テロップトラックの名前を変更(空文字で自動ラベルに戻す)。
@@ -197,11 +253,16 @@ export const Timeline = ({
   const labelsRef = useRef<HTMLDivElement>(null);
   const [viewW, setViewW] = useState(0);
   const [zoom, setZoom] = useState(1);
+  /** 水平スクロール位置のチャンク番号(floor(scrollLeft / VIRT_CHUNK))。
+   * ピクセル単位で state に載せると毎スクロールイベントで全体が再レンダー
+   * されるので、チャンク境界を跨いだときだけ更新する */
+  const [scrollChunk, setScrollChunk] = useState(0);
   const [ghost, setGhost] = useState<{ track: TrackId; a: number; b: number } | null>(null);
   const ghostRef = useRef<typeof ghost>(null);
   const [dragLabel, setDragLabel] = useState<TrackId | null>(null);
+  /** クリップの移動・トリム中に吸着した境界の位置(カット後秒)。表示線用 */
+  const [snapMark, setSnapMark] = useState<number | null>(null);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
-  const [helpOpen, setHelpOpen] = useState(false);
   /** トラック名の編集中(テロップトラックのラベルをダブルクリック) */
   const [renaming, setRenaming] = useState<{ id: TrackId; value: string } | null>(null);
   /** ドロップ時の吸着(クリップ境界・再生ヘッド・0/末尾)の ON/OFF */
@@ -245,15 +306,31 @@ export const Timeline = ({
   const fitPps = viewW > 0 && duration > 0 ? viewW / duration : 50;
   const pps = fitPps * zoom;
   const totalW = Math.max(viewW, Math.ceil(duration * pps));
+  /** ズーム上限。フィット比の64倍か、絶対密度 MAX_PPS に達する倍率の
+   * 大きい方(短尺では従来と同じ、長尺ではテロップ編集に足る密度まで) */
+  const maxZoom = Math.max(64, MAX_PPS / fitPps);
 
   /** ズーム後もアンカー位置(カーソル/ビュー中央)の時刻が動かないよう、
    * 再レンダー後に合わせるスクロール位置。t = カット後秒, px = ビュー左端からの距離 */
   const pendingAnchor = useRef<{ t: number; px: number } | null>(null);
 
+  /* ---- 仮想化の可視窓(カット後の秒) ----
+   * ズーム直後はスクロール補正(下の layout effect)より先に1回描画される
+   * ので、アンカーから補正後の位置を予測して窓を出す(予測しないと補正前の
+   * 窓で一瞬空白が見える)。窓はチャンク境界に量子化されているので、
+   * スクロール中の再レンダーはチャンクを跨ぐときだけ */
+  const anchor = pendingAnchor.current;
+  const winLeftPx = Math.min(
+    Math.max(0, anchor ? anchor.t * pps - anchor.px : scrollChunk * VIRT_CHUNK),
+    Math.max(0, totalW - viewW),
+  );
+  const winStart = Math.max(0, winLeftPx - VIRT_CHUNK) / pps;
+  const winEnd = (winLeftPx + viewW + 2 * VIRT_CHUNK) / pps;
+
   /** factor 倍にズーム(0 で全体表示にリセット)。anchorClientX を渡すと
    * その画面座標、省略時はビュー中央を基準に拡縮する */
   const applyZoom = (factor: number, anchorClientX?: number) => {
-    const next = factor === 0 ? 1 : Math.min(64, Math.max(1, zoom * factor));
+    const next = factor === 0 ? 1 : Math.min(maxZoom, Math.max(1, zoom * factor));
     if (next === zoom) return;
     const el = scrollRef.current;
     if (el && next > 1) {
@@ -268,7 +345,20 @@ export const Timeline = ({
   const applyZoomRef = useRef(applyZoom);
   applyZoomRef.current = applyZoom;
 
-  useEffect(() => {
+  /** ズームを絶対値へ(スライダー用)。ビュー中央を基準に拡縮する */
+  const setZoomTo = (next: number) => {
+    next = Math.min(maxZoom, Math.max(1, next));
+    if (next === zoom) return;
+    const el = scrollRef.current;
+    if (el && next > 1) {
+      const px = el.clientWidth / 2;
+      pendingAnchor.current = { t: (el.scrollLeft + px) / pps, px };
+    }
+    setZoom(next);
+  };
+
+  // 描画前に合わせる(useEffect だと補正前のスクロール位置で一瞬描画される)
+  useLayoutEffect(() => {
     const a = pendingAnchor.current;
     if (!a) return;
     pendingAnchor.current = null;
@@ -322,18 +412,33 @@ export const Timeline = ({
   };
 
   /** window にリスナーを張るドラッグの共通処理。コンテキストメニュー等で
-   * pointerup が届かないことがあるので pointercancel でも必ず後始末する */
+   * pointerup が届かないことがあるので pointercancel でも必ず後始末する。
+   * pointermove はディスプレイ更新より速く届く(トラックパッドで 90〜120Hz)
+   * ので rAF で1フレーム1回に間引く(move は絶対座標から計算する前提。
+   * ドラッグ中のドキュメント更新・再レンダーが画面の更新回数を超えない) */
   const beginDrag = (
     e: ReactPointerEvent,
     move: (ev: PointerEvent) => void,
     up?: () => void,
   ) => {
     e.preventDefault();
-    const onMove = (ev: PointerEvent) => move(ev);
+    let raf = 0;
+    let last: PointerEvent | null = null;
+    const onMove = (ev: PointerEvent) => {
+      last = ev;
+      if (raf === 0) {
+        raf = requestAnimationFrame(() => {
+          raf = 0;
+          if (last) move(last);
+        });
+      }
+    };
     const onUp = () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
+      if (raf !== 0) cancelAnimationFrame(raf);
+      if (last) move(last); // 間引きで未適用の最後の移動を確定してから終了
       up?.();
     };
     window.addEventListener("pointermove", onMove);
@@ -351,17 +456,46 @@ export const Timeline = ({
     e.stopPropagation();
     if (e.button !== 0) return; // 主ボタン以外はドラッグを始めない
     if (!clip.editable) return;
+    // テロップの⌘クリックは複数選択への追加/解除(ドラッグは始めない)
+    if (clip.kind === "caption" && (e.metaKey || e.ctrlKey)) {
+      onToggleCaptionSel(clip.index);
+      return;
+    }
     onSelect({ kind: clip.kind, index: clip.index });
     onDragStart({ kind: clip.kind, index: clip.index }, mode, clip);
     const x0 = e.clientX;
+    const y0 = e.clientY;
+    // デッドゾーン: 数px 動くまではドラッグ扱いにしない(選択クリック時の
+    // トラックパッドの震えで区間が 0.01 秒ずれて未保存になるのを防ぐ)
+    let started = false;
     beginDrag(
       e,
       (ev) => {
+        if (
+          !started &&
+          Math.abs(ev.clientX - x0) < 4 &&
+          Math.abs(ev.clientY - y0) < 6
+        ) {
+          return;
+        }
+        started = true;
+        const raw = (ev.clientX - x0) / pps;
+        // 吸着(マグネット): トグル(snapOn)が既定で、ドラッグ中に ⌘/Ctrl を
+        // 押すと一時反転する(OFF のとき押しながらで境界へ吸着 / ON のとき
+        // 押しながらで自由移動)。境界=他クリップの端・再生ヘッド・0/末尾
+        const doSnap = snapOn !== (ev.metaKey || ev.ctrlKey);
+        const { delta, line } = doSnap
+          ? snapClipDelta(clip, mode, raw)
+          : { delta: raw, line: null };
+        setSnapMark(line);
         // 縦方向はポインタ下のトラックへの移動として通知
         // (素材の V1/V2 = z-index の入れ替え)
-        onDragMove((ev.clientX - x0) / pps, tracks[trackIndexAt(ev.clientY)].id);
+        onDragMove(delta, tracks[trackIndexAt(ev.clientY)].id);
       },
-      onDragEnd,
+      () => {
+        setSnapMark(null);
+        onDragEnd();
+      },
     );
   };
 
@@ -424,13 +558,80 @@ export const Timeline = ({
     );
   };
 
-  // ルーラーの目盛り間隔: 1目盛りが 70px 以上になる切りのいい秒数
+  // ルーラーの目盛り間隔: 1目盛りが 70px 以上になる切りのいい秒数。
+  // 可視窓の中だけ置く(長尺+高ズームでは全体で数万本になる)
   const step = [0.2, 0.5, 1, 2, 5, 10, 15, 30, 60].find((s) => s * pps >= 70) ?? 120;
   const ticks: number[] = [];
-  for (let t = 0; t <= duration; t += step) ticks.push(t);
+  const tickEnd = Math.min(duration, winEnd);
+  for (let k = Math.max(0, Math.floor(winStart / step)); k * step <= tickEnd; k++) {
+    ticks.push(k * step);
+  }
 
   const isSel = (c: Clip) =>
-    selection !== null && selection.kind === c.kind && selection.index === c.index;
+    (selection !== null && selection.kind === c.kind && selection.index === c.index) ||
+    (c.kind === "caption" && multiCaption.includes(c.index));
+
+  /* ---- 水平仮想化: トラック別の区間索引 ----
+   * クリップを outStart 順に並べ、前方からの outEnd の最大値(maxEnd)を
+   * 添える。可視窓 [winStart, winEnd) に重なるクリップは
+   *   lo = maxEnd > winStart となる最初(それ以前は全て窓より左で終わる)
+   *   hi = outStart >= winEnd となる最初(それ以降は全て窓より右で始まる)
+   * の二分探索2回 O(log n + k) で取り出せる(区間 stabbing の定石)。
+   * key はトラック内の同一クリップ(kind+index)の断片通し番号。窓が動いても
+   * 同じ断片に同じ key が付くので、スクロールで DOM が作り直されない */
+  const byTrack = useMemo(() => {
+    const grouped = new Map<TrackId, Clip[]>();
+    for (const c of clips) {
+      const arr = grouped.get(c.track);
+      if (arr) arr.push(c);
+      else grouped.set(c.track, [c]);
+    }
+    const index = new Map<
+      TrackId,
+      { list: Clip[]; keys: string[]; maxEnd: number[] }
+    >();
+    for (const [id, list] of grouped) {
+      // sort は安定なので、同時刻に始まるクリップの重なり順(clips の
+      // 並び = 描画順)は保たれる
+      list.sort((a, b) => a.outStart - b.outStart);
+      const occ = new Map<string, number>();
+      const keys: string[] = [];
+      const maxEnd: number[] = [];
+      let mx = -Infinity;
+      for (const c of list) {
+        const base = `${c.kind}-${c.index}`;
+        const n = occ.get(base) ?? 0;
+        occ.set(base, n + 1);
+        keys.push(`${base}-${n}`);
+        if (c.outEnd > mx) mx = c.outEnd;
+        maxEnd.push(mx);
+      }
+      index.set(id, { list, keys, maxEnd });
+    }
+    return index;
+  }, [clips]);
+
+  /** 可視窓に重なるトラック内クリップの添字範囲 [from, to)。
+   * from〜to には maxEnd の性質上「窓より左で終わる」ものが混ざりうるので、
+   * 呼び出し側で outEnd > winStart だけ確認する */
+  const visibleRange = (g: { list: Clip[]; maxEnd: number[] }): [number, number] => {
+    const n = g.list.length;
+    let lo = 0;
+    let hi = n;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (g.maxEnd[mid] > winStart) hi = mid;
+      else lo = mid + 1;
+    }
+    const from = lo;
+    hi = n;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (g.list[mid].outStart >= winEnd) hi = mid;
+      else lo = mid + 1;
+    }
+    return [from, lo];
+  };
 
   const ovTrackCount = tracks.filter((t) => ovNum(t.id) !== null).length;
   const capTrackCount = tracks.filter((t) => capNum(t.id) !== null).length;
@@ -452,10 +653,17 @@ export const Timeline = ({
     t: number;
     snapLine: number | null;
   } | null>(null);
+  /** ドラッグ中のファイルが音声のみか。true = BGM トラックだけがドロップ先、
+   *  false = 素材・映像トラックだけ(BGM 不可)、null = 種別不明で従来どおり。
+   *  置けないトラックにホバーの反応を出さないため、種別に合わせて絞り込む */
+  const [dropAudio, setDropAudio] = useState<boolean | null>(null);
 
   // ドラッグがキャンセルされた・パネル側で終わったときの消し忘れ防止
   useEffect(() => {
-    if (!dragMaterial) setDrop(null);
+    if (!dragMaterial) {
+      setDrop(null);
+      setDropAudio(null);
+    }
   }, [dragMaterial]);
 
   /** ゴーストの幅に使う尺(秒)。画像・不明は配置時の既定と同じ */
@@ -464,14 +672,37 @@ export const Timeline = ({
     ? dragMaterial.file.replace(/^materials\//, "")
     : "ファイル";
 
-  const isDropTrack = (t: TrackDef) => ovNum(t.id) !== null || t.id === "cut";
+  /** ドラッグ中のファイルが音声のみか。素材パネルは file 名で、OS ファイルは
+   *  dragover 中でも読める MIME 種別(item.type)で判定する。拡張子だけで
+   *  MIME 不明などで判定できないときは null(従来どおり全トラック許可) */
+  const dragIsAudioOnly = (e: ReactDragEvent): boolean | null => {
+    if (dragMaterial) return AUDIO_EXT_RE.test(dragMaterial.file);
+    const items = e.dataTransfer.items;
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (it.kind !== "file") continue;
+      if (it.type.startsWith("audio/")) return true;
+      if (it.type.startsWith("image/") || it.type.startsWith("video/")) return false;
+    }
+    return null;
+  };
+
+  /** そのトラックが今ドラッグ中のファイルのドロップ先になれるか。
+   *  音声のみ = BGM だけ、画像・動画 = 素材/映像だけ(BGM 不可)、種別不明 =
+   *  従来どおり素材/映像/BGM すべて。置けないトラックにはホバーの反応
+   *  (ドロップゴースト・ハイライト)を出さない */
+  const isDropTrack = (t: TrackDef, audio: boolean | null): boolean => {
+    if (audio === true) return t.id === "bgm";
+    if (audio === false) return ovNum(t.id) !== null || t.id === "cut";
+    return ovNum(t.id) !== null || t.id === "cut" || t.id === "bgm";
+  };
   /** ポインタに一番近い置けるトラック(行の添字距離で上下に探す) */
-  const dropTrackAt = (clientY: number): TrackDef | null => {
+  const dropTrackAt = (clientY: number, audio: boolean | null): TrackDef | null => {
     const idx = trackIndexAt(clientY);
     for (let d = 0; d < tracks.length; d++) {
       for (const i of [idx - d, idx + d]) {
         const t = tracks[i];
-        if (t && isDropTrack(t)) return t;
+        if (t && isDropTrack(t, audio)) return t;
       }
     }
     return null;
@@ -482,7 +713,7 @@ export const Timeline = ({
   const SNAP_PX = 8;
   const snapDropT = (t: number): { t: number; snapLine: number | null } => {
     if (!snapOn) return { t, snapLine: null };
-    const cands = [0, playhead, duration];
+    const cands = [0, playhead.get(), duration];
     for (const c of clips) cands.push(c.outStart, c.outEnd);
     let best: { t: number; line: number; px: number } | null = null;
     for (const c of cands) {
@@ -494,6 +725,41 @@ export const Timeline = ({
       }
     }
     return best ? { t: best.t, snapLine: best.line } : { t, snapLine: null };
+  };
+
+  /** クリップの移動・左右トリム中に、動いている端を他クリップの境界・再生
+   *  ヘッド・0/末尾へ吸着する。掴んだクリップ(カットで割れた同一クリップの
+   *  断片も)自身の端は候補から外す。返り値は調整後のデルタ(カット後秒)と
+   *  吸着した境界の位置(表示線用。なければ null)。 */
+  const snapClipDelta = (
+    clip: Clip,
+    mode: DragMode,
+    rawDelta: number,
+  ): { delta: number; line: number | null } => {
+    const cands = [0, duration, playhead.get()];
+    for (const c of clips) {
+      if (c.kind === clip.kind && c.index === clip.index) continue; // 自分自身
+      cands.push(c.outStart, c.outEnd);
+    }
+    // 動く端: 移動は両端、トリムは掴んだ側の1端だけを候補に合わせる
+    const edges =
+      mode === "move"
+        ? [clip.outStart + rawDelta, clip.outEnd + rawDelta]
+        : mode === "trim-start"
+          ? [clip.outStart + rawDelta]
+          : [clip.outEnd + rawDelta];
+    let best: { adjust: number; line: number; px: number } | null = null;
+    for (const edge of edges) {
+      for (const cand of cands) {
+        const px = Math.abs(edge - cand) * pps;
+        if (px < SNAP_PX && (!best || px < best.px)) {
+          best = { adjust: cand - edge, line: cand, px };
+        }
+      }
+    }
+    return best
+      ? { delta: rawDelta + best.adjust, line: best.line }
+      : { delta: rawDelta, line: null };
   };
 
   /** ドラッグ中に端へ近づいたら自動スクロール(dragover はホバー中も届く) */
@@ -513,13 +779,16 @@ export const Timeline = ({
     const types = e.dataTransfer.types;
     if (!types.includes("Files") && !types.includes(MATERIAL_MIME)) return;
     e.preventDefault();
-    e.dataTransfer.dropEffect = "copy";
     dragAutoScroll(e.clientX, e.clientY);
-    const track = dropTrackAt(e.clientY);
+    const audio = dragIsAudioOnly(e);
+    setDropAudio((cur) => (cur === audio ? cur : audio));
+    const track = dropTrackAt(e.clientY, audio);
     if (!track) {
+      e.dataTransfer.dropEffect = "none";
       setDrop(null);
       return;
     }
+    e.dataTransfer.dropEffect = "copy";
     const { t, snapLine } = snapDropT(posToT(e.clientX));
     setDrop((cur) =>
       cur && cur.track === track.id && cur.t === t && cur.snapLine === snapLine
@@ -529,14 +798,18 @@ export const Timeline = ({
   };
   const onDragLeaveTimeline = (e: ReactDragEvent) => {
     // 子要素間の移動では消さない(relatedTarget = null はウィンドウ外)
-    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDrop(null);
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+      setDrop(null);
+      setDropAudio(null);
+    }
   };
   const onDropTimeline = (e: ReactDragEvent) => {
     e.preventDefault();
     // ゴーストの位置に落とす(dragover を経ていない場合はその場で計算)
-    const track = drop?.track ?? dropTrackAt(e.clientY)?.id;
+    const track = drop?.track ?? dropTrackAt(e.clientY, dragIsAudioOnly(e))?.id;
     const t = drop?.t ?? posToT(e.clientX);
     setDrop(null);
+    setDropAudio(null);
     if (track === undefined) return;
     const path = e.dataTransfer.getData(MATERIAL_MIME);
     if (path) {
@@ -550,39 +823,9 @@ export const Timeline = ({
   return (
     <div className="timeline" style={{ height }}>
       <div className="tlToolbar">
-        <span
-          className={helpOpen ? "helpTip open" : "helpTip"}
-          onClick={() => setHelpOpen((v) => !v)}
-        >
-          ?
-          {helpOpen && (
-            <span
-              className="menuBackdrop"
-              onClick={(e) => {
-                e.stopPropagation();
-                setHelpOpen(false);
-              }}
-            />
-          )}
-          <span className="helpTipPop" onClick={(e) => e.stopPropagation()}>
-            {"タイムラインの操作\n" +
-              "・横軸はカット後の時間\n" +
-              "・上のトラックほど前面に表示\n" +
-              "・⌘K: 再生ヘッド位置でクリップを分割\n" +
-              "  (割ってから端をトリム / Delete でカット)\n" +
-              "・映像トラックの ▼ 印 = カットされた区間\n" +
-              "  (クリックで選択 → プロパティから戻せる)\n" +
-              "・ラベルの上下ドラッグで並べ替え\n" +
-              "・ラベル下端のドラッグで高さを変更\n" +
-              "・目のアイコンでトラックを一時非表示\n" +
-              "  (プレビュー専用。書き出しには影響せず、\n" +
-              "  リロードで全トラック表示に戻る)\n" +
-              "・⌘+スクロール(ピンチ)でズーム"}
-          </span>
-        </span>
         <span className="addTrack">
           <button
-            className="icon"
+            className="tlTool"
             title="トラックを追加(種類を選択)"
             onClick={() => setAddMenuOpen((v) => !v)}
           >
@@ -612,45 +855,85 @@ export const Timeline = ({
             </>
           )}
         </span>
-        <span className="histGroup">
-          <button
-            aria-label="元に戻す"
-            title="元に戻す (⌘Z)"
-            disabled={!canUndo}
-            onClick={onUndo}
-          >
-            <UndoIcon dir="undo" size={14} />
-          </button>
-          <button
-            aria-label="やり直す"
-            title="やり直す (⇧⌘Z)"
-            disabled={!canRedo}
-            onClick={onRedo}
-          >
-            <UndoIcon dir="redo" size={14} />
-          </button>
-        </span>
+        <span className="tlDivider" />
+        <button
+          className="tlTool"
+          aria-label="元に戻す"
+          title="元に戻す (⌘Z)"
+          disabled={!canUndo}
+          onClick={onUndo}
+        >
+          <UndoIcon dir="undo" size={14} />
+        </button>
+        <button
+          className="tlTool"
+          aria-label="やり直す"
+          title="やり直す (⇧⌘Z)"
+          disabled={!canRedo}
+          onClick={onRedo}
+        >
+          <UndoIcon dir="redo" size={14} />
+        </button>
+        <SplitButton getDisabled={getSplitDisabled} onSplit={onSplit} />
+        <button
+          className="tlTool"
+          aria-label="削除"
+          title="選択中のクリップを削除 (Delete)。映像クリップは削除ではなくカット記録へ倒す(継ぎ目の印から戻せる)"
+          disabled={deleteDisabled}
+          onClick={onDelete}
+        >
+          <TrashIcon size={14} />
+        </button>
         <span className="spacer" />
         <button
-          className={snapOn ? "active" : ""}
-          title="素材ドロップ時の吸着(クリップ境界・再生ヘッド・0/末尾)。細かい位置を狙うときは OFF に"
+          className={`tlSnap${snapOn ? " active" : ""}`}
+          aria-label={snapOn ? "吸着 ON" : "吸着 OFF"}
+          aria-pressed={snapOn}
+          title="吸着(ドロップ・クリップの移動・左右トリムで、クリップ境界・再生ヘッド・0/末尾に吸い付く)。ドラッグ中に ⌘/Ctrl を押すと一時反転(OFF でも吸着 / ON でも自由移動)。細かい位置を狙うときは OFF に"
           onClick={() => setSnapOn((v) => !v)}
         >
-          吸着
+          <MagnetIcon size={15} />
         </button>
+        <span className="tlDivider" />
         <span className="tlZoom">
-          <button title="縮小(⌘+スクロールでも可)" disabled={zoom <= 1} onClick={() => applyZoom(1 / 1.5)}>
-            −
-          </button>
           <button
-            title={`全体を表示(現在 ${Math.round(zoom * 100)}%)`}
+            className="zoomBtn"
+            aria-label="縮小"
+            title="縮小(⌘+スクロールでも可)"
             disabled={zoom <= 1}
-            onClick={() => applyZoom(0)}
+            onClick={() => applyZoom(1 / 1.5)}
           >
-            全体
+            <svg viewBox="0 0 12 12" aria-hidden>
+              <line x1="3" y1="6" x2="9" y2="6" />
+            </svg>
           </button>
-          <button title="拡大(⌘+スクロールでも可)" disabled={zoom >= 64} onClick={() => applyZoom(1.5)}>
-            ＋
+          <input
+            type="range"
+            className="zoomSlider"
+            min={0}
+            // 上限は log2(maxZoom)。長尺では 6(=64倍)を超えて伸びる
+            max={Math.log2(maxZoom)}
+            step={0.02}
+            value={Math.log2(zoom)}
+            title={`ズーム ${Math.round(zoom * 100)}%(ダブルクリックで全体表示)`}
+            style={{
+              // 左端から現在のズーム位置までをアクセント色で塗る(音量スライダーと同じ流儀)
+              background: `linear-gradient(to right, var(--accent) ${(Math.log2(zoom) / Math.log2(maxZoom)) * 100}%, var(--border) ${(Math.log2(zoom) / Math.log2(maxZoom)) * 100}%)`,
+            }}
+            onChange={(e) => setZoomTo(2 ** Number(e.target.value))}
+            onDoubleClick={() => applyZoom(0)}
+          />
+          <button
+            className="zoomBtn"
+            aria-label="拡大"
+            title="拡大(⌘+スクロールでも可)"
+            disabled={zoom >= maxZoom}
+            onClick={() => applyZoom(1.5)}
+          >
+            <svg viewBox="0 0 12 12" aria-hidden>
+              <line x1="6" y1="3" x2="6" y2="9" />
+              <line x1="3" y1="6" x2="9" y2="6" />
+            </svg>
           </button>
         </span>
       </div>
@@ -760,6 +1043,9 @@ export const Timeline = ({
           ref={scrollRef}
           onScroll={(e) => {
             if (labelsRef.current) labelsRef.current.scrollTop = e.currentTarget.scrollTop;
+            // 仮想化の窓はチャンク境界を跨いだときだけ動かす
+            const c = Math.floor(e.currentTarget.scrollLeft / VIRT_CHUNK);
+            setScrollChunk((prev) => (prev === c ? prev : c));
           }}
           onDragOver={onDragOverTimeline}
           onDragLeave={onDragLeaveTimeline}
@@ -772,7 +1058,7 @@ export const Timeline = ({
                   {fmtTime(t)}
                 </div>
               ))}
-              <div className="tlPlayheadCap" style={{ left: playhead * pps }} />
+              <PlayheadMark className="tlPlayheadCap" pps={pps} />
             </div>
             {tracks.map((track) => (
               <div
@@ -785,7 +1071,7 @@ export const Timeline = ({
                     ? ""
                     : drop.track === track.id
                       ? " dropActive"
-                      : isDropTrack(track)
+                      : isDropTrack(track, dropAudio)
                         ? " dropOk"
                         : ""
                 }`}
@@ -794,52 +1080,65 @@ export const Timeline = ({
                 onPointerDown={(e) => onTrackDown(e, track)}
                 title={track.hint}
               >
-                {clips
-                  .filter((c) => c.track === track.id)
-                  .map((clip, i) => (
-                    <div
-                      key={`${clip.kind}-${clip.index}-${i}`}
-                      className={`tlClip ${clip.kind}${isSel(clip) ? " sel" : ""}${clip.static ? " static" : ""}`}
-                      style={{
-                        left: clip.outStart * pps,
-                        width: Math.max(6, (clip.outEnd - clip.outStart) * pps),
-                        // 素材クリップはトラック番号で色分け(CSS は種別のみ)
-                        ...(clip.kind === "overlays"
-                          ? { background: ovColor(clip.track) }
-                          : {}),
-                      }}
-                      title={clip.label}
-                      onPointerDown={(e) => onClipDown(e, clip, "move")}
-                    >
-                      {clip.wave && peaks[clip.wave.src] && (
-                        <Waveform
-                          peaks={peaks[clip.wave.src] as Peaks}
-                          srcStart={clip.wave.startSec}
-                          durSec={clip.outEnd - clip.outStart}
-                          pxWidth={Math.max(6, (clip.outEnd - clip.outStart) * pps)}
-                          pxHeight={rowH(track.id) - 6}
-                          loop={clip.wave.loop}
-                        />
-                      )}
-                      {clip.editable && !clip.noTrimStart && (
-                        <div
-                          className="tlEdge l"
-                          onPointerDown={(e) => onClipDown(e, clip, "trim-start")}
-                        />
-                      )}
-                      <span className="tlClipLabel">{clip.label}</span>
-                      {clip.editable && !clip.noTrimEnd && (
-                        <div
-                          className="tlEdge r"
-                          onPointerDown={(e) => onClipDown(e, clip, "trim-end")}
-                        />
-                      )}
-                    </div>
-                  ))}
+                {(() => {
+                  // 可視窓に重なるクリップだけを DOM に置く(水平仮想化)
+                  const g = byTrack.get(track.id);
+                  if (!g) return null;
+                  const [from, to] = visibleRange(g);
+                  const nodes = [];
+                  for (let i = from; i < to; i++) {
+                    const clip = g.list[i];
+                    if (clip.outEnd <= winStart) continue; // 窓より左で終わる
+                    nodes.push(
+                      <div
+                        key={g.keys[i]}
+                        className={`tlClip ${clip.kind}${isSel(clip) ? " sel" : ""}${clip.static ? " static" : ""}`}
+                        style={{
+                          left: clip.outStart * pps,
+                          width: Math.max(6, (clip.outEnd - clip.outStart) * pps),
+                          // 素材クリップはトラック番号で色分け(CSS は種別のみ)
+                          ...(clip.kind === "overlays"
+                            ? { background: ovColor(clip.track) }
+                            : {}),
+                        }}
+                        title={clip.label}
+                        onPointerDown={(e) => onClipDown(e, clip, "move")}
+                      >
+                        {clip.wave && peaks[clip.wave.src] && (
+                          <Waveform
+                            peaks={peaks[clip.wave.src] as Peaks}
+                            srcStart={clip.wave.startSec}
+                            durSec={clip.outEnd - clip.outStart}
+                            pxWidth={Math.max(6, (clip.outEnd - clip.outStart) * pps)}
+                            pxHeight={rowH(track.id) - 6}
+                            loop={clip.wave.loop}
+                          />
+                        )}
+                        {clip.editable && !clip.noTrimStart && (
+                          <div
+                            className="tlEdge l"
+                            onPointerDown={(e) => onClipDown(e, clip, "trim-start")}
+                          />
+                        )}
+                        <span className="tlClipLabel">{clip.label}</span>
+                        {clip.editable && !clip.noTrimEnd && (
+                          <div
+                            className="tlEdge r"
+                            onPointerDown={(e) => onClipDown(e, clip, "trim-end")}
+                          />
+                        )}
+                      </div>,
+                    );
+                  }
+                  return nodes;
+                })()}
                 {/* 継ぎ目の「カットされた区間」の印。クリップと違い幅を持たない
                     (横軸はカット後の秒で、切られた時間はこの軸上に存在しない) */}
                 {track.id === "cut" &&
-                  cutMarks.map((m) => (
+                  cutMarks
+                    // 印も可視窓の中だけ(stack の横ずらしぶんだけ左へ余裕を持つ)
+                    .filter((m) => m.out >= winStart - 24 / pps && m.out <= winEnd)
+                    .map((m) => (
                     <div
                       key={`cutmark-${m.index}`}
                       className={`tlCutMark${
@@ -890,7 +1189,10 @@ export const Timeline = ({
             {drop && drop.snapLine !== null && (
               <div className="tlSnapLine" style={{ left: drop.snapLine * pps }} />
             )}
-            <div className="tlPlayhead" style={{ left: playhead * pps }} />
+            {snapMark !== null && (
+              <div className="tlSnapLine" style={{ left: snapMark * pps }} />
+            )}
+            <PlayheadMark className="tlPlayhead" pps={pps} />
           </div>
         </div>
       </div>

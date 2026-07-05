@@ -16,7 +16,7 @@ import type { LayerId } from "../../src/types.ts";
 export type SpanKind = "overlays" | "wipeFull" | "hideCaption";
 
 /** トラックの空き領域ドラッグで作れる区間の種類 */
-export type AddKind = "overlays" | "wipeFull" | "caption";
+export type AddKind = "overlays" | "wipeFull" | "caption" | "bgm";
 
 /** 選択・ドラッグの対象。index は各ドキュメントの配列の添字
  * (caption は transcript.segments、insert は overlays.inserts の添字)。
@@ -73,7 +73,14 @@ const TRACK_DEFS = {
       "画面+マイク。keep 区間の移動・トリム(最下層固定)。" +
       "ファイルをドロップするとその位置にインサート(後続が後ろへズレる)",
   },
-  bgm: { id: "bgm", label: "BGM", audio: "bgm" },
+  bgm: {
+    id: "bgm", label: "BGM", audio: "bgm", createKind: "bgm",
+    hint:
+      "BGM 区間(bgm.json)。区間の端をドラッグで削り(イントロ無音など)、" +
+      "本体をドラッグで移動。空きをドラッグで区間作成、音声/動画ファイルを" +
+      "ドロップで追加。区間を並べれば曲の切り替え・重ねれば重奏。覆っていない" +
+      "時間は無音(bgm.json が無ければ収録フォルダ直下の bgm.* を全編で流す)",
+  },
 } satisfies Partial<Record<TrackId, TrackDef>>;
 
 /** 素材トラック(V1, V2, ... 可変個数)の定義 */

@@ -3,6 +3,7 @@ import {
   CAPTION_DEFAULT_FONT_FAMILY,
   CAPTION_DEFAULT_FONT_WEIGHT,
   CAPTION_DEFAULT_OUTLINE,
+  DEFAULT_WIPE_TRANSITION_SEC,
 } from "../../src/types.ts";
 import type { Config } from "../../src/lib/config.ts";
 import type { ConfigPatch } from "../../src/lib/configEdit.ts";
@@ -34,6 +35,10 @@ export function buildConfigPatch(snap: CfgValues, cur: CfgValues): ConfigPatch |
     "wipeWidthPx", "wipeMarginPx", "captionFontSizePx", "chapterCardSec", "targetLufs",
   ] as const) {
     if (c[k] !== s[k]) r[k] = c[k];
+  }
+  // 省略可の数値キー(UI は常に数値を入れるので null 削除は使わない)
+  if (c.wipeTransitionSec !== s.wipeTransitionSec && c.wipeTransitionSec !== undefined) {
+    r.wipeTransitionSec = c.wipeTransitionSec;
   }
   for (const k of ["captionColor", "captionOutlineColor", "captionFontFamily"] as const) {
     if (c[k] !== s[k]) r[k] = c[k] ?? null;
@@ -149,6 +154,18 @@ export const SettingsModal = ({
           title="字幕・テロップの画面端からの余白。ワイプの位置には影響しない"
           onCommit={(v) => v !== undefined && patchRender({ wipeMarginPx: Math.round(v) })}
         />
+      </div>
+      <div className="field">
+        <label>ワイプ全画面の遷移 (秒)</label>
+        <NumInput
+          value={r.wipeTransitionSec ?? DEFAULT_WIPE_TRANSITION_SEC}
+          title="ワイプ全画面(wipeFull)の出入りにかける秒数。0 で瞬時に切り替え"
+          onCommit={(v) =>
+            v !== undefined &&
+            patchRender({ wipeTransitionSec: Math.min(5, Math.max(0, v)) })
+          }
+        />
+        <span className="hint dim">0 で瞬時</span>
       </div>
       <div className="field">
         <label>字幕サイズ (px)</label>
