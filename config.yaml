@@ -48,6 +48,12 @@ render:
   wipeMarginPx: 32
   # ワイプ全画面(overlays.json の wipeFull)の出入りの遷移時間(秒)。0で瞬時
   wipeTransitionSec: 0.3
+  # カット境界(keep区間の継ぎ目)のトランジション。none で従来どおり瞬時切り替え。
+  # dip-to-black で境界の前後に黒フェードを入れる(尺・音声は変わらない)。
+  # sec は黒への往復の合計秒(前半でフェードアウト、後半でフェードイン)
+  cutTransition:
+    type: none
+    sec: 0.3
   # 字幕のフォントサイズ(px)。初学者の見やすさ優先で大きめ
   captionFontSizePx: 52
   # テロップ既定の見た目(GUI エディタの設定画面 ⌘, からも変更できる)。

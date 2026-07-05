@@ -215,6 +215,30 @@ camera上+screen下スタック)/ `vertical-cover`(縦・camera全画面)の3種
 インサート(挿入)で時間が割り込まれる場合だけ区間が複数に割れ、
 動画素材は挿入のあとも続きから再生される。
 
+## カット境界のディップ・トゥ・ブラック(config.yaml `render.cutTransition`)
+
+既定(`type: none`)ではカット境界(keep区間の継ぎ目)は瞬時に切り替わる。
+`type: dip-to-black` にすると、境界の前後で黒フェードが入る(ジャンプカットの
+繋ぎ目を和らげる演出)。`sec` は黒への往復の合計秒(前半でフェードアウト、
+後半でフェードイン)。カット段(cut.mp4)自体には触れない Remotion 合成層の
+オーバーレイなので、動画の総尺・音声・テロップのタイミングは変わらない。
+
+```yaml
+render:
+  cutTransition:
+    type: dip-to-black
+    sec: 0.3
+```
+
+境界ごとの個別指定はできない(全境界に一律で効く)。`hardwareAcceleration` /
+`chunkSec` と同じく config.yaml のみの設定で、GUI エディタの設定画面には
+専用の UI はない(エディタのプレビューは render.props.json を最終レンダーと
+共有しているため、config.yaml を変えれば自動でプレビューにも反映される)。
+
+ズーム演出(`overlays.json` の `zooms`)の遷移秒数の既定値も同じ扱いで、
+config.yaml の `render.zoom.easeSec`(既定 0.4)のみで変更する
+(`zooms[].easeSec` で個別指定があればそちらが優先)。
+
 ## 見た目の調整(Remotion Studio)
 
 ワイプの大きさ・余白・字幕サイズ・テロップ既定の色/縁/フォントは
