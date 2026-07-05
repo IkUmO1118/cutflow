@@ -21,7 +21,14 @@ export interface Config {
     minKeepSec: number;
   };
   llm: { backend: "claude-cli" | "api"; model: string };
-  preview: { width: number };
+  preview: {
+    width: number;
+    /** proxy.mp4 / preview.mp4 のビデオエンコーダ。省略時 "videotoolbox"
+     * (macOS のハードウェアエンコーダ h264_videotoolbox。生成時間はほぼ同等で
+     * ファイルサイズが小さい)。"libx264" で従来の ultrafast+CRF に戻せる。
+     * 実測は docs/perf.md 参照 */
+    videoEncoder?: "libx264" | "videotoolbox";
+  };
   /** エディタ(GUI)設定。省略可(古い config.yaml との互換) */
   editor?: {
     /** 素材アップロード(/api/upload)の1ファイルの上限(MB)。省略時は既定値 */
