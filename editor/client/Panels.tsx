@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent } from "react";
 import { captionTrack, captionTrackName } from "../../src/types.ts";
-import type { Overlays, Transcript } from "../../src/types.ts";
+import type { Overlays, Shorts, Transcript } from "../../src/types.ts";
 import { MATERIAL_MIME } from "./model.ts";
 import { VIDEO_EXT_RE, fmtTime } from "./widgets.tsx";
 
@@ -249,6 +249,113 @@ export const CaptionsPanel = ({
           </div>
         );
       })}
+    </div>
+  );
+};
+
+/**
+ * 左パネル「ショート」タブ。shorts.json の一覧・追加・削除・リネームを行う
+ * (5-5)。ranges・プリセット・承認・字幕配置はヘッダーのショートモード
+ * (App.tsx の本編/ショートセレクタ + プリセット/承認バー)とタイムライン・
+ * インスペクタで編集する(D6: このタブは CRUD だけに絞る)。
+ */
+export const ShortsPanel = ({
+  shorts,
+  activeShortName,
+  onSelect,
+  onAdd,
+  onRemove,
+  onRename,
+}: {
+  shorts: Shorts | null;
+  /** 現在編集中のショート名(ヘッダーのセレクタと同じ状態) */
+  activeShortName: string | null;
+  /** 行クリックでそのショートの編集モードへ切り替える */
+  onSelect: (name: string) => void;
+  /** ショートを1本追加する(既定 ranges 付き。App 側で自動生成した名前) */
+  onAdd: () => void;
+  onRemove: (name: string) => void;
+  onRename: (oldName: string, newName: string) => void;
+}) => {
+  const [renaming, setRenaming] = useState<{ name: string; value: string } | null>(null);
+  const list = shorts?.shorts ?? [];
+  return (
+    <div className="shortsPanel">
+      <div className="panelHead">
+        <span className="dim">ショート {list.length} 件</span>
+        <span className="spacer" />
+        <button className="icon" onClick={onAdd}>
+          ＋ ショートを追加
+        </button>
+      </div>
+      {list.length === 0 ? (
+        <p className="dim hint" style={{ padding: "0 14px" }}>
+          ショートがまだありません。「＋ ショートを追加」で作成すると、
+          ヘッダーのセレクタが自動でそのショートに切り替わります。
+        </p>
+      ) : (
+        <div className="capList">
+          {list.map((s) => {
+            const totalSec = s.ranges.reduce((a, r) => a + Math.max(0, r.end - r.start), 0);
+            return (
+              <div
+                className={`capRow${s.name === activeShortName ? " sel" : ""}`}
+                key={s.name}
+                onClick={() => onSelect(s.name)}
+              >
+                <div className="capRowMeta mono">
+                  {renaming?.name === s.name ? (
+                    <input
+                      autoFocus
+                      value={renaming.value}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => setRenaming({ name: s.name, value: e.target.value })}
+                      onBlur={() => {
+                        onRename(s.name, renaming.value);
+                        setRenaming(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                        else if (e.key === "Escape") setRenaming(null);
+                      }}
+                    />
+                  ) : (
+                    <span
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        setRenaming({ name: s.name, value: s.name });
+                      }}
+                      title="ダブルクリックで名前を変更"
+                    >
+                      {s.name}
+                    </span>
+                  )}
+                  <span className="dim">{s.profile ?? "vertical"}</span>
+                  <span className="dim">{fmtTime(totalSec)}</span>
+                  {!s.approved && <span className="warnText">未承認</span>}
+                </div>
+                <div className="btnRow" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    className="danger"
+                    onClick={() => {
+                      if (window.confirm(`ショート「${s.name}」を削除しますか?`)) {
+                        onRemove(s.name);
+                      }
+                    }}
+                  >
+                    削除
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <p className="dim hint" style={{ padding: "0 14px" }}>
+        行クリックでそのショートの編集モードへ切り替わります(ヘッダーの
+        セレクタと同じ)。ranges・レイアウト・承認・字幕配置はショート
+        モードのヘッダー・タイムライン・プレビューで編集します。
+      </p>
     </div>
   );
 };

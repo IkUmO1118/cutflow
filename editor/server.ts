@@ -31,12 +31,14 @@ import {
   validateConfigPatch,
 } from "../src/lib/configEdit.ts";
 import type { ConfigPatch } from "../src/lib/configEdit.ts";
+import { loadShorts } from "../src/lib/shorts.ts";
 import type {
   AutoCuts,
   Bgm,
   CutPlan,
   Manifest,
   Overlays,
+  Shorts,
   Transcript,
 } from "../src/types.ts";
 import type {
@@ -137,7 +139,7 @@ class HttpError extends Error {
 const DEFAULT_MAX_UPLOAD_MB = 2048;
 
 /** エディタが編集する(=外部変更を監視する)ファイル */
-const WATCHED_FILES = ["cutplan.json", "overlays.json", "transcript.json"];
+const WATCHED_FILES = ["cutplan.json", "overlays.json", "transcript.json", "shorts.json"];
 /** 未保存編集の自動退避先(隠しファイル。素材一覧・外部変更の監視の対象外) */
 const DRAFT_FILE = ".editor-draft.json";
 /** /api/save が最後に各ファイルを書いた時刻。watch の自己イベント除外用 */
@@ -371,6 +373,7 @@ function loadProject(dir: string, cfg: Config): ProjectData {
     dirFiles,
     bgm: readJson<Bgm | null>("bgm.json", null),
     bgmFile: findBgm(dir),
+    shorts: loadShorts(dir),
     silences: readJson<AutoCuts | null>("cuts.auto.json", null)?.silences ?? null,
     proxyExists: existsSync(join(dir, "proxy.mp4")),
     proxyStale: isProxyStale(dir, cfg),
@@ -632,13 +635,15 @@ function saveProject(dir: string, body: SaveRequest): void {
     bgm: body.bgm !== undefined ? body.bgm : readDisk("bgm.json"),
     chapters: readDisk("chapters.json"),
     meta: readDisk("meta.json"),
+    shorts: body.shorts !== undefined ? body.shorts : readDisk("shorts.json"),
+    thumbnail: readDisk("thumbnail.json"),
   });
   if (errors.length > 0) {
     const detail = errors.map((e) => `${e.file} ${e.where}: ${e.message}`).join(" / ");
     throw new HttpError(400, `保存できません(整合性エラー ${errors.length}件): ${detail}`);
   }
 
-  const write = (file: string, data: CutPlan | Overlays | Transcript | Bgm) => {
+  const write = (file: string, data: CutPlan | Overlays | Transcript | Bgm | Shorts) => {
     selfWroteAt.set(file, Date.now());
     writeFileSync(join(dir, file), JSON.stringify(data, null, 2));
   };
@@ -653,6 +658,18 @@ function saveProject(dir: string, body: SaveRequest): void {
       const p = join(dir, "bgm.json");
       if (existsSync(p)) {
         selfWroteAt.set("bgm.json", Date.now());
+        rmSync(p);
+      }
+    }
+  }
+  // ショート: 1件以上あれば shorts.json を書き、無ければ削除する(bgm と同型)
+  if (body.shorts !== undefined) {
+    if (body.shorts && body.shorts.shorts.length > 0) {
+      write("shorts.json", body.shorts);
+    } else {
+      const p = join(dir, "shorts.json");
+      if (existsSync(p)) {
+        selfWroteAt.set("shorts.json", Date.now());
         rmSync(p);
       }
     }

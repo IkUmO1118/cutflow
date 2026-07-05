@@ -8,6 +8,7 @@ import type {
   Interval,
   Manifest,
   Overlays,
+  Shorts,
   Transcript,
 } from "../../src/types.ts";
 
@@ -25,6 +26,9 @@ export interface ProjectData {
    * 全編1曲として流す(後方互換)。エディタでは編集せず表示・再生のみ */
   bgm: Bgm | null;
   bgmFile: string | null;
+  /** shorts.json(ショート動画の定義)。無ければ null(このセッションでは
+   * ショート未定義)。エディタでは編集して /api/save の shorts で保存する */
+  shorts: Shorts | null;
   /** cuts.auto.json の無音区間(BGM ダッキングをプレビューでも再現する
    * ために渡す)。detect 未実行なら null */
   silences: Interval[] | null;
@@ -107,4 +111,7 @@ export interface SaveRequest {
   /** BGM の区間配置。`null` / 空 tracks は bgm.json を削除する(= 全編1曲の
    * 後方互換へ戻す)。`undefined`(キー無し)は bgm.json を触らない */
   bgm?: Bgm | null;
+  /** ショート動画の定義。`null` / 空 shorts は shorts.json を削除する。
+   * `undefined`(キー無し)は shorts.json を触らない */
+  shorts?: Shorts | null;
 }

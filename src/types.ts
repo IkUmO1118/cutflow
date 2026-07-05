@@ -234,6 +234,17 @@ export function defaultLayerOrder(n: number): LayerId[] {
 /** 従来互換の既定順(素材2トラック) */
 export const DEFAULT_LAYER_ORDER: LayerId[] = defaultLayerOrder(2);
 
+/** テロップトラックの標準設定1件。overlays.json の captionTracks と
+ * shorts.json の各ショートの captionTracks で共用する */
+export interface CaptionTrackDef {
+  track: number;
+  name?: string;
+  x?: number;
+  y?: number;
+  anchor?: "center" | "topLeft";
+  style?: CaptionStyle;
+}
+
 /** 人間が書く演出指定(overlays.json)。ファイルが無ければ全部なし。
  * 時刻は他の編集ファイルと同じく元動画(収録ファイル)の秒 */
 export interface Overlays {
@@ -303,17 +314,46 @@ export interface Overlays {
    * anchor は座標の解釈(省略時 center=テキスト中心 / topLeft=左上。
    * 章タイトルのような左寄せ配置のトラックに使う)。
    * name はタイムラインに出すトラック名(省略時は自動ラベル) */
-  captionTracks?: {
-    track: number;
-    name?: string;
-    x?: number;
-    y?: number;
-    anchor?: "center" | "topLeft";
-    style?: CaptionStyle;
-  }[];
+  captionTracks?: CaptionTrackDef[];
   /** 字幕を出さない区間 */
   hideCaption?: Interval[];
+  /** ズーム演出(画面の一部を拡大して見せる)。区間は重ならないこと。
+   * かかるのはベース映像の背景レイヤー(画面クロップ)だけで、ワイプ・
+   * テロップ・素材オーバーレイ・挿入クリップは動かない。ショート
+   * (profile の layout 経路)には効かない(overlays.json を継承しないため) */
+  zooms?: Zoom[];
+  /** 簡易カラー調整(全編一律。区間指定なし)。かかるのはベース映像
+   * (画面クロップ+カメラ=同一収録動画)だけで、素材オーバーレイ・
+   * 挿入クリップには効かない。ショート(profile の layout 経路)にも
+   * 例外的に継承される(本編とショートで肌色が変わる事故を防ぐため。
+   * render.ts のショート経路がここだけ拾って渡す) */
+  colorFilter?: ColorFilter;
 }
+
+/** 簡易カラー調整(overlays.json の colorFilter)。各キー省略可・既定 1.0
+ * (無補正)。CSS filter(brightness/contrast/saturate)として解決する */
+export interface ColorFilter {
+  brightness?: number;
+  contrast?: number;
+  saturate?: number;
+}
+
+/** ズーム演出1件(overlays.json の zooms)。start/end は元収録の秒 */
+export interface Zoom {
+  start: number;
+  end: number;
+  /** 全画面に拡大する矩形(出力px。テロップ pos・overlays rect と同じ座標系)。
+   * 拡大率は書かせない(rect の幅から scale = 出力幅 / rect.w が一意に決まる。
+   * 倍率と rect の二重指定は矛盾の温床になるため) */
+  rect: Region;
+  /** 区間の頭でズームイン・末尾でズームアウトする遷移時間(秒)。
+   * 省略時 config.yaml の render.zoom.easeSec(既定 DEFAULT_ZOOM_EASE_SEC)。
+   * 区間が遷移2回分より短いときは遷移を区間の半分へ縮める(wipeFull と同じ規則) */
+  easeSec?: number;
+}
+
+/** render.zoom.easeSec 未指定時の既定(秒)。renderProps と設定画面で共有 */
+export const DEFAULT_ZOOM_EASE_SEC = 0.4;
 
 /** 人間が書く BGM 指定(bgm.json)。ファイルが無ければ、収録フォルダ直下の
  * bgm.mp3 / bgm.m4a / bgm.wav(あれば)を全編1曲として流す従来動作になる。
@@ -345,4 +385,47 @@ export interface Bgm {
 export interface Meta {
   titles: string[];
   description: string;
+}
+
+/** 人間が書くショート動画指定(shorts.json)。ファイルが無ければショートは
+ * 無い。時刻は他の編集ファイルと同じく元動画(収録ファイル)の秒 */
+export interface Shorts {
+  shorts: Short[];
+}
+
+export interface Short {
+  /** 出力ファイル名(shorts/<name>.mp4)。[a-z0-9-_]+ のみ・収録内で一意 */
+  name: string;
+  /** 出力プロファイル(src/lib/profile.ts の PROFILES のキー)。
+   * 省略時 "vertical" */
+  profile?: string;
+  /** このショート(縦動画)を人間が確認したか。render --short のゲート。
+   * 承認は人間の仕事(AI が自分で true にしない。cutplan.json の approved と同じ) */
+  approved: boolean;
+  /** このショートの keep 区間(元収録の秒)。本編 cutplan の keep とは独立で、
+   * mergeIntervals した集合がそのままショートの keep 集合になる(交差なし)。
+   * 飛び区間で連結でき、フィラーを飛ばしたいときはレンジを分割する */
+  ranges: Interval[];
+  /** 縦用テロップ位置/スタイルの上書き(任意)。overlays.captionTracks と
+   * 同型・同じ解決順(セグメント → トラック標準 → 既定)で
+   * buildRenderProps に渡す */
+  captionTracks?: CaptionTrackDef[];
+}
+
+/** 人間/AIが書くサムネイル指定(thumbnail.json)。t は元収録の秒で、
+ * frames と違いスナップしない(カットされた瞬間も指定できる。サムネは
+ * 動画に入っていない絵も使ってよいため) */
+export interface Thumbnail {
+  t: number;
+  texts: ThumbnailText[];
+}
+
+export interface ThumbnailText {
+  text: string;
+  /** 表示位置(テキスト中心、出力px)。transcript のテロップと違い省略不可
+   * (サムネに「既定の下部中央」は無い) */
+  pos: CaptionPos;
+  /** 見た目。transcript のテロップと同じ CaptionStyle を共有する
+   * (動画と見た目の言語を揃えるため) */
+  style?: CaptionStyle;
 }

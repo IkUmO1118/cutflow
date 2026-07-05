@@ -5,6 +5,7 @@ import {
   CAPTION_DEFAULT_FONT_FAMILY,
   CAPTION_DEFAULT_FONT_WEIGHT,
   CAPTION_DEFAULT_OUTLINE,
+  DEFAULT_ZOOM_EASE_SEC,
   captionAnchorOf,
   captionPosOf,
   captionTrack,
@@ -18,6 +19,7 @@ import type {
   CutPlan,
   Overlays,
   Region,
+  Short,
   Transcript,
 } from "../../src/types.ts";
 import { insertSpans, remapInterval } from "../../src/lib/timeline.ts";
@@ -86,10 +88,17 @@ export const Inspector = ({
   removeCaptions,
   updateSpan,
   removeSpan,
+  updateZoom,
+  removeZoom,
   updateInsert,
   removeInsert,
   updateBgm,
   removeBgm,
+  shortMode,
+  activeShort,
+  setShortCaptionTrackDefault,
+  updateShortRange,
+  removeShortRange,
 }: {
   selection: Selection;
   /** 複数選択中のテロップ(transcript.segments の添字。2件以上のときだけ) */
@@ -167,10 +176,33 @@ export const Inspector = ({
     coalesceKey?: string,
   ) => void;
   removeSpan: (kind: "overlays" | "wipeFull", i: number) => void;
+  updateZoom: (
+    i: number,
+    patch: Partial<NonNullable<Overlays["zooms"]>[number]>,
+    coalesceKey?: string,
+  ) => void;
+  removeZoom: (i: number) => void;
   updateInsert: (i: number, patch: Partial<InsertEntry>, coalesceKey?: string) => void;
   removeInsert: (i: number) => void;
   updateBgm: (i: number, patch: Partial<BgmTrack>, coalesceKey?: string) => void;
   removeBgm: (i: number) => void;
+  /** ショートモードか(選択中のショートがある)。true のとき「caption」選択は
+   * 位置/スタイル編集を transcript ではなくショートの captionTracks へ書く */
+  shortMode: boolean;
+  /** ショートモード中の選択中ショート(null = 本編モード) */
+  activeShort: Short | null;
+  /** ショートモードのテロップトラック標準位置/スタイル/座標基準の設定
+   * (null で解除、undefined は現状維持)。setCaptionTrackDefault のショート版 */
+  setShortCaptionTrackDefault: (
+    track: number,
+    patch: {
+      pos?: CaptionPos | null;
+      style?: CaptionStyle | null;
+      anchor?: "center" | "topLeft" | null;
+    },
+  ) => void;
+  updateShortRange: (i: number, patch: Partial<{ start: number; end: number }>) => void;
+  removeShortRange: (i: number) => void;
 }) => {
   /** 再生ヘッドが映像クリップの上にあるか(「ここへ」系ボタンの活性)。
    * boolean に落として購読するので、境界をまたいだ時だけ再レンダーされる
@@ -189,6 +221,40 @@ export const Inspector = ({
     );
   }
 
+  /* ---------------- ショート範囲(ranges) ---------------- */
+
+  if (selection.kind === "short") {
+    const r = activeShort?.ranges[selection.index];
+    if (!r || !activeShort) return null;
+    return (
+      <div className="insp">
+        <InspHead
+          kind="ショート範囲"
+          title={activeShort.name}
+          chips={[`長さ ${fmtTime(Math.max(0, r.end - r.start))}`]}
+        />
+        <TimingSection
+          start={r.start}
+          end={r.end}
+          timeline={timeline}
+          getPlayheadSrc={getPlayheadSrc}
+          seekToSrc={seekToSrc}
+          onStart={(v) => updateShortRange(selection.index, { start: v })}
+          onEnd={(v) => updateShortRange(selection.index, { end: v })}
+        />
+        <Section title="">
+          <button className="danger" onClick={() => removeShortRange(selection.index)}>
+            この区間を削除
+          </button>
+          <p className="dim hint">
+            本編の cutplan とは独立の、このショート専用の keep 区間です
+            (shorts.json の ranges)。飛び区間を複数追加して連結できます。
+          </p>
+        </Section>
+      </div>
+    );
+  }
+
   /* ---------------- テロップ(複数選択の一括編集) ---------------- */
 
   if (selection.kind === "caption" && capMulti.length > 1) {
@@ -202,6 +268,36 @@ export const Inspector = ({
         updateCaptionsStyle={updateCaptionsStyle}
         updateCaptionsTrack={updateCaptionsTrack}
         removeCaptions={removeCaptions}
+      />
+    );
+  }
+
+  /* ---------------- テロップ(単体・ショートモード) ----------------
+   * ショートは per-segment の pos/style 上書きを持たない(D2: 常に
+   * トラック単位。captionTracks の解決機構に相乗り)。本編の transcript の
+   * pos/style は書き換えない(5-4)。文言・タイミングは本編と共有なので
+   * そのまま transcript へ書く */
+
+  if (selection.kind === "caption" && shortMode) {
+    const s = transcript.segments[selection.index];
+    if (!s) return null;
+    return (
+      <ShortCaptionPanel
+        s={s}
+        index={selection.index}
+        overlays={overlays}
+        capTracks={capTracks}
+        activeShort={activeShort}
+        captionDefaults={captionDefaults}
+        stdCaptionPos={stdCaptionPos}
+        output={output}
+        marginPx={marginPx}
+        timeline={timeline}
+        getPlayheadSrc={getPlayheadSrc}
+        seekToSrc={seekToSrc}
+        updateCaption={updateCaption}
+        removeCaption={removeCaption}
+        setShortCaptionTrackDefault={setShortCaptionTrackDefault}
       />
     );
   }
@@ -1246,6 +1342,61 @@ export const Inspector = ({
     );
   }
 
+  /* ---------------- ズーム ---------------- */
+
+  if (selection.kind === "zoom") {
+    const z = (overlays.zooms ?? [])[selection.index];
+    if (!z) return null;
+    return (
+      <div className="insp">
+        <InspHead
+          kind="ズーム"
+          title={`${fmtTime(z.start)} 〜 ${fmtTime(z.end)}`}
+          chips={[`長さ ${fmtTime(Math.max(0, z.end - z.start))}`]}
+        />
+        <p className="dim hint" style={{ marginTop: 0 }}>
+          画面の一部を拡大して見せます。かかるのはベース映像の背景レイヤーだけで、
+          ワイプ・テロップ・素材オーバーレイ・挿入クリップは動きません。
+        </p>
+        <TimingSection
+          start={z.start}
+          end={z.end}
+          timeline={timeline}
+          getPlayheadSrc={getPlayheadSrc}
+          seekToSrc={seekToSrc}
+          onStart={(v) => updateZoom(selection.index, { start: v })}
+          onEnd={(v) => updateZoom(selection.index, { end: v })}
+        />
+        <Section title="拡大範囲">
+          <ZoomRectControl
+            rect={z.rect}
+            output={output}
+            onChange={(rect) =>
+              updateZoom(selection.index, { rect }, `zoom:${selection.index}:rect`)
+            }
+          />
+        </Section>
+        <Section title="遷移">
+          <div className="field">
+            <label>遷移(秒)</label>
+            <NumInput
+              value={z.easeSec}
+              allowEmpty
+              placeholder={String(DEFAULT_ZOOM_EASE_SEC)}
+              title="区間の頭でズームイン・末尾でズームアウトする秒数。空欄=config の既定(render.zoom.easeSec)"
+              onCommit={(v) => updateZoom(selection.index, { easeSec: v })}
+            />
+          </div>
+        </Section>
+        <Section title="">
+          <button className="danger" onClick={() => removeZoom(selection.index)}>
+            このズームを削除
+          </button>
+        </Section>
+      </div>
+    );
+  }
+
   return null;
 };
 
@@ -1663,6 +1814,90 @@ const RectControl = ({
   );
 };
 
+/** ズームの拡大範囲(rect)。overlays.overlays の RectControl と違い「全画面」は
+ * 無い(rect は必須)。拡大率プリセット(中央 N 倍)+ 位置プリセット(4分割)+
+ * 数値微調整。プレビュー上の枠ドラッグ・リサイズは MaterialOverlay を流用する
+ * (App.tsx の LiveMaterialOverlay 経由) */
+const ZoomRectControl = ({
+  rect,
+  output,
+  onChange,
+}: {
+  rect: Region;
+  output: { w: number; h: number };
+  onChange: (rect: Region) => void;
+}) => {
+  const centeredScale = (scale: number): Region => {
+    const w = Math.round(output.w / scale);
+    const h = Math.round(output.h / scale);
+    return { x: Math.round((output.w - w) / 2), y: Math.round((output.h - h) / 2), w, h };
+  };
+  const halfW = Math.round(output.w / 2);
+  const halfH = Math.round(output.h / 2);
+  const quadPresets: { label: string; title: string; make: () => Region }[] = [
+    { label: "左上", title: "画面左上を2倍に拡大", make: () => ({ x: 0, y: 0, w: halfW, h: halfH }) },
+    { label: "右上", title: "画面右上を2倍に拡大", make: () => ({ x: output.w - halfW, y: 0, w: halfW, h: halfH }) },
+    { label: "左下", title: "画面左下を2倍に拡大", make: () => ({ x: 0, y: output.h - halfH, w: halfW, h: halfH }) },
+    { label: "右下", title: "画面右下を2倍に拡大", make: () => ({ x: output.w - halfW, y: output.h - halfH, w: halfW, h: halfH }) },
+  ];
+  const patchRect = (p: Partial<Region>) => onChange({ ...rect, ...p });
+  const scale = output.w / rect.w;
+  return (
+    <>
+      <div className="field">
+        <label>拡大率</label>
+        <div className="rectPresets">
+          {[2, 3, 4].map((s) => (
+            <button key={s} title={`画面中央を${s}倍に拡大`} onClick={() => onChange(centeredScale(s))}>
+              中央 {s}倍
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="field">
+        <label>位置</label>
+        <div className="rectPresets">
+          {quadPresets.map((p) => (
+            <button key={p.label} title={p.title} onClick={() => onChange(p.make())}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="field">
+        <label>X / Y</label>
+        <NumInput
+          value={rect.x}
+          title="拡大する矩形の左上 X(出力px)"
+          onCommit={(v) => v !== undefined && patchRect({ x: Math.round(v) })}
+        />
+        <NumInput
+          value={rect.y}
+          title="拡大する矩形の左上 Y(出力px)"
+          onCommit={(v) => v !== undefined && patchRect({ y: Math.round(v) })}
+        />
+      </div>
+      <div className="field">
+        <label>幅 / 高さ</label>
+        <NumInput
+          value={rect.w}
+          title="拡大する矩形の幅(出力px)。scale = 出力幅 / 幅 が一意に決まる(倍率は書けない)"
+          onCommit={(v) => v !== undefined && patchRect({ w: Math.max(1, Math.round(v)) })}
+        />
+        <NumInput
+          value={rect.h}
+          title="拡大する矩形の高さ(出力px)"
+          onCommit={(v) => v !== undefined && patchRect({ h: Math.max(1, Math.round(v)) })}
+        />
+      </div>
+      <p className="dim hint">
+        現在の拡大率: {scale.toFixed(2)}倍。プレビュー上で枠をドラッグして移動、
+        四隅・辺のハンドルでリサイズできます(この区間が再生ヘッド上にあるとき)。
+      </p>
+    </>
+  );
+};
+
 /** 素材ファイルのどこを使っているかのバー(頭出し+使用尺 vs 実尺)。
  * 使用尺が実尺を超える分は「最後のフレームで静止」になることも示す */
 const SourceRangeBar = ({
@@ -1917,6 +2152,294 @@ const BatchCaptionPanel = ({
         <button className="danger" onClick={() => removeCaptions(indices)}>
           選択中の {segs.length} 件を削除
         </button>
+      </Section>
+    </div>
+  );
+};
+
+/* ================= ショートモードのテロップ編集(位置/スタイルのみ) ================= */
+
+/**
+ * ショートモードで選択中のテロップの編集パネル。本編の単体テロップ編集
+ * (上の巨大なブロック)とは別コンポーネントに分けてある(D6: 既存の
+ * 本編パスは1バイトも変えない)。文言・タイミングは transcript(本編と共有)
+ * へ、位置・スタイルは常にトラック単位で当該ショートの captionTracks へ書く
+ * (per-segment 上書きは持たない。D2)。
+ */
+const ShortCaptionPanel = ({
+  s,
+  index,
+  overlays,
+  capTracks,
+  activeShort,
+  captionDefaults,
+  stdCaptionPos,
+  output,
+  marginPx,
+  timeline,
+  getPlayheadSrc,
+  seekToSrc,
+  updateCaption,
+  removeCaption,
+  setShortCaptionTrackDefault,
+}: {
+  s: Transcript["segments"][number];
+  index: number;
+  overlays: Overlays;
+  capTracks: number;
+  activeShort: Short | null;
+  captionDefaults: RenderProps["caption"];
+  stdCaptionPos: CaptionPos;
+  output: { w: number; h: number };
+  marginPx: number;
+  timeline: TimelineEntry[];
+  getPlayheadSrc: () => number | null;
+  seekToSrc: (src: number) => void;
+  updateCaption: (
+    i: number,
+    patch: Partial<Transcript["segments"][number]>,
+    coalesceKey?: string,
+  ) => void;
+  removeCaption: (i: number) => void;
+  setShortCaptionTrackDefault: (
+    track: number,
+    patch: {
+      pos?: CaptionPos | null;
+      style?: CaptionStyle | null;
+      anchor?: "center" | "topLeft" | null;
+    },
+  ) => void;
+}) => {
+  const track = captionTrack(s);
+  const trackDef = (activeShort?.captionTracks ?? []).find((t) => t.track === track);
+  const anchor = trackDef?.anchor ?? "center";
+  const eff: CaptionPos =
+    trackDef?.x !== undefined && trackDef?.y !== undefined
+      ? { x: trackDef.x, y: trackDef.y }
+      : stdCaptionPos;
+  const base: CaptionStyle = {
+    fontSizePx: captionDefaults.fontSizePx,
+    color: captionDefaults.color ?? CAPTION_DEFAULT_COLOR,
+    outlineColor: captionDefaults.outlineColor ?? CAPTION_DEFAULT_OUTLINE,
+    fontFamily: captionDefaults.fontFamily ?? CAPTION_DEFAULT_FONT_FAMILY,
+    fontWeight: captionDefaults.fontWeight ?? CAPTION_DEFAULT_FONT_WEIGHT,
+    ...trackDef?.style,
+  };
+  const posLabel = anchor === "topLeft" ? "テキスト左上" : "テキスト中心";
+  const outlineOn = (base.outlineColor ?? CAPTION_DEFAULT_OUTLINE) !== "none";
+  /** ショートのトラック標準スタイルを項目単位で更新(undefined で項目を消す) */
+  const patchStyle = (p: Partial<CaptionStyle>) => {
+    const st: CaptionStyle = { ...trackDef?.style, ...p };
+    for (const k of Object.keys(st) as (keyof CaptionStyle)[]) {
+      if (st[k] === undefined) delete st[k];
+    }
+    setShortCaptionTrackDefault(track, { style: Object.keys(st).length > 0 ? st : null });
+  };
+  /** 9点プリセット。テキストの実測寸法で画面端に marginPx を空けて置く
+   * (本編の applyPosPreset と同じ式) */
+  const applyPosPreset = (h: "l" | "c" | "r", v: "t" | "m" | "b") => {
+    const { w: tw, h: th } = measureCaption(
+      s.text,
+      base.fontSizePx ?? captionDefaults.fontSizePx,
+      base.fontFamily ?? CAPTION_DEFAULT_FONT_FAMILY,
+      base.fontWeight ?? CAPTION_DEFAULT_FONT_WEIGHT,
+    );
+    const m = marginPx;
+    const x =
+      anchor === "topLeft"
+        ? h === "l" ? m : h === "c" ? Math.round((output.w - tw) / 2) : output.w - m - tw
+        : h === "l"
+          ? m + Math.round(tw / 2)
+          : h === "c"
+            ? Math.round(output.w / 2)
+            : output.w - m - Math.round(tw / 2);
+    const y =
+      anchor === "topLeft"
+        ? v === "t" ? m : v === "m" ? Math.round((output.h - th) / 2) : output.h - m - th
+        : v === "t"
+          ? m + Math.round(th / 2)
+          : v === "m"
+            ? Math.round(output.h / 2)
+            : output.h - m - Math.round(th / 2);
+    setShortCaptionTrackDefault(track, { pos: { x, y } });
+  };
+  return (
+    <div className="insp">
+      <InspHead
+        kind={`${captionTrackName(track, overlays, capTracks)}・ショート用配置`}
+        title={s.text.trim().split("\n")[0] || "(空のテロップ)"}
+        chips={[`長さ ${fmtTime(Math.max(0, s.end - s.start))}`]}
+      />
+      <textarea
+        className="capEdit"
+        rows={3}
+        value={s.text}
+        onChange={(e) =>
+          updateCaption(index, { text: e.target.value }, `caption:${index}:text`)
+        }
+      />
+      <CaptionSample text={s.text} eff={base} />
+      <TimingSection
+        start={s.start}
+        end={s.end}
+        timeline={timeline}
+        getPlayheadSrc={getPlayheadSrc}
+        seekToSrc={seekToSrc}
+        onStart={(v) => updateCaption(index, { start: v })}
+        onEnd={(v) => updateCaption(index, { end: v })}
+      />
+      <Section title="配置(このショート専用・トラック単位)">
+        <div className="posRow">
+          <div className="posGrid" title="画面9箇所への配置プリセット(テキストの実測幅で余白を確保)">
+            {(
+              [
+                ["l", "t", "↖"], ["c", "t", "↑"], ["r", "t", "↗"],
+                ["l", "m", "←"], ["c", "m", "・"], ["r", "m", "→"],
+                ["l", "b", "↙"], ["c", "b", "↓"], ["r", "b", "↘"],
+              ] as const
+            ).map(([h, v, label]) => (
+              <button key={`${h}${v}`} onClick={() => applyPosPreset(h, v)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="posFields">
+            <div className="field">
+              <label>X / Y</label>
+              <NumInput
+                value={trackDef?.x}
+                allowEmpty
+                placeholder={String(eff.x)}
+                title={`${posLabel}の出力px。空欄=このショートの既定位置`}
+                onCommit={(v) =>
+                  setShortCaptionTrackDefault(track, {
+                    pos: v !== undefined ? { ...eff, x: Math.round(v) } : null,
+                  })
+                }
+              />
+              <NumInput
+                value={trackDef?.y}
+                allowEmpty
+                placeholder={String(eff.y)}
+                title={`${posLabel}の出力px。空欄=このショートの既定位置`}
+                onCommit={(v) =>
+                  setShortCaptionTrackDefault(track, {
+                    pos: v !== undefined ? { ...eff, y: Math.round(v) } : null,
+                  })
+                }
+              />
+            </div>
+            <div className="field">
+              <label>座標の基準</label>
+              <select
+                value={anchor}
+                title="このショートのトラック全体の座標の解釈"
+                onChange={(e) =>
+                  setShortCaptionTrackDefault(track, {
+                    anchor: e.target.value === "topLeft" ? "topLeft" : null,
+                  })
+                }
+              >
+                <option value="center">テキスト中心</option>
+                <option value="topLeft">左上(章タイトル向き)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        {trackDef?.x !== undefined && (
+          <p className="dim hint">
+            現在位置: X {trackDef.x} / Y {trackDef.y}{" "}
+            <button
+              className="linkish"
+              onClick={() => setShortCaptionTrackDefault(track, { pos: null })}
+            >
+              標準位置に戻す
+            </button>
+          </p>
+        )}
+      </Section>
+      <Section title="スタイル(このショート専用・トラック単位)">
+        <div className="field">
+          <label>サイズ(px)</label>
+          <NumInput
+            value={trackDef?.style?.fontSizePx}
+            allowEmpty
+            placeholder={String(base.fontSizePx)}
+            title="このショートでのフォントサイズ"
+            onCommit={(v) => patchStyle({ fontSizePx: v !== undefined ? Math.round(v) : undefined })}
+          />
+        </div>
+        <div className="field">
+          <label>文字色</label>
+          <input
+            type="color"
+            value={base.color}
+            onChange={(e) => patchStyle({ color: e.target.value })}
+          />
+        </div>
+        <div className="field">
+          <label>縁取り</label>
+          <input
+            type="checkbox"
+            checked={outlineOn}
+            onChange={(e) =>
+              patchStyle(
+                e.target.checked
+                  ? { outlineColor: undefined }
+                  : { outlineColor: "none" },
+              )
+            }
+          />
+          {outlineOn && (
+            <input
+              type="color"
+              value={base.outlineColor !== "none" ? base.outlineColor : CAPTION_DEFAULT_OUTLINE}
+              onChange={(e) => patchStyle({ outlineColor: e.target.value })}
+            />
+          )}
+        </div>
+        <div className="field">
+          <label>フォント</label>
+          <select
+            value={base.fontFamily ?? CAPTION_DEFAULT_FONT_FAMILY}
+            style={{ flex: 1, minWidth: 0 }}
+            onChange={(e) => patchStyle({ fontFamily: e.target.value })}
+          >
+            {FONT_PRESETS.map((p) => (
+              <option key={p.value} value={p.value}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label>太さ</label>
+          <select
+            value={base.fontWeight ?? CAPTION_DEFAULT_FONT_WEIGHT}
+            onChange={(e) => patchStyle({ fontWeight: Number(e.target.value) })}
+          >
+            <option value={400}>普通 (400)</option>
+            <option value={700}>太字 (700)</option>
+            <option value={900}>極太 (900)</option>
+          </select>
+        </div>
+        {trackDef?.style && (
+          <p className="dim hint">
+            <button className="linkish" onClick={() => setShortCaptionTrackDefault(track, { style: null })}>
+              スタイルを標準に戻す
+            </button>
+          </p>
+        )}
+      </Section>
+      <Section title="">
+        <button className="danger" onClick={() => removeCaption(index)}>
+          このテロップを削除(本編にも反映されます)
+        </button>
+        <p className="dim hint">
+          位置・スタイルはこのショート専用(shorts.json のトラック単位設定)。
+          文言・タイミングは本編と共有の transcript.json に保存されます。
+          プレビュー上のドラッグでも位置を動かせます。
+        </p>
       </Section>
     </div>
   );

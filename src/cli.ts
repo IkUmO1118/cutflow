@@ -9,7 +9,7 @@ import { transcribe } from "./stages/transcribe.ts";
 import { detect } from "./stages/detect.ts";
 import { plan, remeta } from "./stages/plan.ts";
 import { preview } from "./stages/preview.ts";
-import { render } from "./stages/render.ts";
+import { render, renderShort, renderShorts } from "./stages/render.ts";
 import { validate } from "./stages/validate.ts";
 import { describe } from "./stages/describe.ts";
 import { frames } from "./stages/frames.ts";
@@ -228,9 +228,10 @@ program
   .option("--out", "--t をカット後(preview/final)の秒として解釈する")
   .option("--captions", "テロップ全件の一巡監査(各テロップの表示中間で1枚ずつ)")
   .option("--every <sec>", "カット後タイムラインを一定間隔でサンプリング(秒)")
+  .option("--short <name>", "指定したショートの縦レイアウトで PNG に(shorts.json)")
   .action(async (
     dir: string,
-    opts: { t?: string; out?: boolean; captions?: boolean; every?: string },
+    opts: { t?: string; out?: boolean; captions?: boolean; every?: string; short?: string },
   ) => {
     const cfg = loadConfig(program.opts().config);
     const picked = [opts.t, opts.captions, opts.every].filter(
@@ -257,7 +258,8 @@ program
       });
       req = { mode: "times", times, axis: opts.out ? "output" : "source" };
     }
-    const shots = await frames(resolveDir(dir), req, cfg);
+    if (opts.short) console.log(`ショート "${opts.short}" のフレームを出力します`);
+    const shots = await frames(resolveDir(dir), req, cfg, opts.short);
     for (const s of shots) {
       const head =
         req.mode === "times"
@@ -271,12 +273,31 @@ program
 program
   .command("render <dir>")
   .description(
-    "承認済み cutplan.json から最終動画を生成(ワイプ+テロップ → final.mp4)",
+    "承認済み cutplan.json から最終動画を生成(ワイプ+テロップ → final.mp4)。" +
+      "--short/--shorts でショート動画(shorts.json)を書き出す",
   )
-  .action(async (dir: string) => {
+  .option("--short <name>", "指定した1本のショートだけレンダー(shorts/<name>.mp4)")
+  .option("--shorts", "approved な全ショートをレンダー(未承認はスキップしログ表示)")
+  .action(async (dir: string, opts: { short?: string; shorts?: boolean }) => {
     const cfg = loadConfig(program.opts().config);
+    const abs = resolveDir(dir);
+    if (opts.short && opts.shorts) {
+      throw new Error("--short と --shorts は同時に指定できません");
+    }
+    if (opts.short) {
+      console.log(`ショート "${opts.short}" をレンダー中...`);
+      const out = await renderShort(abs, cfg, opts.short);
+      console.log(`render 完了: ${out}`);
+      return;
+    }
+    if (opts.shorts) {
+      const outs = await renderShorts(abs, cfg);
+      for (const out of outs) console.log(`render 完了: ${out}`);
+      if (outs.length === 0) console.log("レンダーしたショートはありません");
+      return;
+    }
     console.log("render 実行中(初回は headless Chrome の取得で数分かかります)...");
-    const out = await render(resolveDir(dir), cfg);
+    const out = await render(abs, cfg);
     console.log(`render 完了: ${out}`);
   });
 

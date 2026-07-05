@@ -4,10 +4,13 @@ import {
   remapInterval,
   toOutputTime,
 } from "./timeline.ts";
+import type { TimelineEntry } from "./timeline.ts";
 import type { Config } from "./config.ts";
 import type { Profile } from "./profile.ts";
 import {
+  DEFAULT_CUT_TRANSITION_SEC,
   DEFAULT_WIPE_TRANSITION_SEC,
+  DEFAULT_ZOOM_EASE_SEC,
   capId,
   capNum,
   captionAnchorOf,
@@ -265,6 +268,12 @@ export function buildRenderProps(args: {
     captions,
     overlays: overlayItems,
     wipeFull: wipeSpans,
+    ...(renderCfg.cutTransition?.type === "dip-to-black"
+      ? {
+          cutTransition: { sec: renderCfg.cutTransition.sec ?? DEFAULT_CUT_TRANSITION_SEC },
+          cutBoundarySecs: cutBoundarySecsOf(keeps, timeline),
+        }
+      : {}),
     hideCaption: remapSpans(overlays.hideCaption),
     layerOrder: normalizeLayerOrder(
       overlays.layerOrder,
@@ -394,6 +403,28 @@ function mergeClose(spans: Span[], gap: number): Span[] {
 const round2 = (n: number) => Math.round(n * 100) / 100;
 /** round2 済みの値どうしの比較(浮動小数の誤差を吸収) */
 const near = (a: number, b: number) => Math.abs(a - b) < 0.005;
+
+/**
+ * dip-to-black の対象境界(カット後の秒)を求める。keep 区間ごとの終端を
+ * 実際の出力タイムライン(timeline。挿入があればその尺ぶん後ろへずれる)へ
+ * remapInterval で写像し、その終端を境界とする(挿入の尺を無視した単純な
+ * keep 累積時間だと、境界より手前に挿入があるプロジェクトで位置がずれる)。
+ * 隣り合う keep の end/start が実質一致する(エディタの分割編集直後など、
+ * mergeIntervals 未適用で渡ってきた場合を含む)境界は実際には切れていない
+ * ので除外する。先頭(0)と末尾は境界に含めない
+ */
+function cutBoundarySecsOf(keeps: Interval[], timeline: TimelineEntry[]): number[] {
+  const bounds: number[] = [];
+  for (let i = 0; i < keeps.length - 1; i++) {
+    const cur = keeps[i];
+    const next = keeps[i + 1];
+    if (near(next.start, cur.end)) continue;
+    const mapped = remapInterval(cur.start, cur.end, timeline);
+    const last = mapped[mapped.length - 1];
+    if (last) bounds.push(last.end);
+  }
+  return bounds;
+}
 
 /** Sequence に渡すフレーム区間(from / durationInFrames) */
 export interface FrameSpan {

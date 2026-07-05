@@ -129,7 +129,8 @@ transitionSec)/ `width` / `height` / `canvas` / `screenRegion` /
 
 `captions[]` / `overlays[]`(映像に効く項目: start・end・track・file・fit・
 opacity・rect・startFrom・fadeInSec/OutSec・pos・anchor・style)/
-`inserts[]`(映像項目)/ `wipeFull[]` / `hideCaption[]`。
+`inserts[]`(映像項目)/ `wipeFull[]` / `zooms[]`(ズーム演出。rect・easeSec
+込み)/ `hideCaption[]`。
 
 各要素は出力フレーム区間 `[round(start·fps), round(end·fps))` を持つ。
 **その区間がチャンク `[from,to)` と重なる要素だけがそのチャンクの絵に効く。**

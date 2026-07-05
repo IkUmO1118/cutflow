@@ -12,15 +12,18 @@
 import { capNum, ovNum } from "../../src/types.ts";
 import type { LayerId } from "../../src/types.ts";
 
-/** overlays.json のどの配列か(hide 系はエディタ非表示の手書き互換) */
-export type SpanKind = "overlays" | "wipeFull" | "hideCaption";
+/** overlays.json のどの配列か(hide 系はエディタ非表示の手書き互換)。
+ * "short" はショートモードの ranges 帯(shorts.json のショート単位)。
+ * "zoom" はズーム演出(overlays.json の zooms)の区間 */
+export type SpanKind = "overlays" | "wipeFull" | "hideCaption" | "short" | "zoom";
 
 /** トラックの空き領域ドラッグで作れる区間の種類 */
-export type AddKind = "overlays" | "wipeFull" | "caption" | "bgm";
+export type AddKind = "overlays" | "wipeFull" | "caption" | "bgm" | "short" | "zoom";
 
 /** 選択・ドラッグの対象。index は各ドキュメントの配列の添字
- * (caption は transcript.segments、insert は overlays.inserts の添字)。
- * wipe / bgm は表示専用 */
+ * (caption は transcript.segments、insert は overlays.inserts の添字、
+ * short はショートモード中の選択中ショートの ranges の添字、
+ * zoom は overlays.zooms の添字)。wipe / bgm は表示専用 */
 export type SelKind =
   | "cut"
   | "insert"
@@ -28,7 +31,9 @@ export type SelKind =
   | "overlays"
   | "wipeFull"
   | "wipe"
-  | "bgm";
+  | "bgm"
+  | "short"
+  | "zoom";
 export type Selection = { kind: SelKind; index: number } | null;
 
 export type DragMode = "move" | "trim-start" | "trim-end";
@@ -39,8 +44,10 @@ export type AudioTrackId = "cut" | "bgm";
 export type TrackId =
   | "caption"
   | "wipe"
+  | "zoom"
   | "cut"
   | "bgm"
+  | "short"
   | `ov${number}`
   | `cap${number}`;
 
@@ -67,6 +74,13 @@ const TRACK_DEFS = {
     id: "wipe", label: "ワイプ", createKind: "wipeFull", reorderable: true, layer: "wipe",
     hint: `ドラッグで全画面区間を作成。${REORDER_HINT}`,
   },
+  zoom: {
+    id: "zoom", label: "ズーム", createKind: "zoom",
+    hint:
+      "画面の一部を拡大して見せる区間(overlays.json の zooms)。" +
+      "ドラッグで区間を作成。かかるのはベース映像の背景だけで、" +
+      "ワイプ・テロップ・素材は動かない",
+  },
   cut: {
     id: "cut", label: "映像", audio: "cut",
     hint:
@@ -81,7 +95,17 @@ const TRACK_DEFS = {
       "ドロップで追加。区間を並べれば曲の切り替え・重ねれば重奏。覆っていない" +
       "時間は無音(bgm.json が無ければ収録フォルダ直下の bgm.* を全編で流す)",
   },
+  short: {
+    id: "short", label: "ショート範囲", createKind: "short",
+    hint:
+      "このショートの ranges(元収録の keep 集合。本編のカットとは独立)。" +
+      "ドラッグで移動・端をトリム、空きをドラッグで区間を追加",
+  },
 } satisfies Partial<Record<TrackId, TrackDef>>;
+
+/** ショートモードのタイムライン専用トラック(ranges 帯)。App.tsx が
+ * この1本 + テロップトラックだけを Timeline へ渡す(D6: 別ビューを作らない) */
+export const SHORT_TRACK_DEF: TrackDef = TRACK_DEFS.short;
 
 /** 素材トラック(V1, V2, ... 可変個数)の定義 */
 const materialTrackDef = (n: number): TrackDef => ({
@@ -127,6 +151,7 @@ export const buildTracks = (
       if (cn !== null) return captionTrackDef(cn, capCount, capName?.(cn));
       return TRACK_DEFS[id as keyof typeof TRACK_DEFS];
     }),
+    TRACK_DEFS.zoom,
     TRACK_DEFS.cut,
     TRACK_DEFS.bgm,
   ];

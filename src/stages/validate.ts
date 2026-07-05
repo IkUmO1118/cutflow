@@ -8,6 +8,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, normalize, resolve, sep } from "node:path";
 import { fmtT } from "../lib/fmt.ts";
+import { PROFILES } from "../lib/profile.ts";
 import { buildTimeline, remapInterval } from "../lib/timeline.ts";
 import type { TimelineEntry } from "../lib/timeline.ts";
 import { capNum, captionTrack, ovNum } from "../types.ts";
@@ -44,6 +45,8 @@ export interface LoadedDocs {
   bgm: unknown;
   chapters: unknown;
   meta: unknown;
+  shorts: unknown;
+  thumbnail: unknown;
 }
 
 export function validate(dir: string): ValidateResult {
@@ -76,6 +79,8 @@ export function validate(dir: string): ValidateResult {
     bgm: readJson("bgm.json", false),
     chapters: readJson("chapters.json", false),
     meta: readJson("meta.json", false),
+    shorts: readJson("shorts.json", false),
+    thumbnail: readJson("thumbnail.json", false),
   };
   return validateDocs(dir, docs, preErrors);
 }
@@ -99,13 +104,17 @@ export function validateDocs(
     warnings.push({ file, where, message });
   };
 
-  const { cutplan, transcript, overlays, bgm, chapters, meta } = docs;
+  const { cutplan, transcript, overlays, bgm, chapters, meta, shorts, thumbnail } = docs;
   const manifest = docs.manifest as Manifest | null;
   const duration = manifest?.durationSec;
   if (manifest && !isNum(duration)) {
     err("manifest.json", "durationSec", "数値ではありません(ingest をやり直してください)");
   }
   const dur = isNum(duration) ? duration : null;
+  /** ズームの rect 検査に使う出力解像度(final.mp4 の width/height 相当)。
+   * validate は config.yaml を読まないので manifest.json の screenRegion で代用する
+   * (render.ts の resolveProfile(cfg, "default") と実質同じ値になる) */
+  const outputRegion = manifest?.video?.screenRegion ?? null;
 
   /* ---------------- cutplan.json ---------------- */
 
@@ -204,7 +213,10 @@ export function validateDocs(
 
   if (isObj(overlays)) {
     const f = "overlays.json";
-    const KNOWN = ["overlays", "inserts", "wipeFull", "layerOrder", "captionTracks", "hideCaption"];
+    const KNOWN = [
+      "overlays", "inserts", "wipeFull", "layerOrder", "captionTracks",
+      "hideCaption", "zooms", "colorFilter",
+    ];
     for (const k of Object.keys(overlays)) {
       if (!KNOWN.includes(k)) warn(f, k, `不明なキーです(有効: ${KNOWN.join(" / ")})`);
     }
@@ -364,29 +376,7 @@ export function validateDocs(
       }
     }
 
-    if (overlays.captionTracks !== undefined) {
-      if (!Array.isArray(overlays.captionTracks)) {
-        err(f, "captionTracks", "配列ではありません");
-      } else {
-        const seen = new Set<number>();
-        overlays.captionTracks.forEach((t: unknown, i: number) => {
-          const w = `captionTracks[${i}]`;
-          if (!isObj(t)) return err(f, w, "オブジェクトではありません");
-          if (!isPosInt(t.track)) {
-            return err(f, w, `track は 1 以上の整数です(現在: ${JSON.stringify(t.track)})`);
-          }
-          if (seen.has(t.track)) err(f, w, `track ${t.track} の設定が重複しています`);
-          seen.add(t.track);
-          if (t.anchor !== undefined && t.anchor !== "center" && t.anchor !== "topLeft") {
-            err(f, w, `anchor は "center" か "topLeft" です(現在: ${JSON.stringify(t.anchor)})`);
-          }
-          if ((t.x !== undefined && !isNum(t.x)) || (t.y !== undefined && !isNum(t.y))) {
-            err(f, w, "x / y は数値(出力px)です");
-          }
-          checkStyle(f, w, t.style, err);
-        });
-      }
-    }
+    checkCaptionTracks(f, "captionTracks", overlays.captionTracks, err);
   } else if (overlays !== null) {
     err("overlays.json", "-", "オブジェクトではありません");
   }
@@ -484,6 +474,64 @@ export function validateDocs(
       warn(f, "description", "文字列ではありません");
     }
   }
+
+  /* ---------------- shorts.json ---------------- */
+
+  if (isObj(shorts)) {
+    const f = "shorts.json";
+    if (!Array.isArray(shorts.shorts)) {
+      err(f, "shorts", "配列ではありません");
+    } else {
+      const seenNames = new Set<string>();
+      shorts.shorts.forEach((s: unknown, i: number) => {
+        const w = `shorts[${i}]`;
+        if (!isObj(s)) return err(f, w, "オブジェクトではありません");
+        if (typeof s.name !== "string" || s.name === "" || !/^[a-z0-9_-]+$/.test(s.name)) {
+          err(f, w, `name は半角小英数字・ハイフン・アンダースコアのみです(現在: ${JSON.stringify(s.name)})`);
+        } else if (seenNames.has(s.name)) {
+          err(f, w, `name が重複しています: ${s.name}`);
+        } else {
+          seenNames.add(s.name);
+        }
+        if (s.profile !== undefined && (typeof s.profile !== "string" || !(s.profile in PROFILES))) {
+          err(
+            f,
+            w,
+            `profile が未知のプロファイル名です(現在: ${JSON.stringify(s.profile)}。有効: ${Object.keys(PROFILES).join(" / ")})`,
+          );
+        }
+        if (typeof s.approved !== "boolean") {
+          err(f, w, "approved は true / false のどちらかにしてください");
+        }
+        if (!Array.isArray(s.ranges) || s.ranges.length === 0) {
+          err(f, `${w}.ranges`, "配列で1件以上必要です(このショートの keep 区間)");
+        } else {
+          s.ranges.forEach((r: unknown, j: number) => {
+            const rw = `${w}.ranges[${j}]`;
+            if (!isObj(r)) return err(f, rw, "オブジェクトではありません");
+            checkSpan(f, rw, r, dur, err);
+          });
+        }
+        // 座標はみ出し警告は解決後の profile サイズと比べる。省略時は
+        // ショートの既定 "vertical"(profile 名不正のときは判定しない)
+        const profileName = typeof s.profile === "string" ? s.profile : "vertical";
+        const profileDef = PROFILES[profileName];
+        checkCaptionTracks(f, `${w}.captionTracks`, s.captionTracks, err, (t, tw) => {
+          if (!profileDef) return;
+          if (isNum(t.x) && (t.x < 0 || t.x > profileDef.width)) {
+            warn(f, tw, `x(${t.x})が profile "${profileName}" の幅(${profileDef.width})の外です`);
+          }
+          if (isNum(t.y) && (t.y < 0 || t.y > profileDef.height)) {
+            warn(f, tw, `y(${t.y})が profile "${profileName}" の高さ(${profileDef.height})の外です`);
+          }
+        });
+      });
+    }
+  } else if (shorts !== null && shorts !== undefined) {
+    err("shorts.json", "-", "オブジェクトではありません");
+  }
+
+
 
   /* -------- chapters.json ⇔「章」トラックのテロップ の乖離検知 -------- */
   // plan / remeta は概要欄チャプター(chapters.json)と画面表示の章タイトル
@@ -606,6 +654,42 @@ function checkChapterSync(
       );
     }
   }
+}
+
+/** captionTracks 配列(overlays.json / shorts.json の各ショートで共用)の検査:
+ * track は正整数で重複禁止、anchor は center/topLeft、x/y は数値、
+ * style は checkStyle。onEntry があれば妥当なエントリごとに呼び出し側固有の
+ * 追加チェック(例: shorts の座標はみ出し警告)を行う */
+function checkCaptionTracks(
+  file: string,
+  key: string,
+  tracks: unknown,
+  err: (f: string, w: string, m: string) => void,
+  onEntry?: (t: Record<string, unknown>, where: string) => void,
+): void {
+  if (tracks === undefined) return;
+  if (!Array.isArray(tracks)) {
+    err(file, key, "配列ではありません");
+    return;
+  }
+  const seen = new Set<number>();
+  tracks.forEach((t: unknown, i: number) => {
+    const w = `${key}[${i}]`;
+    if (!isObj(t)) return err(file, w, "オブジェクトではありません");
+    if (!isPosInt(t.track)) {
+      return err(file, w, `track は 1 以上の整数です(現在: ${JSON.stringify(t.track)})`);
+    }
+    if (seen.has(t.track)) err(file, w, `track ${t.track} の設定が重複しています`);
+    seen.add(t.track);
+    if (t.anchor !== undefined && t.anchor !== "center" && t.anchor !== "topLeft") {
+      err(file, w, `anchor は "center" か "topLeft" です(現在: ${JSON.stringify(t.anchor)})`);
+    }
+    if ((t.x !== undefined && !isNum(t.x)) || (t.y !== undefined && !isNum(t.y))) {
+      err(file, w, "x / y は数値(出力px)です");
+    }
+    checkStyle(file, w, t.style, err);
+    onEntry?.(t, w);
+  });
 }
 
 /** テロップの style({fontSizePx, color, outlineColor, fontFamily,
