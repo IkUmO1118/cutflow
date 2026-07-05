@@ -36,6 +36,7 @@ import {
   materialFilesOf,
   renderCacheKeyEquals,
 } from "../lib/renderKey.ts";
+import { resolveProfile } from "../lib/profile.ts";
 import { buildRenderProps } from "../lib/renderProps.ts";
 import { mergeIntervals } from "../lib/timeline.ts";
 import { timed } from "../lib/timing.ts";
@@ -136,14 +137,15 @@ export async function render(dir: string, cfg: Config): Promise<string> {
     ? (JSON.parse(readFileSync(autoCutsPath, "utf8")) as AutoCuts).silences
     : null;
 
+  const profile = resolveProfile(cfg, "default");
   const props = buildRenderProps({
     manifest,
     keeps,
     transcript,
     overlays: overlaysIn,
     renderCfg: cfg.render,
-    width: cfg.ingest.screenRegion.w,
-    height: cfg.ingest.screenRegion.h,
+    width: profile.width,
+    height: profile.height,
     videoFile: "cut.mp4",
     bgm,
     bgmFallbackFile: bgmFile,
