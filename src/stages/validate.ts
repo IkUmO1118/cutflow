@@ -417,6 +417,28 @@ export function validateDocs(
       }
     }
 
+    if (overlays.colorFilter !== undefined) {
+      const cfw = "colorFilter";
+      if (!isObj(overlays.colorFilter)) {
+        err(f, cfw, `オブジェクトです({brightness?, contrast?, saturate?})(現在: ${JSON.stringify(overlays.colorFilter)})`);
+      } else {
+        const cf = overlays.colorFilter;
+        const CF_KEYS = ["brightness", "contrast", "saturate"] as const;
+        for (const k of Object.keys(cf)) {
+          if (!(CF_KEYS as readonly string[]).includes(k)) {
+            warn(f, `${cfw}.${k}`, `不明なキーです(有効: ${CF_KEYS.join(" / ")})`);
+          }
+        }
+        for (const k of CF_KEYS) {
+          if (cf[k] !== undefined && (!isNum(cf[k]) || (cf[k] as number) <= 0 || (cf[k] as number) > 3)) {
+            err(f, `${cfw}.${k}`, `0 より大きく3以下の数値です(現在: ${JSON.stringify(cf[k])})`);
+          }
+        }
+        if (CF_KEYS.every((k) => cf[k] === undefined)) {
+          warn(f, cfw, "brightness / contrast / saturate のいずれも指定されていません(書く意味がありません)");
+        }
+      }
+    }
 
     if (overlays.layerOrder !== undefined) {
       if (!Array.isArray(overlays.layerOrder)) {
@@ -592,7 +614,35 @@ export function validateDocs(
     err("shorts.json", "-", "オブジェクトではありません");
   }
 
+  /* ---------------- thumbnail.json ---------------- */
 
+  if (isObj(thumbnail)) {
+    const f = "thumbnail.json";
+    // frames と違いスナップしないので、カット区間内かどうかは問わない
+    // (収録尺内であればよい)
+    if (!isNum(thumbnail.t) || thumbnail.t < 0) {
+      err(f, "t", `t(元収録の秒)は0以上の数値です(現在: ${JSON.stringify(thumbnail.t)})`);
+    } else if (dur !== null && thumbnail.t > dur + DUR_EPS) {
+      err(f, "t", `t(${fmtT(thumbnail.t)})が収録の長さ(${fmtT(dur)})を超えています`);
+    }
+    if (!Array.isArray(thumbnail.texts) || thumbnail.texts.length === 0) {
+      err(f, "texts", "配列で1件以上必要です");
+    } else {
+      thumbnail.texts.forEach((t: unknown, i: number) => {
+        const w = `texts[${i}]`;
+        if (!isObj(t)) return err(f, w, "オブジェクトではありません");
+        if (typeof t.text !== "string" || t.text === "") {
+          err(f, w, "text(表示する文言)が空です");
+        }
+        if (!isObj(t.pos) || !isNum(t.pos.x) || !isNum(t.pos.y)) {
+          err(f, w, `pos は {x, y}(出力px の数値)です(現在: ${JSON.stringify(t.pos)})`);
+        }
+        checkStyle(f, w, t.style, err);
+      });
+    }
+  } else if (thumbnail !== null && thumbnail !== undefined) {
+    err("thumbnail.json", "-", "オブジェクトではありません");
+  }
 
   /* -------- chapters.json ⇔「章」トラックのテロップ の乖離検知 -------- */
   // plan / remeta は概要欄チャプター(chapters.json)と画面表示の章タイトル

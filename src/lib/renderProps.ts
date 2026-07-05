@@ -255,6 +255,7 @@ export function buildRenderProps(args: {
       // なめらかな既定 0.3 秒にする(0 を書けば瞬時に戻せる)
       transitionSec: renderCfg.wipeTransitionSec ?? DEFAULT_WIPE_TRANSITION_SEC,
     },
+    ...(overlays.colorFilter ? { colorFilter: overlays.colorFilter } : {}),
     ...(profile?.layout ? { layout: { panels: profile.layout.panels } } : {}),
     // 既定スタイルは config(render.caption*)→ 無ければ描画側の定数。
     // undefined のキーは載せない(props を JSON に書く render.props.json を汚さない)
