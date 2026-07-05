@@ -165,6 +165,99 @@ test("overlay: フェード合計が表示時間より長いと警告", () => {
   assert.ok(r.warnings.some((w) => w.message.includes("フェード")));
 });
 
+/* -------- overlays.json の zooms -------- */
+
+const manifestWithScreen = {
+  durationSec: 100,
+  video: { screenRegion: { x: 0, y: 0, w: 1920, h: 1080 } },
+};
+
+test("zoom: rect 欠落・w/h 不正はエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      zooms: [
+        { start: 1, end: 5, rect: { x: 0, y: 0, w: -100, h: 100 } },
+        { start: 10, end: 15, rect: { x: 0, y: 0 } },
+      ],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "zooms[0]" && e.message.includes("rect")));
+  assert.ok(r.errors.some((e) => e.where === "zooms[1]" && e.message.includes("rect")));
+});
+
+test("zoom: 収録尺を超える end はエラー(overlays/wipeFull と違い警告ではない)", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      zooms: [{ start: 90, end: 150, rect: { x: 0, y: 0, w: 960, h: 1080 } }],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "zooms[0]" && e.message.includes("収録の長さ")));
+});
+
+test("zoom: rect が出力の外にはみ出しているとエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      zooms: [{ start: 1, end: 5, rect: { x: 1800, y: 0, w: 960, h: 1080 } }],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "zooms[0]" && e.message.includes("はみ出しています")));
+});
+
+test("zoom: rect のアスペクト比が出力と1%超ずれると警告", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    // 出力は 16:9、rect は正方形(1:1)
+    overlays: { zooms: [{ start: 1, end: 5, rect: { x: 0, y: 0, w: 500, h: 500 } }] },
+  }));
+  assert.ok(r.warnings.some((w) => w.where === "zooms[0]" && w.message.includes("アスペクト比")));
+});
+
+test("zoom: 極端な拡大率(scale>8)は警告", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    // scale = 1920 / 200 = 9.6 倍
+    overlays: { zooms: [{ start: 1, end: 5, rect: { x: 0, y: 0, w: 200, h: 112 } }] },
+  }));
+  assert.ok(r.warnings.some((w) => w.where === "zooms[0]" && w.message.includes("拡大率")));
+});
+
+test("zoom: easeSec が負だとエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      zooms: [{ start: 1, end: 5, rect: { x: 0, y: 0, w: 960, h: 1080 }, easeSec: -1 }],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "zooms[0]" && e.message.includes("easeSec")));
+});
+
+test("zoom: 区間が重なるとエラー(書いた順序に関わらず検出)", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      zooms: [
+        { start: 10, end: 20, rect: { x: 0, y: 0, w: 960, h: 1080 } },
+        { start: 5, end: 15, rect: { x: 960, y: 0, w: 960, h: 1080 } },
+      ],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "zooms" && e.message.includes("重なって")));
+});
+
+test("zoom: 妥当なズームはエラー・警告なし", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      zooms: [{ start: 1, end: 5, rect: { x: 480, y: 270, w: 960, h: 540 }, easeSec: 0.4 }],
+    },
+  }));
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.warnings, []);
+});
+
 /* -------- bgm.json -------- */
 
 test("bgm: file 欠落・volumeDb 非数値・startFrom 負・時刻逆転はエラー", () => {

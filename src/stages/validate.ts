@@ -357,6 +357,67 @@ export function validateDocs(
       );
     }
 
+    if (overlays.zooms !== undefined && !Array.isArray(overlays.zooms)) {
+      err(f, "zooms", "配列ではありません");
+    }
+    const zoomSpans: { start: number; end: number }[] = [];
+    (Array.isArray(overlays.zooms) ? overlays.zooms : []).forEach((z: unknown, i: number) => {
+      const w = `zooms[${i}]`;
+      if (!isObj(z)) return err(f, w, "オブジェクトではありません");
+      // start<end・収録尺内はどちらもエラー(warn を渡さない。ズームは背景
+      // レイヤー全体に効くため、overlays/wipeFull より厳しく扱う)
+      checkSpan(f, w, z, dur, err);
+      const r = z.rect;
+      if (!isObj(r) || !isNum(r.x) || !isNum(r.y) || !isNum(r.w) || !isNum(r.h)) {
+        err(f, w, `rect は {x, y, w, h}(出力px の数値)です(現在: ${JSON.stringify(r)})`);
+      } else if (r.w <= 0 || r.h <= 0) {
+        err(f, w, `rect の w / h は正の数です(現在: ${r.w} x ${r.h})`);
+      } else {
+        if (outputRegion) {
+          const { w: outW, h: outH } = outputRegion;
+          if (r.x < 0 || r.y < 0 || r.x + r.w > outW || r.y + r.h > outH) {
+            err(
+              f, w,
+              `rect が出力解像度(${outW}x${outH})の外にはみ出しています` +
+                `(現在: x${r.x} y${r.y} w${r.w} h${r.h})`,
+            );
+          }
+          const rectAr = r.w / r.h;
+          const outAr = outW / outH;
+          if (Math.abs(rectAr / outAr - 1) > 0.01) {
+            warn(
+              f, w,
+              `rect のアスペクト比(${rectAr.toFixed(2)})が出力(${outAr.toFixed(2)})と` +
+                "1%を超えてずれています(拡大後に歪んで見えることがあります)",
+            );
+          }
+          const scale = outW / r.w;
+          if (scale > 8) {
+            warn(f, w, `拡大率(${scale.toFixed(1)}倍)が大きすぎます(rect.w=${r.w})。画質が粗くなることがあります`);
+          }
+        }
+        if (isNum(z.start) && isNum(z.end) && z.start < z.end) {
+          zoomSpans.push({ start: z.start, end: z.end });
+        }
+      }
+      if (z.easeSec !== undefined && (!isNum(z.easeSec) || z.easeSec < 0)) {
+        err(f, w, `easeSec(遷移秒数)は0以上の数です(現在: ${JSON.stringify(z.easeSec)})`);
+      }
+    });
+    // 重なり禁止(エラー)。ユーザーが時系列順に書くとは限らないので開始時刻でソートしてから隣接比較
+    const sortedZooms = [...zoomSpans].sort((a, b) => a.start - b.start);
+    for (let i = 1; i < sortedZooms.length; i++) {
+      const prev = sortedZooms[i - 1];
+      const cur = sortedZooms[i];
+      if (cur.start < prev.end - EPS) {
+        err(
+          f, "zooms",
+          `ズーム区間が重なっています(${fmtT(prev.start)}–${fmtT(prev.end)} と ${fmtT(cur.start)}–${fmtT(cur.end)})`,
+        );
+      }
+    }
+
+
     if (overlays.layerOrder !== undefined) {
       if (!Array.isArray(overlays.layerOrder)) {
         err(f, "layerOrder", "配列ではありません");
