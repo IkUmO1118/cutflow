@@ -23,6 +23,7 @@ function baseDocs(over: Partial<LoadedDocs> = {}): LoadedDocs {
     },
     transcript: { segments: [{ start: 1, end: 3, text: "こんにちは" }] },
     overlays: {},
+    bgm: null,
     chapters: null,
     meta: null,
     ...over,
@@ -122,4 +123,146 @@ test("章: 概要欄はあるのに章トラックが無いと警告", () => {
     overlays: {},
   }));
   assert.ok(r.warnings.some((w) => w.message.includes("テロップトラックがありません")));
+});
+
+/* -------- overlays / inserts の再生系オプション(頭出し・音量・フェード・rect) -------- */
+
+test("overlay: volume / opacity / rect の範囲外はエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    overlays: {
+      overlays: [
+        { start: 1, end: 5, file: "materials/x.mp4", volume: 3 },
+        { start: 1, end: 5, file: "materials/x.mp4", opacity: 1.5 },
+        { start: 1, end: 5, file: "materials/x.mp4", rect: { x: 0, y: 0, w: -100, h: 100 } },
+        { start: 1, end: 5, file: "materials/x.mp4", rect: { x: 0, y: 0 } },
+      ],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "overlays[0]" && e.message.includes("volume")));
+  assert.ok(r.errors.some((e) => e.where === "overlays[1]" && e.message.includes("opacity")));
+  assert.ok(r.errors.some((e) => e.where === "overlays[2]" && e.message.includes("rect")));
+  assert.ok(r.errors.some((e) => e.where === "overlays[3]" && e.message.includes("rect")));
+});
+
+test("overlay: 画像素材への volume・startFrom は警告(無視される)", () => {
+  const r = validateDocs(DIR, baseDocs({
+    overlays: {
+      overlays: [{ start: 1, end: 5, file: "materials/x.png", volume: 1, startFrom: 2 }],
+    },
+  }));
+  assert.ok(r.warnings.some((w) => w.message.includes("音声はありません")));
+  assert.ok(r.warnings.some((w) => w.message.includes("startFrom は動画素材のみ")));
+});
+
+test("overlay: フェード合計が表示時間より長いと警告", () => {
+  const r = validateDocs(DIR, baseDocs({
+    overlays: {
+      overlays: [{ start: 1, end: 3, file: "materials/x.mp4", fadeInSec: 1.5, fadeOutSec: 1.5 }],
+    },
+  }));
+  assert.ok(r.warnings.some((w) => w.message.includes("フェード")));
+});
+
+/* -------- bgm.json -------- */
+
+test("bgm: file 欠落・volumeDb 非数値・startFrom 負・時刻逆転はエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    bgm: {
+      tracks: [
+        { start: 0, end: 5 }, // file なし
+        { start: 0, end: 5, file: "bgm.mp3", volumeDb: "loud" },
+        { start: 0, end: 5, file: "bgm.mp3", startFrom: -1 },
+        { start: 5, end: 5, file: "bgm.mp3" }, // start >= end
+      ],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "tracks[0]" && e.message.includes("file")));
+  assert.ok(r.errors.some((e) => e.where === "tracks[1]" && e.message.includes("volumeDb")));
+  assert.ok(r.errors.some((e) => e.where === "tracks[2]" && e.message.includes("startFrom")));
+  assert.ok(r.errors.some((e) => e.where === "tracks[3]"));
+});
+
+test("bgm: 実在しない素材はエラー、収録フォルダ外はエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    bgm: {
+      tracks: [
+        { start: 0, end: 5, file: "bgm.mp3" }, // DIR に無い
+        { start: 0, end: 5, file: "../secret.mp3" }, // フォルダ外
+      ],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "tracks[0]" && e.message.includes("BGM ファイルがありません")));
+  assert.ok(r.errors.some((e) => e.where === "tracks[1]" && e.message.includes("外を指しています")));
+});
+
+test("bgm: 未知キーは警告、tracks 非配列はエラー", () => {
+  const r1 = validateDocs(DIR, baseDocs({ bgm: { tracks: [], loop: true } }));
+  assert.ok(r1.warnings.some((w) => w.message.includes("不明なキー")));
+  const r2 = validateDocs(DIR, baseDocs({ bgm: { tracks: {} } }));
+  assert.ok(r2.errors.some((e) => e.where === "tracks" && e.message.includes("配列")));
+});
+
+test("insert: volume の範囲外・負のフェードはエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    overlays: {
+      inserts: [
+        { at: 5, file: "materials/x.mp4", durationSec: 3, volume: -0.5 },
+        { at: 6, file: "materials/x.mp4", durationSec: 3, fadeOutSec: -1 },
+      ],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "inserts[0]" && e.message.includes("volume")));
+  assert.ok(r.errors.some((e) => e.where === "inserts[1]" && e.message.includes("fadeOutSec")));
+});
+
+test("overlay: 画像拡張子以外(.mkv 等)は動画扱いで volume / startFrom の誤警告を出さない", () => {
+  // レンダラー(remotion/Main.tsx の isImageFile)は画像リスト外をすべて
+  // OffthreadVideo で再生する。validate が逆の警告を出すと AI 編集者を欺く
+  const r = validateDocs(DIR, baseDocs({
+    overlays: {
+      overlays: [
+        { start: 1, end: 5, file: "materials/x.mkv", volume: 1, startFrom: 2 },
+      ],
+    },
+  }));
+  assert.ok(!r.warnings.some((w) => w.message.includes("画像素材に音声はありません")));
+  assert.ok(!r.warnings.some((w) => w.message.includes("startFrom は動画素材のみ")));
+});
+
+test("overlay: opacity 0 は「表示されない」警告", () => {
+  const r = validateDocs(DIR, baseDocs({
+    overlays: { overlays: [{ start: 1, end: 5, file: "materials/x.png", opacity: 0 }] },
+  }));
+  assert.ok(
+    r.warnings.some((w) => w.where === "overlays[0]" && w.message.includes("opacity が 0")),
+  );
+});
+
+test("overlay: フェード長すぎ警告は元区間長ではなくカット後の実表示秒で判定する", () => {
+  const r = validateDocs(DIR, baseDocs({
+    cutplan: {
+      approved: false,
+      segments: [
+        { start: 0, end: 2, action: "keep", reason: "a" },
+        { start: 2, end: 9, action: "cut", reason: "b" },
+        { start: 9, end: 10, action: "keep", reason: "c" },
+      ],
+    },
+    overlays: {
+      // 区間は 9 秒あるが実表示は 2 秒。フェード計 3 秒は長すぎ
+      overlays: [
+        { start: 1, end: 10, file: "materials/x.mp4", fadeInSec: 1.5, fadeOutSec: 1.5 },
+      ],
+    },
+  }));
+  assert.ok(
+    r.warnings.some((w) => w.where === "overlays[0]" && w.message.includes("フェード")),
+  );
+});
+
+test("style.fontWeight は 100〜900 の範囲外をエラーにする(文書と同じ範囲)", () => {
+  const r = validateDocs(DIR, baseDocs({
+    transcript: { segments: [{ start: 1, end: 3, text: "a", style: { fontWeight: 50 } }] },
+  }));
+  assert.ok(r.errors.some((e) => e.message.includes("fontWeight")));
 });

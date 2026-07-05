@@ -42,6 +42,8 @@ render:
   wipeWidthPx: 480
   # 字幕・テロップの画面端からの余白(px)。ワイプの位置には影響しない
   wipeMarginPx: 32
+  # ワイプ全画面(overlays.json の wipeFull)の出入りの遷移時間(秒)。0で瞬時
+  wipeTransitionSec: 0.3
   # 字幕のフォントサイズ(px)。初学者の見やすさ優先で大きめ
   captionFontSizePx: 52
   # テロップ既定の見た目(GUI エディタの設定画面 ⌘, からも変更できる)。
@@ -63,11 +65,16 @@ render:
     # 合成時のシステム音声の音量(dB)。0で原音量。合成後の全体が
     # targetLufs へ正規化されるので、ここでは声とのバランスだけを決める
     volumeDb: 0
-  # BGM。収録フォルダに bgm.mp3 / bgm.m4a / bgm.wav があれば自動で合成される
+  # BGM。区間ごとに流すなら収録フォルダの bgm.json(tracks[]。区間・曲の
+  # 切り替え・重奏ができる)。bgm.json が無ければ収録フォルダ直下の
+  # bgm.mp3 / bgm.m4a / bgm.wav を全編1曲で流す(後方互換)。下の volumeDb /
+  # fadeOutSec はその後方互換パスと、bgm.json で volumeDb 省略時の既定値
   bgm:
-    # BGMの音量(dB)。0で原音量。声より20dB前後小さくするのが目安
+    # BGMの音量(dB)。0で原音量。声より20dB前後小さくするのが目安。
+    # bgm.json の各区間で volumeDb を省いたときの既定にもなる
     volumeDb: -22
-    # 動画終端でのフェードアウト秒数
+    # 全編1曲(後方互換)のときの動画終端フェードアウト秒数。
+    # bgm.json では各区間の fadeOutSec で終端フェードを付ける
     fadeOutSec: 2
     # 発話中の自動ダッキング(無音検出 cuts.auto.json の発話区間で BGM を下げる)
     ducking:

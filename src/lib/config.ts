@@ -33,6 +33,9 @@ export interface Config {
   render: {
     wipeWidthPx: number;
     wipeMarginPx: number;
+    /** ワイプ全画面(wipeFull)の出入りの遷移時間(秒)。
+     * 省略時 DEFAULT_WIPE_TRANSITION_SEC。0 で従来どおり瞬時に切り替わる */
+    wipeTransitionSec?: number;
     captionFontSizePx: number;
     /** テロップ既定の文字色。省略時 CAPTION_DEFAULT_COLOR(#ffffff) */
     captionColor?: string;

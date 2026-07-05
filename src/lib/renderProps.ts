@@ -6,6 +6,7 @@ import {
 } from "./timeline.ts";
 import type { Config } from "./config.ts";
 import {
+  DEFAULT_WIPE_TRANSITION_SEC,
   capId,
   capNum,
   captionAnchorOf,
@@ -18,6 +19,7 @@ import {
   overlayTrack,
 } from "../types.ts";
 import type {
+  Bgm,
   Interval,
   LayerId,
   Manifest,
@@ -52,17 +54,23 @@ export function buildRenderProps(args: {
    * ベース区間は元収録の秒から再生する。false/省略 = keeps のみを繋いだ
    * 動画(render の cut.mp4)で、区間の再生位置はカット後の秒 */
   videoIsSource?: boolean;
-  bgm: RenderProps["bgm"];
+  /** bgm.json の内容(無ければ null)。tracks[] を出力タイムラインへ写像して
+   * 複数の BGM 区間にする。null かつ bgmFallbackFile があればそれを全編1曲
+   * として流す(bgm.json 導入前からの後方互換) */
+  bgm: Bgm | null;
+  /** bgm.json が無いときの後方互換: 収録フォルダ直下の bgm.*(相対パス)。
+   * null なら BGM なし。bgm.json があるときは無視される */
+  bgmFallbackFile: string | null;
   /** 無音検出(cuts.auto.json)の無音区間(元収録の秒)。BGM ダッキングの
    * 発話区間を組み立てるのに使う。null/省略ならダッキングなし */
   silences?: Interval[] | null;
-  /** オーバーレイ素材の存在チェック。無い素材は warn して除外する */
+  /** オーバーレイ・BGM 素材の存在チェック。無い素材は warn して除外する */
   overlayExists: (file: string) => boolean;
   warn: (msg: string) => void;
 }): RenderProps {
   const {
     manifest, keeps, transcript, overlays,
-    renderCfg, width, height, videoFile, videoIsSource, bgm, silences,
+    renderCfg, width, height, videoFile, videoIsSource, bgm, bgmFallbackFile, silences,
     overlayExists, warn,
   } = args;
 
@@ -96,21 +104,37 @@ export function buildRenderProps(args: {
 
   // overlays.json の演出指定もカット後のタイムラインに変換する。
   // remapInterval は連続区間をまとめるので、割れるのは挿入で途切れる場合
-  // だけ。動画素材は startFrom(それまでの表示済み秒数)で続きから再生する
+  // だけ。動画素材は「頭出し(startFrom)+それまでの表示済み秒数」で
+  // 続きから再生する。フェードは断片ではなく区間全体の頭/末尾に付くよう、
+  // 最初の断片にだけ fadeIn、最後の断片にだけ fadeOut を載せる
   const overlayItems: OverlayItem[] = (overlays.overlays ?? []).flatMap((o) => {
     if (!overlayExists(o.file)) {
       warn(`オーバーレイ素材が見つかりません: ${o.file}(除外します)`);
       return [];
     }
     let shown = 0;
-    return remapInterval(o.start, o.end, timeline).map((iv) => {
+    const parts = remapInterval(o.start, o.end, timeline);
+    return parts.map((iv, j) => {
+      const from = (o.startFrom ?? 0) + shown;
       const item: OverlayItem = {
         start: iv.start,
         end: iv.end,
         file: o.file,
         track: overlayTrack(o),
         fit: o.fit ?? "contain",
-        ...(shown > 0 ? { startFrom: round2(shown) } : {}),
+        ...(from > 0 ? { startFrom: round2(from) } : {}),
+        ...(o.volume ? { volume: o.volume } : {}),
+        ...(o.opacity !== undefined && o.opacity !== 1 ? { opacity: o.opacity } : {}),
+        // 断片がフェード秒より短いときは断片内で完了する長さへ縮める
+        // (断片をまたいでフェードは続かないので、そのままだと挿入境界で
+        // 不透明度・音量が中途半端な値から段差でジャンプする)
+        ...(j === 0 && o.fadeInSec
+          ? { fadeInSec: Math.min(o.fadeInSec, round2(iv.end - iv.start)) }
+          : {}),
+        ...(j === parts.length - 1 && o.fadeOutSec
+          ? { fadeOutSec: Math.min(o.fadeOutSec, round2(iv.end - iv.start)) }
+          : {}),
+        ...(o.rect ? { rect: o.rect } : {}),
       };
       shown += iv.end - iv.start;
       return item;
@@ -118,6 +142,20 @@ export function buildRenderProps(args: {
   });
   const remapSpans = (spans?: Interval[]): Span[] =>
     (spans ?? []).flatMap((s) => remapInterval(s.start, s.end, timeline));
+  // ワイプ全画面は断片ごとに出入りの遷移が走るので、断片のまま渡すと
+  // 継ぎ目でワイプが縮んで戻るバウンスが出る。同一区間が挿入で割れた断片は
+  // 挿入をまたいでひと続きにし(挿入中はベース映像が無くワイプの器は空 =
+  // 見えないので安全)、カットや隣接エントリで出力上つながった区間は
+  // まとめる。遷移は区間全体の頭と末尾だけになる(フェードと同じ考え方)
+  const wipeSpans = mergeClose(
+    (overlays.wipeFull ?? []).flatMap((s) => {
+      const parts = remapInterval(s.start, s.end, timeline);
+      return parts.length > 0
+        ? [{ start: parts[0].start, end: parts[parts.length - 1].end }]
+        : [];
+    }),
+    0.004,
+  );
 
   // ベース映像の再生区間。「カット後のどこで、動画内のどの時刻から再生
   // するか」に分割する。動画内の時刻は videoFile が何かで変わる:
@@ -153,15 +191,28 @@ export function buildRenderProps(args: {
       file: ins.file,
       fit: ins.fit ?? "contain" as const,
       ...(ins.startFrom ? { startFrom: round2(ins.startFrom) } : {}),
+      ...(ins.volume !== undefined && ins.volume !== 1 ? { volume: ins.volume } : {}),
+      ...(ins.fadeInSec ? { fadeInSec: ins.fadeInSec } : {}),
+      ...(ins.fadeOutSec ? { fadeOutSec: ins.fadeOutSec } : {}),
     };
   });
 
   const durationSec =
     keeps.reduce((sum, k) => sum + (k.end - k.start), 0) +
     activeInserts.reduce((sum, i) => sum + i.durationSec, 0);
+  const duck = buildDuck(silences ?? null, manifest.durationSec, timeline, renderCfg);
   return {
     videoFile,
-    bgm: withDucking(bgm, silences ?? null, manifest.durationSec, timeline, renderCfg),
+    bgm: buildBgm({
+      bgm,
+      bgmFallbackFile,
+      renderCfg,
+      timeline,
+      durationSec: round2(durationSec),
+      duck,
+      fileExists: overlayExists,
+      warn,
+    }),
     durationSec: Math.round(durationSec * 100) / 100,
     fps: Math.round(manifest.video.fps) || 30,
     width,
@@ -172,6 +223,9 @@ export function buildRenderProps(args: {
     wipe: {
       widthPx: renderCfg.wipeWidthPx,
       marginPx: renderCfg.wipeMarginPx,
+      // ワイプ全画面の出入りの遷移(秒)。未設定の config では従来より
+      // なめらかな既定 0.3 秒にする(0 を書けば瞬時に戻せる)
+      transitionSec: renderCfg.wipeTransitionSec ?? DEFAULT_WIPE_TRANSITION_SEC,
     },
     // 既定スタイルは config(render.caption*)→ 無ければ描画側の定数。
     // undefined のキーは載せない(props を JSON に書く render.props.json を汚さない)
@@ -190,7 +244,7 @@ export function buildRenderProps(args: {
     },
     captions,
     overlays: overlayItems,
-    wipeFull: remapSpans(overlays.wipeFull),
+    wipeFull: wipeSpans,
     hideCaption: remapSpans(overlays.hideCaption),
     layerOrder: normalizeLayerOrder(
       overlays.layerOrder,
@@ -203,21 +257,23 @@ export function buildRenderProps(args: {
   };
 }
 
+/** BGM 区間に共通で載せる発話ダッキング */
+type Duck = { spans: Span[]; duckDb: number; fadeSec: number };
+
 /**
- * BGM に発話ダッキングの区間を添える。無音検出(cuts.auto.json)の補集合=
+ * 発話ダッキングの区間を組み立てる。無音検出(cuts.auto.json)の補集合=
  * 発話区間をカット後のタイムラインへ写像し、その間だけ Remotion 側が BGM を
  * duckDb 下げる。無音区間が無い(detect 未実行)・ducking 未設定・duckDb: 0
- * のときは何もしない(従来どおり全編一定音量)
+ * のときは null(ダッキングなし=全編一定音量)
  */
-function withDucking(
-  bgm: RenderProps["bgm"],
+function buildDuck(
   silences: Interval[] | null,
   sourceDurationSec: number,
   timeline: ReturnType<typeof buildTimeline>,
   renderCfg: Config["render"],
-): RenderProps["bgm"] {
+): Duck | null {
   const ducking = renderCfg.bgm.ducking;
-  if (!bgm || !silences || !ducking || ducking.duckDb === 0) return bgm;
+  if (!silences || !ducking || ducking.duckDb === 0) return null;
 
   // 発話区間 = 無音の補集合(元収録の秒)。detect と違いパディングは
   // 付けない(下げ・戻しの余韻は fadeSec が持つ)
@@ -237,11 +293,70 @@ function withDucking(
     speech.flatMap((iv) => remapInterval(iv.start, iv.end, timeline)),
     ducking.fadeSec * 2,
   );
-  if (spans.length === 0) return bgm;
-  return {
-    ...bgm,
-    duck: { spans, duckDb: ducking.duckDb, fadeSec: ducking.fadeSec },
-  };
+  if (spans.length === 0) return null;
+  return { spans, duckDb: ducking.duckDb, fadeSec: ducking.fadeSec };
+}
+
+/**
+ * bgm.json の tracks(元収録の秒)を出力タイムラインの BGM 区間へ写像する。
+ * 覆っていない時間は無音(区間を作らない)。挿入で割れた区間はフェードを
+ * 最初/最後の断片にだけ載せる(オーバーレイと同じ考え方)。bgm.json が無ければ
+ * 収録フォルダ直下の bgm.*(bgmFallbackFile)を全編1曲として流す従来動作。
+ * 存在しない素材は warn して飛ばす(= その区間は無音)。
+ */
+function buildBgm(args: {
+  bgm: Bgm | null;
+  bgmFallbackFile: string | null;
+  renderCfg: Config["render"];
+  timeline: ReturnType<typeof buildTimeline>;
+  durationSec: number;
+  duck: Duck | null;
+  fileExists: (file: string) => boolean;
+  warn: (msg: string) => void;
+}): RenderProps["bgm"] {
+  const { bgm, bgmFallbackFile, renderCfg, timeline, durationSec, duck, fileExists, warn } = args;
+  const withDuck = <T extends object>(t: T): T & { duck?: Duck } =>
+    duck ? { ...t, duck } : t;
+
+  if (bgm && Array.isArray(bgm.tracks)) {
+    return bgm.tracks.flatMap((t) => {
+      if (!fileExists(t.file)) {
+        warn(`BGM 素材が見つかりません: ${t.file}(この区間は無音になります)`);
+        return [];
+      }
+      const parts = remapInterval(t.start, t.end, timeline);
+      return parts.map((iv, j) =>
+        withDuck({
+          file: t.file,
+          volumeDb: t.volumeDb ?? renderCfg.bgm.volumeDb,
+          start: iv.start,
+          end: iv.end,
+          ...(t.startFrom ? { startFrom: round2(t.startFrom) } : {}),
+          ...(j === 0 && t.fadeInSec
+            ? { fadeInSec: Math.min(t.fadeInSec, round2(iv.end - iv.start)) }
+            : {}),
+          ...(j === parts.length - 1 && t.fadeOutSec
+            ? { fadeOutSec: Math.min(t.fadeOutSec, round2(iv.end - iv.start)) }
+            : {}),
+        }),
+      );
+    });
+  }
+
+  // 後方互換: 収録フォルダ直下の bgm.* を全編1曲でループ再生する。
+  // 終端フェードアウトは区間終端(=動画終端)の fadeOutSec で再現する
+  if (bgmFallbackFile && durationSec > 0) {
+    return [
+      withDuck({
+        file: bgmFallbackFile,
+        volumeDb: renderCfg.bgm.volumeDb,
+        start: 0,
+        end: durationSec,
+        ...(renderCfg.bgm.fadeOutSec ? { fadeOutSec: renderCfg.bgm.fadeOutSec } : {}),
+      }),
+    ];
+  }
+  return [];
 }
 
 /** 隙間が gap 以下で隣接する区間をひと続きにまとめる */
@@ -259,6 +374,62 @@ function mergeClose(spans: Span[], gap: number): Span[] {
 const round2 = (n: number) => Math.round(n * 100) / 100;
 /** round2 済みの値どうしの比較(浮動小数の誤差を吸収) */
 const near = (a: number, b: number) => Math.abs(a - b) < 0.005;
+
+/** Sequence に渡すフレーム区間(from / durationInFrames) */
+export interface FrameSpan {
+  from: number;
+  durationInFrames: number;
+}
+
+/**
+ * ベース区間と挿入の「出力秒 → フレーム区間」変換(Main.tsx が使う)。
+ * from と durationInFrames を区間ごとに独立に丸めると、丸めの向き次第で
+ * 境界に1フレームの穴(最下層が無くなり背景の黒が一瞬見える)や
+ * 1フレームの重なり(音が 1/fps 秒だけ二重に鳴る)ができる。
+ * ベース区間と挿入は出力タイムラインをすき間なく敷き詰めるので、
+ * 境界の秒がほぼ一致する(差は round2 の量子化 ±0.005×2 まで)隣接区間は
+ * 同じフレーム番号を共有させ、終端が合成の末尾と1フレーム以内で一致する
+ * 区間は末尾へ吸着させる。エディタ(Player)と最終レンダーの両方に効く
+ */
+export function frameSpans(args: {
+  baseSegments: { start: number; durationSec: number }[];
+  inserts: { start: number; end: number }[];
+  fps: number;
+  durationInFrames: number;
+}): { base: FrameSpan[]; inserts: FrameSpan[] } {
+  const pieces = [
+    ...args.baseSegments.map((s, i) => ({
+      kind: "base" as const,
+      i,
+      startSec: s.start,
+      endSec: s.start + s.durationSec,
+    })),
+    ...args.inserts.map((ins, i) => ({
+      kind: "insert" as const,
+      i,
+      startSec: ins.start,
+      endSec: ins.end,
+    })),
+  ].sort((a, b) => a.startSec - b.startSec);
+  const base: FrameSpan[] = [];
+  const inserts: FrameSpan[] = [];
+  pieces.forEach((p, k) => {
+    const next = pieces[k + 1];
+    const from = Math.round(p.startSec * args.fps);
+    let end: number;
+    if (next && Math.abs(next.startSec - p.endSec) < 0.02) {
+      end = Math.round(next.startSec * args.fps);
+    } else {
+      end = Math.round(p.endSec * args.fps);
+      if (Math.abs(end - args.durationInFrames) <= 1) end = args.durationInFrames;
+    }
+    (p.kind === "base" ? base : inserts)[p.i] = {
+      from,
+      durationInFrames: Math.max(1, end - from),
+    };
+  });
+  return { base, inserts };
+}
 
 /** overlays のエントリが参照する素材トラックの最大番号(最低1)。
  * 2 で切り上げないこと: 切り上げると空トラックを1本まで減らせなくなる */

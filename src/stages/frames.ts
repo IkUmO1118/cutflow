@@ -105,6 +105,7 @@ export async function frames(
     videoFile: "proxy.mp4",
     videoIsSource: true,
     bgm: null, // 静止画に音は無関係
+    bgmFallbackFile: null,
     overlayExists: (f) => existsSync(join(dir, f)),
     warn: (msg) => console.warn(`警告: ${msg}`),
   });

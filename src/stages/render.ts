@@ -9,9 +9,11 @@ import {
 } from "../lib/loudness.ts";
 import { buildRenderProps } from "../lib/renderProps.ts";
 import { mergeIntervals } from "../lib/timeline.ts";
+import { timed } from "../lib/timing.ts";
 import type { Config } from "../lib/config.ts";
 import type {
   AutoCuts,
+  Bgm,
   CutPlan,
   Manifest,
   Overlays,
@@ -65,9 +67,15 @@ export async function render(dir: string, cfg: Config): Promise<string> {
   // 2. テロップ・演出の時刻をカット後のタイムラインに変換して props を作る
   // (組み立てはエディタのプレビューと共有: src/lib/renderProps.ts)
 
-  // 収録フォルダに bgm.* があれば BGM として合成する
+  // BGM: bgm.json があれば区間ごとに配置、無ければ収録フォルダ直下の bgm.* を
+  // 全編1曲で流す(後方互換)
+  const bgmPath = join(dir, "bgm.json");
+  const bgm = existsSync(bgmPath)
+    ? (JSON.parse(readFileSync(bgmPath, "utf8")) as Bgm)
+    : null;
   const bgmFile = findBgm(dir);
-  if (bgmFile) console.log(`BGM を合成します: ${bgmFile}`);
+  if (bgm) console.log(`BGM を合成します: bgm.json(${bgm.tracks?.length ?? 0} 区間)`);
+  else if (bgmFile) console.log(`BGM を合成します: ${bgmFile}`);
 
   // BGM ダッキング用の無音区間(cuts.auto.json は中間生成物なので無くても動く)
   const autoCutsPath = join(dir, "cuts.auto.json");
@@ -84,13 +92,8 @@ export async function render(dir: string, cfg: Config): Promise<string> {
     width: cfg.ingest.screenRegion.w,
     height: cfg.ingest.screenRegion.h,
     videoFile: "cut.mp4",
-    bgm: bgmFile
-      ? {
-          file: bgmFile,
-          volumeDb: cfg.render.bgm.volumeDb,
-          fadeOutSec: cfg.render.bgm.fadeOutSec,
-        }
-      : null,
+    bgm,
+    bgmFallbackFile: bgmFile,
     silences,
     overlayExists: (f) => existsSync(join(dir, f)),
     warn: (msg) => console.warn(`警告: ${msg}`),
@@ -101,16 +104,18 @@ export async function render(dir: string, cfg: Config): Promise<string> {
   // 3. Remotion レンダー(リポジトリ直下で実行。初回は headless Chrome を自動取得)
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
   const outPath = join(dir, "final.mp4");
-  await run(
-    "npx",
-    [
-      "remotion", "render",
-      "remotion/index.ts", "Main", outPath,
-      "--props", propsPath,
-      "--public-dir", dir,
-      "--codec", "h264",
-    ],
-    { cwd: repoRoot },
+  await timed("Remotion", () =>
+    run(
+      "npx",
+      [
+        "remotion", "render",
+        "remotion/index.ts", "Main", outPath,
+        "--props", propsPath,
+        "--public-dir", dir,
+        "--codec", "h264",
+      ],
+      { cwd: repoRoot },
+    ),
   );
   return outPath;
 }
@@ -144,12 +149,14 @@ async function cutFullRes(
   );
   const audioParts = keepAudioParts(source, keeps);
 
-  const loudnorm = await measuredLoudnormFilter({
-    input,
-    source,
-    keeps,
-    targetLufs: cfg.render.targetLufs,
-  });
+  const loudnorm = await timed("loudnorm 実測", () =>
+    measuredLoudnormFilter({
+      input,
+      source,
+      keeps,
+      targetLufs: cfg.render.targetLufs,
+    }),
+  );
 
   const interleaved = keeps.flatMap((_, i) => [`[v${i}]`, `[a${i}]`]).join("");
   const parts = [
@@ -162,13 +169,15 @@ async function cutFullRes(
   // 中間ファイルなので世代劣化を抑えるため高ビットレートで出す
   // (M5 のハードウェアエンコーダなら高速。loudnorm は内部で
   // 192kHz にアップサンプルするため 48kHz に戻す)
-  await run("ffmpeg", [
-    "-y", "-v", "error",
-    "-i", input,
-    "-filter_complex", parts.join(";"),
-    "-map", "[vc]", "-map", "[aout]",
-    "-c:v", "h264_videotoolbox", "-b:v", "20000k",
-    "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
-    output,
-  ]);
+  await timed("ffmpeg cut", () =>
+    run("ffmpeg", [
+      "-y", "-v", "error",
+      "-i", input,
+      "-filter_complex", parts.join(";"),
+      "-map", "[vc]", "-map", "[aout]",
+      "-c:v", "h264_videotoolbox", "-b:v", "20000k",
+      "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+      output,
+    ]),
+  );
 }

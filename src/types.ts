@@ -99,6 +99,10 @@ export const CAPTION_DEFAULT_FONT_FAMILY =
   '"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif';
 export const CAPTION_DEFAULT_FONT_WEIGHT = 700;
 
+/** render.wipeTransitionSec 未指定時の既定(秒)。renderProps と設定画面で共有。
+ * config.ts は node 専用(node:fs 等)なので、ブラウザにも入るこのファイルに置く */
+export const DEFAULT_WIPE_TRANSITION_SEC = 0.3;
+
 /** detect が生成(cuts.auto.json)。機械的に検出したカット候補 */
 export interface AutoCuts {
   /** 検出パラメータ(再現性のため記録) */
@@ -229,7 +233,8 @@ export const DEFAULT_LAYER_ORDER: LayerId[] = defaultLayerOrder(2);
 /** 人間が書く演出指定(overlays.json)。ファイルが無ければ全部なし。
  * 時刻は他の編集ファイルと同じく元動画(収録ファイル)の秒 */
 export interface Overlays {
-  /** 素材(画像/動画)を画面いっぱいに表示する区間 */
+  /** 素材(画像/動画)を表示する区間。省略時は画面いっぱい、rect で
+   * 部分配置(ピクチャ・イン・ピクチャ)もできる */
   overlays?: {
     start: number;
     end: number;
@@ -239,9 +244,24 @@ export interface Overlays {
     track?: number;
     /** 旧式のトラック指定(under=V1 / over=V2)。track があればそちらが優先 */
     layer?: "under" | "over";
-    /** contain: 全体を見せる(余白は黒) / cover: 画面を埋める(端が切れる)。
-     *  省略時 contain */
+    /** contain: 全体を見せる(全画面時の余白は黒、rect 配置時は透過) /
+     *  cover: 領域を埋める(端が切れる)。省略時 contain */
     fit?: "contain" | "cover";
+    /** 頭出し(In点)。素材ファイル内の再生開始位置(秒)。省略時 0(頭から)。
+     *  動画素材のみ有効(画像では無視) */
+    startFrom?: number;
+    /** 音量(0〜2、1=素材の音量のまま)。省略時 0 = 無音(従来どおり)。
+     *  動画素材のみ有効。マイク音声・BGM はそのまま重なる */
+    volume?: number;
+    /** 不透明度(0〜1)。省略時 1 */
+    opacity?: number;
+    /** フェードイン/アウト(秒)。表示区間の頭/末尾で不透明度(と音量)を
+     *  なめらかに遷移する。省略時 0(なし) */
+    fadeInSec?: number;
+    fadeOutSec?: number;
+    /** 表示領域(出力px の {x, y, w, h})。省略時は全画面。
+     *  fit はこの領域内での素材の収め方になる */
+    rect?: Region;
   }[];
   /** ベース映像トラックへの挿入クリップ(Premiere のインサート編集相当)。
    * カット後タイムラインの at(元収録の秒)の位置に file を durationSec ぶん
@@ -260,6 +280,13 @@ export interface Overlays {
     startFrom?: number;
     /** contain: 全体を見せる(余白は黒) / cover: 画面を埋める。省略時 contain */
     fit?: "contain" | "cover";
+    /** 音量(0〜2、1=素材の音量のまま)。省略時 1(音声込み。従来どおり)。
+     *  0 で無音になる */
+    volume?: number;
+    /** フェードイン/アウト(秒)。黒からの明転/黒への暗転(音量も連動)。
+     *  省略時 0(なし) */
+    fadeInSec?: number;
+    fadeOutSec?: number;
   }[];
   /** ワイプ(カメラ)を全画面にして背景を隠す区間 */
   wipeFull?: Interval[];
@@ -282,6 +309,32 @@ export interface Overlays {
   }[];
   /** 字幕を出さない区間 */
   hideCaption?: Interval[];
+}
+
+/** 人間が書く BGM 指定(bgm.json)。ファイルが無ければ、収録フォルダ直下の
+ * bgm.mp3 / bgm.m4a / bgm.wav(あれば)を全編1曲として流す従来動作になる。
+ * 時刻は他の編集ファイルと同じく元動画(収録ファイル)の秒 */
+export interface Bgm {
+  /** BGM を流す区間。時系列順でなくてよく、覆っていない区間は無音になる
+   * (「イントロだけ BGM なし」= その区間を覆わない)。別ファイルの区間を
+   * 並べれば曲の切り替え、区間を重ねれば重奏になる。各区間はループ再生 */
+  tracks: {
+    /** 流し始め(元収録の秒) */
+    start: number;
+    /** 流し終わり(元収録の秒) */
+    end: number;
+    /** BGM ファイル(収録フォルダからの相対パス。例: bgm.mp3 / materials/outro.mp3) */
+    file: string;
+    /** 音量(dB)。0=原音量。省略時は config の render.bgm.volumeDb */
+    volumeDb?: number;
+    /** 頭出し(In点)。ファイル内の再生開始位置(秒)。省略時 0(頭から) */
+    startFrom?: number;
+    /** フェードイン/アウト(秒)。区間の頭/末尾で音量をなめらかに遷移する。
+     *  省略時 0(なし)。区間終端を動画の終端に合わせて fadeOutSec を付けると
+     *  従来の終端フェードアウトと同じになる */
+    fadeInSec?: number;
+    fadeOutSec?: number;
+  }[];
 }
 
 /** plan が生成(meta.json)。タイトル案と概要欄の下書き */

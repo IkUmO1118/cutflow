@@ -41,6 +41,7 @@ export interface LoadedDocs {
   cutplan: unknown;
   transcript: unknown;
   overlays: unknown;
+  bgm: unknown;
   chapters: unknown;
   meta: unknown;
 }
@@ -72,6 +73,7 @@ export function validate(dir: string): ValidateResult {
     cutplan: readJson("cutplan.json", true),
     transcript: readJson("transcript.json", true),
     overlays: readJson("overlays.json", false),
+    bgm: readJson("bgm.json", false),
     chapters: readJson("chapters.json", false),
     meta: readJson("meta.json", false),
   };
@@ -97,7 +99,7 @@ export function validateDocs(
     warnings.push({ file, where, message });
   };
 
-  const { cutplan, transcript, overlays, chapters, meta } = docs;
+  const { cutplan, transcript, overlays, bgm, chapters, meta } = docs;
   const manifest = docs.manifest as Manifest | null;
   const duration = manifest?.durationSec;
   if (manifest && !isNum(duration)) {
@@ -107,7 +109,7 @@ export function validateDocs(
 
   /* ---------------- cutplan.json ---------------- */
 
-  const counts = { keep: 0, cut: 0, captions: 0, overlays: 0 };
+  const counts = { keep: 0, cut: 0, captions: 0, overlays: 0, bgm: 0 };
   let keeps: Interval[] = [];
   if (isObj(cutplan)) {
     const f = "cutplan.json";
@@ -159,6 +161,13 @@ export function validateDocs(
   /** 区間がカット後の動画に一瞬でも現れるか(写像が作れないときは true 扱い) */
   const visible = (start: number, end: number): boolean =>
     !timeline || remapInterval(start, end, timeline).length > 0;
+  /** 区間がカット後の動画に実際に映る秒数(写像が作れないときは区間長)。
+   * フェードの長すぎ警告は元収録の区間長ではなくこちらで判定する
+   * (途中がカットされて表示が縮んでいるケースを拾う) */
+  const visibleSec = (start: number, end: number): number =>
+    timeline
+      ? remapInterval(start, end, timeline).reduce((s, iv) => s + (iv.end - iv.start), 0)
+      : end - start;
 
   /* ---------------- transcript.json ---------------- */
 
@@ -216,6 +225,45 @@ export function validateDocs(
         err(f, w, `fit は "contain" か "cover" です(現在: ${JSON.stringify(fit)})`);
       }
     };
+    // 画像かどうかはレンダラー(remotion/Main.tsx の isImageFile)と同じ判定に
+    // する: 画像拡張子リストに該当しなければすべて動画扱い(.mkv 等も
+    // OffthreadVideo で音声・頭出しが有効に再生される)
+    const isImageFile = (file: unknown): boolean =>
+      typeof file === "string" && /\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(file);
+    /** overlays / inserts 共通の再生系オプション(頭出し・音量・フェード)の検査。
+     * spanSec = 表示される長さ(フェードの長すぎ警告用。不明なら null) */
+    const checkPlayback = (
+      w: string,
+      o: Record<string, unknown>,
+      spanSec: number | null,
+    ): void => {
+      if (o.startFrom !== undefined) {
+        if (!isNum(o.startFrom) || o.startFrom < 0) {
+          err(f, w, `startFrom(頭出し・素材内の開始秒)は0以上の数です: ${JSON.stringify(o.startFrom)}`);
+        } else if (o.startFrom > 0 && isImageFile(o.file)) {
+          warn(f, w, "startFrom は動画素材のみ有効です(画像では無視されます)");
+        }
+      }
+      if (o.volume !== undefined) {
+        if (!isNum(o.volume) || o.volume < 0 || o.volume > 2) {
+          err(f, w, `volume は 0〜2 の数値です(1=素材のまま。現在: ${JSON.stringify(o.volume)})`);
+        } else if (isImageFile(o.file)) {
+          warn(f, w, "画像素材に音声はありません(volume は無視されます)");
+        }
+      }
+      let fadeSum = 0;
+      for (const k of ["fadeInSec", "fadeOutSec"] as const) {
+        if (o[k] === undefined) continue;
+        if (!isNum(o[k]) || (o[k] as number) < 0) {
+          err(f, w, `${k}(フェード秒)は0以上の数です: ${JSON.stringify(o[k])}`);
+        } else {
+          fadeSum += o[k] as number;
+        }
+      }
+      if (spanSec !== null && fadeSum > spanSec + EPS) {
+        warn(f, w, `フェード(${fmtT(fadeSum)})が表示時間(${fmtT(spanSec)})より長く、素材が最後まで明るくなりません`);
+      }
+    };
 
     if (overlays.overlays !== undefined && !Array.isArray(overlays.overlays)) {
       err(f, "overlays", "配列ではありません");
@@ -228,11 +276,33 @@ export function validateDocs(
         checkSpan(f, w, o, dur, err, warn);
         checkFile(w, o.file);
         checkFit(w, o.fit);
+        checkPlayback(
+          w,
+          o,
+          // 実際に映る秒数で判定(全体がカット内 = 0 のときは下の
+          // 「表示されません」警告に任せ、フェード警告は重ねない)
+          isNum(o.start) && isNum(o.end) && o.start < o.end && visibleSec(o.start, o.end) > EPS
+            ? visibleSec(o.start, o.end)
+            : null,
+        );
         if (o.track !== undefined && !isPosInt(o.track)) {
           err(f, w, `track は 1 以上の整数です(現在: ${JSON.stringify(o.track)})`);
         }
         if (o.layer !== undefined && o.layer !== "under" && o.layer !== "over") {
           err(f, w, `layer は "under" か "over" です(現在: ${JSON.stringify(o.layer)})`);
+        }
+        if (o.opacity !== undefined && (!isNum(o.opacity) || o.opacity < 0 || o.opacity > 1)) {
+          err(f, w, `opacity は 0〜1 の数値です(現在: ${JSON.stringify(o.opacity)})`);
+        } else if (o.opacity === 0) {
+          warn(f, w, "opacity が 0 のため表示されません(消したいならエントリごと削除を)");
+        }
+        const r = o.rect;
+        if (r !== undefined) {
+          if (!isObj(r) || !isNum(r.x) || !isNum(r.y) || !isNum(r.w) || !isNum(r.h)) {
+            err(f, w, `rect は {x, y, w, h}(出力px の数値)です(現在: ${JSON.stringify(r)})`);
+          } else if (r.w <= 0 || r.h <= 0) {
+            err(f, w, `rect の w / h は正の数です(現在: ${r.w} x ${r.h})`);
+          }
         }
         if (isObj(o) && isNum(o.start) && isNum(o.end) && o.start < o.end && !visible(o.start, o.end)) {
           warn(f, w, `全体がカット区間内にあり表示されません(${fmtT(o.start)}–${fmtT(o.end)})`);
@@ -255,9 +325,7 @@ export function validateDocs(
         if (!isNum(o.durationSec) || o.durationSec <= 0) {
           err(f, w, `durationSec(挿入する尺)は正の数です: ${JSON.stringify(o.durationSec)}`);
         }
-        if (o.startFrom !== undefined && (!isNum(o.startFrom) || o.startFrom < 0)) {
-          err(f, w, `startFrom(頭出し・素材内の開始秒)は0以上の数です: ${JSON.stringify(o.startFrom)}`);
-        }
+        checkPlayback(w, o, isNum(o.durationSec) && o.durationSec > 0 ? o.durationSec : null);
         checkFile(w, o.file);
         checkFit(w, o.fit);
       },
@@ -323,6 +391,61 @@ export function validateDocs(
     err("overlays.json", "-", "オブジェクトではありません");
   }
 
+  /* ---------------- bgm.json ---------------- */
+
+  if (isObj(bgm)) {
+    const f = "bgm.json";
+    for (const k of Object.keys(bgm)) {
+      if (k !== "tracks") warn(f, k, "不明なキーです(有効: tracks)");
+    }
+    if (bgm.tracks !== undefined && !Array.isArray(bgm.tracks)) {
+      err(f, "tracks", "配列ではありません");
+    }
+    (Array.isArray(bgm.tracks) ? bgm.tracks : []).forEach((t: unknown, i: number) => {
+      const w = `tracks[${i}]`;
+      if (!isObj(t)) return err(f, w, "オブジェクトではありません");
+      counts.bgm++;
+      checkSpan(f, w, t, dur, err, warn);
+      // file: 収録フォルダ内の相対パスで実在すること
+      if (typeof t.file !== "string" || t.file === "") {
+        err(f, w, "file(収録フォルダからの相対パス)がありません");
+      } else {
+        const abs = normalize(join(dir, t.file));
+        if (!abs.startsWith(resolve(dir) + sep)) {
+          err(f, w, `file が収録フォルダの外を指しています: ${t.file}`);
+        } else if (!existsSync(abs)) {
+          err(f, w, `BGM ファイルがありません: ${t.file}`);
+        }
+      }
+      if (t.volumeDb !== undefined && !isNum(t.volumeDb)) {
+        err(f, w, `volumeDb(音量・dB。0=原音量)は数値です: ${JSON.stringify(t.volumeDb)}`);
+      }
+      if (t.startFrom !== undefined && (!isNum(t.startFrom) || t.startFrom < 0)) {
+        err(f, w, `startFrom(頭出し・ファイル内の開始秒)は0以上の数です: ${JSON.stringify(t.startFrom)}`);
+      }
+      let fadeSum = 0;
+      for (const k of ["fadeInSec", "fadeOutSec"] as const) {
+        if (t[k] === undefined) continue;
+        if (!isNum(t[k]) || (t[k] as number) < 0) {
+          err(f, w, `${k}(フェード秒)は0以上の数です: ${JSON.stringify(t[k])}`);
+        } else {
+          fadeSum += t[k] as number;
+        }
+      }
+      // 実際に流れる秒数(カットで縮む場合を拾う)でフェード長・不表示を判定
+      if (isNum(t.start) && isNum(t.end) && t.start < t.end) {
+        const played = visibleSec(t.start, t.end);
+        if (played <= EPS) {
+          warn(f, w, `全体がカット区間内にあり流れません(${fmtT(t.start)}–${fmtT(t.end)})`);
+        } else if (fadeSum > played + EPS) {
+          warn(f, w, `フェード(${fmtT(fadeSum)})が再生時間(${fmtT(played)})より長く、途中までしか鳴りません`);
+        }
+      }
+    });
+  } else if (bgm !== null) {
+    err("bgm.json", "-", "オブジェクトではありません");
+  }
+
   /* ---------------- chapters.json / meta.json ---------------- */
 
   if (isObj(chapters)) {
@@ -372,7 +495,8 @@ export function validateDocs(
   const keptSec = keeps.reduce((a, k) => a + (k.end - k.start), 0);
   const summary =
     `keep ${counts.keep}区間(${fmtT(keptSec)})+ カット記録 ${counts.cut} / ` +
-    `テロップ ${counts.captions} / 素材・演出 ${counts.overlays}`;
+    `テロップ ${counts.captions} / 素材・演出 ${counts.overlays}` +
+    (counts.bgm > 0 ? ` / BGM ${counts.bgm}区間` : "");
   return { errors, warnings, summary };
 }
 
@@ -508,7 +632,7 @@ function checkStyle(
   }
   if (
     style.fontWeight !== undefined &&
-    (!isNum(style.fontWeight) || style.fontWeight < 1 || style.fontWeight > 1000)
+    (!isNum(style.fontWeight) || style.fontWeight < 100 || style.fontWeight > 900)
   ) {
     err(file, w, `fontWeight は 100〜900 の数値です(現在: ${JSON.stringify(style.fontWeight)})`);
   }

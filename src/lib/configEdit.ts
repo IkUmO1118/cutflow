@@ -15,6 +15,7 @@ export interface ConfigPatch {
   render?: {
     wipeWidthPx?: number;
     wipeMarginPx?: number;
+    wipeTransitionSec?: number;
     captionFontSizePx?: number;
     captionColor?: string | null;
     captionOutlineColor?: string | null;
@@ -44,6 +45,7 @@ interface NumRule {
 const NUM_RULES: Record<string, NumRule> = {
   "render.wipeWidthPx": { min: 100, max: 1920, int: true },
   "render.wipeMarginPx": { min: 0, max: 400, int: true },
+  "render.wipeTransitionSec": { min: 0, max: 5 },
   "render.captionFontSizePx": { min: 10, max: 200, int: true },
   "render.captionFontWeight": { min: 100, max: 900, int: true },
   "render.chapterCardSec": { min: 0.5, max: 30 },
@@ -143,7 +145,7 @@ export function validateConfigPatch(patch: unknown): string[] {
       "render",
       p.render,
       [
-        "wipeWidthPx", "wipeMarginPx", "captionFontSizePx",
+        "wipeWidthPx", "wipeMarginPx", "wipeTransitionSec", "captionFontSizePx",
         "captionColor", "captionOutlineColor", "captionFontFamily", "captionFontWeight",
         "chapterCardSec", "targetLufs", "systemAudio", "bgm",
       ],
