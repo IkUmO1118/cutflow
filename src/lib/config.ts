@@ -70,6 +70,13 @@ export interface Config {
      * フォールバック)。disable: 常にソフトウェアエンコード(従来動作)。
      * 省略時 "if-possible" */
     hardwareAcceleration?: "if-possible" | "disable";
+    /** チャンク単位の差分レンダー(render.chunks/)の目標チャンク長(秒)。
+     * 直前フルレンダー以降、映像に効く要素(テロップ・位置・ワイプ等)だけを
+     * 変えた再実行で、変わったチャンクだけ再レンダーして連結する。
+     * 音声・keeps・全域設定を変えたときは自動でフルレンダーに戻る。
+     * 省略・0 で機能オフ(常にフルレンダー。従来どおり render.chunks/ には
+     * 一切触れない)。詳細は docs/render-chunk-cache.md */
+    chunkSec?: number;
   };
 }
 

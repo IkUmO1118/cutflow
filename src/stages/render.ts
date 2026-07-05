@@ -1,6 +1,29 @@
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  carveFinalToChunks,
+  chunkFileName,
+  concatChunks,
+  extractAudio,
+  muxVideoAudio,
+  probeKeyframes,
+  verifyAssembled,
+} from "../lib/chunkCache.ts";
+import {
+  audioKey as buildAudioKey,
+  carveBoundaries,
+  chunkVideoKey,
+  globalVideoKey,
+} from "../lib/chunkPlan.ts";
 import { buildCutCacheKey, cutCacheKeyEquals } from "../lib/cutCache.ts";
 import { run } from "../lib/exec.ts";
 import {
@@ -8,10 +31,15 @@ import {
   keepAudioParts,
   measuredLoudnormFilter,
 } from "../lib/loudness.ts";
-import { buildRenderCacheKey, renderCacheKeyEquals } from "../lib/renderKey.ts";
+import {
+  buildRenderCacheKey,
+  materialFilesOf,
+  renderCacheKeyEquals,
+} from "../lib/renderKey.ts";
 import { buildRenderProps } from "../lib/renderProps.ts";
 import { mergeIntervals } from "../lib/timeline.ts";
 import { timed } from "../lib/timing.ts";
+import type { ChunksCacheKey, FileStat } from "../lib/chunkPlan.ts";
 import type { CutCacheKey } from "../lib/cutCache.ts";
 import type { RenderCacheKey } from "../lib/renderKey.ts";
 import type { Config } from "../lib/config.ts";
@@ -23,6 +51,7 @@ import type {
   Overlays,
   Transcript,
 } from "../types.ts";
+import type { RenderProps } from "../../remotion/props.ts";
 
 /**
  * 最終レンダー。2段構成:
@@ -161,6 +190,23 @@ export async function render(dir: string, cfg: Config): Promise<string> {
     return outPath;
   }
 
+  // チャンク差分レンダー(docs/render-chunk-cache.md)。render.chunkSec > 0 の
+  // ときだけ試す。直前フルレンダーの render.chunks/ が使え、音声・全域 props
+  // (layerOrder・wipe 幾何・keeps 等)が不変なら、変わったチャンクだけ
+  // 再レンダーして concat + mux する(§4)。使えない/検証NGならフルレンダーへ
+  // 落ちる(0/未設定なら render.chunks/ に一切触れず既存挙動と bit 一致)
+  const chunkSec = cfg.render.chunkSec ?? 0;
+  if (chunkSec > 0) {
+    const chunked = await tryChunkRender({
+      dir, props, propsPath, cutStat: { mtimeMs: cutStat.mtimeMs, size: cutStat.size },
+      hardwareAcceleration, repoRoot, outPath,
+    });
+    if (chunked) {
+      writeFileSync(renderKeyPath, JSON.stringify(renderKey, null, 2));
+      return outPath;
+    }
+  }
+
   await timed("Remotion", () =>
     run(
       "npx",
@@ -176,7 +222,177 @@ export async function render(dir: string, cfg: Config): Promise<string> {
     ),
   );
   writeFileSync(renderKeyPath, JSON.stringify(renderKey, null, 2));
+
+  if (chunkSec > 0) {
+    await seedChunkCache({
+      dir, props, cutStat: { mtimeMs: cutStat.mtimeMs, size: cutStat.size },
+      outPath, chunkSec,
+    });
+  }
   return outPath;
+}
+
+/** render.chunks/ 配下のパス一式 */
+function chunkPaths(dir: string) {
+  const chunksDir = join(dir, "render.chunks");
+  return {
+    chunksDir,
+    keyPath: join(chunksDir, "chunks.key.json"),
+    audioPath: join(chunksDir, "audio.m4a"),
+  };
+}
+
+/** props が参照する素材ファイルの mtime/size 一覧(audioKey の入力) */
+function materialStatsOf(
+  dir: string,
+  props: RenderProps,
+): { file: string; mtimeMs: number; size: number }[] {
+  return materialFilesOf(props).map((file) => {
+    const s = statSync(join(dir, file));
+    return { file, mtimeMs: s.mtimeMs, size: s.size };
+  });
+}
+
+/**
+ * 直前フルレンダーの render.chunks/ が使えるか判定し、使えれば変わった
+ * チャンクだけ再レンダーして final.mp4 を組み立てる(§4-2)。
+ * 成功すれば true(final.mp4・chunks.key.json を書き終えている)。使えない
+ * ときは静かに false(通常のフルレンダーへ委ねる)。実際にチャンクを
+ * 再レンダーしたのに検証で落ちたときだけ 1 行ログを出し render.chunks/ を
+ * 破棄する(黙ってフルレンダーに落ちない。§5)
+ */
+async function tryChunkRender(args: {
+  dir: string;
+  props: RenderProps;
+  propsPath: string;
+  cutStat: FileStat;
+  hardwareAcceleration: string;
+  repoRoot: string;
+  outPath: string;
+}): Promise<boolean> {
+  const { dir, props, propsPath, cutStat, hardwareAcceleration, repoRoot, outPath } = args;
+  const { chunksDir, keyPath, audioPath } = chunkPaths(dir);
+  if (!existsSync(outPath) || !existsSync(keyPath) || !existsSync(audioPath)) return false;
+
+  let cached: ChunksCacheKey;
+  try {
+    cached = JSON.parse(readFileSync(keyPath, "utf8")) as ChunksCacheKey;
+  } catch {
+    return false;
+  }
+
+  const materialStats = materialStatsOf(dir, props);
+  const newAudioKey = buildAudioKey(props, cutStat, materialStats);
+  if (newAudioKey !== cached.audioKey) return false;
+
+  const newGlobalKey = globalVideoKey(props, cutStat);
+  if (newGlobalKey !== cached.globalKey) return false;
+
+  const totalFrames = Math.max(1, Math.round(props.durationSec * props.fps));
+  if (totalFrames !== cached.totalFrames || props.fps !== cached.fps) return false;
+
+  const { boundaries } = cached;
+  const chunkCount = boundaries.length - 1;
+  if (chunkCount <= 0 || chunkCount !== cached.chunkVideoKeys.length) return false;
+  const chunkFiles = Array.from({ length: chunkCount }, (_, i) => join(chunksDir, chunkFileName(i)));
+  if (!chunkFiles.every((f) => existsSync(f))) return false;
+
+  const newChunkKeys = boundaries
+    .slice(0, -1)
+    .map((from, i) => chunkVideoKey(props, from, boundaries[i + 1], cutStat, props.fps));
+  const changedIndices = newChunkKeys
+    .map((key, i) => (key !== cached.chunkVideoKeys[i] ? i : -1))
+    .filter((i) => i >= 0);
+
+  for (const i of changedIndices) {
+    const from = boundaries[i];
+    const to = boundaries[i + 1];
+    await timed(`チャンク${i}再レンダー(frame ${from}-${to - 1})`, () =>
+      run(
+        "npx",
+        [
+          "remotion", "render",
+          "remotion/index.ts", "Main", chunkFiles[i],
+          "--props", propsPath,
+          "--public-dir", dir,
+          "--codec", "h264",
+          "--hardware-acceleration", hardwareAcceleration,
+          `--frames=${from}-${to - 1}`,
+          "--muted",
+        ],
+        { cwd: repoRoot },
+      ),
+    );
+  }
+
+  const assembledVideo = join(chunksDir, ".assembled-video.mp4");
+  const tempFinal = join(dir, ".final.tmp.mp4");
+  try {
+    await concatChunks(chunkFiles, assembledVideo);
+    await muxVideoAudio(assembledVideo, audioPath, tempFinal);
+    const verify = await verifyAssembled(tempFinal, totalFrames, props.durationSec, props.fps);
+    if (!verify.ok) {
+      console.warn(`チャンク検証に失敗したためフル再生成します: ${verify.reason}`);
+      rmSync(chunksDir, { recursive: true, force: true });
+      return false;
+    }
+    renameSync(tempFinal, outPath);
+    const newKey: ChunksCacheKey = {
+      fps: props.fps,
+      totalFrames,
+      boundaries,
+      globalKey: newGlobalKey,
+      chunkVideoKeys: newChunkKeys,
+      audioKey: newAudioKey,
+    };
+    writeFileSync(keyPath, JSON.stringify(newKey, null, 2));
+    console.log(
+      changedIndices.length === 0
+        ? "チャンク差分レンダー: 変更チャンクなし(再連結のみ)"
+        : `チャンク差分レンダー: ${changedIndices.length}/${chunkCount} チャンクを再レンダー`,
+    );
+    return true;
+  } finally {
+    rmSync(assembledVideo, { force: true });
+    rmSync(tempFinal, { force: true });
+  }
+}
+
+/**
+ * フルレンダー直後、final.mp4 をチャンク差分レンダーのキャッシュとして
+ * 種付けする(§4-3)。carve・音声抽出はいずれも `-c copy` で軽い。
+ */
+async function seedChunkCache(args: {
+  dir: string;
+  props: RenderProps;
+  cutStat: FileStat;
+  outPath: string;
+  chunkSec: number;
+}): Promise<void> {
+  const { dir, props, cutStat, outPath, chunkSec } = args;
+  const { chunksDir, keyPath, audioPath } = chunkPaths(dir);
+  rmSync(chunksDir, { recursive: true, force: true });
+  mkdirSync(chunksDir, { recursive: true });
+
+  const totalFrames = Math.max(1, Math.round(props.durationSec * props.fps));
+  const keyframeFrames = await probeKeyframes(outPath);
+  const boundaries = carveBoundaries(keyframeFrames, totalFrames, chunkSec, props.fps);
+  await carveFinalToChunks(outPath, boundaries, chunksDir);
+  await extractAudio(outPath, audioPath);
+
+  const materialStats = materialStatsOf(dir, props);
+  const chunkVideoKeys = boundaries
+    .slice(0, -1)
+    .map((from, i) => chunkVideoKey(props, from, boundaries[i + 1], cutStat, props.fps));
+  const key: ChunksCacheKey = {
+    fps: props.fps,
+    totalFrames,
+    boundaries,
+    globalKey: globalVideoKey(props, cutStat),
+    chunkVideoKeys,
+    audioKey: buildAudioKey(props, cutStat, materialStats),
+  };
+  writeFileSync(keyPath, JSON.stringify(key, null, 2));
 }
 
 /** 収録フォルダ内の BGM ファイルを探す(render とエディタで共通の規約) */
