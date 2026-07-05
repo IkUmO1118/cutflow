@@ -24,7 +24,10 @@ import {
 import type { CaptionBackground, LayerId } from "../src/types.ts";
 import { frameSpans } from "../src/lib/renderProps.ts";
 import { buildCaptionIndex, lookupCaption } from "../src/lib/captionIndex.ts";
+import { cssFilterOf } from "../src/lib/colorFilter.ts";
 import { duckFactorAt } from "../src/lib/duck.ts";
+import { cropFitStyle } from "../src/lib/panelStyle.ts";
+import { zoomTransformAt } from "../src/lib/zoom.ts";
 import type { OverlayItem, Region, RenderProps, Span } from "./props.ts";
 
 const JP_FONT = CAPTION_DEFAULT_FONT_FAMILY;
@@ -95,6 +98,29 @@ export const Main = (props: RenderProps) => {
   const wipeW = Math.round(props.wipe.widthPx + (props.width - props.wipe.widthPx) * wipeEase);
   const wipeHNow = Math.round(wipeH + (props.height - wipeH) * wipeEase);
 
+  // カット境界のディップ・トゥ・ブラック(config.yaml の render.cutTransition が
+  // dip-to-black のときだけ props に載る)。境界点 tb の前後 sec/2 で
+  // 0→1→0 の黒フェードを重ねる。尺・音声・字幕のタイミングには一切触れず、
+  // 最上層(テロップより上)に黒い AbsoluteFill を重ねるだけの合成層の演出
+  // ズーム演出(画面の一部を拡大)。ベース映像の背景レイヤーだけに掛ける
+  // transform(props.layout があるショート/縦経路には zooms が乗らないので
+  // 自動的にここは恒等のまま=関与しない。D2 と同じ相乗り)
+  const zoomT = zoomTransformAt(t, props.zooms ?? [], props.width, props.height);
+  // 簡易カラー調整(overlays.json の colorFilter)。ベース映像(画面クロップ+
+  // カメラ=同一収録動画)だけに効く CSS filter(renderBase の全呼び出しに
+  // 乗せる。素材オーバーレイ・挿入クリップは対象外)
+  const filterCss = cssFilterOf(props.colorFilter);
+
+  const cutHalf = (props.cutTransition?.sec ?? 0) / 2;
+  const cutOpacity =
+    cutHalf > 0
+      ? (props.cutBoundarySecs ?? []).reduce((max, tb) => {
+          if (t < tb - cutHalf || t > tb + cutHalf) return max;
+          const p = t <= tb ? (t - (tb - cutHalf)) / cutHalf : (tb + cutHalf - t) / cutHalf;
+          return Math.max(max, p);
+        }, 0)
+      : 0;
+
   // ベース映像の再生区間。挿入(inserts)があると分割され、区間ごとに
   // videoFile 内の videoStart から再生する(挿入中はベース映像が止まる)。
   // 画面クロップとワイプの両方が同じ分割を共有する
@@ -120,7 +146,13 @@ export const Main = (props: RenderProps) => {
   );
   const continuous =
     baseSegs.length === 1 && baseSegs[0].start === 0 && baseSegs[0].videoStart === 0;
-  const renderBase = (region: Region, width: number, height: number, muted: boolean) =>
+  const renderBase = (
+    region: Region,
+    width: number,
+    height: number,
+    muted: boolean,
+    fit: "contain" | "cover" = "cover",
+  ) =>
     continuous ? (
       <CroppedVideo
         src={src}
@@ -129,6 +161,8 @@ export const Main = (props: RenderProps) => {
         width={width}
         height={height}
         muted={muted}
+        fit={fit}
+        filter={filterCss}
       />
     ) : (
       baseSegs.map((seg, i) => (
@@ -149,10 +183,39 @@ export const Main = (props: RenderProps) => {
             width={width}
             height={height}
             muted={muted}
+            fit={fit}
+            filter={filterCss}
           />
         </Sequence>
       ))
     );
+
+  // 縦プリセット等の panels 描画経路(props.layout があるときだけ)。
+  // 配列順(下→上)に CroppedVideo で敷き、region(screen/camera)を
+  // panel.rect(省略時 全画面)へ panel.fit で収める。同じ動画ファイルの
+  // 複数コピーになるので、音声の二重再生を避けて先頭パネルだけ音を出す
+  // (どのパネルを無音にするかは見た目に関係しない。muteBase は先頭にのみ適用)
+  const renderPanels = (layout: NonNullable<RenderProps["layout"]>) =>
+    layout.panels.map((panel, i) => {
+      const region = panel.source === "screen" ? props.screenRegion : props.cameraRegion;
+      const rect = panel.rect ?? { x: 0, y: 0, w: props.width, h: props.height };
+      const muted = i === 0 ? (props.muteBase ?? false) : true;
+      return (
+        <div
+          key={i}
+          style={{
+            position: "absolute",
+            left: rect.x,
+            top: rect.y,
+            width: rect.w,
+            height: rect.h,
+            overflow: "hidden",
+          }}
+        >
+          {renderBase(region, rect.w, rect.h, muted, panel.fit)}
+        </div>
+      );
+    });
 
   // テロップトラックごとの表示中テロップ。旧式データ(track なし)は 1 扱い。
   // 位置・スタイルはテロップごとに解決済み(hideCaption は全テロップトラックに効く)。
@@ -216,7 +279,11 @@ export const Main = (props: RenderProps) => {
           maxWidth={maxWidth}
         />
       );
-      if (caption.pos) {
+      // 位置指定の無いテロップは、props.captionDefaultPos(縦プリセット等)が
+      // あればそこに、無ければ従来の下部中央にフォールバックする
+      const pos = caption.pos ?? props.captionDefaultPos;
+      const anchor = caption.pos ? caption.anchor : props.captionDefaultPos?.anchor;
+      if (pos) {
         // 位置指定あり: 幅はテキストに自動フィットし、自動では折り返さない
         // (改行はテキスト内の改行で指定する)。anchor で座標の解釈が変わる:
         // 省略時はテキスト中心を pos に置き、topLeft は左上を pos に置く
@@ -224,12 +291,10 @@ export const Main = (props: RenderProps) => {
           <div
             style={{
               position: "absolute",
-              left: caption.pos.x,
-              top: caption.pos.y,
+              left: pos.x,
+              top: pos.y,
               width: "max-content",
-              ...(caption.anchor === "topLeft"
-                ? {}
-                : { transform: "translate(-50%, -50%)" }),
+              ...(anchor === "topLeft" ? {} : { transform: "translate(-50%, -50%)" }),
             }}
           >
             {styled()}
@@ -252,13 +317,29 @@ export const Main = (props: RenderProps) => {
         </div>
       );
     }
-    return id === "wipe" ? wipeLayer : null;
+    // 縦プリセット等(props.layout あり)ではワイプという概念が無いので
+    // レイヤーとしても描画しない(D3)。wipeFull もこのレイヤーが無ければ
+    // 見た目に影響しない
+    return id === "wipe" ? (props.layout ? null : wipeLayer) : null;
   };
 
   return (
     <AbsoluteFill style={{ backgroundColor: "black" }}>
       {hasVideo ? (
-        renderBase(props.screenRegion, props.width, props.height, props.muteBase ?? false)
+        props.layout ? (
+          renderPanels(props.layout)
+        ) : (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              transformOrigin: "0 0",
+              transform: `translate(${zoomT.translateX}px, ${zoomT.translateY}px) scale(${zoomT.scale})`,
+            }}
+          >
+            {renderBase(props.screenRegion, props.width, props.height, props.muteBase ?? false)}
+          </div>
+        )
       ) : (
         <Placeholder label="画面(screenRegion)" />
       )}
@@ -281,6 +362,10 @@ export const Main = (props: RenderProps) => {
         .map((id) => (
           <Fragment key={id}>{layerNode(id)}</Fragment>
         ))}
+
+      {cutOpacity > 0 && (
+        <AbsoluteFill style={{ backgroundColor: "black", opacity: cutOpacity }} />
+      )}
 
       {!props.muteBgm &&
         props.bgm.map((track, i) => (
@@ -636,7 +721,10 @@ const useFrameHold = (
   }, []);
 };
 
-/** 拡張キャンバス動画から region 部分だけを width x height に切り出して表示する */
+/** 拡張キャンバス動画から region 部分だけを width x height の箱に
+ * fit(contain/cover)で収めて表示する。省略時 fit="cover" は、region と
+ * 箱のアスペクト比が一致する既存呼び出し(全画面・ワイプ)では現行の
+ * `scale = width / region.w` 直結の式と完全に一致する(cropFitStyle 参照) */
 const CroppedVideo = ({
   src,
   canvas,
@@ -645,6 +733,8 @@ const CroppedVideo = ({
   height,
   muted,
   startFromFrames = 0,
+  fit = "cover",
+  filter,
 }: {
   src: string;
   canvas: { w: number; h: number };
@@ -654,24 +744,34 @@ const CroppedVideo = ({
   muted: boolean;
   /** 動画内の再生開始位置(フレーム)。挿入で分割されたベース区間用 */
   startFromFrames?: number;
+  /** 箱(width x height)への region の収め方。省略時 "cover" */
+  fit?: "contain" | "cover";
+  /** 簡易カラー調整(colorFilter)の CSS filter 文字列。省略時は無補正 */
+  filter?: string;
 }) => {
-  const scale = width / region.w;
   const wrapRef = useRef<HTMLDivElement>(null);
   const fallbackRef = useRef<HTMLCanvasElement>(null);
   // 控えへの供給は画面側(非ミュート)だけ。ワイプは同じ生フレームの
   // 別クロップなので、控えの絵は両者でそのまま使える
   useFrameHold(wrapRef, fallbackRef, !muted);
   // 控えは生フレーム全体なので、<video> と同じ配置で敷けば同じクロップになる
+  const fitted = cropFitStyle({ canvas, region, width, height, fit });
   const mediaStyle = {
     position: "absolute" as const,
-    width: canvas.w * scale,
-    height: canvas.h * scale,
-    left: -region.x * scale,
-    top: -region.y * scale,
+    width: fitted.width,
+    height: fitted.height,
+    left: fitted.left,
+    top: fitted.top,
     maxWidth: "none",
   };
   return (
-    <div ref={wrapRef} style={{ width, height, overflow: "hidden", position: "relative" }}>
+    <div
+      ref={wrapRef}
+      style={{
+        width, height, overflow: "hidden", position: "relative",
+        ...(filter ? { filter } : {}),
+      }}
+    >
       {!playerFlag("nohold") && getRemotionEnvironment().isPlayer ? (
         <canvas ref={fallbackRef} style={mediaStyle} />
       ) : null}

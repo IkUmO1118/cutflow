@@ -38,6 +38,7 @@ import {
 } from "../lib/renderKey.ts";
 import { resolveProfile } from "../lib/profile.ts";
 import { buildRenderProps } from "../lib/renderProps.ts";
+import { loadShort, loadShorts } from "../lib/shorts.ts";
 import { mergeIntervals } from "../lib/timeline.ts";
 import { timed } from "../lib/timing.ts";
 import type { ChunksCacheKey, FileStat } from "../lib/chunkPlan.ts";
@@ -50,6 +51,7 @@ import type {
   CutPlan,
   Manifest,
   Overlays,
+  Short,
   Transcript,
 } from "../types.ts";
 import type { RenderProps } from "../../remotion/props.ts";
@@ -231,6 +233,174 @@ export async function render(dir: string, cfg: Config): Promise<string> {
       outPath, chunkSec,
     });
   }
+  return outPath;
+}
+
+/**
+ * ショート1本のレンダー。shorts.json から name を1件読み、
+ * shortKeeps(= mergeIntervals(short.ranges)。本編 cutplan とは独立。D2)を
+ * keep 集合として cut.<name>.mp4 → shorts/<name>.mp4 を作る。
+ * 承認ゲート: short.approved が true でなければ拒否する(本編 approved は流用しない)。
+ */
+export async function renderShort(dir: string, cfg: Config, name: string): Promise<string> {
+  const short = loadShort(dir, name);
+  const manifest = JSON.parse(
+    readFileSync(join(dir, "manifest.json"), "utf8"),
+  ) as Manifest;
+  const transcript = JSON.parse(
+    readFileSync(join(dir, "transcript.json"), "utf8"),
+  ) as Transcript;
+  return renderOneShort(dir, cfg, manifest, transcript, short);
+}
+
+/**
+ * approved な全ショートをレンダーする。未承認のショートは1行ログでスキップを
+ * 明示する(黙って飛ばさない)。shorts.json 自体が無ければエラー
+ */
+export async function renderShorts(dir: string, cfg: Config): Promise<string[]> {
+  const shorts = loadShorts(dir);
+  if (!shorts) {
+    throw new Error("shorts.json がありません(このフォルダにショートは未定義です)");
+  }
+  const manifest = JSON.parse(
+    readFileSync(join(dir, "manifest.json"), "utf8"),
+  ) as Manifest;
+  const transcript = JSON.parse(
+    readFileSync(join(dir, "transcript.json"), "utf8"),
+  ) as Transcript;
+  const outputs: string[] = [];
+  for (const short of shorts.shorts) {
+    if (!short.approved) {
+      console.log(`スキップ: ショート "${short.name}" は approved が false です`);
+      continue;
+    }
+    outputs.push(await renderOneShort(dir, cfg, manifest, transcript, short));
+  }
+  return outputs;
+}
+
+/**
+ * ショート1本の実処理。本編 render の2段構成(cutFullRes → buildRenderProps →
+ * Remotion)をそのまま流用し、keep 集合だけショートの ranges に差し替える。
+ * キャッシュは full-skip(render.<name>.key.json)+ cut 再利用
+ * (cut.<name>.keeps.json)のみ。チャンク差分レンダーはショートには使わない(D4)
+ */
+async function renderOneShort(
+  dir: string,
+  cfg: Config,
+  manifest: Manifest,
+  transcript: Transcript,
+  short: Short,
+): Promise<string> {
+  if (!short.approved) {
+    throw new Error(
+      `ショート "${short.name}" の approved が false です。縦動画を確認し、` +
+        "問題なければ approved を true にしてから再実行してください(承認ゲート)",
+    );
+  }
+  const name = short.name;
+  const shortKeeps = mergeIntervals(short.ranges);
+
+  const cutPath = join(dir, `cut.${name}.mp4`);
+  const cutKeepsPath = join(dir, `cut.${name}.keeps.json`);
+  const sourceStat = statSync(join(dir, manifest.source));
+  const cacheKey = buildCutCacheKey({
+    keeps: shortKeeps,
+    manifest,
+    cfg,
+    sourceMtimeMs: sourceStat.mtimeMs,
+    sourceSize: sourceStat.size,
+  });
+  const cachedKey = existsSync(cutKeepsPath)
+    ? (JSON.parse(readFileSync(cutKeepsPath, "utf8")) as CutCacheKey)
+    : null;
+  if (existsSync(cutPath) && cachedKey && cutCacheKeyEquals(cachedKey, cacheKey)) {
+    console.log(`cut.${name}.mp4 を再利用します(カット・音声設定に変更なし)`);
+  } else {
+    await cutFullRes(dir, manifest, shortKeeps, cutPath, cfg);
+    writeFileSync(cutKeepsPath, JSON.stringify(cacheKey, null, 2));
+  }
+
+  // ショートは本編 overlays.json の素材/インサート/wipeFull/hideCaption と
+  // bgm.json を継承しない(v1 スコープ注記。D2)。テロップは transcript を
+  // 流用し、captionTracks だけショート専用の上書きを既存の解決機構に相乗りさせる。
+  // colorFilter だけは例外的に継承する(演出ではなく収録の見た目補正なので、
+  // 本編とショートで肌色が変わる事故を防ぐ)
+  const overlaysPath = join(dir, "overlays.json");
+  const mainOverlays: Overlays = existsSync(overlaysPath)
+    ? (JSON.parse(readFileSync(overlaysPath, "utf8")) as Overlays)
+    : {};
+  const profile = resolveProfile(cfg, short.profile ?? "vertical");
+  const shortOverlays: Overlays = {
+    captionTracks: short.captionTracks,
+    ...(mainOverlays.colorFilter ? { colorFilter: mainOverlays.colorFilter } : {}),
+  };
+  const props = buildRenderProps({
+    manifest,
+    keeps: shortKeeps,
+    transcript,
+    overlays: shortOverlays,
+    renderCfg: cfg.render,
+    width: profile.width,
+    height: profile.height,
+    profile,
+    videoFile: `cut.${name}.mp4`,
+    bgm: null,
+    bgmFallbackFile: null,
+    silences: null,
+    overlayExists: (f) => existsSync(join(dir, f)),
+    warn: (msg) => console.warn(`警告: ${msg}`),
+  });
+  const propsPath = join(dir, `render.${name}.props.json`);
+  writeFileSync(propsPath, JSON.stringify(props, null, 2));
+
+  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+  const shortsDir = join(dir, "shorts");
+  mkdirSync(shortsDir, { recursive: true });
+  const outPath = join(shortsDir, `${name}.mp4`);
+  const hardwareAcceleration = cfg.render.hardwareAcceleration ?? "if-possible";
+
+  // full-skip キャッシュ(render.<name>.key.json)。本編と同じ判定ロジックを
+  // name 別ファイルで流用する(チャンク差分レンダーはショートには入れない)
+  const renderKeyPath = join(dir, `render.${name}.key.json`);
+  const cutStat = statSync(cutPath);
+  const renderKey = buildRenderCacheKey({
+    props,
+    dir,
+    cut: { mtimeMs: cutStat.mtimeMs, size: cutStat.size },
+    hardwareAcceleration,
+    statFile: (p) => {
+      const s = statSync(p);
+      return { mtimeMs: s.mtimeMs, size: s.size };
+    },
+  });
+  const cachedRenderKey = existsSync(renderKeyPath)
+    ? (JSON.parse(readFileSync(renderKeyPath, "utf8")) as RenderCacheKey)
+    : null;
+  if (
+    existsSync(outPath) &&
+    cachedRenderKey &&
+    renderCacheKeyEquals(cachedRenderKey, renderKey)
+  ) {
+    console.log(`shorts/${name}.mp4 を再利用します(編集内容・素材に変更なし)`);
+    return outPath;
+  }
+
+  await timed(`Remotion(${name})`, () =>
+    run(
+      "npx",
+      [
+        "remotion", "render",
+        "remotion/index.ts", "Main", outPath,
+        "--props", propsPath,
+        "--public-dir", dir,
+        "--codec", "h264",
+        "--hardware-acceleration", hardwareAcceleration,
+      ],
+      { cwd: repoRoot },
+    ),
+  );
+  writeFileSync(renderKeyPath, JSON.stringify(renderKey, null, 2));
   return outPath;
 }
 

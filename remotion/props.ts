@@ -2,7 +2,7 @@
 // src/stages/render.ts が生成し、Remotion コンポジション(Main.tsx)が受け取る。
 // 時刻はすべて「カット済み動画(cut.mp4)のタイムライン」の秒。
 
-import type { CaptionStyle, LayerId } from "../src/types.ts";
+import type { CaptionStyle, ColorFilter, LayerId } from "../src/types.ts";
 
 export interface Region {
   x: number;
@@ -105,6 +105,10 @@ export type RenderProps = {
   /** 右下ワイプの寸法。transitionSec はワイプ全画面(wipeFull)の出入りの
    * 遷移時間(秒。省略・0 で瞬時) */
   wipe: { widthPx: number; marginPx: number; transitionSec?: number };
+  /** 簡易カラー調整(overlays.json の colorFilter)。ベース映像(画面クロップ+
+   * カメラ)だけに CSS filter として効く(src/lib/colorFilter.ts が変換)。
+   * 素材オーバーレイ・挿入クリップには効かない。省略時は無補正 */
+  colorFilter?: ColorFilter;
   /** ベース映像パネルの配置(縦プリセット用。src/lib/profile.ts の
    * Profile.layout から buildRenderProps が渡す)。省略時は現行ワイプ経路
    * (screen 全面 + camera 右下ワイプ)のまま */
@@ -130,6 +134,16 @@ export type RenderProps = {
   overlays: OverlayItem[];
   /** ワイプを全画面にする区間 */
   wipeFull: Span[];
+  /** ズーム演出(overlays.json の zooms。カット後の秒に写像・easeSec 解決済み)。
+   * ベース映像の背景レイヤーだけを拡大する(ワイプ・テロップ・素材・挿入は
+   * 動かない)。省略時(空)は現行の描画と完全に同じ */
+  zooms?: { start: number; end: number; rect: Region; easeSec: number }[];
+  /** カット境界のディップ・トゥ・ブラック(config.yaml の render.cutTransition
+   * が dip-to-black のときだけ載る)。sec は黒への往復の合計秒 */
+  cutTransition?: { sec: number };
+  /** dip-to-black の対象境界(カット後の秒。先頭0・末尾は含まない)。
+   * cutTransition が無ければ意味を持たない */
+  cutBoundarySecs?: number[];
   /** 字幕を出さない区間 */
   hideCaption: Span[];
   /** 画面の重なり順(下→上)。省略時は DEFAULT_LAYER_ORDER */

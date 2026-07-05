@@ -178,6 +178,13 @@ export function chunkVideoKey(
   fps: number,
 ): string {
   const overlaps = (s: number, e: number) => overlapsChunk(s, e, fromFrame, toFrame, fps);
+  // カット境界のディップ・トゥ・ブラックは境界点 tb の前後 sec/2 だけに映るので、
+  // その範囲がこのチャンクと重なる境界だけを対象にする(重ならないチャンクは
+  // cutTransition.sec が変わっても絵が変わらないので、sec 自体もキーに含めない)
+  const cutSec = props.cutTransition?.sec ?? 0;
+  const cutBoundariesHere = (props.cutBoundarySecs ?? []).filter((tb) =>
+    overlaps(tb - cutSec / 2, tb + cutSec / 2),
+  );
   const local = {
     captions: sortStable(props.captions.filter((c) => overlaps(c.start, c.end))),
     overlays: sortStable(
@@ -190,6 +197,8 @@ export function chunkVideoKey(
     ),
     wipeFull: sortStable((props.wipeFull ?? []).filter((s) => overlaps(s.start, s.end))),
     hideCaption: sortStable((props.hideCaption ?? []).filter((s) => overlaps(s.start, s.end))),
+    cutTransition:
+      cutBoundariesHere.length > 0 ? { sec: cutSec, boundaries: cutBoundariesHere } : null,
   };
   return stableHash({
     global: globalVideoProps(props, cutStat),

@@ -26,6 +26,8 @@ function baseDocs(over: Partial<LoadedDocs> = {}): LoadedDocs {
     bgm: null,
     chapters: null,
     meta: null,
+    shorts: null,
+    thumbnail: null,
     ...over,
   };
 }
@@ -265,4 +267,99 @@ test("style.fontWeight は 100〜900 の範囲外をエラーにする(文書と
     transcript: { segments: [{ start: 1, end: 3, text: "a", style: { fontWeight: 50 } }] },
   }));
   assert.ok(r.errors.some((e) => e.message.includes("fontWeight")));
+});
+
+
+/* -------- shorts.json -------- */
+
+function validShort(over: Record<string, unknown> = {}) {
+  return {
+    name: "hook-mistake",
+    profile: "vertical",
+    approved: false,
+    ranges: [{ start: 10, end: 20 }],
+    ...over,
+  };
+}
+
+test("shorts.json が無い収録では validate の出力が現状と完全一致する", () => {
+  const withoutFile = validateDocs(DIR, baseDocs({ shorts: null }));
+  const withDefaultKey = validateDocs(DIR, baseDocs());
+  assert.deepEqual(withoutFile, withDefaultKey);
+  assert.deepEqual(withoutFile.errors, []);
+});
+
+test("shorts: 妥当な構成はエラーなし", () => {
+  const r = validateDocs(DIR, baseDocs({ shorts: { shorts: [validShort()] } }));
+  assert.deepEqual(r.errors, []);
+});
+
+test("shorts: 未知の profile 名はエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    shorts: { shorts: [validShort({ profile: "square" })] },
+  }));
+  assert.ok(r.errors.some((e) => e.message.includes("profile")));
+});
+
+test("shorts: name の重複・不正文字はエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    shorts: {
+      shorts: [
+        validShort({ name: "Hook Mistake!" }), // 不正文字
+        validShort({ name: "dup" }),
+        validShort({ name: "dup" }), // 重複
+      ],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "shorts[0]" && e.message.includes("name")));
+  assert.ok(r.errors.some((e) => e.where === "shorts[2]" && e.message.includes("重複")));
+});
+
+test("shorts: approved が真偽値でないとエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    shorts: { shorts: [validShort({ approved: "yes" })] },
+  }));
+  assert.ok(r.errors.some((e) => e.message.includes("approved")));
+});
+
+test("shorts: ranges が空・逆転はエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    shorts: {
+      shorts: [
+        validShort({ name: "empty-ranges", ranges: [] }),
+        validShort({ name: "reversed", ranges: [{ start: 20, end: 10 }] }),
+      ],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "shorts[0].ranges" && e.message.includes("1件以上")));
+  assert.ok(r.errors.some((e) => e.where === "shorts[1].ranges[0]"));
+});
+
+test("shorts: captionTracks は overlays.captionTracks と同じ検査(不正 anchor・track 重複)", () => {
+  const r = validateDocs(DIR, baseDocs({
+    shorts: {
+      shorts: [
+        validShort({
+          captionTracks: [
+            { track: 1, anchor: "middle" },
+            { track: 1, x: 10, y: 10 },
+          ],
+        }),
+      ],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.message.includes("anchor")));
+  assert.ok(r.errors.some((e) => e.message.includes("重複")));
+});
+
+test("shorts: captionTracks の座標が profile 範囲外だと警告", () => {
+  const r = validateDocs(DIR, baseDocs({
+    shorts: {
+      shorts: [
+        // vertical は 1080x1920。x が幅を超える
+        validShort({ captionTracks: [{ track: 1, x: 5000, y: 100 }] }),
+      ],
+    },
+  }));
+  assert.ok(r.warnings.some((w) => w.message.includes("幅") && w.message.includes("外です")));
 });

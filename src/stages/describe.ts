@@ -6,6 +6,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fmtT } from "../lib/fmt.ts";
+import { loadShorts } from "../lib/shorts.ts";
 import {
   buildTimeline,
   insertSpans,
@@ -159,6 +160,23 @@ export function describe(dir: string): string {
   if (meta.titles.length > 0) {
     lines.push("");
     lines.push(`タイトル案: ${meta.titles.slice(0, 3).join(" / ")}`);
+  }
+
+  const shorts = loadShorts(dir);
+  if (shorts && shorts.shorts.length > 0) {
+    lines.push("");
+    lines.push("ショート(shorts.json):");
+    for (const s of shorts.shorts) {
+      const ranges = mergeIntervals(s.ranges);
+      const outDur = ranges.reduce((a, r) => a + (r.end - r.start), 0);
+      const rangesDesc = ranges
+        .map((r) => `元 ${fmtT(r.start)}–${fmtT(r.end)}`)
+        .join(", ");
+      lines.push(
+        `  ${s.name} profile=${s.profile ?? "vertical"} approved=${s.approved} ` +
+          `${rangesDesc} → 出力尺 ${fmtT(outDur)}`,
+      );
+    }
   }
   return lines.join("\n");
 }

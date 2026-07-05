@@ -11,6 +11,7 @@ import {
   ovCountOf,
 } from "../src/lib/renderProps.ts";
 import { PROFILES } from "../src/lib/profile.ts";
+import { mergeIntervals } from "../src/lib/timeline.ts";
 import type { Config } from "../src/lib/config.ts";
 import type { Manifest, Overlays, Transcript } from "../src/types.ts";
 
@@ -328,6 +329,113 @@ test("buildRenderProps: wipe に遷移時間が載る(config 未指定は 0.3)",
   );
 });
 
+test("buildRenderProps: cutTransition 未設定/type: none では cutTransition・cutBoundarySecs が props に載らない", () => {
+  const keeps = [{ start: 0, end: 10 }, { start: 20, end: 30 }, { start: 40, end: 50 }];
+  const base = {
+    manifest,
+    keeps,
+    transcript: { segments: [] } as Transcript,
+    overlays: {},
+    width: 1920,
+    height: 1080,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  };
+  const noCfg = buildRenderProps({ ...base, renderCfg });
+  assert.equal(noCfg.cutTransition, undefined);
+  assert.equal(noCfg.cutBoundarySecs, undefined);
+  const noneCfg = buildRenderProps({
+    ...base,
+    renderCfg: { ...renderCfg, cutTransition: { type: "none", sec: 0.5 } },
+  });
+  assert.equal(noneCfg.cutTransition, undefined);
+  assert.equal(noneCfg.cutBoundarySecs, undefined);
+});
+
+test("buildRenderProps: dip-to-black で keep 境界の累積秒が cutBoundarySecs に載る(先頭・末尾は含めない)", () => {
+  const props = buildRenderProps({
+    manifest,
+    // 出力: [0,10] keep1 / 境界(10) / [10,20] keep2 / 境界(20) / [20,25] keep3
+    keeps: [{ start: 0, end: 10 }, { start: 20, end: 30 }, { start: 40, end: 45 }],
+    transcript: { segments: [] },
+    overlays: {},
+    renderCfg: { ...renderCfg, cutTransition: { type: "dip-to-black", sec: 0.4 } },
+    width: 1920,
+    height: 1080,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.deepEqual(props.cutTransition, { sec: 0.4 });
+  assert.deepEqual(props.cutBoundarySecs, [10, 20]);
+});
+
+test("buildRenderProps: sec 省略時は DEFAULT_CUT_TRANSITION_SEC(0.3)", () => {
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 10 }, { start: 20, end: 30 }],
+    transcript: { segments: [] },
+    overlays: {},
+    renderCfg: { ...renderCfg, cutTransition: { type: "dip-to-black" } },
+    width: 1920,
+    height: 1080,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.deepEqual(props.cutTransition, { sec: 0.3 });
+});
+
+test("buildRenderProps: 境界より手前に挿入があると、その尺ぶん cutBoundarySecs も後ろへずれる", () => {
+  const props = buildRenderProps({
+    manifest,
+    // 元 [0,10] と [20,30]。境界の手前(元5s)に4秒の挿入があるので、
+    // 単純な keep 累積時間(10)ではなく、挿入の尺を足した 14 が正しい境界
+    keeps: [{ start: 0, end: 10 }, { start: 20, end: 30 }],
+    transcript: { segments: [] },
+    overlays: {
+      inserts: [{ at: 5, file: "materials/ins.mp4", durationSec: 4 }],
+    },
+    renderCfg: { ...renderCfg, cutTransition: { type: "dip-to-black", sec: 0.3 } },
+    width: 1920,
+    height: 1080,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.deepEqual(props.cutBoundarySecs, [14]);
+});
+
+test("buildRenderProps: 隣接 keep が実質連続している境界(未 mergeIntervals)は cutBoundarySecs から除外される", () => {
+  const props = buildRenderProps({
+    manifest,
+    // エディタの分割編集直後を想定: [0,10] と [10,20] は実際には切れていない
+    keeps: [{ start: 0, end: 10 }, { start: 10, end: 20 }, { start: 30, end: 40 }],
+    transcript: { segments: [] },
+    overlays: {},
+    renderCfg: { ...renderCfg, cutTransition: { type: "dip-to-black", sec: 0.3 } },
+    width: 1920,
+    height: 1080,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  // [0,10]+[10,20] の継ぎ目(10)は実質連続なので除外。[10,20]→[30,40] の
+  // 境界(累積20の位置)だけが残る
+  assert.deepEqual(props.cutBoundarySecs, [20]);
+});
+
 test("buildRenderProps: wipeFull はカット・挿入・隣接エントリで繋がった区間が1本にまとまる", () => {
   const props = buildRenderProps({
     manifest,
@@ -560,4 +668,67 @@ test("frameSpans: 離れた区間(0.02秒超)は連結せず独立に丸める",
   assert.equal(base[0].durationInFrames, 30);
   assert.equal(inserts[0].from, 45);
   assert.equal(inserts[0].durationInFrames, 30);
+});
+
+// ---- ショート(shorts.json)相乗り経路: ranges→mergeIntervals の keep 集合 +
+// overlays.captionTracks 経由の縦用テロップ上書き(render.ts のショート経路と同じ組み立て) ----
+
+test("buildRenderProps: ショートの ranges(飛び区間)を mergeIntervals した keep 集合がそのまま使われ、レンジ外のテロップは落ちる", () => {
+  // shorts.json の ranges 相当: 本編 cutplan とは無関係な2つの飛び区間
+  const shortRanges = [{ start: 100, end: 110 }, { start: 200, end: 205 }];
+  const shortKeeps = mergeIntervals(shortRanges);
+  const transcript: Transcript = {
+    segments: [
+      { start: 102, end: 104, text: "レンジ内" },
+      { start: 150, end: 152, text: "レンジ外(両レンジの間)" },
+    ],
+  };
+  const props = buildRenderProps({
+    manifest,
+    keeps: shortKeeps,
+    transcript,
+    overlays: {},
+    renderCfg,
+    width: PROFILES.vertical.width,
+    height: PROFILES.vertical.height,
+    profile: PROFILES.vertical,
+    videoFile: "cut.hook.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.equal(props.durationSec, 15); // 10 + 5
+  assert.equal(props.captions.length, 1);
+  assert.equal(props.captions[0].text, "レンジ内");
+});
+
+test("buildRenderProps: ショートの captionTracks は overlays.captionTracks と同じ経路(セグメント → トラック標準)で解決される", () => {
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 100, end: 110 }],
+    transcript: {
+      segments: [
+        { start: 101, end: 103, text: "標準位置" },
+        { start: 104, end: 106, text: "個別上書き", pos: { x: 10, y: 20 } },
+      ],
+    },
+    // shorts.json の captionTracks をそのまま overlays.captionTracks として渡す
+    // (render.ts のショート経路: shortOverlays = { captionTracks: short.captionTracks })
+    overlays: { captionTracks: [{ track: 1, x: 540, y: 1600, style: { fontSizePx: 92 } }] },
+    renderCfg,
+    width: PROFILES.vertical.width,
+    height: PROFILES.vertical.height,
+    profile: PROFILES.vertical,
+    videoFile: "cut.hook.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  const std = props.captions.find((c) => c.text === "標準位置");
+  const overridden = props.captions.find((c) => c.text === "個別上書き");
+  assert.deepEqual(std?.pos, { x: 540, y: 1600 });
+  assert.equal(std?.style?.fontSizePx, 92);
+  assert.deepEqual(overridden?.pos, { x: 10, y: 20 }); // セグメント個別指定が優先
 });
