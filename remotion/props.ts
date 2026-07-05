@@ -33,7 +33,7 @@ export interface Span {
   end: number;
 }
 
-/** 画面いっぱいに表示する素材(画像/動画) */
+/** 表示する素材(画像/動画)。rect が無ければ画面いっぱい */
 export interface OverlayItem {
   start: number;
   end: number;
@@ -41,11 +41,23 @@ export interface OverlayItem {
   file: string;
   /** 素材トラック番号(1始まり)。重なりは layerOrder の ov<N> の位置で決まる */
   track: number;
-  /** contain: 全体を見せる(余白は黒) / cover: 画面を埋める(端が切れる) */
+  /** contain: 全体を見せる(全画面時の余白は黒、rect 配置時は透過) /
+   * cover: 領域を埋める(端が切れる) */
   fit: "contain" | "cover";
-  /** 動画素材の再生開始位置(秒)。挿入(インサート)で割れた2番目以降の
-   * 断片が頭からでなく続きから再生するために使う(画像では無視) */
+  /** 動画素材の再生開始位置(秒)。overlays.json の頭出し(startFrom)に、
+   * 挿入(インサート)で割れた2番目以降の断片の表示済み秒数を足した値
+   * (画像では無視) */
   startFrom?: number;
+  /** 音量(0〜2、1=素材の音量のまま)。省略時 0 = 無音(動画のみ) */
+  volume?: number;
+  /** 不透明度(0〜1)。省略時 1 */
+  opacity?: number;
+  /** フェードイン/アウト(秒)。この断片の頭/末尾で不透明度と音量を遷移する
+   * (挿入で割れたときは buildRenderProps が最初/最後の断片にだけ載せる) */
+  fadeInSec?: number;
+  fadeOutSec?: number;
+  /** 表示領域(出力px)。省略時は全画面 */
+  rect?: Region;
 }
 
 // interface でなく type なのは意図的: Remotion の Composition / Player は
@@ -54,16 +66,25 @@ export type RenderProps = {
   /** publicDir(収録フォルダ)内のカット済み動画ファイル名。
    * 空文字列なら動画なしのプレースホルダー表示(Remotion Studio 用) */
   videoFile: string;
-  /** BGM。収録フォルダに bgm.* が無ければ null */
+  /** BGM トラック(カット後タイムラインの再生区間。buildRenderProps が bgm.json
+   * を写像して組み立てる)。BGM が無ければ空配列。区間はループ再生し、
+   * 覆っていない時間は無音。複数区間で曲の切り替え・重奏を表現する */
   bgm: {
     file: string;
     volumeDb: number;
-    fadeOutSec: number;
-    /** 発話中のダッキング(無音検出由来。buildRenderProps が組み立てる)。
-     * spans の間だけ BGM をさらに duckDb 下げ、前後 fadeSec 秒で遷移する。
-     * 無ければ全編一定音量 */
+    /** 出力タイムラインでの再生区間(カット後の秒) */
+    start: number;
+    end: number;
+    /** 頭出し(ファイル内の再生開始秒)。省略時 0(頭から) */
+    startFrom?: number;
+    /** 区間の頭/末尾のフェード(秒)。省略時 0(なし) */
+    fadeInSec?: number;
+    fadeOutSec?: number;
+    /** 発話中のダッキング(無音検出由来。buildRenderProps が組み立てる。
+     * 全 BGM 区間で共通)。spans の間だけ BGM をさらに duckDb 下げ、前後
+     * fadeSec 秒で遷移する。無ければ一定音量。spans は出力(カット後)の秒 */
     duck?: { spans: Span[]; duckDb: number; fadeSec: number };
-  } | null;
+  }[];
   /** エディタのプレビュー専用: ベース映像(挿入クリップ含む)の音を消す。
    * 最終レンダーでは常に未指定 */
   muteBase?: boolean;
@@ -81,7 +102,9 @@ export type RenderProps = {
   canvas: { w: number; h: number };
   screenRegion: Region;
   cameraRegion: Region;
-  wipe: { widthPx: number; marginPx: number };
+  /** 右下ワイプの寸法。transitionSec はワイプ全画面(wipeFull)の出入りの
+   * 遷移時間(秒。省略・0 で瞬時) */
+  wipe: { widthPx: number; marginPx: number; transitionSec?: number };
   /** テロップの既定の見た目(config.yaml の render.caption* を buildRenderProps が
    * 解決)。fontSizePx 以外は省略可で、無ければ描画側の定数
    * (CAPTION_DEFAULT_*)が最終フォールバックになる */
@@ -108,13 +131,17 @@ export type RenderProps = {
   baseSegments?: { start: number; videoStart: number; durationSec: number }[];
   /** ベース映像トラックへの挿入クリップ(カット後の秒)。
    * 表示中はベース映像・ワイプが止まり、挿入素材(音声込み)が全面に出る。
-   * startFrom は頭出し(素材内の再生開始秒。省略時 0・動画のみ有効) */
+   * startFrom は頭出し(素材内の再生開始秒。省略時 0・動画のみ有効)。
+   * volume は音量(0〜2。省略時 1)、fadeIn/OutSec は黒からの明転/暗転(秒) */
   inserts?: {
     start: number;
     end: number;
     file: string;
     fit: "contain" | "cover";
     startFrom?: number;
+    volume?: number;
+    fadeInSec?: number;
+    fadeOutSec?: number;
   }[];
 };
 
@@ -123,7 +150,7 @@ export type RenderProps = {
  * 再生エラーになるため(実データで見る方法は docs/usage.md 参照) */
 export const defaultProps: RenderProps = {
   videoFile: "",
-  bgm: null,
+  bgm: [],
   durationSec: 10,
   fps: 30,
   width: 1920,

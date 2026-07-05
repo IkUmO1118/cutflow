@@ -16,6 +16,7 @@ import {
 } from "../lib/timeline.ts";
 import { captionTrack } from "../types.ts";
 import type {
+  Bgm,
   Chapters,
   CutPlan,
   Manifest,
@@ -37,6 +38,7 @@ export function describe(dir: string): string {
   const cutplan = readJson<CutPlan>("cutplan.json", null);
   const transcript = readJson<Transcript>("transcript.json", null);
   const overlays = readJson<Overlays>("overlays.json", {});
+  const bgm = readJson<Bgm | null>("bgm.json", null);
   const chapters = readJson<Chapters>("chapters.json", { chapters: [] });
   const meta = readJson<Meta>("meta.json", { titles: [], description: "" });
 
@@ -72,9 +74,12 @@ export function describe(dir: string): string {
     `収録: ${manifest.source} ${fmtT(manifest.durationSec)} → 出力 ${fmtT(outDur)}` +
       `(keep ${keeps.length}区間、${fmtT(manifest.durationSec - keptSec)} をカット)`,
   );
+  const bgmDesc =
+    bgm && bgm.tracks?.length
+      ? `bgm.json(${bgm.tracks.length}区間: ${[...new Set(bgm.tracks.map((t) => t.file))].join(", ")})`
+      : (["bgm.mp3", "bgm.m4a", "bgm.wav"].find((f) => existsSync(join(dir, f))) ?? "なし");
   lines.push(
-    `approved: ${cutplan.approved} / テロップ ${transcript.segments.length}件 / ` +
-      `BGM ${["bgm.mp3", "bgm.m4a", "bgm.wav"].find((f) => existsSync(join(dir, f))) ?? "なし"}`,
+    `approved: ${cutplan.approved} / テロップ ${transcript.segments.length}件 / BGM ${bgmDesc}`,
   );
   lines.push("");
   lines.push(
