@@ -24,6 +24,18 @@ program
   )
   .option("--config <path>", "config.yaml のパス");
 
+// 全コマンド共通の所要時間表示(フェーズ0: docs/perf.md のベースライン計測用)。
+// render 等の内訳(loudnorm実測/ffmpeg cut/Remotion)は各ステージ側で
+// src/lib/timing.ts の timed() を使って個別に出す
+let commandStartedAt = 0;
+program.hook("preAction", () => {
+  commandStartedAt = Date.now();
+});
+program.hook("postAction", () => {
+  const sec = ((Date.now() - commandStartedAt) / 1000).toFixed(1);
+  console.log(`(所要時間: ${sec}秒)`);
+});
+
 /** 収録フォルダ内の raw ファイル(mkv/mp4/mov)を見つける */
 function findSource(dir: string): string {
   const candidates = readdirSync(dir).filter((f) =>
@@ -101,10 +113,8 @@ program
     // ので、既存の transcript.json は退避してから書き直す
     const dest = backupEditableFiles(abs, ["transcript.json"]);
     if (dest) console.log(`既存の transcript.json を退避しました: ${dest}`);
-    const started = Date.now();
     const t = await transcribe(abs, cfg);
-    const sec = ((Date.now() - started) / 1000).toFixed(1);
-    console.log(`transcribe 完了: ${t.segments.length}セグメント(${sec}秒)`);
+    console.log(`transcribe 完了: ${t.segments.length}セグメント`);
   });
 
 program
