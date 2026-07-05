@@ -10,6 +10,7 @@ import {
   normalizeLayerOrder,
   ovCountOf,
 } from "../src/lib/renderProps.ts";
+import { PROFILES } from "../src/lib/profile.ts";
 import type { Config } from "../src/lib/config.ts";
 import type { Manifest, Overlays, Transcript } from "../src/types.ts";
 
@@ -91,6 +92,51 @@ test("buildRenderProps: カット内のテロップは落ち、尺は keep の�
     { start: 2, end: 5 },
   );
   assert.deepEqual(props.layerOrder, ["ov1", "wipe", "ov2", "caption"]);
+});
+
+test("buildRenderProps: profile 省略時は profile 指定なしの現行 props と deep-equal", () => {
+  const args = {
+    manifest,
+    keeps: [{ start: 0, end: 10 }],
+    transcript: { segments: [{ start: 2, end: 5, text: "残る" }] } as Transcript,
+    overlays: {},
+    renderCfg,
+    width: 1920,
+    height: 1080,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  };
+  const withoutArg = buildRenderProps(args);
+  const withUndefined = buildRenderProps({ ...args, profile: undefined });
+  assert.deepEqual(withoutArg, withUndefined);
+  assert.equal(withoutArg.layout, undefined);
+  assert.equal(withoutArg.captionDefaultPos, undefined);
+  assert.equal(withoutArg.caption.fontSizePx, renderCfg.captionFontSizePx);
+});
+
+test("buildRenderProps: vertical profile → layout/captionDefaultPos/fontSizePx(×fontScale)が入る", () => {
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 10 }],
+    transcript: { segments: [{ start: 2, end: 5, text: "残る" }] } as Transcript,
+    overlays: {},
+    renderCfg,
+    width: PROFILES.vertical.width,
+    height: PROFILES.vertical.height,
+    profile: PROFILES.vertical,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+
+  assert.deepEqual(props.layout, { panels: PROFILES.vertical.layout?.panels });
+  assert.deepEqual(props.captionDefaultPos, { x: 540, y: 1560, anchor: "center" });
+  assert.equal(props.caption.fontSizePx, Math.round(renderCfg.captionFontSizePx * 1.6));
 });
 
 test("buildRenderProps: テロップ既定スタイルは config 指定時のみ caption に載る", () => {
