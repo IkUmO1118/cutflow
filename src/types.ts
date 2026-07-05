@@ -103,6 +103,10 @@ export const CAPTION_DEFAULT_FONT_WEIGHT = 700;
  * config.ts は node 専用(node:fs 等)なので、ブラウザにも入るこのファイルに置く */
 export const DEFAULT_WIPE_TRANSITION_SEC = 0.3;
 
+/** render.cutTransition.sec 未指定時の既定(秒)。dip-to-black 使用時の
+ * 黒への往復の合計秒(前半でフェードアウト、後半でフェードイン) */
+export const DEFAULT_CUT_TRANSITION_SEC = 0.3;
+
 /** detect が生成(cuts.auto.json)。機械的に検出したカット候補 */
 export interface AutoCuts {
   /** 検出パラメータ(再現性のため記録) */

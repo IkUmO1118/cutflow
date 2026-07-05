@@ -43,6 +43,15 @@ export interface Config {
     /** ワイプ全画面(wipeFull)の出入りの遷移時間(秒)。
      * 省略時 DEFAULT_WIPE_TRANSITION_SEC。0 で従来どおり瞬時に切り替わる */
     wipeTransitionSec?: number;
+    /** カット境界のトランジション。省略時 type: "none"(既存挙動と完全一致・
+     * 瞬時に切り替わる)。"dip-to-black" で keep 境界の前後に黒フェードを
+     * 被せる(尺不変: cut.mp4 には触れず Remotion 合成層でのオーバーレイ)。
+     * sec は黒への往復の合計秒(前半でフェードアウト、後半でフェードイン)。
+     * 省略時 DEFAULT_CUT_TRANSITION_SEC(0.3) */
+    cutTransition?: {
+      type?: "none" | "dip-to-black";
+      sec?: number;
+    };
     captionFontSizePx: number;
     /** テロップ既定の文字色。省略時 CAPTION_DEFAULT_COLOR(#ffffff) */
     captionColor?: string;
