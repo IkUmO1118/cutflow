@@ -123,9 +123,12 @@ export async function render(dir: string, cfg: Config): Promise<string> {
   const propsPath = join(dir, "render.props.json");
   writeFileSync(propsPath, JSON.stringify(props, null, 2));
 
-  // 3. Remotion レンダー(リポジトリ直下で実行。初回は headless Chrome を自動取得)
+  // 3. Remotion レンダー(リポジトリ直下で実行。初回は headless Chrome を自動取得)。
+  // hardwareAcceleration: if-possible(既定)は使える環境では GPU エンコーダ
+  // (macOS は VideoToolbox)を使い、無ければソフトウェアへ自動フォールバックする
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
   const outPath = join(dir, "final.mp4");
+  const hardwareAcceleration = cfg.render.hardwareAcceleration ?? "if-possible";
   await timed("Remotion", () =>
     run(
       "npx",
@@ -135,6 +138,7 @@ export async function render(dir: string, cfg: Config): Promise<string> {
         "--props", propsPath,
         "--public-dir", dir,
         "--codec", "h264",
+        "--hardware-acceleration", hardwareAcceleration,
       ],
       { cwd: repoRoot },
     ),

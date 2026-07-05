@@ -29,6 +29,7 @@ export interface ConfigPatch {
       fadeOutSec?: number;
       ducking?: { duckDb: number; fadeSec: number };
     };
+    hardwareAcceleration?: "if-possible" | "disable" | null;
   };
   preview?: { width?: number };
   editor?: { maxUploadMb?: number; defaultImageDurationSec?: number | null };
@@ -66,6 +67,7 @@ const NULLABLE = new Set([
   "render.captionOutlineColor",
   "render.captionFontFamily",
   "render.captionFontWeight",
+  "render.hardwareAcceleration",
   "editor.defaultImageDurationSec",
 ]);
 
@@ -93,6 +95,12 @@ export function validateConfigPatch(patch: unknown): string[] {
     }
     if (path === "render.systemAudio.mix") {
       if (typeof value !== "boolean") errors.push(`${path}: true/false で指定してください`);
+      return;
+    }
+    if (path === "render.hardwareAcceleration") {
+      if (value !== "if-possible" && value !== "disable") {
+        errors.push(`${path}: "if-possible" か "disable" で指定してください`);
+      }
       return;
     }
     if (path in STR_MAX) {
@@ -147,7 +155,7 @@ export function validateConfigPatch(patch: unknown): string[] {
       [
         "wipeWidthPx", "wipeMarginPx", "wipeTransitionSec", "captionFontSizePx",
         "captionColor", "captionOutlineColor", "captionFontFamily", "captionFontWeight",
-        "chapterCardSec", "targetLufs", "systemAudio", "bgm",
+        "chapterCardSec", "targetLufs", "systemAudio", "bgm", "hardwareAcceleration",
       ],
       ["systemAudio", "bgm"],
     );

@@ -82,6 +82,10 @@ render:
       duckDb: -8
       # 下げ・戻しにかける秒数
       fadeSec: 0.4
+  # Remotion 合成段のハードウェアエンコーダ利用。if-possible: 使えれば使う
+  # (macOS は VideoToolbox。使えない環境はソフトウェアへ自動フォールバック)。
+  # disable: 常にソフトウェアエンコード(従来動作)。実測は docs/perf.md 参照
+  hardwareAcceleration: if-possible
 
 # GUI エディタ(npm run editor)
 editor:

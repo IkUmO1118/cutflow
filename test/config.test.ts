@@ -146,11 +146,26 @@ test("validateConfigPatch: 正常系は空配列", () => {
         captionFontWeight: null,
         systemAudio: { mix: true, volumeDb: 0 },
         bgm: { volumeDb: -22, ducking: { duckDb: -8, fadeSec: 0.4 } },
+        hardwareAcceleration: "disable",
       },
       preview: { width: 1280 },
       editor: { maxUploadMb: 2048, defaultImageDurationSec: 4 },
     }),
     [],
+  );
+});
+
+test("validateConfigPatch: hardwareAcceleration は if-possible/disable/null のみ許可", () => {
+  assert.deepEqual(
+    validateConfigPatch({ render: { hardwareAcceleration: "if-possible" } }),
+    [],
+  );
+  assert.deepEqual(
+    validateConfigPatch({ render: { hardwareAcceleration: null } }),
+    [],
+  );
+  assert.ok(
+    validateConfigPatch({ render: { hardwareAcceleration: "always" } }).length > 0,
   );
 });
 
