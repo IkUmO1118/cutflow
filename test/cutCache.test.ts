@@ -105,3 +105,26 @@ test("buildCutCacheKey: systemAudio 省略時は mix:false/volumeDb:0 に落ち�
   });
   assert.deepEqual(key.systemAudio, { mix: false, volumeDb: 0 });
 });
+
+test("buildCutCacheKey: denoise 省略時は mic:false/noiseFloorDb:-25 に落ちる(config の後方互換)", () => {
+  const key = buildCutCacheKey({
+    keeps: KEEPS,
+    manifest: MANIFEST,
+    cfg: { render: { targetLufs: -14 } } as Config,
+    sourceMtimeMs: 1000,
+    sourceSize: 2000,
+  });
+  assert.deepEqual(key.denoise, { mic: false, noiseFloorDb: -25 });
+});
+
+test("cutCacheKeyEquals: denoise.mic / noiseFloorDb が変わると不一致", () => {
+  const a = keyOf({});
+  const micOn = keyOf({
+    cfg: { ...CFG, render: { ...CFG.render, denoise: { mic: true, noiseFloorDb: -25 } } } as Config,
+  });
+  assert.ok(!cutCacheKeyEquals(a, micOn));
+  const floorChanged = keyOf({
+    cfg: { ...CFG, render: { ...CFG.render, denoise: { mic: true, noiseFloorDb: -18 } } } as Config,
+  });
+  assert.ok(!cutCacheKeyEquals(micOn, floorChanged));
+});

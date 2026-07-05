@@ -68,6 +68,10 @@ export interface Config {
     /** システム音声(ingest.systemTrack)のミックス設定。
      * 省略時はミックスしない(古い config.yaml との互換) */
     systemAudio?: { mix: boolean; volumeDb: number };
+    /** マイク音声のノイズ除去(ffmpeg afftdn)。システム音声はデジタル由来で
+     * ノイズが無く劣化するだけなので対象外。省略時 mic: false / noiseFloorDb: -25
+     * (古い config.yaml との互換) */
+    denoise?: { mic: boolean; noiseFloorDb: number };
     bgm: {
       volumeDb: number;
       fadeOutSec: number;

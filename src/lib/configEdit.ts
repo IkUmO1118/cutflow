@@ -7,7 +7,7 @@ import type { Config } from "./config.ts";
  * エディタの設定画面(POST /api/config)が config.yaml を書き換えるための
  * パッチ。指定したキーだけを更新する。省略可キー(caption* /
  * defaultImageDurationSec)は null で「キーを削除して既定に戻す」。
- * systemAudio / ducking はブロック全体を渡す(部分マージで
+ * systemAudio / denoise / ducking はブロック全体を渡す(部分マージで
  * 「mix だけあって volumeDb が無い」壊れた形を作らないため)。
  * ここに無いキー(ingest / whisper / detect / llm 等)は GUI から触らせない
  */
@@ -24,6 +24,7 @@ export interface ConfigPatch {
     chapterCardSec?: number;
     targetLufs?: number;
     systemAudio?: { mix: boolean; volumeDb: number };
+    denoise?: { mic: boolean; noiseFloorDb: number };
     bgm?: {
       volumeDb?: number;
       fadeOutSec?: number;
@@ -52,6 +53,7 @@ const NUM_RULES: Record<string, NumRule> = {
   "render.chapterCardSec": { min: 0.5, max: 30 },
   "render.targetLufs": { min: -36, max: -6 },
   "render.systemAudio.volumeDb": { min: -60, max: 20 },
+  "render.denoise.noiseFloorDb": { min: -80, max: -20 },
   "render.bgm.volumeDb": { min: -60, max: 12 },
   "render.bgm.fadeOutSec": { min: 0, max: 30 },
   "render.bgm.ducking.duckDb": { min: -60, max: 0 },
@@ -93,7 +95,7 @@ export function validateConfigPatch(patch: unknown): string[] {
       if (!NULLABLE.has(path)) errors.push(`${path}: null は指定できません`);
       return;
     }
-    if (path === "render.systemAudio.mix") {
+    if (path === "render.systemAudio.mix" || path === "render.denoise.mic") {
       if (typeof value !== "boolean") errors.push(`${path}: true/false で指定してください`);
       return;
     }
@@ -155,9 +157,9 @@ export function validateConfigPatch(patch: unknown): string[] {
       [
         "wipeWidthPx", "wipeMarginPx", "wipeTransitionSec", "captionFontSizePx",
         "captionColor", "captionOutlineColor", "captionFontFamily", "captionFontWeight",
-        "chapterCardSec", "targetLufs", "systemAudio", "bgm", "hardwareAcceleration",
+        "chapterCardSec", "targetLufs", "systemAudio", "denoise", "bgm", "hardwareAcceleration",
       ],
-      ["systemAudio", "bgm"],
+      ["systemAudio", "denoise", "bgm"],
     );
     if (p.render.systemAudio !== undefined) {
       const sa = p.render.systemAudio as unknown;
@@ -168,6 +170,19 @@ export function validateConfigPatch(patch: unknown): string[] {
         for (const req of ["mix", "volumeDb"]) {
           if ((sa as Record<string, unknown>)[req] === undefined) {
             errors.push(`render.systemAudio.${req}: ブロック更新では必須です`);
+          }
+        }
+      }
+    }
+    if (p.render.denoise !== undefined) {
+      const dn = p.render.denoise as unknown;
+      if (typeof dn !== "object" || dn === null) {
+        errors.push("render.denoise: { mic, noiseFloorDb } のブロックで指定してください");
+      } else {
+        walk("render.denoise", dn, ["mic", "noiseFloorDb"], []);
+        for (const req of ["mic", "noiseFloorDb"]) {
+          if ((dn as Record<string, unknown>)[req] === undefined) {
+            errors.push(`render.denoise.${req}: ブロック更新では必須です`);
           }
         }
       }

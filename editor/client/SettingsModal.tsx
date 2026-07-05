@@ -49,6 +49,9 @@ export function buildConfigPatch(snap: CfgValues, cur: CfgValues): ConfigPatch |
   if (JSON.stringify(c.systemAudio) !== JSON.stringify(s.systemAudio)) {
     r.systemAudio = c.systemAudio ?? { mix: false, volumeDb: 0 };
   }
+  if (JSON.stringify(c.denoise) !== JSON.stringify(s.denoise)) {
+    r.denoise = c.denoise ?? { mic: false, noiseFloorDb: -25 };
+  }
   const bgm: NonNullable<NonNullable<ConfigPatch["render"]>["bgm"]> = {};
   if (c.bgm.volumeDb !== s.bgm.volumeDb) bgm.volumeDb = c.bgm.volumeDb;
   if (c.bgm.fadeOutSec !== s.bgm.fadeOutSec) bgm.fadeOutSec = c.bgm.fadeOutSec;
@@ -78,6 +81,7 @@ export function patchTouchesProxy(patch: ConfigPatch): boolean {
   return (
     patch.render?.targetLufs !== undefined ||
     patch.render?.systemAudio !== undefined ||
+    patch.render?.denoise !== undefined ||
     patch.preview?.width !== undefined
   );
 }
@@ -117,6 +121,7 @@ export const SettingsModal = ({
   };
 
   const sysAudio = r.systemAudio ?? { mix: false, volumeDb: 0 };
+  const denoise = r.denoise ?? { mic: false, noiseFloorDb: -25 };
   const ducking = r.bgm.ducking ?? { duckDb: 0, fadeSec: 0.4 };
   const effColor = r.captionColor ?? CAPTION_DEFAULT_COLOR;
   const effOutline = r.captionOutlineColor ?? CAPTION_DEFAULT_OUTLINE;
@@ -293,6 +298,27 @@ export const SettingsModal = ({
           title={`合成時のシステム音声の音量(dB)。0 で原音量。${PROXY_HINT}`}
           onCommit={(v) =>
             v !== undefined && patchRender({ systemAudio: { ...sysAudio, volumeDb: v } })
+          }
+        />
+        <span className="hint dim">要プロキシ再生成</span>
+      </div>
+      <div className="field">
+        <label>マイクのノイズ除去</label>
+        <input
+          type="checkbox"
+          checked={denoise.mic}
+          title={`マイク音声にノイズ除去(ffmpeg afftdn)をかける。システム音声は対象外。${PROXY_HINT}`}
+          onChange={(e) =>
+            patchRender({ denoise: { ...denoise, mic: e.target.checked } })
+          }
+        />
+        <span className="hint dim">かける / ノイズフロア(dB)</span>
+        <NumInput
+          value={denoise.noiseFloorDb}
+          title="afftdn のノイズフロア(dB)。下げるほど控えめ、上げるほど強い"
+          onCommit={(v) =>
+            v !== undefined &&
+            patchRender({ denoise: { ...denoise, noiseFloorDb: v } })
           }
         />
         <span className="hint dim">要プロキシ再生成</span>

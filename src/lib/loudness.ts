@@ -10,16 +10,24 @@ export interface AudioSource {
   systemStream: number | null;
   /** システム音声をミックスするときの音量(dB)。0で原音量 */
   systemVolumeDb: number;
+  /** マイク音声のノイズ除去(ffmpeg afftdn)。システム音声はデジタル由来で
+   * ノイズが無く劣化するだけなので対象外 */
+  denoiseMic: boolean;
+  /** afftdn のノイズフロア(dB) */
+  noiseFloorDb: number;
 }
 
 /** manifest と config から出力音声の構成を決める(render / preview / proxy 共通)。
  * システム音声は収録に存在し、config の systemAudio.mix が有効なときだけ入る */
 export function audioSourceOf(manifest: Manifest, cfg: Config): AudioSource {
   const sys = cfg.render.systemAudio;
+  const denoise = cfg.render.denoise;
   return {
     micStream: manifest.audio.micStream,
     systemStream: sys?.mix ? manifest.audio.systemStream : null,
     systemVolumeDb: sys?.volumeDb ?? 0,
+    denoiseMic: denoise?.mic ?? false,
+    noiseFloorDb: denoise?.noiseFloorDb ?? -25,
   };
 }
 
@@ -30,13 +38,15 @@ export function audioSourceOf(manifest: Manifest, cfg: Config): AudioSource {
  * 実際に出力される音を常に一致させる。
  */
 export function keepAudioParts(source: AudioSource, keeps: Interval[]): string[] {
-  const { micStream, systemStream, systemVolumeDb } = source;
+  const { micStream, systemStream, systemVolumeDb, denoiseMic, noiseFloorDb } = source;
   return keeps.flatMap((k, i) => {
     const trim = `atrim=start=${k.start}:end=${k.end},asetpts=PTS-STARTPTS`;
-    if (systemStream === null) return [`[0:a:${micStream}]${trim}[a${i}]`];
+    // ノイズ除去はマイクのみ(システム音声はデジタル由来でノイズが無い)
+    const micTrim = denoiseMic ? `${trim},afftdn=nf=${noiseFloorDb}` : trim;
+    if (systemStream === null) return [`[0:a:${micStream}]${micTrim}[a${i}]`];
     const vol = systemVolumeDb !== 0 ? `,volume=${systemVolumeDb}dB` : "";
     return [
-      `[0:a:${micStream}]${trim}[mic${i}]`,
+      `[0:a:${micStream}]${micTrim}[mic${i}]`,
       `[0:a:${systemStream}]${trim}${vol}[sys${i}]`,
       // normalize=0: 入力数で音量を割らない(片方が無音でも声量が変わらない)
       `[mic${i}][sys${i}]amix=inputs=2:duration=first:normalize=0[a${i}]`,
