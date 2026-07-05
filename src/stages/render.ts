@@ -1,6 +1,7 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildCutCacheKey, cutCacheKeyEquals } from "../lib/cutCache.ts";
 import { run } from "../lib/exec.ts";
 import {
   audioSourceOf,
@@ -10,6 +11,7 @@ import {
 import { buildRenderProps } from "../lib/renderProps.ts";
 import { mergeIntervals } from "../lib/timeline.ts";
 import { timed } from "../lib/timing.ts";
+import type { CutCacheKey } from "../lib/cutCache.ts";
 import type { Config } from "../lib/config.ts";
 import type {
   AutoCuts,
@@ -60,9 +62,29 @@ export async function render(dir: string, cfg: Config): Promise<string> {
   }
 
   // 1. keep 区間をフル解像度で結合(音声はマイク+システム音声のミックス、
-  //    ラウドネス正規化込み)
+  //    ラウドネス正規化込み)。keeps・音声設定・元収録ファイルが前回の
+  //    render から変わっていなければ cut.mp4 を再利用し、ffmpeg cut
+  //    (loudnorm実測込み)をスキップする(cut.keeps.json がキャッシュキー。
+  //    削除すれば常にフル再生成に戻る)
   const cutPath = join(dir, "cut.mp4");
-  await cutFullRes(dir, manifest, keeps, cutPath, cfg);
+  const cutKeepsPath = join(dir, "cut.keeps.json");
+  const sourceStat = statSync(join(dir, manifest.source));
+  const cacheKey = buildCutCacheKey({
+    keeps,
+    manifest,
+    cfg,
+    sourceMtimeMs: sourceStat.mtimeMs,
+    sourceSize: sourceStat.size,
+  });
+  const cachedKey = existsSync(cutKeepsPath)
+    ? (JSON.parse(readFileSync(cutKeepsPath, "utf8")) as CutCacheKey)
+    : null;
+  if (existsSync(cutPath) && cachedKey && cutCacheKeyEquals(cachedKey, cacheKey)) {
+    console.log("cut.mp4 を再利用します(カット・音声設定に変更なし)");
+  } else {
+    await cutFullRes(dir, manifest, keeps, cutPath, cfg);
+    writeFileSync(cutKeepsPath, JSON.stringify(cacheKey, null, 2));
+  }
 
   // 2. テロップ・演出の時刻をカット後のタイムラインに変換して props を作る
   // (組み立てはエディタのプレビューと共有: src/lib/renderProps.ts)
