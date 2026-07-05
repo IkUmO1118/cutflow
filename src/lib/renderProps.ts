@@ -5,6 +5,7 @@ import {
   toOutputTime,
 } from "./timeline.ts";
 import type { Config } from "./config.ts";
+import type { Profile } from "./profile.ts";
 import {
   DEFAULT_WIPE_TRANSITION_SEC,
   capId,
@@ -48,6 +49,11 @@ export function buildRenderProps(args: {
   /** 出力解像度(通常は config の screenRegion と同じ) */
   width: number;
   height: number;
+  /** 出力プロファイル(src/lib/profile.ts の resolveProfile が返すもの)。
+   * layout があれば props.layout に、caption があれば captionDefaultPos と
+   * caption.fontSizePx(×fontScale)に反映する。省略時は現行と同一の props
+   * (横 default・下部中央テロップ) */
+  profile?: Profile;
   /** publicDir 相対の動画ファイル名(render: cut.mp4 / エディタ: プロキシ) */
   videoFile: string;
   /** true = videoFile がカット前の元収録そのもの(エディタの proxy.mp4)。
@@ -70,9 +76,10 @@ export function buildRenderProps(args: {
 }): RenderProps {
   const {
     manifest, keeps, transcript, overlays,
-    renderCfg, width, height, videoFile, videoIsSource, bgm, bgmFallbackFile, silences,
+    renderCfg, width, height, profile, videoFile, videoIsSource, bgm, bgmFallbackFile, silences,
     overlayExists, warn,
   } = args;
+  const layoutCaption = profile?.layout?.caption;
 
   // ベース映像への挿入。素材が無いものは挿入ごと除外する
   // (時間の穴になるより、以降が前へ詰まる方が壊れ方として安全)
@@ -227,10 +234,14 @@ export function buildRenderProps(args: {
       // なめらかな既定 0.3 秒にする(0 を書けば瞬時に戻せる)
       transitionSec: renderCfg.wipeTransitionSec ?? DEFAULT_WIPE_TRANSITION_SEC,
     },
+    ...(profile?.layout ? { layout: { panels: profile.layout.panels } } : {}),
     // 既定スタイルは config(render.caption*)→ 無ければ描画側の定数。
     // undefined のキーは載せない(props を JSON に書く render.props.json を汚さない)
     caption: {
-      fontSizePx: renderCfg.captionFontSizePx,
+      // 縦プリセットの caption.fontScale があれば既定サイズに掛ける
+      fontSizePx: layoutCaption?.fontScale
+        ? Math.round(renderCfg.captionFontSizePx * layoutCaption.fontScale)
+        : renderCfg.captionFontSizePx,
       ...(renderCfg.captionColor ? { color: renderCfg.captionColor } : {}),
       ...(renderCfg.captionOutlineColor
         ? { outlineColor: renderCfg.captionOutlineColor }
@@ -242,6 +253,15 @@ export function buildRenderProps(args: {
         ? { fontWeight: renderCfg.captionFontWeight }
         : {}),
     },
+    ...(layoutCaption
+      ? {
+          captionDefaultPos: {
+            x: layoutCaption.x,
+            y: layoutCaption.y,
+            ...(layoutCaption.anchor ? { anchor: layoutCaption.anchor } : {}),
+          },
+        }
+      : {}),
     captions,
     overlays: overlayItems,
     wipeFull: wipeSpans,

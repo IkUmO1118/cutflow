@@ -105,6 +105,12 @@ export type RenderProps = {
   /** 右下ワイプの寸法。transitionSec はワイプ全画面(wipeFull)の出入りの
    * 遷移時間(秒。省略・0 で瞬時) */
   wipe: { widthPx: number; marginPx: number; transitionSec?: number };
+  /** ベース映像パネルの配置(縦プリセット用。src/lib/profile.ts の
+   * Profile.layout から buildRenderProps が渡す)。省略時は現行ワイプ経路
+   * (screen 全面 + camera 右下ワイプ)のまま */
+  layout?: {
+    panels: { source: "screen" | "camera"; rect?: Region; fit: "contain" | "cover" }[];
+  };
   /** テロップの既定の見た目(config.yaml の render.caption* を buildRenderProps が
    * 解決)。fontSizePx 以外は省略可で、無ければ描画側の定数
    * (CAPTION_DEFAULT_*)が最終フォールバックになる */
@@ -115,6 +121,9 @@ export type RenderProps = {
     fontFamily?: string;
     fontWeight?: number;
   };
+  /** 位置指定の無いテロップの既定位置(縦プリセット用。profile.layout.caption
+   * から buildRenderProps が渡す)。省略時は現行の下部中央 */
+  captionDefaultPos?: { x: number; y: number; anchor?: "center" | "topLeft" };
   /** テロップ(位置・スタイルは解決済み) */
   captions: Caption[];
   /** 素材オーバーレイ(overlays.json 由来。無ければ空) */
