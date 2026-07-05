@@ -104,7 +104,7 @@ export function mergeIntervals(list: Interval[]): Interval[] {
  * 元収録の秒でも出力の秒でも start / end が単調増加 = 二分探索できる。
  * 長尺(エントリ数百〜)ではエディタがクリップ再構築のたびに全テロップ分
  * 呼ぶため、線形走査だとドラッグ中のフレーム落ちに直結する */
-function lowerBound(n: number, pred: (i: number) => boolean): number {
+export function lowerBound(n: number, pred: (i: number) => boolean): number {
   let lo = 0;
   let hi = n;
   while (lo < hi) {
