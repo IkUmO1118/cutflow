@@ -14,6 +14,7 @@ import { validate } from "./stages/validate.ts";
 import { describe } from "./stages/describe.ts";
 import { frames } from "./stages/frames.ts";
 import type { FrameRequest } from "./stages/frames.ts";
+import { thumbnail } from "./stages/thumbnail.ts";
 import { fmtT, parseT } from "./lib/fmt.ts";
 
 const program = new Command();
@@ -268,6 +269,17 @@ program
       console.log(`✔ ${head}: ${s.file}` + (s.note ? `(${s.note})` : ""));
     }
     console.log(`${shots.length}枚を出力しました(frames/ の古い PNG は削除済み)`);
+  });
+
+program
+  .command("thumbnail <dir>")
+  .description(
+    "thumbnail.json からサムネイル静止画を生成(thumbnail.png。元収録のフル解像度)",
+  )
+  .action(async (dir: string) => {
+    const cfg = loadConfig(program.opts().config);
+    const out = await thumbnail(resolveDir(dir), cfg);
+    console.log(`thumbnail 完了: ${out}`);
   });
 
 program

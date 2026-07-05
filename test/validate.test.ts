@@ -362,6 +362,72 @@ test("style.fontWeight は 100〜900 の範囲外をエラーにする(文書と
   assert.ok(r.errors.some((e) => e.message.includes("fontWeight")));
 });
 
+/* -------- overlays.json の colorFilter -------- */
+
+test("colorFilter: 範囲外・非数値はエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    overlays: { colorFilter: { brightness: 0, contrast: 3.1, saturate: "x" as unknown as number } },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "colorFilter.brightness"));
+  assert.ok(r.errors.some((e) => e.where === "colorFilter.contrast"));
+  assert.ok(r.errors.some((e) => e.where === "colorFilter.saturate"));
+});
+
+test("colorFilter: 全キー省略の空オブジェクトは警告", () => {
+  const r = validateDocs(DIR, baseDocs({ overlays: { colorFilter: {} } }));
+  assert.ok(r.warnings.some((w) => w.where === "colorFilter" && w.message.includes("いずれも指定")));
+  assert.deepEqual(r.errors, []);
+});
+
+test("colorFilter: 妥当な指定はエラー・警告なし", () => {
+  const r = validateDocs(DIR, baseDocs({
+    overlays: { colorFilter: { brightness: 1.05, contrast: 1.1 } },
+  }));
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.warnings, []);
+});
+
+test("colorFilter: 未知のキーは警告", () => {
+  const r = validateDocs(DIR, baseDocs({
+    overlays: { colorFilter: { brightness: 1.1, gamma: 2 } as unknown as Record<string, number> },
+  }));
+  assert.ok(r.warnings.some((w) => w.message.includes("不明なキー")));
+});
+
+/* -------- thumbnail.json -------- */
+
+test("thumbnail: 妥当な構成はエラーなし", () => {
+  const r = validateDocs(DIR, baseDocs({
+    thumbnail: { t: 50, texts: [{ text: "見出し", pos: { x: 640, y: 400 } }] },
+  }));
+  assert.deepEqual(r.errors, []);
+});
+
+test("thumbnail: t が範囲外・texts が空はエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    thumbnail: { t: 150, texts: [] },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "t" && e.message.includes("収録の長さ")));
+  assert.ok(r.errors.some((e) => e.where === "texts" && e.message.includes("1件以上")));
+});
+
+test("thumbnail: text 欠落・pos 欠落はエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    thumbnail: { t: 10, texts: [{ text: "", pos: { x: 1 } }] },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "texts[0]" && e.message.includes("text")));
+  assert.ok(r.errors.some((e) => e.where === "texts[0]" && e.message.includes("pos")));
+});
+
+test("thumbnail: style は transcript と同じ検査を共有する(fontWeight 範囲外はエラー)", () => {
+  const r = validateDocs(DIR, baseDocs({
+    thumbnail: {
+      t: 10,
+      texts: [{ text: "見出し", pos: { x: 1, y: 1 }, style: { fontWeight: 50 } }],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.message.includes("fontWeight")));
+});
 
 /* -------- shorts.json -------- */
 
