@@ -68,6 +68,25 @@ npm install
 - OBS 側の収録設定は [recording-guide.md](recording-guide.md) を参照
   (**キャンバス 3840×1080・左に画面/右にカメラを並べる「拡張キャンバス方式」**が前提)。
 
+### データはどこへ行くか(プライバシー)
+
+cutflow は**ローカルファースト**です。映像・画面・カメラ・音声と、whisper に
+よる**文字起こし処理そのもの**は PC 内で完結し、外部には出ません。
+
+外部に出るのは**テキストだけ**で、LLM を使う3コマンドに限られます。
+
+- `plan` / `remeta` / `plan-shorts` は、**文字起こしテキスト(`transcript.json` の
+  発話内容)**と、あれば **`brief.md`(企画ブリーフ)**を LLM に送ります。
+- 送り先は `config.yaml` の `llm.backend` 次第です。既定 `claude-cli` は `claude`
+  CLI 経由(Claude Code の契約に準拠)、`api` は `api.anthropic.com`(従量課金)へ
+  送られます。**映像・音声ファイルや画面の中身は送りません。**
+
+したがって、**機密を口に出す収録では発話内容が外部 LLM に渡る**点に注意して
+ください(画面に機密を映さない注意は
+[recording-guide.md](recording-guide.md) のチェックリスト参照)。LLM を一切
+使いたくない場合は `plan` / `remeta` / `plan-shorts` を実行しなければ、
+パイプラインは完全ローカルで完結します(カットは手編集で作れます)。
+
 ---
 
 ## 2. クイックスタート(最短の流れ)
