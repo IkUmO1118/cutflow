@@ -293,6 +293,11 @@ program
     "画面 OCR(Apple Vision)でその時刻の画面内テキストを読む(macOS専用。" +
       "非対応環境では警告のうえ PNG 出力のみ続行)",
   )
+  .option(
+    "--full-res",
+    "ベース映像を proxy でなく元収録のフル解像度にして合成 still を鮮明にする" +
+      "(画面内テキストの目視用)",
+  )
   .action(async (
     dir: string,
     opts: {
@@ -302,6 +307,7 @@ program
       every?: string;
       short?: string;
       ocr?: boolean;
+      fullRes?: boolean;
     },
   ) => {
     const cfg = loadConfig(program.opts().config);
@@ -330,7 +336,14 @@ program
       req = { mode: "times", times, axis: opts.out ? "output" : "source" };
     }
     if (opts.short) console.log(`ショート "${opts.short}" のフレームを出力します`);
-    const shots = await frames(resolveDir(dir), req, cfg, opts.short, opts.ocr === true);
+    const shots = await frames(
+      resolveDir(dir),
+      req,
+      cfg,
+      opts.short,
+      opts.ocr === true,
+      opts.fullRes === true,
+    );
     for (const s of shots) {
       const head =
         req.mode === "times"

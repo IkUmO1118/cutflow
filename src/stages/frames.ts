@@ -13,8 +13,15 @@
 //
 // frames/ 内の PNG は実行のたびに全削除してから書き直す。ファイル名が
 // 出力秒ベースなので、cutplan 編集で時刻の写像が変わると旧ファイルが
-// 別名のまま残り、AI が編集前の絵を読む事故が起きるため(全ファイル
+// 別名のまま残り、AI が編集前の絵を見る事故が起きるため(全ファイル
 // いつでも再生成できる中間生成物であり、消して困るものは無い)。
+//
+// --full-res: ベース映像を proxy.mp4 の代わりに元収録(manifest.source。
+// フル解像度)にする合成 still(画面キャプチャ内の細かい文字を読みたいとき用。
+// proxy は幅1280pxへ縮小済みなので画面領域はさらに小さく、既定の frames PNG
+// では画面内テキストの可読性を判断できない)。canvas 座標系は proxy と
+// 同一(違いは物理解像度だけ)なので buildRenderProps は無改造で流用できる。
+// 未指定時は従来どおり proxy 経路(1バイトも変わらない)。
 
 import {
   existsSync,
@@ -81,6 +88,7 @@ export async function frames(
   cfg: Config,
   shortName?: string,
   ocr?: boolean,
+  fullRes?: boolean,
 ): Promise<FrameShot[]> {
   const readJson = <T>(file: string, fallback: T | null): T => {
     const p = join(dir, file);
@@ -130,13 +138,16 @@ export async function frames(
 
   // ベース映像はエディタと同じ軽量プロキシ。無ければここで作る(収録ごとに1回)。
   // 焼き込み済みの設定(ラウドネス・システム音声・プレビュー幅・エンコーダ)か
-  // 元収録ファイルが前回の生成から変わっていれば陳腐化しているので作り直す
-  if (!existsSync(join(dir, "proxy.mp4"))) {
-    console.log("proxy.mp4 がないので生成します(初回のみ・数十秒)...");
-    await buildProxy(dir, cfg);
-  } else if (isProxyStale(dir, cfg)) {
-    console.log("proxy.mp4 が設定・元収録と食い違っているので作り直します...");
-    await buildProxy(dir, cfg);
+  // 元収録ファイルが前回の生成から変わっていれば陳腐化しているので作り直す。
+  // --full-res のときはベースを元収録(フル解像度)に差し替えるので proxy は不要
+  if (!fullRes) {
+    if (!existsSync(join(dir, "proxy.mp4"))) {
+      console.log("proxy.mp4 がないので生成します(初回のみ・数十秒)...");
+      await buildProxy(dir, cfg);
+    } else if (isProxyStale(dir, cfg)) {
+      console.log("proxy.mp4 が設定・元収録と食い違っているので作り直します...");
+      await buildProxy(dir, cfg);
+    }
   }
 
   const props = buildRenderProps({
@@ -148,7 +159,7 @@ export async function frames(
     width: profile.width,
     height: profile.height,
     profile,
-    videoFile: "proxy.mp4",
+    videoFile: fullRes ? manifest.source : "proxy.mp4",
     videoIsSource: true,
     bgm: null, // 静止画に音は無関係
     bgmFallbackFile: null,
