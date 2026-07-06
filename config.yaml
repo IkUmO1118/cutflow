@@ -26,6 +26,11 @@ whisper:
   bin: whisper-cli
   model: ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin
   language: ja
+  # 語/トークン単位のタイミング(transcript.json の segment.words[])を付けるか。
+  # 省略時 false(既存挙動と完全一致。words を一切書かない)。
+  # true にすると whisper 実行が -ojf に切り替わり transcript.json が増える
+  # (今フェーズでは words[] を消費する機能が無いので既定は false のまま推奨)
+  wordTimestamps: false
 
 # 無音検出(機械的カットの候補づくり)
 detect:
