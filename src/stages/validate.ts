@@ -1153,7 +1153,12 @@ function checkIds(
   docs: LoadedDocs,
   warn: (f: string, w: string, m: string) => void,
 ): void {
-  const occurrences = collectIdOccurrences(docs);
+  // short は name を id 代わりに使う(専用の id フィールドは持たない)ため、
+  // collectIdOccurrences が返す short エントリはここでの id 有効判定・
+  // 重複/形式/接頭辞検査の対象から除く(shorts.json の name 重複・形式検査は
+  // 既存の別チェックが担う。ここに含めると shorts.json があるだけで
+  // 「id 無しプロジェクト」の警告件数が動いてしまう=バイト等価が壊れる)
+  const occurrences = collectIdOccurrences(docs).filter(([, target]) => target.kind !== "short");
   if (occurrences.length === 0) return;
 
   // 重複 id: 2件目以降を、既出の所在を添えて警告
