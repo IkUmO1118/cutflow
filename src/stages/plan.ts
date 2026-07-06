@@ -17,8 +17,9 @@ import type {
   TranscriptSegment,
 } from "../types.ts";
 
-/** 残す候補区間 + 重なる文字起こしテキストに番号を振ったもの(LLM 入力用) */
-interface NumberedSegment {
+/** 残す候補区間 + 重なる文字起こしテキストに番号を振ったもの(LLM 入力用)。
+ * plan-shorts でも同じ番号選択方式で流用する(planShorts.ts) */
+export interface NumberedSegment {
   id: number;
   start: number;
   end: number;
@@ -26,7 +27,7 @@ interface NumberedSegment {
 }
 
 /** 区間ごとに重なる文字起こしをまとめ、1始まりの番号を振る */
-function numberSegments(
+export function numberSegments(
   segments: Interval[],
   transcript: Transcript,
 ): NumberedSegment[] {
@@ -223,7 +224,7 @@ interface PlanResponse {
   description: string;
 }
 
-function renderPrompt(
+export function renderPrompt(
   dir: string,
   templateFile: string,
   numbered: NumberedSegment[],
