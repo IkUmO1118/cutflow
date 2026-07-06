@@ -83,6 +83,14 @@ export type FrameRequest =
   | { mode: "captions" }
   | { mode: "every"; stepSec: number };
 
+/** bundle(webpack)+headless Chrome。プロセスをまたいで使い回せる資産で、
+ * 単発実行(frames)は自前で1回だけ用意し、常駐デーモン(frames-serve)は
+ * 起動時に1回だけ用意して全リクエストで使い回す */
+export interface WarmAssets {
+  serveUrl: string;
+  browser: Awaited<ReturnType<typeof openBrowser>>;
+}
+
 export async function frames(
   dir: string,
   req: FrameRequest,
@@ -91,6 +99,38 @@ export async function frames(
   ocr?: boolean,
   fullRes?: boolean,
 ): Promise<FrameShot[]> {
+  // バンドル(webpack)とブラウザは1回だけ用意して全フレームで使い回す。
+  // 収録フォルダ(publicDir)はコピーせず symlink で参照する
+  await ensureBrowser();
+  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+  const serveUrl = await bundle({
+    entryPoint: join(repoRoot, "remotion", "index.ts"),
+    publicDir: dir,
+    symlinkPublicDir: true,
+  });
+  const browser = await openBrowser("chrome");
+  try {
+    return await renderFrames(dir, req, cfg, { short: shortName, ocr, fullRes }, { serveUrl, browser });
+  } finally {
+    await browser.close({ silent: true });
+  }
+}
+
+/**
+ * frames の純粋コア(bundle+browser を「注入」される撮影本体)。単発実行
+ * (frames)と常駐デーモン(frames-serve)の両方から呼ばれる共有実装。
+ * props 構築・proxy 陳腐化判定・全消し・render ループ・index 書込を含む。
+ * bundle/browser の生成・破棄は呼び出し側(frames / framesServe)の責務
+ */
+export async function renderFrames(
+  dir: string,
+  req: FrameRequest,
+  cfg: Config,
+  opts: { short?: string; ocr?: boolean; fullRes?: boolean },
+  warm: WarmAssets,
+): Promise<FrameShot[]> {
+  const { short: shortName, ocr, fullRes } = opts;
+  const { serveUrl, browser } = warm;
   const readJson = <T>(file: string, fallback: T | null): T => {
     const p = join(dir, file);
     if (!existsSync(p)) {
@@ -204,54 +244,43 @@ export async function frames(
   }
   const unique = [...byFrame.entries()].sort((a, b) => a[0] - b[0]);
 
-  // バンドル(webpack)とブラウザは1回だけ用意して全フレームで使い回す。
-  // 収録フォルダ(publicDir)はコピーせず symlink で参照する
-  await ensureBrowser();
-  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-  const serveUrl = await bundle({
-    entryPoint: join(repoRoot, "remotion", "index.ts"),
-    publicDir: dir,
-    symlinkPublicDir: true,
-  });
+  // bundle(webpack)・browser は呼び出し側から注入される(warm)。単発実行
+  // (frames)は1回だけ用意して破棄、常駐デーモン(frames-serve)は起動時に
+  // 用意したものをリクエストをまたいで使い回す(挙動は同一)
   const inputProps = props as unknown as Record<string, unknown>;
-  const browser = await openBrowser("chrome");
   const shots: FrameShot[] = [];
-  try {
-    const composition = await selectComposition({
+  const composition = await selectComposition({
+    serveUrl,
+    id: "Main",
+    inputProps,
+    puppeteerInstance: browser,
+    logLevel: "warn",
+  });
+  for (const [frame, t] of unique) {
+    const outPath = join(outDir, `out${t.outSec.toFixed(2)}s.png`);
+    await renderStill({
+      composition,
       serveUrl,
-      id: "Main",
+      output: outPath,
+      frame,
       inputProps,
       puppeteerInstance: browser,
+      overwrite: true,
       logLevel: "warn",
     });
-    for (const [frame, t] of unique) {
-      const outPath = join(outDir, `out${t.outSec.toFixed(2)}s.png`);
-      await renderStill({
-        composition,
-        serveUrl,
-        output: outPath,
-        frame,
-        inputProps,
-        puppeteerInstance: browser,
-        overwrite: true,
-        logLevel: "warn",
-      });
-      const notes = [...t.notes];
-      let ocrFile: string | undefined;
-      if (ocr) {
-        ocrFile = await ocrFrame(dir, manifest, timeline, t.outSec, outDir, notes, cfg);
-      }
-      const note = notes.join(" / ");
-      shots.push({
-        requested: t.requested,
-        outSec: t.outSec,
-        file: outPath,
-        ...(note ? { note } : {}),
-        ...(ocrFile ? { ocrFile } : {}),
-      });
+    const notes = [...t.notes];
+    let ocrFile: string | undefined;
+    if (ocr) {
+      ocrFile = await ocrFrame(dir, manifest, timeline, t.outSec, outDir, notes, cfg);
     }
-  } finally {
-    await browser.close({ silent: true });
+    const note = notes.join(" / ");
+    shots.push({
+      requested: t.requested,
+      outSec: t.outSec,
+      file: outPath,
+      ...(note ? { note } : {}),
+      ...(ocrFile ? { ocrFile } : {}),
+    });
   }
   // 撮影入力のフィンガープリントを記録(stale-PNG 対策。validate/describe が
   // これと現在の JSON を突き合わせて「撮り直せ」を警告する。props.json と
