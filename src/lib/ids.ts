@@ -138,6 +138,14 @@ function collectExistingIds(docs: EditableDocs, used: Set<string>): void {
   addAll(docs.thumbnail?.texts);
 }
 
+/** docs 全体の既存 id 集合を作る(生成ステージが「project 全体で衝突しない
+ * used」を得るためのヘルパ。collectExistingIds の公開ラッパ) */
+export function usedIdsOf(docs: EditableDocs): Set<string> {
+  const used = new Set<string>();
+  collectExistingIds(docs, used);
+  return used;
+}
+
 /** docs のいずれかの指せる要素が id を持つか(opt-in gate) */
 export function hasAnyId(docs: EditableDocs): boolean {
   const used = new Set<string>();
