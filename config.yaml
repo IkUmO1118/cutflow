@@ -14,6 +14,12 @@ ingest:
   # トラック2は任意。収録ファイルに存在しなければ自動的に無視される
   micTrack: 1
   systemTrack: 2
+  # 収録レイアウトの既定。obs-canvas(拡張キャンバス、上の screenRegion/
+  # cameraRegion を使う) / plain(通常動画。カメラ無し。screenRegion は
+  # 全フレーム) / auto(キャンバス寸法が上の screenRegion+cameraRegion と
+  # 完全一致すれば obs-canvas、それ以外は plain)。省略時 obs-canvas。
+  # ingest / run の --layout フラグで実行時に上書きできる
+  layout: obs-canvas
 
 # 文字起こし(whisper.cpp)
 whisper:
