@@ -203,7 +203,7 @@ export function validateDocs(
         if (s.pos !== undefined && !(isObj(s.pos) && isNum(s.pos.x) && isNum(s.pos.y))) {
           err(f, w, `pos は {x, y}(出力px の数値)です(現在: ${JSON.stringify(s.pos)})`);
         }
-        checkStyle(f, w, s.style, err);
+        checkStyle(f, w, s.style, err, warn);
         if (isNum(s.start) && isNum(s.end) && s.start < s.end && !visible(s.start, s.end)) {
           warn(f, w, `全体がカット区間内にあり表示されません(${fmtT(s.start)}–${fmtT(s.end)}「${String(s.text).slice(0, 12)}」)`);
         }
@@ -212,6 +212,21 @@ export function validateDocs(
           isNum(s.start) && isNum(s.end) && s.start < s.end ? { start: s.start, end: s.end } : null,
           s.words, err, warn,
         );
+        // karaoke 指定だが words[] が無い/空 → 通常表示にフォールバックするだけ
+        // (壊れない)なので警告にとどめる。checkStyle は words を知らないので
+        // ここで(このセグメント個別の karaoke 指定のときだけ)確認する。
+        // トラック標準(captionTracks)側の karaoke は各セグメントの words 有無に
+        // 依存するため対象外(過検出を避ける)
+        if (
+          isObj(s.style) && isObj(s.style.karaoke) &&
+          !(Array.isArray(s.words) && s.words.length > 0)
+        ) {
+          warn(
+            f, w,
+            "karaoke 指定がありますが words[] がありません(通常表示になります。" +
+              "config の whisper.wordTimestamps を true にして transcribe し直してください)",
+          );
+        }
       });
     }
   } else if (transcript !== null) {
@@ -535,7 +550,7 @@ export function validateDocs(
       }
     }
 
-    checkCaptionTracks(f, "captionTracks", overlays.captionTracks, err);
+    checkCaptionTracks(f, "captionTracks", overlays.captionTracks, err, warn);
   } else if (overlays !== null) {
     err("overlays.json", "-", "オブジェクトではありません");
   }
@@ -689,7 +704,7 @@ export function validateDocs(
               "plain(カメラ無し)には vertical-cover か default を使ってください",
           );
         }
-        checkCaptionTracks(f, `${w}.captionTracks`, s.captionTracks, err, (t, tw) => {
+        checkCaptionTracks(f, `${w}.captionTracks`, s.captionTracks, err, warn, (t, tw) => {
           if (!profileDef) return;
           if (isNum(t.x) && (t.x < 0 || t.x > profileDef.width)) {
             warn(f, tw, `x(${t.x})が profile "${profileName}" の幅(${profileDef.width})の外です`);
@@ -727,7 +742,7 @@ export function validateDocs(
         if (!isObj(t.pos) || !isNum(t.pos.x) || !isNum(t.pos.y)) {
           err(f, w, `pos は {x, y}(出力px の数値)です(現在: ${JSON.stringify(t.pos)})`);
         }
-        checkStyle(f, w, t.style, err);
+        checkStyle(f, w, t.style, err, warn);
       });
     }
   } else if (thumbnail !== null && thumbnail !== undefined) {
@@ -866,6 +881,7 @@ function checkCaptionTracks(
   key: string,
   tracks: unknown,
   err: (f: string, w: string, m: string) => void,
+  warn?: (f: string, w: string, m: string) => void,
   onEntry?: (t: Record<string, unknown>, where: string) => void,
 ): void {
   if (tracks === undefined) return;
@@ -888,18 +904,22 @@ function checkCaptionTracks(
     if ((t.x !== undefined && !isNum(t.x)) || (t.y !== undefined && !isNum(t.y))) {
       err(file, w, "x / y は数値(出力px)です");
     }
-    checkStyle(file, w, t.style, err);
+    checkStyle(file, w, t.style, err, warn);
     onEntry?.(t, w);
   });
 }
 
+/** アニメ種別(CaptionAnimKind)の許可リスト。src/types.ts の型定義と揃える */
+const CAPTION_ANIM_KINDS = ["fade", "slide-up", "slide-down", "slide-left", "slide-right", "pop", "none"];
+
 /** テロップの style({fontSizePx, color, outlineColor, fontFamily,
- * fontWeight, background})の検査 */
+ * fontWeight, background, anim, karaoke})の検査 */
 function checkStyle(
   file: string,
   where: string,
   style: unknown,
   err: (f: string, w: string, m: string) => void,
+  warn?: (f: string, w: string, m: string) => void,
 ): void {
   if (style === undefined) return;
   if (!isObj(style)) return err(file, where, `style はオブジェクトです(現在: ${JSON.stringify(style)})`);
@@ -933,6 +953,52 @@ function checkStyle(
         if (bg[k] !== undefined && (!isNum(bg[k]) || (bg[k] as number) < 0)) {
           err(file, `${w}.background`, `${k} は 0 以上の数値です(現在: ${JSON.stringify(bg[k])})`);
         }
+      }
+    }
+  }
+  const anim = style.anim;
+  if (anim !== undefined) {
+    const aw = `${w}.anim`;
+    if (!isObj(anim)) {
+      err(file, w, `anim はオブジェクト({in?, out?, durationSec?})です(現在: ${JSON.stringify(anim)})`);
+    } else {
+      for (const k of ["in", "out"] as const) {
+        if (anim[k] !== undefined && !CAPTION_ANIM_KINDS.includes(String(anim[k]))) {
+          err(file, aw, `${k} は ${CAPTION_ANIM_KINDS.join(" / ")} のいずれかです(現在: ${JSON.stringify(anim[k])})`);
+        }
+      }
+      if (anim.durationSec !== undefined && (!isNum(anim.durationSec) || anim.durationSec < 0)) {
+        err(file, aw, `durationSec は 0 以上の数値です(現在: ${JSON.stringify(anim.durationSec)})`);
+      }
+      const known = ["in", "out", "durationSec"];
+      for (const k of Object.keys(anim)) {
+        if (!known.includes(k)) warn?.(file, aw, `不明なキーです(有効: ${known.join(" / ")})`);
+      }
+    }
+  }
+  const karaoke = style.karaoke;
+  if (karaoke !== undefined) {
+    const kw = `${w}.karaoke`;
+    if (!isObj(karaoke)) {
+      err(file, w, `karaoke はオブジェクト({activeColor?, inactiveColor?, inactiveOpacity?, mode?})です(現在: ${JSON.stringify(karaoke)})`);
+    } else {
+      for (const k of ["activeColor", "inactiveColor"] as const) {
+        if (karaoke[k] !== undefined && (typeof karaoke[k] !== "string" || karaoke[k] === "")) {
+          err(file, kw, `${k} は CSS カラー文字列です(現在: ${JSON.stringify(karaoke[k])})`);
+        }
+      }
+      if (
+        karaoke.inactiveOpacity !== undefined &&
+        (!isNum(karaoke.inactiveOpacity) || karaoke.inactiveOpacity < 0 || karaoke.inactiveOpacity > 1)
+      ) {
+        err(file, kw, `inactiveOpacity は 0〜1 の数値です(現在: ${JSON.stringify(karaoke.inactiveOpacity)})`);
+      }
+      if (karaoke.mode !== undefined && karaoke.mode !== "word" && karaoke.mode !== "fill") {
+        err(file, kw, `mode は "word" / "fill" のいずれかです(現在: ${JSON.stringify(karaoke.mode)})`);
+      }
+      const known = ["activeColor", "inactiveColor", "inactiveOpacity", "mode"];
+      for (const k of Object.keys(karaoke)) {
+        if (!known.includes(k)) warn?.(file, kw, `不明なキーです(有効: ${known.join(" / ")})`);
       }
     }
   }

@@ -665,6 +665,146 @@ test("style.fontWeight は 100〜900 の範囲外をエラーにする(文書と
   assert.ok(r.errors.some((e) => e.message.includes("fontWeight")));
 });
 
+/* -------- style.anim / style.karaoke(caption-anim フェーズ) -------- */
+
+test("style.anim: 未指定・妥当な指定はエラー・警告なし(既存固定)", () => {
+  const noAnim = validateDocs(DIR, baseDocs({
+    transcript: { segments: [{ start: 1, end: 3, text: "a" }] },
+  }));
+  assert.deepEqual(noAnim.errors, []);
+  assert.deepEqual(noAnim.warnings, []);
+
+  const withAnim = validateDocs(DIR, baseDocs({
+    transcript: {
+      segments: [{ start: 1, end: 3, text: "a", style: { anim: { in: "slide-up", out: "fade", durationSec: 0.5 } } }],
+    },
+  }));
+  assert.deepEqual(withAnim.errors, []);
+  assert.deepEqual(withAnim.warnings, []);
+});
+
+test("style.anim: 種別不正はエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    transcript: { segments: [{ start: 1, end: 3, text: "a", style: { anim: { in: "spin" } } }] },
+  }));
+  assert.ok(r.errors.some((e) => e.where.endsWith(".anim") && e.message.includes("in")));
+});
+
+test("style.anim: durationSec が負だとエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    transcript: { segments: [{ start: 1, end: 3, text: "a", style: { anim: { durationSec: -0.1 } } }] },
+  }));
+  assert.ok(r.errors.some((e) => e.message.includes("durationSec")));
+});
+
+test("style.anim: 未知キーは警告", () => {
+  const r = validateDocs(DIR, baseDocs({
+    transcript: { segments: [{ start: 1, end: 3, text: "a", style: { anim: { in: "fade", spin: true } } }] },
+  }));
+  assert.deepEqual(r.errors, []);
+  assert.ok(r.warnings.some((w) => w.where.endsWith(".anim") && w.message.includes("不明なキー")));
+});
+
+test("style.karaoke: 妥当な指定(words あり)はエラー・警告なし", () => {
+  const r = validateDocs(DIR, baseDocs({
+    transcript: {
+      segments: [{
+        start: 1, end: 3, text: "ab",
+        style: { karaoke: { activeColor: "#f00", mode: "fill" } },
+        words: [{ text: "a", start: 1, end: 2 }, { text: "b", start: 2, end: 3 }],
+      }],
+    },
+  }));
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.warnings, []);
+});
+
+test("style.karaoke: 色が非文字列だとエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    transcript: {
+      segments: [{
+        start: 1, end: 3, text: "a",
+        style: { karaoke: { activeColor: 123 as unknown as string } },
+        words: [{ text: "a", start: 1, end: 3 }],
+      }],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where.endsWith(".karaoke") && e.message.includes("activeColor")));
+});
+
+test("style.karaoke: inactiveOpacity が範囲外だとエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    transcript: {
+      segments: [{
+        start: 1, end: 3, text: "a",
+        style: { karaoke: { inactiveOpacity: 1.5 } },
+        words: [{ text: "a", start: 1, end: 3 }],
+      }],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.message.includes("inactiveOpacity")));
+});
+
+test("style.karaoke: mode 不正はエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    transcript: {
+      segments: [{
+        start: 1, end: 3, text: "a",
+        style: { karaoke: { mode: "letter" as unknown as "word" } },
+        words: [{ text: "a", start: 1, end: 3 }],
+      }],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.message.includes("mode")));
+});
+
+test("style.karaoke: 未知キーは警告", () => {
+  const r = validateDocs(DIR, baseDocs({
+    transcript: {
+      segments: [{
+        start: 1, end: 3, text: "a",
+        style: { karaoke: { mode: "word", speed: 2 } },
+        words: [{ text: "a", start: 1, end: 3 }],
+      }],
+    },
+  }));
+  assert.deepEqual(r.errors, []);
+  assert.ok(r.warnings.some((w) => w.where.endsWith(".karaoke") && w.message.includes("不明なキー")));
+});
+
+test("karaoke 指定だが words 不在(省略/空配列)は警告(通常表示にフォールバックするだけで壊れない)", () => {
+  const noWords = validateDocs(DIR, baseDocs({
+    transcript: {
+      segments: [{ start: 1, end: 3, text: "a", style: { karaoke: {} } }],
+    },
+  }));
+  assert.deepEqual(noWords.errors, []);
+  assert.ok(noWords.warnings.some((w) => w.message.includes("words[] がありません")));
+
+  const emptyWords = validateDocs(DIR, baseDocs({
+    transcript: {
+      segments: [{ start: 1, end: 3, text: "a", style: { karaoke: {} }, words: [] }],
+    },
+  }));
+  assert.ok(emptyWords.warnings.some((w) => w.message.includes("words[] がありません")));
+});
+
+test("karaoke 指定なしなら words 不在でも警告なし(既存固定)", () => {
+  const r = validateDocs(DIR, baseDocs({
+    transcript: { segments: [{ start: 1, end: 3, text: "a" }] },
+  }));
+  assert.deepEqual(r.warnings, []);
+});
+
+test("captionTracks(overlays.json)の karaoke/anim も checkStyle と同じ検査を共有する", () => {
+  const r = validateDocs(DIR, baseDocs({
+    overlays: {
+      captionTracks: [{ track: 1, style: { anim: { in: "bogus" as unknown as "fade" } } }],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.message.includes("in")));
+});
+
 /* -------- overlays.json の colorFilter -------- */
 
 test("colorFilter: 範囲外・非数値はエラー", () => {
