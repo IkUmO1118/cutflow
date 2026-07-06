@@ -103,6 +103,8 @@ rules と learn」参照)
 | `preview <dir>` | cutplan.json を編集するたび。approved が false でも動く |
 | `render <dir>` | approved: true にした後。transcript.json 修正後の再実行も速い(再文字起こし不要) |
 | `render <dir> --short <name>` / `--shorts` | `shorts.json` のショートを書き出すとき(下記「ショート動画」参照)。承認はショート単位(本編の approved とは別) |
+| `frames <dir> --t ... \| --captions \| --every N` | AI がその時刻の絵を確認したいとき(テロップ位置・ワイプ被り・素材の見え方)。`frames/*.png` に出力(実行のたびに古い PNG は全消し) |
+| `frames <dir> ... --ocr` | 画面内のコード・ターミナル・エラー文をテキストとして読みたいとき。元収録のフル解像度の画面領域を Apple Vision で OCR し `frames/out<秒>s.ocr.json`(`text` / `lines[].{text,confidence,box}`)に書く。macOS 専用・オフライン。非対応環境では警告のうえ PNG 出力のみ続行し、`--ocr` を付けない限り既存の `frames` 挙動は完全に不変 |
 
 `preview` / `render` は GUI エディタのヘッダーの「プレビュー生成」「レンダー」
 ボタンからも起動できる(未保存の編集は自動保存してから走る。render は
