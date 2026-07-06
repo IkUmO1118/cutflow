@@ -115,8 +115,84 @@ rules と learn」参照)
 - **id は render / preview / frames / 承認 hash に一切影響しない**(アドレッシング
   専用。cut 決定のハッシュは `[start, end]` のみを見るので、id を stamp しても
   承認は失効しない)。
-- 現状「id を宛先にした差分適用(パッチ)」コマンドは無い(将来機能。
-  今回入るのは id の採番・検査・`describe --json` への露出まで)。
+- `@id` を宛先にした差分適用(パッチ)は `apply <dir>` コマンドで行う
+  (下記「検査付きアトミック適用(apply)」参照)。配列添字を書かず、
+  `@id` と1フィールドの新しい値だけで編集を当てられる。
+
+## 検査付きアトミック適用(apply)
+
+`cutplan.json` 等を Write/Edit で直接書き換える(=検査は書いた後の
+`validate` 任せ)代わりに、`apply <dir>` は**「全部 valid なら全部書く、
+1つでもエラーなら1バイトも書かない」全か無か**で編集を当てるコマンド。
+GUI エディタの保存(`/api/save`)が既に持っていた「検査を通さないと保存
+できない」を CLI/AI へ露出したもの(GUI と同じ merge+検査を共有=
+`src/lib/applyEdits.ts` の `mergeBodyOverDisk`)。
+
+```sh
+node src/cli.ts apply <dir> --patch edit.json     # ファイルからパッチを読む
+node src/cli.ts apply <dir> < edit.json           # stdin から(--patch 省略時)
+node src/cli.ts apply <dir> --patch edit.json --dry-run   # 検査・要約だけ。書かない
+```
+
+パッチ(`ApplyPatch`。`src/types.ts`)は次の2形式を両方受け付ける(両方
+あるときは ops を先に適用し、その結果へ replace を重ねる):
+
+- **`ops`**(`@id` 指定の高水準オペレーション列。**推奨経路**): 配列添字を
+  一切書かず、Feature 2 の安定 id(`describe --json` / `id-stamp` で確認)
+  だけで宛先を指す。
+
+  | op | target | 追加フィールド | 意味 |
+  |---|---|---|---|
+  | `set` | 既存要素の `@id` | `field`(ドット区切りパス。例 `"style.fontSizePx"`) / `value` | 指した要素の1フィールドを設定。パス末端の置換のみ(中間の欠落・配列添字(`words[0]`)はエラー。勝手に中間オブジェクトを作らない) |
+  | `remove` | 既存要素の `@id` | — | 指した要素を所属配列から削除 |
+  | `add` | コレクション選択子(例 `"cutplan.segments"`) | `value`(新要素オブジェクト) / `at?`(挿入位置。省略時は末尾) | コレクションへ新要素を追加。id 有効プロジェクトなら新要素にも自動採番される |
+
+  `add` の選択子は allow-list(`cutplan.segments` / `transcript.segments` /
+  `overlays.overlays` / `overlays.inserts` / `overlays.zooms` /
+  `overlays.blurs` / `overlays.wipeFull` / `overlays.hideCaption` /
+  `overlays.captionTracks` / `chapters.chapters` / `bgm.tracks` /
+  `thumbnail.texts`)のみ。**shorts[] 自体の追加、および shorts 配下
+  (`ranges`/`captionTracks`)への set/remove/add は対象外**(`@id` だけでは
+  「どのショートか」を一意に復元できないため。全置換(`replace`)で編集する)。
+  `cut`/`keep` も独立 op にせず `{op:"set", target:"@seg_x", field:"action", value:"cut"}`
+  で表す。
+- **`replace`**(ファイル単位の全置換。`SaveRequest` と同型の低水準の脱出
+  ハッチ): split・要素の並べ替え・shorts[] 自体の追加など、`ops` の3種で
+  表せない編集に使う。`bgm`/`shorts` は `null` で該当ファイルを削除できる
+  (`undefined` はそのファイルを触らない)。
+
+**守られる不変条件**(コードで強制。「自分の判断で回避」できない):
+
+1. **`approvals.json` を一切書かない・読んで判定に使わない**。承認は
+   `approve`/`unapprove` コマンドと GUI 保存の専権のまま。
+2. **`approved` を変更できない**。`set` の `field` に `approved` を指定、
+   `add` の `value` に `approved` を含める、`replace` で
+   `cutplan.approved`/`shorts[].approved` をディスク現状と違う値にする
+   —— いずれもエラーで拒否される(cutplan/short の `approved` は常に
+   ディスク現状の値へ強制されて書き戻される)。承認を変えたいときは
+   `approve <dir>` / `unapprove <dir>` を使う。
+3. **エラー時ゼロ書き込み**: 宛先未解決・op 不正・JSON パース失敗・
+   `validate` と同じ不変条件違反(keep の重なり・尺超え・overlays の file
+   欠落等)のいずれでも、収録フォルダのファイルは1バイトも変わらない
+   (`backups/` も作られない)。
+4. **書き込みはファイル単位で `<file>.tmp` → rename(アトミック確定)**。
+   書く前に `backupEditableFiles` と同じ仕組みで上書き対象の現状を
+   `backups/<日時>/` へ退避する。
+5. **apply が書けるのは cutplan/transcript/overlays/chapters/bgm/shorts/
+   thumbnail の7ファイルだけ**(`meta.json` は id を持つ要素が無いため
+   `apply` のスキーマ自体に含まれない。触りたいときは通常の Write/Edit で
+   直接編集する)。`approvals.json` や中間生成物は物理的に書き込み対象に
+   入らない。
+
+**出力・exit code は `validate` と同形式**: エラーは `✖ file where: message`
+(`(patch)` file は「JSON 本体・パッチ形式そのものの問題(未解決 @id・
+未知の op 等)」を表す)、警告は `⚠ ...`。エラーがあれば(`--dry-run` でも)
+exit 1。`--dry-run` は `@id` 単位の変更要約(`field: 旧 → 新`)と
+`validate` 相当の検査結果を出し、書かずに検査だけしたいときに使う。
+
+現状スコープ外: MCP サーバ本体(`applyEdits(dir, patch)` は
+`process.exit`/`console` に依存しない純関数なので、将来 MCP tool から
+呼び出す土台にはなっている)、GUI 差分レビュー UI、split/move 等の複合 op。
 
 ## ⚠️ 最重要の注意: plan の再実行は手編集を消す
 
@@ -155,6 +231,7 @@ rules と learn」参照)
 | `describe <dir>` | AI/人間が JSON 群を全部読まずに編集状態(keep/カットの並び・各区間の発言・カット理由・演出・章・ショート)を把握したいとき。人間可読の散文で出す(発言は36字で切り捨て、タイトル案は先頭3件のみ)。元秒⇔出力秒を併記する。末尾に frames の現況(何の絵が `frames/` に入っているか)か、古ければ撮り直し勧告を添える(下記) |
 | `describe <dir> --json` | **散文では切り捨てられる情報まで含めて機械的に処理したい**とき。発言・タイトルを一切切り捨てない機械可読な完全射影を stdout に純 JSON で出す(`schemaVersion` / `source` / `summary` / `keeps` / `cuts`(消える発言も全文) / `captions`(全文・`pos`/`style`/`words`・元秒⇔出力秒) / `overlays`(素材・挿入・ワイプ・ズーム・ぼかし・色調整の全フィールド) / `chapters` / `meta`(タイトル全件・概要欄全文) / `bgm` / `shorts`)。パイプ/`JSON.parse` 可能(所要時間の診断行は stderr に出る)。`--json` を付けない限り `describe` の散文出力は完全に不変。**id-stamp 済みのプロジェクトでは各要素に `id` が載る(散文には出ない。@-mention の発見手段はここ)**(下記「安定 id / @-mention」参照) |
 | `id-stamp <dir>` | **既存プロジェクトの各要素に `@id` を一括採番したい**とき(冪等。既存 id は保持し、無い要素にだけ振る)。詳細は下記「安定 id / @-mention」参照 |
+| `apply <dir> --patch <file>` | **`@id` 指定の編集を検査付きで当てたい**とき(生 JSON を丸ごと書き換えず、配列添字も書かない)。全部 valid なら全書き込み、1つでもエラーなら1バイトも書かない。`--dry-run` で書かずに変更要約だけ見られる。詳細は下記「検査付きアトミック適用(apply)」参照 |
 | `frames <dir> --t ... \| --captions \| --every N` | AI がその時刻の絵を確認したいとき(テロップ位置・ワイプ被り・素材の見え方)。`frames/*.png` に出力(実行のたびに古い PNG は全消し) |
 | `frames <dir> ... --ocr` | 画面内のコード・ターミナル・エラー文をテキストとして読みたいとき。元収録のフル解像度の画面領域を Apple Vision で OCR し `frames/out<秒>s.ocr.json`(`text` / `lines[].{text,confidence,box}`)に書く。macOS 専用・オフライン。非対応環境では警告のうえ PNG 出力のみ続行し、`--ocr` を付けない限り既存の `frames` 挙動は完全に不変 |
 | `frames <dir> ... --full-res` | 画面キャプチャ内の文字を絵として鮮明に見たいとき。ベース映像をプロキシ(幅1280px)ではなく元収録のフル解像度にした**合成込み**(テロップ/ワイプ/素材/ズーム/ぼかし込み)still を出す。`--ocr` はテキスト抽出、こちらは見た目そのものの鮮明化(レイアウト込みで確認したいとき)。`--ocr` と併用可。`--full-res` を付けない限り既存の `frames` 挙動は完全に不変 |
