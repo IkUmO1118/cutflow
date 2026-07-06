@@ -76,6 +76,7 @@ test("shortsFromSelection: 番号を ranges に変換し approved:false・profil
     n,
     { shorts: [{ name: "a", ids: [1, 3], reason: "" }] },
     60,
+    true,
   );
   assert.equal(out.length, 1);
   assert.equal(out[0].name, "a");
@@ -87,6 +88,20 @@ test("shortsFromSelection: 番号を ranges に変換し approved:false・profil
   ]);
 });
 
+test("shortsFromSelection: hasCamera=false(plain)は profile が vertical-screen になる", () => {
+  const n = numbered([
+    [0, 5],
+    [10, 15],
+  ]);
+  const out = shortsFromSelection(
+    n,
+    { shorts: [{ name: "a", ids: [1], reason: "" }] },
+    60,
+    false,
+  );
+  assert.equal(out[0].profile, "vertical-screen");
+});
+
 test("shortsFromSelection: 存在しない id は無視される", () => {
   const n = numbered([
     [0, 5],
@@ -96,6 +111,7 @@ test("shortsFromSelection: 存在しない id は無視される", () => {
     n,
     { shorts: [{ name: "a", ids: [1, 99, 2], reason: "" }] },
     60,
+    true,
   );
   assert.deepEqual(out[0].ranges, [
     { start: 0, end: 5 },
@@ -113,6 +129,7 @@ test("shortsFromSelection: ranges は時系列マージされる(id 順に依ら
     n,
     { shorts: [{ name: "a", ids: [3, 2, 1], reason: "" }] },
     60,
+    true,
   );
   assert.deepEqual(out[0].ranges, [
     { start: 0, end: 10 },
@@ -131,6 +148,7 @@ test("shortsFromSelection: 尺超過で末尾 range が落ちる", () => {
     n,
     { shorts: [{ name: "a", ids: [1, 2, 3], reason: "" }] },
     60,
+    true,
   );
   assert.deepEqual(out[0].ranges, [
     { start: 0, end: 30 },
@@ -152,6 +170,7 @@ test("shortsFromSelection: name 重複が回避される", () => {
       ],
     },
     60,
+    true,
   );
   assert.deepEqual(out.map((s) => s.name), ["dup", "dup-2"]);
 });
@@ -170,6 +189,7 @@ test("shortsFromSelection: name を正規化し、空なら short-<n>", () => {
       ],
     },
     60,
+    true,
   );
   assert.deepEqual(out.map((s) => s.name), ["hook-mistake", "short-2"]);
 });
@@ -185,6 +205,7 @@ test("shortsFromSelection: 有効な区間が無いショートは飛ばす", ()
       ],
     },
     60,
+    true,
   );
   assert.deepEqual(out.map((s) => s.name), ["ok"]);
 });

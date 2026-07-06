@@ -12,6 +12,9 @@ export interface Config {
     cameraRegion: Region;
     micTrack: number;
     systemTrack: number;
+    /** 収録レイアウトの既定。省略時 "obs-canvas"(旧 config 互換)。
+     *  auto = キャンバス寸法(W×H)が完全一致なら obs-canvas、それ以外は plain */
+    layout?: "obs-canvas" | "plain" | "auto";
   };
   whisper: { bin: string; model: string; language: string };
   detect: {
@@ -44,6 +47,10 @@ export interface Config {
     /** タイムラインに置く画像素材・尺不明素材の既定の尺(秒)。
      * 省略時は DEFAULT_IMAGE_DURATION_SEC */
     defaultImageDurationSec?: number;
+    /** ショート新規追加(addShort)時、選択中の keep クリップも
+     * プレイヘッドも無いときの既定レンジ長(秒)。
+     * 省略時は DEFAULT_SHORT_RANGE_SEC */
+    defaultShortRangeSec?: number;
   };
   render: {
     wipeWidthPx: number;
@@ -109,6 +116,9 @@ export interface Config {
 
 /** editor.defaultImageDurationSec 未指定時の既定(秒) */
 export const DEFAULT_IMAGE_DURATION_SEC = 4;
+
+/** editor.defaultShortRangeSec 未指定時の既定(秒) */
+export const DEFAULT_SHORT_RANGE_SEC = 10;
 
 /** planShorts.maxDurationSec 未指定時の既定(秒)。YouTube ショートの上限に合わせる */
 export const DEFAULT_PLAN_SHORTS_MAX_DURATION_SEC = 60;

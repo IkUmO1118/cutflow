@@ -101,7 +101,9 @@ export type RenderProps = {
   /** カット済み動画の寸法(拡張キャンバスのまま。例: 3840x1080) */
   canvas: { w: number; h: number };
   screenRegion: Region;
-  cameraRegion: Region;
+  /** カメラ(ワイプ)領域。plain(manifest.video.cameraRegion 無し)では
+   *  undefined(ワイプ非描画。ワイプ関連レイヤーが到達しない) */
+  cameraRegion?: Region;
   /** 右下ワイプの寸法。transitionSec はワイプ全画面(wipeFull)の出入りの
    * 遷移時間(秒。省略・0 で瞬時) */
   wipe: { widthPx: number; marginPx: number; transitionSec?: number };
@@ -180,7 +182,11 @@ export const defaultProps: RenderProps = {
   height: 1080,
   canvas: { w: 3840, h: 1080 },
   screenRegion: { x: 0, y: 0, w: 1920, h: 1080 },
-  cameraRegion: { x: 1920, y: 0, w: 1920, h: 1080 },
+  // cameraRegion は defaultProps に置かない。plain の inputProps は cameraRegion を
+  // 持たず(undefined は JSON 化で欠落)、defaultProps にダミーがあると Remotion の
+  // props マージでそれが漏れて plain にワイプが描かれてしまう(plain=カメラ無しの
+  // 前提が壊れる)。obs のレンダーは buildRenderProps が manifest から必ず
+  // cameraRegion を載せるので、defaultProps 側のダミーは不要
   wipe: { widthPx: 480, marginPx: 32 },
   caption: { fontSizePx: 44 },
   captions: [],

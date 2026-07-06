@@ -528,11 +528,12 @@ export function normalizeLayerOrder(
   capCount: number,
   warn?: (msg: string) => void,
 ): LayerId[] {
-  // layerOrder を書いていないプロジェクトは従来どおり素材2トラック構成。
+  // layerOrder を書いていないプロジェクトは素材トラック数なりの構成(素材
+  // ゼロ/1本なら V2 は出さない。2本以上は従来どおり)。
   // テロップ2本目以降(cap2..)は caption の直上に積む
   const result: LayerId[] = [];
   if (!order || order.length === 0) {
-    result.push(...defaultLayerOrder(Math.max(2, ovCount)));
+    result.push(...defaultLayerOrder(Math.max(1, ovCount)));
   } else {
     for (const raw of order) {
       if (raw === "chapter") continue; // 旧形式との互換(警告なしで無視)

@@ -40,39 +40,22 @@ export function numberSegments(
   });
 }
 
-/**
- * LLM で意味的なカット判断(言い直し・脱線)と章立て・タイトル案を作る。
- *
- * LLM に渡すのは detect が出した「残す候補区間」に番号を付けたリストで、
- * LLM は番号単位で cut/keep を判断する。タイムスタンプそのものを LLM に
- * 生成させると数値のでっち上げ(ハルシネーション)が起きるため、
- * 時刻は必ずこちらで管理し、LLM には選択だけをさせる。
- *
- * 出力の cutplan.json は人間が確認・編集して approved を true にするまで
- * render には進めない(見せ場の誤カットを防ぐ承認ゲート)。
- */
-export async function plan(dir: string, cfg: Config): Promise<CutPlan> {
-  const transcript = readStageJson<Transcript>(
-    join(dir, "transcript.json"),
-    "transcribe",
-  );
-  const auto = readStageJson<AutoCuts>(join(dir, "cuts.auto.json"), "detect");
+/** plan のオプション */
+export interface PlanOptions {
+  /** true のとき cutplan.json / plan.raw.txt だけを書く(章・タイトル・
+   * 概要欄・章テロップには一切触らない)。run の内訳を直交なコマンドに
+   * 分解する用途(transcribe=テロップ / detect+plan --cuts-only=カット /
+   * remeta=章・メタ) */
+  cutsOnly?: boolean;
+}
 
-  // 残す候補区間ごとに、重なる文字起こしテキストをまとめて番号を振る
-  const numbered = numberSegments(auto.keepSegments, transcript);
-  if (numbered.length === 0) {
-    throw new Error("残す候補区間が0件です(detect の結果を確認してください)");
-  }
-
-  const prompt = renderPrompt(dir, "plan.md", numbered, auto.originalDurationSec);
-  const raw = await complete(prompt, cfg);
-  // LLM の生応答は必ず残す(パース失敗時の調査と、判断過程の記録のため)
-  writeFileSync(join(dir, "plan.raw.txt"), raw);
-
-  const parsed = parseResponse(raw);
-
-  const cutIds = new Map(parsed.cuts.map((c) => [c.id, c.reason]));
-  for (const c of parsed.cuts) {
+/** LLM 応答からカット判断を反映した cutplan を組み立てる(存在しない id は無視) */
+function buildCutplan(
+  numbered: NumberedSegment[],
+  cuts: { id: number; reason: string }[],
+): CutPlan {
+  const cutIds = new Map(cuts.map((c) => [c.id, c.reason]));
+  for (const c of cuts) {
     if (!numbered.some((n) => n.id === c.id)) {
       console.warn(`警告: LLM が存在しない区間 id=${c.id} を指定(無視します)`);
       cutIds.delete(c.id);
@@ -86,7 +69,56 @@ export async function plan(dir: string, cfg: Config): Promise<CutPlan> {
     reason: cutIds.get(n.id) ?? "",
   }));
 
-  const cutplan: CutPlan = { approved: false, segments };
+  return { approved: false, segments };
+}
+
+/**
+ * LLM で意味的なカット判断(言い直し・脱線)と章立て・タイトル案を作る。
+ *
+ * LLM に渡すのは detect が出した「残す候補区間」に番号を付けたリストで、
+ * LLM は番号単位で cut/keep を判断する。タイムスタンプそのものを LLM に
+ * 生成させると数値のでっち上げ(ハルシネーション)が起きるため、
+ * 時刻は必ずこちらで管理し、LLM には選択だけをさせる。
+ *
+ * 出力の cutplan.json は人間が確認・編集して approved を true にするまで
+ * render には進めない(見せ場の誤カットを防ぐ承認ゲート)。
+ *
+ * `opts.cutsOnly` を指定すると、カット判断だけを LLM に求め、
+ * cutplan.json / plan.raw.txt だけを書く(chapters / meta / transcript の
+ * 章テロップ / overlays の章トラック定義には触らない)。
+ */
+export async function plan(
+  dir: string,
+  cfg: Config,
+  opts: PlanOptions = {},
+): Promise<CutPlan> {
+  const transcript = readStageJson<Transcript>(
+    join(dir, "transcript.json"),
+    "transcribe",
+  );
+  const auto = readStageJson<AutoCuts>(join(dir, "cuts.auto.json"), "detect");
+
+  // 残す候補区間ごとに、重なる文字起こしテキストをまとめて番号を振る
+  const numbered = numberSegments(auto.keepSegments, transcript);
+  if (numbered.length === 0) {
+    throw new Error("残す候補区間が0件です(detect の結果を確認してください)");
+  }
+
+  const templateFile = opts.cutsOnly ? "plan-cuts.md" : "plan.md";
+  const prompt = renderPrompt(dir, templateFile, numbered, auto.originalDurationSec);
+  const raw = await complete(prompt, cfg);
+  // LLM の生応答は必ず残す(パース失敗時の調査と、判断過程の記録のため)
+  writeFileSync(join(dir, "plan.raw.txt"), raw);
+
+  if (opts.cutsOnly) {
+    const parsed = parseCutsResponse(raw);
+    const cutplan = buildCutplan(numbered, parsed.cuts);
+    writeFileSync(join(dir, "cutplan.json"), JSON.stringify(cutplan, null, 2));
+    return cutplan;
+  }
+
+  const parsed = parseResponse(raw);
+  const cutplan = buildCutplan(numbered, parsed.cuts);
   writeFileSync(join(dir, "cutplan.json"), JSON.stringify(cutplan, null, 2));
 
   writeChaptersAndMeta(dir, transcript, numbered, parsed, cfg);
@@ -254,8 +286,13 @@ export function renderPrompt(
     .replaceAll("{{brief}}", () => brief);
 }
 
-/** 応答からJSONを取り出す。コードフェンスや前後の説明文が混ざっても拾う */
-function parseResponse(raw: string): PlanResponse {
+/** cuts-only 応答の期待スキーマ(prompts/plan-cuts.md の出力形式と対応) */
+interface CutsResponse {
+  cuts: { id: number; reason: string }[];
+}
+
+/** 応答からJSONオブジェクトを取り出す。コードフェンスや前後の説明文が混ざっても拾う */
+function extractJsonObject(raw: string): Record<string, unknown> {
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
   if (start === -1 || end <= start) {
@@ -263,20 +300,29 @@ function parseResponse(raw: string): PlanResponse {
       "LLM 応答に JSON が見つかりません(plan.raw.txt を確認してください)",
     );
   }
-  let parsed: Partial<PlanResponse>;
   try {
-    parsed = JSON.parse(raw.slice(start, end + 1)) as Partial<PlanResponse>;
+    return JSON.parse(raw.slice(start, end + 1)) as Record<string, unknown>;
   } catch {
     throw new Error(
       "LLM 応答の JSON パースに失敗しました(plan.raw.txt を確認してください)",
     );
   }
+}
+
+function parseResponse(raw: string): PlanResponse {
+  const parsed = extractJsonObject(raw) as Partial<PlanResponse>;
   return {
     cuts: parsed.cuts ?? [],
     chapters: parsed.chapters ?? [],
     titles: parsed.titles ?? [],
     description: parsed.description ?? "",
   };
+}
+
+/** cuts-only 応答のパース(plan --cuts-only 用。cuts だけが必須) */
+export function parseCutsResponse(raw: string): CutsResponse {
+  const parsed = extractJsonObject(raw) as Partial<CutsResponse>;
+  return { cuts: parsed.cuts ?? [] };
 }
 
 function readStageJson<T>(path: string, requiredStage: string): T {
