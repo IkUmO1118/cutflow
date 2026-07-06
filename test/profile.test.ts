@@ -3,7 +3,7 @@
 // 直接渡す形に変わったので、名前解決とプレースホルダのサイズ差し替えだけを固定する。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PROFILES, resolveProfile } from "../src/lib/profile.ts";
+import { PROFILES, defaultShortProfileName, profileSupportsPlain, resolveProfile } from "../src/lib/profile.ts";
 
 const defaultSize = { w: 1920, h: 1080 };
 
@@ -44,4 +44,31 @@ test("resolveProfile: 未知のプロファイル名は throw", () => {
 test("PROFILES: vertical/vertical-cover は組み込み定数として直接参照できる", () => {
   assert.ok(PROFILES.vertical);
   assert.ok(PROFILES["vertical-cover"]);
+});
+
+test("resolveProfile: vertical-screen は 1080x1920 + screen 単一パネル(fit=contain)", () => {
+  const profile = resolveProfile(defaultSize, "vertical-screen");
+  assert.equal(profile.width, 1080);
+  assert.equal(profile.height, 1920);
+  assert.equal(profile.layout?.panels.length, 1);
+  assert.equal(profile.layout?.panels[0].source, "screen");
+  assert.equal(profile.layout?.panels[0].fit, "contain");
+  assert.deepEqual(profile.layout?.panels[0].rect, { x: 0, y: 0, w: 1080, h: 1440 });
+  assert.deepEqual(profile.layout?.caption, { x: 540, y: 1680, anchor: "center", fontScale: 1.6 });
+});
+
+test("PROFILES: vertical-screen も組み込み定数として直接参照できる", () => {
+  assert.ok(PROFILES["vertical-screen"]);
+});
+
+test("defaultShortProfileName: camera 有り→vertical、plain→vertical-screen", () => {
+  assert.equal(defaultShortProfileName(true), "vertical");
+  assert.equal(defaultShortProfileName(false), "vertical-screen");
+});
+
+test("profileSupportsPlain: screen+camera 両持ち(vertical)だけ false、他は true", () => {
+  assert.equal(profileSupportsPlain("vertical"), false);
+  assert.equal(profileSupportsPlain("vertical-cover"), true);
+  assert.equal(profileSupportsPlain("vertical-screen"), true);
+  assert.equal(profileSupportsPlain("default"), true);
 });

@@ -47,7 +47,34 @@ export const PROFILES: Record<string, Profile> = {
       caption: { x: 540, y: 1500, anchor: "center", fontScale: 1.6 },
     },
   },
+  "vertical-screen": {
+    width: 1080,
+    height: 1920,
+    layout: {
+      // screen を上3/4(0..1440)へ contain。16:9 は 1080x608 のフル幅帯として
+      // その枠の縦中央(約 y=416..1024)にレターボックスされ、左右も上下も
+      // 決して切れない(contain)。縦・スクエア収録はこの枠をより広く使う。
+      // 下1/4(1440..1920, 480px)はテロップ/タイトル帯(背景黒)
+      panels: [{ source: "screen", rect: { x: 0, y: 0, w: 1080, h: 1440 }, fit: "contain" }],
+      caption: { x: 540, y: 1680, anchor: "center", fontScale: 1.6 },
+    },
+  },
 };
+
+/** ショートの省略時 profile 名。camera 有り→"vertical"、plain→"vertical-screen" */
+export function defaultShortProfileName(hasCamera: boolean): string {
+  return hasCamera ? "vertical" : "vertical-screen";
+}
+
+/** その profile を plain(カメラ無し)に使えるか。panels の source 集合が
+ * screen と camera を両方含むときだけ false(validate の plain ガードと同一規則)。
+ * layout 無し(default)・screen のみ・camera のみは true */
+export function profileSupportsPlain(profileName: string): boolean {
+  const panels = PROFILES[profileName]?.layout?.panels;
+  if (!panels) return true;
+  const src = new Set(panels.map((p) => p.source));
+  return !(src.has("screen") && src.has("camera"));
+}
 
 /**
  * プロファイル名から Profile を解決する。省略/"default" は
