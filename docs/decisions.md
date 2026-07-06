@@ -2,6 +2,45 @@
 
 動画台本・概要欄の素材を兼ねる。新しい判断は上に追記する。
 
+## 2026-07-06 通常動画(plain)は「カメラの無い obs-canvas」として一級サポート
+
+**判断**: OBS 拡張キャンバスでない通常動画(スマホ・カメラ・画面録画)を、
+manifest に `layout: "obs-canvas" | "plain"` の区別を持たせて ingest〜レンダーまで
+サポートする。plain は **screenRegion=全フレーム / cameraRegion=無し**で表現し、
+「ワイプ(カメラ)の crop 元が無い」一点にすべての差分を集約する。OBS 形式の
+既存挙動は完全維持する。実装分解は `docs/plans/plain-video-support.md`。
+
+**判断の柱**:
+1. **出力解像度は manifest.video.screenRegion を正とする**(config を再読みしない)。
+   現状 render/frames/editor が `cfg.ingest.screenRegion` を直読みしており、ingest
+   時に焼き込んだ manifest と二重の真実源になっていた。manifest 一本に寄せると、
+   plain の縦動画は縦のまま・4K は 4K のまま config を触らず自然に出る。obs-canvas
+   では値が同じなので出力はバイト同一(退行なし。むしろ ingest 後に config を
+   変えても壊れなくなる改善)。
+2. **manifest スキーマは `layout` 明示タグ + `cameraRegion` optional の併用**。
+   後方互換のため `layout` 未指定は "obs-canvas" 扱い、既存 manifest は
+   cameraRegion を持つので判定不変。
+3. **plain の判定は明示を既定にする**(config `ingest.layout`、CLI `--layout`、
+   editor 起動 bootstrap は plain を明示)。`auto`(キャンバス寸法の完全一致で
+   obs 判定)は opt-in で提供するが**既定にしない**。
+
+**捨てた案**:
+- **cameraRegion optional のみで layout タグを持たない(構造から暗黙推論)**: 動作は
+  するが「意図した plain」か「壊れた manifest」かの正の信号が無く、validate/editor の
+  分岐とメッセージが不明瞭。明示タグは文字列ユニオン1個でコストが小さく、
+  「types.ts コメント+validate+usage.md を揃える」規約とも相性が良い。
+- **screenRegion=全フレームのフォールバックだけ(スキーマ変更なし)**: 同上で暗黙的
+  すぎる。将来の多カメラ等の拡張の掛け先も無い。
+- **ingest の幅ベース自動判定を既定にする(`幅 >= screenRegion.w+cameraRegion.w` で
+  OBS)**: 4K 通常動画(3840x2160)が OBS キャンバス幅 3840 と一致し**誤判定**する。
+  誤判定は「動画の半分しか映らない」等の分かりにくい壊れ方になる。auto を採るなら
+  最低でも W×H 完全一致を条件にすべきで、それでも 3840x1080 の通常動画は誤る。
+  よって既定は明示、auto は逃げ道付きの opt-in にした。
+
+**訂正(引き継ぎ資料の事実誤り)**: `src/lib/profile.ts`(ショート縦プロファイル)・
+ズーム映像効果・validate の出力解像度チェックは**いずれも実在しない**。縦ショート/
+zoom/vertical-cover は今回スコープ外(plain で縦は縦のまま出るので一次要件は充足)。
+
 ## 2026-07-02 音量は render でツーパス loudnorm、BGM はファイル規約で自動合成
 
 **判断**: 最終出力の音量は ffmpeg の loudnorm(EBU R128)で -14 LUFS
