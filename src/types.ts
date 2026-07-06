@@ -214,6 +214,10 @@ export interface Interval {
 
 /** plan が生成、人間が編集して承認する(cutplan.json) */
 export interface CutPlan {
+  /** 人間の承認意図の表示(GUI チェックボックスのモデル)。**render のゲートでは
+   * ない**(src/lib/approval.ts を参照)。render は approvals.json の承認
+   * レコード(keep 集合のハッシュに束縛)だけを見る。ここが true でもレコードが
+   * 無い/内容が変わっていれば render は拒否される(validate が警告する) */
   approved: boolean;
   /** 残す区間のリスト(時系列順)。reason は人間が確認するための説明 */
   segments: PlanSegment[];
@@ -225,6 +229,27 @@ export interface PlanSegment {
   /** keep: 残す / cut: 切る(確認用に候補も残しておく) */
   action: "keep" | "cut";
   reason: string;
+}
+
+/** 承認レコード(approvals.json)。承認は cutplan/short の keep 集合の
+ * ハッシュに束縛され、内容が変われば hash 不一致で自動失効する。
+ * render の唯一のゲート。boolean approved は人間の意図表示に降格
+ * (CutPlan.approved / Short.approved のコメント参照)。
+ * 収録フォルダ直下の別ファイルに置く(cutplan.json 等の編集ワークフローとは
+ * 別行為にするため。src/lib/approval.ts が算出・読み書きする) */
+export interface Approvals {
+  version: 1;
+  cutplan?: ApprovalRecord;
+  shorts?: Record<string, ApprovalRecord>;
+}
+
+export interface ApprovalRecord {
+  /** "sha256:…"。src/lib/approval.ts が現内容から算出した値と一致で承認有効 */
+  hash: string;
+  /** 承認した時刻(情報用。ゲート判定には使わない) */
+  approvedAt: string;
+  /** 承認した経路(情報用。監査の助け。信頼できる値ではないため判定には使わない) */
+  by?: "cli" | "gui";
 }
 
 /** plan が生成(chapters.json)。YouTube チャプター用の章立てメタデータ
@@ -516,8 +541,9 @@ export interface Short {
   /** 出力プロファイル(src/lib/profile.ts の PROFILES のキー)。
    * 省略時 "vertical" */
   profile?: string;
-  /** このショート(縦動画)を人間が確認したか。render --short のゲート。
-   * 承認は人間の仕事(AI が自分で true にしない。cutplan.json の approved と同じ) */
+  /** 人間の承認意図の表示。**render --short のゲートではない**(cutplan.json の
+   * approved と同じく src/lib/approval.ts の承認レコードに格下げ済み。承認は
+   * 人間の仕事で AI が自分で true にしない、という原則自体は変わらない) */
   approved: boolean;
   /** このショートの keep 区間(元収録の秒)。本編 cutplan の keep とは独立で、
    * mergeIntervals した集合がそのままショートの keep 集合になる(交差なし)。
