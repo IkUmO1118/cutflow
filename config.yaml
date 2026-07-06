@@ -125,6 +125,14 @@ render:
     # ズームイン/アウトの遷移秒数
     easeSec: 0.4
 
+# 画面 OCR(frames --ocr)。AI が画面内テキスト(コード/ターミナル/エラー)を
+# テキストとして読むための Apple Vision OCR 設定。macOS 専用・オフライン。
+# frames --ocr を使わない限り一切走らない(既定挙動は完全に不変)
+ocr:
+  # 認識言語の優先順(Vision の recognitionLanguages)。開発画面は英語コードが
+  # 主で日本語テロップ/コメントが混在するので en 優先・ja 併記
+  languages: [en, ja]
+
 # GUI エディタ(npm run editor)
 editor:
   # 素材アップロード1ファイルの上限(MB)。動画素材も置けるよう大きめ。

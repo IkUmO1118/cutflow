@@ -45,7 +45,7 @@ import {
   toOutputTime,
   toSourceTime,
 } from "../lib/timeline.ts";
-import { DEFAULT_OCR_LANGUAGES, runOcr } from "../lib/ocr.ts";
+import { runOcr } from "../lib/ocr.ts";
 import { buildScreenStill } from "../lib/screenStill.ts";
 import { buildProxy, isProxyStale } from "./proxy.ts";
 import { hasCamera } from "../types.ts";
@@ -227,7 +227,7 @@ export async function frames(
       const notes = [...t.notes];
       let ocrFile: string | undefined;
       if (ocr) {
-        ocrFile = await ocrFrame(dir, manifest, timeline, t.outSec, outDir, notes);
+        ocrFile = await ocrFrame(dir, manifest, timeline, t.outSec, outDir, notes, cfg);
       }
       const note = notes.join(" / ");
       shots.push({
@@ -327,6 +327,7 @@ async function ocrFrame(
   outSec: number,
   outDir: string,
   notes: string[],
+  cfg: Config,
 ): Promise<string | undefined> {
   const sourceSec = toSourceTime(outSec, timeline);
   if (sourceSec === null) {
@@ -337,7 +338,7 @@ async function ocrFrame(
   try {
     await buildScreenStill(dir, manifest, sourceSec, cropPath);
     const result = await runOcr(cropPath, manifest.video.screenRegion, {
-      languages: DEFAULT_OCR_LANGUAGES,
+      languages: cfg.ocr?.languages,
       warn: (msg) => console.warn(`警告: ${msg}`),
     });
     if (result === null) return undefined; // 非対応環境等(warn 済み)

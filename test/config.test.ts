@@ -307,6 +307,48 @@ whisper:
   }
 });
 
+test("loadConfig: ocr 省略時は languages が [en, ja](既存挙動と完全一致)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = join(dir, "config.yaml");
+    writeFileSync(
+      path,
+      `recordingsDir: ~/Movies/cutflow
+whisper:
+  bin: whisper-cli
+  model: ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin
+  language: ja
+`,
+    );
+    const cfg = loadConfig(path);
+    assert.deepEqual(cfg.ocr?.languages, ["en", "ja"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig: ocr.languages を指定すればそのまま通る", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = join(dir, "config.yaml");
+    writeFileSync(
+      path,
+      `recordingsDir: ~/Movies/cutflow
+whisper:
+  bin: whisper-cli
+  model: ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin
+  language: ja
+ocr:
+  languages: [en]
+`,
+    );
+    const cfg = loadConfig(path);
+    assert.deepEqual(cfg.ocr?.languages, ["en"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("syncEditorCfgFromYaml: 外部編集ぶん(パッチ外のキー)も反映される", () => {
   const cfg = parse(RAW) as Config;
   // エディタ起動中に config.yaml が外部編集され wipeMarginPx が変わったと想定。
