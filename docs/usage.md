@@ -82,6 +82,42 @@ config.yaml の `render.chunkSec` > 0 のときだけ使う。`vNNN.mp4` =
 採用したい項目は人間が手で `rules.md` に転記する。詳細は下記「チャンネル
 rules と learn」参照)
 
+## 安定 id / @-mention
+
+編集ファイルの各要素(`cutplan.segments` / `transcript.segments` /
+`overlays.json` の各配列 / `chapters.chapters` / `bgm.tracks` / 各ショートの
+`ranges`・`captionTracks` / `thumbnail.texts`)には、任意で**安定 id**
+(`id?: string`。例 `seg_a1b2c3`)を付けられる。文法は
+`<種別を表す2〜3文字の接頭辞>_<英数字6桁>`(`seg`=cutplan の区間 / `cap`=テロップ /
+`mat`=素材 / `ins`=挿入 / `zm`=ズーム / `bl`=ぼかし / `wf`=ワイプ全画面 /
+`hc`=字幕非表示 / `ct`=テロップトラック標準設定 / `ch`=章 / `bg`=BGM区間 /
+`rg`=ショートの range / `tx`=サムネのテキスト)。**shorts(ショート本体)だけは
+`name` がそのまま id 代わり**で、別の id フィールドは持たない
+(`@<name>` または `@short:<name>` で指せる)。
+
+- **一度振ったら内容・位置が変わっても不変**(id は「この要素」を指す
+  永続アドレス。`@id` で人間/AI が位置に依存せず参照できる)。
+- **opt-in・sticky**: プロジェクトに `id` が1つも無ければ「id 無効」で、
+  全コマンドの出力は本機能導入前と完全に同じ(バイト等価)。`id-stamp <dir>`
+  を一度実行すると「id 有効」になり、以後は `plan` / `transcribe` /
+  `plan-shorts` の再実行や GUI 保存が新規要素にだけ id を採番し、既存 id は
+  常に保つ。**id 無効なプロジェクトを触らない限り、この機能は一切見えない**。
+- **`id-stamp <dir>`**: 既存プロジェクトへの一括採番コマンド(冪等。既存 id は
+  不変、無い要素にだけ新規採番。内容が実際に変わったファイルだけ書く)。
+  `validate` と同じ検査を通してから書く。`approvals.json`(承認レコード)には
+  一切触れない。
+- **id の発見手段は `describe <dir> --json`**(散文 `describe` には出ない。
+  golden 出力を汚さないため)。各要素の `index` の次に `id`(採番済みのものだけ)
+  が載る。
+- **`validate`** は id の重複・形式不正・(有効時の)欠落密度を**警告**で知らせる
+  (id は render に一切影響しないため error にはしない。id が無いプロジェクトでは
+  この検査自体が no-op で警告も増えない)。
+- **id は render / preview / frames / 承認 hash に一切影響しない**(アドレッシング
+  専用。cut 決定のハッシュは `[start, end]` のみを見るので、id を stamp しても
+  承認は失効しない)。
+- 現状「id を宛先にした差分適用(パッチ)」コマンドは無い(将来機能。
+  今回入るのは id の採番・検査・`describe --json` への露出まで)。
+
 ## ⚠️ 最重要の注意: plan の再実行は手編集を消す
 
 `plan`(と `run`)を再実行すると **cutplan.json / chapters.json / meta.json と
@@ -117,7 +153,8 @@ rules と learn」参照)
 | `render <dir>` | `approve` 済み(= `approvals.json` に現内容のハッシュと一致するレコードがある状態)のときだけ実行できる。cutplan.json の `approved: true` を書くだけでは通らない(下記「承認(approve/unapprove)」参照)。transcript.json 修正後の再実行も速い(再文字起こし不要) |
 | `render <dir> --short <name>` / `--shorts` | `shorts.json` のショートを書き出すとき(下記「ショート動画」参照)。承認はショート単位(本編の承認とは別のレコード) |
 | `describe <dir>` | AI/人間が JSON 群を全部読まずに編集状態(keep/カットの並び・各区間の発言・カット理由・演出・章・ショート)を把握したいとき。人間可読の散文で出す(発言は36字で切り捨て、タイトル案は先頭3件のみ)。元秒⇔出力秒を併記する。末尾に frames の現況(何の絵が `frames/` に入っているか)か、古ければ撮り直し勧告を添える(下記) |
-| `describe <dir> --json` | **散文では切り捨てられる情報まで含めて機械的に処理したい**とき。発言・タイトルを一切切り捨てない機械可読な完全射影を stdout に純 JSON で出す(`schemaVersion` / `source` / `summary` / `keeps` / `cuts`(消える発言も全文) / `captions`(全文・`pos`/`style`/`words`・元秒⇔出力秒) / `overlays`(素材・挿入・ワイプ・ズーム・ぼかし・色調整の全フィールド) / `chapters` / `meta`(タイトル全件・概要欄全文) / `bgm` / `shorts`)。パイプ/`JSON.parse` 可能(所要時間の診断行は stderr に出る)。`--json` を付けない限り `describe` の散文出力は完全に不変 |
+| `describe <dir> --json` | **散文では切り捨てられる情報まで含めて機械的に処理したい**とき。発言・タイトルを一切切り捨てない機械可読な完全射影を stdout に純 JSON で出す(`schemaVersion` / `source` / `summary` / `keeps` / `cuts`(消える発言も全文) / `captions`(全文・`pos`/`style`/`words`・元秒⇔出力秒) / `overlays`(素材・挿入・ワイプ・ズーム・ぼかし・色調整の全フィールド) / `chapters` / `meta`(タイトル全件・概要欄全文) / `bgm` / `shorts`)。パイプ/`JSON.parse` 可能(所要時間の診断行は stderr に出る)。`--json` を付けない限り `describe` の散文出力は完全に不変。**id-stamp 済みのプロジェクトでは各要素に `id` が載る(散文には出ない。@-mention の発見手段はここ)**(下記「安定 id / @-mention」参照) |
+| `id-stamp <dir>` | **既存プロジェクトの各要素に `@id` を一括採番したい**とき(冪等。既存 id は保持し、無い要素にだけ振る)。詳細は下記「安定 id / @-mention」参照 |
 | `frames <dir> --t ... \| --captions \| --every N` | AI がその時刻の絵を確認したいとき(テロップ位置・ワイプ被り・素材の見え方)。`frames/*.png` に出力(実行のたびに古い PNG は全消し) |
 | `frames <dir> ... --ocr` | 画面内のコード・ターミナル・エラー文をテキストとして読みたいとき。元収録のフル解像度の画面領域を Apple Vision で OCR し `frames/out<秒>s.ocr.json`(`text` / `lines[].{text,confidence,box}`)に書く。macOS 専用・オフライン。非対応環境では警告のうえ PNG 出力のみ続行し、`--ocr` を付けない限り既存の `frames` 挙動は完全に不変 |
 | `frames <dir> ... --full-res` | 画面キャプチャ内の文字を絵として鮮明に見たいとき。ベース映像をプロキシ(幅1280px)ではなく元収録のフル解像度にした**合成込み**(テロップ/ワイプ/素材/ズーム/ぼかし込み)still を出す。`--ocr` はテキスト抽出、こちらは見た目そのものの鮮明化(レイアウト込みで確認したいとき)。`--ocr` と併用可。`--full-res` を付けない限り既存の `frames` 挙動は完全に不変 |
