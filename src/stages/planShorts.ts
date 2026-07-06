@@ -7,11 +7,13 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { complete } from "../lib/llm.ts";
 import { planShortsMaxSec } from "../lib/config.ts";
+import { defaultShortProfileName } from "../lib/profile.ts";
 import { mergeIntervals } from "../lib/timeline.ts";
 import { numberSegments, renderPrompt } from "./plan.ts";
+import { hasCamera } from "../types.ts";
 import type { NumberedSegment } from "./plan.ts";
 import type { Config } from "../lib/config.ts";
-import type { AutoCuts, Interval, Short, Shorts, Transcript } from "../types.ts";
+import type { AutoCuts, Interval, Manifest, Short, Shorts, Transcript } from "../types.ts";
 
 /** LLM 応答スキーマ(prompts/plan-shorts.md の出力形式と対応)。
  * 各ショートに入れる候補区間の番号(ids)だけを受け取り、
@@ -97,12 +99,16 @@ function uniqueName(base: string, used: Set<string>): string {
  * - 尺合計が maxSec を超えたら末尾 range を落とす(残り1区間で削れないときは警告)。
  * - name は正規化し、収録内で重複しないようにする。
  * - approved は必ず false(承認は人間の仕事。AI が true にしない)。
+ * - profile は defaultShortProfileName(hasCamera) に解決する(camera 有り→
+ *   "vertical"、plain→"vertical-screen"。手編集で他の profile へ変えるのは
+ *   人間の仕事)。
  * 有効な区間が1つも無いショートは飛ばす(shorts.json は ranges 1件以上が必須)。
  */
 export function shortsFromSelection(
   numbered: NumberedSegment[],
   parsed: ShortsSelection,
   maxSec: number,
+  hasCamera: boolean,
 ): Short[] {
   const byId = new Map(numbered.map((n) => [n.id, n]));
   const usedNames = new Set<string>();
@@ -147,7 +153,7 @@ export function shortsFromSelection(
 
     const name = uniqueName(normalizeName(sel.name, i), usedNames);
     usedNames.add(name);
-    result.push({ name, profile: "vertical", approved: false, ranges });
+    result.push({ name, profile: defaultShortProfileName(hasCamera), approved: false, ranges });
   });
 
   return result;
@@ -169,6 +175,7 @@ function readStageJson<T>(path: string, requiredStage: string): T {
  * keepSegments(本編でカットした素材も候補に入る)。
  */
 export async function planShorts(dir: string, cfg: Config): Promise<Shorts> {
+  const manifest = readStageJson<Manifest>(join(dir, "manifest.json"), "ingest");
   const transcript = readStageJson<Transcript>(
     join(dir, "transcript.json"),
     "transcribe",
@@ -191,7 +198,7 @@ export async function planShorts(dir: string, cfg: Config): Promise<Shorts> {
   writeFileSync(join(dir, "plan-shorts.raw.txt"), raw);
 
   const parsed = parseShortsResponse(raw);
-  const shorts = shortsFromSelection(numbered, parsed, planShortsMaxSec(cfg));
+  const shorts = shortsFromSelection(numbered, parsed, planShortsMaxSec(cfg), hasCamera(manifest));
 
   const out: Shorts = { shorts };
   writeFileSync(join(dir, "shorts.json"), JSON.stringify(out, null, 2));
