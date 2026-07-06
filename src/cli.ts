@@ -27,6 +27,7 @@ import { describe, describeJson } from "./stages/describe.ts";
 import { frames } from "./stages/frames.ts";
 import type { FrameRequest } from "./stages/frames.ts";
 import { DEFAULT_SERVE_PORT, startFramesServe } from "./stages/framesServe.ts";
+import { tryServeFrames } from "./lib/framesClient.ts";
 import { formatOcrPreview } from "./lib/ocr.ts";
 import type { OcrResult } from "./lib/ocr.ts";
 import { thumbnail } from "./stages/thumbnail.ts";
@@ -360,14 +361,14 @@ program
       req = { mode: "times", times, axis: opts.out ? "output" : "source" };
     }
     if (opts.short) console.log(`ショート "${opts.short}" のフレームを出力します`);
-    const shots = await frames(
-      resolveDir(dir),
-      req,
-      cfg,
-      opts.short,
-      opts.ocr === true,
-      opts.fullRes === true,
-    );
+    const abs = resolveDir(dir);
+    const frameOpts = { short: opts.short, ocr: opts.ocr === true, fullRes: opts.fullRes === true };
+    // 常駐デーモン(frames-serve)が起動していれば自動検出して委譲し、
+    // bundle+browser のコールドコストを省く。portfile が無い/応答しなければ
+    // 現行どおりの単発実行(既存挙動は1バイトも変わらない)
+    const served = await tryServeFrames(abs, req, frameOpts);
+    const shots =
+      served ?? (await frames(abs, req, cfg, opts.short, frameOpts.ocr, frameOpts.fullRes));
     for (const s of shots) {
       const head =
         req.mode === "times"
