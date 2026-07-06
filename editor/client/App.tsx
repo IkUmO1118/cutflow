@@ -162,6 +162,7 @@ const selectionValid = (sel: Selection, d: HistoryDocs): boolean => {
     return sel.index < (d.overlays[sel.kind] ?? []).length;
   }
   if (sel.kind === "zoom") return sel.index < (d.overlays.zooms ?? []).length;
+  if (sel.kind === "blur") return sel.index < (d.overlays.blurs ?? []).length;
   if (sel.kind === "bgm") return sel.index < (d.bgm?.tracks?.length ?? 0);
   return true; // wipe は表示専用の常駐クリップ
 };
@@ -741,6 +742,28 @@ export const App = () => {
           "プレビュー・レンダーには効いています(テロップの直接編集を推奨)",
       );
     }
+    // ぼかし×ズームの時間重なり・ぼかし×ショートの非継承は buildRenderProps が
+    // 出さない validate.ts 専用の warn なので、hideCaption と同じ流儀で
+    // ここに明示 push する(判断5。保存は通す=warn であって error ではない)
+    const blurs = overlays.blurs ?? [];
+    if (blurs.length > 0) {
+      const zooms = overlays.zooms ?? [];
+      for (const b of blurs) {
+        if (zooms.some((z) => b.start < z.end && z.start < b.end)) {
+          warnings.push(
+            `blurs(${fmtTime(b.start)}〜${fmtTime(b.end)})が zoom 区間と時間が重なっています。` +
+              "blur は zoom に追従しないため、隠したい情報が矩形からずれて見えることがあります",
+          );
+          break;
+        }
+      }
+      if ((shorts?.shorts.length ?? 0) > 0) {
+        warnings.push(
+          "本編に領域ぼかしがありますが、ショートには継承されません。" +
+            "ショートに秘匿情報が写る場合は別途隠してください",
+        );
+      }
+    }
     // 素材はローカルサーバーの /media/ 経由で配信される
     const overlayItems = props.overlays.map((o) => ({ ...o, file: `media/${o.file}` }));
     const insertItems = (props.inserts ?? []).map((o) => ({
@@ -752,7 +775,10 @@ export const App = () => {
       warnings,
       props: { ...props, overlays: overlayItems, inserts: insertItems, bgm: bgmTracks },
     };
-  }, [proj, cutplan, overlays, transcript, bgm, keeps, shortMode, activeShort, shortKeepsMerged]);
+  }, [
+    proj, cutplan, overlays, transcript, bgm, keeps, shortMode, activeShort, shortKeepsMerged,
+    shorts,
+  ]);
 
   /** Player に渡す props。トラック別ミュート・レイヤーの一時非表示は
    * プレビューにだけ効かせる(built.props は書き出しと同じ内容のまま保つ) */
@@ -985,6 +1011,18 @@ export const App = () => {
         cs.push({
           kind: "zoom", index: i, track: "zoom",
           outStart: iv.start, outEnd: iv.end, label: "ズーム", editable: true,
+          noTrimStart: j > 0, noTrimEnd: j < parts.length - 1,
+        });
+      });
+    });
+    // ぼかし: 領域ぼかし/モザイク区間(専用の「ぼかし」トラック)
+    (overlays.blurs ?? []).forEach((b, i) => {
+      const parts = remapInterval(b.start, b.end, timeline);
+      parts.forEach((iv, j) => {
+        cs.push({
+          kind: "blur", index: i, track: "blur",
+          outStart: iv.start, outEnd: iv.end,
+          label: b.type === "mosaic" ? "モザイク" : "ぼかし", editable: true,
           noTrimStart: j > 0, noTrimEnd: j < parts.length - 1,
         });
       });
@@ -1351,6 +1389,42 @@ export const App = () => {
       });
     },
     [zoomIntervals, overlays],
+  );
+
+  /** ぼかし(overlays.blurs)ごとのカット後の表示区間。zoom と同じ流儀で
+   * プレビュー上に rect の枠を出す(ショートモードは継承しない) */
+  const blurIntervals = useMemo(() => {
+    if (!overlays || shortMode) return [];
+    return (overlays.blurs ?? []).map((b, i) => ({
+      index: i,
+      ivs: remapInterval(b.start, b.end, timeline),
+    }));
+  }, [overlays, timeline, shortMode]);
+
+  /** outT に表示中のぼかし区間の添字列(購読キー) */
+  const visibleBlurKey = useCallback(
+    (outT: number): string => {
+      let key = "";
+      for (const b of blurIntervals) {
+        if (b.ivs.some((iv) => outT >= iv.start && outT < iv.end)) key += `${b.index},`;
+      }
+      return key;
+    },
+    [blurIntervals],
+  );
+
+  /** outT に表示中のぼかし区間(プレビュー上でドラッグ移動・リサイズできる rect) */
+  const getVisibleBlurs = useCallback(
+    (outT: number): OverlayRect[] => {
+      if (!overlays) return [];
+      return blurIntervals.flatMap((b) => {
+        const rect = (overlays.blurs ?? [])[b.index]?.rect;
+        if (!rect) return [];
+        if (!b.ivs.some((iv) => outT >= iv.start && outT < iv.end)) return [];
+        return [{ index: b.index, rect }];
+      });
+    },
+    [blurIntervals, overlays],
   );
 
   /** テロップトラックの標準位置・標準スタイル・座標基準(anchor)を設定/解除
@@ -1776,6 +1850,15 @@ export const App = () => {
       if (!t) return;
       arr[sel.index] = { ...sp, ...t };
       setOverlays({ ...ctx.overlays, zooms: arr });
+    } else if (sel.kind === "blur") {
+      // ぼかし区間の move / trim。rect / type / strength は動かさない
+      const arr = [...(ctx.overlays.blurs ?? [])];
+      const sp = arr[sel.index];
+      if (!sp) return;
+      const t = retime(sp);
+      if (!t) return;
+      arr[sel.index] = { ...sp, ...t };
+      setOverlays({ ...ctx.overlays, blurs: arr });
     } else if (sel.kind === "bgm") {
       // BGM 区間の move / trim。トラック間移動はない(BGM は1トラック)。
       // 後方互換の全編 BGM(bgm.json 無し)を初めて動かしたら、ここで
@@ -1895,6 +1978,24 @@ export const App = () => {
     setOverlays({ ...overlays, zooms: list });
     setSelection({ kind: "zoom", index: list.length - 1 });
   };
+  /** ぼかし区間を1つ追加。既定 rect は出力中央の小さめ矩形(幅1/3・高さ1/6)。
+   * 目隠し対象からずれていることが多い叩き台なので、Inspector・プレビュー枠
+   * ドラッグでの調整前提。type/strength は省略(既定 blur/0.5)で JSON を汚さない */
+  const addBlurSpan = (start: number, end: number) => {
+    if (!overlays || !proj) return;
+    pushHistory();
+    const w = Math.round(proj.output.w / 3);
+    const h = Math.round(proj.output.h / 6);
+    const rect = {
+      x: Math.round((proj.output.w - w) / 2),
+      y: Math.round((proj.output.h - h) / 2),
+      w,
+      h,
+    };
+    const list = [...(overlays.blurs ?? []), { start, end, rect }];
+    setOverlays({ ...overlays, blurs: list });
+    setSelection({ kind: "blur", index: list.length - 1 });
+  };
   const addCaption = (start: number, end: number, track = 1) => {
     if (!transcript) return;
     pushHistory();
@@ -1910,6 +2011,7 @@ export const App = () => {
     if (kind === "overlays") addOverlaySpan(start, end, track);
     else if (kind === "wipeFull") addWipeFull(start, end);
     else if (kind === "zoom") addZoomSpan(start, end);
+    else if (kind === "blur") addBlurSpan(start, end);
     else if (kind === "bgm") addBgmSpan(start, end);
     else if (kind === "short") addShortRange(start, end);
     else addCaption(start, end, track);
@@ -1927,6 +2029,8 @@ export const App = () => {
       addByKind("wipeFull", round2(s), round2(e));
     } else if (track === "zoom") {
       addByKind("zoom", round2(s), round2(e));
+    } else if (track === "blur") {
+      addByKind("blur", round2(s), round2(e));
     } else if (track === "bgm") {
       addByKind("bgm", round2(s), round2(e));
     } else if (track === "short") {
@@ -2259,6 +2363,38 @@ export const App = () => {
     setOverlays((prev) => prev && { ...prev, zooms: (prev.zooms ?? []).filter((_, j) => j !== i) });
     setSelection(null);
   };
+  /** ぼかし区間の start/end/rect/type/strength を部分更新。coalesceKey は
+   * プレビュー上のドラッグ・スライダーの連続変更を undo 1回にまとめる用。
+   * type=blur/strength=0.5(既定値)への変更は undefined を渡してキー削除
+   * (判断4。JSON を汚さない) */
+  const updateBlur = (
+    i: number,
+    patch: Partial<NonNullable<Overlays["blurs"]>[number]>,
+    coalesceKey?: string,
+  ) => {
+    pushHistory(coalesceKey ?? null);
+    setOverlays((prev) => {
+      if (!prev) return prev;
+      const arr = [...(prev.blurs ?? [])];
+      const entry = { ...arr[i], ...patch };
+      for (const k of Object.keys(patch) as (keyof typeof patch)[]) {
+        if (patch[k] === undefined) delete entry[k];
+      }
+      arr[i] = entry;
+      return { ...prev, blurs: arr };
+    });
+  };
+  const removeBlur = (i: number) => {
+    pushHistory();
+    setOverlays((prev) => {
+      if (!prev) return prev;
+      const arr = (prev.blurs ?? []).filter((_, j) => j !== i);
+      // 全区間を消したら blurs キーごと削除(空配列を残さない)
+      const { blurs: _drop, ...rest } = prev;
+      return arr.length === 0 ? rest : { ...rest, blurs: arr };
+    });
+    setSelection(null);
+  };
   /** インサート編集: anchorSrc(元収録の秒)の位置に file を素材の実尺で差し込む */
   const placeInsert = (file: string, durationSec: number | null, anchorSrc: number) => {
     if (!overlays) return;
@@ -2343,6 +2479,7 @@ export const App = () => {
       removeSpan(selection.kind, selection.index);
     } else if (selection.kind === "bgm") removeBgm(selection.index);
     else if (selection.kind === "zoom") removeZoom(selection.index);
+    else if (selection.kind === "blur") removeBlur(selection.index);
     else if (selection.kind === "short") removeShortRange(selection.index);
     else if (selection.kind === "cut") {
       // 映像クリップの Delete は削除ではなくカット(記録に倒すだけ。
@@ -3114,6 +3251,17 @@ export const App = () => {
                 onSelect={(i) => setSelection({ kind: "zoom", index: i })}
                 onRectChange={(i, rect) => updateZoom(i, { rect }, `zoom:${i}:drag`)}
               />
+              {/* ぼかし区間の rect 枠(効果自体は Player が既に描画。ここは
+                  移動・リサイズ用の透明な編集枠だけ=二重掛けしない) */}
+              <LiveMaterialOverlay
+                width={built.props.width}
+                height={built.props.height}
+                getKey={visibleBlurKey}
+                getOverlays={getVisibleBlurs}
+                selection={selection?.kind === "blur" ? selection.index : null}
+                onSelect={(i) => setSelection({ kind: "blur", index: i })}
+                onRectChange={(i, rect) => updateBlur(i, { rect }, `blur:${i}:drag`)}
+              />
               <LiveCaptionOverlay
                 width={built.props.width}
                 height={built.props.height}
@@ -3343,6 +3491,8 @@ export const App = () => {
               removeSpan={removeSpan}
               updateZoom={updateZoom}
               removeZoom={removeZoom}
+              updateBlur={updateBlur}
+              removeBlur={removeBlur}
               updateInsert={updateInsert}
               removeInsert={removeInsert}
               updateBgm={updateBgm}

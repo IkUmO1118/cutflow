@@ -14,16 +14,18 @@ import type { LayerId } from "../../src/types.ts";
 
 /** overlays.json のどの配列か(hide 系はエディタ非表示の手書き互換)。
  * "short" はショートモードの ranges 帯(shorts.json のショート単位)。
- * "zoom" はズーム演出(overlays.json の zooms)の区間 */
-export type SpanKind = "overlays" | "wipeFull" | "hideCaption" | "short" | "zoom";
+ * "zoom" はズーム演出(overlays.json の zooms)の区間。
+ * "blur" は領域ぼかし/モザイク(overlays.json の blurs)の区間 */
+export type SpanKind = "overlays" | "wipeFull" | "hideCaption" | "short" | "zoom" | "blur";
 
 /** トラックの空き領域ドラッグで作れる区間の種類 */
-export type AddKind = "overlays" | "wipeFull" | "caption" | "bgm" | "short" | "zoom";
+export type AddKind = "overlays" | "wipeFull" | "caption" | "bgm" | "short" | "zoom" | "blur";
 
 /** 選択・ドラッグの対象。index は各ドキュメントの配列の添字
  * (caption は transcript.segments、insert は overlays.inserts の添字、
  * short はショートモード中の選択中ショートの ranges の添字、
- * zoom は overlays.zooms の添字)。wipe / bgm は表示専用 */
+ * zoom は overlays.zooms の添字、blur は overlays.blurs の添字)。
+ * wipe / bgm は表示専用 */
 export type SelKind =
   | "cut"
   | "insert"
@@ -33,7 +35,8 @@ export type SelKind =
   | "wipe"
   | "bgm"
   | "short"
-  | "zoom";
+  | "zoom"
+  | "blur";
 export type Selection = { kind: SelKind; index: number } | null;
 
 export type DragMode = "move" | "trim-start" | "trim-end";
@@ -45,6 +48,7 @@ export type TrackId =
   | "caption"
   | "wipe"
   | "zoom"
+  | "blur"
   | "cut"
   | "bgm"
   | "short"
@@ -80,6 +84,13 @@ const TRACK_DEFS = {
       "画面の一部を拡大して見せる区間(overlays.json の zooms)。" +
       "ドラッグで区間を作成。かかるのはベース映像の背景だけで、" +
       "ワイプ・テロップ・素材は動かない",
+  },
+  blur: {
+    id: "blur", label: "ぼかし", createKind: "blur",
+    hint:
+      "領域ぼかし/モザイク区間(overlays.json の blurs)。秘匿情報の目隠し。" +
+      "ドラッグで区間を作成。かかるのはベース映像だけで、ズームには追従せず" +
+      "出力px固定(ショートには継承されない)",
   },
   cut: {
     id: "cut", label: "映像", audio: "cut",
@@ -152,6 +163,7 @@ export const buildTracks = (
       return TRACK_DEFS[id as keyof typeof TRACK_DEFS];
     }),
     TRACK_DEFS.zoom,
+    TRACK_DEFS.blur,
     TRACK_DEFS.cut,
     TRACK_DEFS.bgm,
   ];
