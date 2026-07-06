@@ -24,6 +24,7 @@ import { preview } from "./stages/preview.ts";
 import { render, renderShort, renderShorts } from "./stages/render.ts";
 import { validate } from "./stages/validate.ts";
 import { idStamp } from "./stages/idStamp.ts";
+import { applyEdits, planApply } from "./lib/applyEdits.ts";
 import { describe, describeJson } from "./stages/describe.ts";
 import { frames } from "./stages/frames.ts";
 import type { FrameRequest } from "./stages/frames.ts";
@@ -33,7 +34,7 @@ import { formatOcrPreview } from "./lib/ocr.ts";
 import type { OcrResult } from "./lib/ocr.ts";
 import { thumbnail } from "./stages/thumbnail.ts";
 import { fmtT, parseT } from "./lib/fmt.ts";
-import type { CutPlan } from "./types.ts";
+import type { ApplyPatch, CutPlan } from "./types.ts";
 
 const program = new Command();
 program
@@ -301,6 +302,78 @@ program
     }
     for (const w of r.warnings) console.log(`⚠ ${w.file} ${w.where}: ${w.message}`);
     for (const e of r.errors) console.error(`✖ ${e.file} ${e.where}: ${e.message}`);
+  });
+
+/** process.stdin を全部読んで文字列にする(apply --patch 省略時の入力経路) */
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+program
+  .command("apply <dir>")
+  .description(
+    "検査付きアトミック適用: `@id` op 列/ファイル全置換パッチを検査し、" +
+      "全部通れば全書き込み・1つでもエラーなら1バイトも書かない",
+  )
+  .option("--patch <file>", "パッチ JSON ファイル(省略時は stdin から読む)")
+  .option("--dry-run", "検査・変更要約だけ行い、書かない")
+  .action(async (dir: string, opts: { patch?: string; dryRun?: boolean }) => {
+    const abs = resolveDir(dir);
+    let raw: string;
+    if (opts.patch) {
+      raw = readFileSync(opts.patch, "utf8");
+    } else if (process.stdin.isTTY === true) {
+      throw new Error(
+        "パッチの入力がありません。--patch <file> を指定するか、JSON を stdin にパイプしてください",
+      );
+    } else {
+      raw = await readStdin();
+    }
+    let patch: ApplyPatch;
+    try {
+      patch = JSON.parse(raw) as ApplyPatch;
+    } catch (e) {
+      console.error(`✖ (patch) -: JSON として読めません: ${(e as Error).message}`);
+      process.exit(1);
+    }
+    if (opts.dryRun) {
+      const plan = planApply(abs, patch);
+      for (const w of plan.warnings) console.log(`⚠ ${w.file} ${w.where}: ${w.message}`);
+      for (const e of plan.errors) console.error(`✖ ${e.file} ${e.where}: ${e.message}`);
+      if (plan.errors.length > 0) {
+        console.error(`\nエラー ${plan.errors.length}件。上から順に修正して再実行してください。`);
+        process.exit(1);
+      }
+      if (plan.changedFiles.length === 0) {
+        console.log("変更なし(no-op パッチ。--dry-run のため書いていません)");
+      } else {
+        for (const d of plan.diff) {
+          const field = d.field ? ` ${d.field}` : "";
+          console.log(
+            `  ${d.ref} ${d.file}${field}: ${JSON.stringify(d.before)} → ${JSON.stringify(d.after)}`,
+          );
+        }
+        console.log(`✔ 検査通過(--dry-run。書いていません): ${plan.changedFiles.join(", ")}`);
+      }
+      return;
+    }
+    const result = applyEdits(abs, patch);
+    for (const w of result.plan.warnings) console.log(`⚠ ${w.file} ${w.where}: ${w.message}`);
+    for (const e of result.plan.errors) console.error(`✖ ${e.file} ${e.where}: ${e.message}`);
+    if (result.plan.errors.length > 0) {
+      console.error(`\nエラー ${result.plan.errors.length}件。上から順に修正して再実行してください。`);
+      process.exit(1);
+    }
+    if (result.written.length === 0) {
+      console.log("変更なし(no-op パッチ)");
+    } else {
+      console.log(
+        `✔ 適用しました: ${result.written.join(", ")}` +
+          (result.backupDir ? ` / 退避: ${result.backupDir}` : ""),
+      );
+    }
   });
 
 program
