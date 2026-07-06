@@ -27,21 +27,30 @@ import type {
 } from "../types.ts";
 
 export function describe(dir: string): string {
-  const readJson = <T>(file: string, fallback: T | null): T => {
+  // 必須ファイル(パイプラインの生成物)。無ければ実行を促して止める
+  const readRequired = <T>(file: string): T => {
     const p = join(dir, file);
     if (!existsSync(p)) {
-      if (fallback !== null) return fallback;
       throw new Error(`${file} がありません。先にパイプライン(run)を実行してください`);
     }
     return JSON.parse(readFileSync(p, "utf8")) as T;
   };
-  const manifest = readJson<Manifest>("manifest.json", null);
-  const cutplan = readJson<CutPlan>("cutplan.json", null);
-  const transcript = readJson<Transcript>("transcript.json", null);
-  const overlays = readJson<Overlays>("overlays.json", {});
-  const bgm = readJson<Bgm | null>("bgm.json", null);
-  const chapters = readJson<Chapters>("chapters.json", { chapters: [] });
-  const meta = readJson<Meta>("meta.json", { titles: [], description: "" });
+  // 任意ファイル。無ければ fallback を返す。fallback には「存在しない」を
+  // 表す null も渡せる(bgm.json など)。必須扱いと区別できる別関数にすることで、
+  // bgm.json の無いフォルダ(新規プロジェクト全般)で describe が誤って
+  // 落ちる旧バグ(fallback=null を必須と解釈していた)を断つ
+  const readOptional = <T>(file: string, fallback: T): T => {
+    const p = join(dir, file);
+    if (!existsSync(p)) return fallback;
+    return JSON.parse(readFileSync(p, "utf8")) as T;
+  };
+  const manifest = readRequired<Manifest>("manifest.json");
+  const cutplan = readRequired<CutPlan>("cutplan.json");
+  const transcript = readRequired<Transcript>("transcript.json");
+  const overlays = readOptional<Overlays>("overlays.json", {});
+  const bgm = readOptional<Bgm | null>("bgm.json", null);
+  const chapters = readOptional<Chapters>("chapters.json", { chapters: [] });
+  const meta = readOptional<Meta>("meta.json", { titles: [], description: "" });
 
   const keeps = mergeIntervals(
     cutplan.segments.filter((s) => s.action === "keep"),
