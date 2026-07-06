@@ -183,7 +183,10 @@
     border-bottom: 1px solid var(--warn);
     color: #fbbf24;
     flex-shrink: 0;
+    font-size: 12px;
   }
+  /* メッセージが伸びてボタンを右端へ寄せる(ヘッダーの spacer と同じ働き) */
+  .banner .msg { flex: 1; min-width: 0; }
   /* ---- トースト(通知)。右下に縦積み、新しいものを下=隅側に置く(VSCode 風)。
      継続的な要対応(draftOffer/externalChange/proxyStale)はここではなくバナー行。
      下端はトランスポート/タイムラインを避けて余白を取る ---- */

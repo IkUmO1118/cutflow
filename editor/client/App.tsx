@@ -2813,49 +2813,6 @@ export const App = () => {
           {proj.dir.replace(/\/+$/, "").split("/").pop()}
         </span>
         <span className="spacer" />
-        {draftOffer && (
-          <span
-            className="externalChange"
-            title="前回のセッションが保存せずに終わったため、自動退避された編集が残っています。復元してもファイルは保存(⌘S)するまで書き換わりません"
-          >
-            保存されなかった編集があります(
-            {new Date(draftOffer.savedAt).toLocaleString()} 時点)
-            <button className="warn" onClick={restoreDraft}>
-              復元する
-            </button>
-            <button onClick={discardDraft}>破棄</button>
-          </span>
-        )}
-        {externalChange && (
-          <span
-            className="externalChange"
-            title="Claude Code などがこのフォルダの JSON を書き換えました。読み込み直すとその内容が反映されます(こちらの未保存の編集は消えます)。保存すればこちらの内容で上書きします"
-          >
-            ファイルが外部で変更されました
-            <button className="warn" onClick={() => void reloadFromDisk()}>
-              読み込み直す(未保存の編集は破棄)
-            </button>
-          </span>
-        )}
-        {proxyStale && (
-          <span
-            className="externalChange"
-            title={
-              "ラウドネス・システム音声・プレビュー幅は proxy.mp4 に焼き込まれるため、" +
-              "再生成するまでエディタのプレビューには反映されません(書き出しには反映済み)"
-            }
-          >
-            設定をプレビューに反映するにはプロキシの再生成が必要です
-            <button
-              className="warn"
-              disabled={proxyBusy}
-              onClick={() => void regenProxyForSettings()}
-            >
-              {proxyBusy ? "再生成中…" : "プロキシを再生成"}
-            </button>
-            <button onClick={() => setProxyStale(false)}>後で</button>
-          </span>
-        )}
         <span
           className={anyDirty ? "saveStatus dirty" : "saveStatus"}
           title="変更は ⌘S で保存。未保存の編集は自動退避され、閉じる前に確認が出ます"
@@ -3012,6 +2969,20 @@ export const App = () => {
           )}
         </div>
       </header>
+
+      {/* 要対応の継続条件(トーストにしない=時間で消えない)。header と stage の
+          間に、いずれかが真のときだけ描画する。複数同時は縦積み(T4) */}
+      <HeaderBanners
+        draftOffer={draftOffer}
+        externalChange={externalChange}
+        proxyStale={proxyStale}
+        proxyBusy={proxyBusy}
+        onRestore={restoreDraft}
+        onDiscard={discardDraft}
+        onReload={() => void reloadFromDisk()}
+        onRegenProxy={() => void regenProxyForSettings()}
+        onDismissProxyStale={() => setProxyStale(false)}
+      />
 
       {settingsOpen && (
         <>
@@ -3432,6 +3403,81 @@ export const App = () => {
       />
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </div>
+  );
+};
+
+/** ヘッダー直下の要対応バナー行(T4)。draftOffer / externalChange / proxyStale は
+ * 「ユーザーが操作するまで真であり続ける条件」で、時間で消える通知(トースト)とは
+ * 寿命モデルが違うのでバナーに残す。いずれも真でなければ何も描かない。複数同時
+ * 成立(externalChange + proxyStale 等)は .banner を縦積みで自然に扱う */
+const HeaderBanners = ({
+  draftOffer,
+  externalChange,
+  proxyStale,
+  proxyBusy,
+  onRestore,
+  onDiscard,
+  onReload,
+  onRegenProxy,
+  onDismissProxyStale,
+}: {
+  draftOffer: DraftData | null;
+  externalChange: boolean;
+  proxyStale: boolean;
+  proxyBusy: boolean;
+  onRestore: () => void;
+  onDiscard: () => void;
+  onReload: () => void;
+  onRegenProxy: () => void;
+  onDismissProxyStale: () => void;
+}) => {
+  if (!draftOffer && !externalChange && !proxyStale) return null;
+  return (
+    <>
+      {draftOffer && (
+        <div
+          className="banner"
+          title="前回のセッションが保存せずに終わったため、自動退避された編集が残っています。復元してもファイルは保存(⌘S)するまで書き換わりません"
+        >
+          <span className="msg">
+            保存されなかった編集があります(
+            {new Date(draftOffer.savedAt).toLocaleString()} 時点)
+          </span>
+          <button className="warn" onClick={onRestore}>
+            復元する
+          </button>
+          <button onClick={onDiscard}>破棄</button>
+        </div>
+      )}
+      {externalChange && (
+        <div
+          className="banner"
+          title="Claude Code などがこのフォルダの JSON を書き換えました。読み込み直すとその内容が反映されます(こちらの未保存の編集は消えます)。保存すればこちらの内容で上書きします"
+        >
+          <span className="msg">ファイルが外部で変更されました</span>
+          <button className="warn" onClick={onReload}>
+            読み込み直す(未保存の編集は破棄)
+          </button>
+        </div>
+      )}
+      {proxyStale && (
+        <div
+          className="banner"
+          title={
+            "ラウドネス・システム音声・プレビュー幅は proxy.mp4 に焼き込まれるため、" +
+            "再生成するまでエディタのプレビューには反映されません(書き出しには反映済み)"
+          }
+        >
+          <span className="msg">
+            設定をプレビューに反映するにはプロキシの再生成が必要です
+          </span>
+          <button className="warn" disabled={proxyBusy} onClick={onRegenProxy}>
+            {proxyBusy ? "再生成中…" : "プロキシを再生成"}
+          </button>
+          <button onClick={onDismissProxyStale}>後で</button>
+        </div>
+      )}
+    </>
   );
 };
 
