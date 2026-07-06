@@ -26,6 +26,7 @@ import { validate } from "./stages/validate.ts";
 import { describe, describeJson } from "./stages/describe.ts";
 import { frames } from "./stages/frames.ts";
 import type { FrameRequest } from "./stages/frames.ts";
+import { DEFAULT_SERVE_PORT, startFramesServe } from "./stages/framesServe.ts";
 import { formatOcrPreview } from "./lib/ocr.ts";
 import type { OcrResult } from "./lib/ocr.ts";
 import { thumbnail } from "./stages/thumbnail.ts";
@@ -382,6 +383,26 @@ program
       `${shots.length}枚を出力しました(frames/ の古い PNG` +
         (opts.ocr ? "・OCR サイドカー" : "") + " は削除済み)",
     );
+  });
+
+program
+  .command("frames-serve <dir>")
+  .description(
+    "常駐フレームサーバを起動(bundle+headless Chrome を暖機。opt-in。" +
+      "起動中は frames <dir> --t ... が自動検出して使う。終了は Ctrl+C)",
+  )
+  .option(
+    "--port <port>",
+    `待受ポート(既定 ${DEFAULT_SERVE_PORT}。editor の既定 4310 とは別)`,
+  )
+  .action(async (dir: string, opts: { port?: string }) => {
+    const explicit = program.opts().config as string | undefined;
+    const abs = resolveDir(dir);
+    const port = opts.port !== undefined ? Number(opts.port) : DEFAULT_SERVE_PORT;
+    if (!Number.isFinite(port) || port <= 0) {
+      throw new Error(`--port の値が不正です: ${opts.port}`);
+    }
+    await startFramesServe(abs, explicit, port);
   });
 
 program
