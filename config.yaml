@@ -122,6 +122,12 @@ editor:
   # タイムラインに置く画像素材・尺不明素材の既定の尺(秒)
   defaultImageDurationSec: 4
 
+# ショート動画の LLM ハイライト自動選定(plan-shorts コマンド)
+planShorts:
+  # 1本のショートの尺の上限(秒)。plan-shorts が LLM の選んだ区間集合の
+  # 尺合計をこの値以下に収める(超過分は末尾の区間を落とす)。YouTube ショートは60秒
+  maxDurationSec: 60
+
 # 意味カット・章立て・タイトル案の生成
 llm:
   # claude-cli: Claude Code のサブスクで実行(APIキー不要)
