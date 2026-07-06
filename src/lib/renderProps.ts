@@ -101,16 +101,45 @@ export function buildRenderProps(args: {
       const pos = captionPosOf(s, overlays);
       const style = captionStyleOf(s, overlays);
       const anchor = captionAnchorOf(s, overlays);
-      return remapInterval(s.start, s.end, timeline).map((iv) => ({
-        start: iv.start,
-        end: iv.end,
-        // trim は前後の空白だけ落とす(テキスト内の改行=手動改行は残る)
-        text: s.text.trim(),
-        track: captionTrack(s),
-        ...(pos ? { pos } : {}),
-        ...(pos && anchor === "topLeft" ? { anchor } : {}),
-        ...(style ? { style } : {}),
-      }));
+      const frags = remapInterval(s.start, s.end, timeline);
+
+      // 語を独立に写像する。1語も挿入/カット境界で複数断片に割れうるので
+      // flatMap。カット内に完全に入る語は remapInterval が [] を返し自然に消える
+      // (= その語は出力に映らないので active 判定の対象外。正しい)。
+      // words[] が無い(既定)ときは wordPieces=[] で、下の words 付与も走らない
+      // = 従来と 1 バイトも変わらない。
+      const wordPieces = (s.words ?? []).flatMap((w) =>
+        remapInterval(w.start, w.end, timeline).map((iv) => ({
+          text: w.text,
+          start: iv.start,
+          end: iv.end,
+        })),
+      );
+
+      return frags.map((iv) => {
+        // この断片 [iv.start, iv.end) に重なる語だけを載せ、断片へクリップする。
+        // 挿入が語の途中に割り込んだ場合、その語は2つの断片に別々に載り、
+        // それぞれの局所時刻でハイライトが進む(断片間で状態は連続しないが、
+        // 挿入中はテロップ自体が別の絵なので破綻しない)。
+        const words = wordPieces
+          .filter((wp) => wp.end > iv.start && wp.start < iv.end)
+          .map((wp) => ({
+            text: wp.text,
+            start: Math.max(wp.start, iv.start),
+            end: Math.min(wp.end, iv.end),
+          }));
+        return {
+          start: iv.start,
+          end: iv.end,
+          // trim は前後の空白だけ落とす(テキスト内の改行=手動改行は残る)
+          text: s.text.trim(),
+          track: captionTrack(s),
+          ...(pos ? { pos } : {}),
+          ...(pos && anchor === "topLeft" ? { anchor } : {}),
+          ...(style ? { style } : {}),
+          ...(words.length > 0 ? { words } : {}),
+        };
+      });
     })
     .filter((c) => c.text.length > 0);
 
