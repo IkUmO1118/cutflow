@@ -83,6 +83,110 @@ test("preErrors(読み込みエラー)は errors 先頭に引き継がれる", (
   assert.equal(r.errors[0].message, "壊れた JSON");
 });
 
+/* -------- transcript.json の segment.words[](語単位タイムスタンプ) -------- */
+
+test("words: 無し(未指定)の既存 transcript は現状どおり問題ゼロ", () => {
+  const r = validateDocs(DIR, baseDocs());
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.warnings, []);
+});
+
+test("words: 正常な words[] は問題ゼロ", () => {
+  const r = validateDocs(DIR, baseDocs({
+    transcript: {
+      segments: [{
+        start: 1, end: 3, text: "こんにちは",
+        words: [
+          { text: "こんにち", start: 1, end: 2, confidence: 0.9 },
+          { text: "は", start: 2, end: 3, confidence: 0.8 },
+        ],
+      }],
+    },
+  }));
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.warnings, []);
+});
+
+test("words: 配列でないとエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    transcript: { segments: [{ start: 1, end: 3, text: "x", words: "nope" }] },
+  }));
+  assert.ok(r.errors.some((e) => e.message.includes("words は配列です")));
+});
+
+test("words: word.text が非 string だとエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    transcript: {
+      segments: [{ start: 1, end: 3, text: "x", words: [{ text: 123, start: 1, end: 2 }] }],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.message.includes("text は文字列です")));
+});
+
+test("words: word.text が空文字だと警告(エラーではない)", () => {
+  const r = validateDocs(DIR, baseDocs({
+    transcript: {
+      segments: [{ start: 1, end: 3, text: "x", words: [{ text: "", start: 1, end: 2 }] }],
+    },
+  }));
+  assert.equal(r.errors.length, 0);
+  assert.ok(r.warnings.some((w) => w.message.includes("text が空です")));
+});
+
+test("words: start>=end だとエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    transcript: {
+      segments: [{ start: 1, end: 3, text: "x", words: [{ text: "a", start: 2, end: 2 }] }],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.message.includes("start < end")));
+});
+
+test("words: 親 segment の範囲を EPS 超で逸脱すると警告(エラーではない)", () => {
+  const r = validateDocs(DIR, baseDocs({
+    transcript: {
+      segments: [{ start: 1, end: 3, text: "x", words: [{ text: "a", start: 0.5, end: 2 }] }],
+    },
+  }));
+  assert.equal(r.errors.length, 0);
+  assert.ok(r.warnings.some((w) => w.message.includes("親セグメント") && w.message.includes("範囲外")));
+});
+
+test("words: 親 segment 範囲のわずかな逸脱(EPS 以内)は警告なし", () => {
+  const r = validateDocs(DIR, baseDocs({
+    transcript: {
+      segments: [{ start: 1, end: 3, text: "x", words: [{ text: "a", start: 0.999, end: 3.001 }] }],
+    },
+  }));
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.warnings, []);
+});
+
+test("words: 時系列順が崩れていると警告", () => {
+  const r = validateDocs(DIR, baseDocs({
+    transcript: {
+      segments: [{
+        start: 1, end: 3, text: "x",
+        words: [
+          { text: "b", start: 2, end: 2.5 },
+          { text: "a", start: 1, end: 1.5 },
+        ],
+      }],
+    },
+  }));
+  assert.ok(r.warnings.some((w) => w.message.includes("時系列順ではありません")));
+});
+
+test("words: confidence が範囲外だと警告", () => {
+  const r = validateDocs(DIR, baseDocs({
+    transcript: {
+      segments: [{ start: 1, end: 3, text: "x", words: [{ text: "a", start: 1, end: 2, confidence: 1.5 }] }],
+    },
+  }));
+  assert.equal(r.errors.length, 0);
+  assert.ok(r.warnings.some((w) => w.message.includes("confidence")));
+});
+
 /* -------- chapters.json ⇔「章」トラックのテロップ の乖離検知 -------- */
 
 // 概要欄チャプターと画面の章テロップ(track 2, name "章")が一致する構成

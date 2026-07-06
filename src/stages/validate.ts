@@ -207,6 +207,11 @@ export function validateDocs(
         if (isNum(s.start) && isNum(s.end) && s.start < s.end && !visible(s.start, s.end)) {
           warn(f, w, `全体がカット区間内にあり表示されません(${fmtT(s.start)}–${fmtT(s.end)}「${String(s.text).slice(0, 12)}」)`);
         }
+        checkWords(
+          f, w,
+          isNum(s.start) && isNum(s.end) && s.start < s.end ? { start: s.start, end: s.end } : null,
+          s.words, err, warn,
+        );
       });
     }
   } else if (transcript !== null) {
@@ -872,6 +877,60 @@ function checkStyle(
       }
     }
   }
+}
+
+/** transcript の segment.words[](WordTiming[])の検査。省略時(undefined)は
+ * 何もしない(既存の検査結果と完全に同一)。words[] は描画専用の補助データ
+ * なので、「壊れると render がクラッシュ/明らかに不正になる」もの
+ * (配列型・text 型・start<end)だけエラー、「意図と違うかも」なもの
+ * (親 segment 範囲逸脱・時系列順・confidence 範囲)は警告にとどめる。
+ * seg は親 segment の [start,end](親側が不正で確定できないときは null。
+ * その場合は範囲逸脱チェックだけ省略し、word 自体の型検査は続ける) */
+function checkWords(
+  file: string,
+  where: string,
+  seg: { start: number; end: number } | null,
+  words: unknown,
+  err: (f: string, w: string, m: string) => void,
+  warn: (f: string, w: string, m: string) => void,
+): void {
+  if (words === undefined) return;
+  if (!Array.isArray(words)) {
+    return err(file, `${where}.words`, `words は配列です(現在: ${JSON.stringify(words)})`);
+  }
+  let prevEnd = -Infinity;
+  words.forEach((w: unknown, i: number) => {
+    const ww = `${where}.words[${i}]`;
+    if (!isObj(w)) return err(file, ww, "オブジェクトではありません");
+    if (typeof w.text !== "string") {
+      err(file, ww, `text は文字列です(現在: ${JSON.stringify(w.text)})`);
+    } else if (w.text === "") {
+      warn(file, ww, "text が空です(表示に使わない語)");
+    }
+    if (!isNum(w.start) || !isNum(w.end) || !(w.start < w.end)) {
+      err(
+        file, ww,
+        `start / end は start < end の数値です(現在: ${JSON.stringify(w.start)} / ${JSON.stringify(w.end)})`,
+      );
+    } else {
+      if (seg && (w.start < seg.start - EPS || w.end > seg.end + EPS)) {
+        warn(
+          file, ww,
+          `親セグメント(${fmtT(seg.start)}–${fmtT(seg.end)})の範囲外です(${fmtT(w.start)}–${fmtT(w.end)})`,
+        );
+      }
+      if (w.start < prevEnd - EPS) {
+        warn(file, ww, "words[] が時系列順ではありません");
+      }
+      prevEnd = w.end;
+    }
+    if (
+      w.confidence !== undefined &&
+      (!isNum(w.confidence) || w.confidence < 0 || w.confidence > 1)
+    ) {
+      warn(file, ww, `confidence は 0〜1 の数値です(現在: ${JSON.stringify(w.confidence)})`);
+    }
+  });
 }
 
 function isObj(v: unknown): v is Record<string, unknown> {
