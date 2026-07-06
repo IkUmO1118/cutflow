@@ -9,6 +9,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, normalize, resolve, sep } from "node:path";
 import { isCutplanApproved, isShortApproved } from "../lib/approval.ts";
 import { fmtT } from "../lib/fmt.ts";
+import { framesFreshness } from "../lib/framesIndex.ts";
 import { defaultShortProfileName, PROFILES, profileSupportsPlain } from "../lib/profile.ts";
 import { buildTimeline, remapInterval } from "../lib/timeline.ts";
 import type { TimelineEntry } from "../lib/timeline.ts";
@@ -89,7 +90,31 @@ export function validate(dir: string): ValidateResult {
   // 既に error があるプロジェクトでは cutplan/shorts の形が保証されないため
   // スキップする(新たな error は出さない・警告どまりの方針を守る)
   if (result.errors.length === 0) checkApprovalFreshness(dir, docs, result.warnings);
+  // frames の stale-PNG 罠対策(設計 docs/plans/2026-07-07-frames-server-design.md
+  // 課題1)。frames/index.json は生JSONの内容ハッシュだけを見るため、
+  // errors の有無に関わらず判定できる(承認鮮度チェックと違い docs の形に
+  // 依存しない)
+  checkFramesFreshness(dir, result.warnings);
   return result;
+}
+
+/**
+ * frames/index.json(撮影入力のフィンガープリント)が現在の編集 JSON と
+ * 食い違っていれば警告する。`none`(未撮影・機能導入前)は警告しない
+ * (isProxyStale と同じ「未生成→陳腐化ではない」の判断)。config.yaml の
+ * 変更はこの検出の対象外(既知の限界。設計 §論点1-B)
+ */
+function checkFramesFreshness(dir: string, warnings: Problem[]): void {
+  const freshness = framesFreshness(dir);
+  if (freshness.state !== "stale") return;
+  warnings.push({
+    file: "frames/index.json",
+    where: "-",
+    message:
+      `frames は撮影後に ${freshness.changed.join("、")} が変更されており古い可能性があります。` +
+      "古い PNG を読まないよう `node src/cli.ts frames <dir> ...` で撮り直してください" +
+      "(config.yaml の変更はこの検出の対象外です)",
+  });
 }
 
 /**

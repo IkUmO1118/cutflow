@@ -3,7 +3,16 @@
 // 実際に張れているかを固定する。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { validateDocs } from "../src/stages/validate.ts";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { validate, validateDocs } from "../src/stages/validate.ts";
+import { hashContent } from "../src/lib/framesIndex.ts";
 import type { LoadedDocs } from "../src/stages/validate.ts";
 
 // dir は overlays の素材存在チェックにしか使われない。素材参照を含まない
@@ -1027,4 +1036,85 @@ test("obs-canvas: ショート profile vertical / vertical-cover はどちらも
     },
   }));
   assert.ok(!r.errors.some((e) => e.where.endsWith(".profile")));
+});
+
+/* ---------------- fs 版 validate(dir): frames 鮮度警告(stale-PNG 対策) ---------------- */
+// docs/plans/2026-07-07-frames-server-design.md 課題1。frames/index.json
+// (撮影入力のフィンガープリント)と現在の JSON を突き合わせ、食い違えば
+// 警告する。純粋コア validateDocs は無改造(既存テストは上のとおり不変)。
+
+function withTmpProject(fn: (dir: string) => void): void {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-validate-fs-test-"));
+  try {
+    const write = (file: string, data: unknown) =>
+      writeFileSync(join(dir, file), JSON.stringify(data), "utf8");
+    write("manifest.json", { durationSec: 100 });
+    write("cutplan.json", {
+      approved: false,
+      segments: [{ start: 0, end: 10, action: "keep", reason: "本編" }],
+    });
+    write("transcript.json", { segments: [{ start: 1, end: 3, text: "こんにちは" }] });
+    write("overlays.json", {});
+    fn(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("fs版 validate: frames/index.json が無ければ(none)警告は増えない", () => {
+  withTmpProject((dir) => {
+    const r = validate(dir);
+    assert.ok(!r.warnings.some((w) => w.file === "frames/index.json"));
+  });
+});
+
+test("fs版 validate: frames/index.json のハッシュが現在の JSON と一致(fresh)なら警告なし", () => {
+  withTmpProject((dir) => {
+    mkdirSync(join(dir, "frames"), { recursive: true });
+    const cutplanContent = JSON.stringify({
+      approved: false,
+      segments: [{ start: 0, end: 10, action: "keep", reason: "本編" }],
+    });
+    const transcriptContent = JSON.stringify({
+      segments: [{ start: 1, end: 3, text: "こんにちは" }],
+    });
+    const overlaysContent = JSON.stringify({});
+    writeFileSync(
+      join(dir, "frames", "index.json"),
+      JSON.stringify({
+        capturedAt: new Date().toISOString(),
+        shot: { mode: "every", short: null, ocr: false, fullRes: false, count: 3 },
+        inputs: {
+          "cutplan.json": hashContent(cutplanContent),
+          "transcript.json": hashContent(transcriptContent),
+          "overlays.json": hashContent(overlaysContent),
+        },
+      }),
+    );
+    const r = validate(dir);
+    assert.ok(!r.warnings.some((w) => w.file === "frames/index.json"));
+  });
+});
+
+test("fs版 validate: cutplan.json を編集後(stale)は frames 撮り直し警告が出る", () => {
+  withTmpProject((dir) => {
+    mkdirSync(join(dir, "frames"), { recursive: true });
+    // index.json に記録したハッシュは撮影時点の(今と違う)内容のもの
+    writeFileSync(
+      join(dir, "frames", "index.json"),
+      JSON.stringify({
+        capturedAt: new Date().toISOString(),
+        shot: { mode: "every", short: null, ocr: false, fullRes: false, count: 3 },
+        inputs: {
+          "cutplan.json": hashContent(JSON.stringify({ approved: false, segments: [] })),
+          "transcript.json": hashContent(JSON.stringify({ segments: [] })),
+          "overlays.json": hashContent(JSON.stringify({})),
+        },
+      }),
+    );
+    const r = validate(dir);
+    const w = r.warnings.find((w) => w.file === "frames/index.json");
+    assert.ok(w, "frames 鮮度警告が出ていない");
+    assert.match(w!.message, /cutplan\.json/);
+  });
 });
