@@ -45,6 +45,13 @@ function resolveDir(dir: string): string {
   return abs;
 }
 
+/** --layout フラグの値を検査する。未指定は undefined(config 既定へ委ねる) */
+function parseLayoutOpt(v: string | undefined): "obs-canvas" | "plain" | "auto" | undefined {
+  if (v === undefined) return undefined;
+  if (v === "obs-canvas" || v === "plain" || v === "auto") return v;
+  throw new Error(`--layout の値が不正です: ${v}(plain|obs-canvas|auto のいずれか)`);
+}
+
 /**
  * plan / run / plan-shorts の再実行ガード。LLM の生成物で上書きされるファイルが
  * 既にあるときは --force を要求し(運用ルールだけに頼らない防御)、実行する場合も
@@ -82,10 +89,15 @@ function guardRerun(
 program
   .command("ingest <dir>")
   .description("収録ファイルを解析し manifest.json とマイク音声を生成")
-  .action(async (dir: string) => {
+  .option(
+    "--layout <layout>",
+    "収録レイアウト(plain|obs-canvas|auto)。省略時は config.yaml の ingest.layout",
+  )
+  .action(async (dir: string, opts: { layout?: string }) => {
     const cfg = loadConfig(program.opts().config);
     const abs = resolveDir(dir);
-    const m = await ingest(abs, findSource(abs), cfg);
+    const layout = parseLayoutOpt(opts.layout);
+    const m = await ingest(abs, findSource(abs), cfg, layout);
     console.log(
       `ingest 完了: ${m.durationSec.toFixed(1)}秒 / ` +
         `${m.video.width}x${m.video.height} ${m.video.fps.toFixed(0)}fps / ` +
@@ -361,16 +373,21 @@ program
     "--force",
     "既存の transcript / cutplan 等を上書きして再実行(実行前に backups/ へ退避)",
   )
-  .action(async (dir: string, opts: { force?: boolean }) => {
+  .option(
+    "--layout <layout>",
+    "収録レイアウト(plain|obs-canvas|auto)。省略時は config.yaml の ingest.layout",
+  )
+  .action(async (dir: string, opts: { force?: boolean; layout?: string }) => {
     const cfg = loadConfig(program.opts().config);
     const abs = resolveDir(dir);
+    const layout = parseLayoutOpt(opts.layout);
     guardRerun(
       abs,
       ["transcript.json", "cutplan.json", "chapters.json", "meta.json"],
       opts.force === true,
       "run",
     );
-    await ingest(abs, findSource(abs), cfg);
+    await ingest(abs, findSource(abs), cfg, layout);
     console.log("ingest 完了");
     await transcribe(abs, cfg);
     console.log("transcribe 完了");

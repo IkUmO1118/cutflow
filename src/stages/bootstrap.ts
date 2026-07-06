@@ -33,7 +33,9 @@ export async function bootstrapProject(dir: string, cfg: Config): Promise<void> 
     manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Manifest;
   } else {
     console.log("manifest.json が無いため ingest を実行します(動画を解析)...");
-    manifest = await ingest(dir, findSource(dir), cfg);
+    // editor 起動時のブートストラップは「動画だけのフォルダを開く」= 通常動画の
+    // ユースケースなので plain を明示する(config の既定が obs-canvas でも上書き)
+    manifest = await ingest(dir, findSource(dir), cfg, "plain");
   }
 
   const transcriptPath = join(dir, "transcript.json");
