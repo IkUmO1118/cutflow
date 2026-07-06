@@ -13,9 +13,12 @@ import {
   validateConfigPatch,
 } from "../src/lib/configEdit.ts";
 import {
+  DEFAULT_PERCEPTION_OCR_MAX_LINES,
+  DEFAULT_PERCEPTION_OCR_MAX_SEGMENTS,
   DEFAULT_PLAN_SHORTS_MAX_DURATION_SEC,
   loadConfig,
   planShortsMaxSec,
+  resolvePerceptionCfg,
 } from "../src/lib/config.ts";
 import type { Config } from "../src/lib/config.ts";
 
@@ -344,6 +347,67 @@ ocr:
     );
     const cfg = loadConfig(path);
     assert.deepEqual(cfg.ocr?.languages, ["en"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("resolvePerceptionCfg: plan 省略時は全オフ+既定値", () => {
+  assert.deepEqual(resolvePerceptionCfg({} as Config), {
+    audio: false,
+    ocr: false,
+    ocrMaxSegments: DEFAULT_PERCEPTION_OCR_MAX_SEGMENTS,
+    ocrMaxLines: DEFAULT_PERCEPTION_OCR_MAX_LINES,
+  });
+  assert.equal(DEFAULT_PERCEPTION_OCR_MAX_SEGMENTS, 40);
+  assert.equal(DEFAULT_PERCEPTION_OCR_MAX_LINES, 6);
+});
+
+test("resolvePerceptionCfg: plan.perception 省略時も全オフ+既定値", () => {
+  assert.deepEqual(resolvePerceptionCfg({ plan: {} } as Config), {
+    audio: false,
+    ocr: false,
+    ocrMaxSegments: DEFAULT_PERCEPTION_OCR_MAX_SEGMENTS,
+    ocrMaxLines: DEFAULT_PERCEPTION_OCR_MAX_LINES,
+  });
+});
+
+test("resolvePerceptionCfg: audio だけ指定すれば他は既定のまま", () => {
+  assert.deepEqual(
+    resolvePerceptionCfg({ plan: { perception: { audio: true } } } as Config),
+    {
+      audio: true,
+      ocr: false,
+      ocrMaxSegments: DEFAULT_PERCEPTION_OCR_MAX_SEGMENTS,
+      ocrMaxLines: DEFAULT_PERCEPTION_OCR_MAX_LINES,
+    },
+  );
+});
+
+test("resolvePerceptionCfg: 全項目を明示指定すればそのまま通る", () => {
+  assert.deepEqual(
+    resolvePerceptionCfg({
+      plan: { perception: { audio: true, ocr: true, ocrMaxSegments: 10, ocrMaxLines: 3 } },
+    } as Config),
+    { audio: true, ocr: true, ocrMaxSegments: 10, ocrMaxLines: 3 },
+  );
+});
+
+test("loadConfig: plan 省略時は cfg.plan が undefined のまま(defaulting しない=バイト等価)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = join(dir, "config.yaml");
+    writeFileSync(
+      path,
+      `recordingsDir: ~/Movies/cutflow
+whisper:
+  bin: whisper-cli
+  model: ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin
+  language: ja
+`,
+    );
+    const cfg = loadConfig(path);
+    assert.equal(cfg.plan, undefined);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

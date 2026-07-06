@@ -157,6 +157,15 @@ planShorts:
   # 尺合計をこの値以下に収める(超過分は末尾の区間を落とす)。YouTube ショートは60秒
   maxDurationSec: 60
 
+# plan(カット判断 LLM。plan / plan --cuts-only / remeta)へ発話以外の
+# 知覚を添える(既定オフ。省略すれば導入前と完全にバイト等価)
+# plan:
+#   perception:
+#     audio: true        # 無音・間の注記(決定論・追加依存なし。まずこれから)
+#     ocr: false         # 画面OCRテキスト(macOS/Apple Vision 必要・区間数ぶん重い)
+#     ocrMaxSegments: 40
+#     ocrMaxLines: 6
+
 # 意味カット・章立て・タイトル案の生成
 llm:
   # claude-cli: Claude Code のサブスクで実行(APIキー不要)
