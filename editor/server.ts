@@ -27,6 +27,7 @@ import {
 import { APPROVAL_FILE } from "../src/lib/files.ts";
 import { run } from "../src/lib/exec.ts";
 import { ensureIds, hasAnyId, ID_PREFIX, usedIdsOf } from "../src/lib/ids.ts";
+import { mergeBodyOverDisk } from "../src/lib/applyEdits.ts";
 import { bootstrapProject } from "../src/stages/bootstrap.ts";
 import { buildProxy, isProxyStale } from "../src/stages/proxy.ts";
 import { preview } from "../src/stages/preview.ts";
@@ -723,26 +724,17 @@ export function stampSaveBody(
   return { ...body, cutplan, transcript, overlays, bgm, shorts };
 }
 
-/** 編集結果の保存。渡されたドキュメントだけを書く(それ以外のファイルは不可侵) */
-function saveProject(dir: string, body: SaveRequest): void {
+/** 編集結果の保存。渡されたドキュメントだけを書く(それ以外のファイルは不可侵)。
+ * export はテスト用(test/saveProject.test.ts。HTTP サーバは起動せず直接呼ぶ) */
+export function saveProject(dir: string, body: SaveRequest): void {
   // 書く前に CLI の validate と同じ純粋検査を通す。GUI が壊れた JSON を書き、
   // preview / render で数分後に気づく事故を防ぐ。ディスクの現状(manifest や
-  // 変更していないファイル)に body の変更を重ねた状態を検査する
-  const readDisk = (file: string): unknown => {
-    const p = join(dir, file);
-    return existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : null;
-  };
-  const { errors } = validateDocs(dir, {
-    manifest: readDisk("manifest.json"),
-    cutplan: body.cutplan ?? readDisk("cutplan.json"),
-    transcript: body.transcript ?? readDisk("transcript.json"),
-    overlays: body.overlays ?? readDisk("overlays.json"),
-    bgm: body.bgm !== undefined ? body.bgm : readDisk("bgm.json"),
-    chapters: readDisk("chapters.json"),
-    meta: readDisk("meta.json"),
-    shorts: body.shorts !== undefined ? body.shorts : readDisk("shorts.json"),
-    thumbnail: readDisk("thumbnail.json"),
-  });
+  // 変更していないファイル)に body の変更を重ねた状態を検査する。
+  // 「ディスク現状へ body を重ねる」写像は CLI apply と共有する
+  // mergeBodyOverDisk(src/lib/applyEdits.ts §論点3)に抽出済み。SaveRequest は
+  // ApplyBody の構造的サブセット(chapters/thumbnail キーを持たないため
+  // 常にディスク現状にフォールバックする=挙動不変)
+  const { errors } = validateDocs(dir, mergeBodyOverDisk(dir, body));
   if (errors.length > 0) {
     const detail = errors.map((e) => `${e.file} ${e.where}: ${e.message}`).join(" / ");
     throw new HttpError(400, `保存できません(整合性エラー ${errors.length}件): ${detail}`);
