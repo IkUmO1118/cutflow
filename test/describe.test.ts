@@ -20,6 +20,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe } from "../src/stages/describe.ts";
+import { hashContent } from "../src/lib/framesIndex.ts";
 
 let dir: string;
 
@@ -265,6 +266,76 @@ test("散文 describe() は golden とバイト等価(リファクタ・JSON 射
       "utf8",
     );
     assert.equal(out, golden);
+  } finally {
+    rmSync(rich, { recursive: true, force: true });
+  }
+});
+
+/* ---------------- frames 鮮度(stale-PNG 対策)の追記 ---------------- */
+// docs/plans/2026-07-07-frames-server-design.md 課題1。golden fixture 自体は
+// frames/index.json を持たない(=none)ため上の golden テストは無出力のまま
+// 不変(この錠が壊れていないことは golden テストの緑で担保済み)。ここでは
+// index.json を足した別コピーで fresh/stale の追記行を確認する。
+
+test("describe: frames/index.json が無ければ(none)何も追記しない", () => {
+  const rich = mkdtempSync(join(tmpdir(), "cutflow-describe-frames-none-"));
+  try {
+    buildRichFixture(rich);
+    const out = describe(rich);
+    assert.ok(!out.includes("frames/"));
+  } finally {
+    rmSync(rich, { recursive: true, force: true });
+  }
+});
+
+test("describe: frames/index.json が現在の JSON と一致(fresh)なら現況行を1行足す", () => {
+  const rich = mkdtempSync(join(tmpdir(), "cutflow-describe-frames-fresh-"));
+  try {
+    buildRichFixture(rich);
+    const cutplanContent = readFileSync(join(rich, "cutplan.json"), "utf8");
+    const transcriptContent = readFileSync(join(rich, "transcript.json"), "utf8");
+    const overlaysContent = readFileSync(join(rich, "overlays.json"), "utf8");
+    mkdirSync(join(rich, "frames"), { recursive: true });
+    writeFileSync(
+      join(rich, "frames", "index.json"),
+      JSON.stringify({
+        capturedAt: new Date().toISOString(),
+        shot: { mode: "every", short: null, ocr: false, fullRes: false, count: 5 },
+        inputs: {
+          "cutplan.json": hashContent(cutplanContent),
+          "transcript.json": hashContent(transcriptContent),
+          "overlays.json": hashContent(overlaysContent),
+        },
+      }),
+    );
+    const out = describe(rich);
+    assert.ok(out.includes("frames/: --every 撮影・5枚(現在の JSON と一致)"));
+    // fresh は「撮り直せ」の勧告(stale 用の文言)は出ない
+    assert.ok(!out.includes("frames は撮影後に"));
+  } finally {
+    rmSync(rich, { recursive: true, force: true });
+  }
+});
+
+test("describe: cutplan.json 編集後(stale)は撮り直し勧告を足す", () => {
+  const rich = mkdtempSync(join(tmpdir(), "cutflow-describe-frames-stale-"));
+  try {
+    buildRichFixture(rich);
+    mkdirSync(join(rich, "frames"), { recursive: true });
+    writeFileSync(
+      join(rich, "frames", "index.json"),
+      JSON.stringify({
+        capturedAt: new Date().toISOString(),
+        shot: { mode: "times", short: null, ocr: false, fullRes: false, count: 1 },
+        inputs: {
+          "cutplan.json": hashContent(JSON.stringify({ approved: false, segments: [] })),
+          "transcript.json": hashContent(JSON.stringify({ segments: [] })),
+          "overlays.json": hashContent(JSON.stringify({})),
+        },
+      }),
+    );
+    const out = describe(rich);
+    assert.match(out, /⚠ frames は撮影後に.*cutplan\.json.*変更/);
   } finally {
     rmSync(rich, { recursive: true, force: true });
   }

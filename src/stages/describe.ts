@@ -6,6 +6,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fmtT } from "../lib/fmt.ts";
+import { framesFreshness } from "../lib/framesIndex.ts";
+import type { FramesShot } from "../lib/framesIndex.ts";
 import { loadShorts } from "../lib/shorts.ts";
 import {
   buildTimeline,
@@ -269,7 +271,36 @@ export function describe(dir: string): string {
       );
     }
   }
+
+  /* ---- frames の鮮度(stale-PNG 罠対策。none は無出力=golden 不変) ---- */
+  const freshness = framesFreshness(dir);
+  if (freshness.state === "stale") {
+    lines.push("");
+    lines.push(
+      `⚠ frames は撮影後に ${freshness.changed.join("、")} が変更されており古い可能性があります。` +
+        "古い PNG を読まないよう `node src/cli.ts frames <dir> ...` で撮り直してください" +
+        "(config.yaml の変更はこの検出の対象外です)",
+    );
+  } else if (freshness.state === "fresh") {
+    lines.push("");
+    lines.push(`frames/: ${describeShot(freshness.shot)}(現在の JSON と一致)`);
+  }
+  // freshness.state === "none"(index.json 無し=未撮影/機能導入前)は
+  // 意図的に無出力(golden test を1バイトも動かさない)
+
   return lines.join("\n");
+}
+
+/** frames/index.json の shot を「何の絵が今 frames/ に入っているか」の
+ * 一行に整形する(例: "--short intro の --every 撮影・6枚")。取り違え
+ * (本編を見ているつもりでショートの PNG を読む等)予防の情報提供のみ */
+function describeShot(shot: FramesShot): string {
+  const modeFlag = shot.mode === "times" ? "--t" : `--${shot.mode}`;
+  const shortPrefix = shot.short ? `--short ${shot.short} の ` : "";
+  const suffix = [shot.ocr ? "--ocr" : null, shot.fullRes ? "--full-res" : null]
+    .filter((s): s is string => s !== null)
+    .join(" ");
+  return `${shortPrefix}${modeFlag} 撮影${suffix ? `(${suffix})` : ""}・${shot.count}枚`;
 }
 
 /* ==================================================================== */
