@@ -44,8 +44,11 @@ export interface ProjectData {
   previewCfg: { width: number };
   /** エディタ設定(サーバー側で省略時の既定値まで解決した実値) */
   editorCfg: EditorCfg;
-  /** 最終レンダーの出力解像度(config の screenRegion) */
+  /** 最終レンダーの出力解像度(manifest の screenRegion) */
   output: { w: number; h: number };
+  /** カメラ(ワイプ)を持つレイアウトか(obs-canvas かつ cameraRegion あり)。
+   * plain(カメラ無し)ではワイプトラック・全画面区間 UI を出さない */
+  hasCamera: boolean;
   /** 前回のセッションが保存せずに終わった(クラッシュ等)ときに残る
    * 未保存編集の退避(.editor-draft.json)。無ければ null */
   draft: DraftData | null;
