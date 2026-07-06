@@ -2,6 +2,58 @@
 
 動画台本・概要欄の素材を兼ねる。新しい判断は上に追記する。
 
+## 2026-07-06 plain × マージ後機能(shorts / zooms / colorFilter / thumbnail)の整合
+
+**背景**: 下の「通常動画(plain)は…」判断は feature/editor-bootstrap 単独開発時
+(profile.ts / zooms 未マージ)に書かれた。その後 feature/editor-improvements
+(ショート・ズーム・パネル・チャンク差分レンダー・colorFilter・サムネイル)が
+マージされ、plain とこれらの相互作用を確定する必要が出た。実装分解は
+`docs/plans/plain-video-support.md`(マージ後コードで改訂済み)。
+
+**判断(採用)**:
+1. **出力解像度の真実源一本化は `resolveProfile` の付け替えで行う**。マージ後は
+   「出力解像度 = default プロファイル」の解決が `src/lib/profile.ts` の
+   `resolveProfile(cfg, "default")` に集約され、render / frames / thumbnail /
+   editor がそこ経由で `cfg.ingest.screenRegion` に到達する。`resolveProfile` の
+   引数を cfg から**出力サイズ(manifest.video.screenRegion)**へ変えれば、消費
+   箇所すべてが一点で manifest 由来になる(editor はクライアントが server の
+   `output` を読むので server 側 1 行で追随)。
+2. **wipeFull は plain で validate エラー**(カメラ=crop 元が無い)。方針は初版から
+   維持。`layerOrder` に `wipe` があれば警告(無視される旨)。
+3. **zooms / colorFilter / thumbnail は plain でそのまま使える**。実コードで確認:
+   zooms はベース映像の**背景=画面クロップだけ**を拡大する(remotion/Main.tsx の
+   背景レイヤーに transform)ためカメラ非依存。colorFilter はベース映像への CSS
+   filter で plain では画面クロップだけに掛かる。thumbnail は default プロファイルで
+   `buildRenderProps` を通すだけ(全編 keep+texts)。いずれも B1 のワイプ非描画
+   ガードの上でそのまま成立する。validate の zoom rect 上限は manifest.screenRegion
+   (plain では全フレーム)で判定するので追加作業なし。
+4. **plain のショートは「カメラ=全フレーム」の規約で成立させる**。縦プリセット
+   `vertical` / `vertical-cover` は `source:"camera"` パネル前提(profile.ts)。
+   plain には物理的なカメラが無いので、描画側で **camera パネルを screen(全
+   フレーム)へ解決**する。これで `vertical-cover`(カメラ全面)は「画面全体を
+   縦へ cover」になり、元から縦のスマホ動画は追加加工なしで綺麗に出る。ただし
+   `vertical`(画面+カメラの2段スタック)は plain では同じフレームを2枚重ねる
+   だけで無意味なので **validate エラー**にする(profile 名ではなく layout の
+   panel source 集合=screen と camera が両方あるか、で判定)。
+5. **チャンク差分レンダー / render.key は cameraRegion optional で無改造**。
+   `chunkPlan.globalVideoProps` は screenRegion / cameraRegion / width / height を
+   既にキーへ含み、`stableHash`(JSON.stringify+キーソート)が undefined を落とす
+   ので plain でも決定的。obs↔plain はこれらのどれかが必ず違うのでキーは自然に
+   分かれる(layout タグをキーへ足す必要は無い=冗長)。
+
+**捨てた案**:
+- **plain のショートを一律 validate エラー(未対応)にする**: 実装は最小だが、
+  「元から縦のスマホ動画をショートにする」という自然な要求まで塞ぐ。camera→screen
+  の1行の解決で成立するので、塞ぐ理由が弱い。
+- **plain 専用の縦プロファイル(`vertical-screen` 等)を新設する**: プリセットが
+  増えると D1(プリセットは閉じた組み込み・設定爆発の回避)に逆行する。既存
+  `vertical-cover` を「カメラ=全フレーム」で読み替える方が組み込みを増やさない。
+- **camera→screen を profile 解決時(resolveProfile)に静的に書き換える**: profile は
+  manifest を知らない純データにしておきたい(cfg 依存を外す F4 の方針と整合)ので、
+  manifest(=カメラの有無)を知っている描画側(Main.tsx renderPanels)で解決する。
+- **cache キーに layout タグを足す**: 上記5のとおり width/height/region で既に
+  区別できるので冗長。真実源を増やさない。
+
 ## 2026-07-06 通常動画(plain)は「カメラの無い obs-canvas」として一級サポート
 
 **判断**: OBS 拡張キャンバスでない通常動画(スマホ・カメラ・画面録画)を、
@@ -37,16 +89,12 @@ manifest に `layout: "obs-canvas" | "plain"` の区別を持たせて ingest〜
   最低でも W×H 完全一致を条件にすべきで、それでも 3840x1080 の通常動画は誤る。
   よって既定は明示、auto は逃げ道付きの opt-in にした。
 
-**訂正(引き継ぎ資料の事実誤り)**: `src/lib/profile.ts`(ショート縦プロファイル)・
-ズーム映像効果・validate の出力解像度チェックは**いずれも実在しない**。縦ショート/
-zoom/vertical-cover は今回スコープ外(plain で縦は縦のまま出るので一次要件は充足)。
-
-> **付記(マージ後)**: 上記の「訂正」は本判断を feature/editor-bootstrap 上で
-> 単独開発していた時点(profile.ts/zooms 未マージ)の事実。直後に
-> feature/editor-improvements をマージした結果、`src/lib/profile.ts`・
-> ズーム(`overlays.json` の `zooms`)は実在するようになった(下の
-> 2026-07-06 の各判断を参照)。plain 対応の実装時はこれらとの整合を
-> 取ること。
+> **失効(マージ後)**: 本判断の初版にあった「訂正(profile.ts・zooms・vertical-cover
+> は実在しない)」の段落は、feature/editor-bootstrap 単独開発時点の事実であり、
+> feature/editor-improvements のマージで**すべて失効**した(profile.ts・zooms・
+> vertical-cover はいずれも実在する)。plain とこれらの整合は上の
+> 「plain × マージ後機能」判断で確定した。実装分解も
+> `docs/plans/plain-video-support.md` をマージ後コードで改訂済み。
 
 ## 2026-07-06 簡易カラー調整(overlays.json の colorFilter)とサムネイル生成(thumbnail.json)
 
