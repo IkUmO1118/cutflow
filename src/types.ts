@@ -361,6 +361,11 @@ export interface Overlays {
    * 例外的に継承される(本編とショートで肌色が変わる事故を防ぐため。
    * render.ts のショート経路がここだけ拾って渡す) */
   colorFilter?: ColorFilter;
+  /** 領域ぼかし/モザイク(秘匿情報の目隠し)。かかるのはベース映像
+   * (画面クロップ)だけで、素材・挿入・テロップは対象外。zoom には追従せず
+   * 出力px固定。ショート(profile 経路)には継承されない(座標が本編基準の
+   * ため。shorts があると validate が警告する) */
+  blurs?: BlurRegion[];
 }
 
 /** 簡易カラー調整(overlays.json の colorFilter)。各キー省略可・既定 1.0
@@ -387,6 +392,31 @@ export interface Zoom {
 
 /** render.zoom.easeSec 未指定時の既定(秒)。renderProps と設定画面で共有 */
 export const DEFAULT_ZOOM_EASE_SEC = 0.4;
+
+/** 領域ぼかし/モザイクの効果種別。省略時 "blur"。
+ * 将来 "box"(単色塗り)を足す場合はここに追加する(今はスコープ外) */
+export type BlurType = "blur" | "mosaic";
+
+/** 領域ぼかし/モザイク1件(overlays.json の blurs)。開発画面の API キー・
+ * PII・パスワードなど、ベース映像(画面クロップ)の一部を隠す。start/end は
+ * 元収録の秒、rect は出力px({x,y,w,h}。テロップ pos・zooms rect と同座標系)。
+ * かかるのはベース映像だけ。zoom には追従せず出力px固定(zoom と時間が重なる
+ * と validate が警告する)。ショート(profile 経路)には継承されない */
+export interface BlurRegion {
+  start: number;
+  end: number;
+  /** 隠す矩形(出力px)。画面外へはみ出すと validate がエラーにする */
+  rect: Region;
+  /** 効果種別。省略時 "blur"(CSS ぼかし)。"mosaic" はピクセル化 */
+  type?: BlurType;
+  /** 強度(0〜1)。省略時 0.5。type ごとに px へ写像する
+   * (blur=ぼかし半径 / mosaic=ブロック辺長。src/lib/blur.ts) */
+  strength?: number;
+}
+
+/** BlurRegion.strength / type 未指定時の既定。renderProps と描画・検査で共有 */
+export const DEFAULT_BLUR_STRENGTH = 0.5;
+export const DEFAULT_BLUR_TYPE: BlurType = "blur";
 
 /** 人間が書く BGM 指定(bgm.json)。ファイルが無ければ、収録フォルダ直下の
  * bgm.mp3 / bgm.m4a / bgm.wav(あれば)を全編1曲として流す従来動作になる。
