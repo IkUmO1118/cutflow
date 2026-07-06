@@ -81,12 +81,15 @@
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
   }
-  /* 収録フォルダ名は左右のツール群と重ならないようヘッダー中央に絶対配置する */
+  /* プロジェクト名は brand の隣に左寄せのパンくず(cutflow / <フォルダ名>)。
+     一過性状態がトースト/バナー/インスペクタへ抜けたので中央絶対配置(衝突
+     回避策)は不要になった。狭幅ではフォルダ名を ellipsis で省略(フルパスは
+     title に持つ) */
+  header .brand { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+  header .brand .sep { color: var(--dim); font-size: 12px; }
   header .path {
-    position: absolute; left: 50%; transform: translateX(-50%);
-    max-width: 40%;
+    max-width: 40vw;
     font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    pointer-events: none;
   }
   header .approve {
     display: flex; align-items: center; gap: 6px;
