@@ -52,6 +52,7 @@ import {
   toOutputTime,
   toSourceTime,
 } from "../lib/timeline.ts";
+import { writeFramesIndex } from "../lib/framesIndex.ts";
 import { runOcr } from "../lib/ocr.ts";
 import { buildScreenStill } from "../lib/screenStill.ts";
 import { buildProxy, isProxyStale } from "./proxy.ts";
@@ -252,6 +253,16 @@ export async function frames(
   } finally {
     await browser.close({ silent: true });
   }
+  // 撮影入力のフィンガープリントを記録(stale-PNG 対策。validate/describe が
+  // これと現在の JSON を突き合わせて「撮り直せ」を警告する。props.json と
+  // 同じ中間生成物の扱いで、全消しループの対象にはしない)
+  writeFramesIndex(dir, {
+    mode: req.mode,
+    short: shortName ?? null,
+    ocr: ocr ?? false,
+    fullRes: fullRes ?? false,
+    count: unique.length,
+  });
   return shots;
 }
 
