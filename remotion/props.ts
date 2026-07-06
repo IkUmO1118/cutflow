@@ -140,6 +140,11 @@ export type RenderProps = {
    * ベース映像の背景レイヤーだけを拡大する(ワイプ・テロップ・素材・挿入は
    * 動かない)。省略時(空)は現行の描画と完全に同じ */
   zooms?: { start: number; end: number; rect: Region; easeSec: number }[];
+  /** 領域ぼかし/モザイク(overlays.json の blurs。カット後の秒へ写像・
+   * type/strength 解決済み)。ベース映像(画面クロップ)の rect 部分だけを
+   * 隠す。zoom 追従なしの出力px固定。省略時(空)は現行の描画と完全に同じ。
+   * props.layout(ショート/縦)経路では描画しない(本編のみ) */
+  blurs?: { start: number; end: number; rect: Region; type: "blur" | "mosaic"; strength: number }[];
   /** カット境界のディップ・トゥ・ブラック(config.yaml の render.cutTransition
    * が dip-to-black のときだけ載る)。sec は黒への往復の合計秒 */
   cutTransition?: { sec: number };
