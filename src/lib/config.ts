@@ -16,7 +16,15 @@ export interface Config {
      *  auto = キャンバス寸法(W×H)が完全一致なら obs-canvas、それ以外は plain */
     layout?: "obs-canvas" | "plain" | "auto";
   };
-  whisper: { bin: string; model: string; language: string };
+  whisper: {
+    bin: string;
+    model: string;
+    language: string;
+    /** 語/トークン単位のタイミング(WordTiming)を transcript.json に付加するか。
+     * 省略時 false(既存挙動と完全一致・words を一切書かない)。true で
+     * whisper 実行を -ojf に切り替え、各 segment に words[] を付加する */
+    wordTimestamps?: boolean;
+  };
   detect: {
     silenceDb: number;
     minSilenceSec: number;
@@ -161,5 +169,6 @@ export function loadConfig(explicitPath?: string): Config {
   const cfg = parse(readFileSync(resolveConfigPath(explicitPath), "utf8")) as Config;
   cfg.recordingsDir = expandHome(cfg.recordingsDir);
   cfg.whisper.model = expandHome(cfg.whisper.model);
+  cfg.whisper.wordTimestamps ??= false;
   return cfg;
 }
