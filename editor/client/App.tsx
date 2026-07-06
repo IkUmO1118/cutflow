@@ -626,10 +626,14 @@ export const App = () => {
   );
   const tracks = useMemo(() => {
     const capCount = layerOrder.filter((id) => capNum(id) !== null).length;
-    return buildTracks(layerOrder, (n) =>
+    // plain(カメラ無し)ではワイプトラックを表示から隠す。overlays.json に
+    // 保存する layerOrder(上の useMemo)は触らず、表示用の並びだけ除外する
+    const displayOrder =
+      proj?.hasCamera === false ? layerOrder.filter((id) => id !== "wipe") : layerOrder;
+    return buildTracks(displayOrder, (n) =>
       overlays ? captionTrackName(n, overlays, capCount) : undefined,
     );
-  }, [layerOrder, overlays]);
+  }, [layerOrder, overlays, proj]);
   /** 素材トラックの本数(Inspector のトラック選択肢にも使う) */
   const ovTracks = useMemo(
     () => layerOrder.reduce((n, id) => Math.max(n, ovNum(id) ?? 0), 0),
@@ -929,21 +933,24 @@ export const App = () => {
         });
       });
     });
-    // ワイプ: 常駐レイヤー(表示のみ)+ その上に「全画面」属性スパン
-    cs.push({
-      kind: "wipe", index: 0, track: "wipe",
-      outStart: 0, outEnd: duration, label: "カメラ", editable: false, static: true,
-    });
-    (overlays.wipeFull ?? []).forEach((sp, i) => {
-      const parts = remapInterval(sp.start, sp.end, timeline);
-      parts.forEach((iv, j) => {
-        cs.push({
-          kind: "wipeFull", index: i, track: "wipe",
-          outStart: iv.start, outEnd: iv.end, label: "全画面", editable: true,
-          noTrimStart: j > 0, noTrimEnd: j < parts.length - 1,
+    // ワイプ: 常駐レイヤー(表示のみ)+ その上に「全画面」属性スパン。
+    // plain(カメラ無し)はワイプトラック自体を出さないので clip も積まない
+    if (built.props.cameraRegion) {
+      cs.push({
+        kind: "wipe", index: 0, track: "wipe",
+        outStart: 0, outEnd: duration, label: "カメラ", editable: false, static: true,
+      });
+      (overlays.wipeFull ?? []).forEach((sp, i) => {
+        const parts = remapInterval(sp.start, sp.end, timeline);
+        parts.forEach((iv, j) => {
+          cs.push({
+            kind: "wipeFull", index: i, track: "wipe",
+            outStart: iv.start, outEnd: iv.end, label: "全画面", editable: true,
+            noTrimStart: j > 0, noTrimEnd: j < parts.length - 1,
+          });
         });
       });
-    });
+    }
     // ズーム: 背景レイヤーを拡大する区間(専用の「ズーム」トラック)
     (overlays.zooms ?? []).forEach((z, i) => {
       const parts = remapInterval(z.start, z.end, timeline);
@@ -1174,11 +1181,14 @@ export const App = () => {
   /** 位置未指定テロップの標準位置(下部中央のテキスト中心。1行ぶんで近似) */
   const stdCaptionPos = useMemo<CaptionPos>(() => {
     if (!built) return { x: 0, y: 0 };
-    const { width, height, wipe, caption, captionDefaultPos } = built.props;
+    const { width, height, wipe, caption, captionDefaultPos, cameraRegion } = built.props;
     // 縦プリセット等、profile が既定テロップ位置を持つときはそれを使う
     if (captionDefaultPos) return { x: captionDefaultPos.x, y: captionDefaultPos.y };
+    // カメラがあるときだけワイプ回避の右側予約を引く(B1 の Remotion 側と同規約)。
+    // plain(カメラ無し)は全幅中央
+    const reserve = cameraRegion ? wipe.widthPx + wipe.marginPx * 2 : 0;
     return {
-      x: Math.round((width - wipe.widthPx - wipe.marginPx * 2) / 2),
+      x: Math.round((width - reserve) / 2),
       y: Math.round(height - wipe.marginPx - caption.fontSizePx * 0.7),
     };
   }, [built]);

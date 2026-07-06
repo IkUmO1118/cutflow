@@ -33,6 +33,7 @@ import {
 } from "../src/lib/configEdit.ts";
 import type { ConfigPatch } from "../src/lib/configEdit.ts";
 import { loadShorts } from "../src/lib/shorts.ts";
+import { hasCamera } from "../src/types.ts";
 import type {
   AutoCuts,
   Bgm,
@@ -387,6 +388,7 @@ function loadProject(dir: string, cfg: Config): ProjectData {
     previewCfg: { width: cfg.preview.width },
     editorCfg: resolvedEditorCfg(cfg, DEFAULT_MAX_UPLOAD_MB),
     output: { w: manifest.video.screenRegion.w, h: manifest.video.screenRegion.h },
+    hasCamera: hasCamera(manifest),
     draft,
   };
 }
