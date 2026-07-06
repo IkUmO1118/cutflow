@@ -313,6 +313,9 @@ node src/cli.ts thumbnail <dir>    # thumbnail.png を書き出す
   config.yaml の `render.wipeTransitionSec`(既定 0.3 秒、0 で瞬時。エディタの
   設定画面 ⌘, からも変更可)でなめらかに遷移する。遷移は区間全体の頭と末尾に
   だけ入り、カット・挿入・隣接エントリで区間が繋がっている継ぎ目では走らない
+  - 通常動画(`manifest.layout: "plain"`。カメラの無い収録)では**使えない**
+    (ワイプの crop 元が無いため。`validate` がエラーにする)。`layerOrder` に
+    `wipe` を含めても無視されるだけ(警告)
 - **zooms**: 画面の一部を拡大して見せる(Ken Burns 的な寄り)。「画面のこの
   部分に注目」を作る演出で、区間どうしは重ならないこと(validate がエラーにする)
   - `rect`: 拡大する矩形 `{x, y, w, h}`(出力px。テロップ `pos` や overlays の
