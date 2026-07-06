@@ -36,11 +36,12 @@ import {
   materialFilesOf,
   renderCacheKeyEquals,
 } from "../lib/renderKey.ts";
-import { resolveProfile } from "../lib/profile.ts";
+import { defaultShortProfileName, resolveProfile } from "../lib/profile.ts";
 import { buildRenderProps } from "../lib/renderProps.ts";
 import { loadShort, loadShorts } from "../lib/shorts.ts";
 import { mergeIntervals } from "../lib/timeline.ts";
 import { timed } from "../lib/timing.ts";
+import { hasCamera } from "../types.ts";
 import type { ChunksCacheKey, FileStat } from "../lib/chunkPlan.ts";
 import type { CutCacheKey } from "../lib/cutCache.ts";
 import type { RenderCacheKey } from "../lib/renderKey.ts";
@@ -330,7 +331,10 @@ async function renderOneShort(
   const mainOverlays: Overlays = existsSync(overlaysPath)
     ? (JSON.parse(readFileSync(overlaysPath, "utf8")) as Overlays)
     : {};
-  const profile = resolveProfile(manifest.video.screenRegion, short.profile ?? "vertical");
+  const profile = resolveProfile(
+    manifest.video.screenRegion,
+    short.profile ?? defaultShortProfileName(hasCamera(manifest)),
+  );
   const shortOverlays: Overlays = {
     captionTracks: short.captionTracks,
     ...(mainOverlays.colorFilter ? { colorFilter: mainOverlays.colorFilter } : {}),

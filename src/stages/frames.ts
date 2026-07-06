@@ -34,7 +34,7 @@ import {
   selectComposition,
 } from "@remotion/renderer";
 import { fmtT } from "../lib/fmt.ts";
-import { resolveProfile } from "../lib/profile.ts";
+import { defaultShortProfileName, resolveProfile } from "../lib/profile.ts";
 import { buildRenderProps } from "../lib/renderProps.ts";
 import { loadShort } from "../lib/shorts.ts";
 import {
@@ -44,6 +44,7 @@ import {
   toOutputTime,
 } from "../lib/timeline.ts";
 import { buildProxy, isProxyStale } from "./proxy.ts";
+import { hasCamera } from "../types.ts";
 import type { Config } from "../lib/config.ts";
 import type { Profile } from "../lib/profile.ts";
 import type { CutPlan, Interval, Manifest, Overlays, Transcript } from "../types.ts";
@@ -99,7 +100,10 @@ export async function frames(
       captionTracks: short.captionTracks,
       ...(mainOverlays.colorFilter ? { colorFilter: mainOverlays.colorFilter } : {}),
     };
-    profile = resolveProfile(manifest.video.screenRegion, short.profile ?? "vertical");
+    profile = resolveProfile(
+      manifest.video.screenRegion,
+      short.profile ?? defaultShortProfileName(hasCamera(manifest)),
+    );
   } else {
     const cutplan = readJson<CutPlan>("cutplan.json", null);
     keeps = mergeIntervals(cutplan.segments.filter((s) => s.action === "keep"));
