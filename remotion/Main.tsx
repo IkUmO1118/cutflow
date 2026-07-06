@@ -305,14 +305,16 @@ export const Main = (props: RenderProps) => {
           </div>
         );
       }
+      // カメラがあるときだけワイプと重ならないよう右側を空ける。plain
+      // (カメラ無し)は予約ゼロ=全幅中央にする(B1)
+      const reserve = props.cameraRegion ? props.wipe.widthPx + props.wipe.marginPx * 2 : 0;
       return (
         <div
           style={{
             position: "absolute",
             bottom: props.wipe.marginPx,
             left: 0,
-            // ワイプと重ならないように右側を空ける
-            width: props.width - props.wipe.widthPx - props.wipe.marginPx * 2,
+            width: props.width - reserve,
             display: "flex",
             justifyContent: "center",
           }}
