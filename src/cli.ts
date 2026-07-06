@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Command } from "commander";
 import { EDITABLE_FILES, backupEditableFiles } from "./lib/backup.ts";
 import { loadConfig, resolveConfigPath } from "./lib/config.ts";
+import { findSource } from "./lib/findSource.ts";
 import { ingest } from "./stages/ingest.ts";
 import { transcribe } from "./stages/transcribe.ts";
 import { detect } from "./stages/detect.ts";
@@ -38,27 +39,17 @@ program.hook("postAction", () => {
   console.log(`(所要時間: ${sec}秒)`);
 });
 
-/** 収録フォルダ内の raw ファイル(mkv/mp4/mov)を見つける */
-function findSource(dir: string): string {
-  const candidates = readdirSync(dir).filter((f) =>
-    /\.(mkv|mp4|mov)$/i.test(f),
-  );
-  if (candidates.length === 0) {
-    throw new Error(`${dir} に動画ファイル(mkv/mp4/mov)がありません`);
-  }
-  if (candidates.length > 1) {
-    // raw.* を優先、それ以外は最初の1本
-    const raw = candidates.find((f) => f.startsWith("raw."));
-    if (raw) return raw;
-    console.warn(`動画が複数あります。${candidates[0]} を使います。`);
-  }
-  return candidates[0];
-}
-
 function resolveDir(dir: string): string {
   const abs = resolve(dir);
   if (!existsSync(abs)) throw new Error(`フォルダがありません: ${abs}`);
   return abs;
+}
+
+/** --layout フラグの値を検査する。未指定は undefined(config 既定へ委ねる) */
+function parseLayoutOpt(v: string | undefined): "obs-canvas" | "plain" | "auto" | undefined {
+  if (v === undefined) return undefined;
+  if (v === "obs-canvas" || v === "plain" || v === "auto") return v;
+  throw new Error(`--layout の値が不正です: ${v}(plain|obs-canvas|auto のいずれか)`);
 }
 
 /**
@@ -98,10 +89,15 @@ function guardRerun(
 program
   .command("ingest <dir>")
   .description("収録ファイルを解析し manifest.json とマイク音声を生成")
-  .action(async (dir: string) => {
+  .option(
+    "--layout <layout>",
+    "収録レイアウト(plain|obs-canvas|auto)。省略時は config.yaml の ingest.layout",
+  )
+  .action(async (dir: string, opts: { layout?: string }) => {
     const cfg = loadConfig(program.opts().config);
     const abs = resolveDir(dir);
-    const m = await ingest(abs, findSource(abs), cfg);
+    const layout = parseLayoutOpt(opts.layout);
+    const m = await ingest(abs, findSource(abs), cfg, layout);
     console.log(
       `ingest 完了: ${m.durationSec.toFixed(1)}秒 / ` +
         `${m.video.width}x${m.video.height} ${m.video.fps.toFixed(0)}fps / ` +
@@ -143,16 +139,22 @@ program
     "--force",
     "既存の cutplan / chapters / meta を上書きして再実行(実行前に backups/ へ退避)",
   )
-  .action(async (dir: string, opts: { force?: boolean }) => {
+  .option(
+    "--cuts-only",
+    "カット判断だけを行い cutplan.json / plan.raw.txt だけを書く" +
+      "(chapters / meta / transcript の章テロップ / overlays の章トラックには触らない)",
+  )
+  .action(async (dir: string, opts: { force?: boolean; cutsOnly?: boolean }) => {
     const cfg = loadConfig(program.opts().config);
     const abs = resolveDir(dir);
+    const cutsOnly = opts.cutsOnly === true;
     guardRerun(
       abs,
-      ["cutplan.json", "chapters.json", "meta.json"],
+      cutsOnly ? ["cutplan.json"] : ["cutplan.json", "chapters.json", "meta.json"],
       opts.force === true,
       "plan",
     );
-    const p = await plan(abs, cfg);
+    const p = await plan(abs, cfg, { cutsOnly });
     printPlanSummary(p.segments);
   });
 
@@ -371,16 +373,21 @@ program
     "--force",
     "既存の transcript / cutplan 等を上書きして再実行(実行前に backups/ へ退避)",
   )
-  .action(async (dir: string, opts: { force?: boolean }) => {
+  .option(
+    "--layout <layout>",
+    "収録レイアウト(plain|obs-canvas|auto)。省略時は config.yaml の ingest.layout",
+  )
+  .action(async (dir: string, opts: { force?: boolean; layout?: string }) => {
     const cfg = loadConfig(program.opts().config);
     const abs = resolveDir(dir);
+    const layout = parseLayoutOpt(opts.layout);
     guardRerun(
       abs,
       ["transcript.json", "cutplan.json", "chapters.json", "meta.json"],
       opts.force === true,
       "run",
     );
-    await ingest(abs, findSource(abs), cfg);
+    await ingest(abs, findSource(abs), cfg, layout);
     console.log("ingest 完了");
     await transcribe(abs, cfg);
     console.log("transcribe 完了");

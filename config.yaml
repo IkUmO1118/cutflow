@@ -14,6 +14,12 @@ ingest:
   # トラック2は任意。収録ファイルに存在しなければ自動的に無視される
   micTrack: 1
   systemTrack: 2
+  # 収録レイアウトの既定。obs-canvas(拡張キャンバス、上の screenRegion/
+  # cameraRegion を使う) / plain(通常動画。カメラ無し。screenRegion は
+  # 全フレーム) / auto(キャンバス寸法が上の screenRegion+cameraRegion と
+  # 完全一致すれば obs-canvas、それ以外は plain)。省略時 obs-canvas。
+  # ingest / run の --layout フラグで実行時に上書きできる
+  layout: obs-canvas
 
 # 文字起こし(whisper.cpp)
 whisper:
@@ -121,6 +127,9 @@ editor:
   maxUploadMb: 2048
   # タイムラインに置く画像素材・尺不明素材の既定の尺(秒)
   defaultImageDurationSec: 4
+  # ショート新規追加時、選択中の keep クリップもプレイヘッドも
+  # 無いときの既定レンジ長(秒)
+  defaultShortRangeSec: 10
 
 # ショート動画の LLM ハイライト自動選定(plan-shorts コマンド)
 planShorts:

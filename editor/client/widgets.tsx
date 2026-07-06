@@ -69,6 +69,12 @@ export async function postRender(): Promise<{ path: string }> {
   return (await request("/api/render", {})) as { path: string };
 }
 
+/** 出力先(final.mp4 / preview.mp4 等)を Finder で開き直す。完了トーストの
+ * 「開く」から呼ぶ。path は render/preview が返した収録フォルダ内のパス */
+export async function postReveal(path: string): Promise<void> {
+  await request(`/api/reveal?file=${encodeURIComponent(path)}`, {});
+}
+
 /** 素材ファイル(materials/)を収録フォルダから削除する。ファイルの削除は
  * JSON の編集と違って undo(⌘Z)できないので、呼ぶ側で確認を挟むこと */
 export async function deleteMaterial(file: string): Promise<void> {

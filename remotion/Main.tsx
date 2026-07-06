@@ -79,9 +79,10 @@ export const Main = (props: RenderProps) => {
   const hasVideo = props.videoFile !== "";
   const src = hasVideo ? staticFile(props.videoFile) : "";
 
-  const wipeH = Math.round(
-    (props.wipe.widthPx * props.cameraRegion.h) / props.cameraRegion.w,
-  );
+  // カメラが無ければ(plain)ワイプレイヤー自体を描かないので値は使われない
+  const wipeH = props.cameraRegion
+    ? Math.round((props.wipe.widthPx * props.cameraRegion.h) / props.cameraRegion.w)
+    : 0;
   const inSpan = (spans: Span[]) => spans.some((s) => t >= s.start && t < s.end);
   // ワイプ全画面区間は、ワイプの器を画面サイズまで広げる。transitionSec が
   // あれば区間の頭で広がり・末尾で戻る(0=1 の進行度を smoothstep で緩急)。
@@ -197,7 +198,10 @@ export const Main = (props: RenderProps) => {
   // (どのパネルを無音にするかは見た目に関係しない。muteBase は先頭にのみ適用)
   const renderPanels = (layout: NonNullable<RenderProps["layout"]>) =>
     layout.panels.map((panel, i) => {
-      const region = panel.source === "screen" ? props.screenRegion : props.cameraRegion;
+      // カメラが無ければ(plain)screenRegion へ解決する(camera→screen 解決の
+      // 本実装は B4。plain は現状 props.layout を持たないのでここは到達しない)
+      const region =
+        panel.source === "screen" ? props.screenRegion : (props.cameraRegion ?? props.screenRegion);
       const rect = panel.rect ?? { x: 0, y: 0, w: props.width, h: props.height };
       const muted = i === 0 ? (props.muteBase ?? false) : true;
       return (
@@ -243,7 +247,7 @@ export const Main = (props: RenderProps) => {
         overflow: "hidden",
       }}
     >
-      {hasVideo ? (
+      {hasVideo && props.cameraRegion ? (
         renderBase(props.cameraRegion, wipeW, wipeHNow, true)
       ) : (
         <Placeholder label="カメラ" />
@@ -301,14 +305,16 @@ export const Main = (props: RenderProps) => {
           </div>
         );
       }
+      // カメラがあるときだけワイプと重ならないよう右側を空ける。plain
+      // (カメラ無し)は予約ゼロ=全幅中央にする(B1)
+      const reserve = props.cameraRegion ? props.wipe.widthPx + props.wipe.marginPx * 2 : 0;
       return (
         <div
           style={{
             position: "absolute",
             bottom: props.wipe.marginPx,
             left: 0,
-            // ワイプと重ならないように右側を空ける
-            width: props.width - props.wipe.widthPx - props.wipe.marginPx * 2,
+            width: props.width - reserve,
             display: "flex",
             justifyContent: "center",
           }}
@@ -318,9 +324,9 @@ export const Main = (props: RenderProps) => {
       );
     }
     // 縦プリセット等(props.layout あり)ではワイプという概念が無いので
-    // レイヤーとしても描画しない(D3)。wipeFull もこのレイヤーが無ければ
-    // 見た目に影響しない
-    return id === "wipe" ? (props.layout ? null : wipeLayer) : null;
+    // レイヤーとしても描画しない(D3)。カメラが無い(plain)場合も同様。
+    // wipeFull もこのレイヤーが無ければ見た目に影響しない
+    return id === "wipe" ? (props.layout || !props.cameraRegion ? null : wipeLayer) : null;
   };
 
   return (

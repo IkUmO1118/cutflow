@@ -8,10 +8,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, normalize, resolve, sep } from "node:path";
 import { fmtT } from "../lib/fmt.ts";
-import { PROFILES } from "../lib/profile.ts";
+import { defaultShortProfileName, PROFILES, profileSupportsPlain } from "../lib/profile.ts";
 import { buildTimeline, remapInterval } from "../lib/timeline.ts";
 import type { TimelineEntry } from "../lib/timeline.ts";
-import { capNum, captionTrack, ovNum } from "../types.ts";
+import { capNum, captionTrack, hasCamera, ovNum } from "../types.ts";
 import type { Interval, Manifest } from "../types.ts";
 
 export interface Problem {
@@ -113,8 +113,12 @@ export function validateDocs(
   const dur = isNum(duration) ? duration : null;
   /** ズームの rect 検査に使う出力解像度(final.mp4 の width/height 相当)。
    * validate は config.yaml を読まないので manifest.json の screenRegion で代用する
-   * (render.ts の resolveProfile(cfg, "default") と実質同じ値になる) */
+   * (render.ts の resolveProfile(manifest.video.screenRegion, "default") と同じ値) */
   const outputRegion = manifest?.video?.screenRegion ?? null;
+  /** ワイプ(カメラ)を持つレイアウトか。manifest / video 欠落時は obs-canvas
+   * 扱い(欠落自体は他の検査が拾う。durationSec 検査と同じ他フィールドは
+   * 未定義でも構わない緩さ) */
+  const cameraPresent = manifest?.video ? hasCamera(manifest) : true;
 
   /* ---------------- cutplan.json ---------------- */
 
@@ -356,6 +360,10 @@ export function validateDocs(
         },
       );
     }
+    // plain(カメラ無し)にはワイプの crop 元が無いため wipeFull は使えない
+    if (!cameraPresent && Array.isArray(overlays.wipeFull) && overlays.wipeFull.length > 0) {
+      err(f, "wipeFull", "plain 動画にはカメラ(ワイプ)が無いため wipeFull は使えません");
+    }
 
     if (overlays.zooms !== undefined && !Array.isArray(overlays.zooms)) {
       err(f, "zooms", "配列ではありません");
@@ -454,7 +462,11 @@ export function validateDocs(
           if (seen.has(id)) err(f, w, `レイヤーが重複しています: ${id}`);
           seen.add(id);
         });
-        if (!seen.has("wipe")) warn(f, "layerOrder", "wipe がありません(ワイプが描画されません)");
+        if (cameraPresent) {
+          if (!seen.has("wipe")) warn(f, "layerOrder", "wipe がありません(ワイプが描画されません)");
+        } else if (seen.has("wipe")) {
+          warn(f, "layerOrder", "plain 動画にはカメラ(ワイプ)が無いため wipe は無視されます");
+        }
         if (!seen.has("caption")) warn(f, "layerOrder", "caption がありません(テロップ T1 が描画されません)");
       }
     }
@@ -596,9 +608,23 @@ export function validateDocs(
           });
         }
         // 座標はみ出し警告は解決後の profile サイズと比べる。省略時は
-        // ショートの既定 "vertical"(profile 名不正のときは判定しない)
-        const profileName = typeof s.profile === "string" ? s.profile : "vertical";
+        // ショートの既定(camera 有り→vertical、plain→vertical-screen。
+        // profile 名不正のときは判定しない)
+        const profileName =
+          typeof s.profile === "string" ? s.profile : defaultShortProfileName(cameraPresent);
         const profileDef = PROFILES[profileName];
+        // plain(カメラ無し)は画面+カメラの2段構成(vertical)を作れない。
+        // 判定は profile 名ではなく panels の source 集合で行う(将来プリセットが
+        // 増えても壊れない=profileSupportsPlain に一本化。camera のみ
+        // (vertical-cover)・screen のみ(vertical-screen)・layout 無し(default)は許可
+        if (!cameraPresent && !profileSupportsPlain(profileName)) {
+          err(
+            f,
+            `${w}.profile`,
+            `profile "${profileName}" は画面+カメラの2段構成用です。` +
+              "plain(カメラ無し)には vertical-cover か default を使ってください",
+          );
+        }
         checkCaptionTracks(f, `${w}.captionTracks`, s.captionTracks, err, (t, tw) => {
           if (!profileDef) return;
           if (isNum(t.x) && (t.x < 0 || t.x > profileDef.width)) {

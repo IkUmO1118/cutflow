@@ -19,7 +19,7 @@ import {
   toSourceTime,
 } from "../../src/lib/timeline.ts";
 import type { TimelineEntry } from "../../src/lib/timeline.ts";
-import { PROFILES } from "../../src/lib/profile.ts";
+import { defaultShortProfileName, PROFILES } from "../../src/lib/profile.ts";
 import type { Profile } from "../../src/lib/profile.ts";
 import {
   DEFAULT_LAYER_ORDER,
@@ -57,6 +57,7 @@ import { SettingsModal, buildConfigPatch, patchTouchesProxy } from "./SettingsMo
 import type { CfgValues } from "./SettingsModal.tsx";
 import { Timeline } from "./Timeline.tsx";
 import { playhead, usePlayheadSelector } from "./playhead.ts";
+import { useToasts, ToastStack } from "./toasts.tsx";
 import { SHORT_TRACK_DEF, buildTracks } from "./model.ts";
 import type {
   AddKind,
@@ -87,6 +88,7 @@ import {
   postPreview,
   postProxy,
   postRender,
+  postReveal,
   postSave,
   probeMaterialDuration,
   uploadMaterial,
@@ -109,10 +111,14 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), h
 const MIN_SPAN = 0.1;
 
 /** ショートの profile 名 → Profile。src/lib/profile.ts の resolveProfile と
- * 同じ規則(省略時 "vertical"。CLAUDE.md 通り render.ts と同じ既定)だが、
- * "default" は cfg 丸ごとではなく出力解像度(screenRegion)だけで足りる */
-const resolveShortProfile = (name: string | undefined, output: { w: number; h: number }): Profile => {
-  const key = name ?? "vertical";
+ * 同じ規則(省略時 defaultShortProfileName(hasCamera)。render.ts / frames.ts と
+ * 同じ既定)だが、"default" は cfg 丸ごとではなく出力解像度(screenRegion)だけで足りる */
+const resolveShortProfile = (
+  name: string | undefined,
+  output: { w: number; h: number },
+  hasCamera: boolean,
+): Profile => {
+  const key = name ?? defaultShortProfileName(hasCamera);
   if (key === "default") return { width: output.w, height: output.h };
   const p = PROFILES[key];
   if (!p) throw new Error(`未知の profile 名です: ${key}`);
@@ -210,6 +216,8 @@ export const App = () => {
   /** 選択中のショート名。null = 本編モード(D6: ヘッダーのセレクタで切替) */
   const [activeShortName, setActiveShortName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 通知トースト(error / job)。要対応の継続条件はバナー行が持つ(T4)
+  const { toasts, addToast, updateToast, dismissToast } = useToasts();
   const [busy, setBusy] = useState<"save" | "upload" | null>(null);
   /** proxy.mp4 の生成中か。busy と分けて、生成中(初回の数十秒)も
    * 編集・保存・アップロードを普通に受け付ける */
@@ -453,6 +461,13 @@ export const App = () => {
     return () => es.close();
   }, []);
 
+  // error が立ったらエラートースト(sticky・手動クローズ)を出す。error state 自体は
+  // 起動失敗の全画面(!proj)とプロキシ失敗の分岐(3178)が読むので残す(表示先だけ
+  // ヘッダーからトーストへ移す)。null→msg / msg→別msg の遷移で発火する
+  useEffect(() => {
+    if (error) addToast({ kind: "error", message: `エラー: ${error}` });
+  }, [error, addToast]);
+
   /** 必要になったピークを取りに行く(マイク・BGM・挿入クリップの動画)。
    * 波形は無くても編集できるので、失敗は警告に留める */
   const requestPeaks = (key: string) => {
@@ -597,6 +612,14 @@ export const App = () => {
     setSelectionState(null);
     setCapMulti([]);
   }, [activeShortName]);
+  // 本編からショートへ切り替えた時、インスペクタが閉じていれば自動で開く
+  // (右インスペクタの「ショート」節の発見性を担保する一度きりのナッジ。
+  // ショート間の切替や本編へ戻す操作では再オープンしない)
+  const wasShortRef = useRef(false);
+  useEffect(() => {
+    if (activeShortName && !wasShortRef.current) setInspOpen(true);
+    wasShortRef.current = activeShortName !== null;
+  }, [activeShortName]);
   const shortKeepsMerged = useMemo(
     () => mergeIntervals(activeShort?.ranges ?? []),
     [activeShort],
@@ -626,10 +649,14 @@ export const App = () => {
   );
   const tracks = useMemo(() => {
     const capCount = layerOrder.filter((id) => capNum(id) !== null).length;
-    return buildTracks(layerOrder, (n) =>
+    // plain(カメラ無し)ではワイプトラックを表示から隠す。overlays.json に
+    // 保存する layerOrder(上の useMemo)は触らず、表示用の並びだけ除外する
+    const displayOrder =
+      proj?.hasCamera === false ? layerOrder.filter((id) => id !== "wipe") : layerOrder;
+    return buildTracks(displayOrder, (n) =>
       overlays ? captionTrackName(n, overlays, capCount) : undefined,
     );
-  }, [layerOrder, overlays]);
+  }, [layerOrder, overlays, proj]);
   /** 素材トラックの本数(Inspector のトラック選択肢にも使う) */
   const ovTracks = useMemo(
     () => layerOrder.reduce((n, id) => Math.max(n, ovNum(id) ?? 0), 0),
@@ -659,13 +686,14 @@ export const App = () => {
       // (keeps = shortKeepsMerged、overlays は captionTracks だけ、
       // bgm/silences なし、profile で出力サイズ・レイアウトを切替)。
       // 手編集で不正な profile 名が入っている可能性があるので、throw させず
-      // 警告して "vertical" にフォールバックする(validate は別途エラーにする)
+      // 警告して既定(defaultShortProfileName(proj.hasCamera))にフォールバックする
+      // (validate は別途エラーにする)
       let shortProfile: Profile;
       try {
-        shortProfile = resolveShortProfile(activeShort.profile, proj.output);
+        shortProfile = resolveShortProfile(activeShort.profile, proj.output, proj.hasCamera);
       } catch (e) {
         warnings.push((e as Error).message);
-        shortProfile = resolveShortProfile(undefined, proj.output);
+        shortProfile = resolveShortProfile(undefined, proj.output, proj.hasCamera);
       }
       const props = buildRenderProps({
         manifest: proj.manifest,
@@ -745,6 +773,9 @@ export const App = () => {
   const srcDur = proj?.manifest.durationSec ?? 0;
   /** 画像素材・尺不明素材を置くときの既定の尺(秒)。config で変更できる */
   const defaultImgSec = proj?.editorCfg.defaultImageDurationSec ?? 4;
+  /** ショート新規追加(addShort)で、選択中の keep クリップもプレイヘッドの
+   * 位置も取れないときの既定レンジ長(秒)。config で変更できる */
+  const defaultShortRangeSec = proj?.editorCfg.defaultShortRangeSec ?? 10;
 
   // 未保存の編集の有無。JSON 全体の stringify 比較はドキュメントが
   // 差し替わったときだけ行う(毎レンダーで3ドキュメントを直列化すると、
@@ -929,21 +960,24 @@ export const App = () => {
         });
       });
     });
-    // ワイプ: 常駐レイヤー(表示のみ)+ その上に「全画面」属性スパン
-    cs.push({
-      kind: "wipe", index: 0, track: "wipe",
-      outStart: 0, outEnd: duration, label: "カメラ", editable: false, static: true,
-    });
-    (overlays.wipeFull ?? []).forEach((sp, i) => {
-      const parts = remapInterval(sp.start, sp.end, timeline);
-      parts.forEach((iv, j) => {
-        cs.push({
-          kind: "wipeFull", index: i, track: "wipe",
-          outStart: iv.start, outEnd: iv.end, label: "全画面", editable: true,
-          noTrimStart: j > 0, noTrimEnd: j < parts.length - 1,
+    // ワイプ: 常駐レイヤー(表示のみ)+ その上に「全画面」属性スパン。
+    // plain(カメラ無し)はワイプトラック自体を出さないので clip も積まない
+    if (built.props.cameraRegion) {
+      cs.push({
+        kind: "wipe", index: 0, track: "wipe",
+        outStart: 0, outEnd: duration, label: "カメラ", editable: false, static: true,
+      });
+      (overlays.wipeFull ?? []).forEach((sp, i) => {
+        const parts = remapInterval(sp.start, sp.end, timeline);
+        parts.forEach((iv, j) => {
+          cs.push({
+            kind: "wipeFull", index: i, track: "wipe",
+            outStart: iv.start, outEnd: iv.end, label: "全画面", editable: true,
+            noTrimStart: j > 0, noTrimEnd: j < parts.length - 1,
+          });
         });
       });
-    });
+    }
     // ズーム: 背景レイヤーを拡大する区間(専用の「ズーム」トラック)
     (overlays.zooms ?? []).forEach((z, i) => {
       const parts = remapInterval(z.start, z.end, timeline);
@@ -1174,11 +1208,14 @@ export const App = () => {
   /** 位置未指定テロップの標準位置(下部中央のテキスト中心。1行ぶんで近似) */
   const stdCaptionPos = useMemo<CaptionPos>(() => {
     if (!built) return { x: 0, y: 0 };
-    const { width, height, wipe, caption, captionDefaultPos } = built.props;
+    const { width, height, wipe, caption, captionDefaultPos, cameraRegion } = built.props;
     // 縦プリセット等、profile が既定テロップ位置を持つときはそれを使う
     if (captionDefaultPos) return { x: captionDefaultPos.x, y: captionDefaultPos.y };
+    // カメラがあるときだけワイプ回避の右側予約を引く(B1 の Remotion 側と同規約)。
+    // plain(カメラ無し)は全幅中央
+    const reserve = cameraRegion ? wipe.widthPx + wipe.marginPx * 2 : 0;
     return {
-      x: Math.round((width - wipe.widthPx - wipe.marginPx * 2) / 2),
+      x: Math.round((width - reserve) / 2),
       y: Math.round(height - wipe.marginPx - caption.fontSizePx * 0.7),
     };
   }, [built]);
@@ -1503,11 +1540,24 @@ export const App = () => {
       if (!used.has(name)) return name;
     }
   };
-  /** ショートを1本追加(既定 ranges = 先頭10秒。承認は人間の仕事なので false 固定)。
+  /** ショートを1本追加(承認は人間の仕事なので approved: false 固定)。
+   * 既定 ranges は優先順に: (a) 本編で keep クリップ選択中ならその区間、
+   * (b) 無ければプレイヘッドの現在元秒から defaultShortRangeSec 分、
+   * (c) それも取れなければ先頭から defaultShortRangeSec 分。
    * 追加したショートへそのままモードを切り替える */
   const addShort = () => {
     const name = nextShortName();
-    const short: Short = { name, approved: false, ranges: [{ start: 0, end: round2(Math.min(10, srcDur)) }] };
+    const selCut =
+      selection?.kind === "cut" ? cutplan?.segments[selection.index] : undefined;
+    let range: { start: number; end: number };
+    if (selCut) {
+      range = { start: round2(selCut.start), end: round2(selCut.end) };
+    } else {
+      const src = toSourceTime(playhead.get(), timeline);
+      const start = src !== null ? round2(src) : 0;
+      range = { start, end: round2(Math.min(start + defaultShortRangeSec, srcDur)) };
+    }
+    const short: Short = { name, approved: false, ranges: [range] };
     setShorts((prev) => ({ shorts: [...(prev?.shorts ?? []), short] }));
     setActiveShortName(name);
   };
@@ -2422,12 +2472,33 @@ export const App = () => {
       }
     }
     setJob({ stage, status: "running" });
+    // 実行中は progress トーストを1枚。完了時に updateToast で success へ差し替え
+    // (消して出し直さない=積み位置が飛ばない)。id はこのクロージャ内で完結する
+    const label = stage === "render" ? "レンダー" : "プレビュー生成";
+    const toastId = addToast({
+      kind: "progress",
+      message:
+        `${label}中…` +
+        (stage === "render" ? "(数分かかることがあります)" : ""),
+    });
     try {
       const res = stage === "preview" ? await postPreview() : await postRender();
       setJob({ stage, status: "done", path: res.path });
+      const fname = res.path.split("/").pop() ?? res.path;
+      updateToast(toastId, {
+        kind: "success",
+        message: `${stage === "render" ? "レンダー" : "プレビュー"}完了: ${fname}`,
+        action: {
+          label: "開く",
+          onClick: () =>
+            postReveal(res.path).catch((e) => setError((e as Error).message)),
+        },
+        ttlMs: 6000,
+      });
     } catch (e) {
-      setError((e as Error).message);
+      setError((e as Error).message); // エラートーストは error の effect が出す
       setJob(null);
+      dismissToast(toastId); // progress トーストは畳む(表示は error トーストへ委ねる)
     }
   };
 
@@ -2766,75 +2837,16 @@ export const App = () => {
         }}
       />
       <header>
-        <strong>cutflow</strong>
-        <span className="dim path" title={proj.dir}>
-          {proj.dir.replace(/\/+$/, "").split("/").pop()}
-        </span>
+        <div className="brand">
+          <strong>cutflow</strong>
+          <span className="sep" aria-hidden>
+            /
+          </span>
+          <span className="dim path" title={proj.dir}>
+            {proj.dir.replace(/\/+$/, "").split("/").pop()}
+          </span>
+        </div>
         <span className="spacer" />
-        {error && <span className="error">エラー: {error}</span>}
-        {draftOffer && (
-          <span
-            className="externalChange"
-            title="前回のセッションが保存せずに終わったため、自動退避された編集が残っています。復元してもファイルは保存(⌘S)するまで書き換わりません"
-          >
-            保存されなかった編集があります(
-            {new Date(draftOffer.savedAt).toLocaleString()} 時点)
-            <button className="warn" onClick={restoreDraft}>
-              復元する
-            </button>
-            <button onClick={discardDraft}>破棄</button>
-          </span>
-        )}
-        {externalChange && (
-          <span
-            className="externalChange"
-            title="Claude Code などがこのフォルダの JSON を書き換えました。読み込み直すとその内容が反映されます(こちらの未保存の編集は消えます)。保存すればこちらの内容で上書きします"
-          >
-            ファイルが外部で変更されました
-            <button className="warn" onClick={() => void reloadFromDisk()}>
-              読み込み直す(未保存の編集は破棄)
-            </button>
-          </span>
-        )}
-        {job && (
-          <span
-            className="externalChange"
-            title={
-              job.status === "running"
-                ? "書き出し中です。完了までこのまま編集を続けられます(ファイルはディスクの内容を読みます)"
-                : "書き出しが完了しました"
-            }
-          >
-            {job.status === "running"
-              ? `${job.stage === "render" ? "レンダー" : "プレビュー生成"}中…` +
-                (job.stage === "render" ? "(数分かかることがあります)" : "")
-              : `${job.stage === "render" ? "レンダー" : "プレビュー"}完了: ${
-                  job.path?.split("/").pop() ?? job.path
-                }`}
-            {job.status === "done" && (
-              <button onClick={() => setJob(null)}>閉じる</button>
-            )}
-          </span>
-        )}
-        {proxyStale && (
-          <span
-            className="externalChange"
-            title={
-              "ラウドネス・システム音声・プレビュー幅は proxy.mp4 に焼き込まれるため、" +
-              "再生成するまでエディタのプレビューには反映されません(書き出しには反映済み)"
-            }
-          >
-            設定をプレビューに反映するにはプロキシの再生成が必要です
-            <button
-              className="warn"
-              disabled={proxyBusy}
-              onClick={() => void regenProxyForSettings()}
-            >
-              {proxyBusy ? "再生成中…" : "プロキシを再生成"}
-            </button>
-            <button onClick={() => setProxyStale(false)}>後で</button>
-          </span>
-        )}
         <span
           className={anyDirty ? "saveStatus dirty" : "saveStatus"}
           title="変更は ⌘S で保存。未保存の編集は自動退避され、閉じる前に確認が出ます"
@@ -2857,43 +2869,6 @@ export const App = () => {
             ))}
           </select>
         </span>
-        {activeShort && (
-          <span className="shortBar">
-            <select
-              value={activeShort.profile ?? "vertical"}
-              title="出力プロファイル(レイアウトプリセット)"
-              onChange={(e) => {
-                const name = e.target.value;
-                updateActiveShort((s) => {
-                  const next = { ...s };
-                  if (name === "vertical") delete next.profile;
-                  else next.profile = name;
-                  return next;
-                });
-              }}
-            >
-              {Object.keys(PROFILES).map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
-            <label
-              className="approve"
-              title="このショート(縦動画)を人間が確認したか。render --short のゲート"
-            >
-              <input
-                type="checkbox"
-                checked={activeShort.approved}
-                onChange={(e) => {
-                  const checked = e.target.checked;
-                  updateActiveShort((s) => ({ ...s, approved: checked }));
-                }}
-              />
-              承認済み
-            </label>
-          </span>
-        )}
         {/* レイアウト切替(VSCode 風)。アイコンの塗られた面 = 表示中のパネル。
             閉じてもデータ・編集状態には影響しない(表示だけの切替) */}
         <div className="layoutBtns">
@@ -2991,6 +2966,20 @@ export const App = () => {
           )}
         </div>
       </header>
+
+      {/* 要対応の継続条件(トーストにしない=時間で消えない)。header と stage の
+          間に、いずれかが真のときだけ描画する。複数同時は縦積み(T4) */}
+      <HeaderBanners
+        draftOffer={draftOffer}
+        externalChange={externalChange}
+        proxyStale={proxyStale}
+        proxyBusy={proxyBusy}
+        onRestore={restoreDraft}
+        onDiscard={discardDraft}
+        onReload={() => void reloadFromDisk()}
+        onRegenProxy={() => void regenProxyForSettings()}
+        onDismissProxyStale={() => setProxyStale(false)}
+      />
 
       {settingsOpen && (
         <>
@@ -3155,7 +3144,7 @@ export const App = () => {
                 </p>
               ) : (
                 <>
-                  <p>プロキシの生成に失敗しました(エラーは上部に表示)</p>
+                  <p>プロキシの生成に失敗しました(エラーは右下の通知に表示)</p>
                   <button className="primary" onClick={() => void generateProxy()}>
                     プロキシ生成を再試行
                   </button>
@@ -3339,6 +3328,7 @@ export const App = () => {
                 approved: cutplan.approved,
                 bgmFile: proj.bgmFile,
                 bgmTracks: bgm?.tracks?.length ?? 0,
+                hasCamera: proj.hasCamera,
               }}
               setCaptionTrackDefault={setCaptionTrackDefault}
               updateCutSeg={updateCutSeg}
@@ -3362,6 +3352,8 @@ export const App = () => {
               setShortCaptionTrackDefault={setShortCaptionTrackDefault}
               updateShortRange={updateShortRange}
               removeShortRange={removeShortRange}
+              updateActiveShort={updateActiveShort}
+              removeShort={removeShort}
             />
           </div>
         </aside>
@@ -3409,7 +3401,83 @@ export const App = () => {
         onToggleTrackHide={toggleTrackHide}
         defaultDurationSec={defaultImgSec}
       />
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </div>
+  );
+};
+
+/** ヘッダー直下の要対応バナー行(T4)。draftOffer / externalChange / proxyStale は
+ * 「ユーザーが操作するまで真であり続ける条件」で、時間で消える通知(トースト)とは
+ * 寿命モデルが違うのでバナーに残す。いずれも真でなければ何も描かない。複数同時
+ * 成立(externalChange + proxyStale 等)は .banner を縦積みで自然に扱う */
+const HeaderBanners = ({
+  draftOffer,
+  externalChange,
+  proxyStale,
+  proxyBusy,
+  onRestore,
+  onDiscard,
+  onReload,
+  onRegenProxy,
+  onDismissProxyStale,
+}: {
+  draftOffer: DraftData | null;
+  externalChange: boolean;
+  proxyStale: boolean;
+  proxyBusy: boolean;
+  onRestore: () => void;
+  onDiscard: () => void;
+  onReload: () => void;
+  onRegenProxy: () => void;
+  onDismissProxyStale: () => void;
+}) => {
+  if (!draftOffer && !externalChange && !proxyStale) return null;
+  return (
+    <>
+      {draftOffer && (
+        <div
+          className="banner"
+          title="前回のセッションが保存せずに終わったため、自動退避された編集が残っています。復元してもファイルは保存(⌘S)するまで書き換わりません"
+        >
+          <span className="msg">
+            保存されなかった編集があります(
+            {new Date(draftOffer.savedAt).toLocaleString()} 時点)
+          </span>
+          <button className="warn" onClick={onRestore}>
+            復元する
+          </button>
+          <button onClick={onDiscard}>破棄</button>
+        </div>
+      )}
+      {externalChange && (
+        <div
+          className="banner"
+          title="Claude Code などがこのフォルダの JSON を書き換えました。読み込み直すとその内容が反映されます(こちらの未保存の編集は消えます)。保存すればこちらの内容で上書きします"
+        >
+          <span className="msg">ファイルが外部で変更されました</span>
+          <button className="warn" onClick={onReload}>
+            読み込み直す(未保存の編集は破棄)
+          </button>
+        </div>
+      )}
+      {proxyStale && (
+        <div
+          className="banner"
+          title={
+            "ラウドネス・システム音声・プレビュー幅は proxy.mp4 に焼き込まれるため、" +
+            "再生成するまでエディタのプレビューには反映されません(書き出しには反映済み)"
+          }
+        >
+          <span className="msg">
+            設定をプレビューに反映するにはプロキシの再生成が必要です
+          </span>
+          <button className="warn" disabled={proxyBusy} onClick={onRegenProxy}>
+            {proxyBusy ? "再生成中…" : "プロキシを再生成"}
+          </button>
+          <button onClick={onDismissProxyStale}>後で</button>
+        </div>
+      )}
+    </>
   );
 };
 

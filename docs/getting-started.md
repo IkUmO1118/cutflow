@@ -88,6 +88,27 @@ node src/cli.ts render ~/Movies/cutflow/2026-07-02-my-recording
 > `node src/cli.ts <cmd>` は `npm run cutflow -- <cmd>` でも同じです。
 > エディタは `npm run editor -- <dir>` でも起動できます。
 
+### 通常動画(スマホ・カメラ・画面録画)の場合
+
+OBS の拡張キャンバス方式でない**普通の動画**(1画面。スマホ縦動画・カメラ・
+画面録画など)も一級で扱えます。これを cutflow では **plain レイアウト**と呼び、
+「カメラ(ワイプ)の無い収録」として表現します。
+
+- **動画だけを入れたフォルダを `editor` で開く**と、plain として自動 bootstrap
+  されます(manifest / 空の transcript・cutplan を生成)。これが通常動画の
+  一番簡単な入口です。
+- コマンドから明示するには `ingest` / `run` に **`--layout plain`** を付けます
+  (`--layout obs-canvas` / `auto` も可)。既定は `config.yaml` の
+  `ingest.layout`(初期値 `obs-canvas`)。`auto` はキャンバス寸法が
+  `screenRegion + cameraRegion` と完全一致するときだけ obs-canvas、それ以外は
+  plain と判定します(3840×1080 の通常動画を誤判定しうるので既定にはしない)。
+- plain では**出力解像度 = 収録の実寸**(縦動画は縦のまま・4K は 4K のまま)。
+  カメラが無いので**ワイプ関連は使えません**(本編でワイプ非描画・字幕は全幅中央。
+  エディタにワイプトラックは出ず、`overlays.json` の `wipeFull` は `validate` が
+  エラーにする)。ズーム・カラー調整・サムネ・ショートは plain でも使えます
+  (ショートの `profile` は `vertical-cover` / `default`。2段構成の `vertical` は
+  plain では不可)。
+
 ---
 
 ## 3. どのファイルが何を決めるか

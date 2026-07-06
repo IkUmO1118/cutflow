@@ -169,7 +169,13 @@ test("overlay: フェード合計が表示時間より長いと警告", () => {
 
 const manifestWithScreen = {
   durationSec: 100,
-  video: { screenRegion: { x: 0, y: 0, w: 1920, h: 1080 } },
+  video: {
+    screenRegion: { x: 0, y: 0, w: 1920, h: 1080 },
+    // obs-canvas の実 manifest は必ず cameraRegion を持つ(F1: hasCamera は
+    // 欠落を「壊れたデータ」扱いにする)。この fixture は zoom の rect 検査用に
+    // screenRegion だけを置いていたが、F5 のカメラ有無判定にも使うため揃える
+    cameraRegion: { x: 1920, y: 0, w: 1920, h: 1080 },
+  },
 };
 
 test("zoom: rect 欠落・w/h 不正はエラー", () => {
@@ -256,6 +262,67 @@ test("zoom: 妥当なズームはエラー・警告なし", () => {
   }));
   assert.deepEqual(r.errors, []);
   assert.deepEqual(r.warnings, []);
+});
+
+/* -------- F5: plain(カメラ無し)の本編ルール -------- */
+
+const manifestPlain = {
+  durationSec: 100,
+  layout: "plain",
+  video: { screenRegion: { x: 0, y: 0, w: 1080, h: 1920 } },
+};
+
+test("plain: wipeFull が非空だとエラー(カメラ=crop 元が無い)", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestPlain,
+    overlays: { wipeFull: [{ start: 1, end: 5 }] },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "wipeFull" && e.message.includes("plain")));
+});
+
+test("plain: wipeFull が空配列/未指定はエラーなし", () => {
+  const empty = validateDocs(DIR, baseDocs({ manifest: manifestPlain, overlays: { wipeFull: [] } }));
+  assert.ok(!empty.errors.some((e) => e.where === "wipeFull"));
+  const none = validateDocs(DIR, baseDocs({ manifest: manifestPlain, overlays: {} }));
+  assert.ok(!none.errors.some((e) => e.where === "wipeFull"));
+});
+
+test("plain: layerOrder に wipe が含まれると警告(無視される旨)", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestPlain,
+    overlays: { layerOrder: ["ov1", "wipe", "ov2", "caption"] },
+  }));
+  assert.ok(r.warnings.some((w) => w.where === "layerOrder" && w.message.includes("plain")));
+});
+
+test("plain: layerOrder に wipe が無くても(obs 側の「wipe がありません」警告は出ない)", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestPlain,
+    overlays: { layerOrder: ["ov1", "ov2", "caption"] },
+  }));
+  assert.ok(!r.warnings.some((w) => w.where === "layerOrder" && w.message.includes("wipe")));
+});
+
+test("plain: zooms(rect が出力解像度内)はエラー・警告なし(cameraRegion 欠落を壊れとみなさない)", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestPlain,
+    overlays: { zooms: [{ start: 1, end: 5, rect: { x: 0, y: 0, w: 1080, h: 1920 } }] },
+  }));
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.warnings, []);
+});
+
+test("obs-canvas(従来どおり): wipeFull はエラーにならず、layerOrder に wipe が無いと従来の警告が出る", () => {
+  const wipeOk = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: { wipeFull: [{ start: 1, end: 5 }] },
+  }));
+  assert.ok(!wipeOk.errors.some((e) => e.where === "wipeFull"));
+  const noWipe = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: { layerOrder: ["ov1", "ov2", "caption"] },
+  }));
+  assert.ok(noWipe.warnings.some((w) => w.where === "layerOrder" && w.message.includes("wipe がありません")));
 });
 
 /* -------- bgm.json -------- */
@@ -521,4 +588,67 @@ test("shorts: captionTracks の座標が profile 範囲外だと警告", () => {
     },
   }));
   assert.ok(r.warnings.some((w) => w.message.includes("幅") && w.message.includes("外です")));
+});
+
+/* -------- B4: plain のショート profile ガード(panels の source 集合で判定) -------- */
+
+test("plain: ショート profile vertical(画面+カメラ2段)はエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestPlain,
+    shorts: { shorts: [validShort({ profile: "vertical" })] },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "shorts[0].profile" && e.message.includes("vertical-cover")));
+});
+
+test("plain: ショート profile vertical-cover(カメラ全面)・default はエラーなし", () => {
+  const cover = validateDocs(DIR, baseDocs({
+    manifest: manifestPlain,
+    shorts: { shorts: [validShort({ profile: "vertical-cover" })] },
+  }));
+  assert.ok(!cover.errors.some((e) => e.where === "shorts[0].profile"));
+  const def = validateDocs(DIR, baseDocs({
+    manifest: manifestPlain,
+    shorts: { shorts: [validShort({ profile: "default" })] },
+  }));
+  assert.ok(!def.errors.some((e) => e.where === "shorts[0].profile"));
+});
+
+test("plain: ショート profile vertical-screen(画面のみ)はエラーなし", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestPlain,
+    shorts: { shorts: [validShort({ profile: "vertical-screen" })] },
+  }));
+  assert.ok(!r.errors.some((e) => e.where === "shorts[0].profile"));
+});
+
+test("plain: ショート profile 省略はエラーなし(既定が vertical-screen に解決される)", () => {
+  const withoutProfile = validShort() as Record<string, unknown>;
+  delete withoutProfile.profile;
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestPlain,
+    shorts: { shorts: [withoutProfile] },
+  }));
+  assert.ok(!r.errors.some((e) => e.where === "shorts[0].profile"));
+});
+
+test("camera 案件: ショート profile 省略はエラーなし(既定 vertical のまま・退行なし)", () => {
+  const withoutProfile = validShort() as Record<string, unknown>;
+  delete withoutProfile.profile;
+  const r = validateDocs(DIR, baseDocs({
+    shorts: { shorts: [withoutProfile] },
+  }));
+  assert.ok(!r.errors.some((e) => e.where === "shorts[0].profile"));
+});
+
+test("obs-canvas: ショート profile vertical / vertical-cover はどちらも従来どおりエラーなし", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    shorts: {
+      shorts: [
+        validShort({ name: "a", profile: "vertical" }),
+        validShort({ name: "b", profile: "vertical-cover" }),
+      ],
+    },
+  }));
+  assert.ok(!r.errors.some((e) => e.where.endsWith(".profile")));
 });
