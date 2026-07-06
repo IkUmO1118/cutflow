@@ -1,11 +1,19 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { Command } from "commander";
 import { backupEditableFiles } from "./lib/backup.ts";
 import { EDITABLE_FILES } from "./lib/files.ts";
+import {
+  clearCutplanApproval,
+  clearShortApproval,
+  writeCutplanApproval,
+  writeShortApproval,
+} from "./lib/approval.ts";
 import { loadConfig, resolveConfigPath } from "./lib/config.ts";
 import { findSource } from "./lib/findSource.ts";
+import { loadShort, loadShorts } from "./lib/shorts.ts";
 import { ingest } from "./stages/ingest.ts";
 import { transcribe } from "./stages/transcribe.ts";
 import { detect } from "./stages/detect.ts";
@@ -22,6 +30,7 @@ import { formatOcrPreview } from "./lib/ocr.ts";
 import type { OcrResult } from "./lib/ocr.ts";
 import { thumbnail } from "./stages/thumbnail.ts";
 import { fmtT, parseT } from "./lib/fmt.ts";
+import type { CutPlan } from "./types.ts";
 
 const program = new Command();
 program
@@ -371,6 +380,105 @@ program
     const cfg = loadConfig(program.opts().config);
     const out = await thumbnail(resolveDir(dir), cfg);
     console.log(`thumbnail 完了: ${out}`);
+  });
+
+/** shorts.json の該当 name の approved だけを書き換える(他のショート・他の
+ * フィールドはそのまま)。shorts.json が無い/name が無いときは loadShort と
+ * 同じ明確なエラーメッセージにするため loadShort に検査を委ねる */
+function updateShortApprovedFlag(dir: string, name: string, approved: boolean): void {
+  loadShort(dir, name); // 存在検査(無ければここで分かりやすいエラーを投げる)
+  const shorts = loadShorts(dir)!;
+  shorts.shorts = shorts.shorts.map((s) => (s.name === name ? { ...s, approved } : s));
+  writeFileSync(join(dir, "shorts.json"), JSON.stringify(shorts, null, 2));
+}
+
+/** cutplan.json の approved だけを書き換える(segments はそのまま) */
+function updateCutplanApprovedFlag(dir: string, approved: boolean): CutPlan {
+  const cutplan = JSON.parse(
+    readFileSync(join(dir, "cutplan.json"), "utf8"),
+  ) as CutPlan;
+  const next: CutPlan = { ...cutplan, approved };
+  writeFileSync(join(dir, "cutplan.json"), JSON.stringify(next, null, 2));
+  return next;
+}
+
+/** ターミナルで y/N を尋ねる(approve の対話確認用) */
+async function confirmYesNo(question: string): Promise<boolean> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = await rl.question(question);
+    return /^y(es)?$/i.test(answer.trim());
+  } finally {
+    rl.close();
+  }
+}
+
+program
+  .command("approve <dir>")
+  .description(
+    "cutplan(または --short 指定でショート)の内容ハッシュを approvals.json に記録して承認する" +
+      "(render の唯一のゲート。承認は人間の対話操作)",
+  )
+  .option("--short <name>", "指定したショートを承認(shorts.json)")
+  .option(
+    "--yes",
+    "非対話環境でも承認する(意図的バイパス。preview 未確認のまま承認できてしまうため通常は使わない)",
+  )
+  .action(async (dir: string, opts: { short?: string; yes?: boolean }) => {
+    const abs = resolveDir(dir);
+    // 壊れた内容を承認しない: 先に validate を通す
+    const r = validate(abs);
+    if (r.errors.length > 0) {
+      for (const e of r.errors) console.error(`✖ ${e.file} ${e.where}: ${e.message}`);
+      throw new Error(
+        `検査エラー ${r.errors.length}件があるため承認できません。上から順に修正し、` +
+          "validate が通ってから再実行してください",
+      );
+    }
+    const interactive = process.stdin.isTTY === true;
+    if (!interactive && opts.yes !== true) {
+      throw new Error(
+        "approve は人間の対話操作です。preview で内容を確認のうえ、端末から実行してください" +
+          "(非対話環境(Bash/子エージェント等)から実行する場合は --yes が必要です)",
+      );
+    }
+    if (interactive && opts.yes !== true) {
+      const what = opts.short ? `ショート "${opts.short}" の縦動画` : "preview.mp4";
+      const ok = await confirmYesNo(`${what} を確認しましたか? 承認しますか? [y/N] `);
+      if (!ok) {
+        console.log("承認しませんでした(preview で確認してから再実行してください)");
+        return;
+      }
+    }
+    if (opts.short) {
+      const short = loadShort(abs, opts.short);
+      writeShortApproval(abs, short, "cli");
+      updateShortApprovedFlag(abs, opts.short, true);
+      console.log(`承認しました: ショート "${opts.short}"(approvals.json に記録)`);
+    } else {
+      const cutplan = updateCutplanApprovedFlag(abs, true);
+      writeCutplanApproval(abs, cutplan, "cli");
+      console.log("承認しました: 本編(approvals.json に記録)");
+    }
+  });
+
+program
+  .command("unapprove <dir>")
+  .description(
+    "承認レコードを取り消す(cutplan、または --short 指定でショート)。安全側の操作なので確認は不要",
+  )
+  .option("--short <name>", "指定したショートの承認を取り消す(shorts.json)")
+  .action((dir: string, opts: { short?: string }) => {
+    const abs = resolveDir(dir);
+    if (opts.short) {
+      clearShortApproval(abs, opts.short);
+      updateShortApprovedFlag(abs, opts.short, false);
+      console.log(`承認を取り消しました: ショート "${opts.short}"`);
+    } else {
+      clearCutplanApproval(abs);
+      updateCutplanApprovedFlag(abs, false);
+      console.log("承認を取り消しました: 本編");
+    }
   });
 
 program
