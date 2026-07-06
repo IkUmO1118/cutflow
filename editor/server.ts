@@ -324,6 +324,20 @@ async function handle(
     sendJson(res, 200, { ok: true, path: out });
     return;
   }
+  if (req.method === "POST" && path === "/api/reveal") {
+    // 完了トーストの「開く」から出力先(final.mp4 / preview.mp4 等)を Finder で
+    // 開き直す。render は完了時に自動で開くが、preview や2回目以降のために提供。
+    // 収録フォルダ内のパスだけ許す(トラバーサルは resolve 後の前方一致で弾く)
+    const rel = url.searchParams.get("file") ?? "";
+    const abs = normalize(resolve(dir, rel));
+    if (abs !== resolve(dir) && !abs.startsWith(resolve(dir) + sep)) {
+      throw new HttpError(400, `収録フォルダ内のパスだけ開けます: ${rel}`);
+    }
+    if (!existsSync(abs)) throw new HttpError(404, `見つかりません: ${rel}`);
+    spawn("open", ["-R", abs], { stdio: "ignore" }).on("error", () => {});
+    sendJson(res, 200, { ok: true });
+    return;
+  }
   if (req.method === "GET" && path.startsWith("/media/")) {
     serveMedia(req, res, dir, decodeURIComponent(path.slice("/media/".length)));
     return;

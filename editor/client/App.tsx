@@ -88,6 +88,7 @@ import {
   postPreview,
   postProxy,
   postRender,
+  postReveal,
   postSave,
   probeMaterialDuration,
   uploadMaterial,
@@ -2442,12 +2443,33 @@ export const App = () => {
       }
     }
     setJob({ stage, status: "running" });
+    // 実行中は progress トーストを1枚。完了時に updateToast で success へ差し替え
+    // (消して出し直さない=積み位置が飛ばない)。id はこのクロージャ内で完結する
+    const label = stage === "render" ? "レンダー" : "プレビュー生成";
+    const toastId = addToast({
+      kind: "progress",
+      message:
+        `${label}中…` +
+        (stage === "render" ? "(数分かかることがあります)" : ""),
+    });
     try {
       const res = stage === "preview" ? await postPreview() : await postRender();
       setJob({ stage, status: "done", path: res.path });
+      const fname = res.path.split("/").pop() ?? res.path;
+      updateToast(toastId, {
+        kind: "success",
+        message: `${stage === "render" ? "レンダー" : "プレビュー"}完了: ${fname}`,
+        action: {
+          label: "開く",
+          onClick: () =>
+            postReveal(res.path).catch((e) => setError((e as Error).message)),
+        },
+        ttlMs: 6000,
+      });
     } catch (e) {
-      setError((e as Error).message);
+      setError((e as Error).message); // エラートーストは error の effect が出す
       setJob(null);
+      dismissToast(toastId); // progress トーストは畳む(表示は error トーストへ委ねる)
     }
   };
 
@@ -2813,26 +2835,6 @@ export const App = () => {
             <button className="warn" onClick={() => void reloadFromDisk()}>
               読み込み直す(未保存の編集は破棄)
             </button>
-          </span>
-        )}
-        {job && (
-          <span
-            className="externalChange"
-            title={
-              job.status === "running"
-                ? "書き出し中です。完了までこのまま編集を続けられます(ファイルはディスクの内容を読みます)"
-                : "書き出しが完了しました"
-            }
-          >
-            {job.status === "running"
-              ? `${job.stage === "render" ? "レンダー" : "プレビュー生成"}中…` +
-                (job.stage === "render" ? "(数分かかることがあります)" : "")
-              : `${job.stage === "render" ? "レンダー" : "プレビュー"}完了: ${
-                  job.path?.split("/").pop() ?? job.path
-                }`}
-            {job.status === "done" && (
-              <button onClick={() => setJob(null)}>閉じる</button>
-            )}
           </span>
         )}
         {proxyStale && (
