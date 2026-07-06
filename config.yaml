@@ -133,6 +133,13 @@ ocr:
   # 主で日本語テロップ/コメントが混在するので en 優先・ja 併記
   languages: [en, ja]
 
+# 常駐フレームサーバ(frames-serve コマンド)。省略可(既定 4311)。
+# 有効化フラグはここには置かない(opt-in は frames-serve の明示起動で
+# 担保する。ポートを変えたいときだけ使う)
+# frames:
+#   serve:
+#     port: 4311
+
 # GUI エディタ(npm run editor)
 editor:
   # 素材アップロード1ファイルの上限(MB)。動画素材も置けるよう大きめ。
