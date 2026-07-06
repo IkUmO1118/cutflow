@@ -224,7 +224,7 @@ export function validateDocs(
     const f = "overlays.json";
     const KNOWN = [
       "overlays", "inserts", "wipeFull", "layerOrder", "captionTracks",
-      "hideCaption", "zooms", "colorFilter",
+      "hideCaption", "zooms", "colorFilter", "blurs",
     ];
     for (const k of Object.keys(overlays)) {
       if (!KNOWN.includes(k)) warn(f, k, `不明なキーです(有効: ${KNOWN.join(" / ")})`);
@@ -428,6 +428,65 @@ export function validateDocs(
           `ズーム区間が重なっています(${fmtT(prev.start)}–${fmtT(prev.end)} と ${fmtT(cur.start)}–${fmtT(cur.end)})`,
         );
       }
+    }
+
+    if (overlays.blurs !== undefined && !Array.isArray(overlays.blurs)) {
+      err(f, "blurs", "配列ではありません");
+    }
+    (Array.isArray(overlays.blurs) ? overlays.blurs : []).forEach((b: unknown, i: number) => {
+      const w = `blurs[${i}]`;
+      if (!isObj(b)) return err(f, w, "オブジェクトではありません");
+      // start<end・収録尺内はどちらもエラー(warn を渡さない。秘匿目隠しは
+      // zooms と同じ厳しさで扱う)
+      checkSpan(f, w, b, dur, err);
+      const r = b.rect;
+      if (!isObj(r) || !isNum(r.x) || !isNum(r.y) || !isNum(r.w) || !isNum(r.h)) {
+        err(f, w, `rect は {x, y, w, h}(出力px の数値)です(現在: ${JSON.stringify(r)})`);
+      } else if (r.w <= 0 || r.h <= 0) {
+        err(f, w, `rect の w / h は正の数です(現在: ${r.w} x ${r.h})`);
+      } else if (outputRegion) {
+        const { w: outW, h: outH } = outputRegion;
+        if (r.x < 0 || r.y < 0 || r.x + r.w > outW || r.y + r.h > outH) {
+          err(
+            f, w,
+            `rect が出力解像度(${outW}x${outH})の外にはみ出しています` +
+              `(現在: x${r.x} y${r.y} w${r.w} h${r.h})`,
+          );
+        }
+      }
+      if (b.type !== undefined && b.type !== "blur" && b.type !== "mosaic") {
+        err(f, w, `type は "blur" か "mosaic" です(現在: ${JSON.stringify(b.type)})`);
+      }
+      if (b.strength !== undefined && (!isNum(b.strength) || b.strength < 0 || b.strength > 1)) {
+        err(f, w, `strength は 0〜1 の数値です(現在: ${JSON.stringify(b.strength)})`);
+      }
+      if (isNum(b.start) && isNum(b.end) && b.start < b.end) {
+        const bStart = b.start;
+        const bEnd = b.end;
+        if (!visible(bStart, bEnd)) {
+          warn(f, w, `全体がカット区間内にあり表示されません(${fmtT(bStart)}–${fmtT(bEnd)})`);
+        }
+        // zoom と時間が重なると、blur 矩形が zoom に追従しないため
+        // 隠したい情報が矩形からずれて露出しうる(判断4)
+        if (zoomSpans.some((z) => bStart < z.end && z.start < bEnd)) {
+          warn(
+            f, w,
+            `zoom 区間と時間が重なっています(${fmtT(bStart)}–${fmtT(bEnd)})。` +
+              "blur は zoom に追従しないため、隠したい情報が矩形からずれて見える" +
+              "ことがあります(zoom を外すか rect を広げてください)",
+          );
+        }
+      }
+    });
+    if (
+      Array.isArray(overlays.blurs) && overlays.blurs.length > 0 &&
+      isObj(shorts) && Array.isArray(shorts.shorts) && shorts.shorts.length > 0
+    ) {
+      warn(
+        f, "blurs",
+        "本編に領域ぼかしがありますが、ショートには継承されません。" +
+          "ショートに秘匿情報が写る場合は別途隠してください",
+      );
     }
 
     if (overlays.colorFilter !== undefined) {

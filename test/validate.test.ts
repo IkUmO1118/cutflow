@@ -368,6 +368,138 @@ test("zoom: 妥当なズームはエラー・警告なし", () => {
   assert.deepEqual(r.warnings, []);
 });
 
+/* -------- overlays.json の blurs -------- */
+
+test("blurs: rect が出力の外にはみ出しているとエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      blurs: [{ start: 1, end: 5, rect: { x: 1800, y: 0, w: 500, h: 200 } }],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "blurs[0]" && e.message.includes("はみ出しています")));
+});
+
+test("blurs: rect.w <= 0 はエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      blurs: [{ start: 1, end: 5, rect: { x: 0, y: 0, w: -100, h: 100 } }],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "blurs[0]" && e.message.includes("rect")));
+});
+
+test("blurs: type が不正な値だとエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      blurs: [{ start: 1, end: 5, rect: { x: 0, y: 0, w: 100, h: 100 }, type: "sepia" }],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "blurs[0]" && e.message.includes("type")));
+});
+
+test("blurs: strength が範囲外(1.5)だとエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      blurs: [{ start: 1, end: 5, rect: { x: 0, y: 0, w: 100, h: 100 }, strength: 1.5 }],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "blurs[0]" && e.message.includes("strength")));
+});
+
+test("blurs: 妥当な blur/mosaic はエラー・警告なし", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      blurs: [
+        { start: 1, end: 5, rect: { x: 0, y: 0, w: 500, h: 200 }, type: "blur", strength: 0.6 },
+        { start: 1, end: 5, rect: { x: 0, y: 300, w: 500, h: 200 }, type: "mosaic", strength: 0.6 },
+      ],
+    },
+  }));
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.warnings, []);
+});
+
+test("blurs: 重なっても許可(エラー・警告なし)", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      blurs: [
+        { start: 1, end: 5, rect: { x: 0, y: 0, w: 500, h: 200 } },
+        { start: 2, end: 6, rect: { x: 100, y: 50, w: 500, h: 200 } },
+      ],
+    },
+  }));
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.warnings, []);
+});
+
+test("blurs: zoom と時間が重なると警告(判断4)", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      zooms: [{ start: 48, end: 63, rect: { x: 480, y: 270, w: 960, h: 540 } }],
+      blurs: [{ start: 50, end: 55, rect: { x: 0, y: 0, w: 500, h: 200 } }],
+    },
+  }));
+  assert.ok(r.warnings.some((w) => w.where === "blurs[0]" && w.message.includes("zoom")));
+});
+
+test("blurs: zoom と時間が重ならなければ警告なし", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      zooms: [{ start: 48, end: 63, rect: { x: 480, y: 270, w: 960, h: 540 } }],
+      blurs: [{ start: 1, end: 5, rect: { x: 0, y: 0, w: 500, h: 200 } }],
+    },
+  }));
+  assert.ok(!r.warnings.some((w) => w.where === "blurs[0]" && w.message.includes("zoom")));
+});
+
+test("blurs: 全体がカット区間内だと警告", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    cutplan: {
+      approved: false,
+      segments: [
+        { start: 0, end: 10, action: "keep", reason: "本編" },
+        { start: 10, end: 20, action: "cut", reason: "言い直し" },
+      ],
+    },
+    overlays: {
+      blurs: [{ start: 12, end: 18, rect: { x: 0, y: 0, w: 500, h: 200 } }], // カット内([10,20))
+    },
+  }));
+  assert.ok(r.warnings.some((w) => w.where === "blurs[0]" && w.message.includes("表示されません")));
+});
+
+test("blurs: shorts.json があると継承されない警告が出る", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      blurs: [{ start: 1, end: 5, rect: { x: 0, y: 0, w: 500, h: 200 } }],
+    },
+    shorts: {
+      shorts: [{ name: "s1", approved: false, ranges: [{ start: 0, end: 5 }] }],
+    },
+  }));
+  assert.ok(r.warnings.some((w) => w.where === "blurs" && w.message.includes("継承されません")));
+});
+
+test("blurs: shorts.json が無ければ継承されない警告は出ない", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      blurs: [{ start: 1, end: 5, rect: { x: 0, y: 0, w: 500, h: 200 } }],
+    },
+  }));
+  assert.ok(!r.warnings.some((w) => w.where === "blurs" && w.message.includes("継承されません")));
+});
+
 /* -------- F5: plain(カメラ無し)の本編ルール -------- */
 
 const manifestPlain = {
