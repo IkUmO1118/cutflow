@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { run } from "../lib/exec.ts";
 import {
@@ -6,6 +6,9 @@ import {
   keepAudioParts,
   measuredLoudnormFilter,
 } from "../lib/loudness.ts";
+import { buildProxyCacheKey, proxyCacheKeyEquals } from "../lib/proxyCache.ts";
+import { videoEncodeArgs } from "../lib/videoEncode.ts";
+import type { ProxyCacheKey } from "../lib/proxyCache.ts";
 import type { Config } from "../lib/config.ts";
 import type { Manifest } from "../types.ts";
 
@@ -37,6 +40,7 @@ export async function buildProxy(dir: string, cfg: Config): Promise<string> {
     keeps: whole,
     targetLufs: cfg.render.targetLufs,
   });
+  const sourceStat = statSync(input);
   const output = join(dir, "proxy.mp4");
   await run("ffmpeg", [
     "-y", "-v", "error",
@@ -50,11 +54,51 @@ export async function buildProxy(dir: string, cfg: Config): Promise<string> {
     "-map", "[vout]", "-map", "[aout]",
     // -g 30: キーフレーム間隔を1秒に。カット境界ごとに Player がシークする
     // 方式なので、preview.mp4 以上にシークの軽さが効く
-    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28", "-g", "30",
-    "-movflags", "+faststart",
+    ...videoEncodeArgs(cfg),
     // loudnorm は内部で 192kHz にアップサンプルするため 48kHz に戻す
     "-c:a", "aac", "-ar", "48000",
     output,
   ]);
+  // 陳腐化キー(proxy.key.json)。焼き込み済みの設定・元収録ファイルが
+  // 次回と変わっていなければ proxy.mp4 は古くない(削除すれば常に
+  // 「陳腐化なし」判定に戻る=次回の frames/エディタは再生成しない)
+  writeFileSync(
+    join(dir, "proxy.key.json"),
+    JSON.stringify(
+      buildProxyCacheKey({
+        cfg,
+        sourceFile: manifest.source,
+        sourceMtimeMs: sourceStat.mtimeMs,
+        sourceSize: sourceStat.size,
+      }),
+      null,
+      2,
+    ),
+  );
   return output;
+}
+
+/**
+ * proxy.mp4 が焼き込み済みの設定・元収録ファイルと食い違っている(古い)か。
+ * proxy.mp4 か proxy.key.json が無ければ「陳腐化」ではなく「未生成」なので
+ * false(呼び出し側は existsSync と併せて生成要否を判定する)
+ */
+export function isProxyStale(dir: string, cfg: Config): boolean {
+  const proxyPath = join(dir, "proxy.mp4");
+  const keyPath = join(dir, "proxy.key.json");
+  if (!existsSync(proxyPath) || !existsSync(keyPath)) return false;
+  const manifest = JSON.parse(
+    readFileSync(join(dir, "manifest.json"), "utf8"),
+  ) as Manifest;
+  const input = join(dir, manifest.source);
+  if (!existsSync(input)) return false;
+  const sourceStat = statSync(input);
+  const currentKey = buildProxyCacheKey({
+    cfg,
+    sourceFile: manifest.source,
+    sourceMtimeMs: sourceStat.mtimeMs,
+    sourceSize: sourceStat.size,
+  });
+  const cachedKey = JSON.parse(readFileSync(keyPath, "utf8")) as ProxyCacheKey;
+  return !proxyCacheKeyEquals(cachedKey, currentKey);
 }

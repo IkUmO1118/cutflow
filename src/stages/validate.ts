@@ -8,6 +8,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, normalize, resolve, sep } from "node:path";
 import { fmtT } from "../lib/fmt.ts";
+import { PROFILES } from "../lib/profile.ts";
 import { buildTimeline, remapInterval } from "../lib/timeline.ts";
 import type { TimelineEntry } from "../lib/timeline.ts";
 import { capNum, captionTrack, ovNum } from "../types.ts";
@@ -41,8 +42,11 @@ export interface LoadedDocs {
   cutplan: unknown;
   transcript: unknown;
   overlays: unknown;
+  bgm: unknown;
   chapters: unknown;
   meta: unknown;
+  shorts: unknown;
+  thumbnail: unknown;
 }
 
 export function validate(dir: string): ValidateResult {
@@ -72,8 +76,11 @@ export function validate(dir: string): ValidateResult {
     cutplan: readJson("cutplan.json", true),
     transcript: readJson("transcript.json", true),
     overlays: readJson("overlays.json", false),
+    bgm: readJson("bgm.json", false),
     chapters: readJson("chapters.json", false),
     meta: readJson("meta.json", false),
+    shorts: readJson("shorts.json", false),
+    thumbnail: readJson("thumbnail.json", false),
   };
   return validateDocs(dir, docs, preErrors);
 }
@@ -97,17 +104,21 @@ export function validateDocs(
     warnings.push({ file, where, message });
   };
 
-  const { cutplan, transcript, overlays, chapters, meta } = docs;
+  const { cutplan, transcript, overlays, bgm, chapters, meta, shorts, thumbnail } = docs;
   const manifest = docs.manifest as Manifest | null;
   const duration = manifest?.durationSec;
   if (manifest && !isNum(duration)) {
     err("manifest.json", "durationSec", "数値ではありません(ingest をやり直してください)");
   }
   const dur = isNum(duration) ? duration : null;
+  /** ズームの rect 検査に使う出力解像度(final.mp4 の width/height 相当)。
+   * validate は config.yaml を読まないので manifest.json の screenRegion で代用する
+   * (render.ts の resolveProfile(cfg, "default") と実質同じ値になる) */
+  const outputRegion = manifest?.video?.screenRegion ?? null;
 
   /* ---------------- cutplan.json ---------------- */
 
-  const counts = { keep: 0, cut: 0, captions: 0, overlays: 0 };
+  const counts = { keep: 0, cut: 0, captions: 0, overlays: 0, bgm: 0 };
   let keeps: Interval[] = [];
   if (isObj(cutplan)) {
     const f = "cutplan.json";
@@ -159,6 +170,13 @@ export function validateDocs(
   /** 区間がカット後の動画に一瞬でも現れるか(写像が作れないときは true 扱い) */
   const visible = (start: number, end: number): boolean =>
     !timeline || remapInterval(start, end, timeline).length > 0;
+  /** 区間がカット後の動画に実際に映る秒数(写像が作れないときは区間長)。
+   * フェードの長すぎ警告は元収録の区間長ではなくこちらで判定する
+   * (途中がカットされて表示が縮んでいるケースを拾う) */
+  const visibleSec = (start: number, end: number): number =>
+    timeline
+      ? remapInterval(start, end, timeline).reduce((s, iv) => s + (iv.end - iv.start), 0)
+      : end - start;
 
   /* ---------------- transcript.json ---------------- */
 
@@ -195,7 +213,10 @@ export function validateDocs(
 
   if (isObj(overlays)) {
     const f = "overlays.json";
-    const KNOWN = ["overlays", "inserts", "wipeFull", "layerOrder", "captionTracks", "hideCaption"];
+    const KNOWN = [
+      "overlays", "inserts", "wipeFull", "layerOrder", "captionTracks",
+      "hideCaption", "zooms", "colorFilter",
+    ];
     for (const k of Object.keys(overlays)) {
       if (!KNOWN.includes(k)) warn(f, k, `不明なキーです(有効: ${KNOWN.join(" / ")})`);
     }
@@ -216,6 +237,45 @@ export function validateDocs(
         err(f, w, `fit は "contain" か "cover" です(現在: ${JSON.stringify(fit)})`);
       }
     };
+    // 画像かどうかはレンダラー(remotion/Main.tsx の isImageFile)と同じ判定に
+    // する: 画像拡張子リストに該当しなければすべて動画扱い(.mkv 等も
+    // OffthreadVideo で音声・頭出しが有効に再生される)
+    const isImageFile = (file: unknown): boolean =>
+      typeof file === "string" && /\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(file);
+    /** overlays / inserts 共通の再生系オプション(頭出し・音量・フェード)の検査。
+     * spanSec = 表示される長さ(フェードの長すぎ警告用。不明なら null) */
+    const checkPlayback = (
+      w: string,
+      o: Record<string, unknown>,
+      spanSec: number | null,
+    ): void => {
+      if (o.startFrom !== undefined) {
+        if (!isNum(o.startFrom) || o.startFrom < 0) {
+          err(f, w, `startFrom(頭出し・素材内の開始秒)は0以上の数です: ${JSON.stringify(o.startFrom)}`);
+        } else if (o.startFrom > 0 && isImageFile(o.file)) {
+          warn(f, w, "startFrom は動画素材のみ有効です(画像では無視されます)");
+        }
+      }
+      if (o.volume !== undefined) {
+        if (!isNum(o.volume) || o.volume < 0 || o.volume > 2) {
+          err(f, w, `volume は 0〜2 の数値です(1=素材のまま。現在: ${JSON.stringify(o.volume)})`);
+        } else if (isImageFile(o.file)) {
+          warn(f, w, "画像素材に音声はありません(volume は無視されます)");
+        }
+      }
+      let fadeSum = 0;
+      for (const k of ["fadeInSec", "fadeOutSec"] as const) {
+        if (o[k] === undefined) continue;
+        if (!isNum(o[k]) || (o[k] as number) < 0) {
+          err(f, w, `${k}(フェード秒)は0以上の数です: ${JSON.stringify(o[k])}`);
+        } else {
+          fadeSum += o[k] as number;
+        }
+      }
+      if (spanSec !== null && fadeSum > spanSec + EPS) {
+        warn(f, w, `フェード(${fmtT(fadeSum)})が表示時間(${fmtT(spanSec)})より長く、素材が最後まで明るくなりません`);
+      }
+    };
 
     if (overlays.overlays !== undefined && !Array.isArray(overlays.overlays)) {
       err(f, "overlays", "配列ではありません");
@@ -228,11 +288,33 @@ export function validateDocs(
         checkSpan(f, w, o, dur, err, warn);
         checkFile(w, o.file);
         checkFit(w, o.fit);
+        checkPlayback(
+          w,
+          o,
+          // 実際に映る秒数で判定(全体がカット内 = 0 のときは下の
+          // 「表示されません」警告に任せ、フェード警告は重ねない)
+          isNum(o.start) && isNum(o.end) && o.start < o.end && visibleSec(o.start, o.end) > EPS
+            ? visibleSec(o.start, o.end)
+            : null,
+        );
         if (o.track !== undefined && !isPosInt(o.track)) {
           err(f, w, `track は 1 以上の整数です(現在: ${JSON.stringify(o.track)})`);
         }
         if (o.layer !== undefined && o.layer !== "under" && o.layer !== "over") {
           err(f, w, `layer は "under" か "over" です(現在: ${JSON.stringify(o.layer)})`);
+        }
+        if (o.opacity !== undefined && (!isNum(o.opacity) || o.opacity < 0 || o.opacity > 1)) {
+          err(f, w, `opacity は 0〜1 の数値です(現在: ${JSON.stringify(o.opacity)})`);
+        } else if (o.opacity === 0) {
+          warn(f, w, "opacity が 0 のため表示されません(消したいならエントリごと削除を)");
+        }
+        const r = o.rect;
+        if (r !== undefined) {
+          if (!isObj(r) || !isNum(r.x) || !isNum(r.y) || !isNum(r.w) || !isNum(r.h)) {
+            err(f, w, `rect は {x, y, w, h}(出力px の数値)です(現在: ${JSON.stringify(r)})`);
+          } else if (r.w <= 0 || r.h <= 0) {
+            err(f, w, `rect の w / h は正の数です(現在: ${r.w} x ${r.h})`);
+          }
         }
         if (isObj(o) && isNum(o.start) && isNum(o.end) && o.start < o.end && !visible(o.start, o.end)) {
           warn(f, w, `全体がカット区間内にあり表示されません(${fmtT(o.start)}–${fmtT(o.end)})`);
@@ -255,9 +337,7 @@ export function validateDocs(
         if (!isNum(o.durationSec) || o.durationSec <= 0) {
           err(f, w, `durationSec(挿入する尺)は正の数です: ${JSON.stringify(o.durationSec)}`);
         }
-        if (o.startFrom !== undefined && (!isNum(o.startFrom) || o.startFrom < 0)) {
-          err(f, w, `startFrom(頭出し・素材内の開始秒)は0以上の数です: ${JSON.stringify(o.startFrom)}`);
-        }
+        checkPlayback(w, o, isNum(o.durationSec) && o.durationSec > 0 ? o.durationSec : null);
         checkFile(w, o.file);
         checkFit(w, o.fit);
       },
@@ -275,6 +355,89 @@ export function validateDocs(
           checkSpan(f, w, o, dur, err, warn);
         },
       );
+    }
+
+    if (overlays.zooms !== undefined && !Array.isArray(overlays.zooms)) {
+      err(f, "zooms", "配列ではありません");
+    }
+    const zoomSpans: { start: number; end: number }[] = [];
+    (Array.isArray(overlays.zooms) ? overlays.zooms : []).forEach((z: unknown, i: number) => {
+      const w = `zooms[${i}]`;
+      if (!isObj(z)) return err(f, w, "オブジェクトではありません");
+      // start<end・収録尺内はどちらもエラー(warn を渡さない。ズームは背景
+      // レイヤー全体に効くため、overlays/wipeFull より厳しく扱う)
+      checkSpan(f, w, z, dur, err);
+      const r = z.rect;
+      if (!isObj(r) || !isNum(r.x) || !isNum(r.y) || !isNum(r.w) || !isNum(r.h)) {
+        err(f, w, `rect は {x, y, w, h}(出力px の数値)です(現在: ${JSON.stringify(r)})`);
+      } else if (r.w <= 0 || r.h <= 0) {
+        err(f, w, `rect の w / h は正の数です(現在: ${r.w} x ${r.h})`);
+      } else {
+        if (outputRegion) {
+          const { w: outW, h: outH } = outputRegion;
+          if (r.x < 0 || r.y < 0 || r.x + r.w > outW || r.y + r.h > outH) {
+            err(
+              f, w,
+              `rect が出力解像度(${outW}x${outH})の外にはみ出しています` +
+                `(現在: x${r.x} y${r.y} w${r.w} h${r.h})`,
+            );
+          }
+          const rectAr = r.w / r.h;
+          const outAr = outW / outH;
+          if (Math.abs(rectAr / outAr - 1) > 0.01) {
+            warn(
+              f, w,
+              `rect のアスペクト比(${rectAr.toFixed(2)})が出力(${outAr.toFixed(2)})と` +
+                "1%を超えてずれています(拡大後に歪んで見えることがあります)",
+            );
+          }
+          const scale = outW / r.w;
+          if (scale > 8) {
+            warn(f, w, `拡大率(${scale.toFixed(1)}倍)が大きすぎます(rect.w=${r.w})。画質が粗くなることがあります`);
+          }
+        }
+        if (isNum(z.start) && isNum(z.end) && z.start < z.end) {
+          zoomSpans.push({ start: z.start, end: z.end });
+        }
+      }
+      if (z.easeSec !== undefined && (!isNum(z.easeSec) || z.easeSec < 0)) {
+        err(f, w, `easeSec(遷移秒数)は0以上の数です(現在: ${JSON.stringify(z.easeSec)})`);
+      }
+    });
+    // 重なり禁止(エラー)。ユーザーが時系列順に書くとは限らないので開始時刻でソートしてから隣接比較
+    const sortedZooms = [...zoomSpans].sort((a, b) => a.start - b.start);
+    for (let i = 1; i < sortedZooms.length; i++) {
+      const prev = sortedZooms[i - 1];
+      const cur = sortedZooms[i];
+      if (cur.start < prev.end - EPS) {
+        err(
+          f, "zooms",
+          `ズーム区間が重なっています(${fmtT(prev.start)}–${fmtT(prev.end)} と ${fmtT(cur.start)}–${fmtT(cur.end)})`,
+        );
+      }
+    }
+
+    if (overlays.colorFilter !== undefined) {
+      const cfw = "colorFilter";
+      if (!isObj(overlays.colorFilter)) {
+        err(f, cfw, `オブジェクトです({brightness?, contrast?, saturate?})(現在: ${JSON.stringify(overlays.colorFilter)})`);
+      } else {
+        const cf = overlays.colorFilter;
+        const CF_KEYS = ["brightness", "contrast", "saturate"] as const;
+        for (const k of Object.keys(cf)) {
+          if (!(CF_KEYS as readonly string[]).includes(k)) {
+            warn(f, `${cfw}.${k}`, `不明なキーです(有効: ${CF_KEYS.join(" / ")})`);
+          }
+        }
+        for (const k of CF_KEYS) {
+          if (cf[k] !== undefined && (!isNum(cf[k]) || (cf[k] as number) <= 0 || (cf[k] as number) > 3)) {
+            err(f, `${cfw}.${k}`, `0 より大きく3以下の数値です(現在: ${JSON.stringify(cf[k])})`);
+          }
+        }
+        if (CF_KEYS.every((k) => cf[k] === undefined)) {
+          warn(f, cfw, "brightness / contrast / saturate のいずれも指定されていません(書く意味がありません)");
+        }
+      }
     }
 
     if (overlays.layerOrder !== undefined) {
@@ -296,31 +459,64 @@ export function validateDocs(
       }
     }
 
-    if (overlays.captionTracks !== undefined) {
-      if (!Array.isArray(overlays.captionTracks)) {
-        err(f, "captionTracks", "配列ではありません");
-      } else {
-        const seen = new Set<number>();
-        overlays.captionTracks.forEach((t: unknown, i: number) => {
-          const w = `captionTracks[${i}]`;
-          if (!isObj(t)) return err(f, w, "オブジェクトではありません");
-          if (!isPosInt(t.track)) {
-            return err(f, w, `track は 1 以上の整数です(現在: ${JSON.stringify(t.track)})`);
-          }
-          if (seen.has(t.track)) err(f, w, `track ${t.track} の設定が重複しています`);
-          seen.add(t.track);
-          if (t.anchor !== undefined && t.anchor !== "center" && t.anchor !== "topLeft") {
-            err(f, w, `anchor は "center" か "topLeft" です(現在: ${JSON.stringify(t.anchor)})`);
-          }
-          if ((t.x !== undefined && !isNum(t.x)) || (t.y !== undefined && !isNum(t.y))) {
-            err(f, w, "x / y は数値(出力px)です");
-          }
-          checkStyle(f, w, t.style, err);
-        });
-      }
-    }
+    checkCaptionTracks(f, "captionTracks", overlays.captionTracks, err);
   } else if (overlays !== null) {
     err("overlays.json", "-", "オブジェクトではありません");
+  }
+
+  /* ---------------- bgm.json ---------------- */
+
+  if (isObj(bgm)) {
+    const f = "bgm.json";
+    for (const k of Object.keys(bgm)) {
+      if (k !== "tracks") warn(f, k, "不明なキーです(有効: tracks)");
+    }
+    if (bgm.tracks !== undefined && !Array.isArray(bgm.tracks)) {
+      err(f, "tracks", "配列ではありません");
+    }
+    (Array.isArray(bgm.tracks) ? bgm.tracks : []).forEach((t: unknown, i: number) => {
+      const w = `tracks[${i}]`;
+      if (!isObj(t)) return err(f, w, "オブジェクトではありません");
+      counts.bgm++;
+      checkSpan(f, w, t, dur, err, warn);
+      // file: 収録フォルダ内の相対パスで実在すること
+      if (typeof t.file !== "string" || t.file === "") {
+        err(f, w, "file(収録フォルダからの相対パス)がありません");
+      } else {
+        const abs = normalize(join(dir, t.file));
+        if (!abs.startsWith(resolve(dir) + sep)) {
+          err(f, w, `file が収録フォルダの外を指しています: ${t.file}`);
+        } else if (!existsSync(abs)) {
+          err(f, w, `BGM ファイルがありません: ${t.file}`);
+        }
+      }
+      if (t.volumeDb !== undefined && !isNum(t.volumeDb)) {
+        err(f, w, `volumeDb(音量・dB。0=原音量)は数値です: ${JSON.stringify(t.volumeDb)}`);
+      }
+      if (t.startFrom !== undefined && (!isNum(t.startFrom) || t.startFrom < 0)) {
+        err(f, w, `startFrom(頭出し・ファイル内の開始秒)は0以上の数です: ${JSON.stringify(t.startFrom)}`);
+      }
+      let fadeSum = 0;
+      for (const k of ["fadeInSec", "fadeOutSec"] as const) {
+        if (t[k] === undefined) continue;
+        if (!isNum(t[k]) || (t[k] as number) < 0) {
+          err(f, w, `${k}(フェード秒)は0以上の数です: ${JSON.stringify(t[k])}`);
+        } else {
+          fadeSum += t[k] as number;
+        }
+      }
+      // 実際に流れる秒数(カットで縮む場合を拾う)でフェード長・不表示を判定
+      if (isNum(t.start) && isNum(t.end) && t.start < t.end) {
+        const played = visibleSec(t.start, t.end);
+        if (played <= EPS) {
+          warn(f, w, `全体がカット区間内にあり流れません(${fmtT(t.start)}–${fmtT(t.end)})`);
+        } else if (fadeSum > played + EPS) {
+          warn(f, w, `フェード(${fmtT(fadeSum)})が再生時間(${fmtT(played)})より長く、途中までしか鳴りません`);
+        }
+      }
+    });
+  } else if (bgm !== null) {
+    err("bgm.json", "-", "オブジェクトではありません");
   }
 
   /* ---------------- chapters.json / meta.json ---------------- */
@@ -362,6 +558,92 @@ export function validateDocs(
     }
   }
 
+  /* ---------------- shorts.json ---------------- */
+
+  if (isObj(shorts)) {
+    const f = "shorts.json";
+    if (!Array.isArray(shorts.shorts)) {
+      err(f, "shorts", "配列ではありません");
+    } else {
+      const seenNames = new Set<string>();
+      shorts.shorts.forEach((s: unknown, i: number) => {
+        const w = `shorts[${i}]`;
+        if (!isObj(s)) return err(f, w, "オブジェクトではありません");
+        if (typeof s.name !== "string" || s.name === "" || !/^[a-z0-9_-]+$/.test(s.name)) {
+          err(f, w, `name は半角小英数字・ハイフン・アンダースコアのみです(現在: ${JSON.stringify(s.name)})`);
+        } else if (seenNames.has(s.name)) {
+          err(f, w, `name が重複しています: ${s.name}`);
+        } else {
+          seenNames.add(s.name);
+        }
+        if (s.profile !== undefined && (typeof s.profile !== "string" || !(s.profile in PROFILES))) {
+          err(
+            f,
+            w,
+            `profile が未知のプロファイル名です(現在: ${JSON.stringify(s.profile)}。有効: ${Object.keys(PROFILES).join(" / ")})`,
+          );
+        }
+        if (typeof s.approved !== "boolean") {
+          err(f, w, "approved は true / false のどちらかにしてください");
+        }
+        if (!Array.isArray(s.ranges) || s.ranges.length === 0) {
+          err(f, `${w}.ranges`, "配列で1件以上必要です(このショートの keep 区間)");
+        } else {
+          s.ranges.forEach((r: unknown, j: number) => {
+            const rw = `${w}.ranges[${j}]`;
+            if (!isObj(r)) return err(f, rw, "オブジェクトではありません");
+            checkSpan(f, rw, r, dur, err);
+          });
+        }
+        // 座標はみ出し警告は解決後の profile サイズと比べる。省略時は
+        // ショートの既定 "vertical"(profile 名不正のときは判定しない)
+        const profileName = typeof s.profile === "string" ? s.profile : "vertical";
+        const profileDef = PROFILES[profileName];
+        checkCaptionTracks(f, `${w}.captionTracks`, s.captionTracks, err, (t, tw) => {
+          if (!profileDef) return;
+          if (isNum(t.x) && (t.x < 0 || t.x > profileDef.width)) {
+            warn(f, tw, `x(${t.x})が profile "${profileName}" の幅(${profileDef.width})の外です`);
+          }
+          if (isNum(t.y) && (t.y < 0 || t.y > profileDef.height)) {
+            warn(f, tw, `y(${t.y})が profile "${profileName}" の高さ(${profileDef.height})の外です`);
+          }
+        });
+      });
+    }
+  } else if (shorts !== null && shorts !== undefined) {
+    err("shorts.json", "-", "オブジェクトではありません");
+  }
+
+  /* ---------------- thumbnail.json ---------------- */
+
+  if (isObj(thumbnail)) {
+    const f = "thumbnail.json";
+    // frames と違いスナップしないので、カット区間内かどうかは問わない
+    // (収録尺内であればよい)
+    if (!isNum(thumbnail.t) || thumbnail.t < 0) {
+      err(f, "t", `t(元収録の秒)は0以上の数値です(現在: ${JSON.stringify(thumbnail.t)})`);
+    } else if (dur !== null && thumbnail.t > dur + DUR_EPS) {
+      err(f, "t", `t(${fmtT(thumbnail.t)})が収録の長さ(${fmtT(dur)})を超えています`);
+    }
+    if (!Array.isArray(thumbnail.texts) || thumbnail.texts.length === 0) {
+      err(f, "texts", "配列で1件以上必要です");
+    } else {
+      thumbnail.texts.forEach((t: unknown, i: number) => {
+        const w = `texts[${i}]`;
+        if (!isObj(t)) return err(f, w, "オブジェクトではありません");
+        if (typeof t.text !== "string" || t.text === "") {
+          err(f, w, "text(表示する文言)が空です");
+        }
+        if (!isObj(t.pos) || !isNum(t.pos.x) || !isNum(t.pos.y)) {
+          err(f, w, `pos は {x, y}(出力px の数値)です(現在: ${JSON.stringify(t.pos)})`);
+        }
+        checkStyle(f, w, t.style, err);
+      });
+    }
+  } else if (thumbnail !== null && thumbnail !== undefined) {
+    err("thumbnail.json", "-", "オブジェクトではありません");
+  }
+
   /* -------- chapters.json ⇔「章」トラックのテロップ の乖離検知 -------- */
   // plan / remeta は概要欄チャプター(chapters.json)と画面表示の章タイトル
   // (transcript の「章」トラックのテロップ)を同じ元から書くが、以降どちらか
@@ -372,7 +654,8 @@ export function validateDocs(
   const keptSec = keeps.reduce((a, k) => a + (k.end - k.start), 0);
   const summary =
     `keep ${counts.keep}区間(${fmtT(keptSec)})+ カット記録 ${counts.cut} / ` +
-    `テロップ ${counts.captions} / 素材・演出 ${counts.overlays}`;
+    `テロップ ${counts.captions} / 素材・演出 ${counts.overlays}` +
+    (counts.bgm > 0 ? ` / BGM ${counts.bgm}区間` : "");
   return { errors, warnings, summary };
 }
 
@@ -484,6 +767,42 @@ function checkChapterSync(
   }
 }
 
+/** captionTracks 配列(overlays.json / shorts.json の各ショートで共用)の検査:
+ * track は正整数で重複禁止、anchor は center/topLeft、x/y は数値、
+ * style は checkStyle。onEntry があれば妥当なエントリごとに呼び出し側固有の
+ * 追加チェック(例: shorts の座標はみ出し警告)を行う */
+function checkCaptionTracks(
+  file: string,
+  key: string,
+  tracks: unknown,
+  err: (f: string, w: string, m: string) => void,
+  onEntry?: (t: Record<string, unknown>, where: string) => void,
+): void {
+  if (tracks === undefined) return;
+  if (!Array.isArray(tracks)) {
+    err(file, key, "配列ではありません");
+    return;
+  }
+  const seen = new Set<number>();
+  tracks.forEach((t: unknown, i: number) => {
+    const w = `${key}[${i}]`;
+    if (!isObj(t)) return err(file, w, "オブジェクトではありません");
+    if (!isPosInt(t.track)) {
+      return err(file, w, `track は 1 以上の整数です(現在: ${JSON.stringify(t.track)})`);
+    }
+    if (seen.has(t.track)) err(file, w, `track ${t.track} の設定が重複しています`);
+    seen.add(t.track);
+    if (t.anchor !== undefined && t.anchor !== "center" && t.anchor !== "topLeft") {
+      err(file, w, `anchor は "center" か "topLeft" です(現在: ${JSON.stringify(t.anchor)})`);
+    }
+    if ((t.x !== undefined && !isNum(t.x)) || (t.y !== undefined && !isNum(t.y))) {
+      err(file, w, "x / y は数値(出力px)です");
+    }
+    checkStyle(file, w, t.style, err);
+    onEntry?.(t, w);
+  });
+}
+
 /** テロップの style({fontSizePx, color, outlineColor, fontFamily,
  * fontWeight, background})の検査 */
 function checkStyle(
@@ -508,7 +827,7 @@ function checkStyle(
   }
   if (
     style.fontWeight !== undefined &&
-    (!isNum(style.fontWeight) || style.fontWeight < 1 || style.fontWeight > 1000)
+    (!isNum(style.fontWeight) || style.fontWeight < 100 || style.fontWeight > 900)
   ) {
     err(file, w, `fontWeight は 100〜900 の数値です(現在: ${JSON.stringify(style.fontWeight)})`);
   }

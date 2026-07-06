@@ -3,10 +3,12 @@
 
 import type { Config } from "../../src/lib/config.ts";
 import type {
+  Bgm,
   CutPlan,
   Interval,
   Manifest,
   Overlays,
+  Shorts,
   Transcript,
 } from "../../src/types.ts";
 
@@ -20,19 +22,51 @@ export interface ProjectData {
   overlays: Overlays;
   /** 収録フォルダ内の全ファイル(相対パス)。素材選択と存在チェック用 */
   dirFiles: string[];
+  /** bgm.json(BGM の区間配置)。無ければ null で、その場合は bgmFile を
+   * 全編1曲として流す(後方互換)。エディタでは編集せず表示・再生のみ */
+  bgm: Bgm | null;
   bgmFile: string | null;
+  /** shorts.json(ショート動画の定義)。無ければ null(このセッションでは
+   * ショート未定義)。エディタでは編集して /api/save の shorts で保存する */
+  shorts: Shorts | null;
   /** cuts.auto.json の無音区間(BGM ダッキングをプレビューでも再現する
    * ために渡す)。detect 未実行なら null */
   silences: Interval[] | null;
   /** proxy.mp4(元収録の軽量プロキシ。エディタの再生ソース)があるか。
    * 無ければ POST /api/proxy で生成する(収録ごとに1回) */
   proxyExists: boolean;
+  /** proxy.mp4 が焼き込み済みの設定(ラウドネス・システム音声・プレビュー幅・
+   * エンコーダ)か元収録ファイルと食い違っている(古い)か。proxyExists が
+   * false のときは常に false(未生成であって陳腐化ではない) */
+  proxyStale: boolean;
   renderCfg: Config["render"];
+  /** カット確認用プレビュー動画・プロキシの横幅(config の preview.width) */
+  previewCfg: { width: number };
+  /** エディタ設定(サーバー側で省略時の既定値まで解決した実値) */
+  editorCfg: EditorCfg;
   /** 最終レンダーの出力解像度(config の screenRegion) */
   output: { w: number; h: number };
   /** 前回のセッションが保存せずに終わった(クラッシュ等)ときに残る
    * 未保存編集の退避(.editor-draft.json)。無ければ null */
   draft: DraftData | null;
+}
+
+/** エディタ設定の解決済み実値(config.yaml editor セクション+既定値) */
+export interface EditorCfg {
+  maxUploadMb: number;
+  /** タイムラインに置く画像素材・尺不明素材の既定の尺(秒) */
+  defaultImageDurationSec: number;
+}
+
+/** POST /api/config のレスポンス。保存後の解決済み設定(クライアントは
+ * これで proj の該当フィールドを差し替える)。リクエストボディは
+ * ConfigPatch(src/lib/configEdit.ts。クライアントからは import type のみ=
+ * yaml パッケージをバンドルに入れない) */
+export interface ConfigSaveResult {
+  ok: true;
+  renderCfg: Config["render"];
+  previewCfg: { width: number };
+  editorCfg: EditorCfg;
 }
 
 /** POST /api/draft のボディ = .editor-draft.json の中身。未保存の編集を
@@ -44,6 +78,8 @@ export interface DraftData {
   cutplan: CutPlan;
   overlays: Overlays;
   transcript: Transcript;
+  /** BGM の区間配置(bgm.json)。未設定なら null */
+  bgm: Bgm | null;
 }
 
 /** GET /api/peaks のレスポンス。マイク音声の波形ピーク(タイムライン描画用)。
@@ -72,4 +108,10 @@ export interface SaveRequest {
   cutplan?: CutPlan;
   overlays?: Overlays;
   transcript?: Transcript;
+  /** BGM の区間配置。`null` / 空 tracks は bgm.json を削除する(= 全編1曲の
+   * 後方互換へ戻す)。`undefined`(キー無し)は bgm.json を触らない */
+  bgm?: Bgm | null;
+  /** ショート動画の定義。`null` / 空 shorts は shorts.json を削除する。
+   * `undefined`(キー無し)は shorts.json を触らない */
+  shorts?: Shorts | null;
 }
