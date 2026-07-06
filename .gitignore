@@ -5,3 +5,7 @@ node_modules/
 
 # Remotion Studio 用の一時ファイル置き場(動画は収録フォルダに置く)
 public/
+
+# swiftc が事前ビルドする OCR バイナリ(ソースは bin/ocr/vision-ocr.swift を追跡。
+# 初回実行時に src/lib/ocr.ts が自動ビルドする)
+bin/ocr/.build/
