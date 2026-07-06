@@ -8,13 +8,24 @@
 // T2: 「body をディスク現状へ重ねた LoadedDocs を作る」写像
 // (mergeBodyOverDisk)。editor/server.ts の saveProject(§735–745 相当)と
 // CLI apply が共有する唯一の merge(§論点3)。
+// T3: アトミック適用のコア本体。planApply(相1: 読むだけ・検査だけ・書かない)/
+// applyEdits(相2: errors ゼロのときだけ backup→tmp/rename で全書き込み)。
+// approved(cutplan/short)は常にディスク現状の値へ強制する(apply では承認を
+// 変更できない=§不変条件2)。process.exit・console には一切依存しない
+// (§論点7 MCP seam)。
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { backupEditableFiles } from "./backup.ts";
+import { fileRole } from "./files.ts";
+import { hasAnyId, stampDocs, usedIdsOf } from "./ids.ts";
+import type { EditableDocs } from "./ids.ts";
+import { readEditableDocs } from "../stages/idStamp.ts";
 import { collectIds, resolveMention } from "./mention.ts";
 import type { MentionTarget } from "./mention.ts";
+import { validateDocs } from "../stages/validate.ts";
 import type { LoadedDocs, Problem } from "../stages/validate.ts";
-import type { ApplyBody, EditOp } from "../types.ts";
+import type { ApplyBody, ApplyPatch, EditOp, Short } from "../types.ts";
 
 function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -353,4 +364,233 @@ export function mergeBodyOverDisk(dir: string, body: ApplyBody): LoadedDocs {
     shorts: body.shorts !== undefined ? body.shorts : readDisk("shorts.json"),
     thumbnail: body.thumbnail ?? readDisk("thumbnail.json"),
   };
+}
+
+/** dir から LoadedDocs を読む(cutplan.json/transcript.json は必須。無い/JSON
+ * 破損は Problem として errors に積む)。src/stages/validate.ts の readJson と
+ * 同じ方針の薄い読み込み(承認鮮度警告・frames 陳腐化警告は付けない=
+ * validateDocs の入力形を作るだけの役目) */
+function readDiskDocs(dir: string): { docs: LoadedDocs; errors: Problem[] } {
+  const errors: Problem[] = [];
+  const readJson = (file: string, required: boolean): unknown => {
+    const p = join(dir, file);
+    if (!existsSync(p)) {
+      if (required) {
+        errors.push({
+          file,
+          where: "-",
+          message: "ファイルがありません。先にパイプライン(run)を実行してください",
+        });
+      }
+      return null;
+    }
+    try {
+      return JSON.parse(readFileSync(p, "utf8"));
+    } catch (e) {
+      errors.push({ file, where: "-", message: `JSON として読めません: ${(e as Error).message}` });
+      return null;
+    }
+  };
+  const docs: LoadedDocs = {
+    manifest: readJson("manifest.json", true),
+    cutplan: readJson("cutplan.json", true),
+    transcript: readJson("transcript.json", true),
+    overlays: readJson("overlays.json", false),
+    bgm: readJson("bgm.json", false),
+    chapters: readJson("chapters.json", false),
+    meta: readJson("meta.json", false),
+    shorts: readJson("shorts.json", false),
+    thumbnail: readJson("thumbnail.json", false),
+  };
+  return { docs, errors };
+}
+
+/**
+ * cutplan.json/shorts.json の `approved` を必ずディスク現状の値へ強制する
+ * (§不変条件2)。呼び出し側が異なる値を指定していればエラーを積む
+ * (「差分を検出したら拒否する」§論点6)。body を直接 mutate せず新しい
+ * オブジェクトを返す。shorts は name で disk 上の対応するショートを探し、
+ * 見つからない(=新規ショート)場合は「未承認(false)」を強制する
+ */
+function enforceApprovedUnchanged(disk: LoadedDocs, body: ApplyBody, errors: Problem[]): ApplyBody {
+  const next: ApplyBody = { ...body };
+
+  if (next.cutplan !== undefined) {
+    const diskCutplan = disk.cutplan;
+    const diskApproved =
+      isObj(diskCutplan) && typeof diskCutplan.approved === "boolean" ? diskCutplan.approved : undefined;
+    if (diskApproved !== undefined) {
+      if (typeof next.cutplan.approved === "boolean" && next.cutplan.approved !== diskApproved) {
+        errors.push({ file: "cutplan.json", where: "approved", message: APPROVED_BLOCKED_MESSAGE });
+      }
+      next.cutplan = { ...next.cutplan, approved: diskApproved };
+    }
+  }
+
+  if (next.shorts !== undefined && next.shorts !== null) {
+    const diskShorts = disk.shorts;
+    const diskList: Short[] =
+      isObj(diskShorts) && Array.isArray(diskShorts.shorts) ? (diskShorts.shorts as Short[]) : [];
+    const forced = next.shorts.shorts.map((s) => {
+      const diskApproved = diskList.find((d) => d.name === s.name)?.approved ?? false;
+      if (typeof s.approved === "boolean" && s.approved !== diskApproved) {
+        errors.push({
+          file: "shorts.json",
+          where: `shorts(name="${s.name}")`,
+          message: APPROVED_BLOCKED_MESSAGE,
+        });
+      }
+      return { ...s, approved: diskApproved };
+    });
+    next.shorts = { ...next.shorts, shorts: forced };
+  }
+
+  return next;
+}
+
+/**
+ * id が有効なプロジェクト(EDITABLE_FILES のいずれかの要素に既に id がある)
+ * でのみ、body が touch した各ファイルの新規要素(id 無し。主に add op が
+ * 作った要素)に採番する。既存の id 採番経路(stampDocs。src/lib/ids.ts)を
+ * そのまま通すだけで、opt-in/sticky の規約は変えない(§スコープ外)。
+ * touch していないファイルは(disk 上に id 無し要素があっても)一切変更しない
+ * (apply が触っていないファイルは1バイトも変えない、という原則を優先する)
+ */
+function stampNewElements(dir: string, body: ApplyBody): ApplyBody {
+  const idDocs = readEditableDocs(dir);
+  if (!hasAnyId(idDocs)) return body;
+  const used = usedIdsOf(idDocs);
+  const candidate: EditableDocs = {
+    cutplan: body.cutplan !== undefined ? body.cutplan : idDocs.cutplan,
+    transcript: body.transcript !== undefined ? body.transcript : idDocs.transcript,
+    overlays: body.overlays !== undefined ? body.overlays : idDocs.overlays,
+    chapters: body.chapters !== undefined ? body.chapters : idDocs.chapters,
+    bgm: body.bgm !== undefined ? body.bgm : idDocs.bgm,
+    shorts: body.shorts !== undefined ? body.shorts : idDocs.shorts,
+    thumbnail: body.thumbnail !== undefined ? body.thumbnail : idDocs.thumbnail,
+  };
+  const stamped = stampDocs(candidate);
+  const next: ApplyBody = { ...body };
+  for (const key of APPLY_FILE_KEYS) {
+    if (key in body) (next as Record<string, unknown>)[key] = stamped[key];
+  }
+  return next;
+}
+
+/** planApply(相1)の結果。--dry-run の表示にも、applyEdits(相2)の書き込み
+ * 判定にもそのまま使う */
+export interface ApplyPlan {
+  /** 検査を通した(まだ書いていない)最終 body。op はここでコンパイル済み・
+   * id 有効プロジェクトなら新規要素の id 採番も済んでいる */
+  body: ApplyBody;
+  /** 実際に変わる編集ファイル(相対名)。空なら no-op */
+  changedFiles: string[];
+  /** @id 単位の変更要約(--dry-run 表示・MCP 向け) */
+  diff: ApplyDiffEntry[];
+  errors: Problem[];
+  warnings: Problem[];
+}
+
+export interface ApplyResult {
+  /** 実際に書いたファイル(相対名)。errors 時は空 */
+  written: string[];
+  backupDir: string | null;
+  plan: ApplyPlan;
+}
+
+/**
+ * 相1(検査・書かない)。dir の編集ファイルを読み、patch.ops を全置換パッチへ
+ * コンパイルし(compileOps)、patch.replace を重ね、approved をディスク現状へ
+ * 強制し(enforceApprovedUnchanged)、id 採番(stampNewElements)を経た最終
+ * body を作って validateDocs で検査する。**ファイルシステムへは read しか
+ * 行わない**(errors の有無に関わらず一切書かない)。
+ */
+export function planApply(dir: string, patch: ApplyPatch): ApplyPlan {
+  if (!isObj(patch)) {
+    return {
+      body: {},
+      changedFiles: [],
+      diff: [],
+      errors: [{ file: "(patch)", where: "-", message: "パッチがオブジェクトではありません" }],
+      warnings: [],
+    };
+  }
+
+  const errors: Problem[] = [];
+  const { docs, errors: readErrors } = readDiskDocs(dir);
+  errors.push(...readErrors);
+
+  let ops: EditOp[] = [];
+  if (patch.ops !== undefined) {
+    if (!Array.isArray(patch.ops)) {
+      errors.push({ file: "(patch)", where: "ops", message: "ops は配列です" });
+    } else {
+      ops = patch.ops;
+    }
+  }
+  const { body: opsBody, errors: opsErrors, diff } = compileOps(docs, ops);
+  errors.push(...opsErrors);
+
+  let replace: ApplyBody = {};
+  if (patch.replace !== undefined) {
+    if (!isObj(patch.replace)) {
+      errors.push({ file: "(patch)", where: "replace", message: "replace はオブジェクトです" });
+    } else {
+      replace = patch.replace;
+    }
+  }
+
+  let body: ApplyBody = { ...opsBody, ...replace };
+  body = enforceApprovedUnchanged(docs, body, errors);
+  body = stampNewElements(dir, body);
+
+  const merged = mergeBodyOverDisk(dir, body);
+  const { errors: valErrors, warnings } = validateDocs(dir, merged);
+  errors.push(...valErrors);
+
+  const changedFiles = APPLY_FILE_KEYS.filter((k) => k in body).map((k) => APPLY_FILE_NAME[k]);
+
+  return { body, changedFiles, diff, errors, warnings };
+}
+
+/**
+ * 相2(書き込み)。planApply を呼び、errors があれば1バイトも書かずに返す
+ * (§不変条件3)。無ければ backupEditableFiles で変更対象ファイルの現状を
+ * backups/<日時>/ へ退避してから、変更のある編集ファイルだけを `<file>.tmp` →
+ * renameSync で確定する(torn write を排除)。approvals.json は一切書かない
+ * (§不変条件1)。process.exit・console は使わない(§論点7 MCP seam)。
+ */
+export function applyEdits(dir: string, patch: ApplyPatch): ApplyResult {
+  const plan = planApply(dir, patch);
+  if (plan.errors.length > 0) return { written: [], backupDir: null, plan };
+
+  const touchedKeys = APPLY_FILE_KEYS.filter((k) => k in plan.body);
+  if (touchedKeys.length === 0) return { written: [], backupDir: null, plan };
+
+  const files = touchedKeys.map((k) => APPLY_FILE_NAME[k]);
+  const backupDir = backupEditableFiles(dir, files);
+
+  const written: string[] = [];
+  for (const key of touchedKeys) {
+    const file = APPLY_FILE_NAME[key];
+    // 安全側の防御(構造的に起こり得ない): APPLY_FILE_NAME は固定7ファイルのみで
+    // approvals.json(fileRole "approval")・GENERATED_FILES(fileRole "generated")
+    // のいずれとも重ならない(§不変条件1・5)
+    const role = fileRole(file);
+    if (role === "approval" || role === "generated") {
+      throw new Error(`apply が書き込めないファイルです(${role}): ${file}`);
+    }
+    const value = (plan.body as Record<string, unknown>)[key];
+    const abs = join(dir, file);
+    if (value === null) {
+      // bgm.json / shorts.json の削除シグナル(saveProject と同じセマンティクス)
+      if (existsSync(abs)) rmSync(abs);
+    } else {
+      const tmp = `${abs}.tmp`;
+      writeFileSync(tmp, JSON.stringify(value, null, 2));
+      renameSync(tmp, abs);
+    }
+    written.push(file);
+  }
+  return { written, backupDir, plan };
 }
