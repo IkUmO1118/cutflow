@@ -2,7 +2,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Command } from "commander";
-import { EDITABLE_FILES, backupEditableFiles } from "./lib/backup.ts";
+import { backupEditableFiles } from "./lib/backup.ts";
+import { EDITABLE_FILES } from "./lib/files.ts";
 import { loadConfig, resolveConfigPath } from "./lib/config.ts";
 import { findSource } from "./lib/findSource.ts";
 import { ingest } from "./stages/ingest.ts";
