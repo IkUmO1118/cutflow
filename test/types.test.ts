@@ -1,8 +1,9 @@
-// src/types.ts — manifest のレイアウト判定(plain/obs-canvas)の純関数を固定する。
+// src/types.ts — manifest のレイアウト判定(plain/obs-canvas)、
+// テロップの実効スタイル解決(captionStyleOf)の純関数を固定する。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { hasCamera, manifestLayout } from "../src/types.ts";
-import type { Manifest } from "../src/types.ts";
+import { captionStyleOf, hasCamera, manifestLayout } from "../src/types.ts";
+import type { Manifest, Overlays, TranscriptSegment } from "../src/types.ts";
 
 const obsManifest: Manifest = {
   dir: "/tmp",
@@ -61,4 +62,34 @@ test("hasCamera: obs-canvas なのに cameraRegion 欠落(壊れたデータ)は
     video: { width: 3840, height: 1080, fps: 30, screenRegion: obsManifest.video.screenRegion },
   };
   assert.equal(hasCamera(broken), false);
+});
+
+// anim/karaoke は background と同じく「まるごと1キー」でセグメント→トラックの
+// 順に上書きされる(部分マージしない)。既存の項目単位マージに素通しで乗ることを固定する
+test("captionStyleOf: anim/karaoke はトラック標準→セグメント個別の順にキー単位で上書きされる", () => {
+  const overlays: Overlays = {
+    captionTracks: [
+      { track: 1, style: { anim: { in: "fade" }, karaoke: { mode: "word" } } },
+    ],
+  };
+  // セグメント側に無ければトラック標準がそのまま運ばれる
+  const segNoOverride: TranscriptSegment = { start: 0, end: 1, text: "a" };
+  assert.deepEqual(captionStyleOf(segNoOverride, overlays), {
+    anim: { in: "fade" },
+    karaoke: { mode: "word" },
+  });
+  // セグメント側の指定はキー単位でトラック標準を上書きする(部分マージしない)
+  const segOverride: TranscriptSegment = {
+    start: 0, end: 1, text: "a",
+    style: { anim: { in: "pop", durationSec: 0.5 } },
+  };
+  assert.deepEqual(captionStyleOf(segOverride, overlays), {
+    anim: { in: "pop", durationSec: 0.5 }, // まるごと差し替え(トラック標準の fade は残らない)
+    karaoke: { mode: "word" }, // 個別指定が無いキーはトラック標準のまま
+  });
+});
+
+test("captionStyleOf: anim/karaoke 未指定(トラック標準・セグメントとも無し)は現状どおり該当キー無し", () => {
+  const seg: TranscriptSegment = { start: 0, end: 1, text: "a", style: { color: "#fff" } };
+  assert.deepEqual(captionStyleOf(seg, {}), { color: "#fff" });
 });

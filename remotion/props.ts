@@ -25,6 +25,12 @@ export interface Caption {
   /** 見た目の上書き(トラック標準との合成は buildRenderProps で解決済み)。
    * 無い項目は既定値(サイズは caption.fontSizePx、色は白/青縁) */
   style?: CaptionStyle;
+  /** 語単位タイミング(カラオケ描画用。カット後=出力の秒)。この断片の
+   * [start,end) にクリップ済み。省略時(元 segment に words[] が無い/
+   * この断片に映る語が無い)はカラオケ非対応=従来どおりの1塊描画。
+   * text は必ずしも語の連結と一致しない(手編集で text だけ直した場合)ので、
+   * 描画側で text と語を突き合わせる(alignKaraoke)。 */
+  words?: { text: string; start: number; end: number }[];
 }
 
 /** 単純な時間区間(カット済みタイムラインの秒) */

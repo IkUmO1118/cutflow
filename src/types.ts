@@ -111,6 +111,14 @@ export interface CaptionStyle {
   /** 座布団(テキスト背後の背景帯)。YouTube テロップの定番表現。
    * 省略時はなし。縁取りを消したい場合は outlineColor: "none" を併用する */
   background?: CaptionBackground;
+  /** 登場/退場アニメ(フェード・スライド・ポップ)。省略時アニメ無し=現状
+   * (器の opacity/transform は動かず、追加 div も出ない)。素材(overlays)の
+   * fadeInSec/fadeOutSec に対応するテロップ版 */
+  anim?: CaptionAnim;
+  /** カラオケ表示(発話に同期した語の色替え)。segment.words[](語単位
+   * タイムスタンプ)を消費する。省略時カラオケ無し=現状。words[] が無い
+   * テロップに指定しても無視され通常表示になる(validate が警告) */
+  karaoke?: CaptionKaraoke;
 }
 
 /** テロップの座布団(背景帯)の設定 */
@@ -124,12 +132,58 @@ export interface CaptionBackground {
   radiusPx?: number;
 }
 
+/** テロップの登場/退場アニメ。CaptionStyle.anim。省略時はアニメ無し(現状)。
+ * in/out はキー単位で独立(片方だけ指定可)。durationSec は in/out 共通。
+ * かかるのはテロップの器(位置・レイアウトは不変)で、opacity と transform
+ * だけを時間で動かす。素材の fadeInSec/fadeOutSec に対応するテロップ版。 */
+export interface CaptionAnim {
+  /** 登場(表示開始 start から durationSec 秒)。省略時 in なし(瞬時に出る) */
+  in?: CaptionAnimKind;
+  /** 退場(表示終了 end の手前 durationSec 秒)。省略時 out なし(瞬時に消える) */
+  out?: CaptionAnimKind;
+  /** in/out それぞれの遷移秒。省略時 DEFAULT_CAPTION_ANIM_SEC(0.3)。
+   * 表示区間が in+out より短いときは短い方へ自動で縮める(fadeFactor と同じ) */
+  durationSec?: number;
+}
+
+/** アニメ種別の最小セット。"none" は明示的にアニメ無し(トラック標準を打ち消す用) */
+export type CaptionAnimKind =
+  | "fade"        // 不透明度 0→1
+  | "slide-up"    // 下からせり上がりながらフェード
+  | "slide-down"  // 上から降りながらフェード
+  | "slide-left"  // 右から寄りながらフェード
+  | "slide-right" // 左から寄りながらフェード
+  | "pop"         // 小さめから拡大しながらフェード
+  | "none";
+
+/** テロップのカラオケ表示。CaptionStyle.karaoke。省略時はカラオケ無し(現状)。
+ * segment.words[](語単位タイムスタンプ)を消費し、発話済みの語を activeColor に、
+ * 未発話の語を inactiveColor(既定=テロップの本文色)にして左から順に色を進める。
+ * words[] が無いテロップに指定した場合は無視され通常表示になる(validate が警告)。 */
+export interface CaptionKaraoke {
+  /** 発話済み(t >= 語の start)の語の色。省略時 KARAOKE_DEFAULT_ACTIVE(#ffe14d) */
+  activeColor?: string;
+  /** 未発話の語の色。省略時はテロップの本文色(style.color→既定の白)。
+   * 「未発話は薄く」したいときは inactiveOpacity と併用 */
+  inactiveColor?: string;
+  /** 未発話の語の不透明度(0〜1)。省略時 1。0.4 等で「これから読む所を薄く」 */
+  inactiveOpacity?: number;
+  /** 語をまたぐ塗りの進み方。"word"(既定): 語単位で瞬間に色が切り替わる /
+   * "fill": いま発話中の語だけ左から右へ塗り進む(karaoke 字幕の定番)。 */
+  mode?: "word" | "fill";
+}
+
 /** style 未指定時の文字色・縁取り色・フォント種・太さ */
 export const CAPTION_DEFAULT_COLOR = "#ffffff";
 export const CAPTION_DEFAULT_OUTLINE = "#2563eb";
 export const CAPTION_DEFAULT_FONT_FAMILY =
   '"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif';
 export const CAPTION_DEFAULT_FONT_WEIGHT = 700;
+
+/** CaptionAnim.durationSec 未指定時の既定(秒)。in/out 共通。描画側の最終フォールバック */
+export const DEFAULT_CAPTION_ANIM_SEC = 0.3;
+/** CaptionKaraoke.activeColor 未指定時の既定(発話済みの語の色) */
+export const KARAOKE_DEFAULT_ACTIVE = "#ffe14d";
 
 /** render.wipeTransitionSec 未指定時の既定(秒)。renderProps と設定画面で共有。
  * config.ts は node 専用(node:fs 等)なので、ブラウザにも入るこのファイルに置く */
