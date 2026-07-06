@@ -10,6 +10,7 @@ import { transcribe } from "./stages/transcribe.ts";
 import { detect } from "./stages/detect.ts";
 import { plan, remeta } from "./stages/plan.ts";
 import { planShorts } from "./stages/planShorts.ts";
+import { learn } from "./stages/learn.ts";
 import { preview } from "./stages/preview.ts";
 import { render, renderShort, renderShorts } from "./stages/render.ts";
 import { validate } from "./stages/validate.ts";
@@ -208,6 +209,23 @@ program
     console.log(
       "\n次のステップ: preview か GUI エディタ(ショートモード)で確認し、" +
         "各ショートの approved を true にしてから render --short してください。",
+    );
+  });
+
+program
+  .command("learn <dir>")
+  .description(
+    "直前の生成案と人間の仕上げを見比べ、次回用のチャンネルルール追記案を生成" +
+      "(rules.suggested.md に下書き。channel の rules.md は人間が手で採用)",
+  )
+  .action(async (dir: string) => {
+    const cfg = loadConfig(program.opts().config);
+    const abs = resolveDir(dir);
+    console.log("learn 実行中(LLM でルール追記案を生成)...");
+    const out = await learn(abs, cfg);
+    console.log(`learn 完了: ${out}`);
+    console.log(
+      "内容を確認し、採用する項目を手で channel の rules.md に追記してください。",
     );
   });
 
