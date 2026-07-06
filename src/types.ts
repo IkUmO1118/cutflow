@@ -68,6 +68,25 @@ export interface TranscriptSegment {
   pos?: CaptionPos;
   /** このテロップだけの見た目。項目単位でトラック標準・既定値に重なる */
   style?: CaptionStyle;
+  /** 語/トークン単位のタイミング(whisper -ojf の per-token offsets 由来)。
+   * 省略可(後方互換)。**カラオケアニメ等の描画専用の補助データで、テロップの
+   * 文言・表示区間そのものは常に text / start / end が正**。人間が text を
+   * 手編集すると words[] は古くなりうる(§5 参照)。特殊トークン([_BEG_] /
+   * [_TT_NNN] 等)と空 text は除外済み。時刻は他と同じく「元収録(raw)の秒」。
+   * words[] は時系列順で、各 word の [start,end) は親 segment の [start,end] に収まる */
+  words?: WordTiming[];
+}
+
+/** transcript の1語/1トークンのタイミング。whisper のサブワード単位
+ * (日本語は分かち書きが無いためトークン=サブワード)。時刻は元収録の秒 */
+export interface WordTiming {
+  /** トークン文字列(前後空白を trim 済み。特殊トークンは含めない) */
+  text: string;
+  /** 開始・終了(元収録の秒)。start < end。親 segment の範囲内 */
+  start: number;
+  end: number;
+  /** whisper の確信度(0..1、-ojf の token.p)。省略可 */
+  confidence?: number;
 }
 
 /** テロップの表示位置。出力解像度上のテキスト中心座標(px) */
@@ -92,6 +111,14 @@ export interface CaptionStyle {
   /** 座布団(テキスト背後の背景帯)。YouTube テロップの定番表現。
    * 省略時はなし。縁取りを消したい場合は outlineColor: "none" を併用する */
   background?: CaptionBackground;
+  /** 登場/退場アニメ(フェード・スライド・ポップ)。省略時アニメ無し=現状
+   * (器の opacity/transform は動かず、追加 div も出ない)。素材(overlays)の
+   * fadeInSec/fadeOutSec に対応するテロップ版 */
+  anim?: CaptionAnim;
+  /** カラオケ表示(発話に同期した語の色替え)。segment.words[](語単位
+   * タイムスタンプ)を消費する。省略時カラオケ無し=現状。words[] が無い
+   * テロップに指定しても無視され通常表示になる(validate が警告) */
+  karaoke?: CaptionKaraoke;
 }
 
 /** テロップの座布団(背景帯)の設定 */
@@ -105,12 +132,58 @@ export interface CaptionBackground {
   radiusPx?: number;
 }
 
+/** テロップの登場/退場アニメ。CaptionStyle.anim。省略時はアニメ無し(現状)。
+ * in/out はキー単位で独立(片方だけ指定可)。durationSec は in/out 共通。
+ * かかるのはテロップの器(位置・レイアウトは不変)で、opacity と transform
+ * だけを時間で動かす。素材の fadeInSec/fadeOutSec に対応するテロップ版。 */
+export interface CaptionAnim {
+  /** 登場(表示開始 start から durationSec 秒)。省略時 in なし(瞬時に出る) */
+  in?: CaptionAnimKind;
+  /** 退場(表示終了 end の手前 durationSec 秒)。省略時 out なし(瞬時に消える) */
+  out?: CaptionAnimKind;
+  /** in/out それぞれの遷移秒。省略時 DEFAULT_CAPTION_ANIM_SEC(0.3)。
+   * 表示区間が in+out より短いときは短い方へ自動で縮める(fadeFactor と同じ) */
+  durationSec?: number;
+}
+
+/** アニメ種別の最小セット。"none" は明示的にアニメ無し(トラック標準を打ち消す用) */
+export type CaptionAnimKind =
+  | "fade"        // 不透明度 0→1
+  | "slide-up"    // 下からせり上がりながらフェード
+  | "slide-down"  // 上から降りながらフェード
+  | "slide-left"  // 右から寄りながらフェード
+  | "slide-right" // 左から寄りながらフェード
+  | "pop"         // 小さめから拡大しながらフェード
+  | "none";
+
+/** テロップのカラオケ表示。CaptionStyle.karaoke。省略時はカラオケ無し(現状)。
+ * segment.words[](語単位タイムスタンプ)を消費し、発話済みの語を activeColor に、
+ * 未発話の語を inactiveColor(既定=テロップの本文色)にして左から順に色を進める。
+ * words[] が無いテロップに指定した場合は無視され通常表示になる(validate が警告)。 */
+export interface CaptionKaraoke {
+  /** 発話済み(t >= 語の start)の語の色。省略時 KARAOKE_DEFAULT_ACTIVE(#ffe14d) */
+  activeColor?: string;
+  /** 未発話の語の色。省略時はテロップの本文色(style.color→既定の白)。
+   * 「未発話は薄く」したいときは inactiveOpacity と併用 */
+  inactiveColor?: string;
+  /** 未発話の語の不透明度(0〜1)。省略時 1。0.4 等で「これから読む所を薄く」 */
+  inactiveOpacity?: number;
+  /** 語をまたぐ塗りの進み方。"word"(既定): 語単位で瞬間に色が切り替わる /
+   * "fill": いま発話中の語だけ左から右へ塗り進む(karaoke 字幕の定番)。 */
+  mode?: "word" | "fill";
+}
+
 /** style 未指定時の文字色・縁取り色・フォント種・太さ */
 export const CAPTION_DEFAULT_COLOR = "#ffffff";
 export const CAPTION_DEFAULT_OUTLINE = "#2563eb";
 export const CAPTION_DEFAULT_FONT_FAMILY =
   '"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif';
 export const CAPTION_DEFAULT_FONT_WEIGHT = 700;
+
+/** CaptionAnim.durationSec 未指定時の既定(秒)。in/out 共通。描画側の最終フォールバック */
+export const DEFAULT_CAPTION_ANIM_SEC = 0.3;
+/** CaptionKaraoke.activeColor 未指定時の既定(発話済みの語の色) */
+export const KARAOKE_DEFAULT_ACTIVE = "#ffe14d";
 
 /** render.wipeTransitionSec 未指定時の既定(秒)。renderProps と設定画面で共有。
  * config.ts は node 専用(node:fs 等)なので、ブラウザにも入るこのファイルに置く */
@@ -141,6 +214,10 @@ export interface Interval {
 
 /** plan が生成、人間が編集して承認する(cutplan.json) */
 export interface CutPlan {
+  /** 人間の承認意図の表示(GUI チェックボックスのモデル)。**render のゲートでは
+   * ない**(src/lib/approval.ts を参照)。render は approvals.json の承認
+   * レコード(keep 集合のハッシュに束縛)だけを見る。ここが true でもレコードが
+   * 無い/内容が変わっていれば render は拒否される(validate が警告する) */
   approved: boolean;
   /** 残す区間のリスト(時系列順)。reason は人間が確認するための説明 */
   segments: PlanSegment[];
@@ -152,6 +229,27 @@ export interface PlanSegment {
   /** keep: 残す / cut: 切る(確認用に候補も残しておく) */
   action: "keep" | "cut";
   reason: string;
+}
+
+/** 承認レコード(approvals.json)。承認は cutplan/short の keep 集合の
+ * ハッシュに束縛され、内容が変われば hash 不一致で自動失効する。
+ * render の唯一のゲート。boolean approved は人間の意図表示に降格
+ * (CutPlan.approved / Short.approved のコメント参照)。
+ * 収録フォルダ直下の別ファイルに置く(cutplan.json 等の編集ワークフローとは
+ * 別行為にするため。src/lib/approval.ts が算出・読み書きする) */
+export interface Approvals {
+  version: 1;
+  cutplan?: ApprovalRecord;
+  shorts?: Record<string, ApprovalRecord>;
+}
+
+export interface ApprovalRecord {
+  /** "sha256:…"。src/lib/approval.ts が現内容から算出した値と一致で承認有効 */
+  hash: string;
+  /** 承認した時刻(情報用。ゲート判定には使わない) */
+  approvedAt: string;
+  /** 承認した経路(情報用。監査の助け。信頼できる値ではないため判定には使わない) */
+  by?: "cli" | "gui";
 }
 
 /** plan が生成(chapters.json)。YouTube チャプター用の章立てメタデータ
@@ -342,6 +440,11 @@ export interface Overlays {
    * 例外的に継承される(本編とショートで肌色が変わる事故を防ぐため。
    * render.ts のショート経路がここだけ拾って渡す) */
   colorFilter?: ColorFilter;
+  /** 領域ぼかし/モザイク(秘匿情報の目隠し)。かかるのはベース映像
+   * (画面クロップ)だけで、素材・挿入・テロップは対象外。zoom には追従せず
+   * 出力px固定。ショート(profile 経路)には継承されない(座標が本編基準の
+   * ため。shorts があると validate が警告する) */
+  blurs?: BlurRegion[];
 }
 
 /** 簡易カラー調整(overlays.json の colorFilter)。各キー省略可・既定 1.0
@@ -368,6 +471,31 @@ export interface Zoom {
 
 /** render.zoom.easeSec 未指定時の既定(秒)。renderProps と設定画面で共有 */
 export const DEFAULT_ZOOM_EASE_SEC = 0.4;
+
+/** 領域ぼかし/モザイクの効果種別。省略時 "blur"。
+ * 将来 "box"(単色塗り)を足す場合はここに追加する(今はスコープ外) */
+export type BlurType = "blur" | "mosaic";
+
+/** 領域ぼかし/モザイク1件(overlays.json の blurs)。開発画面の API キー・
+ * PII・パスワードなど、ベース映像(画面クロップ)の一部を隠す。start/end は
+ * 元収録の秒、rect は出力px({x,y,w,h}。テロップ pos・zooms rect と同座標系)。
+ * かかるのはベース映像だけ。zoom には追従せず出力px固定(zoom と時間が重なる
+ * と validate が警告する)。ショート(profile 経路)には継承されない */
+export interface BlurRegion {
+  start: number;
+  end: number;
+  /** 隠す矩形(出力px)。画面外へはみ出すと validate がエラーにする */
+  rect: Region;
+  /** 効果種別。省略時 "blur"(CSS ぼかし)。"mosaic" はピクセル化 */
+  type?: BlurType;
+  /** 強度(0〜1)。省略時 0.5。type ごとに px へ写像する
+   * (blur=ぼかし半径 / mosaic=ブロック辺長。src/lib/blur.ts) */
+  strength?: number;
+}
+
+/** BlurRegion.strength / type 未指定時の既定。renderProps と描画・検査で共有 */
+export const DEFAULT_BLUR_STRENGTH = 0.5;
+export const DEFAULT_BLUR_TYPE: BlurType = "blur";
 
 /** 人間が書く BGM 指定(bgm.json)。ファイルが無ければ、収録フォルダ直下の
  * bgm.mp3 / bgm.m4a / bgm.wav(あれば)を全編1曲として流す従来動作になる。
@@ -413,8 +541,9 @@ export interface Short {
   /** 出力プロファイル(src/lib/profile.ts の PROFILES のキー)。
    * 省略時 "vertical" */
   profile?: string;
-  /** このショート(縦動画)を人間が確認したか。render --short のゲート。
-   * 承認は人間の仕事(AI が自分で true にしない。cutplan.json の approved と同じ) */
+  /** 人間の承認意図の表示。**render --short のゲートではない**(cutplan.json の
+   * approved と同じく src/lib/approval.ts の承認レコードに格下げ済み。承認は
+   * 人間の仕事で AI が自分で true にしない、という原則自体は変わらない) */
   approved: boolean;
   /** このショートの keep 区間(元収録の秒)。本編 cutplan の keep とは独立で、
    * mergeIntervals した集合がそのままショートの keep 集合になる(交差なし)。

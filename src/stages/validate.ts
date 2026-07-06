@@ -7,12 +7,14 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join, normalize, resolve, sep } from "node:path";
+import { isCutplanApproved, isShortApproved } from "../lib/approval.ts";
 import { fmtT } from "../lib/fmt.ts";
+import { framesFreshness } from "../lib/framesIndex.ts";
 import { defaultShortProfileName, PROFILES, profileSupportsPlain } from "../lib/profile.ts";
 import { buildTimeline, remapInterval } from "../lib/timeline.ts";
 import type { TimelineEntry } from "../lib/timeline.ts";
 import { capNum, captionTrack, hasCamera, ovNum } from "../types.ts";
-import type { Interval, Manifest } from "../types.ts";
+import type { CutPlan, Interval, Manifest, Short } from "../types.ts";
 
 export interface Problem {
   /** 対象ファイル(収録フォルダ内の名前) */
@@ -82,7 +84,83 @@ export function validate(dir: string): ValidateResult {
     shorts: readJson("shorts.json", false),
     thumbnail: readJson("thumbnail.json", false),
   };
-  return validateDocs(dir, docs, preErrors);
+  const result = validateDocs(dir, docs, preErrors);
+  // 承認レコード(approvals.json)の陳腐化警告は fs 版ラッパにだけ足す
+  // (approvals.json は validateDocs の LoadedDocs に含まれない=純関数のままにする)。
+  // 既に error があるプロジェクトでは cutplan/shorts の形が保証されないため
+  // スキップする(新たな error は出さない・警告どまりの方針を守る)
+  if (result.errors.length === 0) checkApprovalFreshness(dir, docs, result.warnings);
+  // frames の stale-PNG 罠対策(設計 docs/plans/2026-07-07-frames-server-design.md
+  // 課題1)。frames/index.json は生JSONの内容ハッシュだけを見るため、
+  // errors の有無に関わらず判定できる(承認鮮度チェックと違い docs の形に
+  // 依存しない)
+  checkFramesFreshness(dir, result.warnings);
+  return result;
+}
+
+/**
+ * frames/index.json(撮影入力のフィンガープリント)が現在の編集 JSON と
+ * 食い違っていれば警告する。`none`(未撮影・機能導入前)は警告しない
+ * (isProxyStale と同じ「未生成→陳腐化ではない」の判断)。config.yaml の
+ * 変更はこの検出の対象外(既知の限界。設計 §論点1-B)
+ */
+function checkFramesFreshness(dir: string, warnings: Problem[]): void {
+  const freshness = framesFreshness(dir);
+  if (freshness.state !== "stale") return;
+  warnings.push({
+    file: "frames/index.json",
+    where: "-",
+    message:
+      `frames は撮影後に ${freshness.changed.join("、")} が変更されており古い可能性があります。` +
+      "古い PNG を読まないよう `node src/cli.ts frames <dir> ...` で撮り直してください" +
+      "(config.yaml の変更はこの検出の対象外です)",
+  });
+}
+
+/**
+ * approved:true(人間の承認意図)なのに、承認レコード(approvals.json)が
+ * 無い・陳腐化している(hash 不一致)ケースを警告する。render はこの状態を
+ * 拒否するので、render を待たずに JSON 編集ループ(edit → validate)の中で
+ * 気づけるようにする(§7)。exit 0 の警告どまり(既存の valid なプロジェクトに
+ * 新たな error は出さない)。
+ */
+function checkApprovalFreshness(
+  dir: string,
+  docs: LoadedDocs,
+  warnings: Problem[],
+): void {
+  const cutplan = docs.cutplan;
+  if (isObj(cutplan) && cutplan.approved === true && Array.isArray(cutplan.segments)) {
+    const gate = isCutplanApproved(dir, cutplan as unknown as CutPlan);
+    if (!gate.ok) {
+      warnings.push({
+        file: "cutplan.json",
+        where: "approved",
+        message:
+          `approved: true ですが承認レコードが無効です(${gate.reason})。` +
+          "この状態では render は拒否されます。preview で確認のうえ " +
+          "`node src/cli.ts approve <dir>` で再承認してください",
+      });
+    }
+  }
+  const shorts = docs.shorts;
+  if (isObj(shorts) && Array.isArray(shorts.shorts)) {
+    for (const s of shorts.shorts) {
+      if (!isObj(s) || s.approved !== true) continue;
+      if (typeof s.name !== "string" || !Array.isArray(s.ranges)) continue;
+      const gate = isShortApproved(dir, s as unknown as Short);
+      if (!gate.ok) {
+        warnings.push({
+          file: "shorts.json",
+          where: `shorts(name="${s.name}")`,
+          message:
+            `approved: true ですが承認レコードが無効です(${gate.reason})。` +
+            `この状態では render --short は拒否されます。preview で確認のうえ ` +
+            `\`node src/cli.ts approve <dir> --short ${s.name}\` で再承認してください`,
+        });
+      }
+    }
+  }
 }
 
 /**
@@ -203,9 +281,29 @@ export function validateDocs(
         if (s.pos !== undefined && !(isObj(s.pos) && isNum(s.pos.x) && isNum(s.pos.y))) {
           err(f, w, `pos は {x, y}(出力px の数値)です(現在: ${JSON.stringify(s.pos)})`);
         }
-        checkStyle(f, w, s.style, err);
+        checkStyle(f, w, s.style, err, warn);
         if (isNum(s.start) && isNum(s.end) && s.start < s.end && !visible(s.start, s.end)) {
           warn(f, w, `全体がカット区間内にあり表示されません(${fmtT(s.start)}–${fmtT(s.end)}「${String(s.text).slice(0, 12)}」)`);
+        }
+        checkWords(
+          f, w,
+          isNum(s.start) && isNum(s.end) && s.start < s.end ? { start: s.start, end: s.end } : null,
+          s.words, err, warn,
+        );
+        // karaoke 指定だが words[] が無い/空 → 通常表示にフォールバックするだけ
+        // (壊れない)なので警告にとどめる。checkStyle は words を知らないので
+        // ここで(このセグメント個別の karaoke 指定のときだけ)確認する。
+        // トラック標準(captionTracks)側の karaoke は各セグメントの words 有無に
+        // 依存するため対象外(過検出を避ける)
+        if (
+          isObj(s.style) && isObj(s.style.karaoke) &&
+          !(Array.isArray(s.words) && s.words.length > 0)
+        ) {
+          warn(
+            f, w,
+            "karaoke 指定がありますが words[] がありません(通常表示になります。" +
+              "config の whisper.wordTimestamps を true にして transcribe し直してください)",
+          );
         }
       });
     }
@@ -219,7 +317,7 @@ export function validateDocs(
     const f = "overlays.json";
     const KNOWN = [
       "overlays", "inserts", "wipeFull", "layerOrder", "captionTracks",
-      "hideCaption", "zooms", "colorFilter",
+      "hideCaption", "zooms", "colorFilter", "blurs",
     ];
     for (const k of Object.keys(overlays)) {
       if (!KNOWN.includes(k)) warn(f, k, `不明なキーです(有効: ${KNOWN.join(" / ")})`);
@@ -425,6 +523,65 @@ export function validateDocs(
       }
     }
 
+    if (overlays.blurs !== undefined && !Array.isArray(overlays.blurs)) {
+      err(f, "blurs", "配列ではありません");
+    }
+    (Array.isArray(overlays.blurs) ? overlays.blurs : []).forEach((b: unknown, i: number) => {
+      const w = `blurs[${i}]`;
+      if (!isObj(b)) return err(f, w, "オブジェクトではありません");
+      // start<end・収録尺内はどちらもエラー(warn を渡さない。秘匿目隠しは
+      // zooms と同じ厳しさで扱う)
+      checkSpan(f, w, b, dur, err);
+      const r = b.rect;
+      if (!isObj(r) || !isNum(r.x) || !isNum(r.y) || !isNum(r.w) || !isNum(r.h)) {
+        err(f, w, `rect は {x, y, w, h}(出力px の数値)です(現在: ${JSON.stringify(r)})`);
+      } else if (r.w <= 0 || r.h <= 0) {
+        err(f, w, `rect の w / h は正の数です(現在: ${r.w} x ${r.h})`);
+      } else if (outputRegion) {
+        const { w: outW, h: outH } = outputRegion;
+        if (r.x < 0 || r.y < 0 || r.x + r.w > outW || r.y + r.h > outH) {
+          err(
+            f, w,
+            `rect が出力解像度(${outW}x${outH})の外にはみ出しています` +
+              `(現在: x${r.x} y${r.y} w${r.w} h${r.h})`,
+          );
+        }
+      }
+      if (b.type !== undefined && b.type !== "blur" && b.type !== "mosaic") {
+        err(f, w, `type は "blur" か "mosaic" です(現在: ${JSON.stringify(b.type)})`);
+      }
+      if (b.strength !== undefined && (!isNum(b.strength) || b.strength < 0 || b.strength > 1)) {
+        err(f, w, `strength は 0〜1 の数値です(現在: ${JSON.stringify(b.strength)})`);
+      }
+      if (isNum(b.start) && isNum(b.end) && b.start < b.end) {
+        const bStart = b.start;
+        const bEnd = b.end;
+        if (!visible(bStart, bEnd)) {
+          warn(f, w, `全体がカット区間内にあり表示されません(${fmtT(bStart)}–${fmtT(bEnd)})`);
+        }
+        // zoom と時間が重なると、blur 矩形が zoom に追従しないため
+        // 隠したい情報が矩形からずれて露出しうる(判断4)
+        if (zoomSpans.some((z) => bStart < z.end && z.start < bEnd)) {
+          warn(
+            f, w,
+            `zoom 区間と時間が重なっています(${fmtT(bStart)}–${fmtT(bEnd)})。` +
+              "blur は zoom に追従しないため、隠したい情報が矩形からずれて見える" +
+              "ことがあります(zoom を外すか rect を広げてください)",
+          );
+        }
+      }
+    });
+    if (
+      Array.isArray(overlays.blurs) && overlays.blurs.length > 0 &&
+      isObj(shorts) && Array.isArray(shorts.shorts) && shorts.shorts.length > 0
+    ) {
+      warn(
+        f, "blurs",
+        "本編に領域ぼかしがありますが、ショートには継承されません。" +
+          "ショートに秘匿情報が写る場合は別途隠してください",
+      );
+    }
+
     if (overlays.colorFilter !== undefined) {
       const cfw = "colorFilter";
       if (!isObj(overlays.colorFilter)) {
@@ -471,7 +628,7 @@ export function validateDocs(
       }
     }
 
-    checkCaptionTracks(f, "captionTracks", overlays.captionTracks, err);
+    checkCaptionTracks(f, "captionTracks", overlays.captionTracks, err, warn);
   } else if (overlays !== null) {
     err("overlays.json", "-", "オブジェクトではありません");
   }
@@ -625,7 +782,7 @@ export function validateDocs(
               "plain(カメラ無し)には vertical-cover か default を使ってください",
           );
         }
-        checkCaptionTracks(f, `${w}.captionTracks`, s.captionTracks, err, (t, tw) => {
+        checkCaptionTracks(f, `${w}.captionTracks`, s.captionTracks, err, warn, (t, tw) => {
           if (!profileDef) return;
           if (isNum(t.x) && (t.x < 0 || t.x > profileDef.width)) {
             warn(f, tw, `x(${t.x})が profile "${profileName}" の幅(${profileDef.width})の外です`);
@@ -663,7 +820,7 @@ export function validateDocs(
         if (!isObj(t.pos) || !isNum(t.pos.x) || !isNum(t.pos.y)) {
           err(f, w, `pos は {x, y}(出力px の数値)です(現在: ${JSON.stringify(t.pos)})`);
         }
-        checkStyle(f, w, t.style, err);
+        checkStyle(f, w, t.style, err, warn);
       });
     }
   } else if (thumbnail !== null && thumbnail !== undefined) {
@@ -802,6 +959,7 @@ function checkCaptionTracks(
   key: string,
   tracks: unknown,
   err: (f: string, w: string, m: string) => void,
+  warn?: (f: string, w: string, m: string) => void,
   onEntry?: (t: Record<string, unknown>, where: string) => void,
 ): void {
   if (tracks === undefined) return;
@@ -824,18 +982,22 @@ function checkCaptionTracks(
     if ((t.x !== undefined && !isNum(t.x)) || (t.y !== undefined && !isNum(t.y))) {
       err(file, w, "x / y は数値(出力px)です");
     }
-    checkStyle(file, w, t.style, err);
+    checkStyle(file, w, t.style, err, warn);
     onEntry?.(t, w);
   });
 }
 
+/** アニメ種別(CaptionAnimKind)の許可リスト。src/types.ts の型定義と揃える */
+const CAPTION_ANIM_KINDS = ["fade", "slide-up", "slide-down", "slide-left", "slide-right", "pop", "none"];
+
 /** テロップの style({fontSizePx, color, outlineColor, fontFamily,
- * fontWeight, background})の検査 */
+ * fontWeight, background, anim, karaoke})の検査 */
 function checkStyle(
   file: string,
   where: string,
   style: unknown,
   err: (f: string, w: string, m: string) => void,
+  warn?: (f: string, w: string, m: string) => void,
 ): void {
   if (style === undefined) return;
   if (!isObj(style)) return err(file, where, `style はオブジェクトです(現在: ${JSON.stringify(style)})`);
@@ -872,6 +1034,106 @@ function checkStyle(
       }
     }
   }
+  const anim = style.anim;
+  if (anim !== undefined) {
+    const aw = `${w}.anim`;
+    if (!isObj(anim)) {
+      err(file, w, `anim はオブジェクト({in?, out?, durationSec?})です(現在: ${JSON.stringify(anim)})`);
+    } else {
+      for (const k of ["in", "out"] as const) {
+        if (anim[k] !== undefined && !CAPTION_ANIM_KINDS.includes(String(anim[k]))) {
+          err(file, aw, `${k} は ${CAPTION_ANIM_KINDS.join(" / ")} のいずれかです(現在: ${JSON.stringify(anim[k])})`);
+        }
+      }
+      if (anim.durationSec !== undefined && (!isNum(anim.durationSec) || anim.durationSec < 0)) {
+        err(file, aw, `durationSec は 0 以上の数値です(現在: ${JSON.stringify(anim.durationSec)})`);
+      }
+      const known = ["in", "out", "durationSec"];
+      for (const k of Object.keys(anim)) {
+        if (!known.includes(k)) warn?.(file, aw, `不明なキーです(有効: ${known.join(" / ")})`);
+      }
+    }
+  }
+  const karaoke = style.karaoke;
+  if (karaoke !== undefined) {
+    const kw = `${w}.karaoke`;
+    if (!isObj(karaoke)) {
+      err(file, w, `karaoke はオブジェクト({activeColor?, inactiveColor?, inactiveOpacity?, mode?})です(現在: ${JSON.stringify(karaoke)})`);
+    } else {
+      for (const k of ["activeColor", "inactiveColor"] as const) {
+        if (karaoke[k] !== undefined && (typeof karaoke[k] !== "string" || karaoke[k] === "")) {
+          err(file, kw, `${k} は CSS カラー文字列です(現在: ${JSON.stringify(karaoke[k])})`);
+        }
+      }
+      if (
+        karaoke.inactiveOpacity !== undefined &&
+        (!isNum(karaoke.inactiveOpacity) || karaoke.inactiveOpacity < 0 || karaoke.inactiveOpacity > 1)
+      ) {
+        err(file, kw, `inactiveOpacity は 0〜1 の数値です(現在: ${JSON.stringify(karaoke.inactiveOpacity)})`);
+      }
+      if (karaoke.mode !== undefined && karaoke.mode !== "word" && karaoke.mode !== "fill") {
+        err(file, kw, `mode は "word" / "fill" のいずれかです(現在: ${JSON.stringify(karaoke.mode)})`);
+      }
+      const known = ["activeColor", "inactiveColor", "inactiveOpacity", "mode"];
+      for (const k of Object.keys(karaoke)) {
+        if (!known.includes(k)) warn?.(file, kw, `不明なキーです(有効: ${known.join(" / ")})`);
+      }
+    }
+  }
+}
+
+/** transcript の segment.words[](WordTiming[])の検査。省略時(undefined)は
+ * 何もしない(既存の検査結果と完全に同一)。words[] は描画専用の補助データ
+ * なので、「壊れると render がクラッシュ/明らかに不正になる」もの
+ * (配列型・text 型・start<end)だけエラー、「意図と違うかも」なもの
+ * (親 segment 範囲逸脱・時系列順・confidence 範囲)は警告にとどめる。
+ * seg は親 segment の [start,end](親側が不正で確定できないときは null。
+ * その場合は範囲逸脱チェックだけ省略し、word 自体の型検査は続ける) */
+function checkWords(
+  file: string,
+  where: string,
+  seg: { start: number; end: number } | null,
+  words: unknown,
+  err: (f: string, w: string, m: string) => void,
+  warn: (f: string, w: string, m: string) => void,
+): void {
+  if (words === undefined) return;
+  if (!Array.isArray(words)) {
+    return err(file, `${where}.words`, `words は配列です(現在: ${JSON.stringify(words)})`);
+  }
+  let prevEnd = -Infinity;
+  words.forEach((w: unknown, i: number) => {
+    const ww = `${where}.words[${i}]`;
+    if (!isObj(w)) return err(file, ww, "オブジェクトではありません");
+    if (typeof w.text !== "string") {
+      err(file, ww, `text は文字列です(現在: ${JSON.stringify(w.text)})`);
+    } else if (w.text === "") {
+      warn(file, ww, "text が空です(表示に使わない語)");
+    }
+    if (!isNum(w.start) || !isNum(w.end) || !(w.start < w.end)) {
+      err(
+        file, ww,
+        `start / end は start < end の数値です(現在: ${JSON.stringify(w.start)} / ${JSON.stringify(w.end)})`,
+      );
+    } else {
+      if (seg && (w.start < seg.start - EPS || w.end > seg.end + EPS)) {
+        warn(
+          file, ww,
+          `親セグメント(${fmtT(seg.start)}–${fmtT(seg.end)})の範囲外です(${fmtT(w.start)}–${fmtT(w.end)})`,
+        );
+      }
+      if (w.start < prevEnd - EPS) {
+        warn(file, ww, "words[] が時系列順ではありません");
+      }
+      prevEnd = w.end;
+    }
+    if (
+      w.confidence !== undefined &&
+      (!isNum(w.confidence) || w.confidence < 0 || w.confidence > 1)
+    ) {
+      warn(file, ww, `confidence は 0〜1 の数値です(現在: ${JSON.stringify(w.confidence)})`);
+    }
+  });
 }
 
 function isObj(v: unknown): v is Record<string, unknown> {

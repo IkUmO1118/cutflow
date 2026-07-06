@@ -5,7 +5,11 @@ import {
   CAPTION_DEFAULT_FONT_FAMILY,
   CAPTION_DEFAULT_FONT_WEIGHT,
   CAPTION_DEFAULT_OUTLINE,
+  DEFAULT_BLUR_STRENGTH,
+  DEFAULT_BLUR_TYPE,
+  DEFAULT_CAPTION_ANIM_SEC,
   DEFAULT_ZOOM_EASE_SEC,
+  KARAOKE_DEFAULT_ACTIVE,
   captionAnchorOf,
   captionPosOf,
   captionTrack,
@@ -14,6 +18,10 @@ import {
 } from "../../src/types.ts";
 import type {
   Bgm,
+  BlurType,
+  CaptionAnim,
+  CaptionAnimKind,
+  CaptionKaraoke,
   CaptionPos,
   CaptionStyle,
   CutPlan,
@@ -91,6 +99,8 @@ export const Inspector = ({
   removeSpan,
   updateZoom,
   removeZoom,
+  updateBlur,
+  removeBlur,
   updateInsert,
   removeInsert,
   updateBgm,
@@ -193,6 +203,12 @@ export const Inspector = ({
     coalesceKey?: string,
   ) => void;
   removeZoom: (i: number) => void;
+  updateBlur: (
+    i: number,
+    patch: Partial<NonNullable<Overlays["blurs"]>[number]>,
+    coalesceKey?: string,
+  ) => void;
+  removeBlur: (i: number) => void;
   updateInsert: (i: number, patch: Partial<InsertEntry>, coalesceKey?: string) => void;
   removeInsert: (i: number) => void;
   updateBgm: (i: number, patch: Partial<BgmTrack>, coalesceKey?: string) => void;
@@ -379,6 +395,27 @@ export const Inspector = ({
         { style: Object.keys(st).length > 0 ? st : undefined },
         key,
       );
+    };
+    /** アニメ(登場/退場)を項目単位で更新。anim はネスト obj なので
+     * patchStyle のトップレベル掃除に加えてサブキーの undefined を自前で
+     * 掃除し、全サブキーが無くなれば anim キーごと消す(空 obj=無意味なので
+     * 保持しない。karaoke とは非対称) */
+    const patchAnim = (p: Partial<CaptionAnim>) => {
+      const an: CaptionAnim = { ...s.style?.anim, ...p };
+      for (const k of Object.keys(an) as (keyof CaptionAnim)[]) {
+        if (an[k] === undefined) delete an[k];
+      }
+      patchStyle({ anim: Object.keys(an).length > 0 ? an : undefined });
+    };
+    /** カラオケの詳細項目を更新。karaoke も同じくネスト obj だが、空 obj は
+     * 「全既定でカラオケ有効」という意味を持つため消さずに保持する
+     * (無効化はマスターのチェックボックスの karaoke: undefined だけが行う) */
+    const patchKaraoke = (p: Partial<CaptionKaraoke>, key?: string) => {
+      const kr: CaptionKaraoke = { ...s.style?.karaoke, ...p };
+      for (const k of Object.keys(kr) as (keyof CaptionKaraoke)[]) {
+        if (kr[k] === undefined) delete kr[k];
+      }
+      patchStyle({ karaoke: kr }, key);
     };
     /** 9点プリセット。テキストの実測寸法で画面端に marginPx を空けて置く */
     const applyPosPreset = (h: "l" | "c" | "r", v: "t" | "m" | "b") => {
@@ -742,6 +779,148 @@ export const Inspector = ({
                 解除
               </button>
             </p>
+          )}
+        </Section>
+        <Section title="アニメーション">
+          <div className="field">
+            <label>登場</label>
+            <select
+              value={s.style?.anim?.in ?? ""}
+              title="表示され始めるときの動き。「なし(標準)」=トラック標準/既定を継承、「アニメ無し」=標準を明示的に打ち消す"
+              onChange={(e) =>
+                patchAnim({
+                  in: e.target.value === "" ? undefined : (e.target.value as CaptionAnimKind),
+                })
+              }
+            >
+              {CAPTION_ANIM_OPTIONS.map((o) => (
+                <option key={o.value === "" ? "__inherit__" : o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label>退場</label>
+            <select
+              value={s.style?.anim?.out ?? ""}
+              title="表示が終わるときの動き"
+              onChange={(e) =>
+                patchAnim({
+                  out: e.target.value === "" ? undefined : (e.target.value as CaptionAnimKind),
+                })
+              }
+            >
+              {CAPTION_ANIM_OPTIONS.map((o) => (
+                <option key={o.value === "" ? "__inherit__" : o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          {((s.style?.anim?.in ?? "") !== "" || (s.style?.anim?.out ?? "") !== "") && (
+            <div className="field">
+              <label>速さ(秒)</label>
+              <NumInput
+                value={s.style?.anim?.durationSec}
+                allowEmpty
+                placeholder={String(DEFAULT_CAPTION_ANIM_SEC)}
+                title="登場/退場それぞれの遷移秒(共通)。空欄=標準"
+                onCommit={(v) =>
+                  patchAnim({ durationSec: v !== undefined && v >= 0 ? round2(v) : undefined })
+                }
+              />
+            </div>
+          )}
+          <p className="dim hint">
+            登場=表示の頭、退場=表示の終わり際の動きです。空欄=トラック標準/
+            アニメ無しを継承。「アニメ無し」を選ぶとトラック標準を明示的に
+            打ち消します
+          </p>
+        </Section>
+        <Section title="カラオケ">
+          <div className="field">
+            <label>カラオケ表示</label>
+            <input
+              type="checkbox"
+              checked={!!s.style?.karaoke}
+              title="発話に同期して語の色を切り替える(このテロップの words[] を消費)"
+              onChange={(e) =>
+                patchStyle(e.target.checked ? { karaoke: {} } : { karaoke: undefined })
+              }
+            />
+          </div>
+          {s.style?.karaoke && (
+            <>
+              <div className="field">
+                <label>発話済みの色</label>
+                <input
+                  type="color"
+                  value={s.style.karaoke.activeColor ?? KARAOKE_DEFAULT_ACTIVE}
+                  title="発話済み(読み終えた)語の色"
+                  onChange={(e) =>
+                    patchKaraoke(
+                      { activeColor: e.target.value },
+                      `caption:${selection.index}:karaokeActive`,
+                    )
+                  }
+                />
+              </div>
+              <div className="field">
+                <label>未発話の色</label>
+                <input
+                  type="color"
+                  value={s.style.karaoke.inactiveColor ?? effStyle.color ?? CAPTION_DEFAULT_COLOR}
+                  title="未発話(これから読む)語の色。既定はテロップの本文色"
+                  onChange={(e) =>
+                    patchKaraoke(
+                      { inactiveColor: e.target.value },
+                      `caption:${selection.index}:karaokeInactive`,
+                    )
+                  }
+                />
+                {s.style.karaoke.inactiveColor && (
+                  <button
+                    className="linkish"
+                    onClick={() => patchKaraoke({ inactiveColor: undefined })}
+                  >
+                    本文色に戻す
+                  </button>
+                )}
+              </div>
+              <div className="field">
+                <label>未発話の不透明度</label>
+                <PctSlider
+                  pct={Math.round((s.style.karaoke.inactiveOpacity ?? 1) * 100)}
+                  title="未発話の語の薄さ(これから読む所を薄くできる)"
+                  onChange={(pct) =>
+                    patchKaraoke(
+                      { inactiveOpacity: pct < 100 ? pct / 100 : undefined },
+                      `caption:${selection.index}:karaokeOpacity`,
+                    )
+                  }
+                />
+              </div>
+              <div className="field">
+                <label>塗りの進み方</label>
+                <Segmented
+                  value={s.style.karaoke.mode ?? "word"}
+                  options={[
+                    { value: "word", label: "語単位" },
+                    { value: "fill", label: "塗り進み" },
+                  ]}
+                  onChange={(v) => patchKaraoke({ mode: v === "word" ? undefined : v })}
+                />
+              </div>
+              {!(s.words && s.words.length > 0) && (
+                <p className="dim hint">
+                  このテロップには語タイミング(words)が無いため、カラオケは
+                  表示されず通常表示になります(config.yaml の
+                  whisper.wordTimestamps を有効にして再文字起こしすると
+                  付きます)
+                </p>
+              )}
+            </>
           )}
         </Section>
         {capTracks > 1 && (
@@ -1428,6 +1607,81 @@ export const Inspector = ({
     );
   }
 
+  /* ---------------- ぼかし ---------------- */
+
+  if (selection.kind === "blur") {
+    const b = (overlays.blurs ?? [])[selection.index];
+    if (!b) return null;
+    const type = b.type ?? DEFAULT_BLUR_TYPE;
+    const strengthPct = Math.round((b.strength ?? DEFAULT_BLUR_STRENGTH) * 100);
+    return (
+      <div className="insp">
+        <InspHead
+          kind={type === "mosaic" ? "モザイク" : "ぼかし"}
+          title={`${fmtTime(b.start)} 〜 ${fmtTime(b.end)}`}
+          chips={[`長さ ${fmtTime(Math.max(0, b.end - b.start))}`]}
+        />
+        <p className="dim hint" style={{ marginTop: 0 }}>
+          開発画面の API キー・PII・パスワードなど、ベース映像(画面クロップ)の
+          一部を隠します。かかるのはベース映像だけで、素材・挿入・テロップは
+          対象外。zoom には追従せず出力px固定(zoom と時間が重なると露出しうる
+          警告が出ます)。ショートには継承されません。
+        </p>
+        <TimingSection
+          start={b.start}
+          end={b.end}
+          timeline={timeline}
+          getPlayheadSrc={getPlayheadSrc}
+          seekToSrc={seekToSrc}
+          onStart={(v) => updateBlur(selection.index, { start: v })}
+          onEnd={(v) => updateBlur(selection.index, { end: v })}
+        />
+        <Section title="隠す範囲">
+          <BlurRectControl
+            rect={b.rect}
+            onChange={(rect) =>
+              updateBlur(selection.index, { rect }, `blur:${selection.index}:rect`)
+            }
+          />
+        </Section>
+        <Section title="効果">
+          <div className="field">
+            <label>種別</label>
+            <Segmented
+              value={type}
+              onChange={(v: BlurType) =>
+                updateBlur(selection.index, { type: v === DEFAULT_BLUR_TYPE ? undefined : v })
+              }
+              options={[
+                { value: "blur", label: "ぼかし", title: "blur: CSS ぼかし(既定)" },
+                { value: "mosaic", label: "モザイク", title: "mosaic: ピクセル化" },
+              ]}
+            />
+          </div>
+          <div className="field">
+            <label>強度</label>
+            <PctSlider
+              pct={strengthPct}
+              title="0=効果なし〜100=最大。省略時 50%(既定)"
+              onChange={(pct) =>
+                updateBlur(
+                  selection.index,
+                  { strength: pct === Math.round(DEFAULT_BLUR_STRENGTH * 100) ? undefined : pct / 100 },
+                  `blur:${selection.index}:strength`,
+                )
+              }
+            />
+          </div>
+        </Section>
+        <Section title="">
+          <button className="danger" onClick={() => removeBlur(selection.index)}>
+            このぼかしを削除
+          </button>
+        </Section>
+      </div>
+    );
+  }
+
   return null;
 };
 
@@ -1929,6 +2183,54 @@ const ZoomRectControl = ({
   );
 };
 
+/** ぼかしの隠す範囲(rect)。zoom と違い倍率概念が無いので、拡大率・中央
+ * プリセットは出さず X/Y/幅/高さの数値欄だけにする(プレビュー上の枠ドラッグ・
+ * リサイズは MaterialOverlay を流用。App.tsx の LiveMaterialOverlay 経由) */
+const BlurRectControl = ({
+  rect,
+  onChange,
+}: {
+  rect: Region;
+  onChange: (rect: Region) => void;
+}) => {
+  const patchRect = (p: Partial<Region>) => onChange({ ...rect, ...p });
+  return (
+    <>
+      <div className="field">
+        <label>X / Y</label>
+        <NumInput
+          value={rect.x}
+          title="隠す矩形の左上 X(出力px)"
+          onCommit={(v) => v !== undefined && patchRect({ x: Math.round(v) })}
+        />
+        <NumInput
+          value={rect.y}
+          title="隠す矩形の左上 Y(出力px)"
+          onCommit={(v) => v !== undefined && patchRect({ y: Math.round(v) })}
+        />
+      </div>
+      <div className="field">
+        <label>幅 / 高さ</label>
+        <NumInput
+          value={rect.w}
+          title="隠す矩形の幅(出力px)"
+          onCommit={(v) => v !== undefined && patchRect({ w: Math.max(1, Math.round(v)) })}
+        />
+        <NumInput
+          value={rect.h}
+          title="隠す矩形の高さ(出力px)"
+          onCommit={(v) => v !== undefined && patchRect({ h: Math.max(1, Math.round(v)) })}
+        />
+      </div>
+      <p className="dim hint">
+        プレビュー上で枠をドラッグして移動、四隅・辺のハンドルでリサイズできます
+        (この区間が再生ヘッド上にあるとき)。画面外へはみ出すと保存時にエラーに
+        なります。
+      </p>
+    </>
+  );
+};
+
 /** 素材ファイルのどこを使っているかのバー(頭出し+使用尺 vs 実尺)。
  * 使用尺が実尺を超える分は「最後のフレームで静止」になることも示す */
 const SourceRangeBar = ({
@@ -2070,6 +2372,42 @@ const BatchCaptionPanel = ({
   const colorC = common((s) => s.style?.color);
   const weightC = common((s) => s.style?.fontWeight);
   const trackC = common((s) => captionTrack(s));
+  const animInC = common((s) => s.style?.anim?.in ?? "");
+  const animOutC = common((s) => s.style?.anim?.out ?? "");
+  const animDurC = common((s) => s.style?.anim?.durationSec);
+  const karaokeOn = segs.length > 0 && segs.every((s) => !!s.style?.karaoke);
+  /** 選択中全件を同じ anim にそろえる(既存一括の「サイズをそろえる」と同じ方針)。
+   * 変更していない残り 2 項目は今パネルに出ている共通値(混在なら継承="")を
+   * 引き継いで組み立て、undefined サブキーを掃除してから渡す。App の
+   * updateCaptionsStyle はトップレベルしか掃除しないため、ネストの掃除は
+   * ここで行う(単体パネルの patchAnim と同型) */
+  const buildAnimPatch = (full: {
+    in: CaptionAnimKind | "";
+    out: CaptionAnimKind | "";
+    durationSec: number | undefined;
+  }): Partial<CaptionStyle> => {
+    const an: CaptionAnim = {};
+    if (full.in !== "") an.in = full.in;
+    if (full.out !== "") an.out = full.out;
+    if (full.durationSec !== undefined) an.durationSec = full.durationSec;
+    return { anim: Object.keys(an).length > 0 ? an : undefined };
+  };
+  const applyAnimIn = (v: CaptionAnimKind | "") =>
+    updateCaptionsStyle(
+      indices,
+      buildAnimPatch({ in: v, out: animOutC.value ?? "", durationSec: animDurC.value }),
+    );
+  const applyAnimOut = (v: CaptionAnimKind | "") =>
+    updateCaptionsStyle(
+      indices,
+      buildAnimPatch({ in: animInC.value ?? "", out: v, durationSec: animDurC.value }),
+    );
+  const applyAnimDur = (v: number | undefined) =>
+    updateCaptionsStyle(
+      indices,
+      buildAnimPatch({ in: animInC.value ?? "", out: animOutC.value ?? "", durationSec: v }),
+      `capBatch:${indices.join(".")}:animDur`,
+    );
   return (
     <div className="insp">
       <InspHead kind="複数選択" title={`テロップ ${segs.length} 件`} />
@@ -2145,6 +2483,74 @@ const BatchCaptionPanel = ({
                 e.target.checked
                   ? { background: { color: "#000000" }, outlineColor: "none" }
                   : { background: undefined, outlineColor: undefined },
+              )
+            }
+          />
+        </div>
+        <div className="field">
+          <label>登場</label>
+          <select
+            value={animInC.mixed ? "__mixed" : animInC.value ?? ""}
+            title="選択中全件の登場アニメをそろえます"
+            onChange={(e) =>
+              e.target.value !== "__mixed" &&
+              applyAnimIn(e.target.value as CaptionAnimKind | "")
+            }
+          >
+            {animInC.mixed && (
+              <option value="__mixed" disabled>
+                混在
+              </option>
+            )}
+            {CAPTION_ANIM_OPTIONS.map((o) => (
+              <option key={o.value === "" ? "__inherit__" : o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label>退場</label>
+          <select
+            value={animOutC.mixed ? "__mixed" : animOutC.value ?? ""}
+            title="選択中全件の退場アニメをそろえます"
+            onChange={(e) =>
+              e.target.value !== "__mixed" &&
+              applyAnimOut(e.target.value as CaptionAnimKind | "")
+            }
+          >
+            {animOutC.mixed && (
+              <option value="__mixed" disabled>
+                混在
+              </option>
+            )}
+            {CAPTION_ANIM_OPTIONS.map((o) => (
+              <option key={o.value === "" ? "__inherit__" : o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label>アニメの速さ(秒)</label>
+          <NumInput
+            value={animDurC.value}
+            allowEmpty
+            placeholder={animDurC.mixed ? "混在" : String(DEFAULT_CAPTION_ANIM_SEC)}
+            title="登場/退場の遷移秒(共通)。選択中全件をそろえます。空欄=標準"
+            onCommit={(v) => applyAnimDur(v !== undefined && v >= 0 ? round2(v) : undefined)}
+          />
+        </div>
+        <div className="field">
+          <label>カラオケ表示</label>
+          <input
+            type="checkbox"
+            checked={karaokeOn}
+            title="発話に同期した語の色替え(選択中全件を一括で有効/無効化。細かい色は単体編集で)"
+            onChange={(e) =>
+              updateCaptionsStyle(
+                indices,
+                e.target.checked ? { karaoke: {} } : { karaoke: undefined },
               )
             }
           />
@@ -2697,6 +3103,21 @@ export const FONT_PRESETS: { label: string; value: string }[] = [
   { label: "明朝", value: '"Hiragino Mincho ProN", "Yu Mincho", serif' },
 ];
 
+/** アニメ種別の選択肢(日本語ラベル)。`""`=キー無し(トラック標準/既定を
+ * 継承)、`"none"`=トラック標準を明示的に打ち消す。runtime 配列が types.ts に
+ * 無い(型は CaptionAnimKind の union のみ)ためエディタ側に持つ。値の正しさは
+ * 型と validate が担保する */
+export const CAPTION_ANIM_OPTIONS: { value: CaptionAnimKind | ""; label: string }[] = [
+  { value: "", label: "なし(標準)" },
+  { value: "none", label: "アニメ無し" },
+  { value: "fade", label: "フェード" },
+  { value: "slide-up", label: "下からせり上がり" },
+  { value: "slide-down", label: "上から降りる" },
+  { value: "slide-left", label: "右から寄る" },
+  { value: "slide-right", label: "左から寄る" },
+  { value: "pop", label: "ポップ" },
+];
+
 /** トラック標準スタイルのヒント表示用(指定のある項目だけ並べる) */
 const fmtStyle = (st: CaptionStyle): string =>
   [
@@ -2706,6 +3127,8 @@ const fmtStyle = (st: CaptionStyle): string =>
     st.fontFamily ? "フォント指定" : null,
     st.fontWeight !== undefined ? `太さ ${st.fontWeight}` : null,
     st.background ? `座布団 ${st.background.color}` : null,
+    st.anim ? "アニメ" : null,
+    st.karaoke ? "カラオケ" : null,
   ]
     .filter((v) => v !== null)
     .join(" / ");

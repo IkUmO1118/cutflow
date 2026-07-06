@@ -3,6 +3,9 @@
 // 「書き戻し後の YAML からメモリ上 cfg を取り込み直す(cfg の参照は保つ)」を固定する。
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { parse } from "yaml";
 import {
   applyConfigEdits,
@@ -11,6 +14,7 @@ import {
 } from "../src/lib/configEdit.ts";
 import {
   DEFAULT_PLAN_SHORTS_MAX_DURATION_SEC,
+  loadConfig,
   planShortsMaxSec,
 } from "../src/lib/config.ts";
 import type { Config } from "../src/lib/config.ts";
@@ -260,6 +264,89 @@ test("syncEditorCfgFromYaml: null 削除で省略時の既定へ戻る", () => {
   const removed = applyConfigEdits(withColor, { render: { captionColor: null } });
   syncEditorCfgFromYaml(cfg, removed);
   assert.equal(cfg.render.captionColor, undefined);
+});
+
+test("loadConfig: whisper.wordTimestamps 未指定時は false(既存挙動と完全一致)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = join(dir, "config.yaml");
+    writeFileSync(
+      path,
+      `recordingsDir: ~/Movies/cutflow
+whisper:
+  bin: whisper-cli
+  model: ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin
+  language: ja
+`,
+    );
+    const cfg = loadConfig(path);
+    assert.equal(cfg.whisper.wordTimestamps, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig: whisper.wordTimestamps: true を指定すればそのまま通る", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = join(dir, "config.yaml");
+    writeFileSync(
+      path,
+      `recordingsDir: ~/Movies/cutflow
+whisper:
+  bin: whisper-cli
+  model: ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin
+  language: ja
+  wordTimestamps: true
+`,
+    );
+    const cfg = loadConfig(path);
+    assert.equal(cfg.whisper.wordTimestamps, true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig: ocr 省略時は languages が [en, ja](既存挙動と完全一致)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = join(dir, "config.yaml");
+    writeFileSync(
+      path,
+      `recordingsDir: ~/Movies/cutflow
+whisper:
+  bin: whisper-cli
+  model: ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin
+  language: ja
+`,
+    );
+    const cfg = loadConfig(path);
+    assert.deepEqual(cfg.ocr?.languages, ["en", "ja"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig: ocr.languages を指定すればそのまま通る", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = join(dir, "config.yaml");
+    writeFileSync(
+      path,
+      `recordingsDir: ~/Movies/cutflow
+whisper:
+  bin: whisper-cli
+  model: ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin
+  language: ja
+ocr:
+  languages: [en]
+`,
+    );
+    const cfg = loadConfig(path);
+    assert.deepEqual(cfg.ocr?.languages, ["en"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("syncEditorCfgFromYaml: 外部編集ぶん(パッチ外のキー)も反映される", () => {
