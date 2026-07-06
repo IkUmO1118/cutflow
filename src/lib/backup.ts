@@ -1,15 +1,10 @@
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { EDITABLE_FILES } from "./files.ts";
 
-/** 人間(や AI)が手編集する対象で、plan / transcribe の再実行が上書きし得る
- * ファイル。上書き前の退避はこの一覧のうち存在するものを対象にする */
-export const EDITABLE_FILES = [
-  "cutplan.json",
-  "chapters.json",
-  "meta.json",
-  "transcript.json",
-  "overlays.json",
-] as const;
+// EDITABLE_FILES はファイル分類の単一の真実(src/lib/files.ts)に移設済み。
+// 呼び出し側の import 元を壊さないためここで再輸出する
+export { EDITABLE_FILES };
 
 /**
  * 上書き前の退避。存在するファイルを backups/<日時>/ へコピーし、退避先を
