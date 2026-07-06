@@ -1,6 +1,6 @@
 import { isCollection, parse, parseDocument, YAMLMap } from "yaml";
 import type { Document } from "yaml";
-import { DEFAULT_IMAGE_DURATION_SEC } from "./config.ts";
+import { DEFAULT_IMAGE_DURATION_SEC, DEFAULT_SHORT_RANGE_SEC } from "./config.ts";
 import type { Config } from "./config.ts";
 
 /**
@@ -33,7 +33,11 @@ export interface ConfigPatch {
     hardwareAcceleration?: "if-possible" | "disable" | null;
   };
   preview?: { width?: number };
-  editor?: { maxUploadMb?: number; defaultImageDurationSec?: number | null };
+  editor?: {
+    maxUploadMb?: number;
+    defaultImageDurationSec?: number | null;
+    defaultShortRangeSec?: number | null;
+  };
 }
 
 /** 数値キーの検査仕様。int は整数必須、even は偶数必須(ffmpeg の yuv420p) */
@@ -61,6 +65,7 @@ const NUM_RULES: Record<string, NumRule> = {
   "preview.width": { min: 320, max: 3840, int: true, even: true },
   "editor.maxUploadMb": { min: 1, max: 100000, int: true },
   "editor.defaultImageDurationSec": { min: 0.5, max: 120 },
+  "editor.defaultShortRangeSec": { min: 0.5, max: 180 },
 };
 
 /** null で「削除して既定に戻す」を受け付けるキー(省略可キーのみ) */
@@ -71,6 +76,7 @@ const NULLABLE = new Set([
   "render.captionFontWeight",
   "render.hardwareAcceleration",
   "editor.defaultImageDurationSec",
+  "editor.defaultShortRangeSec",
 ]);
 
 /** 文字列キーの最大長(色は CSS カラー、フォントはスタック想定) */
@@ -211,7 +217,12 @@ export function validateConfigPatch(patch: unknown): string[] {
   }
   if (p.preview !== undefined) walk("preview", p.preview, ["width"], []);
   if (p.editor !== undefined) {
-    walk("editor", p.editor, ["maxUploadMb", "defaultImageDurationSec"], []);
+    walk(
+      "editor",
+      p.editor,
+      ["maxUploadMb", "defaultImageDurationSec", "defaultShortRangeSec"],
+      [],
+    );
   }
   return errors;
 }
@@ -295,10 +306,12 @@ export function syncEditorCfgFromYaml(cfg: Config, rawYaml: string): void {
 export function resolvedEditorCfg(
   cfg: Config,
   defaultMaxUploadMb: number,
-): { maxUploadMb: number; defaultImageDurationSec: number } {
+): { maxUploadMb: number; defaultImageDurationSec: number; defaultShortRangeSec: number } {
   return {
     maxUploadMb: cfg.editor?.maxUploadMb ?? defaultMaxUploadMb,
     defaultImageDurationSec:
       cfg.editor?.defaultImageDurationSec ?? DEFAULT_IMAGE_DURATION_SEC,
+    defaultShortRangeSec:
+      cfg.editor?.defaultShortRangeSec ?? DEFAULT_SHORT_RANGE_SEC,
   };
 }
