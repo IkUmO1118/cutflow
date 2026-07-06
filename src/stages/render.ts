@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isCutplanApproved, isShortApproved } from "../lib/approval.ts";
 import {
   carveFinalToChunks,
   chunkFileName,
@@ -66,7 +67,9 @@ import type { RenderProps } from "../../remotion/props.ts";
  * 「1本の動画の上に重ねるだけ」の単純なタイムラインになる
  * (OffthreadVideo に細かいシークをさせない。速度と安定性のため)。
  *
- * cutplan.json の approved が true でなければ実行を拒否する(承認ゲート)。
+ * 承認ゲート(strict): approvals.json に「現内容の keep 集合のハッシュと
+ * 一致する承認レコード」が無ければ拒否する。boolean cutplan.approved には
+ * フォールバックしない(src/lib/approval.ts の isCutplanApproved を参照)。
  */
 export async function render(dir: string, cfg: Config): Promise<string> {
   const manifest = JSON.parse(
@@ -75,10 +78,12 @@ export async function render(dir: string, cfg: Config): Promise<string> {
   const cutplan = JSON.parse(
     readFileSync(join(dir, "cutplan.json"), "utf8"),
   ) as CutPlan;
-  if (!cutplan.approved) {
+  const gate = isCutplanApproved(dir, cutplan);
+  if (!gate.ok) {
     throw new Error(
-      "cutplan.json の approved が false です。preview で確認し、" +
-        "問題なければ approved を true にしてから再実行してください(承認ゲート)",
+      `render できません: ${gate.reason}\n` +
+        "preview で確認のうえ `node src/cli.ts approve <dir>` で承認してください" +
+        "(GUI ならチェックボックス)。",
     );
   }
   const transcript = JSON.parse(
@@ -241,7 +246,8 @@ export async function render(dir: string, cfg: Config): Promise<string> {
  * ショート1本のレンダー。shorts.json から name を1件読み、
  * shortKeeps(= mergeIntervals(short.ranges)。本編 cutplan とは独立。D2)を
  * keep 集合として cut.<name>.mp4 → shorts/<name>.mp4 を作る。
- * 承認ゲート: short.approved が true でなければ拒否する(本編 approved は流用しない)。
+ * 承認ゲート(strict): isShortApproved(name 別の承認レコード。本編の承認は
+ * 流用しない)。boolean short.approved にはフォールバックしない。
  */
 export async function renderShort(dir: string, cfg: Config, name: string): Promise<string> {
   const short = loadShort(dir, name);
@@ -271,8 +277,9 @@ export async function renderShorts(dir: string, cfg: Config): Promise<string[]> 
   ) as Transcript;
   const outputs: string[] = [];
   for (const short of shorts.shorts) {
-    if (!short.approved) {
-      console.log(`スキップ: ショート "${short.name}" は approved が false です`);
+    const gate = isShortApproved(dir, short);
+    if (!gate.ok) {
+      console.log(`スキップ: ショート "${short.name}"(${gate.reason})`);
       continue;
     }
     outputs.push(await renderOneShort(dir, cfg, manifest, transcript, short));
@@ -293,10 +300,12 @@ async function renderOneShort(
   transcript: Transcript,
   short: Short,
 ): Promise<string> {
-  if (!short.approved) {
+  const gate = isShortApproved(dir, short);
+  if (!gate.ok) {
     throw new Error(
-      `ショート "${short.name}" の approved が false です。縦動画を確認し、` +
-        "問題なければ approved を true にしてから再実行してください(承認ゲート)",
+      `ショート "${short.name}" を render できません: ${gate.reason}\n` +
+        `preview で確認のうえ \`node src/cli.ts approve <dir> --short ${short.name}\` で` +
+        "承認してください(GUI ならチェックボックス)。",
     );
   }
   const name = short.name;
