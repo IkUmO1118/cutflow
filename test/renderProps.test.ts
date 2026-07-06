@@ -12,6 +12,7 @@ import {
 } from "../src/lib/renderProps.ts";
 import { PROFILES } from "../src/lib/profile.ts";
 import { mergeIntervals } from "../src/lib/timeline.ts";
+import { defaultProps } from "../remotion/props.ts";
 import type { Config } from "../src/lib/config.ts";
 import type { Manifest, Overlays, Transcript } from "../src/types.ts";
 
@@ -116,6 +117,39 @@ test("buildRenderProps: profile 省略時は profile 指定なしの現行 props
   assert.equal(withoutArg.layout, undefined);
   assert.equal(withoutArg.captionDefaultPos, undefined);
   assert.equal(withoutArg.caption.fontSizePx, renderCfg.captionFontSizePx);
+});
+
+// plain(cameraRegion 無し)の manifest では props.cameraRegion が undefined。
+// defaultProps にダミー cameraRegion があると、plain の inputProps で
+// cameraRegion が JSON 欠落 → Remotion の props マージでダミーが漏れ、plain に
+// ワイプが描かれる/ショートのカメラパネルが誤領域を切り出して黒くなる。
+// そのため defaultProps は cameraRegion を持たないことを固定する
+test("defaultProps は cameraRegion を持たない(plain へのダミー漏れ防止)", () => {
+  assert.equal(defaultProps.cameraRegion, undefined);
+});
+
+test("buildRenderProps: plain manifest(cameraRegion 無し)は cameraRegion undefined", () => {
+  const plainManifest: Manifest = {
+    ...manifest,
+    layout: "plain",
+    video: { width: 1080, height: 1920, fps: 30, screenRegion: { x: 0, y: 0, w: 1080, h: 1920 } },
+  };
+  const props = buildRenderProps({
+    manifest: plainManifest,
+    keeps: [{ start: 0, end: 10 }],
+    transcript: { segments: [{ start: 2, end: 5, text: "残る" }] } as Transcript,
+    overlays: {},
+    renderCfg,
+    width: 1080,
+    height: 1920,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.equal(props.cameraRegion, undefined);
+  assert.deepEqual(props.screenRegion, { x: 0, y: 0, w: 1080, h: 1920 });
 });
 
 test("buildRenderProps: vertical profile → layout/captionDefaultPos/fontSizePx(×fontScale)が入る", () => {

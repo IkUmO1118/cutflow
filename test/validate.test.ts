@@ -589,3 +589,39 @@ test("shorts: captionTracks の座標が profile 範囲外だと警告", () => {
   }));
   assert.ok(r.warnings.some((w) => w.message.includes("幅") && w.message.includes("外です")));
 });
+
+/* -------- B4: plain のショート profile ガード(panels の source 集合で判定) -------- */
+
+test("plain: ショート profile vertical(画面+カメラ2段)はエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestPlain,
+    shorts: { shorts: [validShort({ profile: "vertical" })] },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "shorts[0].profile" && e.message.includes("vertical-cover")));
+});
+
+test("plain: ショート profile vertical-cover(カメラ全面)・default はエラーなし", () => {
+  const cover = validateDocs(DIR, baseDocs({
+    manifest: manifestPlain,
+    shorts: { shorts: [validShort({ profile: "vertical-cover" })] },
+  }));
+  assert.ok(!cover.errors.some((e) => e.where === "shorts[0].profile"));
+  const def = validateDocs(DIR, baseDocs({
+    manifest: manifestPlain,
+    shorts: { shorts: [validShort({ profile: "default" })] },
+  }));
+  assert.ok(!def.errors.some((e) => e.where === "shorts[0].profile"));
+});
+
+test("obs-canvas: ショート profile vertical / vertical-cover はどちらも従来どおりエラーなし", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    shorts: {
+      shorts: [
+        validShort({ name: "a", profile: "vertical" }),
+        validShort({ name: "b", profile: "vertical-cover" }),
+      ],
+    },
+  }));
+  assert.ok(!r.errors.some((e) => e.where.endsWith(".profile")));
+});

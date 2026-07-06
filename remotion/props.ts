@@ -182,7 +182,11 @@ export const defaultProps: RenderProps = {
   height: 1080,
   canvas: { w: 3840, h: 1080 },
   screenRegion: { x: 0, y: 0, w: 1920, h: 1080 },
-  cameraRegion: { x: 1920, y: 0, w: 1920, h: 1080 },
+  // cameraRegion は defaultProps に置かない。plain の inputProps は cameraRegion を
+  // 持たず(undefined は JSON 化で欠落)、defaultProps にダミーがあると Remotion の
+  // props マージでそれが漏れて plain にワイプが描かれてしまう(plain=カメラ無しの
+  // 前提が壊れる)。obs のレンダーは buildRenderProps が manifest から必ず
+  // cameraRegion を載せるので、defaultProps 側のダミーは不要
   wipe: { widthPx: 480, marginPx: 32 },
   caption: { fontSizePx: 44 },
   captions: [],

@@ -611,6 +611,21 @@ export function validateDocs(
         // ショートの既定 "vertical"(profile 名不正のときは判定しない)
         const profileName = typeof s.profile === "string" ? s.profile : "vertical";
         const profileDef = PROFILES[profileName];
+        // plain(カメラ無し)は画面+カメラの2段構成(vertical)を作れない。
+        // 判定は profile 名ではなく panels の source 集合で行う(将来プリセットが
+        // 増えても壊れない)。camera のみ(vertical-cover)・screen のみ・
+        // layout 無し(default)は許可
+        if (!cameraPresent && profileDef?.layout) {
+          const sources = new Set(profileDef.layout.panels.map((p) => p.source));
+          if (sources.has("screen") && sources.has("camera")) {
+            err(
+              f,
+              `${w}.profile`,
+              `profile "${profileName}" は画面+カメラの2段構成用です。` +
+                "plain(カメラ無し)には vertical-cover か default を使ってください",
+            );
+          }
+        }
         checkCaptionTracks(f, `${w}.captionTracks`, s.captionTracks, err, (t, tw) => {
           if (!profileDef) return;
           if (isNum(t.x) && (t.x < 0 || t.x > profileDef.width)) {
