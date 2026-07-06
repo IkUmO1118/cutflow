@@ -2,6 +2,233 @@
 
 動画台本・概要欄の素材を兼ねる。新しい判断は上に追記する。
 
+## 2026-07-06 plain(カメラ無し通常動画)のショート化に縦プロファイルを新設
+
+**背景**: plain(`manifest.layout:"plain"`。カメラ無しの通常動画。多くは
+画面録画)をショート化すると初期レイアウトが破綻する。原因はショート既定
+profile が全経路で無条件 `"vertical"`(camera 上607+screen 下607 の2段。OBS
+拡張キャンバス前提)であること——render.ts:333 / validate.ts:612 /
+frames.ts:102 / editor の App.tsx:117(resolveShortProfile 既定)と
+Inspector.tsx:2488 の Segmented 初期値がそれぞれ `?? "vertical"` を持つ。plain
+には camera が無いので、validate.ts:618-627 が「screen+camera 両方を持つ
+layout」をエラーにし、plain+vertical(既定)は弾かれる。plain 向けに「画面だけを
+縦に見せる」プリセットが存在しないのが穴。あわせてユーザーの問い「vertical /
+default は何のためにあるのか、必要か」に profile ピッカーの設計で答える。
+
+前提の裏取り(実コード確認済み): `hasCamera(m)`(types.ts:41)は
+`layout==="obs-canvas" && cameraRegion!=null` のときだけ true。remotion の
+`renderBase`(Main.tsx:201-204)は `panel.source==="camera"` を
+`cameraRegion ?? screenRegion` に解決する——つまり plain で vertical-cover
+(camera 全面)が「通る」のは screen を無理やり camera 枠に流用しているから。
+16:9 の画面録画を 1080x1920 へ cover すると左右が大きく切れて画面内の文字が
+読めなくなる。plain の主目的(画面を見せる)と真逆で、これが「vertical-cover を
+使え」で済ませられない理由。
+
+### 論点1: plain 用縦プロファイル `vertical-screen` の新設と幾何
+
+**判断**: screen 単一パネルの縦プロファイル `vertical-screen` を
+`src/lib/profile.ts` の `PROFILES` に追加する。確定値:
+
+```ts
+"vertical-screen": {
+  width: 1080,
+  height: 1920,
+  layout: {
+    // screen を上3/4(0..1440)へ contain。16:9 は 1080x608 のフル幅帯として
+    // その枠の縦中央(約 y=416..1024)にレターボックスされ、左右も上下も
+    // 決して切れない(contain)。縦・スクエア収録はこの枠をより広く使う。
+    // 下1/4(1440..1920, 480px)はテロップ/タイトル帯(背景黒)
+    panels: [{ source: "screen", rect: { x: 0, y: 0, w: 1080, h: 1440 }, fit: "contain" }],
+    caption: { x: 540, y: 1680, anchor: "center", fontScale: 1.6 },
+  },
+},
+```
+
+**理由**:
+- **fit は cover ではなく contain**。plain の中身は任意アスペクト(16:9 の画面
+  録画・縦のスマホ動画・スクエア)がありうる。cover は 16:9 画面録画の両端を
+  切り捨てて画面内テキストを壊す=plain の目的破壊。contain は「絶対に切らない」
+  代わりに黒帯が出るが、可読性優先の plain ではこれが正しい既定。黒帯の見栄えは
+  preview で詰める(幾何は仮案・実装時調整、という既存 profile.ts の方針を踏襲)。
+- **source は "screen" 単一**。camera を含めないので validate の plain ガード
+  (screen+camera 両持ちを弾く。論点2で共通述語化)を自然に通る。vertical との
+  対比が明快(vertical=2段、vertical-screen=画面のみ)。
+- **caption は既存縦プリセットと揃える**。fontScale 1.6・anchor center は
+  vertical(y=1560)/ vertical-cover(y=1500)と同一。screen 帯(0..1440)の下の
+  黒帯中央 y=1680 に置き、画面と重ならない。
+- **命名 `vertical-screen`**: `vertical` / `vertical-cover` と並ぶ第3の縦。
+  「縦・画面だけ」を素直に表す。
+
+**トレードオフ**: 16:9 画面録画は上下に黒が乗り「浮いた帯」に見える(cover なら
+全面だが切れる)。可読性を取り、見栄えは preview 調整に委ねる。将来「画面を
+もっと大きく」の要望が出たら rect の h を縮める(例 608)チューニングで対応でき、
+スキーマ変更は不要。
+
+### 論点2: hasCamera → 既定 profile を一意に解く共通関数の新設
+
+**判断**: `src/lib/profile.ts` に純関数を2つ足し、散在する `?? "vertical"` を
+全廃して一箇所に集約する。
+
+```ts
+/** ショートの省略時 profile 名。camera 有り→"vertical"、plain→"vertical-screen" */
+export function defaultShortProfileName(hasCamera: boolean): string {
+  return hasCamera ? "vertical" : "vertical-screen";
+}
+
+/** その profile を plain(カメラ無し)に使えるか。panels の source 集合が
+ * screen と camera を両方含むときだけ false(validate の plain ガードと同一規則)。
+ * layout 無し(default)・screen のみ・camera のみは true */
+export function profileSupportsPlain(profileName: string): boolean {
+  const panels = PROFILES[profileName]?.layout?.panels;
+  if (!panels) return true;
+  const src = new Set(panels.map((p) => p.source));
+  return !(src.has("screen") && src.has("camera"));
+}
+```
+
+**呼び出し置換箇所**(現状の既定 `"vertical"` を `defaultShortProfileName(...)` へ):
+
+| 箇所 | 現状 | 置換後 |
+|---|---|---|
+| src/stages/render.ts:333 | `short.profile ?? "vertical"` | `short.profile ?? defaultShortProfileName(hasCamera(manifest))` |
+| src/stages/frames.ts:102 | `short.profile ?? "vertical"` | `short.profile ?? defaultShortProfileName(hasCamera(manifest))` |
+| src/stages/validate.ts:612 | `typeof s.profile==="string" ? s.profile : "vertical"` | `... : defaultShortProfileName(cameraPresent)`(cameraPresent は既に算出済み) |
+| src/stages/planShorts.ts:150 | `profile: "vertical"` 固定 | `profile: defaultShortProfileName(hasCamera(manifest))`(`shortsFromSelection` に `hasCamera:boolean` 引数を足して planShorts から渡す) |
+| editor/client/App.tsx:117,688,691 | `resolveShortProfile(name ?? "vertical", ...)` | 既定を `defaultShortProfileName(proj.hasCamera)` に(下記) |
+| editor/client/Inspector.tsx:2488,2493 | Segmented の `?? "vertical"` センチネル | `?? defaultShortProfileName(hasCamera)`(論点3) |
+
+**理由**: 分岐(camera→vertical / plain→vertical-screen)が5ファイル横断で
+散らばると、片方だけ直して破綻する。一意な関数に寄せれば「既定はここだけ」で
+保守できる。`profileSupportsPlain` は validate の plain ガード規則を述語化した
+もので、validate と editor のピッカー絞り込み(論点3)が**同じ規則**を共有する
+(規則の二重定義を避ける)。**後方互換**: camera 有り案件は `hasCamera=true` で
+従来どおり `"vertical"` に解決され、省略時挙動は不変。
+
+**addShort は分岐不要**(重要): editor の addShort(App.tsx:1543)は profile を
+付けずショートを作る=既定に委ねる。解決を `defaultShortProfileName` に集約した
+ので、plain 案件で profile を省略しても resolve 時に vertical-screen に化ける。
+addShort に hasCamera 分岐を持たせる必要はなく、`profile` 未設定のまま据え置く
+(センチネルの一貫性は論点3で担保)。
+
+### 論点3: Inspector の profile ピッカー出し分け(ShortPropertiesSection)
+
+**判断**: B2/T5 で右インスペクタへ移設済みの `ShortPropertiesSection`
+(Inspector.tsx:2474)の Segmented を、`hasCamera` で **plain 非対応を非表示**に
+する(disable ではなくフィルタ)。並びは縦を先・横を末尾に固定し、各選択肢に
+1行説明を付ける。`hasCamera` を InspectorPanel の props(現状 `project` 型は
+`{dir,approved,bgmFile,bgmTracks}` で hasCamera を持たない=要追加)経由で
+ShortPropertiesSection まで通す。
+
+- **選択肢の生成**(profile.ts の `profileSupportsPlain` で絞る):
+  `["vertical","vertical-screen","vertical-cover","default"]` の固定順から、
+  `hasCamera || profileSupportsPlain(name)` を満たすものだけ。
+  - camera 有り: 全4件(vertical / vertical-screen / vertical-cover / default)
+  - plain: vertical を除いた3件(vertical-screen / vertical-cover / default)
+- **各選択肢のラベル+説明**(ユーザーの「何のため」への回答。UI コピーは
+  Inspector 側に持つ):
+  - `vertical` … 「カメラ+画面の2段(OBS 収録向け)」
+  - `vertical-screen` … 「画面だけを縦に(通常動画向け)」
+  - `vertical-cover` … 「収録全体を縦いっぱいに(元から縦の動画向け)」
+  - `default` … 「横16:9(本編と同じ・横向きの切り抜き用)」
+- **センチネル**: `value = activeShort.profile ?? defaultShortProfileName(hasCamera)`。
+  onChange で選んだ名が `defaultShortProfileName(hasCamera)` と一致するなら
+  `profile` を削除(=省略時既定に戻す)、それ以外は代入。これで「profile 省略=
+  hasCamera 相応の既定」の意味が camera/plain 両方で崩れない。
+
+**理由(disable 案・全表示案を退けた理由)**: 非対応(plain の vertical)を
+disable で残すと、選べないセグメントがピッカーを占有して読み手を惑わす。plain で
+vertical は「そもそも作れない」ので、選択肢から**消す**のが正直。選択肢集合が
+小さい(3〜4)ので、消えても迷子にならない。説明文で「何のため」に答えるので、
+default(横)を隠さず残す意味(論点4)も自然に伝わる。フィルタ規則を profile.ts の
+`profileSupportsPlain` に一本化しているので、将来プリセットが増えても validate と
+UI が同時に追随する。
+
+**トレードオフ**: InspectorPanel の `project` 型 or props に `hasCamera` を足す
+配線が要る(server は既に `hasCamera` を proj で返しており apiTypes.ts:51 にも
+ある。App→InspectorPanel→ShortPropertiesSection へ1本通すだけ)。
+
+### 論点4: `default`(横16:9)profile をショートから撤去するか
+
+**判断**: 撤去しない。縦(vertical / vertical-screen / vertical-cover)を上位に
+並べ、`default` はピッカー末尾に残す。
+
+**理由**: `default` は「横向きハイライトの切り出し」用途を持つ——ショート機構は
+本編 cutplan と独立の ranges 集合を持つので、`default` を選べば本編とは別の
+見せ場を 16:9 のまま別ファイル(`shorts/<name>.mp4`)へ書き出せる(埋め込み用
+クリップ・横向き SNS 用など)。validate も plain/camera 双方で `default` を
+許可済み(layout 無し=plain ガードに引っかからない)。撤去は機能を削るだけで
+得が無い。ただしショートの主目的は縦なので、並び順で縦を先頭に置き、既定
+(省略時)は縦(defaultShortProfileName)にして「横は明示的に選んだときだけ」に
+する。ユーザーの「vertical / default は何のためにあるのか」への回答:
+**vertical=OBS 収録の縦2段、default=横のまま別尺で切り出す用**、どちらも役割が
+あり残す。plain には vertical が使えないので vertical-screen を新設して埋める。
+
+### 波及範囲
+
+- **src/lib/profile.ts**: `vertical-screen` 追加、`defaultShortProfileName` /
+  `profileSupportsPlain` 新設。
+- **src/stages/validate.ts**: 省略時 profileName を `defaultShortProfileName`
+  に(~612)。plain ガード(618-627)は `profileSupportsPlain` で置換可(**エラー
+  文言は不変に保つ**)。plain+vertical-screen が通ること・plain+vertical が
+  従来文言でエラーのままなことを固定。
+- **src/stages/render.ts / frames.ts**: 既定を `defaultShortProfileName(hasCamera(manifest))`。
+- **src/stages/planShorts.ts**: `shortsFromSelection` に `hasCamera` 引数追加、
+  下書きの profile を `defaultShortProfileName` に(plain で invalid な
+  `"vertical"` を書かない)。
+- **editor**: App.tsx の resolveShortProfile 既定を hasCamera 相応に(688/691)、
+  addShort は据え置き(profile 省略)。Inspector.tsx の ShortPropertiesSection に
+  hasCamera を配線・ピッカー絞り込み/並び/説明・センチネル修正。InspectorPanel の
+  `project`(or 新規 prop)に hasCamera を追加。
+- **docs/usage.md**: shorts.json / profile の表(42行目・136-143行目)に
+  vertical-screen を追記し、plain の既定が vertical-screen に変わったことを反映。
+- **src/types.ts**: `hasCamera` 周辺コメントの更新は不要(挙動不変)。profile の
+  スキーマは profile.ts 側なので types.ts は無変更。
+
+### タスク分解(1タスク=1コミット)
+
+- **C1 profile.ts コア**: `vertical-screen` プリセット+`defaultShortProfileName`
+  +`profileSupportsPlain` を追加。
+  - テスト: `test/profile.test.ts` に固定値検証——vertical-screen の
+    width/height/panels(source="screen", rect, fit="contain")/caption、
+    `defaultShortProfileName(true)==="vertical"` / `(false)==="vertical-screen"`、
+    `profileSupportsPlain` を全プリセットで(vertical=false、他=true)。
+  - 壊すな: 既存 PROFILES(default/vertical/vertical-cover)の値、
+    `resolveProfile` の default サイズ上書き(name 無し/"default" で defaultSize)。
+- **C2 validate**: 省略時 profileName を `defaultShortProfileName(cameraPresent)`
+  に、plain ガードを `profileSupportsPlain` へリファクタ。
+  - テスト: `test/validate.test.ts`——plain+`vertical` は**従来文言のまま**
+    エラー、plain+`vertical-screen` は通る、plain で profile 省略は通る、
+    camera 案件は全 profile 通る(vertical 既定含む)。
+  - 壊すな: 既存 plain+vertical のエラー文言、camera 案件の検証結果。
+- **C3 render + frames**: 両者の `?? "vertical"` を
+  `defaultShortProfileName(hasCamera(manifest))` に。
+  - テスト: 実データ検証。camera 案件
+    `/Users/19mo/Movies/cutflow/2026-07-02-whisper-bench` で `frames --short
+    <name> --every 10` が従来どおり vertical(2段)で出ることを確認(退行なし)。
+    plain 経路は plain 収録フォルダ(無ければ通常動画を editor で bootstrap して
+    ショートを1本作る)で `frames --short` が vertical-screen で出ることを確認。
+  - 壊すな: camera 案件の vertical 既定。
+- **C4 planShorts**: `shortsFromSelection(..., hasCamera)` に引数追加、profile を
+  `defaultShortProfileName` に。planShorts から hasCamera を渡す配線。
+  - テスト: `shortsFromSelection` 単体で hasCamera true→profile "vertical"、
+    false→"vertical-screen" を固定。
+  - 壊すな: camera 案件の下書きが vertical のまま。
+- **C5 editor 描画(preview)**: App.tsx の resolveShortProfile 既定を
+  `defaultShortProfileName(proj.hasCamera)` に(688/691)。addShort は無変更。
+  - テスト: エディタ再起動(MEMORY: bundle は起動時1回)後、plain 案件を開き
+    ショートモードでプレビューが vertical-screen レイアウトになることを目視。
+  - 壊すな: camera 案件のショートプレビュー(vertical)。
+- **C6 editor ピッカー**: InspectorPanel/ShortPropertiesSection に hasCamera 配線、
+  Segmented を `profileSupportsPlain` で絞り+縦先頭の並び+1行説明、センチネルを
+  `defaultShortProfileName(hasCamera)` 基準に。
+  - テスト: 再起動後、plain 案件のピッカーに vertical が出ないこと・
+    vertical-screen 既定が選択表示されること、camera 案件で全4件が出ることを目視。
+  - 壊すな: camera 案件のピッカー(全 profile 選択可)、profile 省略の保存。
+  - 注: C5 と密結合。分けにくければ1コミットに統合可(その場合は editor 一括)。
+- **C7 docs**: docs/usage.md の profile 表・plain 節に vertical-screen を追記、
+  plain 既定が vertical-screen になったことを反映。
+  - テスト: なし(文書)。CLAUDE.md の「スキーマを変えたら usage.md も」に従い最後に。
+
 ## 2026-07-06 GUI エディタのヘッダー再設計(トースト+バナー行への分離)
 
 **背景**: ヘッダー(index.html:76 の flex 行)に一過性の状態が直接インライン
