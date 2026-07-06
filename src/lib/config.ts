@@ -41,6 +41,28 @@ export interface Config {
      * 省略時 DEFAULT_PLAN_SHORTS_MAX_DURATION_SEC(60) */
     maxDurationSec?: number;
   };
+  /** カット判断 LLM(plan / plan --cuts-only / remeta)へ発話テキスト以外の
+   * 知覚を添える設定。省略可(古い config.yaml との互換。省略時は全項目オフ=
+   * plan の LLM 入力・plan.raw.txt が現状とバイト等価)。plan-shorts は対象外。
+   * §docs/plans/2026-07-07-plan-eyes-ears-design.md */
+  plan?: {
+    perception?: {
+      /** 無音・間の注記(区間長 / 直前に落ちた素材秒 / 区間内無音秒)を
+       *  プロンプトに添える。省略時 false。決定論・追加依存なし(推奨の opt-in) */
+      audio?: boolean;
+      /** 各区間の代表フレームの画面 OCR テキストをプロンプトに添える。
+       *  省略時 false。macOS + Apple Vision が必要(無い環境は自動で劣化=
+       *  OCR 部分を省いて続行)。区間数ぶんの ffmpeg クロップ+Vision が走る */
+      ocr?: boolean;
+      /** OCR をかける区間数の上限(コスト制御)。省略時
+       *  DEFAULT_PERCEPTION_OCR_MAX_SEGMENTS(40)。区間数がこれを超える場合は
+       *  尺の長い区間を優先して上限まで */
+      ocrMaxSegments?: number;
+      /** 1区間あたりプロンプトに載せる OCR 行数の上限。省略時
+       *  DEFAULT_PERCEPTION_OCR_MAX_LINES(6) */
+      ocrMaxLines?: number;
+    };
+  };
   preview: {
     width: number;
     /** proxy.mp4 / preview.mp4 のビデオエンコーダ。省略時 "videotoolbox"
@@ -154,6 +176,29 @@ export const DEFAULT_PLAN_SHORTS_MAX_DURATION_SEC = 60;
 /** plan-shorts の1本あたりの尺上限(秒)を解決する(省略時は既定値) */
 export function planShortsMaxSec(cfg: Config): number {
   return cfg.planShorts?.maxDurationSec ?? DEFAULT_PLAN_SHORTS_MAX_DURATION_SEC;
+}
+
+/** plan.perception.ocrMaxSegments 未指定時の既定(区間数) */
+export const DEFAULT_PERCEPTION_OCR_MAX_SEGMENTS = 40;
+
+/** plan.perception.ocrMaxLines 未指定時の既定(行数) */
+export const DEFAULT_PERCEPTION_OCR_MAX_LINES = 6;
+
+/** plan.perception を既定値で解決する純関数(省略時は全オフ)。
+ *  loadConfig は cfg.plan を書き換えない(省略=オフ=バイト等価を守る) */
+export function resolvePerceptionCfg(cfg: Config): {
+  audio: boolean;
+  ocr: boolean;
+  ocrMaxSegments: number;
+  ocrMaxLines: number;
+} {
+  const p = cfg.plan?.perception ?? {};
+  return {
+    audio: p.audio ?? false,
+    ocr: p.ocr ?? false,
+    ocrMaxSegments: p.ocrMaxSegments ?? DEFAULT_PERCEPTION_OCR_MAX_SEGMENTS,
+    ocrMaxLines: p.ocrMaxLines ?? DEFAULT_PERCEPTION_OCR_MAX_LINES,
+  };
 }
 
 /** "~/foo" をホームディレクトリに展開する */
