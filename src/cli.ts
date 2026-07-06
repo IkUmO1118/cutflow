@@ -111,16 +111,22 @@ program
     "--force",
     "既存の cutplan / chapters / meta を上書きして再実行(実行前に backups/ へ退避)",
   )
-  .action(async (dir: string, opts: { force?: boolean }) => {
+  .option(
+    "--cuts-only",
+    "カット判断だけを行い cutplan.json / plan.raw.txt だけを書く" +
+      "(chapters / meta / transcript の章テロップ / overlays の章トラックには触らない)",
+  )
+  .action(async (dir: string, opts: { force?: boolean; cutsOnly?: boolean }) => {
     const cfg = loadConfig(program.opts().config);
     const abs = resolveDir(dir);
+    const cutsOnly = opts.cutsOnly === true;
     guardRerun(
       abs,
-      ["cutplan.json", "chapters.json", "meta.json"],
+      cutsOnly ? ["cutplan.json"] : ["cutplan.json", "chapters.json", "meta.json"],
       opts.force === true,
       "plan",
     );
-    const p = await plan(abs, cfg);
+    const p = await plan(abs, cfg, { cutsOnly });
     printPlanSummary(p.segments);
   });
 
