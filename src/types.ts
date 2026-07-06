@@ -68,6 +68,25 @@ export interface TranscriptSegment {
   pos?: CaptionPos;
   /** このテロップだけの見た目。項目単位でトラック標準・既定値に重なる */
   style?: CaptionStyle;
+  /** 語/トークン単位のタイミング(whisper -ojf の per-token offsets 由来)。
+   * 省略可(後方互換)。**カラオケアニメ等の描画専用の補助データで、テロップの
+   * 文言・表示区間そのものは常に text / start / end が正**。人間が text を
+   * 手編集すると words[] は古くなりうる(§5 参照)。特殊トークン([_BEG_] /
+   * [_TT_NNN] 等)と空 text は除外済み。時刻は他と同じく「元収録(raw)の秒」。
+   * words[] は時系列順で、各 word の [start,end) は親 segment の [start,end] に収まる */
+  words?: WordTiming[];
+}
+
+/** transcript の1語/1トークンのタイミング。whisper のサブワード単位
+ * (日本語は分かち書きが無いためトークン=サブワード)。時刻は元収録の秒 */
+export interface WordTiming {
+  /** トークン文字列(前後空白を trim 済み。特殊トークンは含めない) */
+  text: string;
+  /** 開始・終了(元収録の秒)。start < end。親 segment の範囲内 */
+  start: number;
+  end: number;
+  /** whisper の確信度(0..1、-ojf の token.p)。省略可 */
+  confidence?: number;
 }
 
 /** テロップの表示位置。出力解像度上のテキスト中心座標(px) */
