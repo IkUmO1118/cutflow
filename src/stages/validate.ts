@@ -8,7 +8,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, normalize, resolve, sep } from "node:path";
 import { fmtT } from "../lib/fmt.ts";
-import { PROFILES } from "../lib/profile.ts";
+import { defaultShortProfileName, PROFILES, profileSupportsPlain } from "../lib/profile.ts";
 import { buildTimeline, remapInterval } from "../lib/timeline.ts";
 import type { TimelineEntry } from "../lib/timeline.ts";
 import { capNum, captionTrack, hasCamera, ovNum } from "../types.ts";
@@ -608,23 +608,22 @@ export function validateDocs(
           });
         }
         // 座標はみ出し警告は解決後の profile サイズと比べる。省略時は
-        // ショートの既定 "vertical"(profile 名不正のときは判定しない)
-        const profileName = typeof s.profile === "string" ? s.profile : "vertical";
+        // ショートの既定(camera 有り→vertical、plain→vertical-screen。
+        // profile 名不正のときは判定しない)
+        const profileName =
+          typeof s.profile === "string" ? s.profile : defaultShortProfileName(cameraPresent);
         const profileDef = PROFILES[profileName];
         // plain(カメラ無し)は画面+カメラの2段構成(vertical)を作れない。
         // 判定は profile 名ではなく panels の source 集合で行う(将来プリセットが
-        // 増えても壊れない)。camera のみ(vertical-cover)・screen のみ・
-        // layout 無し(default)は許可
-        if (!cameraPresent && profileDef?.layout) {
-          const sources = new Set(profileDef.layout.panels.map((p) => p.source));
-          if (sources.has("screen") && sources.has("camera")) {
-            err(
-              f,
-              `${w}.profile`,
-              `profile "${profileName}" は画面+カメラの2段構成用です。` +
-                "plain(カメラ無し)には vertical-cover か default を使ってください",
-            );
-          }
+        // 増えても壊れない=profileSupportsPlain に一本化。camera のみ
+        // (vertical-cover)・screen のみ(vertical-screen)・layout 無し(default)は許可
+        if (!cameraPresent && !profileSupportsPlain(profileName)) {
+          err(
+            f,
+            `${w}.profile`,
+            `profile "${profileName}" は画面+カメラの2段構成用です。` +
+              "plain(カメラ無し)には vertical-cover か default を使ってください",
+          );
         }
         checkCaptionTracks(f, `${w}.captionTracks`, s.captionTracks, err, (t, tw) => {
           if (!profileDef) return;
