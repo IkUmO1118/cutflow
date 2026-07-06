@@ -56,6 +56,13 @@ export interface Transcript {
 }
 
 export interface TranscriptSegment {
+  /** 編集をまたいで安定な永続 id(例 "cap_a1b2c3")。`@id` で人間/AI がこの要素を
+   * 指す共通アドレス。文法は `<prefix>_<base36 6桁>`(src/lib/ids.ts が単一の出所)。
+   * **一度振ったら内容・位置が変わっても不変**(採番は id が無い要素にだけ行う)。
+   * 省略可=id 未採番。id が1つも無いプロジェクトは全コマンドが本機能導入前と
+   * バイト等価(opt-in・sticky。採番は `id-stamp` / 生成 / GUI 保存が行う)。
+   * **render / 承認 hash には一切影響しない**(アドレッシング専用) */
+  id?: string;
   /** 秒 */
   start: number;
   end: number;
@@ -224,6 +231,13 @@ export interface CutPlan {
 }
 
 export interface PlanSegment {
+  /** 編集をまたいで安定な永続 id(例 "seg_a1b2c3")。`@id` で人間/AI がこの要素を
+   * 指す共通アドレス。文法は `<prefix>_<base36 6桁>`(src/lib/ids.ts が単一の出所)。
+   * **一度振ったら内容・位置が変わっても不変**(採番は id が無い要素にだけ行う)。
+   * 省略可=id 未採番。id が1つも無いプロジェクトは全コマンドが本機能導入前と
+   * バイト等価(opt-in・sticky。採番は `id-stamp` / 生成 / GUI 保存が行う)。
+   * **render / 承認 hash には一切影響しない**(アドレッシング専用) */
+  id?: string;
   start: number;
   end: number;
   /** keep: 残す / cut: 切る(確認用に候補も残しておく) */
@@ -257,6 +271,13 @@ export interface ApprovalRecord {
  * 章タイトルの表示は plan が通常テロップとして transcript.json に書く */
 export interface Chapters {
   chapters: {
+    /** 編集をまたいで安定な永続 id(例 "ch_a1b2c3")。`@id` で人間/AI がこの要素を
+     * 指す共通アドレス。文法は `<prefix>_<base36 6桁>`(src/lib/ids.ts が単一の出所)。
+     * **一度振ったら内容・位置が変わっても不変**(採番は id が無い要素にだけ行う)。
+     * 省略可=id 未採番。id が1つも無いプロジェクトは全コマンドが本機能導入前と
+     * バイト等価(opt-in・sticky。採番は `id-stamp` / 生成 / GUI 保存が行う)。
+     * **render / 承認 hash には一切影響しない**(アドレッシング専用) */
+    id?: string;
     start: number;
     title: string;
   }[];
@@ -349,6 +370,13 @@ export const DEFAULT_LAYER_ORDER: LayerId[] = defaultLayerOrder(2);
 /** テロップトラックの標準設定1件。overlays.json の captionTracks と
  * shorts.json の各ショートの captionTracks で共用する */
 export interface CaptionTrackDef {
+  /** 編集をまたいで安定な永続 id(例 "ct_a1b2c3")。`@id` で人間/AI がこの要素を
+   * 指す共通アドレス。文法は `<prefix>_<base36 6桁>`(src/lib/ids.ts が単一の出所)。
+   * **一度振ったら内容・位置が変わっても不変**(採番は id が無い要素にだけ行う)。
+   * 省略可=id 未採番。id が1つも無いプロジェクトは全コマンドが本機能導入前と
+   * バイト等価(opt-in・sticky。採番は `id-stamp` / 生成 / GUI 保存が行う)。
+   * **render / 承認 hash には一切影響しない**(アドレッシング専用) */
+  id?: string;
   track: number;
   name?: string;
   x?: number;
@@ -363,6 +391,13 @@ export interface Overlays {
   /** 素材(画像/動画)を表示する区間。省略時は画面いっぱい、rect で
    * 部分配置(ピクチャ・イン・ピクチャ)もできる */
   overlays?: {
+    /** 編集をまたいで安定な永続 id(例 "mat_a1b2c3")。`@id` で人間/AI がこの要素を
+     * 指す共通アドレス。文法は `<prefix>_<base36 6桁>`(src/lib/ids.ts が単一の出所)。
+     * **一度振ったら内容・位置が変わっても不変**(採番は id が無い要素にだけ行う)。
+     * 省略可=id 未採番。id が1つも無いプロジェクトは全コマンドが本機能導入前と
+     * バイト等価(opt-in・sticky。採番は `id-stamp` / 生成 / GUI 保存が行う)。
+     * **render / 承認 hash には一切影響しない**(アドレッシング専用) */
+    id?: string;
     start: number;
     end: number;
     /** 素材ファイル(収録フォルダからの相対パス) */
@@ -395,6 +430,13 @@ export interface Overlays {
    * 差し込む。at 以降のすべての要素(keep 区間・素材・テロップ)は
    * 元収録の秒のまま動かさず、時刻写像が挿入の尺ぶん後ろへずらす */
   inserts?: {
+    /** 編集をまたいで安定な永続 id(例 "ins_a1b2c3")。`@id` で人間/AI がこの要素を
+     * 指す共通アドレス。文法は `<prefix>_<base36 6桁>`(src/lib/ids.ts が単一の出所)。
+     * **一度振ったら内容・位置が変わっても不変**(採番は id が無い要素にだけ行う)。
+     * 省略可=id 未採番。id が1つも無いプロジェクトは全コマンドが本機能導入前と
+     * バイト等価(opt-in・sticky。採番は `id-stamp` / 生成 / GUI 保存が行う)。
+     * **render / 承認 hash には一切影響しない**(アドレッシング専用) */
+    id?: string;
     /** 挿入位置のアンカー(元収録の秒)。この時刻の手前に挿入される */
     at: number;
     /** 素材ファイル(収録フォルダからの相対パス) */
@@ -415,8 +457,9 @@ export interface Overlays {
     fadeInSec?: number;
     fadeOutSec?: number;
   }[];
-  /** ワイプ(カメラ)を全画面にして背景を隠す区間 */
-  wipeFull?: Interval[];
+  /** ワイプ(カメラ)を全画面にして背景を隠す区間。id は "wf_a1b2c3" 形式
+   *(§Interval & id の共通仕様。src/lib/ids.ts が単一の出所。省略可=id 未採番) */
+  wipeFull?: (Interval & { id?: string })[];
   /** 画面の重なり順(下→上)。ベース映像と BGM は対象外。
    *  省略時は DEFAULT_LAYER_ORDER(エディタのトラック並べ替えが書く) */
   layerOrder?: LayerId[];
@@ -427,8 +470,9 @@ export interface Overlays {
    * 章タイトルのような左寄せ配置のトラックに使う)。
    * name はタイムラインに出すトラック名(省略時は自動ラベル) */
   captionTracks?: CaptionTrackDef[];
-  /** 字幕を出さない区間 */
-  hideCaption?: Interval[];
+  /** 字幕を出さない区間。id は "hc_a1b2c3" 形式(§Interval & id の共通仕様。
+   * src/lib/ids.ts が単一の出所。省略可=id 未採番) */
+  hideCaption?: (Interval & { id?: string })[];
   /** ズーム演出(画面の一部を拡大して見せる)。区間は重ならないこと。
    * かかるのはベース映像の背景レイヤー(画面クロップ)だけで、ワイプ・
    * テロップ・素材オーバーレイ・挿入クリップは動かない。ショート
@@ -457,6 +501,13 @@ export interface ColorFilter {
 
 /** ズーム演出1件(overlays.json の zooms)。start/end は元収録の秒 */
 export interface Zoom {
+  /** 編集をまたいで安定な永続 id(例 "zm_a1b2c3")。`@id` で人間/AI がこの要素を
+   * 指す共通アドレス。文法は `<prefix>_<base36 6桁>`(src/lib/ids.ts が単一の出所)。
+   * **一度振ったら内容・位置が変わっても不変**(採番は id が無い要素にだけ行う)。
+   * 省略可=id 未採番。id が1つも無いプロジェクトは全コマンドが本機能導入前と
+   * バイト等価(opt-in・sticky。採番は `id-stamp` / 生成 / GUI 保存が行う)。
+   * **render / 承認 hash には一切影響しない**(アドレッシング専用) */
+  id?: string;
   start: number;
   end: number;
   /** 全画面に拡大する矩形(出力px。テロップ pos・overlays rect と同じ座標系)。
@@ -482,6 +533,13 @@ export type BlurType = "blur" | "mosaic";
  * かかるのはベース映像だけ。zoom には追従せず出力px固定(zoom と時間が重なる
  * と validate が警告する)。ショート(profile 経路)には継承されない */
 export interface BlurRegion {
+  /** 編集をまたいで安定な永続 id(例 "bl_a1b2c3")。`@id` で人間/AI がこの要素を
+   * 指す共通アドレス。文法は `<prefix>_<base36 6桁>`(src/lib/ids.ts が単一の出所)。
+   * **一度振ったら内容・位置が変わっても不変**(採番は id が無い要素にだけ行う)。
+   * 省略可=id 未採番。id が1つも無いプロジェクトは全コマンドが本機能導入前と
+   * バイト等価(opt-in・sticky。採番は `id-stamp` / 生成 / GUI 保存が行う)。
+   * **render / 承認 hash には一切影響しない**(アドレッシング専用) */
+  id?: string;
   start: number;
   end: number;
   /** 隠す矩形(出力px)。画面外へはみ出すと validate がエラーにする */
@@ -505,6 +563,13 @@ export interface Bgm {
    * (「イントロだけ BGM なし」= その区間を覆わない)。別ファイルの区間を
    * 並べれば曲の切り替え、区間を重ねれば重奏になる。各区間はループ再生 */
   tracks: {
+    /** 編集をまたいで安定な永続 id(例 "bg_a1b2c3")。`@id` で人間/AI がこの要素を
+     * 指す共通アドレス。文法は `<prefix>_<base36 6桁>`(src/lib/ids.ts が単一の出所)。
+     * **一度振ったら内容・位置が変わっても不変**(採番は id が無い要素にだけ行う)。
+     * 省略可=id 未採番。id が1つも無いプロジェクトは全コマンドが本機能導入前と
+     * バイト等価(opt-in・sticky。採番は `id-stamp` / 生成 / GUI 保存が行う)。
+     * **render / 承認 hash には一切影響しない**(アドレッシング専用) */
+    id?: string;
     /** 流し始め(元収録の秒) */
     start: number;
     /** 流し終わり(元収録の秒) */
@@ -548,7 +613,10 @@ export interface Short {
   /** このショートの keep 区間(元収録の秒)。本編 cutplan の keep とは独立で、
    * mergeIntervals した集合がそのままショートの keep 集合になる(交差なし)。
    * 飛び区間で連結でき、フィラーを飛ばしたいときはレンジを分割する */
-  ranges: Interval[];
+  /** id は "rg_a1b2c3" 形式(§Interval & id の共通仕様。src/lib/ids.ts が
+   * 単一の出所。省略可=id 未採番)。Short 自体は name が事実上の安定 id
+   * なので別の id フィールドは持たない */
+  ranges: (Interval & { id?: string })[];
   /** 縦用テロップ位置/スタイルの上書き(任意)。overlays.captionTracks と
    * 同型・同じ解決順(セグメント → トラック標準 → 既定)で
    * buildRenderProps に渡す */
@@ -564,6 +632,13 @@ export interface Thumbnail {
 }
 
 export interface ThumbnailText {
+  /** 編集をまたいで安定な永続 id(例 "tx_a1b2c3")。`@id` で人間/AI がこの要素を
+   * 指す共通アドレス。文法は `<prefix>_<base36 6桁>`(src/lib/ids.ts が単一の出所)。
+   * **一度振ったら内容・位置が変わっても不変**(採番は id が無い要素にだけ行う)。
+   * 省略可=id 未採番。id が1つも無いプロジェクトは全コマンドが本機能導入前と
+   * バイト等価(opt-in・sticky。採番は `id-stamp` / 生成 / GUI 保存が行う)。
+   * **render / 承認 hash には一切影響しない**(アドレッシング専用) */
+  id?: string;
   text: string;
   /** 表示位置(テキスト中心、出力px)。transcript のテロップと違い省略不可
    * (サムネに「既定の下部中央」は無い) */
