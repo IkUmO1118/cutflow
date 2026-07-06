@@ -1,33 +1,24 @@
 // lib/profile.ts — 出力プロファイル(サイズ+パネル配置+字幕既定)の組み込み定数。
-// config には無い閉じたプリセットなので、名前解決とプレースホルダの
-// screenRegion 差し替えだけを固定する。
+// F4 で Config 依存を外し、defaultSize(manifest.video.screenRegion 相当)を
+// 直接渡す形に変わったので、名前解決とプレースホルダのサイズ差し替えだけを固定する。
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { PROFILES, resolveProfile } from "../src/lib/profile.ts";
-import type { Config } from "../src/lib/config.ts";
 
-const cfg = {
-  ingest: {
-    screenRegion: { x: 0, y: 0, w: 1920, h: 1080 },
-    cameraRegion: { x: 1920, y: 0, w: 1920, h: 1080 },
-  },
-} as Config;
+const defaultSize = { w: 1920, h: 1080 };
 
-test("resolveProfile: 省略時は default = screenRegion サイズ・layout なし", () => {
-  const profile = resolveProfile(cfg);
+test("resolveProfile: 省略時は default = defaultSize のサイズ・layout なし", () => {
+  const profile = resolveProfile(defaultSize);
   assert.deepEqual(profile, { width: 1920, height: 1080 });
   assert.equal(profile.layout, undefined);
 });
 
-test("resolveProfile: \"default\" 明示も screenRegion サイズ", () => {
-  const otherCfg = {
-    ingest: { screenRegion: { x: 0, y: 0, w: 2560, h: 1440 } },
-  } as Config;
-  assert.deepEqual(resolveProfile(otherCfg, "default"), { width: 2560, height: 1440 });
+test("resolveProfile: \"default\" 明示も defaultSize のサイズ", () => {
+  assert.deepEqual(resolveProfile({ w: 2560, h: 1440 }, "default"), { width: 2560, height: 1440 });
 });
 
-test("resolveProfile: vertical は 1080x1920 + camera上/screen下のパネル", () => {
-  const profile = resolveProfile(cfg, "vertical");
+test("resolveProfile: vertical は 1080x1920 + camera上/screen下のパネル(defaultSize は無視)", () => {
+  const profile = resolveProfile(defaultSize, "vertical");
   assert.equal(profile.width, 1080);
   assert.equal(profile.height, 1920);
   assert.ok(profile.layout);
@@ -38,7 +29,7 @@ test("resolveProfile: vertical は 1080x1920 + camera上/screen下のパネル",
 });
 
 test("resolveProfile: vertical-cover は 1080x1920 + camera 全画面1パネル", () => {
-  const profile = resolveProfile(cfg, "vertical-cover");
+  const profile = resolveProfile(defaultSize, "vertical-cover");
   assert.equal(profile.width, 1080);
   assert.equal(profile.height, 1920);
   assert.equal(profile.layout?.panels.length, 1);
@@ -47,7 +38,7 @@ test("resolveProfile: vertical-cover は 1080x1920 + camera 全画面1パネル"
 });
 
 test("resolveProfile: 未知のプロファイル名は throw", () => {
-  assert.throws(() => resolveProfile(cfg, "square"));
+  assert.throws(() => resolveProfile(defaultSize, "square"));
 });
 
 test("PROFILES: vertical/vertical-cover は組み込み定数として直接参照できる", () => {
