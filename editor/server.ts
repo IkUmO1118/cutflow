@@ -18,6 +18,13 @@ import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { build } from "esbuild";
+import {
+  clearCutplanApproval,
+  clearShortApproval,
+  writeCutplanApproval,
+  writeShortApproval,
+} from "../src/lib/approval.ts";
+import { APPROVAL_FILE } from "../src/lib/files.ts";
 import { run } from "../src/lib/exec.ts";
 import { bootstrapProject } from "../src/stages/bootstrap.ts";
 import { buildProxy, isProxyStale } from "../src/stages/proxy.ts";
@@ -669,7 +676,15 @@ function saveProject(dir: string, body: SaveRequest): void {
     selfWroteAt.set(file, Date.now());
     writeFileSync(join(dir, file), JSON.stringify(data, null, 2));
   };
-  if (body.cutplan) write("cutplan.json", body.cutplan);
+  if (body.cutplan) {
+    write("cutplan.json", body.cutplan);
+    // 承認レコード(approvals.json)の mint/clear。GUI は「人間が起動した
+    // プロセスが人間のチェックで書く」= 分離層の権威側(設計 §1.3 / §8)。
+    // approved トグルに応じてハッシュ束縛レコードを作る/消す
+    selfWroteAt.set(APPROVAL_FILE, Date.now());
+    if (body.cutplan.approved) writeCutplanApproval(dir, body.cutplan, "gui");
+    else clearCutplanApproval(dir);
+  }
   if (body.overlays) write("overlays.json", body.overlays);
   if (body.transcript) write("transcript.json", body.transcript);
   // BGM: 区間があれば bgm.json を書き、null / 空なら削除して全編1曲(後方互換)へ戻す
@@ -688,6 +703,12 @@ function saveProject(dir: string, body: SaveRequest): void {
   if (body.shorts !== undefined) {
     if (body.shorts && body.shorts.shorts.length > 0) {
       write("shorts.json", body.shorts);
+      // 各ショートの approved トグルに応じて name 別の承認レコードを mint/clear
+      selfWroteAt.set(APPROVAL_FILE, Date.now());
+      for (const short of body.shorts.shorts) {
+        if (short.approved) writeShortApproval(dir, short, "gui");
+        else clearShortApproval(dir, short.name);
+      }
     } else {
       const p = join(dir, "shorts.json");
       if (existsSync(p)) {
