@@ -3,6 +3,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { complete } from "../lib/llm.ts";
 import { mergeIntervals } from "../lib/timeline.ts";
+import { carryIds, ensureIds, hasAnyId, ID_PREFIX, usedIdsOf } from "../lib/ids.ts";
+import { readEditableDocs } from "./idStamp.ts";
 import type { Config } from "../lib/config.ts";
 import { captionTrack } from "../types.ts";
 import type {
@@ -16,6 +18,20 @@ import type {
   Transcript,
   TranscriptSegment,
 } from "../types.ts";
+
+/**
+ * このプロジェクトで id が有効(§docs/plans/2026-07-07-stable-ids-design.md の
+ * opt-in・sticky 原則)なら、cutplan.segments への carryIds 用の既存配列と、
+ * project 全体で衝突しない used 集合を返す。無効なら undefined(=生成ステージは
+ * 一切 id に触れず、出力は導入前とバイト等価)。
+ */
+function buildIdContext(
+  dir: string,
+): { used: Set<string>; existingCutplanSegments: PlanSegment[] } | undefined {
+  const docs = readEditableDocs(dir);
+  if (!hasAnyId(docs)) return undefined;
+  return { used: usedIdsOf(docs), existingCutplanSegments: docs.cutplan?.segments ?? [] };
+}
 
 /** 残す候補区間 + 重なる文字起こしテキストに番号を振ったもの(LLM 入力用)。
  * plan-shorts でも同じ番号選択方式で流用する(planShorts.ts) */
@@ -49,10 +65,22 @@ export interface PlanOptions {
   cutsOnly?: boolean;
 }
 
-/** LLM 応答からカット判断を反映した cutplan を組み立てる(存在しない id は無視) */
-function buildCutplan(
+/** buildCutplan の id 引き継ぎ用コンテキスト(§buildIdContext 参照)。
+ * 省略時(undefined)は id に一切触れない(=導入前とバイト等価) */
+export interface CutplanIdContext {
+  /** 直前の cutplan.json の segments(span 一致で id を運ぶ元) */
+  existingSegments: PlanSegment[];
+  /** project 全体で衝突しない used 集合(呼び出しごとに変異する) */
+  used: Set<string>;
+}
+
+/** LLM 応答からカット判断を反映した cutplan を組み立てる(存在しない id は無視)。
+ * idCtx があれば、span(start:end)一致で旧 segments.id を運び(carryIds)、
+ * 残りを採番する(ensureIds)。span が変わった segment は新 id になる(要件どおり) */
+export function buildCutplan(
   numbered: NumberedSegment[],
   cuts: { id: number; reason: string }[],
+  idCtx?: CutplanIdContext,
 ): CutPlan {
   const cutIds = new Map(cuts.map((c) => [c.id, c.reason]));
   for (const c of cuts) {
@@ -62,12 +90,17 @@ function buildCutplan(
     }
   }
 
-  const segments: PlanSegment[] = numbered.map((n) => ({
+  let segments: PlanSegment[] = numbered.map((n) => ({
     start: n.start,
     end: n.end,
     action: cutIds.has(n.id) ? "cut" : "keep",
     reason: cutIds.get(n.id) ?? "",
   }));
+
+  if (idCtx) {
+    segments = carryIds(idCtx.existingSegments, segments, (s) => `${s.start}:${s.end}`);
+    segments = ensureIds(segments, ID_PREFIX.cutSegment, idCtx.used);
+  }
 
   return { approved: false, segments };
 }
@@ -104,6 +137,10 @@ export async function plan(
     throw new Error("残す候補区間が0件です(detect の結果を確認してください)");
   }
 
+  // id が有効なプロジェクトでのみ既存 id を運ぶ(§buildIdContext)。
+  // 上書き前(cutplan.json 等を読むだけ)に一度だけ判定する
+  const idCtx = buildIdContext(dir);
+
   const templateFile = opts.cutsOnly ? "plan-cuts.md" : "plan.md";
   const prompt = renderPrompt(dir, templateFile, numbered, auto.originalDurationSec);
   const raw = await complete(prompt, cfg);
@@ -112,16 +149,24 @@ export async function plan(
 
   if (opts.cutsOnly) {
     const parsed = parseCutsResponse(raw);
-    const cutplan = buildCutplan(numbered, parsed.cuts);
+    const cutplan = buildCutplan(
+      numbered,
+      parsed.cuts,
+      idCtx && { existingSegments: idCtx.existingCutplanSegments, used: idCtx.used },
+    );
     writeFileSync(join(dir, "cutplan.json"), JSON.stringify(cutplan, null, 2));
     return cutplan;
   }
 
   const parsed = parseResponse(raw);
-  const cutplan = buildCutplan(numbered, parsed.cuts);
+  const cutplan = buildCutplan(
+    numbered,
+    parsed.cuts,
+    idCtx && { existingSegments: idCtx.existingCutplanSegments, used: idCtx.used },
+  );
   writeFileSync(join(dir, "cutplan.json"), JSON.stringify(cutplan, null, 2));
 
-  writeChaptersAndMeta(dir, transcript, numbered, parsed, cfg);
+  writeChaptersAndMeta(dir, transcript, numbered, parsed, cfg, idCtx && { used: idCtx.used });
 
   return cutplan;
 }
@@ -152,12 +197,53 @@ export async function remeta(dir: string, cfg: Config): Promise<Meta> {
     throw new Error("keep 区間が0件です(cutplan.json を確認してください)");
   }
 
+  // id が有効なプロジェクトでのみ既存 id を運ぶ(§buildIdContext)。remeta は
+  // cutplan.segments を書かないため existingCutplanSegments は使わない
+  const idCtx = buildIdContext(dir);
+
   const prompt = renderPrompt(dir, "meta.md", numbered, manifest.durationSec);
   const raw = await complete(prompt, cfg);
   writeFileSync(join(dir, "plan.raw.txt"), raw);
 
   const parsed = parseResponse(raw);
-  return writeChaptersAndMeta(dir, transcript, numbered, parsed, cfg);
+  return writeChaptersAndMeta(dir, transcript, numbered, parsed, cfg, idCtx && { used: idCtx.used });
+}
+
+/** writeChaptersAndMeta / writeChapterTelops の id 引き継ぎ用コンテキスト。
+ * 省略時(undefined)は id に一切触れない */
+export interface ChaptersIdContext {
+  used: Set<string>;
+}
+
+/**
+ * LLM 応答の章の配列を組み立てる純関数(fs 非依存)。idCtx があれば、
+ * title 一致(trim 後)で旧 chapters.chapters の id を運び(carryIds)、
+ * 残りを採番する(ensureIds)。
+ */
+export function buildChapterEntries(
+  parsedChapters: { startId: number; title: string }[],
+  numbered: NumberedSegment[],
+  existingChapters: Chapters["chapters"],
+  idCtx?: ChaptersIdContext,
+): Chapters["chapters"] {
+  let entries: Chapters["chapters"] = parsedChapters
+    .map((c) => {
+      const seg = numbered.find((n) => n.id === c.startId);
+      if (!seg) {
+        console.warn(
+          `警告: 章「${c.title}」の開始区間 id=${c.startId} が存在しません(無視します)`,
+        );
+        return null;
+      }
+      return { start: seg.start, title: c.title };
+    })
+    .filter((c): c is Chapters["chapters"][number] => c !== null);
+
+  if (idCtx) {
+    entries = carryIds(existingChapters, entries, (c) => c.title.trim());
+    entries = ensureIds(entries, ID_PREFIX.chapter, idCtx.used);
+  }
+  return entries;
 }
 
 /**
@@ -170,23 +256,17 @@ function writeChaptersAndMeta(
   numbered: NumberedSegment[],
   parsed: PlanResponse,
   cfg: Config,
+  idCtx?: ChaptersIdContext,
 ): Meta {
+  const chaptersPath = join(dir, "chapters.json");
+  const existingChapters: Chapters["chapters"] = existsSync(chaptersPath)
+    ? ((JSON.parse(readFileSync(chaptersPath, "utf8")) as Chapters).chapters ?? [])
+    : [];
   const chapters: Chapters = {
-    chapters: parsed.chapters
-      .map((c) => {
-        const seg = numbered.find((n) => n.id === c.startId);
-        if (!seg) {
-          console.warn(
-            `警告: 章「${c.title}」の開始区間 id=${c.startId} が存在しません(無視します)`,
-          );
-          return null;
-        }
-        return { start: seg.start, title: c.title };
-      })
-      .filter((c) => c !== null),
+    chapters: buildChapterEntries(parsed.chapters, numbered, existingChapters, idCtx),
   };
-  writeFileSync(join(dir, "chapters.json"), JSON.stringify(chapters, null, 2));
-  writeChapterTelops(dir, transcript, chapters, cfg);
+  writeFileSync(chaptersPath, JSON.stringify(chapters, null, 2));
+  writeChapterTelops(dir, transcript, chapters, cfg, idCtx);
 
   const meta: Meta = { titles: parsed.titles, description: parsed.description };
   writeFileSync(join(dir, "meta.json"), JSON.stringify(meta, null, 2));
@@ -201,11 +281,38 @@ function writeChaptersAndMeta(
  * plan を再実行したときは、このトラックのテロップだけを作り直す
  * (他のトラックのテロップ手編集は保たれる)。
  */
+/**
+ * 章トラックのテロップ配列を組み立てる純関数(fs 非依存)。idCtx があれば、
+ * title 一致(trim 後)で旧「章」トラックのテロップの id を運び(carryIds)、
+ * 残りを採番する(ensureIds)。
+ */
+export function buildChapterTelopEntries(
+  chapters: Chapters,
+  track: number,
+  chapterCardSec: number,
+  existingTelops: TranscriptSegment[],
+  idCtx?: ChaptersIdContext,
+): TranscriptSegment[] {
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  let telops: TranscriptSegment[] = chapters.chapters.map((c) => ({
+    start: c.start,
+    end: round2(c.start + chapterCardSec),
+    text: c.title,
+    track,
+  }));
+  if (idCtx) {
+    telops = carryIds(existingTelops, telops, (s) => s.text.trim());
+    telops = ensureIds(telops, ID_PREFIX.caption, idCtx.used);
+  }
+  return telops;
+}
+
 function writeChapterTelops(
   dir: string,
   transcript: Transcript,
   chapters: Chapters,
   cfg: Config,
+  idCtx?: ChaptersIdContext,
 ): void {
   const overlaysPath = join(dir, "overlays.json");
   const overlays: Overlays = existsSync(overlaysPath)
@@ -231,13 +338,14 @@ function writeChapterTelops(
     writeFileSync(overlaysPath, JSON.stringify(overlays, null, 2));
   }
   const track = def.track;
-  const round2 = (n: number) => Math.round(n * 100) / 100;
-  const telops: TranscriptSegment[] = chapters.chapters.map((c) => ({
-    start: c.start,
-    end: round2(c.start + cfg.render.chapterCardSec),
-    text: c.title,
+  const existingTelops = transcript.segments.filter((s) => captionTrack(s) === track);
+  const telops = buildChapterTelopEntries(
+    chapters,
     track,
-  }));
+    cfg.render.chapterCardSec,
+    existingTelops,
+    idCtx,
+  );
   const segments = [
     ...transcript.segments.filter((s) => captionTrack(s) !== track),
     ...telops,

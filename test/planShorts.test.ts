@@ -5,6 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseShortsResponse, shortsFromSelection } from "../src/stages/planShorts.ts";
 import type { NumberedSegment } from "../src/stages/plan.ts";
+import { ID_RE } from "../src/lib/ids.ts";
 
 test("parseShortsResponse: 正例(素の JSON)", () => {
   const raw = `{
@@ -208,4 +209,28 @@ test("shortsFromSelection: 有効な区間が無いショートは飛ばす", ()
     true,
   );
   assert.deepEqual(out.map((s) => s.name), ["ok"]);
+});
+
+/* ---------------- 安定 id(§docs/plans/2026-07-07-stable-ids-design.md) ---------------- */
+
+test("shortsFromSelection: idCtx 省略時は ranges に id が付かない(導入前とバイト等価)", () => {
+  const n = numbered([[0, 5], [10, 15]]);
+  const out = shortsFromSelection(n, { shorts: [{ name: "a", ids: [1, 2], reason: "" }] }, 60, true);
+  for (const r of out[0].ranges) assert.equal("id" in r, false);
+});
+
+test("shortsFromSelection: idCtx ありで ranges に id を採番する(常に新規=carryIds はしない)", () => {
+  const n = numbered([[0, 5], [10, 15]]);
+  const used = new Set<string>();
+  const out = shortsFromSelection(
+    n,
+    { shorts: [{ name: "a", ids: [1, 2], reason: "" }] },
+    60,
+    true,
+    { used },
+  );
+  assert.equal(out[0].ranges.length, 2);
+  for (const r of out[0].ranges) assert.match(r.id as string, ID_RE);
+  // 2件とも別の id(used に両方登録されている)
+  assert.equal(used.size, 2);
 });

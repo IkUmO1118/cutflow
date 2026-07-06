@@ -9,6 +9,8 @@ import { complete } from "../lib/llm.ts";
 import { planShortsMaxSec } from "../lib/config.ts";
 import { defaultShortProfileName } from "../lib/profile.ts";
 import { mergeIntervals } from "../lib/timeline.ts";
+import { ensureIds, hasAnyId, ID_PREFIX, usedIdsOf } from "../lib/ids.ts";
+import { readEditableDocs } from "./idStamp.ts";
 import { numberSegments, renderPrompt } from "./plan.ts";
 import { hasCamera } from "../types.ts";
 import type { NumberedSegment } from "./plan.ts";
@@ -103,12 +105,16 @@ function uniqueName(base: string, used: Set<string>): string {
  *   "vertical"、plain→"vertical-screen"。手編集で他の profile へ変えるのは
  *   人間の仕事)。
  * 有効な区間が1つも無いショートは飛ばす(shorts.json は ranges 1件以上が必須)。
+ * idCtx があれば(id 有効なプロジェクト)、各ショートの ranges に id を採番する
+ * (plan-shorts は shorts.json を丸ごと作り直すため carryIds はしない=常に
+ * ensureIds のみ。省略時は id に一切触れない=導入前とバイト等価)
  */
 export function shortsFromSelection(
   numbered: NumberedSegment[],
   parsed: ShortsSelection,
   maxSec: number,
   hasCamera: boolean,
+  idCtx?: { used: Set<string> },
 ): Short[] {
   const byId = new Map(numbered.map((n) => [n.id, n]));
   const usedNames = new Set<string>();
@@ -134,7 +140,7 @@ export function shortsFromSelection(
 
     picked.sort((a, b) => a.start - b.start);
     const merged = mergeIntervals(picked);
-    let ranges = merged;
+    let ranges: Short["ranges"] = merged;
     while (ranges.length > 1 && totalDuration(ranges) > maxSec) {
       ranges = ranges.slice(0, -1);
     }
@@ -150,6 +156,8 @@ export function shortsFromSelection(
           "超えています(単一区間で削れません。人間が調整してください)",
       );
     }
+
+    if (idCtx) ranges = ensureIds(ranges, ID_PREFIX.range, idCtx.used);
 
     const name = uniqueName(normalizeName(sel.name, i), usedNames);
     usedNames.add(name);
@@ -198,7 +206,15 @@ export async function planShorts(dir: string, cfg: Config): Promise<Shorts> {
   writeFileSync(join(dir, "plan-shorts.raw.txt"), raw);
 
   const parsed = parseShortsResponse(raw);
-  const shorts = shortsFromSelection(numbered, parsed, planShortsMaxSec(cfg), hasCamera(manifest));
+  const docs = readEditableDocs(dir);
+  const idCtx = hasAnyId(docs) ? { used: usedIdsOf(docs) } : undefined;
+  const shorts = shortsFromSelection(
+    numbered,
+    parsed,
+    planShortsMaxSec(cfg),
+    hasCamera(manifest),
+    idCtx,
+  );
 
   const out: Shorts = { shorts };
   writeFileSync(join(dir, "shorts.json"), JSON.stringify(out, null, 2));
