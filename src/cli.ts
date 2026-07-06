@@ -2,12 +2,13 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Command } from "commander";
-import { backupEditableFiles } from "./lib/backup.ts";
+import { EDITABLE_FILES, backupEditableFiles } from "./lib/backup.ts";
 import { loadConfig, resolveConfigPath } from "./lib/config.ts";
 import { ingest } from "./stages/ingest.ts";
 import { transcribe } from "./stages/transcribe.ts";
 import { detect } from "./stages/detect.ts";
 import { plan, remeta } from "./stages/plan.ts";
+import { planShorts } from "./stages/planShorts.ts";
 import { preview } from "./stages/preview.ts";
 import { render, renderShort, renderShorts } from "./stages/render.ts";
 import { validate } from "./stages/validate.ts";
@@ -61,8 +62,8 @@ function resolveDir(dir: string): string {
 }
 
 /**
- * plan / run の再実行ガード。LLM の生成物で上書きされるファイルが既にある
- * ときは --force を要求し(運用ルールだけに頼らない防御)、実行する場合も
+ * plan / run / plan-shorts の再実行ガード。LLM の生成物で上書きされるファイルが
+ * 既にあるときは --force を要求し(運用ルールだけに頼らない防御)、実行する場合も
  * 先に手編集ファイル一式を backups/ へ退避する(上書き事故からの復元手段)
  */
 function guardRerun(
@@ -75,13 +76,17 @@ function guardRerun(
   if (existing.length === 0) return;
   if (!force) {
     throw new Error(
-      `${existing.join(" / ")} が既にあります。${cmd} の再実行はこれらと` +
-        "「章」トラックのテロップを LLM の生成物で上書きし、手編集が消えます。\n" +
+      `${existing.join(" / ")} が既にあります。${cmd} の再実行はこれらを ` +
+        "LLM の生成物で上書きし、手編集が消えます。\n" +
         "やり直す場合は --force を付けてください(実行前に手編集ファイルを " +
         "backups/ へ退避します)",
     );
   }
-  const dest = backupEditableFiles(dir);
+  // 退避対象は標準の手編集ファイルに加え、このコマンドが上書きする outputs も含める
+  // (plan-shorts の shorts.json は EDITABLE_FILES に無いので、これが無いと
+  // 手編集した shorts.json を退避せず上書きしてしまう)
+  const backupList = [...new Set([...EDITABLE_FILES, ...outputs])];
+  const dest = backupEditableFiles(dir, backupList);
   if (dest) {
     console.log(
       `上書き前に手編集ファイルを退避しました: ${dest}\n` +
@@ -171,6 +176,37 @@ program
     const m = await remeta(abs, cfg);
     console.log(`remeta 完了: タイトル案 ${m.titles.length}件`);
     for (const t of m.titles) console.log(`  ${t}`);
+  });
+
+program
+  .command("plan-shorts <dir>")
+  .description(
+    "LLM でショート向きの見せ場を選ばせ shorts.json の下書きを生成(全て approved:false。承認は人間)",
+  )
+  .option(
+    "--force",
+    "既存の shorts.json を上書きして再実行(実行前に backups/ へ退避)",
+  )
+  .action(async (dir: string, opts: { force?: boolean }) => {
+    const cfg = loadConfig(program.opts().config);
+    const abs = resolveDir(dir);
+    guardRerun(abs, ["shorts.json"], opts.force === true, "plan-shorts");
+    console.log("plan-shorts 実行中(LLM でショート候補を選定)...");
+    const shorts = await planShorts(abs, cfg);
+    console.log(
+      `plan-shorts 完了: ${shorts.shorts.length}本のショート下書きを生成` +
+        "(全て approved:false)",
+    );
+    for (const s of shorts.shorts) {
+      const dur = s.ranges.reduce((a, r) => a + (r.end - r.start), 0);
+      console.log(
+        `  ${s.name}: ${s.ranges.length}区間 / ${dur.toFixed(1)}秒`,
+      );
+    }
+    console.log(
+      "\n次のステップ: preview か GUI エディタ(ショートモード)で確認し、" +
+        "各ショートの approved を true にしてから render --short してください。",
+    );
   });
 
 program
