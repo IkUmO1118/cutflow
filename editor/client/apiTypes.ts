@@ -59,6 +59,9 @@ export interface EditorCfg {
   maxUploadMb: number;
   /** タイムラインに置く画像素材・尺不明素材の既定の尺(秒) */
   defaultImageDurationSec: number;
+  /** ショート新規追加時、選択中の keep クリップもプレイヘッドも
+   * 無いときの既定レンジ長(秒) */
+  defaultShortRangeSec: number;
 }
 
 /** POST /api/config のレスポンス。保存後の解決済み設定(クライアントは
