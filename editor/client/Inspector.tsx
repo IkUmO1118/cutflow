@@ -5,6 +5,8 @@ import {
   CAPTION_DEFAULT_FONT_FAMILY,
   CAPTION_DEFAULT_FONT_WEIGHT,
   CAPTION_DEFAULT_OUTLINE,
+  DEFAULT_BLUR_STRENGTH,
+  DEFAULT_BLUR_TYPE,
   DEFAULT_ZOOM_EASE_SEC,
   captionAnchorOf,
   captionPosOf,
@@ -14,6 +16,7 @@ import {
 } from "../../src/types.ts";
 import type {
   Bgm,
+  BlurType,
   CaptionPos,
   CaptionStyle,
   CutPlan,
@@ -91,6 +94,8 @@ export const Inspector = ({
   removeSpan,
   updateZoom,
   removeZoom,
+  updateBlur,
+  removeBlur,
   updateInsert,
   removeInsert,
   updateBgm,
@@ -193,6 +198,12 @@ export const Inspector = ({
     coalesceKey?: string,
   ) => void;
   removeZoom: (i: number) => void;
+  updateBlur: (
+    i: number,
+    patch: Partial<NonNullable<Overlays["blurs"]>[number]>,
+    coalesceKey?: string,
+  ) => void;
+  removeBlur: (i: number) => void;
   updateInsert: (i: number, patch: Partial<InsertEntry>, coalesceKey?: string) => void;
   removeInsert: (i: number) => void;
   updateBgm: (i: number, patch: Partial<BgmTrack>, coalesceKey?: string) => void;
@@ -1428,6 +1439,81 @@ export const Inspector = ({
     );
   }
 
+  /* ---------------- ぼかし ---------------- */
+
+  if (selection.kind === "blur") {
+    const b = (overlays.blurs ?? [])[selection.index];
+    if (!b) return null;
+    const type = b.type ?? DEFAULT_BLUR_TYPE;
+    const strengthPct = Math.round((b.strength ?? DEFAULT_BLUR_STRENGTH) * 100);
+    return (
+      <div className="insp">
+        <InspHead
+          kind={type === "mosaic" ? "モザイク" : "ぼかし"}
+          title={`${fmtTime(b.start)} 〜 ${fmtTime(b.end)}`}
+          chips={[`長さ ${fmtTime(Math.max(0, b.end - b.start))}`]}
+        />
+        <p className="dim hint" style={{ marginTop: 0 }}>
+          開発画面の API キー・PII・パスワードなど、ベース映像(画面クロップ)の
+          一部を隠します。かかるのはベース映像だけで、素材・挿入・テロップは
+          対象外。zoom には追従せず出力px固定(zoom と時間が重なると露出しうる
+          警告が出ます)。ショートには継承されません。
+        </p>
+        <TimingSection
+          start={b.start}
+          end={b.end}
+          timeline={timeline}
+          getPlayheadSrc={getPlayheadSrc}
+          seekToSrc={seekToSrc}
+          onStart={(v) => updateBlur(selection.index, { start: v })}
+          onEnd={(v) => updateBlur(selection.index, { end: v })}
+        />
+        <Section title="隠す範囲">
+          <BlurRectControl
+            rect={b.rect}
+            onChange={(rect) =>
+              updateBlur(selection.index, { rect }, `blur:${selection.index}:rect`)
+            }
+          />
+        </Section>
+        <Section title="効果">
+          <div className="field">
+            <label>種別</label>
+            <Segmented
+              value={type}
+              onChange={(v: BlurType) =>
+                updateBlur(selection.index, { type: v === DEFAULT_BLUR_TYPE ? undefined : v })
+              }
+              options={[
+                { value: "blur", label: "ぼかし", title: "blur: CSS ぼかし(既定)" },
+                { value: "mosaic", label: "モザイク", title: "mosaic: ピクセル化" },
+              ]}
+            />
+          </div>
+          <div className="field">
+            <label>強度</label>
+            <PctSlider
+              pct={strengthPct}
+              title="0=効果なし〜100=最大。省略時 50%(既定)"
+              onChange={(pct) =>
+                updateBlur(
+                  selection.index,
+                  { strength: pct === Math.round(DEFAULT_BLUR_STRENGTH * 100) ? undefined : pct / 100 },
+                  `blur:${selection.index}:strength`,
+                )
+              }
+            />
+          </div>
+        </Section>
+        <Section title="">
+          <button className="danger" onClick={() => removeBlur(selection.index)}>
+            このぼかしを削除
+          </button>
+        </Section>
+      </div>
+    );
+  }
+
   return null;
 };
 
@@ -1924,6 +2010,54 @@ const ZoomRectControl = ({
       <p className="dim hint">
         現在の拡大率: {scale.toFixed(2)}倍。プレビュー上で枠をドラッグして移動、
         四隅・辺のハンドルでリサイズできます(この区間が再生ヘッド上にあるとき)。
+      </p>
+    </>
+  );
+};
+
+/** ぼかしの隠す範囲(rect)。zoom と違い倍率概念が無いので、拡大率・中央
+ * プリセットは出さず X/Y/幅/高さの数値欄だけにする(プレビュー上の枠ドラッグ・
+ * リサイズは MaterialOverlay を流用。App.tsx の LiveMaterialOverlay 経由) */
+const BlurRectControl = ({
+  rect,
+  onChange,
+}: {
+  rect: Region;
+  onChange: (rect: Region) => void;
+}) => {
+  const patchRect = (p: Partial<Region>) => onChange({ ...rect, ...p });
+  return (
+    <>
+      <div className="field">
+        <label>X / Y</label>
+        <NumInput
+          value={rect.x}
+          title="隠す矩形の左上 X(出力px)"
+          onCommit={(v) => v !== undefined && patchRect({ x: Math.round(v) })}
+        />
+        <NumInput
+          value={rect.y}
+          title="隠す矩形の左上 Y(出力px)"
+          onCommit={(v) => v !== undefined && patchRect({ y: Math.round(v) })}
+        />
+      </div>
+      <div className="field">
+        <label>幅 / 高さ</label>
+        <NumInput
+          value={rect.w}
+          title="隠す矩形の幅(出力px)"
+          onCommit={(v) => v !== undefined && patchRect({ w: Math.max(1, Math.round(v)) })}
+        />
+        <NumInput
+          value={rect.h}
+          title="隠す矩形の高さ(出力px)"
+          onCommit={(v) => v !== undefined && patchRect({ h: Math.max(1, Math.round(v)) })}
+        />
+      </div>
+      <p className="dim hint">
+        プレビュー上で枠をドラッグして移動、四隅・辺のハンドルでリサイズできます
+        (この区間が再生ヘッド上にあるとき)。画面外へはみ出すと保存時にエラーに
+        なります。
       </p>
     </>
   );
