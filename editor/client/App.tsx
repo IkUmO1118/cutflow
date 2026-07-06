@@ -713,7 +713,7 @@ export const App = () => {
         overlayExists: () => true,
         warn: (m) => warnings.push(m),
       });
-      return { warnings, props };
+      return { warnings, blurNotices: [] as string[], props };
     }
     const props = buildRenderProps({
       manifest: proj.manifest,
@@ -743,14 +743,17 @@ export const App = () => {
       );
     }
     // ぼかし×ズームの時間重なり・ぼかし×ショートの非継承は buildRenderProps が
-    // 出さない validate.ts 専用の warn なので、hideCaption と同じ流儀で
-    // ここに明示 push する(判断5。保存は通す=warn であって error ではない)
+    // 出さない validate.ts 専用の warn。これらは「blur があり続ける限り真の
+    // 継続条件」で warnbox に置くと動画下に永久点灯して鬱陶しいので、dismiss
+    // 可能な HeaderBanner に回す(判断5。保存は通す=warn であって error では
+    // ない)。warnings とは別の blurNotices に積んで呼び出し側でバナー化する
+    const blurNotices: string[] = [];
     const blurs = overlays.blurs ?? [];
     if (blurs.length > 0) {
       const zooms = overlays.zooms ?? [];
       for (const b of blurs) {
         if (zooms.some((z) => b.start < z.end && z.start < b.end)) {
-          warnings.push(
+          blurNotices.push(
             `blurs(${fmtTime(b.start)}〜${fmtTime(b.end)})が zoom 区間と時間が重なっています。` +
               "blur は zoom に追従しないため、隠したい情報が矩形からずれて見えることがあります",
           );
@@ -758,7 +761,7 @@ export const App = () => {
         }
       }
       if ((shorts?.shorts.length ?? 0) > 0) {
-        warnings.push(
+        blurNotices.push(
           "本編に領域ぼかしがありますが、ショートには継承されません。" +
             "ショートに秘匿情報が写る場合は別途隠してください",
         );
@@ -773,12 +776,21 @@ export const App = () => {
     const bgmTracks = props.bgm.map((b) => ({ ...b, file: `media/${b.file}` }));
     return {
       warnings,
+      blurNotices,
       props: { ...props, overlays: overlayItems, inserts: insertItems, bgm: bgmTracks },
     };
   }, [
     proj, cutplan, overlays, transcript, bgm, keeps, shortMode, activeShort, shortKeepsMerged,
     shorts,
   ]);
+
+  /** blur 警告バナー(dismiss 可能)。内容(blurNotices)が変わると key が変わり
+   * バナーが再出現する=一度消しても blur を編集し直せばまた注意する。
+   * proxyStale の onDismiss と同じ流儀の継続条件バナー */
+  const blurNotices = built?.blurNotices ?? [];
+  const blurNoticeKey = blurNotices.join(" ");
+  const [dismissedBlurKey, setDismissedBlurKey] = useState<string | null>(null);
+  const showBlurBanner = blurNotices.length > 0 && dismissedBlurKey !== blurNoticeKey;
 
   /** Player に渡す props。トラック別ミュート・レイヤーの一時非表示は
    * プレビューにだけ効かせる(built.props は書き出しと同じ内容のまま保つ) */
@@ -3116,6 +3128,8 @@ export const App = () => {
         onReload={() => void reloadFromDisk()}
         onRegenProxy={() => void regenProxyForSettings()}
         onDismissProxyStale={() => setProxyStale(false)}
+        blurNotices={showBlurBanner ? blurNotices : []}
+        onDismissBlurNotices={() => setDismissedBlurKey(blurNoticeKey)}
       />
 
       {settingsOpen && (
@@ -3570,6 +3584,8 @@ const HeaderBanners = ({
   onReload,
   onRegenProxy,
   onDismissProxyStale,
+  blurNotices,
+  onDismissBlurNotices,
 }: {
   draftOffer: DraftData | null;
   externalChange: boolean;
@@ -3580,8 +3596,10 @@ const HeaderBanners = ({
   onReload: () => void;
   onRegenProxy: () => void;
   onDismissProxyStale: () => void;
+  blurNotices: string[];
+  onDismissBlurNotices: () => void;
 }) => {
-  if (!draftOffer && !externalChange && !proxyStale) return null;
+  if (!draftOffer && !externalChange && !proxyStale && blurNotices.length === 0) return null;
   return (
     <>
       {draftOffer && (
@@ -3625,6 +3643,23 @@ const HeaderBanners = ({
             {proxyBusy ? "再生成中…" : "プロキシを再生成"}
           </button>
           <button onClick={onDismissProxyStale}>後で</button>
+        </div>
+      )}
+      {blurNotices.length > 0 && (
+        <div
+          className="banner"
+          title={
+            "領域ぼかし(blurs)の注意点です。blur は zoom に追従せず、ショートにも" +
+            "継承されないため、隠したい情報がずれる/写り込む可能性を知らせています。" +
+            "了解したら閉じられます(blur を編集し直すと再表示されます)"
+          }
+        >
+          <span className="msg">
+            {blurNotices.map((n) => (
+              <div key={n}>⚠ {n}</div>
+            ))}
+          </span>
+          <button onClick={onDismissBlurNotices}>了解</button>
         </div>
       )}
     </>
