@@ -19,7 +19,7 @@ import {
   toSourceTime,
 } from "../../src/lib/timeline.ts";
 import type { TimelineEntry } from "../../src/lib/timeline.ts";
-import { PROFILES } from "../../src/lib/profile.ts";
+import { defaultShortProfileName, PROFILES } from "../../src/lib/profile.ts";
 import type { Profile } from "../../src/lib/profile.ts";
 import {
   DEFAULT_LAYER_ORDER,
@@ -111,10 +111,14 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), h
 const MIN_SPAN = 0.1;
 
 /** ショートの profile 名 → Profile。src/lib/profile.ts の resolveProfile と
- * 同じ規則(省略時 "vertical"。CLAUDE.md 通り render.ts と同じ既定)だが、
- * "default" は cfg 丸ごとではなく出力解像度(screenRegion)だけで足りる */
-const resolveShortProfile = (name: string | undefined, output: { w: number; h: number }): Profile => {
-  const key = name ?? "vertical";
+ * 同じ規則(省略時 defaultShortProfileName(hasCamera)。render.ts / frames.ts と
+ * 同じ既定)だが、"default" は cfg 丸ごとではなく出力解像度(screenRegion)だけで足りる */
+const resolveShortProfile = (
+  name: string | undefined,
+  output: { w: number; h: number },
+  hasCamera: boolean,
+): Profile => {
+  const key = name ?? defaultShortProfileName(hasCamera);
   if (key === "default") return { width: output.w, height: output.h };
   const p = PROFILES[key];
   if (!p) throw new Error(`未知の profile 名です: ${key}`);
@@ -682,13 +686,14 @@ export const App = () => {
       // (keeps = shortKeepsMerged、overlays は captionTracks だけ、
       // bgm/silences なし、profile で出力サイズ・レイアウトを切替)。
       // 手編集で不正な profile 名が入っている可能性があるので、throw させず
-      // 警告して "vertical" にフォールバックする(validate は別途エラーにする)
+      // 警告して既定(defaultShortProfileName(proj.hasCamera))にフォールバックする
+      // (validate は別途エラーにする)
       let shortProfile: Profile;
       try {
-        shortProfile = resolveShortProfile(activeShort.profile, proj.output);
+        shortProfile = resolveShortProfile(activeShort.profile, proj.output, proj.hasCamera);
       } catch (e) {
         warnings.push((e as Error).message);
-        shortProfile = resolveShortProfile(undefined, proj.output);
+        shortProfile = resolveShortProfile(undefined, proj.output, proj.hasCamera);
       }
       const props = buildRenderProps({
         manifest: proj.manifest,
