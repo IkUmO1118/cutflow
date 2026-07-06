@@ -647,3 +647,47 @@ export interface ThumbnailText {
    * (動画と見た目の言語を揃えるため) */
   style?: CaptionStyle;
 }
+
+/** apply(検査付きアトミック適用)コマンドの入力パッチ。`@id` 宛先の高水準
+ * オペレーション列(ops)と、ファイル単位の全置換(replace)の両方を表す
+ * (docs/plans/2026-07-07-atomic-apply-design.md 論点1)。両方あるときは
+ * ops を先に適用し、その結果へ replace を重ねる(ファイル単位の上書き)。
+ * 書き込みは常に replace 相当の全置換1本へ正規化されてから
+ * (src/lib/applyEdits.ts の)コアを1回だけ通る。 */
+export interface ApplyPatch {
+  ops?: EditOp[];
+  replace?: ApplyBody;
+}
+
+/** apply が書ける編集ファイルの全置換(SaveRequest 相当)。cutplan.approved /
+ * shorts[].approved は型としては CutPlan/Shorts の一部のまま残るが、
+ * **apply(planApply)は常にディスク現状の値へ強制上書きする**(apply 経由で
+ * 承認を true/false に変えることはできない。§論点6・§不変条件2)。
+ * chapters / thumbnail は EditableDocs と違って meta.json を含まない
+ * (meta.json は id を持つ要素が無く @id op の対象にならないため、apply の
+ * スキーマにも含めない) */
+export interface ApplyBody {
+  cutplan?: CutPlan;
+  transcript?: Transcript;
+  overlays?: Overlays;
+  chapters?: Chapters;
+  /** `null` / 空 tracks は bgm.json を削除する(SaveRequest と同じセマンティクス)。
+   * `undefined`(キー無し)は bgm.json を触らない */
+  bgm?: Bgm | null;
+  /** `null` / 空 shorts は shorts.json を削除する。`undefined`(キー無し)は
+   * shorts.json を触らない */
+  shorts?: Shorts | null;
+  thumbnail?: Thumbnail;
+}
+
+/** apply の高水準オペレーション(`@id` 宛先。docs/plans/2026-07-07-atomic-apply-design.md
+ * 論点1)。`target` は set/remove では既存要素を指す `@id`(Feature 2 の
+ * resolveMention が解決)、add では許可済みのコレクション選択子
+ * (例 "cutplan.segments"。src/lib/applyEdits.ts の allow-list を参照)。
+ * `field` はドット区切りパス(例 "style.fontSizePx")で、パス末端の置換のみ
+ * (中間の欠落・配列添字はエラー)。`field`(または add の value)に
+ * "approved" を指定するのはエラー(apply では承認を変更できない)。*/
+export type EditOp =
+  | { op: "set"; target: string; field: string; value: unknown }
+  | { op: "remove"; target: string }
+  | { op: "add"; target: string; value: Record<string, unknown>; at?: number };
