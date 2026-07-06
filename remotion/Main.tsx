@@ -24,6 +24,7 @@ import {
 import type { CaptionBackground, LayerId } from "../src/types.ts";
 import { frameSpans } from "../src/lib/renderProps.ts";
 import { buildCaptionIndex, lookupCaption } from "../src/lib/captionIndex.ts";
+import { blurRadiusPx, mosaicBlockPx, outputRectToCanvasRegion } from "../src/lib/blur.ts";
 import { cssFilterOf } from "../src/lib/colorFilter.ts";
 import { duckFactorAt } from "../src/lib/duck.ts";
 import { cropFitStyle } from "../src/lib/panelStyle.ts";
@@ -153,6 +154,7 @@ export const Main = (props: RenderProps) => {
     height: number,
     muted: boolean,
     fit: "contain" | "cover" = "cover",
+    imageRendering?: "pixelated",
   ) =>
     continuous ? (
       <CroppedVideo
@@ -164,6 +166,7 @@ export const Main = (props: RenderProps) => {
         muted={muted}
         fit={fit}
         filter={filterCss}
+        imageRendering={imageRendering}
       />
     ) : (
       baseSegs.map((seg, i) => (
@@ -186,6 +189,7 @@ export const Main = (props: RenderProps) => {
             muted={muted}
             fit={fit}
             filter={filterCss}
+            imageRendering={imageRendering}
           />
         </Sequence>
       ))
@@ -362,6 +366,61 @@ export const Main = (props: RenderProps) => {
           <InsertView ins={ins} fps={fps} muteBase={props.muteBase ?? false} />
         </Sequence>
       ))}
+
+      {/* 領域ぼかし/モザイク。ベース映像+zoom+挿入の直上・素材/テロップの直下。
+          zoom transform の外(独立レイヤー)なので出力px固定。本編経路のみ
+          (!props.layout && hasVideo)。ショート(props.layout あり)には
+          継承しない(D2/座標が本編基準のため) */}
+      {hasVideo && !props.layout &&
+        (props.blurs ?? []).map((b, i) => {
+          if (t < b.start || t >= b.end) return null; // 硬い ON/OFF(遷移なし)
+          const cr = outputRectToCanvasRegion(b.rect, props.screenRegion, props.width, props.height);
+          const container = {
+            position: "absolute" as const,
+            left: b.rect.x,
+            top: b.rect.y,
+            width: b.rect.w,
+            height: b.rect.h,
+            overflow: "hidden" as const,
+          };
+          if (b.type === "mosaic") {
+            const block = mosaicBlockPx(b.strength);
+            // 縮小レンダー → pixelated 拡大。box を block で割った小箱に描き、
+            // その箱を scale(block) で拡大(ニアレストネイバー)。端数は ceil して
+            // 余りをはみ出させ overflow:hidden で切る(隙間を作らない)
+            const smallW = Math.max(1, Math.ceil(b.rect.w / block));
+            const smallH = Math.max(1, Math.ceil(b.rect.h / block));
+            return (
+              <div key={`blur-${i}`} style={container}>
+                <div
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    top: 0,
+                    width: smallW,
+                    height: smallH,
+                    transform: `scale(${block})`,
+                    transformOrigin: "0 0",
+                    imageRendering: "pixelated",
+                  }}
+                >
+                  {renderBase(cr, smallW, smallH, true, "cover", "pixelated")}
+                </div>
+              </div>
+            );
+          }
+          // type === "blur"(既定): コンテナに blur() を掛ける。colorFilter は
+          // 内側 CroppedVideo に既に乗っているので、コンテナ blur は色補正済みの
+          // 映像にさらに合成される(CSS filter は積み重なる)
+          return (
+            <div
+              key={`blur-${i}`}
+              style={{ ...container, filter: `blur(${blurRadiusPx(b.strength)}px)` }}
+            >
+              {renderBase(cr, b.rect.w, b.rect.h, true, "cover")}
+            </div>
+          );
+        })}
 
       {(props.layerOrder ?? DEFAULT_LAYER_ORDER)
         .filter((id) => !props.hiddenLayers?.includes(id))
@@ -741,6 +800,7 @@ const CroppedVideo = ({
   startFromFrames = 0,
   fit = "cover",
   filter,
+  imageRendering,
 }: {
   src: string;
   canvas: { w: number; h: number };
@@ -754,6 +814,9 @@ const CroppedVideo = ({
   fit?: "contain" | "cover";
   /** 簡易カラー調整(colorFilter)の CSS filter 文字列。省略時は無補正 */
   filter?: string;
+  /** mosaic の縮小→拡大でニアレストネイバーにする(pixelated)。省略時は
+   * ブラウザ既定の補間(滑らか) */
+  imageRendering?: "pixelated";
 }) => {
   const wrapRef = useRef<HTMLDivElement>(null);
   const fallbackRef = useRef<HTMLCanvasElement>(null);
@@ -769,6 +832,7 @@ const CroppedVideo = ({
     left: fitted.left,
     top: fitted.top,
     maxWidth: "none",
+    ...(imageRendering ? { imageRendering } : {}),
   };
   return (
     <div
