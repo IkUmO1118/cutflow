@@ -23,7 +23,7 @@ import { learn } from "./stages/learn.ts";
 import { preview } from "./stages/preview.ts";
 import { render, renderShort, renderShorts } from "./stages/render.ts";
 import { validate } from "./stages/validate.ts";
-import { describe } from "./stages/describe.ts";
+import { describe, describeJson } from "./stages/describe.ts";
 import { frames } from "./stages/frames.ts";
 import type { FrameRequest } from "./stages/frames.ts";
 import { formatOcrPreview } from "./lib/ocr.ts";
@@ -47,9 +47,16 @@ let commandStartedAt = 0;
 program.hook("preAction", () => {
   commandStartedAt = Date.now();
 });
-program.hook("postAction", () => {
+program.hook("postAction", (_thisCommand, actionCommand) => {
   const sec = ((Date.now() - commandStartedAt) / 1000).toFixed(1);
-  console.log(`(所要時間: ${sec}秒)`);
+  const line = `(所要時間: ${sec}秒)`;
+  // JSON 射影はパイプ可能な純 JSON を stdout に出すので、診断行だけ stderr へ逃がす。
+  // 他コマンド・散文 describe の stdout は従来どおり console.log(=不変)
+  if (actionCommand.name() === "describe" && actionCommand.opts().json === true) {
+    console.error(line);
+  } else {
+    console.log(line);
+  }
 });
 
 function resolveDir(dir: string): string {
@@ -279,10 +286,16 @@ program
 program
   .command("describe <dir>")
   .description(
-    "編集状態のテキスト要約(keep/カット・発言・演出・章。元秒⇔出力秒の対応付き)",
+    "編集状態の要約。既定は散文、--json で機械可読な完全射影(元秒⇔出力秒つき)",
   )
-  .action((dir: string) => {
-    console.log(describe(resolveDir(dir)));
+  .option(
+    "--json",
+    "機械可読な完全射影を JSON で標準出力に出す(発話・タイトルを切り捨てない)",
+  )
+  .action((dir: string, opts: { json?: boolean }) => {
+    const abs = resolveDir(dir);
+    if (opts.json === true) console.log(JSON.stringify(describeJson(abs), null, 2));
+    else console.log(describe(abs)); // ← 現状のまま(バイト不変)
   });
 
 program
