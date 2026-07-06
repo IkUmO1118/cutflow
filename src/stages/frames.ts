@@ -24,6 +24,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundle } from "@remotion/bundler";
@@ -42,9 +43,13 @@ import {
   mergeIntervals,
   snapToOutput,
   toOutputTime,
+  toSourceTime,
 } from "../lib/timeline.ts";
+import { DEFAULT_OCR_LANGUAGES, runOcr } from "../lib/ocr.ts";
+import { buildScreenStill } from "../lib/screenStill.ts";
 import { buildProxy, isProxyStale } from "./proxy.ts";
 import { hasCamera } from "../types.ts";
+import type { TimelineEntry } from "../lib/timeline.ts";
 import type { Config } from "../lib/config.ts";
 import type { Profile } from "../lib/profile.ts";
 import type { CutPlan, Interval, Manifest, Overlays, Transcript } from "../types.ts";
@@ -58,6 +63,9 @@ export interface FrameShot {
   file: string;
   /** スナップ・丸めの説明や、そのフレームに映っているテロップの内容 */
   note?: string;
+  /** --ocr のとき書いた OCR サイドカー(絶対パス)。省略時は OCR なし
+   * (非対応環境での劣化・挿入クリップ内でのスキップを含む) */
+  ocrFile?: string;
 }
 
 /** 何のフレームを撮るか。times = 時刻指定 / captions = テロップ全件の
@@ -72,6 +80,7 @@ export async function frames(
   req: FrameRequest,
   cfg: Config,
   shortName?: string,
+  ocr?: boolean,
 ): Promise<FrameShot[]> {
   const readJson = <T>(file: string, fallback: T | null): T => {
     const p = join(dir, file);
@@ -148,15 +157,23 @@ export async function frames(
   });
   const outDir = join(dir, "frames");
   mkdirSync(outDir, { recursive: true });
-  // 前回の実行が残した PNG を全削除(冒頭コメント参照)
+  // 前回の実行が残した PNG・OCR サイドカーを全削除(冒頭コメント参照。
+  // --ocr が古い .ocr.json を読む事故を PNG と同じ理由で防ぐ)
   for (const f of readdirSync(outDir)) {
-    if (f.endsWith(".png")) rmSync(join(outDir, f));
+    if (f.endsWith(".png") || f.endsWith(".ocr.json")) rmSync(join(outDir, f));
   }
   const propsPath = join(outDir, "props.json");
   writeFileSync(propsPath, JSON.stringify(props, null, 2));
 
+  // 元収録の秒 ⇔ カット後の秒の対応表。--t の times モード(スナップ)にも、
+  // --ocr のカット後秒→元収録秒(toSourceTime)にも同じものを使う
+  const timeline = buildTimeline(
+    keeps,
+    (overlays.inserts ?? []).filter((i) => existsSync(join(dir, i.file))),
+  );
+
   const maxOut = Math.max(0, props.durationSec - 1 / props.fps);
-  const targets = buildTargets(req, props, maxOut, dir, overlays, keeps);
+  const targets = buildTargets(req, props, maxOut, timeline);
   if (targets.length === 0) {
     throw new Error(
       req.mode === "captions"
@@ -207,12 +224,18 @@ export async function frames(
         overwrite: true,
         logLevel: "warn",
       });
-      const note = t.notes.join(" / ");
+      const notes = [...t.notes];
+      let ocrFile: string | undefined;
+      if (ocr) {
+        ocrFile = await ocrFrame(dir, manifest, timeline, t.outSec, outDir, notes);
+      }
+      const note = notes.join(" / ");
       shots.push({
         requested: t.requested,
         outSec: t.outSec,
         file: outPath,
         ...(note ? { note } : {}),
+        ...(ocrFile ? { ocrFile } : {}),
       });
     }
   } finally {
@@ -232,9 +255,7 @@ function buildTargets(
   req: FrameRequest,
   props: ReturnType<typeof buildRenderProps>,
   maxOut: number,
-  dir: string,
-  overlays: Overlays,
-  keeps: { start: number; end: number }[],
+  timeline: TimelineEntry[],
 ): Target[] {
   const clamp = (sec: number) => Math.min(Math.max(0, sec), maxOut);
 
@@ -267,10 +288,6 @@ function buildTargets(
   }
 
   // 元収録の秒 → カット後の秒(カット内なら直後の keep へスナップ)
-  const timeline = buildTimeline(
-    keeps,
-    (overlays.inserts ?? []).filter((i) => existsSync(join(dir, i.file))),
-  );
   return req.times.map((t) => {
     let outSec: number;
     const notes: string[] = [];
@@ -291,4 +308,46 @@ function buildTargets(
     }
     return { requested: t, outSec: clamp(outSec), notes };
   });
+}
+
+/**
+ * 1フレーム(出力秒 outSec)ぶんの画面 OCR。toSourceTime で元収録秒へ逆写像し、
+ * フル解像度 screenRegion クロップ(screenStill.ts)→ Vision OCR(ocr.ts)の順で
+ * 実行し `frames/out<sec>s.ocr.json` を書く。outSec が挿入クリップ内に落ちて
+ * toSourceTime が null を返す場合(=その時刻に画面の生映像が無い)は OCR を
+ * スキップし notes にその旨を追記するだけで、例外は投げない。非対応環境
+ * (macOS 以外・swift 系が無い等)による劣化も同様に例外を投げず、
+ * runOcr 内部の warn で警告するだけに留める(frames 本体の PNG 出力は
+ * 常に成功で返す)。書いたサイドカーの絶対パスを返す(スキップ・劣化時は undefined)
+ */
+async function ocrFrame(
+  dir: string,
+  manifest: Manifest,
+  timeline: TimelineEntry[],
+  outSec: number,
+  outDir: string,
+  notes: string[],
+): Promise<string | undefined> {
+  const sourceSec = toSourceTime(outSec, timeline);
+  if (sourceSec === null) {
+    notes.push("OCR: 挿入クリップ内のためスキップ(画面の生映像がありません)");
+    return undefined;
+  }
+  const cropPath = join(tmpdir(), `cutflow-ocr-${process.pid}-${outSec.toFixed(2)}.png`);
+  try {
+    await buildScreenStill(dir, manifest, sourceSec, cropPath);
+    const result = await runOcr(cropPath, manifest.video.screenRegion, {
+      languages: DEFAULT_OCR_LANGUAGES,
+      warn: (msg) => console.warn(`警告: ${msg}`),
+    });
+    if (result === null) return undefined; // 非対応環境等(warn 済み)
+    const ocrPath = join(outDir, `out${outSec.toFixed(2)}s.ocr.json`);
+    writeFileSync(
+      ocrPath,
+      JSON.stringify({ outSec, sourceSec, ...result }, null, 2),
+    );
+    return ocrPath;
+  } finally {
+    if (existsSync(cropPath)) rmSync(cropPath);
+  }
 }

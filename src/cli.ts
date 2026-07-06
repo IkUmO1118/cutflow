@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Command } from "commander";
 import { EDITABLE_FILES, backupEditableFiles } from "./lib/backup.ts";
@@ -17,6 +17,8 @@ import { validate } from "./stages/validate.ts";
 import { describe } from "./stages/describe.ts";
 import { frames } from "./stages/frames.ts";
 import type { FrameRequest } from "./stages/frames.ts";
+import { formatOcrPreview } from "./lib/ocr.ts";
+import type { OcrResult } from "./lib/ocr.ts";
 import { thumbnail } from "./stages/thumbnail.ts";
 import { fmtT, parseT } from "./lib/fmt.ts";
 
@@ -286,9 +288,21 @@ program
   .option("--captions", "テロップ全件の一巡監査(各テロップの表示中間で1枚ずつ)")
   .option("--every <sec>", "カット後タイムラインを一定間隔でサンプリング(秒)")
   .option("--short <name>", "指定したショートの縦レイアウトで PNG に(shorts.json)")
+  .option(
+    "--ocr",
+    "画面 OCR(Apple Vision)でその時刻の画面内テキストを読む(macOS専用。" +
+      "非対応環境では警告のうえ PNG 出力のみ続行)",
+  )
   .action(async (
     dir: string,
-    opts: { t?: string; out?: boolean; captions?: boolean; every?: string; short?: string },
+    opts: {
+      t?: string;
+      out?: boolean;
+      captions?: boolean;
+      every?: string;
+      short?: string;
+      ocr?: boolean;
+    },
   ) => {
     const cfg = loadConfig(program.opts().config);
     const picked = [opts.t, opts.captions, opts.every].filter(
@@ -316,15 +330,22 @@ program
       req = { mode: "times", times, axis: opts.out ? "output" : "source" };
     }
     if (opts.short) console.log(`ショート "${opts.short}" のフレームを出力します`);
-    const shots = await frames(resolveDir(dir), req, cfg, opts.short);
+    const shots = await frames(resolveDir(dir), req, cfg, opts.short, opts.ocr === true);
     for (const s of shots) {
       const head =
         req.mode === "times"
           ? `${opts.out ? "出力" : "元"} ${fmtT(s.requested)} → 出力 ${fmtT(s.outSec)}`
           : `出力 ${fmtT(s.outSec)}`;
       console.log(`✔ ${head}: ${s.file}` + (s.note ? `(${s.note})` : ""));
+      if (s.ocrFile) {
+        const result = JSON.parse(readFileSync(s.ocrFile, "utf8")) as OcrResult;
+        console.log(`  OCR: ${formatOcrPreview(result)}`);
+      }
     }
-    console.log(`${shots.length}枚を出力しました(frames/ の古い PNG は削除済み)`);
+    console.log(
+      `${shots.length}枚を出力しました(frames/ の古い PNG` +
+        (opts.ocr ? "・OCR サイドカー" : "") + " は削除済み)",
+    );
   });
 
 program
