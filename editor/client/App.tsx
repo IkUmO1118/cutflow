@@ -1165,11 +1165,14 @@ export const App = () => {
     pushHistory();
     const segs = [...cutplan.segments];
     const seg = segs[splitIndex];
+    // 分割は「境界維持」: 左(先行)側が元 id を保持し、右側は新規要素として
+    // id を落とす(保存時に id 有効なら ensureIds が新 id を採番。承認は
+    // cut 決定=keep 集合のハッシュだけを見るため、この分割では失効しない)
     segs.splice(
       splitIndex,
       1,
       { ...seg, end: round2(src) },
-      { ...seg, start: round2(src) },
+      { ...seg, start: round2(src), id: undefined },
     );
     setCutplan({ ...cutplan, segments: segs });
     setSelection({ kind: "cut", index: splitIndex + 1 });
@@ -1190,6 +1193,8 @@ export const App = () => {
     const head = round2(outT - sp.start);
     pushHistory();
     const next = [...arr];
+    // 分割は「境界維持」: 左(先行)側が元 id を保持し、右側は新規要素として
+    // id を落とす(cutplan の split と同じ規約。§docs/plans/2026-07-07-stable-ids-design.md)
     next.splice(
       splitInsertIndex,
       1,
@@ -1198,6 +1203,7 @@ export const App = () => {
         ...ins,
         startFrom: round2((ins.startFrom ?? 0) + head),
         durationSec: round2(ins.durationSec - head),
+        id: undefined,
       },
     );
     setOverlays({ ...overlays, inserts: next });
