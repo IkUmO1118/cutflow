@@ -10,6 +10,8 @@ import { join, normalize, resolve, sep } from "node:path";
 import { isCutplanApproved, isShortApproved } from "../lib/approval.ts";
 import { fmtT } from "../lib/fmt.ts";
 import { framesFreshness } from "../lib/framesIndex.ts";
+import { ID_PREFIX, ID_RE } from "../lib/ids.ts";
+import { collectIdOccurrences } from "../lib/mention.ts";
 import { defaultShortProfileName, PROFILES, profileSupportsPlain } from "../lib/profile.ts";
 import { buildTimeline, remapInterval } from "../lib/timeline.ts";
 import type { TimelineEntry } from "../lib/timeline.ts";
@@ -834,6 +836,11 @@ export function validateDocs(
   // 検知手段がなかった食い違いを警告する(動くので警告どまり)
   checkChapterSync(chapters, transcript, overlays, warn);
 
+  /* -------- 安定 id(§docs/plans/2026-07-07-stable-ids-design.md) -------- */
+  // id は render に一切影響しない(アドレッシング専用)ため、不備はすべて warn。
+  // docs に id が1つも無ければこのブロックは完全に no-op(未使用時バイト等価)
+  checkIds(docs, warn);
+
   const keptSec = keeps.reduce((a, k) => a + (k.end - k.start), 0);
   const summary =
     `keep ${counts.keep}区間(${fmtT(keptSec)})+ カット記録 ${counts.cut} / ` +
@@ -1134,6 +1141,106 @@ function checkWords(
       warn(file, ww, `confidence は 0〜1 の数値です(現在: ${JSON.stringify(w.confidence)})`);
     }
   });
+}
+
+/**
+ * 安定 id(§docs/plans/2026-07-07-stable-ids-design.md)の検査。
+ * docs に id が1つも無ければ何も push しない(=id 無しプロジェクトでは
+ * validate の警告件数が導入前と完全に不変)。id は render に無関係なので
+ * すべて warn(重複・形式不正・接頭辞ミスマッチ・欠落密度の集約1件)。
+ */
+function checkIds(
+  docs: LoadedDocs,
+  warn: (f: string, w: string, m: string) => void,
+): void {
+  const occurrences = collectIdOccurrences(docs);
+  if (occurrences.length === 0) return;
+
+  // 重複 id: 2件目以降を、既出の所在を添えて警告
+  const firstSeen = new Map<string, { file: string; path: string }>();
+  for (const [id, target] of occurrences) {
+    const prev = firstSeen.get(id);
+    if (prev) {
+      warn(
+        target.file,
+        target.path,
+        `@id が重複しています: ${id}(既出: ${prev.file} ${prev.path})`,
+      );
+    } else {
+      firstSeen.set(id, { file: target.file, path: target.path });
+    }
+  }
+
+  // 形式不正(id は文字列だが正規表現に合わない)
+  for (const [id, target] of occurrences) {
+    if (!ID_RE.test(id)) {
+      warn(
+        target.file,
+        target.path,
+        `id の形式が不正です(期待: <2〜3文字の接頭辞>_<英数字6桁>。現在: ${JSON.stringify(id)})`,
+      );
+    }
+  }
+
+  // 接頭辞ミスマッチ(コピペ由来の取り違え検出。short は id を持たないため対象外)
+  const kindPrefix: Record<string, string | undefined> = ID_PREFIX;
+  for (const [id, target] of occurrences) {
+    const expected = kindPrefix[target.kind];
+    if (expected && ID_RE.test(id) && !id.startsWith(`${expected}_`)) {
+      warn(
+        target.file,
+        target.path,
+        `id の接頭辞が種別と一致しません(期待: ${expected}_...。現在: ${id})`,
+      );
+    }
+  }
+
+  // id 欠落(密度): per-要素では出さず、1本の集約警告にとどめる
+  const missing = countAddressableMissingIds(docs);
+  if (missing > 0) {
+    warn("-", "-", `${missing} 個の要素に id がありません(\`id-stamp\` で採番できます)`);
+  }
+}
+
+/** id が有効なプロジェクトで、id を持たない「指せる要素」の数を数える
+ * (欠落密度の集約警告に使う。id 自体の妥当性は問わない) */
+function countAddressableMissingIds(docs: LoadedDocs): number {
+  let missing = 0;
+  const scan = (arr: unknown): void => {
+    if (!Array.isArray(arr)) return;
+    for (const x of arr) {
+      if (isObj(x) && typeof x.id !== "string") missing++;
+    }
+  };
+  const cutplan = docs.cutplan;
+  if (isObj(cutplan)) scan(cutplan.segments);
+  const transcript = docs.transcript;
+  if (isObj(transcript)) scan(transcript.segments);
+  const overlays = docs.overlays;
+  if (isObj(overlays)) {
+    scan(overlays.overlays);
+    scan(overlays.inserts);
+    scan(overlays.wipeFull);
+    scan(overlays.hideCaption);
+    scan(overlays.zooms);
+    scan(overlays.blurs);
+    scan(overlays.captionTracks);
+  }
+  const chapters = docs.chapters;
+  if (isObj(chapters)) scan(chapters.chapters);
+  const bgm = docs.bgm;
+  if (isObj(bgm)) scan(bgm.tracks);
+  const shorts = docs.shorts;
+  if (isObj(shorts) && Array.isArray(shorts.shorts)) {
+    for (const s of shorts.shorts) {
+      if (!isObj(s)) continue;
+      scan(s.ranges);
+      scan(s.captionTracks);
+    }
+  }
+  const thumbnail = docs.thumbnail;
+  if (isObj(thumbnail)) scan(thumbnail.texts);
+  return missing;
 }
 
 function isObj(v: unknown): v is Record<string, unknown> {

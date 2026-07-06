@@ -1118,3 +1118,79 @@ test("fs版 validate: cutplan.json を編集後(stale)は frames 撮り直し警
     assert.match(w!.message, /cutplan\.json/);
   });
 });
+
+/* ---------------- 安定 id(§docs/plans/2026-07-07-stable-ids-design.md) ---------------- */
+
+test("id: id が1つも無ければ警告ゼロ(既存 validate.test の想定を1件も動かさない)", () => {
+  const r = validateDocs(DIR, baseDocs());
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.warnings, []);
+});
+
+test("id: 妥当な id が付いていれば追加警告ゼロ", () => {
+  const r = validateDocs(
+    DIR,
+    baseDocs({
+      cutplan: {
+        approved: false,
+        segments: [
+          { id: "seg_a1a1a1", start: 0, end: 10, action: "keep", reason: "本編" },
+          { id: "seg_b2b2b2", start: 10, end: 20, action: "cut", reason: "言い直し" },
+        ],
+      },
+      transcript: { segments: [{ id: "cap_c3c3c3", start: 1, end: 3, text: "こんにちは" }] },
+    }),
+  );
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.warnings, []);
+});
+
+test("id: 重複 id は警告1件(既出の所在を含む)", () => {
+  const r = validateDocs(
+    DIR,
+    baseDocs({
+      cutplan: {
+        approved: false,
+        segments: [
+          { id: "seg_dup0001", start: 0, end: 10, action: "keep", reason: "本編" },
+          { id: "seg_dup0001", start: 10, end: 20, action: "keep", reason: "本編2" },
+        ],
+      },
+    }),
+  );
+  const dupWarnings = r.warnings.filter((w) => w.message.includes("重複"));
+  assert.equal(dupWarnings.length, 1);
+  assert.match(dupWarnings[0].message, /segments\[0\]/);
+});
+
+test("id: 形式不正(接頭辞・桁数が合わない)は警告", () => {
+  const r = validateDocs(
+    DIR,
+    baseDocs({
+      cutplan: {
+        approved: false,
+        segments: [{ id: "not-an-id", start: 0, end: 10, action: "keep", reason: "本編" }],
+      },
+    }),
+  );
+  assert.ok(r.warnings.some((w) => w.message.includes("形式が不正")));
+});
+
+test("id: id 有効かつ一部欠落は集約警告1件(per-要素では出さない)", () => {
+  const r = validateDocs(
+    DIR,
+    baseDocs({
+      cutplan: {
+        approved: false,
+        segments: [
+          { id: "seg_a1a1a1", start: 0, end: 10, action: "keep", reason: "本編" },
+          { start: 10, end: 20, action: "cut", reason: "言い直し" },
+        ],
+      },
+      transcript: { segments: [{ start: 1, end: 3, text: "こんにちは" }] },
+    }),
+  );
+  const missingWarnings = r.warnings.filter((w) => w.message.includes("id がありません"));
+  assert.equal(missingWarnings.length, 1);
+  assert.match(missingWarnings[0].message, /2 個の要素/);
+});
