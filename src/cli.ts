@@ -394,12 +394,15 @@ program
   )
   .option(
     "--port <port>",
-    `待受ポート(既定 ${DEFAULT_SERVE_PORT}。editor の既定 4310 とは別)`,
+    `待受ポート(既定 ${DEFAULT_SERVE_PORT}。config.yaml の frames.serve.port` +
+      "があればそちら。editor の既定 4310 とは別)",
   )
   .action(async (dir: string, opts: { port?: string }) => {
     const explicit = program.opts().config as string | undefined;
+    const cfg = loadConfig(explicit);
     const abs = resolveDir(dir);
-    const port = opts.port !== undefined ? Number(opts.port) : DEFAULT_SERVE_PORT;
+    const port =
+      opts.port !== undefined ? Number(opts.port) : (cfg.frames?.serve?.port ?? DEFAULT_SERVE_PORT);
     if (!Number.isFinite(port) || port <= 0) {
       throw new Error(`--port の値が不正です: ${opts.port}`);
     }

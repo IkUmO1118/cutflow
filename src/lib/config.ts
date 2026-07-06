@@ -130,6 +130,16 @@ export interface Config {
      * 省略時 DEFAULT_OCR_LANGUAGES(["en", "ja"]) */
     languages?: string[];
   };
+  /** 常駐フレームサーバ(frames-serve)。省略可(古い config.yaml との互換)。
+   * 有効化フラグはここには置かない(opt-in は `frames-serve` の明示起動で
+   * 担保する。config はポート番号を変えたいときだけ使う任意の項目) */
+  frames?: {
+    serve?: {
+      /** frames-serve の待受ポート。省略時 DEFAULT_SERVE_PORT(4311)。
+       * CLI の --port が指定されていればそちらが優先 */
+      port?: number;
+    };
+  };
 }
 
 /** editor.defaultImageDurationSec 未指定時の既定(秒) */
