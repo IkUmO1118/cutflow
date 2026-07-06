@@ -79,6 +79,12 @@ test("ensureIds: used に既存 id を渡すと新規採番と衝突しない", 
   assert.notEqual(out[0].id, "cap_zzzzzz");
 });
 
+test("ensureIds: 新規採番した id は要素の先頭キーになる(types.ts のスキーマ通り)", () => {
+  const used = new Set<string>();
+  const out = ensureIds([{ start: 0, end: 1 }], ID_PREFIX.cutSegment, used);
+  assert.deepEqual(Object.keys(out[0]), ["id", "start", "end"]);
+});
+
 test("ensureIds: 破壊的でない(入力配列・要素を変更しない)", () => {
   const used = new Set<string>();
   const original = { start: 0 };

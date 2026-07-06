@@ -61,7 +61,15 @@ export function ensureIds<T extends { id?: string }>(
   for (const x of arr) {
     if (x.id !== undefined) used.add(x.id);
   }
-  return arr.map((x) => (x.id !== undefined ? x : { ...x, id: newId(prefix, used) }));
+  // id は要素の先頭フィールド(types.ts のスキーマ)なので、新規採番時も
+  // id を先頭に置く({ id, ...rest } の順。rest 側に id キーが残らないよう
+  // 分割で取り除いてから展開する)
+  return arr.map((x) => {
+    if (x.id !== undefined) return x;
+    const { id: _drop, ...rest } = x as { id?: string } & Record<string, unknown>;
+    void _drop;
+    return { id: newId(prefix, used), ...rest } as T;
+  });
 }
 
 /** 生成ステージ用: 旧配列の id を、keyFn が一致する新要素へ運ぶ(採番はしない)。
