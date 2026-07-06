@@ -326,7 +326,10 @@ async function renderOneShort(
   // bgm.json を継承しない(v1 スコープ注記。D2)。テロップは transcript を
   // 流用し、captionTracks だけショート専用の上書きを既存の解決機構に相乗りさせる。
   // colorFilter だけは例外的に継承する(演出ではなく収録の見た目補正なので、
-  // 本編とショートで肌色が変わる事故を防ぐ)
+  // 本編とショートで肌色が変わる事故を防ぐ)。blurs は継承しない(座標が
+  // 本編の出力px基準に束縛され、ショートの座標系とは一致しないため。
+  // 座標がずれた矩形を黙って継承する方が危険という判断。Main.tsx 側も
+  // !props.layout でゲートし二重に塞いでいる)
   const overlaysPath = join(dir, "overlays.json");
   const mainOverlays: Overlays = existsSync(overlaysPath)
     ? (JSON.parse(readFileSync(overlaysPath, "utf8")) as Overlays)

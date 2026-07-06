@@ -94,7 +94,8 @@ export async function frames(
     const short = loadShort(dir, shortName);
     keeps = mergeIntervals(short.ranges);
     // colorFilter だけは本編から例外的に継承する(render.ts のショート経路と
-    // 同じ理由。D2 の対象外)
+    // 同じ理由。D2 の対象外)。blurs は継承しない(座標が本編の出力px基準に
+    // 束縛され、ショートの座標系とは一致しないため。render.ts の同箇所と同じ)
     const mainOverlays = readJson<Overlays>("overlays.json", {});
     overlays = {
       captionTracks: short.captionTracks,

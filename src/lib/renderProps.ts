@@ -8,6 +8,8 @@ import type { TimelineEntry } from "./timeline.ts";
 import type { Config } from "./config.ts";
 import type { Profile } from "./profile.ts";
 import {
+  DEFAULT_BLUR_STRENGTH,
+  DEFAULT_BLUR_TYPE,
   DEFAULT_CUT_TRANSITION_SEC,
   DEFAULT_WIPE_TRANSITION_SEC,
   DEFAULT_ZOOM_EASE_SEC,
@@ -185,6 +187,19 @@ export function buildRenderProps(args: {
     ];
   });
 
+  // 領域ぼかし/モザイクもカット後タイムラインへ写像する。rect は不変なので
+  // マージ不要(zooms と同じく断片ごとに独立エントリのまま。判断5)。
+  // wipeFull のような近接マージはしない(blur に遷移が無いため不要)
+  const blurSpans = (overlays.blurs ?? []).flatMap((b) =>
+    remapInterval(b.start, b.end, timeline).map((iv) => ({
+      start: iv.start,
+      end: iv.end,
+      rect: b.rect,
+      type: b.type ?? DEFAULT_BLUR_TYPE,
+      strength: b.strength ?? DEFAULT_BLUR_STRENGTH,
+    })),
+  );
+
   // ベース映像の再生区間。「カット後のどこで、動画内のどの時刻から再生
   // するか」に分割する。動画内の時刻は videoFile が何かで変わる:
   // - render の cut.mp4 は keeps のみの動画 → 挿入なし写像でのカット後時刻
@@ -288,6 +303,7 @@ export function buildRenderProps(args: {
     overlays: overlayItems,
     wipeFull: wipeSpans,
     ...(zoomSpans.length > 0 ? { zooms: zoomSpans } : {}),
+    ...(blurSpans.length > 0 ? { blurs: blurSpans } : {}),
     ...(renderCfg.cutTransition?.type === "dip-to-black"
       ? {
           cutTransition: { sec: renderCfg.cutTransition.sec ?? DEFAULT_CUT_TRANSITION_SEC },
