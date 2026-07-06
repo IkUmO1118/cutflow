@@ -1,11 +1,16 @@
 // 検査付きアトミック適用(apply コマンド)のコア。
 // docs/plans/2026-07-07-atomic-apply-design.md に厳密に従う。
 //
-// T1(このコミット時点): `@id` 宛先の高水準オペレーション列(EditOp[])を
-// ファイル単位の全置換パッチ(ApplyBody)へコンパイルする純関数 compileOps。
-// 宛先解決は Feature 2(src/lib/mention.ts)の collectIds/resolveMention を
-// そのまま再利用する(mention.ts は無改変)。fs には一切触れない。
+// T1: `@id` 宛先の高水準オペレーション列(EditOp[])をファイル単位の全置換
+// パッチ(ApplyBody)へコンパイルする純関数 compileOps。宛先解決は Feature 2
+// (src/lib/mention.ts)の collectIds/resolveMention をそのまま再利用する
+// (mention.ts は無改変)。
+// T2: 「body をディスク現状へ重ねた LoadedDocs を作る」写像
+// (mergeBodyOverDisk)。editor/server.ts の saveProject(§735–745 相当)と
+// CLI apply が共有する唯一の merge(§論点3)。
 
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { collectIds, resolveMention } from "./mention.ts";
 import type { MentionTarget } from "./mention.ts";
 import type { LoadedDocs, Problem } from "../stages/validate.ts";
@@ -317,4 +322,35 @@ export function compileOps(docs: LoadedDocs, ops: EditOp[]): CompileOpsResult {
     if (key in draft) (body as Record<string, unknown>)[key] = draft[key];
   }
   return { body, errors, diff };
+}
+
+/**
+ * body(SaveRequest/ApplyBody 相当)をディスクの現状へ重ねた LoadedDocs を作る
+ * 純関数(dir は各ファイルの現状読み込みにだけ使う)。validateDocs の入力形を
+ * 作るのが役目。CLI apply と editor /api/save(saveProject)が共有する唯一の
+ * merge(§論点3)。
+ *
+ * cutplan/transcript/overlays/chapters/thumbnail は `??`(body に無ければ
+ * ディスク現状)、bgm/shorts は `!== undefined`(`null` = 削除シグナルを
+ * ディスク現状へフォールバックさせず区別する)。この使い分けは
+ * editor/server.ts の旧 saveProject(§735–745)のインライン実装と完全に同じ
+ * (キー集合・読み込み順・`??`/`!== undefined` の使い分けを1文字も変えていない
+ * =抽出前後でバイト等価)。
+ */
+export function mergeBodyOverDisk(dir: string, body: ApplyBody): LoadedDocs {
+  const readDisk = (file: string): unknown => {
+    const p = join(dir, file);
+    return existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : null;
+  };
+  return {
+    manifest: readDisk("manifest.json"),
+    cutplan: body.cutplan ?? readDisk("cutplan.json"),
+    transcript: body.transcript ?? readDisk("transcript.json"),
+    overlays: body.overlays ?? readDisk("overlays.json"),
+    bgm: body.bgm !== undefined ? body.bgm : readDisk("bgm.json"),
+    chapters: body.chapters ?? readDisk("chapters.json"),
+    meta: readDisk("meta.json"),
+    shorts: body.shorts !== undefined ? body.shorts : readDisk("shorts.json"),
+    thumbnail: body.thumbnail ?? readDisk("thumbnail.json"),
+  };
 }
