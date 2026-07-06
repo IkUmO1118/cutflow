@@ -139,7 +139,7 @@ export async function render(dir: string, cfg: Config): Promise<string> {
     ? (JSON.parse(readFileSync(autoCutsPath, "utf8")) as AutoCuts).silences
     : null;
 
-  const profile = resolveProfile(cfg, "default");
+  const profile = resolveProfile(manifest.video.screenRegion, "default");
   const props = buildRenderProps({
     manifest,
     keeps,
@@ -330,7 +330,7 @@ async function renderOneShort(
   const mainOverlays: Overlays = existsSync(overlaysPath)
     ? (JSON.parse(readFileSync(overlaysPath, "utf8")) as Overlays)
     : {};
-  const profile = resolveProfile(cfg, short.profile ?? "vertical");
+  const profile = resolveProfile(manifest.video.screenRegion, short.profile ?? "vertical");
   const shortOverlays: Overlays = {
     captionTracks: short.captionTracks,
     ...(mainOverlays.colorFilter ? { colorFilter: mainOverlays.colorFilter } : {}),

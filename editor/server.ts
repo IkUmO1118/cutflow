@@ -386,7 +386,7 @@ function loadProject(dir: string, cfg: Config): ProjectData {
     renderCfg: cfg.render,
     previewCfg: { width: cfg.preview.width },
     editorCfg: resolvedEditorCfg(cfg, DEFAULT_MAX_UPLOAD_MB),
-    output: { w: cfg.ingest.screenRegion.w, h: cfg.ingest.screenRegion.h },
+    output: { w: manifest.video.screenRegion.w, h: manifest.video.screenRegion.h },
     draft,
   };
 }

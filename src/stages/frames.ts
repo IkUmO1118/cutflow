@@ -99,12 +99,12 @@ export async function frames(
       captionTracks: short.captionTracks,
       ...(mainOverlays.colorFilter ? { colorFilter: mainOverlays.colorFilter } : {}),
     };
-    profile = resolveProfile(cfg, short.profile ?? "vertical");
+    profile = resolveProfile(manifest.video.screenRegion, short.profile ?? "vertical");
   } else {
     const cutplan = readJson<CutPlan>("cutplan.json", null);
     keeps = mergeIntervals(cutplan.segments.filter((s) => s.action === "keep"));
     overlays = readJson<Overlays>("overlays.json", {});
-    profile = resolveProfile(cfg, "default");
+    profile = resolveProfile(manifest.video.screenRegion, "default");
   }
   if (keeps.length === 0) {
     throw new Error(

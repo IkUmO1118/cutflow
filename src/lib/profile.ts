@@ -1,6 +1,5 @@
 // 出力プロファイル(サイズ+ベース映像のパネル配置+字幕既定)の組み込み定数。
 // config.yaml には追加しない(D1: プリセットは閉じた組み込み。設定爆発の回避)。
-import type { Config } from "./config.ts";
 import type { Region } from "../types.ts";
 
 /** レイアウトを構成する1パネル(ベース映像の一部)。座標系は overlays の
@@ -25,7 +24,8 @@ export interface Profile {
 }
 
 // 幾何は仮案(実装時にプレビューで調整)。default の width/height は
-// resolveProfile が cfg.ingest.screenRegion で上書きする(ここはプレースホルダ)
+// resolveProfile が defaultSize(manifest.video.screenRegion)で上書きする
+// (ここはプレースホルダ)
 export const PROFILES: Record<string, Profile> = {
   default: { width: 1920, height: 1080 }, // layout 無し = 現行ワイプ経路
   vertical: {
@@ -51,13 +51,15 @@ export const PROFILES: Record<string, Profile> = {
 
 /**
  * プロファイル名から Profile を解決する。省略/"default" は
- * cfg.ingest.screenRegion のサイズ(layout 無し = 現行ワイプ経路)。
- * 未知の名前は throw(バリデーションは呼び出し側で先に済ませる想定)
+ * defaultSize(呼び出し側が渡す出力解像度。通常 manifest.video.screenRegion)
+ * のサイズ(layout 無し = 現行ワイプ経路)。縦プリセットは defaultSize を
+ * 無視して固定サイズを返す。未知の名前は throw(バリデーションは呼び出し側で
+ * 先に済ませる想定)
  */
-export function resolveProfile(cfg: Config, name?: string): Profile {
+export function resolveProfile(defaultSize: { w: number; h: number }, name?: string): Profile {
   const key = name ?? "default";
   if (key === "default") {
-    return { width: cfg.ingest.screenRegion.w, height: cfg.ingest.screenRegion.h };
+    return { width: defaultSize.w, height: defaultSize.h };
   }
   const profile = PROFILES[key];
   if (!profile) throw new Error(`未知の profile 名です: ${key}`);

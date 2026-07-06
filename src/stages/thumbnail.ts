@@ -65,7 +65,7 @@ export async function thumbnail(dir: string, cfg: Config): Promise<string> {
     ...(mainOverlays.colorFilter ? { colorFilter: mainOverlays.colorFilter } : {}),
   };
 
-  const profile = resolveProfile(cfg, "default");
+  const profile = resolveProfile(manifest.video.screenRegion, "default");
   const props = buildRenderProps({
     manifest,
     keeps,
