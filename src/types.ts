@@ -8,14 +8,19 @@ export interface Manifest {
   /** 元ファイル名(収録フォルダ内) */
   source: string;
   durationSec: number;
+  /** レイアウト。省略時は "obs-canvas"(旧 manifest 互換)。
+   *  obs-canvas: 拡張キャンバス(画面+カメラ横並び)。cameraRegion を持つ
+   *  plain:      通常動画。カメラ無し。screenRegion は全フレーム */
+  layout?: "obs-canvas" | "plain";
   video: {
     width: number;
     height: number;
     fps: number;
-    /** 3840x1080 内での画面キャプチャ領域 */
+    /** 出力に使う画面領域(=出力解像度)。obs-canvas は 3840x1080 内の
+     *  画面部分、plain は全フレーム(= {x:0,y:0,w:width,h:height}) */
     screenRegion: Region;
-    /** 3840x1080 内でのカメラ領域 */
-    cameraRegion: Region;
+    /** カメラ(ワイプ)領域。plain では無し(ワイプ非対応) */
+    cameraRegion?: Region;
   };
   audio: {
     /** マイク音声のストリーム番号(ffmpeg の a:N) */
@@ -27,6 +32,14 @@ export interface Manifest {
   };
   createdAt: string;
 }
+
+/** manifest のレイアウト(未指定は旧 manifest 互換で obs-canvas) */
+export const manifestLayout = (m: { layout?: string }): "obs-canvas" | "plain" =>
+  m.layout === "plain" ? "plain" : "obs-canvas";
+
+/** ワイプ(カメラ)を持つレイアウトか。plain・cameraRegion 欠落は false */
+export const hasCamera = (m: Manifest): boolean =>
+  manifestLayout(m) === "obs-canvas" && m.video.cameraRegion != null;
 
 export interface Region {
   x: number;
