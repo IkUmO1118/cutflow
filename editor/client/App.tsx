@@ -608,6 +608,14 @@ export const App = () => {
     setSelectionState(null);
     setCapMulti([]);
   }, [activeShortName]);
+  // 本編からショートへ切り替えた時、インスペクタが閉じていれば自動で開く
+  // (右インスペクタの「ショート」節の発見性を担保する一度きりのナッジ。
+  // ショート間の切替や本編へ戻す操作では再オープンしない)
+  const wasShortRef = useRef(false);
+  useEffect(() => {
+    if (activeShortName && !wasShortRef.current) setInspOpen(true);
+    wasShortRef.current = activeShortName !== null;
+  }, [activeShortName]);
   const shortKeepsMerged = useMemo(
     () => mergeIntervals(activeShort?.ranges ?? []),
     [activeShort],
@@ -760,6 +768,9 @@ export const App = () => {
   const srcDur = proj?.manifest.durationSec ?? 0;
   /** 画像素材・尺不明素材を置くときの既定の尺(秒)。config で変更できる */
   const defaultImgSec = proj?.editorCfg.defaultImageDurationSec ?? 4;
+  /** ショート新規追加(addShort)で、選択中の keep クリップもプレイヘッドの
+   * 位置も取れないときの既定レンジ長(秒)。config で変更できる */
+  const defaultShortRangeSec = proj?.editorCfg.defaultShortRangeSec ?? 10;
 
   // 未保存の編集の有無。JSON 全体の stringify 比較はドキュメントが
   // 差し替わったときだけ行う(毎レンダーで3ドキュメントを直列化すると、
@@ -1524,11 +1535,24 @@ export const App = () => {
       if (!used.has(name)) return name;
     }
   };
-  /** ショートを1本追加(既定 ranges = 先頭10秒。承認は人間の仕事なので false 固定)。
+  /** ショートを1本追加(承認は人間の仕事なので approved: false 固定)。
+   * 既定 ranges は優先順に: (a) 本編で keep クリップ選択中ならその区間、
+   * (b) 無ければプレイヘッドの現在元秒から defaultShortRangeSec 分、
+   * (c) それも取れなければ先頭から defaultShortRangeSec 分。
    * 追加したショートへそのままモードを切り替える */
   const addShort = () => {
     const name = nextShortName();
-    const short: Short = { name, approved: false, ranges: [{ start: 0, end: round2(Math.min(10, srcDur)) }] };
+    const selCut =
+      selection?.kind === "cut" ? cutplan?.segments[selection.index] : undefined;
+    let range: { start: number; end: number };
+    if (selCut) {
+      range = { start: round2(selCut.start), end: round2(selCut.end) };
+    } else {
+      const src = toSourceTime(playhead.get(), timeline);
+      const start = src !== null ? round2(src) : 0;
+      range = { start, end: round2(Math.min(start + defaultShortRangeSec, srcDur)) };
+    }
+    const short: Short = { name, approved: false, ranges: [range] };
     setShorts((prev) => ({ shorts: [...(prev?.shorts ?? []), short] }));
     setActiveShortName(name);
   };
@@ -2840,43 +2864,6 @@ export const App = () => {
             ))}
           </select>
         </span>
-        {activeShort && (
-          <span className="shortBar">
-            <select
-              value={activeShort.profile ?? "vertical"}
-              title="出力プロファイル(レイアウトプリセット)"
-              onChange={(e) => {
-                const name = e.target.value;
-                updateActiveShort((s) => {
-                  const next = { ...s };
-                  if (name === "vertical") delete next.profile;
-                  else next.profile = name;
-                  return next;
-                });
-              }}
-            >
-              {Object.keys(PROFILES).map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
-            <label
-              className="approve"
-              title="このショート(縦動画)を人間が確認したか。render --short のゲート"
-            >
-              <input
-                type="checkbox"
-                checked={activeShort.approved}
-                onChange={(e) => {
-                  const checked = e.target.checked;
-                  updateActiveShort((s) => ({ ...s, approved: checked }));
-                }}
-              />
-              承認済み
-            </label>
-          </span>
-        )}
         {/* レイアウト切替(VSCode 風)。アイコンの塗られた面 = 表示中のパネル。
             閉じてもデータ・編集状態には影響しない(表示だけの切替) */}
         <div className="layoutBtns">
@@ -3359,6 +3346,8 @@ export const App = () => {
               setShortCaptionTrackDefault={setShortCaptionTrackDefault}
               updateShortRange={updateShortRange}
               removeShortRange={removeShortRange}
+              updateActiveShort={updateActiveShort}
+              removeShort={removeShort}
             />
           </div>
         </aside>

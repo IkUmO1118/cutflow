@@ -24,6 +24,7 @@ import type {
 } from "../../src/types.ts";
 import { insertSpans, remapInterval } from "../../src/lib/timeline.ts";
 import type { TimelineEntry } from "../../src/lib/timeline.ts";
+import { PROFILES } from "../../src/lib/profile.ts";
 import type { RenderProps } from "../../remotion/props.ts";
 import type { Selection } from "./model.ts";
 import { usePlayheadSelector } from "./playhead.ts";
@@ -99,6 +100,8 @@ export const Inspector = ({
   setShortCaptionTrackDefault,
   updateShortRange,
   removeShortRange,
+  updateActiveShort,
+  removeShort,
 }: {
   selection: Selection;
   /** 複数選択中のテロップ(transcript.segments の添字。2件以上のときだけ) */
@@ -203,6 +206,10 @@ export const Inspector = ({
   ) => void;
   updateShortRange: (i: number, patch: Partial<{ start: number; end: number }>) => void;
   removeShortRange: (i: number) => void;
+  /** 選択中ショートを部分更新する(ショートの「プロパティ」節=profile/承認の編集用) */
+  updateActiveShort: (updater: (s: Short) => Short) => void;
+  /** ショートを1本削除する(確認はこのパネル側で挟む) */
+  removeShort: (name: string) => void;
 }) => {
   /** 再生ヘッドが映像クリップの上にあるか(「ここへ」系ボタンの活性)。
    * boolean に落として購読するので、境界をまたいだ時だけ再レンダーされる
@@ -217,6 +224,15 @@ export const Inspector = ({
         srcDur={srcDur}
         duration={duration}
         project={project}
+        shortSection={
+          activeShort && (
+            <ShortPropertiesSection
+              activeShort={activeShort}
+              updateActiveShort={updateActiveShort}
+              removeShort={removeShort}
+            />
+          )
+        }
       />
     );
   }
@@ -251,6 +267,11 @@ export const Inspector = ({
             (shorts.json の ranges)。飛び区間を複数追加して連結できます。
           </p>
         </Section>
+        <ShortPropertiesSection
+          activeShort={activeShort}
+          updateActiveShort={updateActiveShort}
+          removeShort={removeShort}
+        />
       </div>
     );
   }
@@ -2445,6 +2466,71 @@ const ShortCaptionPanel = ({
   );
 };
 
+/* ================= ショートのプロパティ(profile / 承認 / 削除) =================
+ * ヘッダーの shortBar(#5/T5, docs/decisions.md 2026-07-06 論点3)を移設したもの。
+ * activeShort が非 null の間(未選択時のプロジェクト要約/ショート範囲選択時)に
+ * 差し込む。profile 選択肢は将来 hasCamera でフィルタする前提で PROFILES から
+ * 組み立てる箇所をここ1つに集約している(現状は絞り込みなし=全件) */
+const ShortPropertiesSection = ({
+  activeShort,
+  updateActiveShort,
+  removeShort,
+}: {
+  activeShort: Short;
+  updateActiveShort: (updater: (s: Short) => Short) => void;
+  removeShort: (name: string) => void;
+}) => (
+  <>
+    <Section title="ショート">
+      <div className="field">
+        <label title="出力プロファイル(レイアウトプリセット)">プロファイル</label>
+        <Segmented
+          value={activeShort.profile ?? "vertical"}
+          options={Object.keys(PROFILES).map((name) => ({ value: name, label: name }))}
+          onChange={(name) => {
+            updateActiveShort((s) => {
+              const next = { ...s };
+              if (name === "vertical") delete next.profile;
+              else next.profile = name;
+              return next;
+            });
+          }}
+        />
+      </div>
+      <div className="field">
+        <label title="このショート(縦動画)を人間が確認したか。render --short のゲート">
+          承認済み
+        </label>
+        <input
+          type="checkbox"
+          checked={activeShort.approved}
+          onChange={(e) => {
+            const checked = e.target.checked;
+            updateActiveShort((s) => ({ ...s, approved: checked }));
+          }}
+        />
+      </div>
+    </Section>
+    <Section title="">
+      <button
+        className="danger"
+        onClick={() => {
+          if (
+            window.confirm(
+              `ショート「${activeShort.name}」を削除しますか?\n` +
+                "shorts.json から削除され、元に戻せません(⌘Z も効きません)。",
+            )
+          ) {
+            removeShort(activeShort.name);
+          }
+        }}
+      >
+        このショートを削除
+      </button>
+    </Section>
+  </>
+);
+
 /* ================= 未選択時: プロジェクトの要約 ================= */
 
 const ProjectPanel = ({
@@ -2454,6 +2540,7 @@ const ProjectPanel = ({
   srcDur,
   duration,
   project,
+  shortSection,
 }: {
   cutplan: CutPlan;
   transcript: Transcript;
@@ -2461,6 +2548,9 @@ const ProjectPanel = ({
   srcDur: number;
   duration: number;
   project: { dir: string; approved: boolean; bgmFile: string | null; bgmTracks: number };
+  /** ショートモード中(activeShort が非 null)に上部へ差し込む「ショート」節。
+   * 本編モードでは undefined(#5/T5: ヘッダーの shortBar を右インスペクタへ移設) */
+  shortSection?: ReactNode;
 }) => {
   const keepsN = cutplan.segments.filter((s) => s.action === "keep").length;
   const cutsN = cutplan.segments.length - keepsN;
@@ -2471,6 +2561,7 @@ const ProjectPanel = ({
         kind="プロジェクト"
         title={project.dir.replace(/\/+$/, "").split("/").pop() ?? project.dir}
       />
+      {shortSection}
       <dl className="projRows">
         <dt>収録</dt>
         <dd className="mono">{fmtTime(srcDur)}</dd>
