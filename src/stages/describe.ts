@@ -15,18 +15,48 @@ import {
   snapToOutput,
   toOutputTime,
 } from "../lib/timeline.ts";
+import type { TimelineEntry } from "../lib/timeline.ts";
 import { captionTrack } from "../types.ts";
 import type {
   Bgm,
   Chapters,
   CutPlan,
+  Interval,
   Manifest,
   Meta,
   Overlays,
+  PlanSegment,
+  Shorts,
   Transcript,
 } from "../types.ts";
 
-export function describe(dir: string): string {
+/** overlays.json の inserts の1件(存在するファイルだけに絞り込んだもの)。
+ * timeline.ts の InsertSpan(at/durationSec)の上位互換 */
+type LoadedInsert = NonNullable<Overlays["inserts"]>[number];
+
+/** describe() が読み込む全ファイル+派生値。散文レンダラ(describe)と
+ * JSON ビルダ(describeJson/buildProjection)が共有する唯一の入力構造
+ * (設計 §論点3)。読み込み規約(必須/任意ファイルの扱い)をここに集約し、
+ * bgm=null を必須と誤解する旧バグ型の drift を防ぐ */
+interface DescribeInputs {
+  dir: string;
+  manifest: Manifest;
+  cutplan: CutPlan;
+  transcript: Transcript;
+  overlays: Overlays;
+  bgm: Bgm | null;
+  chapters: Chapters;
+  meta: Meta;
+  shorts: Shorts | null;
+  keeps: Interval[];
+  cutRecords: PlanSegment[];
+  inserts: LoadedInsert[];
+  timeline: TimelineEntry[];
+  keptSec: number;
+  outDur: number;
+}
+
+function loadDescribeInputs(dir: string): DescribeInputs {
   // 必須ファイル(パイプラインの生成物)。無ければ実行を促して止める
   const readRequired = <T>(file: string): T => {
     const p = join(dir, file);
@@ -51,6 +81,7 @@ export function describe(dir: string): string {
   const bgm = readOptional<Bgm | null>("bgm.json", null);
   const chapters = readOptional<Chapters>("chapters.json", { chapters: [] });
   const meta = readOptional<Meta>("meta.json", { titles: [], description: "" });
+  const shorts = loadShorts(dir);
 
   const keeps = mergeIntervals(
     cutplan.segments.filter((s) => s.action === "keep"),
@@ -63,20 +94,63 @@ export function describe(dir: string): string {
   const keptSec = keeps.reduce((a, k) => a + (k.end - k.start), 0);
   const outDur = keptSec + inserts.reduce((a, i) => a + i.durationSec, 0);
 
+  return {
+    dir,
+    manifest,
+    cutplan,
+    transcript,
+    overlays,
+    bgm,
+    chapters,
+    meta,
+    shorts,
+    keeps,
+    cutRecords,
+    inserts,
+    timeline,
+    keptSec,
+    outDur,
+  };
+}
+
+/** 区間 [start, end) と 0.05 秒以上重なるか */
+function overlaps(s: { start: number; end: number }, start: number, end: number): boolean {
+  return Math.min(s.end, end) - Math.max(s.start, start) > 0.05;
+}
+
+/** 各テロップの所属 keep(0始まり)。見えるものは「最初に重なる keep」、
+ * 完全にカット内で消えるものは所属なし(null) */
+function keepIndexOf(
+  s: { start: number; end: number },
+  keeps: Interval[],
+  timeline: TimelineEntry[],
+): number | null {
+  if (remapInterval(s.start, s.end, timeline).length === 0) return null;
+  const i = keeps.findIndex((k) => overlaps(s, k.start, k.end));
+  return i >= 0 ? i : null;
+}
+
+export function describe(dir: string): string {
+  const inp = loadDescribeInputs(dir);
+  const {
+    manifest,
+    cutplan,
+    transcript,
+    overlays,
+    bgm,
+    chapters,
+    meta,
+    keeps,
+    cutRecords,
+    inserts,
+    timeline,
+    keptSec,
+    outDur,
+  } = inp;
+
   const quote = (text: string): string => {
     const t = text.trim().replace(/\s+/g, " ");
     return t.length > 36 ? `${t.slice(0, 36)}…` : t;
-  };
-  /** 区間 [start, end) と 0.05 秒以上重なるか */
-  const overlaps = (s: { start: number; end: number }, start: number, end: number) =>
-    Math.min(s.end, end) - Math.max(s.start, start) > 0.05;
-
-  // 各テロップの置き場所: 見えるものは「最初に重なる keep」、
-  // 完全にカット内で消えるものは「重なるカット区間」に出す
-  const keepIndexOf = (s: { start: number; end: number }): number | null => {
-    if (remapInterval(s.start, s.end, timeline).length === 0) return null;
-    const i = keeps.findIndex((k) => overlaps(s, k.start, k.end));
-    return i >= 0 ? i : null;
   };
 
   const lines: string[] = [];
@@ -111,7 +185,7 @@ export function describe(dir: string): string {
         if (overlaps(r, gapStart, gapEnd) && r.reason) lines.push(`    理由: ${r.reason}`);
       }
       for (const s of transcript.segments) {
-        if (overlaps(s, gapStart, gapEnd) && keepIndexOf(s) === null) {
+        if (overlaps(s, gapStart, gapEnd) && keepIndexOf(s, keeps, timeline) === null) {
           lines.push(`    消える発言 ${fmtT(s.start)}「${quote(s.text)}」`);
         }
       }
@@ -125,7 +199,7 @@ export function describe(dir: string): string {
         `${fmtT(outStart + (k.end - k.start))}(${(k.end - k.start).toFixed(1)}秒)`,
     );
     for (const s of transcript.segments) {
-      if (keepIndexOf(s) !== i) continue;
+      if (keepIndexOf(s, keeps, timeline) !== i) continue;
       const track = captionTrack(s);
       lines.push(`    ${fmtT(s.start)}${track > 1 ? ` [T${track}]` : ""}「${quote(s.text)}」`);
     }
@@ -171,7 +245,7 @@ export function describe(dir: string): string {
     lines.push(`タイトル案: ${meta.titles.slice(0, 3).join(" / ")}`);
   }
 
-  const shorts = loadShorts(dir);
+  const { shorts } = inp;
   if (shorts && shorts.shorts.length > 0) {
     lines.push("");
     lines.push("ショート(shorts.json):");
