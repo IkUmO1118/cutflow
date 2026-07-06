@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Command } from "commander";
 import { backupEditableFiles } from "./lib/backup.ts";
 import { loadConfig } from "./lib/config.ts";
+import { findSource } from "./lib/findSource.ts";
 import { ingest } from "./stages/ingest.ts";
 import { transcribe } from "./stages/transcribe.ts";
 import { detect } from "./stages/detect.ts";
@@ -23,23 +24,6 @@ program
     "撮影後の編集を自動化するパイプライン(文字起こし→カット案→人間承認→レンダー)",
   )
   .option("--config <path>", "config.yaml のパス");
-
-/** 収録フォルダ内の raw ファイル(mkv/mp4/mov)を見つける */
-function findSource(dir: string): string {
-  const candidates = readdirSync(dir).filter((f) =>
-    /\.(mkv|mp4|mov)$/i.test(f),
-  );
-  if (candidates.length === 0) {
-    throw new Error(`${dir} に動画ファイル(mkv/mp4/mov)がありません`);
-  }
-  if (candidates.length > 1) {
-    // raw.* を優先、それ以外は最初の1本
-    const raw = candidates.find((f) => f.startsWith("raw."));
-    if (raw) return raw;
-    console.warn(`動画が複数あります。${candidates[0]} を使います。`);
-  }
-  return candidates[0];
-}
 
 function resolveDir(dir: string): string {
   const abs = resolve(dir);

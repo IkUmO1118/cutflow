@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { build } from "esbuild";
 import { run } from "../src/lib/exec.ts";
+import { bootstrapProject } from "../src/stages/bootstrap.ts";
 import { buildProxy } from "../src/stages/proxy.ts";
 import { preview } from "../src/stages/preview.ts";
 import { findBgm, render } from "../src/stages/render.ts";
@@ -42,6 +43,11 @@ import type { DraftData, ProjectData, SaveRequest } from "./client/apiTypes.ts";
  *   proxy.mp4 は収録ごとに1回作れば編集中の再生成は不要
  */
 export async function startEditor(dir: string, cfg: Config): Promise<void> {
+  // 動画ファイルだけの収録フォルダでも開けるように、必須3ファイルのうち
+  // 無いものだけ決定的に補う(既存ファイルには触れない)。loadProject の
+  // 3点チェックは最終防壁として残す
+  await bootstrapProject(dir, cfg);
+
   const editorDir = dirname(fileURLToPath(import.meta.url));
 
   // クライアントは起動時に一度だけメモリ上へバンドルする(~100ms)
