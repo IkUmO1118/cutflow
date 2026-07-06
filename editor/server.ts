@@ -26,11 +26,13 @@ import {
 } from "../src/lib/approval.ts";
 import { APPROVAL_FILE } from "../src/lib/files.ts";
 import { run } from "../src/lib/exec.ts";
+import { ensureIds, hasAnyId, ID_PREFIX, usedIdsOf } from "../src/lib/ids.ts";
 import { bootstrapProject } from "../src/stages/bootstrap.ts";
 import { buildProxy, isProxyStale } from "../src/stages/proxy.ts";
 import { preview } from "../src/stages/preview.ts";
 import { findBgm, render } from "../src/stages/render.ts";
 import { validateDocs } from "../src/stages/validate.ts";
+import { readEditableDocs } from "../src/stages/idStamp.ts";
 import type { Config } from "../src/lib/config.ts";
 import {
   applyConfigEdits,
@@ -647,6 +649,80 @@ async function saveUpload(
   return { file: `materials/${name}`, durationSec };
 }
 
+/**
+ * GUI 保存(saveProject)の id 採番。id 有効なプロジェクト(disk 上の既存
+ * 編集ファイルのいずれかに id がある)でのみ、body に含まれる各ドキュメントの
+ * 「指せる配列」へ ensureIds を適用する(既存 id はクライアントの round-trip で
+ * 保持済み前提。GUI が生成した新要素にだけ新規採番)。id 無効なら body を
+ * そのまま返す(pass-through=バイト等価)。純関数(fs 非依存)。
+ */
+export function stampSaveBody(
+  body: SaveRequest,
+  idEnabled: boolean,
+  used: Set<string>,
+): SaveRequest {
+  if (!idEnabled) return body;
+
+  const cutplan = body.cutplan
+    ? { ...body.cutplan, segments: ensureIds(body.cutplan.segments, ID_PREFIX.cutSegment, used) }
+    : body.cutplan;
+
+  const transcript = body.transcript
+    ? {
+        ...body.transcript,
+        segments: ensureIds(body.transcript.segments, ID_PREFIX.caption, used),
+      }
+    : body.transcript;
+
+  const overlays = body.overlays
+    ? {
+        ...body.overlays,
+        overlays: body.overlays.overlays
+          ? ensureIds(body.overlays.overlays, ID_PREFIX.material, used)
+          : body.overlays.overlays,
+        inserts: body.overlays.inserts
+          ? ensureIds(body.overlays.inserts, ID_PREFIX.insert, used)
+          : body.overlays.inserts,
+        wipeFull: body.overlays.wipeFull
+          ? ensureIds(body.overlays.wipeFull, ID_PREFIX.wipeFull, used)
+          : body.overlays.wipeFull,
+        hideCaption: body.overlays.hideCaption
+          ? ensureIds(body.overlays.hideCaption, ID_PREFIX.hideCaption, used)
+          : body.overlays.hideCaption,
+        zooms: body.overlays.zooms
+          ? ensureIds(body.overlays.zooms, ID_PREFIX.zoom, used)
+          : body.overlays.zooms,
+        blurs: body.overlays.blurs
+          ? ensureIds(body.overlays.blurs, ID_PREFIX.blur, used)
+          : body.overlays.blurs,
+        captionTracks: body.overlays.captionTracks
+          ? ensureIds(body.overlays.captionTracks, ID_PREFIX.captionTrack, used)
+          : body.overlays.captionTracks,
+      }
+    : body.overlays;
+
+  // bgm/shorts は null(削除シグナル)を pass-through する(?. と ?? はここでは
+  // 使わない: null と undefined を区別する SaveRequest の契約を保つ)
+  const bgm = body.bgm
+    ? { ...body.bgm, tracks: ensureIds(body.bgm.tracks, ID_PREFIX.bgmTrack, used) }
+    : body.bgm;
+
+  const shorts = body.shorts
+    ? {
+        ...body.shorts,
+        shorts: body.shorts.shorts.map((s) => ({
+          ...s,
+          ranges: ensureIds(s.ranges, ID_PREFIX.range, used),
+          captionTracks: s.captionTracks
+            ? ensureIds(s.captionTracks, ID_PREFIX.captionTrack, used)
+            : s.captionTracks,
+        })),
+      }
+    : body.shorts;
+
+  return { ...body, cutplan, transcript, overlays, bgm, shorts };
+}
+
 /** 編集結果の保存。渡されたドキュメントだけを書く(それ以外のファイルは不可侵) */
 function saveProject(dir: string, body: SaveRequest): void {
   // 書く前に CLI の validate と同じ純粋検査を通す。GUI が壊れた JSON を書き、
@@ -672,25 +748,33 @@ function saveProject(dir: string, body: SaveRequest): void {
     throw new HttpError(400, `保存できません(整合性エラー ${errors.length}件): ${detail}`);
   }
 
+  // id が有効なプロジェクト(disk 上の既存編集ファイルのいずれかに id がある)
+  // でのみ、GUI が生成した新要素(id 無し)に採番する。既存 id はクライアントの
+  // round-trip で保持済み前提(ensureIds は id 有りをそのまま通す)。
+  // id 無効なら stampedBody は body と同一参照(pass-through=バイト等価)
+  const idDocs = readEditableDocs(dir);
+  const idEnabled = hasAnyId(idDocs);
+  const stampedBody = stampSaveBody(body, idEnabled, usedIdsOf(idDocs));
+
   const write = (file: string, data: CutPlan | Overlays | Transcript | Bgm | Shorts) => {
     selfWroteAt.set(file, Date.now());
     writeFileSync(join(dir, file), JSON.stringify(data, null, 2));
   };
-  if (body.cutplan) {
-    write("cutplan.json", body.cutplan);
+  if (stampedBody.cutplan) {
+    write("cutplan.json", stampedBody.cutplan);
     // 承認レコード(approvals.json)の mint/clear。GUI は「人間が起動した
     // プロセスが人間のチェックで書く」= 分離層の権威側(設計 §1.3 / §8)。
     // approved トグルに応じてハッシュ束縛レコードを作る/消す
     selfWroteAt.set(APPROVAL_FILE, Date.now());
-    if (body.cutplan.approved) writeCutplanApproval(dir, body.cutplan, "gui");
+    if (stampedBody.cutplan.approved) writeCutplanApproval(dir, stampedBody.cutplan, "gui");
     else clearCutplanApproval(dir);
   }
-  if (body.overlays) write("overlays.json", body.overlays);
-  if (body.transcript) write("transcript.json", body.transcript);
+  if (stampedBody.overlays) write("overlays.json", stampedBody.overlays);
+  if (stampedBody.transcript) write("transcript.json", stampedBody.transcript);
   // BGM: 区間があれば bgm.json を書き、null / 空なら削除して全編1曲(後方互換)へ戻す
-  if (body.bgm !== undefined) {
-    if (body.bgm && body.bgm.tracks.length > 0) {
-      write("bgm.json", body.bgm);
+  if (stampedBody.bgm !== undefined) {
+    if (stampedBody.bgm && stampedBody.bgm.tracks.length > 0) {
+      write("bgm.json", stampedBody.bgm);
     } else {
       const p = join(dir, "bgm.json");
       if (existsSync(p)) {
@@ -700,12 +784,12 @@ function saveProject(dir: string, body: SaveRequest): void {
     }
   }
   // ショート: 1件以上あれば shorts.json を書き、無ければ削除する(bgm と同型)
-  if (body.shorts !== undefined) {
-    if (body.shorts && body.shorts.shorts.length > 0) {
-      write("shorts.json", body.shorts);
+  if (stampedBody.shorts !== undefined) {
+    if (stampedBody.shorts && stampedBody.shorts.shorts.length > 0) {
+      write("shorts.json", stampedBody.shorts);
       // 各ショートの approved トグルに応じて name 別の承認レコードを mint/clear
       selfWroteAt.set(APPROVAL_FILE, Date.now());
-      for (const short of body.shorts.shorts) {
+      for (const short of stampedBody.shorts.shorts) {
         if (short.approved) writeShortApproval(dir, short, "gui");
         else clearShortApproval(dir, short.name);
       }
