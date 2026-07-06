@@ -35,6 +35,7 @@ import type {
   Overlays,
   PlanSegment,
   Region,
+  Short,
   Shorts,
   Transcript,
   WordTiming,
@@ -375,6 +376,9 @@ export interface LostCaption {
 
 export interface CaptionEntry {
   index: number;
+  /** 安定 id(`@id` mention の発見手段。散文 describe には出ない)。
+   * id 未採番(id-stamp 未実行)なら省略される */
+  id?: string;
   start: number;
   end: number;
   text: string;
@@ -399,14 +403,17 @@ export interface OverlaysProjection {
   captionTracks: CaptionTrackDef[];
 }
 
-/** 元秒区間 + その出力秒射影。演出の元秒 interval に一律で付ける */
+/** 元秒区間 + その出力秒射影。演出の元秒 interval に一律で付ける。
+ * id は安定 id(未採番なら省略) */
 export interface MappedInterval {
+  id?: string;
   start: number;
   end: number;
   out: Interval[];
 }
 
 export interface MaterialEntry {
+  id?: string;
   start: number;
   end: number;
   file: string;
@@ -423,6 +430,7 @@ export interface MaterialEntry {
 }
 
 export interface InsertEntry {
+  id?: string;
   at: number;
   file: string;
   durationSec: number;
@@ -447,6 +455,7 @@ export interface BlurEntry extends MappedInterval {
 }
 
 export interface ChapterEntry {
+  id?: string;
   start: number;
   out: number | null;
   title: string;
@@ -462,7 +471,9 @@ export interface ShortEntry {
   name: string;
   profile: string;
   approved: boolean;
-  ranges: Interval[];
+  /** id は安定 id(rg_...。未採番なら省略)。Short 自体は name が事実上の
+   * 安定 id なので ShortEntry には別途 id フィールドを持たない */
+  ranges: Short["ranges"];
   mergedRanges: KeepEntry[];
   outDurationSec: number;
   captionTracks?: CaptionTrackDef[];
@@ -547,6 +558,7 @@ function buildProjection(inp: DescribeInputs): DescribeProjection {
     const out = remapInterval(s.start, s.end, timeline);
     return {
       index,
+      ...(s.id !== undefined ? { id: s.id } : {}),
       start: s.start,
       end: s.end,
       text: s.text,
@@ -562,6 +574,7 @@ function buildProjection(inp: DescribeInputs): DescribeProjection {
 
   /* ---- overlays(演出の全フィールド) ---- */
   const materials: MaterialEntry[] = (overlays.overlays ?? []).map((o): MaterialEntry => ({
+    ...(o.id !== undefined ? { id: o.id } : {}),
     start: o.start,
     end: o.end,
     file: o.file,
@@ -592,6 +605,7 @@ function buildProjection(inp: DescribeInputs): DescribeProjection {
       if (sp) out = { start: sp.start, end: sp.end };
     }
     return {
+      ...(ins.id !== undefined ? { id: ins.id } : {}),
       at: ins.at,
       file: ins.file,
       durationSec: ins.durationSec,
@@ -606,12 +620,14 @@ function buildProjection(inp: DescribeInputs): DescribeProjection {
   });
 
   const wipeFull: MappedInterval[] = (overlays.wipeFull ?? []).map((w) => ({
+    ...(w.id !== undefined ? { id: w.id } : {}),
     start: w.start,
     end: w.end,
     out: remapInterval(w.start, w.end, timeline),
   }));
 
   const zooms: ZoomEntry[] = (overlays.zooms ?? []).map((z): ZoomEntry => ({
+    ...(z.id !== undefined ? { id: z.id } : {}),
     start: z.start,
     end: z.end,
     out: remapInterval(z.start, z.end, timeline),
@@ -620,6 +636,7 @@ function buildProjection(inp: DescribeInputs): DescribeProjection {
   }));
 
   const blurs: BlurEntry[] = (overlays.blurs ?? []).map((b): BlurEntry => ({
+    ...(b.id !== undefined ? { id: b.id } : {}),
     start: b.start,
     end: b.end,
     out: remapInterval(b.start, b.end, timeline),
@@ -629,6 +646,7 @@ function buildProjection(inp: DescribeInputs): DescribeProjection {
   }));
 
   const hideCaption: MappedInterval[] = (overlays.hideCaption ?? []).map((h) => ({
+    ...(h.id !== undefined ? { id: h.id } : {}),
     start: h.start,
     end: h.end,
     out: remapInterval(h.start, h.end, timeline),
@@ -648,6 +666,7 @@ function buildProjection(inp: DescribeInputs): DescribeProjection {
 
   /* ---- chapters(元秒 + snapToOutput・全文タイトル) ---- */
   const chaptersProj: ChapterEntry[] = chapters.chapters.map((c) => ({
+    ...(c.id !== undefined ? { id: c.id } : {}),
     start: c.start,
     out: snapToOutput(c.start, timeline),
     title: c.title,
