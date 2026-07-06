@@ -7,12 +7,13 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join, normalize, resolve, sep } from "node:path";
+import { isCutplanApproved, isShortApproved } from "../lib/approval.ts";
 import { fmtT } from "../lib/fmt.ts";
 import { defaultShortProfileName, PROFILES, profileSupportsPlain } from "../lib/profile.ts";
 import { buildTimeline, remapInterval } from "../lib/timeline.ts";
 import type { TimelineEntry } from "../lib/timeline.ts";
 import { capNum, captionTrack, hasCamera, ovNum } from "../types.ts";
-import type { Interval, Manifest } from "../types.ts";
+import type { CutPlan, Interval, Manifest, Short } from "../types.ts";
 
 export interface Problem {
   /** 対象ファイル(収録フォルダ内の名前) */
@@ -82,7 +83,59 @@ export function validate(dir: string): ValidateResult {
     shorts: readJson("shorts.json", false),
     thumbnail: readJson("thumbnail.json", false),
   };
-  return validateDocs(dir, docs, preErrors);
+  const result = validateDocs(dir, docs, preErrors);
+  // 承認レコード(approvals.json)の陳腐化警告は fs 版ラッパにだけ足す
+  // (approvals.json は validateDocs の LoadedDocs に含まれない=純関数のままにする)。
+  // 既に error があるプロジェクトでは cutplan/shorts の形が保証されないため
+  // スキップする(新たな error は出さない・警告どまりの方針を守る)
+  if (result.errors.length === 0) checkApprovalFreshness(dir, docs, result.warnings);
+  return result;
+}
+
+/**
+ * approved:true(人間の承認意図)なのに、承認レコード(approvals.json)が
+ * 無い・陳腐化している(hash 不一致)ケースを警告する。render はこの状態を
+ * 拒否するので、render を待たずに JSON 編集ループ(edit → validate)の中で
+ * 気づけるようにする(§7)。exit 0 の警告どまり(既存の valid なプロジェクトに
+ * 新たな error は出さない)。
+ */
+function checkApprovalFreshness(
+  dir: string,
+  docs: LoadedDocs,
+  warnings: Problem[],
+): void {
+  const cutplan = docs.cutplan;
+  if (isObj(cutplan) && cutplan.approved === true && Array.isArray(cutplan.segments)) {
+    const gate = isCutplanApproved(dir, cutplan as unknown as CutPlan);
+    if (!gate.ok) {
+      warnings.push({
+        file: "cutplan.json",
+        where: "approved",
+        message:
+          `approved: true ですが承認レコードが無効です(${gate.reason})。` +
+          "この状態では render は拒否されます。preview で確認のうえ " +
+          "`node src/cli.ts approve <dir>` で再承認してください",
+      });
+    }
+  }
+  const shorts = docs.shorts;
+  if (isObj(shorts) && Array.isArray(shorts.shorts)) {
+    for (const s of shorts.shorts) {
+      if (!isObj(s) || s.approved !== true) continue;
+      if (typeof s.name !== "string" || !Array.isArray(s.ranges)) continue;
+      const gate = isShortApproved(dir, s as unknown as Short);
+      if (!gate.ok) {
+        warnings.push({
+          file: "shorts.json",
+          where: `shorts(name="${s.name}")`,
+          message:
+            `approved: true ですが承認レコードが無効です(${gate.reason})。` +
+            `この状態では render --short は拒否されます。preview で確認のうえ ` +
+            `\`node src/cli.ts approve <dir> --short ${s.name}\` で再承認してください`,
+        });
+      }
+    }
+  }
 }
 
 /**
