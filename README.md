@@ -38,6 +38,13 @@ curl -L -o ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin \
 npm install
 ```
 
+> **既定の LLM バックエンド `claude-cli` は `claude` CLI(Claude Code)の
+> インストールと認証(ログイン)が前提です。** 未導入だと `plan` 段で
+> `コマンド 'claude' が見つかりません` で止まります。Claude Code を入れて
+> `claude` にログインしておくか、従量課金 API に切り替えてください
+> (→ [設定](#設定) の「LLM バックエンド」)。文字起こし・無音検出・レンダーは
+> LLM 不要です。
+
 収録方法(OBS の設定)は [docs/recording-guide.md](docs/recording-guide.md) を
 参照してください。**キャンバスを 3840x1080 にして左に画面・右にカメラを並べる
 「拡張キャンバス方式」を前提**にしています。
