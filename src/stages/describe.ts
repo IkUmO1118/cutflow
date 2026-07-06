@@ -16,18 +16,26 @@ import {
   toOutputTime,
 } from "../lib/timeline.ts";
 import type { TimelineEntry } from "../lib/timeline.ts";
-import { captionTrack } from "../types.ts";
+import { captionTrack, hasCamera, manifestLayout, overlayTrack } from "../types.ts";
 import type {
   Bgm,
+  BlurType,
+  CaptionPos,
+  CaptionStyle,
+  CaptionTrackDef,
+  ColorFilter,
   Chapters,
   CutPlan,
   Interval,
+  LayerId,
   Manifest,
   Meta,
   Overlays,
   PlanSegment,
+  Region,
   Shorts,
   Transcript,
+  WordTiming,
 } from "../types.ts";
 
 /** overlays.json の inserts の1件(存在するファイルだけに絞り込んだもの)。
@@ -262,4 +270,403 @@ export function describe(dir: string): string {
     }
   }
   return lines.join("\n");
+}
+
+/* ==================================================================== */
+/* 機械可読な完全射影(describe --json)。設計 §論点2 の型・規則(A〜E)どおり。
+ * 発話・タイトルは verbatim(quote() も slice() も使わない=規則A)。
+ * 元秒はファイルの値そのまま、出力秒は timeline.ts の写像結果(規則B)。
+ * トップレベルの構造キーは常在、要素内の任意フィールドは元ファイルに
+ * 在るときだけ載せる(規則C)。テロップの pos/style はセグメント個別指定の
+ * みで、トラック標準とのマージ解決はしない(規則D)。キー順は構築順で
+ * 固定・派生値は round2(規則E)。 ==================================== */
+
+export interface DescribeProjection {
+  schemaVersion: number;
+  source: SourceInfo;
+  summary: Summary;
+  keeps: KeepEntry[];
+  cuts: CutEntry[];
+  captions: CaptionEntry[];
+  overlays: OverlaysProjection;
+  chapters: ChapterEntry[];
+  meta: { titles: string[]; description: string };
+  bgm: BgmProjection;
+  shorts: ShortEntry[];
+}
+
+export interface SourceInfo {
+  file: string;
+  durationSec: number;
+  layout: "obs-canvas" | "plain";
+  video: {
+    width: number;
+    height: number;
+    fps: number;
+    screenRegion: Region;
+    cameraRegion?: Region;
+  };
+  audio: { micWav: string; systemStream: number | null };
+}
+
+export interface Summary {
+  approved: boolean;
+  outDurationSec: number;
+  keptSec: number;
+  cutSec: number;
+  keepCount: number;
+  captionCount: number;
+}
+
+export interface KeepEntry {
+  index: number;
+  start: number;
+  end: number;
+  durationSec: number;
+  outStart: number;
+  outEnd: number;
+}
+
+export interface CutEntry {
+  start: number;
+  end: number;
+  durationSec: number;
+  reasons: string[];
+  lostCaptions: LostCaption[];
+}
+
+export interface LostCaption {
+  start: number;
+  end: number;
+  text: string;
+  track: number;
+}
+
+export interface CaptionEntry {
+  index: number;
+  start: number;
+  end: number;
+  text: string;
+  track: number;
+  pos?: CaptionPos;
+  style?: CaptionStyle;
+  words?: WordTiming[];
+  out: Interval[];
+  keepIndex: number | null;
+  visible: boolean;
+}
+
+export interface OverlaysProjection {
+  materials: MaterialEntry[];
+  inserts: InsertEntry[];
+  wipeFull: MappedInterval[];
+  zooms: ZoomEntry[];
+  blurs: BlurEntry[];
+  hideCaption: MappedInterval[];
+  colorFilter: ColorFilter | null;
+  layerOrder: LayerId[] | null;
+  captionTracks: CaptionTrackDef[];
+}
+
+/** 元秒区間 + その出力秒射影。演出の元秒 interval に一律で付ける */
+export interface MappedInterval {
+  start: number;
+  end: number;
+  out: Interval[];
+}
+
+export interface MaterialEntry {
+  start: number;
+  end: number;
+  file: string;
+  track: number;
+  fit?: "contain" | "cover";
+  startFrom?: number;
+  volume?: number;
+  opacity?: number;
+  fadeInSec?: number;
+  fadeOutSec?: number;
+  rect?: Region;
+  exists: boolean;
+  out: Interval[];
+}
+
+export interface InsertEntry {
+  at: number;
+  file: string;
+  durationSec: number;
+  startFrom?: number;
+  fit?: "contain" | "cover";
+  volume?: number;
+  fadeInSec?: number;
+  fadeOutSec?: number;
+  exists: boolean;
+  out: Interval | null;
+}
+
+export interface ZoomEntry extends MappedInterval {
+  rect: Region;
+  easeSec?: number;
+}
+
+export interface BlurEntry extends MappedInterval {
+  rect: Region;
+  type?: BlurType;
+  strength?: number;
+}
+
+export interface ChapterEntry {
+  start: number;
+  out: number | null;
+  title: string;
+}
+
+export interface BgmProjection {
+  source: "bgm.json" | "fallback" | "none";
+  tracks?: Bgm["tracks"];
+  file?: string;
+}
+
+export interface ShortEntry {
+  name: string;
+  profile: string;
+  approved: boolean;
+  ranges: Interval[];
+  mergedRanges: KeepEntry[];
+  outDurationSec: number;
+  captionTracks?: CaptionTrackDef[];
+}
+
+/** timeline.ts の round2 は未 export のため、同義の2行関数をここに持つ
+ * (規則E: 派生値の浮動小数ノイズを避ける。timeline と同精度) */
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/** keep 区間の配列(すでに mergeIntervals 済み)+そのタイムラインから
+ * KeepEntry[] を作る。本編 keeps とショートの mergedRanges の両方が使う */
+function buildKeepEntries(keeps: Interval[], timeline: TimelineEntry[]): KeepEntry[] {
+  return keeps.map((k, index) => {
+    const outStart = toOutputTime(k.start, timeline) ?? 0;
+    return {
+      index,
+      start: k.start,
+      end: k.end,
+      durationSec: round2(k.end - k.start),
+      outStart,
+      outEnd: round2(outStart + (k.end - k.start)),
+    };
+  });
+}
+
+function buildProjection(inp: DescribeInputs): DescribeProjection {
+  const { dir, manifest, cutplan, transcript, overlays, chapters, meta, timeline, keeps } = inp;
+
+  const source: SourceInfo = {
+    file: manifest.source,
+    durationSec: manifest.durationSec,
+    layout: manifestLayout(manifest),
+    video: {
+      width: manifest.video.width,
+      height: manifest.video.height,
+      fps: manifest.video.fps,
+      screenRegion: manifest.video.screenRegion,
+      ...(hasCamera(manifest) ? { cameraRegion: manifest.video.cameraRegion! } : {}),
+    },
+    audio: { micWav: manifest.audio.micWav, systemStream: manifest.audio.systemStream },
+  };
+
+  const summary: Summary = {
+    approved: cutplan.approved,
+    outDurationSec: round2(inp.outDur),
+    keptSec: round2(inp.keptSec),
+    cutSec: round2(manifest.durationSec - inp.keptSec),
+    keepCount: keeps.length,
+    captionCount: transcript.segments.length,
+  };
+
+  const keepEntries = buildKeepEntries(keeps, timeline);
+
+  /* ---- cuts(gap を keep と同じ手順で走査。消える発言は全文) ---- */
+  const cuts: CutEntry[] = [];
+  for (let i = 0; i <= keeps.length; i++) {
+    const gapStart = i === 0 ? 0 : keeps[i - 1].end;
+    const gapEnd = i < keeps.length ? keeps[i].start : manifest.durationSec;
+    if (gapEnd - gapStart <= 0.05) continue;
+    const reasons = inp.cutRecords
+      .filter((r) => overlaps(r, gapStart, gapEnd))
+      .map((r) => r.reason);
+    const lostCaptions: LostCaption[] = [];
+    for (const s of transcript.segments) {
+      if (overlaps(s, gapStart, gapEnd) && keepIndexOf(s, keeps, timeline) === null) {
+        lostCaptions.push({ start: s.start, end: s.end, text: s.text, track: captionTrack(s) });
+      }
+    }
+    cuts.push({
+      start: gapStart,
+      end: gapEnd,
+      durationSec: round2(gapEnd - gapStart),
+      reasons,
+      lostCaptions,
+    });
+  }
+
+  /* ---- captions(全文・全件。pos/style/words はセグメント個別指定のみ) ---- */
+  const captions: CaptionEntry[] = transcript.segments.map((s, index): CaptionEntry => {
+    const out = remapInterval(s.start, s.end, timeline);
+    return {
+      index,
+      start: s.start,
+      end: s.end,
+      text: s.text,
+      track: captionTrack(s),
+      ...(s.pos !== undefined ? { pos: s.pos } : {}),
+      ...(s.style !== undefined ? { style: s.style } : {}),
+      ...(s.words !== undefined ? { words: s.words } : {}),
+      out,
+      keepIndex: keepIndexOf(s, keeps, timeline),
+      visible: out.length > 0,
+    };
+  });
+
+  /* ---- overlays(演出の全フィールド) ---- */
+  const materials: MaterialEntry[] = (overlays.overlays ?? []).map((o): MaterialEntry => ({
+    start: o.start,
+    end: o.end,
+    file: o.file,
+    track: overlayTrack(o),
+    ...(o.fit !== undefined ? { fit: o.fit } : {}),
+    ...(o.startFrom !== undefined ? { startFrom: o.startFrom } : {}),
+    ...(o.volume !== undefined ? { volume: o.volume } : {}),
+    ...(o.opacity !== undefined ? { opacity: o.opacity } : {}),
+    ...(o.fadeInSec !== undefined ? { fadeInSec: o.fadeInSec } : {}),
+    ...(o.fadeOutSec !== undefined ? { fadeOutSec: o.fadeOutSec } : {}),
+    ...(o.rect !== undefined ? { rect: o.rect } : {}),
+    exists: existsSync(join(dir, o.file)),
+    out: remapInterval(o.start, o.end, timeline),
+  }));
+
+  // inserts は全件(存在しないファイルの insert も編集状態としては存在する)。
+  // timeline に入るのは存在するものだけなので、position を filtered 配列
+  // (=loadDescribeInputs が existsSync で絞った inp.inserts)内の参照一致で探す
+  const allInserts = overlays.inserts ?? [];
+  const filteredInserts = inp.inserts;
+  const spans = insertSpans(keeps, filteredInserts);
+  const inserts: InsertEntry[] = allInserts.map((ins): InsertEntry => {
+    const exists = existsSync(join(dir, ins.file));
+    let out: Interval | null = null;
+    if (exists) {
+      const filteredIndex = filteredInserts.indexOf(ins);
+      const sp = spans.find((s) => s.index === filteredIndex);
+      if (sp) out = { start: sp.start, end: sp.end };
+    }
+    return {
+      at: ins.at,
+      file: ins.file,
+      durationSec: ins.durationSec,
+      ...(ins.startFrom !== undefined ? { startFrom: ins.startFrom } : {}),
+      ...(ins.fit !== undefined ? { fit: ins.fit } : {}),
+      ...(ins.volume !== undefined ? { volume: ins.volume } : {}),
+      ...(ins.fadeInSec !== undefined ? { fadeInSec: ins.fadeInSec } : {}),
+      ...(ins.fadeOutSec !== undefined ? { fadeOutSec: ins.fadeOutSec } : {}),
+      exists,
+      out,
+    };
+  });
+
+  const wipeFull: MappedInterval[] = (overlays.wipeFull ?? []).map((w) => ({
+    start: w.start,
+    end: w.end,
+    out: remapInterval(w.start, w.end, timeline),
+  }));
+
+  const zooms: ZoomEntry[] = (overlays.zooms ?? []).map((z): ZoomEntry => ({
+    start: z.start,
+    end: z.end,
+    out: remapInterval(z.start, z.end, timeline),
+    rect: z.rect,
+    ...(z.easeSec !== undefined ? { easeSec: z.easeSec } : {}),
+  }));
+
+  const blurs: BlurEntry[] = (overlays.blurs ?? []).map((b): BlurEntry => ({
+    start: b.start,
+    end: b.end,
+    out: remapInterval(b.start, b.end, timeline),
+    rect: b.rect,
+    ...(b.type !== undefined ? { type: b.type } : {}),
+    ...(b.strength !== undefined ? { strength: b.strength } : {}),
+  }));
+
+  const hideCaption: MappedInterval[] = (overlays.hideCaption ?? []).map((h) => ({
+    start: h.start,
+    end: h.end,
+    out: remapInterval(h.start, h.end, timeline),
+  }));
+
+  const overlaysProjection: OverlaysProjection = {
+    materials,
+    inserts,
+    wipeFull,
+    zooms,
+    blurs,
+    hideCaption,
+    colorFilter: overlays.colorFilter ?? null,
+    layerOrder: overlays.layerOrder ?? null,
+    captionTracks: overlays.captionTracks ?? [],
+  };
+
+  /* ---- chapters(元秒 + snapToOutput・全文タイトル) ---- */
+  const chaptersProj: ChapterEntry[] = chapters.chapters.map((c) => ({
+    start: c.start,
+    out: snapToOutput(c.start, timeline),
+    title: c.title,
+  }));
+
+  /* ---- bgm ---- */
+  let bgm: BgmProjection;
+  if (inp.bgm && inp.bgm.tracks?.length) {
+    bgm = { source: "bgm.json", tracks: inp.bgm.tracks };
+  } else {
+    const fallbackFile = ["bgm.mp3", "bgm.m4a", "bgm.wav"].find((f) =>
+      existsSync(join(dir, f)),
+    );
+    bgm = fallbackFile !== undefined ? { source: "fallback", file: fallbackFile } : { source: "none" };
+  }
+
+  /* ---- shorts(全 ranges + ショート専用 timeline での出力秒) ---- */
+  const shorts: ShortEntry[] = (inp.shorts?.shorts ?? []).map((s): ShortEntry => {
+    const merged = mergeIntervals(s.ranges);
+    const shortTimeline = buildTimeline(merged, []);
+    const mergedRanges = buildKeepEntries(merged, shortTimeline);
+    const outDurationSec = round2(mergedRanges.reduce((a, r) => a + (r.end - r.start), 0));
+    return {
+      name: s.name,
+      profile: s.profile ?? "vertical",
+      approved: s.approved,
+      ranges: s.ranges,
+      mergedRanges,
+      outDurationSec,
+      ...(s.captionTracks !== undefined ? { captionTracks: s.captionTracks } : {}),
+    };
+  });
+
+  return {
+    schemaVersion: 1,
+    source,
+    summary,
+    keeps: keepEntries,
+    cuts,
+    captions,
+    overlays: overlaysProjection,
+    chapters: chaptersProj,
+    meta: { titles: meta.titles, description: meta.description },
+    bgm,
+    shorts,
+  };
+}
+
+/** 編集状態の機械可読な完全射影(`describe --json`)。発話・タイトルは
+ * 一切切り捨てない(規則A)。CLI 配線はタスク4(このタスクではまだ未参照) */
+export function describeJson(dir: string): DescribeProjection {
+  return buildProjection(loadDescribeInputs(dir));
 }
