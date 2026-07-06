@@ -23,6 +23,7 @@ import { learn } from "./stages/learn.ts";
 import { preview } from "./stages/preview.ts";
 import { render, renderShort, renderShorts } from "./stages/render.ts";
 import { validate } from "./stages/validate.ts";
+import { idStamp } from "./stages/idStamp.ts";
 import { describe, describeJson } from "./stages/describe.ts";
 import { frames } from "./stages/frames.ts";
 import type { FrameRequest } from "./stages/frames.ts";
@@ -283,6 +284,23 @@ program
       (r.warnings.length > 0 ? `警告 ${r.warnings.length}件(動作はします)\n` : "") +
         `✔ エラーなし: ${r.summary}`,
     );
+  });
+
+program
+  .command("id-stamp <dir>")
+  .description(
+    "編集ファイルの各要素に安定 id を一括採番(@-mention の基盤。冪等・既存 id は不変)",
+  )
+  .action((dir: string) => {
+    const abs = resolveDir(dir);
+    const { changed, validate: r } = idStamp(abs);
+    if (changed.length === 0) {
+      console.log("変更なし(すべて採番済み、または対象ファイルがありません)");
+    } else {
+      console.log(`id を採番しました: ${changed.join(", ")}`);
+    }
+    for (const w of r.warnings) console.log(`⚠ ${w.file} ${w.where}: ${w.message}`);
+    for (const e of r.errors) console.error(`✖ ${e.file} ${e.where}: ${e.message}`);
   });
 
 program
