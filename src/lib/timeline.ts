@@ -99,15 +99,30 @@ export function mergeIntervals(list: Interval[]): Interval[] {
   return result;
 }
 
+/** pred が false→true に切り替わる最初の添字(単調前提の二分探索)。
+ * 全て false なら n。timeline のエントリは重なりなく時系列順なので、
+ * 元収録の秒でも出力の秒でも start / end が単調増加 = 二分探索できる。
+ * 長尺(エントリ数百〜)ではエディタがクリップ再構築のたびに全テロップ分
+ * 呼ぶため、線形走査だとドラッグ中のフレーム落ちに直結する */
+export function lowerBound(n: number, pred: (i: number) => boolean): number {
+  let lo = 0;
+  let hi = n;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (pred(mid)) hi = mid;
+    else lo = mid + 1;
+  }
+  return lo;
+}
+
 /** 元動画の時刻をカット後の時刻へ。カットされた時刻なら null */
 export function toOutputTime(
   t: number,
   timeline: TimelineEntry[],
 ): number | null {
-  for (const e of timeline) {
-    if (t >= e.start && t < e.end) return round2(t + e.offset);
-  }
-  return null;
+  const i = lowerBound(timeline.length, (j) => timeline[j].end > t);
+  const e = timeline[i];
+  return e !== undefined && t >= e.start ? round2(t + e.offset) : null;
 }
 
 /**
@@ -122,7 +137,11 @@ export function remapInterval(
   timeline: TimelineEntry[],
 ): Interval[] {
   const result: Interval[] = [];
-  for (const e of timeline) {
+  // [start, end) と重なりうる最初のエントリから、start が end を越えるまで
+  const i0 = lowerBound(timeline.length, (j) => timeline[j].end > start);
+  for (let i = i0; i < timeline.length; i++) {
+    const e = timeline[i];
+    if (e.start >= end) break;
     const s = Math.max(start, e.start);
     const en = Math.min(end, e.end);
     if (en > s) {
@@ -141,12 +160,14 @@ export function toSourceTime(
   outT: number,
   timeline: TimelineEntry[],
 ): number | null {
-  for (const e of timeline) {
-    if (outT >= e.start + e.offset && outT < e.end + e.offset) {
-      return round2(outT - e.offset);
-    }
-  }
-  return null;
+  const i = lowerBound(
+    timeline.length,
+    (j) => timeline[j].end + timeline[j].offset > outT,
+  );
+  const e = timeline[i];
+  return e !== undefined && outT >= e.start + e.offset
+    ? round2(outT - e.offset)
+    : null;
 }
 
 /**
@@ -159,10 +180,9 @@ export function snapToOutput(
 ): number | null {
   const direct = toOutputTime(t, timeline);
   if (direct !== null) return direct;
-  for (const e of timeline) {
-    if (e.start >= t) return round2(e.start + e.offset);
-  }
-  return null;
+  const i = lowerBound(timeline.length, (j) => timeline[j].start >= t);
+  const e = timeline[i];
+  return e !== undefined ? round2(e.start + e.offset) : null;
 }
 
 function round2(n: number): number {

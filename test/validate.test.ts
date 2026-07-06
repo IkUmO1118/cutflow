@@ -23,8 +23,11 @@ function baseDocs(over: Partial<LoadedDocs> = {}): LoadedDocs {
     },
     transcript: { segments: [{ start: 1, end: 3, text: "こんにちは" }] },
     overlays: {},
+    bgm: null,
     chapters: null,
     meta: null,
+    shorts: null,
+    thumbnail: null,
     ...over,
   };
 }
@@ -122,4 +125,400 @@ test("章: 概要欄はあるのに章トラックが無いと警告", () => {
     overlays: {},
   }));
   assert.ok(r.warnings.some((w) => w.message.includes("テロップトラックがありません")));
+});
+
+/* -------- overlays / inserts の再生系オプション(頭出し・音量・フェード・rect) -------- */
+
+test("overlay: volume / opacity / rect の範囲外はエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    overlays: {
+      overlays: [
+        { start: 1, end: 5, file: "materials/x.mp4", volume: 3 },
+        { start: 1, end: 5, file: "materials/x.mp4", opacity: 1.5 },
+        { start: 1, end: 5, file: "materials/x.mp4", rect: { x: 0, y: 0, w: -100, h: 100 } },
+        { start: 1, end: 5, file: "materials/x.mp4", rect: { x: 0, y: 0 } },
+      ],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "overlays[0]" && e.message.includes("volume")));
+  assert.ok(r.errors.some((e) => e.where === "overlays[1]" && e.message.includes("opacity")));
+  assert.ok(r.errors.some((e) => e.where === "overlays[2]" && e.message.includes("rect")));
+  assert.ok(r.errors.some((e) => e.where === "overlays[3]" && e.message.includes("rect")));
+});
+
+test("overlay: 画像素材への volume・startFrom は警告(無視される)", () => {
+  const r = validateDocs(DIR, baseDocs({
+    overlays: {
+      overlays: [{ start: 1, end: 5, file: "materials/x.png", volume: 1, startFrom: 2 }],
+    },
+  }));
+  assert.ok(r.warnings.some((w) => w.message.includes("音声はありません")));
+  assert.ok(r.warnings.some((w) => w.message.includes("startFrom は動画素材のみ")));
+});
+
+test("overlay: フェード合計が表示時間より長いと警告", () => {
+  const r = validateDocs(DIR, baseDocs({
+    overlays: {
+      overlays: [{ start: 1, end: 3, file: "materials/x.mp4", fadeInSec: 1.5, fadeOutSec: 1.5 }],
+    },
+  }));
+  assert.ok(r.warnings.some((w) => w.message.includes("フェード")));
+});
+
+/* -------- overlays.json の zooms -------- */
+
+const manifestWithScreen = {
+  durationSec: 100,
+  video: { screenRegion: { x: 0, y: 0, w: 1920, h: 1080 } },
+};
+
+test("zoom: rect 欠落・w/h 不正はエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      zooms: [
+        { start: 1, end: 5, rect: { x: 0, y: 0, w: -100, h: 100 } },
+        { start: 10, end: 15, rect: { x: 0, y: 0 } },
+      ],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "zooms[0]" && e.message.includes("rect")));
+  assert.ok(r.errors.some((e) => e.where === "zooms[1]" && e.message.includes("rect")));
+});
+
+test("zoom: 収録尺を超える end はエラー(overlays/wipeFull と違い警告ではない)", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      zooms: [{ start: 90, end: 150, rect: { x: 0, y: 0, w: 960, h: 1080 } }],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "zooms[0]" && e.message.includes("収録の長さ")));
+});
+
+test("zoom: rect が出力の外にはみ出しているとエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      zooms: [{ start: 1, end: 5, rect: { x: 1800, y: 0, w: 960, h: 1080 } }],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "zooms[0]" && e.message.includes("はみ出しています")));
+});
+
+test("zoom: rect のアスペクト比が出力と1%超ずれると警告", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    // 出力は 16:9、rect は正方形(1:1)
+    overlays: { zooms: [{ start: 1, end: 5, rect: { x: 0, y: 0, w: 500, h: 500 } }] },
+  }));
+  assert.ok(r.warnings.some((w) => w.where === "zooms[0]" && w.message.includes("アスペクト比")));
+});
+
+test("zoom: 極端な拡大率(scale>8)は警告", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    // scale = 1920 / 200 = 9.6 倍
+    overlays: { zooms: [{ start: 1, end: 5, rect: { x: 0, y: 0, w: 200, h: 112 } }] },
+  }));
+  assert.ok(r.warnings.some((w) => w.where === "zooms[0]" && w.message.includes("拡大率")));
+});
+
+test("zoom: easeSec が負だとエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      zooms: [{ start: 1, end: 5, rect: { x: 0, y: 0, w: 960, h: 1080 }, easeSec: -1 }],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "zooms[0]" && e.message.includes("easeSec")));
+});
+
+test("zoom: 区間が重なるとエラー(書いた順序に関わらず検出)", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      zooms: [
+        { start: 10, end: 20, rect: { x: 0, y: 0, w: 960, h: 1080 } },
+        { start: 5, end: 15, rect: { x: 960, y: 0, w: 960, h: 1080 } },
+      ],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "zooms" && e.message.includes("重なって")));
+});
+
+test("zoom: 妥当なズームはエラー・警告なし", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      zooms: [{ start: 1, end: 5, rect: { x: 480, y: 270, w: 960, h: 540 }, easeSec: 0.4 }],
+    },
+  }));
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.warnings, []);
+});
+
+/* -------- bgm.json -------- */
+
+test("bgm: file 欠落・volumeDb 非数値・startFrom 負・時刻逆転はエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    bgm: {
+      tracks: [
+        { start: 0, end: 5 }, // file なし
+        { start: 0, end: 5, file: "bgm.mp3", volumeDb: "loud" },
+        { start: 0, end: 5, file: "bgm.mp3", startFrom: -1 },
+        { start: 5, end: 5, file: "bgm.mp3" }, // start >= end
+      ],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "tracks[0]" && e.message.includes("file")));
+  assert.ok(r.errors.some((e) => e.where === "tracks[1]" && e.message.includes("volumeDb")));
+  assert.ok(r.errors.some((e) => e.where === "tracks[2]" && e.message.includes("startFrom")));
+  assert.ok(r.errors.some((e) => e.where === "tracks[3]"));
+});
+
+test("bgm: 実在しない素材はエラー、収録フォルダ外はエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    bgm: {
+      tracks: [
+        { start: 0, end: 5, file: "bgm.mp3" }, // DIR に無い
+        { start: 0, end: 5, file: "../secret.mp3" }, // フォルダ外
+      ],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "tracks[0]" && e.message.includes("BGM ファイルがありません")));
+  assert.ok(r.errors.some((e) => e.where === "tracks[1]" && e.message.includes("外を指しています")));
+});
+
+test("bgm: 未知キーは警告、tracks 非配列はエラー", () => {
+  const r1 = validateDocs(DIR, baseDocs({ bgm: { tracks: [], loop: true } }));
+  assert.ok(r1.warnings.some((w) => w.message.includes("不明なキー")));
+  const r2 = validateDocs(DIR, baseDocs({ bgm: { tracks: {} } }));
+  assert.ok(r2.errors.some((e) => e.where === "tracks" && e.message.includes("配列")));
+});
+
+test("insert: volume の範囲外・負のフェードはエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    overlays: {
+      inserts: [
+        { at: 5, file: "materials/x.mp4", durationSec: 3, volume: -0.5 },
+        { at: 6, file: "materials/x.mp4", durationSec: 3, fadeOutSec: -1 },
+      ],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "inserts[0]" && e.message.includes("volume")));
+  assert.ok(r.errors.some((e) => e.where === "inserts[1]" && e.message.includes("fadeOutSec")));
+});
+
+test("overlay: 画像拡張子以外(.mkv 等)は動画扱いで volume / startFrom の誤警告を出さない", () => {
+  // レンダラー(remotion/Main.tsx の isImageFile)は画像リスト外をすべて
+  // OffthreadVideo で再生する。validate が逆の警告を出すと AI 編集者を欺く
+  const r = validateDocs(DIR, baseDocs({
+    overlays: {
+      overlays: [
+        { start: 1, end: 5, file: "materials/x.mkv", volume: 1, startFrom: 2 },
+      ],
+    },
+  }));
+  assert.ok(!r.warnings.some((w) => w.message.includes("画像素材に音声はありません")));
+  assert.ok(!r.warnings.some((w) => w.message.includes("startFrom は動画素材のみ")));
+});
+
+test("overlay: opacity 0 は「表示されない」警告", () => {
+  const r = validateDocs(DIR, baseDocs({
+    overlays: { overlays: [{ start: 1, end: 5, file: "materials/x.png", opacity: 0 }] },
+  }));
+  assert.ok(
+    r.warnings.some((w) => w.where === "overlays[0]" && w.message.includes("opacity が 0")),
+  );
+});
+
+test("overlay: フェード長すぎ警告は元区間長ではなくカット後の実表示秒で判定する", () => {
+  const r = validateDocs(DIR, baseDocs({
+    cutplan: {
+      approved: false,
+      segments: [
+        { start: 0, end: 2, action: "keep", reason: "a" },
+        { start: 2, end: 9, action: "cut", reason: "b" },
+        { start: 9, end: 10, action: "keep", reason: "c" },
+      ],
+    },
+    overlays: {
+      // 区間は 9 秒あるが実表示は 2 秒。フェード計 3 秒は長すぎ
+      overlays: [
+        { start: 1, end: 10, file: "materials/x.mp4", fadeInSec: 1.5, fadeOutSec: 1.5 },
+      ],
+    },
+  }));
+  assert.ok(
+    r.warnings.some((w) => w.where === "overlays[0]" && w.message.includes("フェード")),
+  );
+});
+
+test("style.fontWeight は 100〜900 の範囲外をエラーにする(文書と同じ範囲)", () => {
+  const r = validateDocs(DIR, baseDocs({
+    transcript: { segments: [{ start: 1, end: 3, text: "a", style: { fontWeight: 50 } }] },
+  }));
+  assert.ok(r.errors.some((e) => e.message.includes("fontWeight")));
+});
+
+/* -------- overlays.json の colorFilter -------- */
+
+test("colorFilter: 範囲外・非数値はエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    overlays: { colorFilter: { brightness: 0, contrast: 3.1, saturate: "x" as unknown as number } },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "colorFilter.brightness"));
+  assert.ok(r.errors.some((e) => e.where === "colorFilter.contrast"));
+  assert.ok(r.errors.some((e) => e.where === "colorFilter.saturate"));
+});
+
+test("colorFilter: 全キー省略の空オブジェクトは警告", () => {
+  const r = validateDocs(DIR, baseDocs({ overlays: { colorFilter: {} } }));
+  assert.ok(r.warnings.some((w) => w.where === "colorFilter" && w.message.includes("いずれも指定")));
+  assert.deepEqual(r.errors, []);
+});
+
+test("colorFilter: 妥当な指定はエラー・警告なし", () => {
+  const r = validateDocs(DIR, baseDocs({
+    overlays: { colorFilter: { brightness: 1.05, contrast: 1.1 } },
+  }));
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.warnings, []);
+});
+
+test("colorFilter: 未知のキーは警告", () => {
+  const r = validateDocs(DIR, baseDocs({
+    overlays: { colorFilter: { brightness: 1.1, gamma: 2 } as unknown as Record<string, number> },
+  }));
+  assert.ok(r.warnings.some((w) => w.message.includes("不明なキー")));
+});
+
+/* -------- thumbnail.json -------- */
+
+test("thumbnail: 妥当な構成はエラーなし", () => {
+  const r = validateDocs(DIR, baseDocs({
+    thumbnail: { t: 50, texts: [{ text: "見出し", pos: { x: 640, y: 400 } }] },
+  }));
+  assert.deepEqual(r.errors, []);
+});
+
+test("thumbnail: t が範囲外・texts が空はエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    thumbnail: { t: 150, texts: [] },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "t" && e.message.includes("収録の長さ")));
+  assert.ok(r.errors.some((e) => e.where === "texts" && e.message.includes("1件以上")));
+});
+
+test("thumbnail: text 欠落・pos 欠落はエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    thumbnail: { t: 10, texts: [{ text: "", pos: { x: 1 } }] },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "texts[0]" && e.message.includes("text")));
+  assert.ok(r.errors.some((e) => e.where === "texts[0]" && e.message.includes("pos")));
+});
+
+test("thumbnail: style は transcript と同じ検査を共有する(fontWeight 範囲外はエラー)", () => {
+  const r = validateDocs(DIR, baseDocs({
+    thumbnail: {
+      t: 10,
+      texts: [{ text: "見出し", pos: { x: 1, y: 1 }, style: { fontWeight: 50 } }],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.message.includes("fontWeight")));
+});
+
+/* -------- shorts.json -------- */
+
+function validShort(over: Record<string, unknown> = {}) {
+  return {
+    name: "hook-mistake",
+    profile: "vertical",
+    approved: false,
+    ranges: [{ start: 10, end: 20 }],
+    ...over,
+  };
+}
+
+test("shorts.json が無い収録では validate の出力が現状と完全一致する", () => {
+  const withoutFile = validateDocs(DIR, baseDocs({ shorts: null }));
+  const withDefaultKey = validateDocs(DIR, baseDocs());
+  assert.deepEqual(withoutFile, withDefaultKey);
+  assert.deepEqual(withoutFile.errors, []);
+});
+
+test("shorts: 妥当な構成はエラーなし", () => {
+  const r = validateDocs(DIR, baseDocs({ shorts: { shorts: [validShort()] } }));
+  assert.deepEqual(r.errors, []);
+});
+
+test("shorts: 未知の profile 名はエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    shorts: { shorts: [validShort({ profile: "square" })] },
+  }));
+  assert.ok(r.errors.some((e) => e.message.includes("profile")));
+});
+
+test("shorts: name の重複・不正文字はエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    shorts: {
+      shorts: [
+        validShort({ name: "Hook Mistake!" }), // 不正文字
+        validShort({ name: "dup" }),
+        validShort({ name: "dup" }), // 重複
+      ],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "shorts[0]" && e.message.includes("name")));
+  assert.ok(r.errors.some((e) => e.where === "shorts[2]" && e.message.includes("重複")));
+});
+
+test("shorts: approved が真偽値でないとエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    shorts: { shorts: [validShort({ approved: "yes" })] },
+  }));
+  assert.ok(r.errors.some((e) => e.message.includes("approved")));
+});
+
+test("shorts: ranges が空・逆転はエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    shorts: {
+      shorts: [
+        validShort({ name: "empty-ranges", ranges: [] }),
+        validShort({ name: "reversed", ranges: [{ start: 20, end: 10 }] }),
+      ],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "shorts[0].ranges" && e.message.includes("1件以上")));
+  assert.ok(r.errors.some((e) => e.where === "shorts[1].ranges[0]"));
+});
+
+test("shorts: captionTracks は overlays.captionTracks と同じ検査(不正 anchor・track 重複)", () => {
+  const r = validateDocs(DIR, baseDocs({
+    shorts: {
+      shorts: [
+        validShort({
+          captionTracks: [
+            { track: 1, anchor: "middle" },
+            { track: 1, x: 10, y: 10 },
+          ],
+        }),
+      ],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.message.includes("anchor")));
+  assert.ok(r.errors.some((e) => e.message.includes("重複")));
+});
+
+test("shorts: captionTracks の座標が profile 範囲外だと警告", () => {
+  const r = validateDocs(DIR, baseDocs({
+    shorts: {
+      shorts: [
+        // vertical は 1080x1920。x が幅を超える
+        validShort({ captionTracks: [{ track: 1, x: 5000, y: 100 }] }),
+      ],
+    },
+  }));
+  assert.ok(r.warnings.some((w) => w.message.includes("幅") && w.message.includes("外です")));
 });

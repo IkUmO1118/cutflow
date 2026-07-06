@@ -34,16 +34,19 @@ import {
   selectComposition,
 } from "@remotion/renderer";
 import { fmtT } from "../lib/fmt.ts";
+import { resolveProfile } from "../lib/profile.ts";
 import { buildRenderProps } from "../lib/renderProps.ts";
+import { loadShort } from "../lib/shorts.ts";
 import {
   buildTimeline,
   mergeIntervals,
   snapToOutput,
   toOutputTime,
 } from "../lib/timeline.ts";
-import { buildProxy } from "./proxy.ts";
+import { buildProxy, isProxyStale } from "./proxy.ts";
 import type { Config } from "../lib/config.ts";
-import type { CutPlan, Manifest, Overlays, Transcript } from "../types.ts";
+import type { Profile } from "../lib/profile.ts";
+import type { CutPlan, Interval, Manifest, Overlays, Transcript } from "../types.ts";
 
 export interface FrameShot {
   /** 指定された時刻(秒。times は axis の軸 / captions・every は出力の秒) */
@@ -67,6 +70,7 @@ export async function frames(
   dir: string,
   req: FrameRequest,
   cfg: Config,
+  shortName?: string,
 ): Promise<FrameShot[]> {
   const readJson = <T>(file: string, fallback: T | null): T => {
     const p = join(dir, file);
@@ -77,20 +81,47 @@ export async function frames(
     return JSON.parse(readFileSync(p, "utf8")) as T;
   };
   const manifest = readJson<Manifest>("manifest.json", null);
-  const cutplan = readJson<CutPlan>("cutplan.json", null);
   const transcript = readJson<Transcript>("transcript.json", null);
-  const overlays = readJson<Overlays>("overlays.json", {});
 
-  const keeps = mergeIntervals(
-    cutplan.segments.filter((s) => s.action === "keep"),
-  );
+  // --short 指定時はショート専用の keep 集合(ranges)・captionTracks・
+  // プロファイルを使う(本編 cutplan/overlays とは独立。D2)。
+  // それ以外は従来どおり本編 cutplan.json ベース
+  let keeps: Interval[];
+  let overlays: Overlays;
+  let profile: Profile;
+  if (shortName) {
+    const short = loadShort(dir, shortName);
+    keeps = mergeIntervals(short.ranges);
+    // colorFilter だけは本編から例外的に継承する(render.ts のショート経路と
+    // 同じ理由。D2 の対象外)
+    const mainOverlays = readJson<Overlays>("overlays.json", {});
+    overlays = {
+      captionTracks: short.captionTracks,
+      ...(mainOverlays.colorFilter ? { colorFilter: mainOverlays.colorFilter } : {}),
+    };
+    profile = resolveProfile(cfg, short.profile ?? "vertical");
+  } else {
+    const cutplan = readJson<CutPlan>("cutplan.json", null);
+    keeps = mergeIntervals(cutplan.segments.filter((s) => s.action === "keep"));
+    overlays = readJson<Overlays>("overlays.json", {});
+    profile = resolveProfile(cfg, "default");
+  }
   if (keeps.length === 0) {
-    throw new Error("keep 区間が0件です(cutplan.json を確認してください)");
+    throw new Error(
+      shortName
+        ? `ショート "${shortName}" の ranges が0件です(shorts.json を確認してください)`
+        : "keep 区間が0件です(cutplan.json を確認してください)",
+    );
   }
 
-  // ベース映像はエディタと同じ軽量プロキシ。無ければここで作る(収録ごとに1回)
+  // ベース映像はエディタと同じ軽量プロキシ。無ければここで作る(収録ごとに1回)。
+  // 焼き込み済みの設定(ラウドネス・システム音声・プレビュー幅・エンコーダ)か
+  // 元収録ファイルが前回の生成から変わっていれば陳腐化しているので作り直す
   if (!existsSync(join(dir, "proxy.mp4"))) {
     console.log("proxy.mp4 がないので生成します(初回のみ・数十秒)...");
+    await buildProxy(dir, cfg);
+  } else if (isProxyStale(dir, cfg)) {
+    console.log("proxy.mp4 が設定・元収録と食い違っているので作り直します...");
     await buildProxy(dir, cfg);
   }
 
@@ -100,11 +131,13 @@ export async function frames(
     transcript,
     overlays,
     renderCfg: cfg.render,
-    width: cfg.ingest.screenRegion.w,
-    height: cfg.ingest.screenRegion.h,
+    width: profile.width,
+    height: profile.height,
+    profile,
     videoFile: "proxy.mp4",
     videoIsSource: true,
     bgm: null, // 静止画に音は無関係
+    bgmFallbackFile: null,
     overlayExists: (f) => existsSync(join(dir, f)),
     warn: (msg) => console.warn(`警告: ${msg}`),
   });

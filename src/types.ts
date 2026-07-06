@@ -99,6 +99,14 @@ export const CAPTION_DEFAULT_FONT_FAMILY =
   '"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif';
 export const CAPTION_DEFAULT_FONT_WEIGHT = 700;
 
+/** render.wipeTransitionSec 未指定時の既定(秒)。renderProps と設定画面で共有。
+ * config.ts は node 専用(node:fs 等)なので、ブラウザにも入るこのファイルに置く */
+export const DEFAULT_WIPE_TRANSITION_SEC = 0.3;
+
+/** render.cutTransition.sec 未指定時の既定(秒)。dip-to-black 使用時の
+ * 黒への往復の合計秒(前半でフェードアウト、後半でフェードイン) */
+export const DEFAULT_CUT_TRANSITION_SEC = 0.3;
+
 /** detect が生成(cuts.auto.json)。機械的に検出したカット候補 */
 export interface AutoCuts {
   /** 検出パラメータ(再現性のため記録) */
@@ -226,10 +234,22 @@ export function defaultLayerOrder(n: number): LayerId[] {
 /** 従来互換の既定順(素材2トラック) */
 export const DEFAULT_LAYER_ORDER: LayerId[] = defaultLayerOrder(2);
 
+/** テロップトラックの標準設定1件。overlays.json の captionTracks と
+ * shorts.json の各ショートの captionTracks で共用する */
+export interface CaptionTrackDef {
+  track: number;
+  name?: string;
+  x?: number;
+  y?: number;
+  anchor?: "center" | "topLeft";
+  style?: CaptionStyle;
+}
+
 /** 人間が書く演出指定(overlays.json)。ファイルが無ければ全部なし。
  * 時刻は他の編集ファイルと同じく元動画(収録ファイル)の秒 */
 export interface Overlays {
-  /** 素材(画像/動画)を画面いっぱいに表示する区間 */
+  /** 素材(画像/動画)を表示する区間。省略時は画面いっぱい、rect で
+   * 部分配置(ピクチャ・イン・ピクチャ)もできる */
   overlays?: {
     start: number;
     end: number;
@@ -239,9 +259,24 @@ export interface Overlays {
     track?: number;
     /** 旧式のトラック指定(under=V1 / over=V2)。track があればそちらが優先 */
     layer?: "under" | "over";
-    /** contain: 全体を見せる(余白は黒) / cover: 画面を埋める(端が切れる)。
-     *  省略時 contain */
+    /** contain: 全体を見せる(全画面時の余白は黒、rect 配置時は透過) /
+     *  cover: 領域を埋める(端が切れる)。省略時 contain */
     fit?: "contain" | "cover";
+    /** 頭出し(In点)。素材ファイル内の再生開始位置(秒)。省略時 0(頭から)。
+     *  動画素材のみ有効(画像では無視) */
+    startFrom?: number;
+    /** 音量(0〜2、1=素材の音量のまま)。省略時 0 = 無音(従来どおり)。
+     *  動画素材のみ有効。マイク音声・BGM はそのまま重なる */
+    volume?: number;
+    /** 不透明度(0〜1)。省略時 1 */
+    opacity?: number;
+    /** フェードイン/アウト(秒)。表示区間の頭/末尾で不透明度(と音量)を
+     *  なめらかに遷移する。省略時 0(なし) */
+    fadeInSec?: number;
+    fadeOutSec?: number;
+    /** 表示領域(出力px の {x, y, w, h})。省略時は全画面。
+     *  fit はこの領域内での素材の収め方になる */
+    rect?: Region;
   }[];
   /** ベース映像トラックへの挿入クリップ(Premiere のインサート編集相当)。
    * カット後タイムラインの at(元収録の秒)の位置に file を durationSec ぶん
@@ -260,6 +295,13 @@ export interface Overlays {
     startFrom?: number;
     /** contain: 全体を見せる(余白は黒) / cover: 画面を埋める。省略時 contain */
     fit?: "contain" | "cover";
+    /** 音量(0〜2、1=素材の音量のまま)。省略時 1(音声込み。従来どおり)。
+     *  0 で無音になる */
+    volume?: number;
+    /** フェードイン/アウト(秒)。黒からの明転/黒への暗転(音量も連動)。
+     *  省略時 0(なし) */
+    fadeInSec?: number;
+    fadeOutSec?: number;
   }[];
   /** ワイプ(カメラ)を全画面にして背景を隠す区間 */
   wipeFull?: Interval[];
@@ -272,20 +314,118 @@ export interface Overlays {
    * anchor は座標の解釈(省略時 center=テキスト中心 / topLeft=左上。
    * 章タイトルのような左寄せ配置のトラックに使う)。
    * name はタイムラインに出すトラック名(省略時は自動ラベル) */
-  captionTracks?: {
-    track: number;
-    name?: string;
-    x?: number;
-    y?: number;
-    anchor?: "center" | "topLeft";
-    style?: CaptionStyle;
-  }[];
+  captionTracks?: CaptionTrackDef[];
   /** 字幕を出さない区間 */
   hideCaption?: Interval[];
+  /** ズーム演出(画面の一部を拡大して見せる)。区間は重ならないこと。
+   * かかるのはベース映像の背景レイヤー(画面クロップ)だけで、ワイプ・
+   * テロップ・素材オーバーレイ・挿入クリップは動かない。ショート
+   * (profile の layout 経路)には効かない(overlays.json を継承しないため) */
+  zooms?: Zoom[];
+  /** 簡易カラー調整(全編一律。区間指定なし)。かかるのはベース映像
+   * (画面クロップ+カメラ=同一収録動画)だけで、素材オーバーレイ・
+   * 挿入クリップには効かない。ショート(profile の layout 経路)にも
+   * 例外的に継承される(本編とショートで肌色が変わる事故を防ぐため。
+   * render.ts のショート経路がここだけ拾って渡す) */
+  colorFilter?: ColorFilter;
+}
+
+/** 簡易カラー調整(overlays.json の colorFilter)。各キー省略可・既定 1.0
+ * (無補正)。CSS filter(brightness/contrast/saturate)として解決する */
+export interface ColorFilter {
+  brightness?: number;
+  contrast?: number;
+  saturate?: number;
+}
+
+/** ズーム演出1件(overlays.json の zooms)。start/end は元収録の秒 */
+export interface Zoom {
+  start: number;
+  end: number;
+  /** 全画面に拡大する矩形(出力px。テロップ pos・overlays rect と同じ座標系)。
+   * 拡大率は書かせない(rect の幅から scale = 出力幅 / rect.w が一意に決まる。
+   * 倍率と rect の二重指定は矛盾の温床になるため) */
+  rect: Region;
+  /** 区間の頭でズームイン・末尾でズームアウトする遷移時間(秒)。
+   * 省略時 config.yaml の render.zoom.easeSec(既定 DEFAULT_ZOOM_EASE_SEC)。
+   * 区間が遷移2回分より短いときは遷移を区間の半分へ縮める(wipeFull と同じ規則) */
+  easeSec?: number;
+}
+
+/** render.zoom.easeSec 未指定時の既定(秒)。renderProps と設定画面で共有 */
+export const DEFAULT_ZOOM_EASE_SEC = 0.4;
+
+/** 人間が書く BGM 指定(bgm.json)。ファイルが無ければ、収録フォルダ直下の
+ * bgm.mp3 / bgm.m4a / bgm.wav(あれば)を全編1曲として流す従来動作になる。
+ * 時刻は他の編集ファイルと同じく元動画(収録ファイル)の秒 */
+export interface Bgm {
+  /** BGM を流す区間。時系列順でなくてよく、覆っていない区間は無音になる
+   * (「イントロだけ BGM なし」= その区間を覆わない)。別ファイルの区間を
+   * 並べれば曲の切り替え、区間を重ねれば重奏になる。各区間はループ再生 */
+  tracks: {
+    /** 流し始め(元収録の秒) */
+    start: number;
+    /** 流し終わり(元収録の秒) */
+    end: number;
+    /** BGM ファイル(収録フォルダからの相対パス。例: bgm.mp3 / materials/outro.mp3) */
+    file: string;
+    /** 音量(dB)。0=原音量。省略時は config の render.bgm.volumeDb */
+    volumeDb?: number;
+    /** 頭出し(In点)。ファイル内の再生開始位置(秒)。省略時 0(頭から) */
+    startFrom?: number;
+    /** フェードイン/アウト(秒)。区間の頭/末尾で音量をなめらかに遷移する。
+     *  省略時 0(なし)。区間終端を動画の終端に合わせて fadeOutSec を付けると
+     *  従来の終端フェードアウトと同じになる */
+    fadeInSec?: number;
+    fadeOutSec?: number;
+  }[];
 }
 
 /** plan が生成(meta.json)。タイトル案と概要欄の下書き */
 export interface Meta {
   titles: string[];
   description: string;
+}
+
+/** 人間が書くショート動画指定(shorts.json)。ファイルが無ければショートは
+ * 無い。時刻は他の編集ファイルと同じく元動画(収録ファイル)の秒 */
+export interface Shorts {
+  shorts: Short[];
+}
+
+export interface Short {
+  /** 出力ファイル名(shorts/<name>.mp4)。[a-z0-9-_]+ のみ・収録内で一意 */
+  name: string;
+  /** 出力プロファイル(src/lib/profile.ts の PROFILES のキー)。
+   * 省略時 "vertical" */
+  profile?: string;
+  /** このショート(縦動画)を人間が確認したか。render --short のゲート。
+   * 承認は人間の仕事(AI が自分で true にしない。cutplan.json の approved と同じ) */
+  approved: boolean;
+  /** このショートの keep 区間(元収録の秒)。本編 cutplan の keep とは独立で、
+   * mergeIntervals した集合がそのままショートの keep 集合になる(交差なし)。
+   * 飛び区間で連結でき、フィラーを飛ばしたいときはレンジを分割する */
+  ranges: Interval[];
+  /** 縦用テロップ位置/スタイルの上書き(任意)。overlays.captionTracks と
+   * 同型・同じ解決順(セグメント → トラック標準 → 既定)で
+   * buildRenderProps に渡す */
+  captionTracks?: CaptionTrackDef[];
+}
+
+/** 人間/AIが書くサムネイル指定(thumbnail.json)。t は元収録の秒で、
+ * frames と違いスナップしない(カットされた瞬間も指定できる。サムネは
+ * 動画に入っていない絵も使ってよいため) */
+export interface Thumbnail {
+  t: number;
+  texts: ThumbnailText[];
+}
+
+export interface ThumbnailText {
+  text: string;
+  /** 表示位置(テキスト中心、出力px)。transcript のテロップと違い省略不可
+   * (サムネに「既定の下部中央」は無い) */
+  pos: CaptionPos;
+  /** 見た目。transcript のテロップと同じ CaptionStyle を共有する
+   * (動画と見た目の言語を揃えるため) */
+  style?: CaptionStyle;
 }
