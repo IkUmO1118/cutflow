@@ -5,6 +5,8 @@ import { complete } from "../lib/llm.ts";
 import { mergeIntervals } from "../lib/timeline.ts";
 import { carryIds, ensureIds, hasAnyId, ID_PREFIX, usedIdsOf } from "../lib/ids.ts";
 import { readEditableDocs } from "./idStamp.ts";
+import { resolvePerceptionCfg } from "../lib/config.ts";
+import { computeAudioFeatures, renderPerceptionBlock } from "../lib/perception.ts";
 import type { Config } from "../lib/config.ts";
 import { captionTrack } from "../types.ts";
 import type {
@@ -142,7 +144,10 @@ export async function plan(
   const idCtx = buildIdContext(dir);
 
   const templateFile = opts.cutsOnly ? "plan-cuts.md" : "plan.md";
-  const prompt = renderPrompt(dir, templateFile, numbered, auto.originalDurationSec);
+  const pc = resolvePerceptionCfg(cfg);
+  const audio = pc.audio ? computeAudioFeatures(numbered, auto.silences) : null;
+  const perception = renderPerceptionBlock(audio, null);
+  const prompt = renderPrompt(dir, templateFile, numbered, auto.originalDurationSec, perception);
   const raw = await complete(prompt, cfg);
   // LLM の生応答は必ず残す(パース失敗時の調査と、判断過程の記録のため)
   writeFileSync(join(dir, "plan.raw.txt"), raw);
@@ -201,7 +206,20 @@ export async function remeta(dir: string, cfg: Config): Promise<Meta> {
   // cutplan.segments を書かないため existingCutplanSegments は使わない
   const idCtx = buildIdContext(dir);
 
-  const prompt = renderPrompt(dir, "meta.md", numbered, manifest.durationSec);
+  // remeta は現状 cuts.auto.json を読んでいない。pc.audio が真のときだけ読み、
+  // 無ければ(旧収録・detect 未実行等)audio=null に劣化する(バイト等価)
+  const pc = resolvePerceptionCfg(cfg);
+  const autoPath = join(dir, "cuts.auto.json");
+  const audio =
+    pc.audio && existsSync(autoPath)
+      ? computeAudioFeatures(
+          numbered,
+          (JSON.parse(readFileSync(autoPath, "utf8")) as AutoCuts).silences,
+        )
+      : null;
+  const perception = renderPerceptionBlock(audio, null);
+
+  const prompt = renderPrompt(dir, "meta.md", numbered, manifest.durationSec, perception);
   const raw = await complete(prompt, cfg);
   writeFileSync(join(dir, "plan.raw.txt"), raw);
 
@@ -415,6 +433,7 @@ export function renderPrompt(
   templateFile: string,
   numbered: NumberedSegment[],
   durationSec: number,
+  perception: string = "",
 ): string {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
   const template = readFileSync(join(repoRoot, "prompts", templateFile), "utf8");
@@ -440,7 +459,8 @@ export function renderPrompt(
     .replaceAll("{{segments}}", () => segmentLines)
     .replaceAll("{{duration}}", () => durationSec.toFixed(0))
     .replaceAll("{{brief}}", () => brief)
-    .replaceAll("{{rules}}", () => rules);
+    .replaceAll("{{rules}}", () => rules)
+    .replaceAll("{{perception}}", () => perception);
 }
 
 /** cuts-only 応答の期待スキーマ(prompts/plan-cuts.md の出力形式と対応) */
