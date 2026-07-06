@@ -6,14 +6,12 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { complete } from "../lib/llm.ts";
+import { planShortsMaxSec } from "../lib/config.ts";
 import { mergeIntervals } from "../lib/timeline.ts";
 import { numberSegments, renderPrompt } from "./plan.ts";
 import type { NumberedSegment } from "./plan.ts";
 import type { Config } from "../lib/config.ts";
 import type { AutoCuts, Interval, Short, Shorts, Transcript } from "../types.ts";
-
-/** planShorts.maxDurationSec 未指定時の既定(秒)。T3 で config.ts へ移す */
-const DEFAULT_MAX_SEC = 60;
 
 /** LLM 応答スキーマ(prompts/plan-shorts.md の出力形式と対応)。
  * 各ショートに入れる候補区間の番号(ids)だけを受け取り、
@@ -193,10 +191,7 @@ export async function planShorts(dir: string, cfg: Config): Promise<Shorts> {
   writeFileSync(join(dir, "plan-shorts.raw.txt"), raw);
 
   const parsed = parseShortsResponse(raw);
-  const maxSec =
-    (cfg as { planShorts?: { maxDurationSec?: number } }).planShorts
-      ?.maxDurationSec ?? DEFAULT_MAX_SEC;
-  const shorts = shortsFromSelection(numbered, parsed, maxSec);
+  const shorts = shortsFromSelection(numbered, parsed, planShortsMaxSec(cfg));
 
   const out: Shorts = { shorts };
   writeFileSync(join(dir, "shorts.json"), JSON.stringify(out, null, 2));

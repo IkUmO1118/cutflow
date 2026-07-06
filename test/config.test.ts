@@ -9,6 +9,10 @@ import {
   syncEditorCfgFromYaml,
   validateConfigPatch,
 } from "../src/lib/configEdit.ts";
+import {
+  DEFAULT_PLAN_SHORTS_MAX_DURATION_SEC,
+  planShortsMaxSec,
+} from "../src/lib/config.ts";
 import type { Config } from "../src/lib/config.ts";
 
 /** リポジトリ既定の config.yaml を模した fixture(コメント・~ パス入り) */
@@ -213,6 +217,19 @@ test("validateConfigPatch: denoise は mic/noiseFloorDb のブロック更新の
   );
   assert.ok(
     validateConfigPatch({ render: { denoise: { mic: true, noiseFloorDb: -90 } } }).length > 0,
+  );
+});
+
+test("planShortsMaxSec: 省略時は既定60・指定時はその値", () => {
+  assert.equal(planShortsMaxSec({} as Config), DEFAULT_PLAN_SHORTS_MAX_DURATION_SEC);
+  assert.equal(planShortsMaxSec({} as Config), 60);
+  assert.equal(
+    planShortsMaxSec({ planShorts: {} } as Config),
+    60,
+  );
+  assert.equal(
+    planShortsMaxSec({ planShorts: { maxDurationSec: 45 } } as Config),
+    45,
   );
 });
 

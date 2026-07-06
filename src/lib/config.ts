@@ -21,6 +21,14 @@ export interface Config {
     minKeepSec: number;
   };
   llm: { backend: "claude-cli" | "api"; model: string };
+  /** ショート LLM ハイライト自動選定(plan-shorts)の設定。省略可
+   * (古い config.yaml との互換。省略時は既定値を使う) */
+  planShorts?: {
+    /** 1本のショートの尺の上限(秒)。plan-shorts が LLM の選定した区間集合の
+     * 尺合計をこの値以下に収める(超過は末尾区間を落とす)。
+     * 省略時 DEFAULT_PLAN_SHORTS_MAX_DURATION_SEC(60) */
+    maxDurationSec?: number;
+  };
   preview: {
     width: number;
     /** proxy.mp4 / preview.mp4 のビデオエンコーダ。省略時 "videotoolbox"
@@ -101,6 +109,14 @@ export interface Config {
 
 /** editor.defaultImageDurationSec 未指定時の既定(秒) */
 export const DEFAULT_IMAGE_DURATION_SEC = 4;
+
+/** planShorts.maxDurationSec 未指定時の既定(秒)。YouTube ショートの上限に合わせる */
+export const DEFAULT_PLAN_SHORTS_MAX_DURATION_SEC = 60;
+
+/** plan-shorts の1本あたりの尺上限(秒)を解決する(省略時は既定値) */
+export function planShortsMaxSec(cfg: Config): number {
+  return cfg.planShorts?.maxDurationSec ?? DEFAULT_PLAN_SHORTS_MAX_DURATION_SEC;
+}
 
 /** "~/foo" をホームディレクトリに展開する */
 export function expandHome(p: string): string {
