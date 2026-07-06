@@ -2808,10 +2808,15 @@ export const App = () => {
         }}
       />
       <header>
-        <strong>cutflow</strong>
-        <span className="dim path" title={proj.dir}>
-          {proj.dir.replace(/\/+$/, "").split("/").pop()}
-        </span>
+        <div className="brand">
+          <strong>cutflow</strong>
+          <span className="sep" aria-hidden>
+            /
+          </span>
+          <span className="dim path" title={proj.dir}>
+            {proj.dir.replace(/\/+$/, "").split("/").pop()}
+          </span>
+        </div>
         <span className="spacer" />
         <span
           className={anyDirty ? "saveStatus dirty" : "saveStatus"}
