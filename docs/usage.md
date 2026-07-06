@@ -401,6 +401,40 @@ node src/cli.ts learn <dir>
 - `plan.raw.txt` が無い(まだ `plan` / `run` を実行していない)ときは、
   先に実行するよう促してエラー終了する
 
+## plan の知覚(config.yaml の plan.perception。既定オフ)
+
+`plan` / `plan --cuts-only` / `remeta` は既定では発話テキスト(transcript)
+だけを見てカット判断・章立てを行う。`config.yaml` の `plan.perception` で、
+detect が既に持つ情報や画面の文字を LLM 入力に添えられる(**既定オフ**。
+書かない限り LLM 入力・`plan.raw.txt` は導入前と1バイトも変わらない)。
+
+```yaml
+plan:
+  perception:
+    audio: true        # 無音・間の注記(決定論・追加依存なし。まずこれから)
+    ocr: false         # 画面OCRテキスト(macOS/Apple Vision 必要・区間数ぶん重い)
+    ocrMaxSegments: 40
+    ocrMaxLines: 6
+```
+
+- `audio`: 各区間の `尺` / `直前カット`(直前に落ちた素材秒)/ `内無音`(区間内に
+  残った無音の合計秒)を秒で記述文にして添える。すべて `cuts.auto.json`(detect
+  の結果)と番号区間だけから計算する純関数で、**新規の音量計測はしない**。
+  決定論・追加依存なしなので、まず有効にするならこちら
+- `ocr`: 各区間の代表フレーム(元収録の中点)を `frames --ocr` と同じ
+  Apple Vision OCR にかけ、画面内の文字(コード・ターミナル・エラー文)を
+  記述文にして添える。macOS + Apple Vision が必要で、無い環境では警告のうえ
+  OCR 部分を省いて続行する(plan 自体は止まらない)。区間数ぶんの ffmpeg
+  クロップ+Vision が走るため `ocrMaxSegments`(既定40。超過時は尺の長い区間を
+  優先)・`ocrMaxLines`(区間ごとにプロンプトへ載せる行数の上限。既定6)で
+  コストを抑える
+- どちらも LLM に算術はさせない(値はこちらで丸めて記述文として渡し、番号選択
+  だけをさせる)。`plan-shorts` はこの機能の対象外(触らない)
+- 画像(スクリーンショット)そのものを LLM に渡すマルチモーダル入力は
+  **やらない**(既定 backend の claude-cli では画像添付が難しく、backend 非依存の
+  `complete` 設計に反するため。開発系チャンネルは画面の主役が文字なので OCR で
+  代替する)
+
 ## ショート動画(shorts.json)
 
 本編とは別に、収録の一部を縦動画(YouTube ショート等)として切り出せる。
