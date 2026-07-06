@@ -256,6 +256,52 @@ interface PlanResponse {
   description: string;
 }
 
+/**
+ * channel(このシリーズ全体)/ recording(この収録だけ)の rules 本文を受け、
+ * プロンプトへ注入する1ブロックを返す純関数(ディスク非依存・テスト対象)。
+ *
+ * 両方 null/空 → "" を返す(= renderPrompt の出力を rules 不在時と完全一致
+ * させるための不変条件の核。呼び出し側はこの値をそのまま {{rules}} に
+ * replaceAll するだけでよい)。
+ *
+ * あるものだけを見出し付きで連結し、返り値には先頭 `\n`・末尾 `\n` を必ず
+ * 付ける(テンプレ側の `{{rules}}` は前後を改行で挟まれた1行として置かれる
+ * ため)。両方あるときだけ「チャンネル共通」「この収録だけ」の2小見出しに
+ * 分け、収録固有が優先される旨を注記する。
+ */
+export function renderRulesBlock(
+  channel: string | null,
+  recording: string | null,
+): string {
+  const c = channel?.trim() || null;
+  const r = recording?.trim() || null;
+  if (!c && !r) return "";
+
+  const parts: string[] = ["## チャンネル方針(このシリーズの恒久的な編集ルール)"];
+  if (c && r) {
+    parts.push(`### 全収録共通のルール\n\n${c}`);
+    parts.push(`### この収録だけのルール\n\n${r}`);
+    parts.push("※ 収録固有の指示が共通ルールと矛盾する場合は収録固有を優先");
+  } else if (c) {
+    parts.push(c);
+  } else {
+    parts.push(`### この収録だけのルール\n\n${r}`);
+  }
+  return `\n${parts.join("\n\n")}\n`;
+}
+
+/** channel(=収録フォルダの親)と収録固有の rules.md を読んで連結する
+ * (非純粋な薄いラッパ。純関数本体は renderRulesBlock) */
+function readRules(dir: string): string {
+  const channelPath = join(dirname(dir), "rules.md");
+  const recordingPath = join(dir, "rules.md");
+  const channel = existsSync(channelPath) ? readFileSync(channelPath, "utf8").trim() : null;
+  const recording = existsSync(recordingPath)
+    ? readFileSync(recordingPath, "utf8").trim()
+    : null;
+  return renderRulesBlock(channel || null, recording || null);
+}
+
 export function renderPrompt(
   dir: string,
   templateFile: string,
@@ -278,12 +324,15 @@ export function renderPrompt(
     ? readFileSync(briefPath, "utf8")
     : "(見せ場リストなし。カット判断基準に従って判断してください)";
 
+  const rules = readRules(dir);
+
   // replaceAll + 関数形式: 文字列指定の replace は最初の1箇所しか置換されず、
   // また brief に "$&" 等が含まれると置換パターンとして解釈されてしまう
   return template
     .replaceAll("{{segments}}", () => segmentLines)
     .replaceAll("{{duration}}", () => durationSec.toFixed(0))
-    .replaceAll("{{brief}}", () => brief);
+    .replaceAll("{{brief}}", () => brief)
+    .replaceAll("{{rules}}", () => rules);
 }
 
 /** cuts-only 応答の期待スキーマ(prompts/plan-cuts.md の出力形式と対応) */
