@@ -1,23 +1,38 @@
 #!/usr/bin/env node
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { Command } from "commander";
-import { EDITABLE_FILES, backupEditableFiles } from "./lib/backup.ts";
+import { backupEditableFiles } from "./lib/backup.ts";
+import { EDITABLE_FILES } from "./lib/files.ts";
+import {
+  clearCutplanApproval,
+  clearShortApproval,
+  writeCutplanApproval,
+  writeShortApproval,
+} from "./lib/approval.ts";
 import { loadConfig, resolveConfigPath } from "./lib/config.ts";
 import { findSource } from "./lib/findSource.ts";
+import { loadShort, loadShorts } from "./lib/shorts.ts";
 import { ingest } from "./stages/ingest.ts";
 import { transcribe } from "./stages/transcribe.ts";
 import { detect } from "./stages/detect.ts";
 import { plan, remeta } from "./stages/plan.ts";
 import { planShorts } from "./stages/planShorts.ts";
+import { learn } from "./stages/learn.ts";
 import { preview } from "./stages/preview.ts";
 import { render, renderShort, renderShorts } from "./stages/render.ts";
 import { validate } from "./stages/validate.ts";
-import { describe } from "./stages/describe.ts";
+import { describe, describeJson } from "./stages/describe.ts";
 import { frames } from "./stages/frames.ts";
 import type { FrameRequest } from "./stages/frames.ts";
+import { DEFAULT_SERVE_PORT, startFramesServe } from "./stages/framesServe.ts";
+import { tryServeFrames } from "./lib/framesClient.ts";
+import { formatOcrPreview } from "./lib/ocr.ts";
+import type { OcrResult } from "./lib/ocr.ts";
 import { thumbnail } from "./stages/thumbnail.ts";
 import { fmtT, parseT } from "./lib/fmt.ts";
+import type { CutPlan } from "./types.ts";
 
 const program = new Command();
 program
@@ -34,9 +49,16 @@ let commandStartedAt = 0;
 program.hook("preAction", () => {
   commandStartedAt = Date.now();
 });
-program.hook("postAction", () => {
+program.hook("postAction", (_thisCommand, actionCommand) => {
   const sec = ((Date.now() - commandStartedAt) / 1000).toFixed(1);
-  console.log(`(所要時間: ${sec}秒)`);
+  const line = `(所要時間: ${sec}秒)`;
+  // JSON 射影はパイプ可能な純 JSON を stdout に出すので、診断行だけ stderr へ逃がす。
+  // 他コマンド・散文 describe の stdout は従来どおり console.log(=不変)
+  if (actionCommand.name() === "describe" && actionCommand.opts().json === true) {
+    console.error(line);
+  } else {
+    console.log(line);
+  }
 });
 
 function resolveDir(dir: string): string {
@@ -212,6 +234,23 @@ program
   });
 
 program
+  .command("learn <dir>")
+  .description(
+    "直前の生成案と人間の仕上げを見比べ、次回用のチャンネルルール追記案を生成" +
+      "(rules.suggested.md に下書き。channel の rules.md は人間が手で採用)",
+  )
+  .action(async (dir: string) => {
+    const cfg = loadConfig(program.opts().config);
+    const abs = resolveDir(dir);
+    console.log("learn 実行中(LLM でルール追記案を生成)...");
+    const out = await learn(abs, cfg);
+    console.log(`learn 完了: ${out}`);
+    console.log(
+      "内容を確認し、採用する項目を手で channel の rules.md に追記してください。",
+    );
+  });
+
+program
   .command("preview <dir>")
   .description("cutplan.json の keep 区間を繋いだ確認用動画を生成(preview.mp4)")
   .action(async (dir: string) => {
@@ -249,10 +288,16 @@ program
 program
   .command("describe <dir>")
   .description(
-    "編集状態のテキスト要約(keep/カット・発言・演出・章。元秒⇔出力秒の対応付き)",
+    "編集状態の要約。既定は散文、--json で機械可読な完全射影(元秒⇔出力秒つき)",
   )
-  .action((dir: string) => {
-    console.log(describe(resolveDir(dir)));
+  .option(
+    "--json",
+    "機械可読な完全射影を JSON で標準出力に出す(発話・タイトルを切り捨てない)",
+  )
+  .action((dir: string, opts: { json?: boolean }) => {
+    const abs = resolveDir(dir);
+    if (opts.json === true) console.log(JSON.stringify(describeJson(abs), null, 2));
+    else console.log(describe(abs)); // ← 現状のまま(バイト不変)
   });
 
 program
@@ -268,9 +313,27 @@ program
   .option("--captions", "テロップ全件の一巡監査(各テロップの表示中間で1枚ずつ)")
   .option("--every <sec>", "カット後タイムラインを一定間隔でサンプリング(秒)")
   .option("--short <name>", "指定したショートの縦レイアウトで PNG に(shorts.json)")
+  .option(
+    "--ocr",
+    "画面 OCR(Apple Vision)でその時刻の画面内テキストを読む(macOS専用。" +
+      "非対応環境では警告のうえ PNG 出力のみ続行)",
+  )
+  .option(
+    "--full-res",
+    "ベース映像を proxy でなく元収録のフル解像度にして合成 still を鮮明にする" +
+      "(画面内テキストの目視用)",
+  )
   .action(async (
     dir: string,
-    opts: { t?: string; out?: boolean; captions?: boolean; every?: string; short?: string },
+    opts: {
+      t?: string;
+      out?: boolean;
+      captions?: boolean;
+      every?: string;
+      short?: string;
+      ocr?: boolean;
+      fullRes?: boolean;
+    },
   ) => {
     const cfg = loadConfig(program.opts().config);
     const picked = [opts.t, opts.captions, opts.every].filter(
@@ -298,15 +361,52 @@ program
       req = { mode: "times", times, axis: opts.out ? "output" : "source" };
     }
     if (opts.short) console.log(`ショート "${opts.short}" のフレームを出力します`);
-    const shots = await frames(resolveDir(dir), req, cfg, opts.short);
+    const abs = resolveDir(dir);
+    const frameOpts = { short: opts.short, ocr: opts.ocr === true, fullRes: opts.fullRes === true };
+    // 常駐デーモン(frames-serve)が起動していれば自動検出して委譲し、
+    // bundle+browser のコールドコストを省く。portfile が無い/応答しなければ
+    // 現行どおりの単発実行(既存挙動は1バイトも変わらない)
+    const served = await tryServeFrames(abs, req, frameOpts);
+    const shots =
+      served ?? (await frames(abs, req, cfg, opts.short, frameOpts.ocr, frameOpts.fullRes));
     for (const s of shots) {
       const head =
         req.mode === "times"
           ? `${opts.out ? "出力" : "元"} ${fmtT(s.requested)} → 出力 ${fmtT(s.outSec)}`
           : `出力 ${fmtT(s.outSec)}`;
       console.log(`✔ ${head}: ${s.file}` + (s.note ? `(${s.note})` : ""));
+      if (s.ocrFile) {
+        const result = JSON.parse(readFileSync(s.ocrFile, "utf8")) as OcrResult;
+        console.log(`  OCR: ${formatOcrPreview(result)}`);
+      }
     }
-    console.log(`${shots.length}枚を出力しました(frames/ の古い PNG は削除済み)`);
+    console.log(
+      `${shots.length}枚を出力しました(frames/ の古い PNG` +
+        (opts.ocr ? "・OCR サイドカー" : "") + " は削除済み)",
+    );
+  });
+
+program
+  .command("frames-serve <dir>")
+  .description(
+    "常駐フレームサーバを起動(bundle+headless Chrome を暖機。opt-in。" +
+      "起動中は frames <dir> --t ... が自動検出して使う。終了は Ctrl+C)",
+  )
+  .option(
+    "--port <port>",
+    `待受ポート(既定 ${DEFAULT_SERVE_PORT}。config.yaml の frames.serve.port` +
+      "があればそちら。editor の既定 4310 とは別)",
+  )
+  .action(async (dir: string, opts: { port?: string }) => {
+    const explicit = program.opts().config as string | undefined;
+    const cfg = loadConfig(explicit);
+    const abs = resolveDir(dir);
+    const port =
+      opts.port !== undefined ? Number(opts.port) : (cfg.frames?.serve?.port ?? DEFAULT_SERVE_PORT);
+    if (!Number.isFinite(port) || port <= 0) {
+      throw new Error(`--port の値が不正です: ${opts.port}`);
+    }
+    await startFramesServe(abs, explicit, port);
   });
 
 program
@@ -318,6 +418,105 @@ program
     const cfg = loadConfig(program.opts().config);
     const out = await thumbnail(resolveDir(dir), cfg);
     console.log(`thumbnail 完了: ${out}`);
+  });
+
+/** shorts.json の該当 name の approved だけを書き換える(他のショート・他の
+ * フィールドはそのまま)。shorts.json が無い/name が無いときは loadShort と
+ * 同じ明確なエラーメッセージにするため loadShort に検査を委ねる */
+function updateShortApprovedFlag(dir: string, name: string, approved: boolean): void {
+  loadShort(dir, name); // 存在検査(無ければここで分かりやすいエラーを投げる)
+  const shorts = loadShorts(dir)!;
+  shorts.shorts = shorts.shorts.map((s) => (s.name === name ? { ...s, approved } : s));
+  writeFileSync(join(dir, "shorts.json"), JSON.stringify(shorts, null, 2));
+}
+
+/** cutplan.json の approved だけを書き換える(segments はそのまま) */
+function updateCutplanApprovedFlag(dir: string, approved: boolean): CutPlan {
+  const cutplan = JSON.parse(
+    readFileSync(join(dir, "cutplan.json"), "utf8"),
+  ) as CutPlan;
+  const next: CutPlan = { ...cutplan, approved };
+  writeFileSync(join(dir, "cutplan.json"), JSON.stringify(next, null, 2));
+  return next;
+}
+
+/** ターミナルで y/N を尋ねる(approve の対話確認用) */
+async function confirmYesNo(question: string): Promise<boolean> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = await rl.question(question);
+    return /^y(es)?$/i.test(answer.trim());
+  } finally {
+    rl.close();
+  }
+}
+
+program
+  .command("approve <dir>")
+  .description(
+    "cutplan(または --short 指定でショート)の内容ハッシュを approvals.json に記録して承認する" +
+      "(render の唯一のゲート。承認は人間の対話操作)",
+  )
+  .option("--short <name>", "指定したショートを承認(shorts.json)")
+  .option(
+    "--yes",
+    "非対話環境でも承認する(意図的バイパス。preview 未確認のまま承認できてしまうため通常は使わない)",
+  )
+  .action(async (dir: string, opts: { short?: string; yes?: boolean }) => {
+    const abs = resolveDir(dir);
+    // 壊れた内容を承認しない: 先に validate を通す
+    const r = validate(abs);
+    if (r.errors.length > 0) {
+      for (const e of r.errors) console.error(`✖ ${e.file} ${e.where}: ${e.message}`);
+      throw new Error(
+        `検査エラー ${r.errors.length}件があるため承認できません。上から順に修正し、` +
+          "validate が通ってから再実行してください",
+      );
+    }
+    const interactive = process.stdin.isTTY === true;
+    if (!interactive && opts.yes !== true) {
+      throw new Error(
+        "approve は人間の対話操作です。preview で内容を確認のうえ、端末から実行してください" +
+          "(非対話環境(Bash/子エージェント等)から実行する場合は --yes が必要です)",
+      );
+    }
+    if (interactive && opts.yes !== true) {
+      const what = opts.short ? `ショート "${opts.short}" の縦動画` : "preview.mp4";
+      const ok = await confirmYesNo(`${what} を確認しましたか? 承認しますか? [y/N] `);
+      if (!ok) {
+        console.log("承認しませんでした(preview で確認してから再実行してください)");
+        return;
+      }
+    }
+    if (opts.short) {
+      const short = loadShort(abs, opts.short);
+      writeShortApproval(abs, short, "cli");
+      updateShortApprovedFlag(abs, opts.short, true);
+      console.log(`承認しました: ショート "${opts.short}"(approvals.json に記録)`);
+    } else {
+      const cutplan = updateCutplanApprovedFlag(abs, true);
+      writeCutplanApproval(abs, cutplan, "cli");
+      console.log("承認しました: 本編(approvals.json に記録)");
+    }
+  });
+
+program
+  .command("unapprove <dir>")
+  .description(
+    "承認レコードを取り消す(cutplan、または --short 指定でショート)。安全側の操作なので確認は不要",
+  )
+  .option("--short <name>", "指定したショートの承認を取り消す(shorts.json)")
+  .action((dir: string, opts: { short?: string }) => {
+    const abs = resolveDir(dir);
+    if (opts.short) {
+      clearShortApproval(abs, opts.short);
+      updateShortApprovedFlag(abs, opts.short, false);
+      console.log(`承認を取り消しました: ショート "${opts.short}"`);
+    } else {
+      clearCutplanApproval(abs);
+      updateCutplanApprovedFlag(abs, false);
+      console.log("承認を取り消しました: 本編");
+    }
   });
 
 program

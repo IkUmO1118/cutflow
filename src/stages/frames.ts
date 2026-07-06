@@ -13,8 +13,15 @@
 //
 // frames/ 内の PNG は実行のたびに全削除してから書き直す。ファイル名が
 // 出力秒ベースなので、cutplan 編集で時刻の写像が変わると旧ファイルが
-// 別名のまま残り、AI が編集前の絵を読む事故が起きるため(全ファイル
+// 別名のまま残り、AI が編集前の絵を見る事故が起きるため(全ファイル
 // いつでも再生成できる中間生成物であり、消して困るものは無い)。
+//
+// --full-res: ベース映像を proxy.mp4 の代わりに元収録(manifest.source。
+// フル解像度)にする合成 still(画面キャプチャ内の細かい文字を読みたいとき用。
+// proxy は幅1280pxへ縮小済みなので画面領域はさらに小さく、既定の frames PNG
+// では画面内テキストの可読性を判断できない)。canvas 座標系は proxy と
+// 同一(違いは物理解像度だけ)なので buildRenderProps は無改造で流用できる。
+// 未指定時は従来どおり proxy 経路(1バイトも変わらない)。
 
 import {
   existsSync,
@@ -24,6 +31,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundle } from "@remotion/bundler";
@@ -42,9 +50,14 @@ import {
   mergeIntervals,
   snapToOutput,
   toOutputTime,
+  toSourceTime,
 } from "../lib/timeline.ts";
+import { writeFramesIndex } from "../lib/framesIndex.ts";
+import { runOcr } from "../lib/ocr.ts";
+import { buildScreenStill } from "../lib/screenStill.ts";
 import { buildProxy, isProxyStale } from "./proxy.ts";
 import { hasCamera } from "../types.ts";
+import type { TimelineEntry } from "../lib/timeline.ts";
 import type { Config } from "../lib/config.ts";
 import type { Profile } from "../lib/profile.ts";
 import type { CutPlan, Interval, Manifest, Overlays, Transcript } from "../types.ts";
@@ -58,6 +71,9 @@ export interface FrameShot {
   file: string;
   /** スナップ・丸めの説明や、そのフレームに映っているテロップの内容 */
   note?: string;
+  /** --ocr のとき書いた OCR サイドカー(絶対パス)。省略時は OCR なし
+   * (非対応環境での劣化・挿入クリップ内でのスキップを含む) */
+  ocrFile?: string;
 }
 
 /** 何のフレームを撮るか。times = 時刻指定 / captions = テロップ全件の
@@ -67,12 +83,54 @@ export type FrameRequest =
   | { mode: "captions" }
   | { mode: "every"; stepSec: number };
 
+/** bundle(webpack)+headless Chrome。プロセスをまたいで使い回せる資産で、
+ * 単発実行(frames)は自前で1回だけ用意し、常駐デーモン(frames-serve)は
+ * 起動時に1回だけ用意して全リクエストで使い回す */
+export interface WarmAssets {
+  serveUrl: string;
+  browser: Awaited<ReturnType<typeof openBrowser>>;
+}
+
 export async function frames(
   dir: string,
   req: FrameRequest,
   cfg: Config,
   shortName?: string,
+  ocr?: boolean,
+  fullRes?: boolean,
 ): Promise<FrameShot[]> {
+  // バンドル(webpack)とブラウザは1回だけ用意して全フレームで使い回す。
+  // 収録フォルダ(publicDir)はコピーせず symlink で参照する
+  await ensureBrowser();
+  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+  const serveUrl = await bundle({
+    entryPoint: join(repoRoot, "remotion", "index.ts"),
+    publicDir: dir,
+    symlinkPublicDir: true,
+  });
+  const browser = await openBrowser("chrome");
+  try {
+    return await renderFrames(dir, req, cfg, { short: shortName, ocr, fullRes }, { serveUrl, browser });
+  } finally {
+    await browser.close({ silent: true });
+  }
+}
+
+/**
+ * frames の純粋コア(bundle+browser を「注入」される撮影本体)。単発実行
+ * (frames)と常駐デーモン(frames-serve)の両方から呼ばれる共有実装。
+ * props 構築・proxy 陳腐化判定・全消し・render ループ・index 書込を含む。
+ * bundle/browser の生成・破棄は呼び出し側(frames / framesServe)の責務
+ */
+export async function renderFrames(
+  dir: string,
+  req: FrameRequest,
+  cfg: Config,
+  opts: { short?: string; ocr?: boolean; fullRes?: boolean },
+  warm: WarmAssets,
+): Promise<FrameShot[]> {
+  const { short: shortName, ocr, fullRes } = opts;
+  const { serveUrl, browser } = warm;
   const readJson = <T>(file: string, fallback: T | null): T => {
     const p = join(dir, file);
     if (!existsSync(p)) {
@@ -94,7 +152,8 @@ export async function frames(
     const short = loadShort(dir, shortName);
     keeps = mergeIntervals(short.ranges);
     // colorFilter だけは本編から例外的に継承する(render.ts のショート経路と
-    // 同じ理由。D2 の対象外)
+    // 同じ理由。D2 の対象外)。blurs は継承しない(座標が本編の出力px基準に
+    // 束縛され、ショートの座標系とは一致しないため。render.ts の同箇所と同じ)
     const mainOverlays = readJson<Overlays>("overlays.json", {});
     overlays = {
       captionTracks: short.captionTracks,
@@ -120,13 +179,16 @@ export async function frames(
 
   // ベース映像はエディタと同じ軽量プロキシ。無ければここで作る(収録ごとに1回)。
   // 焼き込み済みの設定(ラウドネス・システム音声・プレビュー幅・エンコーダ)か
-  // 元収録ファイルが前回の生成から変わっていれば陳腐化しているので作り直す
-  if (!existsSync(join(dir, "proxy.mp4"))) {
-    console.log("proxy.mp4 がないので生成します(初回のみ・数十秒)...");
-    await buildProxy(dir, cfg);
-  } else if (isProxyStale(dir, cfg)) {
-    console.log("proxy.mp4 が設定・元収録と食い違っているので作り直します...");
-    await buildProxy(dir, cfg);
+  // 元収録ファイルが前回の生成から変わっていれば陳腐化しているので作り直す。
+  // --full-res のときはベースを元収録(フル解像度)に差し替えるので proxy は不要
+  if (!fullRes) {
+    if (!existsSync(join(dir, "proxy.mp4"))) {
+      console.log("proxy.mp4 がないので生成します(初回のみ・数十秒)...");
+      await buildProxy(dir, cfg);
+    } else if (isProxyStale(dir, cfg)) {
+      console.log("proxy.mp4 が設定・元収録と食い違っているので作り直します...");
+      await buildProxy(dir, cfg);
+    }
   }
 
   const props = buildRenderProps({
@@ -138,7 +200,7 @@ export async function frames(
     width: profile.width,
     height: profile.height,
     profile,
-    videoFile: "proxy.mp4",
+    videoFile: fullRes ? manifest.source : "proxy.mp4",
     videoIsSource: true,
     bgm: null, // 静止画に音は無関係
     bgmFallbackFile: null,
@@ -147,15 +209,23 @@ export async function frames(
   });
   const outDir = join(dir, "frames");
   mkdirSync(outDir, { recursive: true });
-  // 前回の実行が残した PNG を全削除(冒頭コメント参照)
+  // 前回の実行が残した PNG・OCR サイドカーを全削除(冒頭コメント参照。
+  // --ocr が古い .ocr.json を読む事故を PNG と同じ理由で防ぐ)
   for (const f of readdirSync(outDir)) {
-    if (f.endsWith(".png")) rmSync(join(outDir, f));
+    if (f.endsWith(".png") || f.endsWith(".ocr.json")) rmSync(join(outDir, f));
   }
   const propsPath = join(outDir, "props.json");
   writeFileSync(propsPath, JSON.stringify(props, null, 2));
 
+  // 元収録の秒 ⇔ カット後の秒の対応表。--t の times モード(スナップ)にも、
+  // --ocr のカット後秒→元収録秒(toSourceTime)にも同じものを使う
+  const timeline = buildTimeline(
+    keeps,
+    (overlays.inserts ?? []).filter((i) => existsSync(join(dir, i.file))),
+  );
+
   const maxOut = Math.max(0, props.durationSec - 1 / props.fps);
-  const targets = buildTargets(req, props, maxOut, dir, overlays, keeps);
+  const targets = buildTargets(req, props, maxOut, timeline);
   if (targets.length === 0) {
     throw new Error(
       req.mode === "captions"
@@ -174,49 +244,54 @@ export async function frames(
   }
   const unique = [...byFrame.entries()].sort((a, b) => a[0] - b[0]);
 
-  // バンドル(webpack)とブラウザは1回だけ用意して全フレームで使い回す。
-  // 収録フォルダ(publicDir)はコピーせず symlink で参照する
-  await ensureBrowser();
-  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-  const serveUrl = await bundle({
-    entryPoint: join(repoRoot, "remotion", "index.ts"),
-    publicDir: dir,
-    symlinkPublicDir: true,
-  });
+  // bundle(webpack)・browser は呼び出し側から注入される(warm)。単発実行
+  // (frames)は1回だけ用意して破棄、常駐デーモン(frames-serve)は起動時に
+  // 用意したものをリクエストをまたいで使い回す(挙動は同一)
   const inputProps = props as unknown as Record<string, unknown>;
-  const browser = await openBrowser("chrome");
   const shots: FrameShot[] = [];
-  try {
-    const composition = await selectComposition({
+  const composition = await selectComposition({
+    serveUrl,
+    id: "Main",
+    inputProps,
+    puppeteerInstance: browser,
+    logLevel: "warn",
+  });
+  for (const [frame, t] of unique) {
+    const outPath = join(outDir, `out${t.outSec.toFixed(2)}s.png`);
+    await renderStill({
+      composition,
       serveUrl,
-      id: "Main",
+      output: outPath,
+      frame,
       inputProps,
       puppeteerInstance: browser,
+      overwrite: true,
       logLevel: "warn",
     });
-    for (const [frame, t] of unique) {
-      const outPath = join(outDir, `out${t.outSec.toFixed(2)}s.png`);
-      await renderStill({
-        composition,
-        serveUrl,
-        output: outPath,
-        frame,
-        inputProps,
-        puppeteerInstance: browser,
-        overwrite: true,
-        logLevel: "warn",
-      });
-      const note = t.notes.join(" / ");
-      shots.push({
-        requested: t.requested,
-        outSec: t.outSec,
-        file: outPath,
-        ...(note ? { note } : {}),
-      });
+    const notes = [...t.notes];
+    let ocrFile: string | undefined;
+    if (ocr) {
+      ocrFile = await ocrFrame(dir, manifest, timeline, t.outSec, outDir, notes, cfg);
     }
-  } finally {
-    await browser.close({ silent: true });
+    const note = notes.join(" / ");
+    shots.push({
+      requested: t.requested,
+      outSec: t.outSec,
+      file: outPath,
+      ...(note ? { note } : {}),
+      ...(ocrFile ? { ocrFile } : {}),
+    });
   }
+  // 撮影入力のフィンガープリントを記録(stale-PNG 対策。validate/describe が
+  // これと現在の JSON を突き合わせて「撮り直せ」を警告する。props.json と
+  // 同じ中間生成物の扱いで、全消しループの対象にはしない)
+  writeFramesIndex(dir, {
+    mode: req.mode,
+    short: shortName ?? null,
+    ocr: ocr ?? false,
+    fullRes: fullRes ?? false,
+    count: unique.length,
+  });
   return shots;
 }
 
@@ -231,9 +306,7 @@ function buildTargets(
   req: FrameRequest,
   props: ReturnType<typeof buildRenderProps>,
   maxOut: number,
-  dir: string,
-  overlays: Overlays,
-  keeps: { start: number; end: number }[],
+  timeline: TimelineEntry[],
 ): Target[] {
   const clamp = (sec: number) => Math.min(Math.max(0, sec), maxOut);
 
@@ -266,10 +339,6 @@ function buildTargets(
   }
 
   // 元収録の秒 → カット後の秒(カット内なら直後の keep へスナップ)
-  const timeline = buildTimeline(
-    keeps,
-    (overlays.inserts ?? []).filter((i) => existsSync(join(dir, i.file))),
-  );
   return req.times.map((t) => {
     let outSec: number;
     const notes: string[] = [];
@@ -290,4 +359,47 @@ function buildTargets(
     }
     return { requested: t, outSec: clamp(outSec), notes };
   });
+}
+
+/**
+ * 1フレーム(出力秒 outSec)ぶんの画面 OCR。toSourceTime で元収録秒へ逆写像し、
+ * フル解像度 screenRegion クロップ(screenStill.ts)→ Vision OCR(ocr.ts)の順で
+ * 実行し `frames/out<sec>s.ocr.json` を書く。outSec が挿入クリップ内に落ちて
+ * toSourceTime が null を返す場合(=その時刻に画面の生映像が無い)は OCR を
+ * スキップし notes にその旨を追記するだけで、例外は投げない。非対応環境
+ * (macOS 以外・swift 系が無い等)による劣化も同様に例外を投げず、
+ * runOcr 内部の warn で警告するだけに留める(frames 本体の PNG 出力は
+ * 常に成功で返す)。書いたサイドカーの絶対パスを返す(スキップ・劣化時は undefined)
+ */
+async function ocrFrame(
+  dir: string,
+  manifest: Manifest,
+  timeline: TimelineEntry[],
+  outSec: number,
+  outDir: string,
+  notes: string[],
+  cfg: Config,
+): Promise<string | undefined> {
+  const sourceSec = toSourceTime(outSec, timeline);
+  if (sourceSec === null) {
+    notes.push("OCR: 挿入クリップ内のためスキップ(画面の生映像がありません)");
+    return undefined;
+  }
+  const cropPath = join(tmpdir(), `cutflow-ocr-${process.pid}-${outSec.toFixed(2)}.png`);
+  try {
+    await buildScreenStill(dir, manifest, sourceSec, cropPath);
+    const result = await runOcr(cropPath, manifest.video.screenRegion, {
+      languages: cfg.ocr?.languages,
+      warn: (msg) => console.warn(`警告: ${msg}`),
+    });
+    if (result === null) return undefined; // 非対応環境等(warn 済み)
+    const ocrPath = join(outDir, `out${outSec.toFixed(2)}s.ocr.json`);
+    writeFileSync(
+      ocrPath,
+      JSON.stringify({ outSec, sourceSec, ...result }, null, 2),
+    );
+    return ocrPath;
+  } finally {
+    if (existsSync(cropPath)) rmSync(cropPath);
+  }
 }

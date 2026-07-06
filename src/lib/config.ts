@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
+import { DEFAULT_OCR_LANGUAGES } from "./ocr.ts";
 import type { Region } from "../types.ts";
 
 export interface Config {
@@ -16,7 +17,15 @@ export interface Config {
      *  auto = キャンバス寸法(W×H)が完全一致なら obs-canvas、それ以外は plain */
     layout?: "obs-canvas" | "plain" | "auto";
   };
-  whisper: { bin: string; model: string; language: string };
+  whisper: {
+    bin: string;
+    model: string;
+    language: string;
+    /** 語/トークン単位のタイミング(WordTiming)を transcript.json に付加するか。
+     * 省略時 false(既存挙動と完全一致・words を一切書かない)。true で
+     * whisper 実行を -ojf に切り替え、各 segment に words[] を付加する */
+    wordTimestamps?: boolean;
+  };
   detect: {
     silenceDb: number;
     minSilenceSec: number;
@@ -112,6 +121,25 @@ export interface Config {
       easeSec?: number;
     };
   };
+  /** 画面 OCR(frames --ocr)。Apple Vision の認識設定のうち、収録の言語構成で
+   * 変わりうるものだけを置く(認識レベル・言語補正はコード内の閉じた定数。
+   * src/lib/ocr.ts)。省略可(古い config.yaml との互換。frames --ocr を
+   * 使わない限り読まれず既存挙動は不変) */
+  ocr?: {
+    /** 認識言語の優先順(Vision の recognitionLanguages)。
+     * 省略時 DEFAULT_OCR_LANGUAGES(["en", "ja"]) */
+    languages?: string[];
+  };
+  /** 常駐フレームサーバ(frames-serve)。省略可(古い config.yaml との互換)。
+   * 有効化フラグはここには置かない(opt-in は `frames-serve` の明示起動で
+   * 担保する。config はポート番号を変えたいときだけ使う任意の項目) */
+  frames?: {
+    serve?: {
+      /** frames-serve の待受ポート。省略時 DEFAULT_SERVE_PORT(4311)。
+       * CLI の --port が指定されていればそちらが優先 */
+      port?: number;
+    };
+  };
 }
 
 /** editor.defaultImageDurationSec 未指定時の既定(秒) */
@@ -161,5 +189,8 @@ export function loadConfig(explicitPath?: string): Config {
   const cfg = parse(readFileSync(resolveConfigPath(explicitPath), "utf8")) as Config;
   cfg.recordingsDir = expandHome(cfg.recordingsDir);
   cfg.whisper.model = expandHome(cfg.whisper.model);
+  cfg.whisper.wordTimestamps ??= false;
+  cfg.ocr ??= {};
+  cfg.ocr.languages ??= [...DEFAULT_OCR_LANGUAGES];
   return cfg;
 }

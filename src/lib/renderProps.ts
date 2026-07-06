@@ -8,6 +8,8 @@ import type { TimelineEntry } from "./timeline.ts";
 import type { Config } from "./config.ts";
 import type { Profile } from "./profile.ts";
 import {
+  DEFAULT_BLUR_STRENGTH,
+  DEFAULT_BLUR_TYPE,
   DEFAULT_CUT_TRANSITION_SEC,
   DEFAULT_WIPE_TRANSITION_SEC,
   DEFAULT_ZOOM_EASE_SEC,
@@ -99,16 +101,45 @@ export function buildRenderProps(args: {
       const pos = captionPosOf(s, overlays);
       const style = captionStyleOf(s, overlays);
       const anchor = captionAnchorOf(s, overlays);
-      return remapInterval(s.start, s.end, timeline).map((iv) => ({
-        start: iv.start,
-        end: iv.end,
-        // trim は前後の空白だけ落とす(テキスト内の改行=手動改行は残る)
-        text: s.text.trim(),
-        track: captionTrack(s),
-        ...(pos ? { pos } : {}),
-        ...(pos && anchor === "topLeft" ? { anchor } : {}),
-        ...(style ? { style } : {}),
-      }));
+      const frags = remapInterval(s.start, s.end, timeline);
+
+      // 語を独立に写像する。1語も挿入/カット境界で複数断片に割れうるので
+      // flatMap。カット内に完全に入る語は remapInterval が [] を返し自然に消える
+      // (= その語は出力に映らないので active 判定の対象外。正しい)。
+      // words[] が無い(既定)ときは wordPieces=[] で、下の words 付与も走らない
+      // = 従来と 1 バイトも変わらない。
+      const wordPieces = (s.words ?? []).flatMap((w) =>
+        remapInterval(w.start, w.end, timeline).map((iv) => ({
+          text: w.text,
+          start: iv.start,
+          end: iv.end,
+        })),
+      );
+
+      return frags.map((iv) => {
+        // この断片 [iv.start, iv.end) に重なる語だけを載せ、断片へクリップする。
+        // 挿入が語の途中に割り込んだ場合、その語は2つの断片に別々に載り、
+        // それぞれの局所時刻でハイライトが進む(断片間で状態は連続しないが、
+        // 挿入中はテロップ自体が別の絵なので破綻しない)。
+        const words = wordPieces
+          .filter((wp) => wp.end > iv.start && wp.start < iv.end)
+          .map((wp) => ({
+            text: wp.text,
+            start: Math.max(wp.start, iv.start),
+            end: Math.min(wp.end, iv.end),
+          }));
+        return {
+          start: iv.start,
+          end: iv.end,
+          // trim は前後の空白だけ落とす(テキスト内の改行=手動改行は残る)
+          text: s.text.trim(),
+          track: captionTrack(s),
+          ...(pos ? { pos } : {}),
+          ...(pos && anchor === "topLeft" ? { anchor } : {}),
+          ...(style ? { style } : {}),
+          ...(words.length > 0 ? { words } : {}),
+        };
+      });
     })
     .filter((c) => c.text.length > 0);
 
@@ -184,6 +215,19 @@ export function buildRenderProps(args: {
       },
     ];
   });
+
+  // 領域ぼかし/モザイクもカット後タイムラインへ写像する。rect は不変なので
+  // マージ不要(zooms と同じく断片ごとに独立エントリのまま。判断5)。
+  // wipeFull のような近接マージはしない(blur に遷移が無いため不要)
+  const blurSpans = (overlays.blurs ?? []).flatMap((b) =>
+    remapInterval(b.start, b.end, timeline).map((iv) => ({
+      start: iv.start,
+      end: iv.end,
+      rect: b.rect,
+      type: b.type ?? DEFAULT_BLUR_TYPE,
+      strength: b.strength ?? DEFAULT_BLUR_STRENGTH,
+    })),
+  );
 
   // ベース映像の再生区間。「カット後のどこで、動画内のどの時刻から再生
   // するか」に分割する。動画内の時刻は videoFile が何かで変わる:
@@ -288,6 +332,7 @@ export function buildRenderProps(args: {
     overlays: overlayItems,
     wipeFull: wipeSpans,
     ...(zoomSpans.length > 0 ? { zooms: zoomSpans } : {}),
+    ...(blurSpans.length > 0 ? { blurs: blurSpans } : {}),
     ...(renderCfg.cutTransition?.type === "dip-to-black"
       ? {
           cutTransition: { sec: renderCfg.cutTransition.sec ?? DEFAULT_CUT_TRANSITION_SEC },

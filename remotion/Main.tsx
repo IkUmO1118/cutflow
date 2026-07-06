@@ -18,12 +18,20 @@ import {
   CAPTION_DEFAULT_FONT_WEIGHT,
   CAPTION_DEFAULT_OUTLINE,
   DEFAULT_LAYER_ORDER,
+  KARAOKE_DEFAULT_ACTIVE,
   capNum,
   ovNum,
 } from "../src/types.ts";
-import type { CaptionBackground, LayerId } from "../src/types.ts";
+import type { CaptionBackground, CaptionKaraoke, LayerId } from "../src/types.ts";
 import { frameSpans } from "../src/lib/renderProps.ts";
 import { buildCaptionIndex, lookupCaption } from "../src/lib/captionIndex.ts";
+import { blurRadiusPx, mosaicBlockPx, outputRectToCanvasRegion } from "../src/lib/blur.ts";
+import {
+  alignKaraoke,
+  animStateAt,
+  karaokeActiveAt,
+  karaokeFillProgress,
+} from "../src/lib/captionAnim.ts";
 import { cssFilterOf } from "../src/lib/colorFilter.ts";
 import { duckFactorAt } from "../src/lib/duck.ts";
 import { cropFitStyle } from "../src/lib/panelStyle.ts";
@@ -153,6 +161,7 @@ export const Main = (props: RenderProps) => {
     height: number,
     muted: boolean,
     fit: "contain" | "cover" = "cover",
+    imageRendering?: "pixelated",
   ) =>
     continuous ? (
       <CroppedVideo
@@ -164,6 +173,7 @@ export const Main = (props: RenderProps) => {
         muted={muted}
         fit={fit}
         filter={filterCss}
+        imageRendering={imageRendering}
       />
     ) : (
       baseSegs.map((seg, i) => (
@@ -186,6 +196,7 @@ export const Main = (props: RenderProps) => {
             muted={muted}
             fit={fit}
             filter={filterCss}
+            imageRendering={imageRendering}
           />
         </Sequence>
       ))
@@ -271,18 +282,41 @@ export const Main = (props: RenderProps) => {
     if (track !== null) {
       const caption = captionAt(track);
       if (!caption || inSpan(props.hideCaption)) return null;
+      const fontSizePx = caption.style?.fontSizePx ?? props.caption.fontSizePx;
       const styled = (maxWidth?: string) => (
         <OutlinedText
           text={caption.text}
-          fontSizePx={caption.style?.fontSizePx ?? props.caption.fontSizePx}
+          fontSizePx={fontSizePx}
           color={caption.style?.color ?? props.caption.color}
           outlineColor={caption.style?.outlineColor ?? props.caption.outlineColor}
           fontFamily={caption.style?.fontFamily ?? props.caption.fontFamily}
           fontWeight={caption.style?.fontWeight ?? props.caption.fontWeight}
           background={caption.style?.background}
           maxWidth={maxWidth}
+          words={caption.words}
+          karaokeStyle={caption.style?.karaoke}
+          t={t}
         />
       );
+      // 登場/退場アニメの器。anim 未指定なら包まず素通し(追加 div なし=DOM 完全一致)。
+      // テロップは Sequence に載っていないので、グローバル t と caption.start/end
+      // から進行度を出す(Sequence の相対フレームは使えない。zoomTransformAt と同じ)
+      const anim = caption.style?.anim;
+      const a = animStateAt(anim, caption.start, caption.end, t, fontSizePx);
+      const withAnim = (node: ReactNode): ReactNode =>
+        anim
+          ? (
+            <div
+              style={{
+                opacity: a.opacity,
+                transform: `translate(${a.translateX}px, ${a.translateY}px) scale(${a.scale})`,
+                transformOrigin: "center",
+              }}
+            >
+              {node}
+            </div>
+          )
+          : node;
       // 位置指定の無いテロップは、props.captionDefaultPos(縦プリセット等)が
       // あればそこに、無ければ従来の下部中央にフォールバックする
       const pos = caption.pos ?? props.captionDefaultPos;
@@ -301,7 +335,7 @@ export const Main = (props: RenderProps) => {
               ...(anchor === "topLeft" ? {} : { transform: "translate(-50%, -50%)" }),
             }}
           >
-            {styled()}
+            {withAnim(styled())}
           </div>
         );
       }
@@ -319,7 +353,7 @@ export const Main = (props: RenderProps) => {
             justifyContent: "center",
           }}
         >
-          {styled("90%")}
+          {withAnim(styled("90%"))}
         </div>
       );
     }
@@ -362,6 +396,61 @@ export const Main = (props: RenderProps) => {
           <InsertView ins={ins} fps={fps} muteBase={props.muteBase ?? false} />
         </Sequence>
       ))}
+
+      {/* 領域ぼかし/モザイク。ベース映像+zoom+挿入の直上・素材/テロップの直下。
+          zoom transform の外(独立レイヤー)なので出力px固定。本編経路のみ
+          (!props.layout && hasVideo)。ショート(props.layout あり)には
+          継承しない(D2/座標が本編基準のため) */}
+      {hasVideo && !props.layout &&
+        (props.blurs ?? []).map((b, i) => {
+          if (t < b.start || t >= b.end) return null; // 硬い ON/OFF(遷移なし)
+          const cr = outputRectToCanvasRegion(b.rect, props.screenRegion, props.width, props.height);
+          const container = {
+            position: "absolute" as const,
+            left: b.rect.x,
+            top: b.rect.y,
+            width: b.rect.w,
+            height: b.rect.h,
+            overflow: "hidden" as const,
+          };
+          if (b.type === "mosaic") {
+            const block = mosaicBlockPx(b.strength);
+            // 縮小レンダー → pixelated 拡大。box を block で割った小箱に描き、
+            // その箱を scale(block) で拡大(ニアレストネイバー)。端数は ceil して
+            // 余りをはみ出させ overflow:hidden で切る(隙間を作らない)
+            const smallW = Math.max(1, Math.ceil(b.rect.w / block));
+            const smallH = Math.max(1, Math.ceil(b.rect.h / block));
+            return (
+              <div key={`blur-${i}`} style={container}>
+                <div
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    top: 0,
+                    width: smallW,
+                    height: smallH,
+                    transform: `scale(${block})`,
+                    transformOrigin: "0 0",
+                    imageRendering: "pixelated",
+                  }}
+                >
+                  {renderBase(cr, smallW, smallH, true, "cover", "pixelated")}
+                </div>
+              </div>
+            );
+          }
+          // type === "blur"(既定): コンテナに blur() を掛ける。colorFilter は
+          // 内側 CroppedVideo に既に乗っているので、コンテナ blur は色補正済みの
+          // 映像にさらに合成される(CSS filter は積み重なる)
+          return (
+            <div
+              key={`blur-${i}`}
+              style={{ ...container, filter: `blur(${blurRadiusPx(b.strength)}px)` }}
+            >
+              {renderBase(cr, b.rect.w, b.rect.h, true, "cover")}
+            </div>
+          );
+        })}
 
       {(props.layerOrder ?? DEFAULT_LAYER_ORDER)
         .filter((id) => !props.hiddenLayers?.includes(id))
@@ -585,6 +674,9 @@ const OutlinedText = ({
   fontWeight = CAPTION_DEFAULT_FONT_WEIGHT,
   background,
   maxWidth,
+  words,
+  karaokeStyle,
+  t,
 }: {
   text: string;
   fontSizePx: number;
@@ -594,9 +686,75 @@ const OutlinedText = ({
   fontWeight?: number;
   background?: CaptionBackground;
   maxWidth?: string;
+  /** カラオケ描画用の語単位タイミング(カット後秒)。省略/空なら通常表示(不変) */
+  words?: { text: string; start: number; end: number }[];
+  karaokeStyle?: CaptionKaraoke;
+  /** 現在時刻(カット後秒)。words 指定時のみ使う */
+  t?: number;
 }) => {
   const strokeW = Math.round(fontSizePx * 0.25);
   const hasStroke = outlineColor !== "none" && outlineColor !== "transparent";
+  // 縁取り層(下)は語ごとに色分けしない=常に1塊 {text} のまま(カラオケでも触らない)。
+  // 本文層(上)だけ、words があれば語 span 列に割る。無ければ従来の1塊 {text}(不変)
+  const km = useMemo(
+    () => (words && words.length > 0 ? alignKaraoke(text, words) : null),
+    [text, words],
+  );
+  const body = km
+    ? (
+      <span style={{ position: "relative" }}>
+        {(() => {
+          const now = t ?? 0;
+          const act = karaokeActiveAt(km, now);
+          const mode = karaokeStyle?.mode ?? "word";
+          return km.map((p, i) => {
+            if (mode === "fill" && p.start !== null && p.end !== null && now >= p.start && now < p.end) {
+              // いま発話中の語だけ左→右の塗り進み。下に inactiveColor の文字、
+              // 上に activeColor の同じ文字を重ね、進捗ぶんだけ clip-path で
+              // 左側だけ見せる(linear-gradient+background-clip:text でも実装
+              // できるが、こちらの方が挙動が単純で色の組み合わせに依存しない)
+              const progress = karaokeFillProgress(p.start, p.end, now) * 100;
+              const activeColor = karaokeStyle?.activeColor ?? KARAOKE_DEFAULT_ACTIVE;
+              const inactiveColor = karaokeStyle?.inactiveColor ?? color;
+              return (
+                <span key={i} style={{ position: "relative", display: "inline-block" }}>
+                  <span style={{ color: inactiveColor }}>{p.text}</span>
+                  <span
+                    aria-hidden
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      color: activeColor,
+                      whiteSpace: "nowrap",
+                      clipPath: `inset(0 ${100 - progress}% 0 0)`,
+                    }}
+                  >
+                    {p.text}
+                  </span>
+                </span>
+              );
+            }
+            const isActive = act[i];
+            return (
+              <span
+                key={i}
+                style={{
+                  color: isActive
+                    ? (karaokeStyle?.activeColor ?? KARAOKE_DEFAULT_ACTIVE)
+                    : (karaokeStyle?.inactiveColor ?? color),
+                  ...(!isActive && karaokeStyle?.inactiveOpacity !== undefined
+                    ? { opacity: karaokeStyle.inactiveOpacity }
+                    : {}),
+                }}
+              >
+                {p.text}
+              </span>
+            );
+          });
+        })()}
+      </span>
+    )
+    : <span style={{ position: "relative", color }}>{text}</span>; // ← words 未指定: 現状と同一
   // 座布団があるときは帯(padding 込み)を外側の器に、テキスト積層を内側に置く。
   // padding を積層側に付けると縁取り層(inset:0)が前面テキストとずれるため
   const stack = (
@@ -626,7 +784,7 @@ const OutlinedText = ({
           {text}
         </span>
       )}
-      <span style={{ position: "relative", color }}>{text}</span>
+      {body}
     </div>
   );
   if (!background) return stack;
@@ -741,6 +899,7 @@ const CroppedVideo = ({
   startFromFrames = 0,
   fit = "cover",
   filter,
+  imageRendering,
 }: {
   src: string;
   canvas: { w: number; h: number };
@@ -754,6 +913,9 @@ const CroppedVideo = ({
   fit?: "contain" | "cover";
   /** 簡易カラー調整(colorFilter)の CSS filter 文字列。省略時は無補正 */
   filter?: string;
+  /** mosaic の縮小→拡大でニアレストネイバーにする(pixelated)。省略時は
+   * ブラウザ既定の補間(滑らか) */
+  imageRendering?: "pixelated";
 }) => {
   const wrapRef = useRef<HTMLDivElement>(null);
   const fallbackRef = useRef<HTMLCanvasElement>(null);
@@ -769,6 +931,7 @@ const CroppedVideo = ({
     left: fitted.left,
     top: fitted.top,
     maxWidth: "none",
+    ...(imageRendering ? { imageRendering } : {}),
   };
   return (
     <div

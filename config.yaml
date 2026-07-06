@@ -26,6 +26,11 @@ whisper:
   bin: whisper-cli
   model: ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin
   language: ja
+  # 語/トークン単位のタイミング(transcript.json の segment.words[])を付けるか。
+  # 省略時 false(既存挙動と完全一致。words を一切書かない)。
+  # true にすると whisper 実行が -ojf に切り替わり transcript.json が増える
+  # (今フェーズでは words[] を消費する機能が無いので既定は false のまま推奨)
+  wordTimestamps: false
 
 # 無音検出(機械的カットの候補づくり)
 detect:
@@ -119,6 +124,21 @@ render:
   zoom:
     # ズームイン/アウトの遷移秒数
     easeSec: 0.4
+
+# 画面 OCR(frames --ocr)。AI が画面内テキスト(コード/ターミナル/エラー)を
+# テキストとして読むための Apple Vision OCR 設定。macOS 専用・オフライン。
+# frames --ocr を使わない限り一切走らない(既定挙動は完全に不変)
+ocr:
+  # 認識言語の優先順(Vision の recognitionLanguages)。開発画面は英語コードが
+  # 主で日本語テロップ/コメントが混在するので en 優先・ja 併記
+  languages: [en, ja]
+
+# 常駐フレームサーバ(frames-serve コマンド)。省略可(既定 4311)。
+# 有効化フラグはここには置かない(opt-in は frames-serve の明示起動で
+# 担保する。ポートを変えたいときだけ使う)
+# frames:
+#   serve:
+#     port: 4311
 
 # GUI エディタ(npm run editor)
 editor:
