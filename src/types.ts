@@ -238,10 +238,11 @@ export const overlayTrack = (o: { track?: number; layer?: "under" | "over" }): n
 
 /** layerOrder 省略時の重なり順(下→上)。素材 n トラック構成。
  * n=2 は従来の固定レイアウト(V1=ワイプ下 / V2=ワイプ上)と同じで、
- * 3本目以降は V2 の上に積む */
+ * 3本目以降は V2 の上に積む。n=1(素材ゼロ/1本の案件)は意図的に
+ * ワイプより上の素材レーン(V2)を出さない(空トラック抑制) */
 export function defaultLayerOrder(n: number): LayerId[] {
-  const extra = Array.from({ length: Math.max(0, n - 2) }, (_, i) => ovId(i + 3));
-  return ["ov1", "wipe", "ov2", ...extra, "caption"];
+  const extra = Array.from({ length: Math.max(0, n - 1) }, (_, i) => ovId(i + 2));
+  return ["ov1", "wipe", ...extra, "caption"];
 }
 
 /** 従来互換の既定順(素材2トラック) */
