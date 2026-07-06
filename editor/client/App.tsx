@@ -3328,6 +3328,7 @@ export const App = () => {
                 approved: cutplan.approved,
                 bgmFile: proj.bgmFile,
                 bgmTracks: bgm?.tracks?.length ?? 0,
+                hasCamera: proj.hasCamera,
               }}
               setCaptionTrackDefault={setCaptionTrackDefault}
               updateCutSeg={updateCutSeg}

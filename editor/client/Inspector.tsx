@@ -24,7 +24,7 @@ import type {
 } from "../../src/types.ts";
 import { insertSpans, remapInterval } from "../../src/lib/timeline.ts";
 import type { TimelineEntry } from "../../src/lib/timeline.ts";
-import { PROFILES } from "../../src/lib/profile.ts";
+import { defaultShortProfileName, PROFILES, profileSupportsPlain } from "../../src/lib/profile.ts";
 import type { RenderProps } from "../../remotion/props.ts";
 import type { Selection } from "./model.ts";
 import { usePlayheadSelector } from "./playhead.ts";
@@ -140,7 +140,15 @@ export const Inspector = ({
   /** カット後の秒へ再生ヘッドを移動(挿入クリップの頭出しに使う) */
   seekOut: (outT: number) => void;
   /** 未選択時のプロジェクト要約に使う */
-  project: { dir: string; approved: boolean; bgmFile: string | null; bgmTracks: number };
+  project: {
+    dir: string;
+    approved: boolean;
+    bgmFile: string | null;
+    bgmTracks: number;
+    /** カメラ(ワイプ)を持つレイアウトか。plain のショート profile ピッカーの
+     * 絞り込みに使う(vertical を非表示にする) */
+    hasCamera: boolean;
+  };
   /** テロップトラックの標準位置・スタイル・座標基準を設定
    * (null で解除、undefined は現状維持) */
   setCaptionTrackDefault: (
@@ -228,6 +236,7 @@ export const Inspector = ({
           activeShort && (
             <ShortPropertiesSection
               activeShort={activeShort}
+              hasCamera={project.hasCamera}
               updateActiveShort={updateActiveShort}
               removeShort={removeShort}
             />
@@ -269,6 +278,7 @@ export const Inspector = ({
         </Section>
         <ShortPropertiesSection
           activeShort={activeShort}
+          hasCamera={project.hasCamera}
           updateActiveShort={updateActiveShort}
           removeShort={removeShort}
         />
@@ -2466,31 +2476,48 @@ const ShortCaptionPanel = ({
   );
 };
 
+/** profile ピッカーの並び(縦を先頭・default を末尾)と1行説明。
+ * docs/decisions.md 2026-07-06 論点3・論点4のコピーそのまま。
+ * 表示するかどうかは hasCamera || profileSupportsPlain(name) で絞る */
+const SHORT_PROFILE_OPTIONS: { value: string; title: string }[] = [
+  { value: "vertical", title: "カメラ+画面の2段(OBS 収録向け)" },
+  { value: "vertical-screen", title: "画面だけを縦に(通常動画向け)" },
+  { value: "vertical-cover", title: "収録全体を縦いっぱいに(元から縦の動画向け)" },
+  { value: "default", title: "横16:9(本編と同じ・横向きの切り抜き用)" },
+];
+
 /* ================= ショートのプロパティ(profile / 承認 / 削除) =================
  * ヘッダーの shortBar(#5/T5, docs/decisions.md 2026-07-06 論点3)を移設したもの。
  * activeShort が非 null の間(未選択時のプロジェクト要約/ショート範囲選択時)に
- * 差し込む。profile 選択肢は将来 hasCamera でフィルタする前提で PROFILES から
- * 組み立てる箇所をここ1つに集約している(現状は絞り込みなし=全件) */
+ * 差し込む。profile 選択肢は hasCamera(論点3)で絞り込む: plain(カメラ無し)は
+ * profileSupportsPlain が false の項目(= vertical)を disable ではなく非表示にする */
 const ShortPropertiesSection = ({
   activeShort,
+  hasCamera,
   updateActiveShort,
   removeShort,
 }: {
   activeShort: Short;
+  hasCamera: boolean;
   updateActiveShort: (updater: (s: Short) => Short) => void;
   removeShort: (name: string) => void;
-}) => (
+}) => {
+  const defaultName = defaultShortProfileName(hasCamera);
+  const options = SHORT_PROFILE_OPTIONS.filter(
+    (o) => hasCamera || profileSupportsPlain(o.value),
+  ).map((o) => ({ value: o.value, label: o.value, title: o.title }));
+  return (
   <>
     <Section title="ショート">
       <div className="field">
         <label title="出力プロファイル(レイアウトプリセット)">プロファイル</label>
         <Segmented
-          value={activeShort.profile ?? "vertical"}
-          options={Object.keys(PROFILES).map((name) => ({ value: name, label: name }))}
+          value={activeShort.profile ?? defaultName}
+          options={options}
           onChange={(name) => {
             updateActiveShort((s) => {
               const next = { ...s };
-              if (name === "vertical") delete next.profile;
+              if (name === defaultName) delete next.profile;
               else next.profile = name;
               return next;
             });
@@ -2529,7 +2556,8 @@ const ShortPropertiesSection = ({
       </button>
     </Section>
   </>
-);
+  );
+};
 
 /* ================= 未選択時: プロジェクトの要約 ================= */
 
@@ -2547,7 +2575,15 @@ const ProjectPanel = ({
   materials: string[];
   srcDur: number;
   duration: number;
-  project: { dir: string; approved: boolean; bgmFile: string | null; bgmTracks: number };
+  project: {
+    dir: string;
+    approved: boolean;
+    bgmFile: string | null;
+    bgmTracks: number;
+    /** カメラ(ワイプ)を持つレイアウトか。plain のショート profile ピッカーの
+     * 絞り込みに使う(vertical を非表示にする) */
+    hasCamera: boolean;
+  };
   /** ショートモード中(activeShort が非 null)に上部へ差し込む「ショート」節。
    * 本編モードでは undefined(#5/T5: ヘッダーの shortBar を右インスペクタへ移設) */
   shortSection?: ReactNode;
