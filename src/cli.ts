@@ -615,6 +615,13 @@ program
     console.log("plan 実行中(LLM でカット判断・章立てを生成)...");
     const p = await plan(abs, cfg);
     printPlanSummary(p.segments);
+
+    // 新規収録を初回から id 有効(@-mention 可能)にする。id-stamp は冪等・
+    // approvals.json 非改変なので、run の末尾に置いても安全
+    const { changed } = idStamp(abs);
+    if (changed.length > 0) {
+      console.log(`id-stamp 完了: ${changed.join(", ")}`);
+    }
   });
 
 function printPlanSummary(
