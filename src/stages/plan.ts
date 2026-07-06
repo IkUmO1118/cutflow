@@ -6,7 +6,11 @@ import { mergeIntervals } from "../lib/timeline.ts";
 import { carryIds, ensureIds, hasAnyId, ID_PREFIX, usedIdsOf } from "../lib/ids.ts";
 import { readEditableDocs } from "./idStamp.ts";
 import { resolvePerceptionCfg } from "../lib/config.ts";
-import { computeAudioFeatures, renderPerceptionBlock } from "../lib/perception.ts";
+import {
+  computeAudioFeatures,
+  computeSegmentOcr,
+  renderPerceptionBlock,
+} from "../lib/perception.ts";
 import type { Config } from "../lib/config.ts";
 import { captionTrack } from "../types.ts";
 import type {
@@ -14,6 +18,7 @@ import type {
   Chapters,
   CutPlan,
   Interval,
+  Manifest,
   Meta,
   Overlays,
   PlanSegment,
@@ -146,7 +151,17 @@ export async function plan(
   const templateFile = opts.cutsOnly ? "plan-cuts.md" : "plan.md";
   const pc = resolvePerceptionCfg(cfg);
   const audio = pc.audio ? computeAudioFeatures(numbered, auto.silences) : null;
-  const perception = renderPerceptionBlock(audio, null);
+  // ocr 経路のみ manifest.json を読む(audio だけなら manifest は不要)
+  const ocr = pc.ocr
+    ? await computeSegmentOcr(
+        dir,
+        readStageJson<Manifest>(join(dir, "manifest.json"), "ingest"),
+        numbered,
+        { ocrMaxSegments: pc.ocrMaxSegments, ocrMaxLines: pc.ocrMaxLines, languages: cfg.ocr?.languages },
+        (msg) => console.warn(`警告: ${msg}`),
+      )
+    : null;
+  const perception = renderPerceptionBlock(audio, ocr);
   const prompt = renderPrompt(dir, templateFile, numbered, auto.originalDurationSec, perception);
   const raw = await complete(prompt, cfg);
   // LLM の生応答は必ず残す(パース失敗時の調査と、判断過程の記録のため)
