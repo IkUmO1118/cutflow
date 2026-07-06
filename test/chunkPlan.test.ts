@@ -225,6 +225,42 @@ test("chunkVideoKey: zoom の rect 変更は乗っているチャンクのキー
   assert.equal(before.audio, after.audio);
 });
 
+test("chunkVideoKey: blurs は zooms/wipeFull と同じくチャンク限定(重なるチャンクだけキーが変わる・全域キー不変)", () => {
+  const before = keysOf(PROPS);
+  const withBlur: RenderProps = {
+    ...PROPS,
+    blurs: [{ start: 1, end: 2, rect: { x: 0, y: 0, w: 500, h: 200 }, type: "blur", strength: 0.5 }],
+  };
+  const after = keysOf(withBlur);
+  assert.notEqual(before.chunk0, after.chunk0); // 1-2s は chunk0([0,5s))に重なる
+  assert.equal(before.chunk1, after.chunk1); // chunk1([5,10s))には重ならない
+  assert.equal(before.audio, after.audio); // 音声には影響しない
+  assert.equal(globalVideoKey(PROPS, CUT_STAT), globalVideoKey(withBlur, CUT_STAT));
+});
+
+test("chunkVideoKey: blur の rect 変更は乗っているチャンクのキーだけを変える", () => {
+  const withBlur: RenderProps = {
+    ...PROPS,
+    blurs: [{ start: 1, end: 2, rect: { x: 0, y: 0, w: 500, h: 200 }, type: "blur", strength: 0.5 }],
+  };
+  const before = keysOf(withBlur);
+  const after = keysOf({
+    ...withBlur,
+    blurs: [{ ...withBlur.blurs![0], rect: { x: 100, y: 100, w: 400, h: 300 } }],
+  });
+  assert.notEqual(before.chunk0, after.chunk0);
+  assert.equal(before.chunk1, after.chunk1);
+  assert.equal(before.audio, after.audio);
+});
+
+test("chunkVideoKey: blurs 無しは現行のキーと一致する(キャッシュ総無効化を起こさない)", () => {
+  const before = keysOf(PROPS);
+  const after = keysOf({ ...PROPS, blurs: undefined });
+  assert.equal(before.chunk0, after.chunk0);
+  assert.equal(before.chunk1, after.chunk1);
+  assert.equal(before.audio, after.audio);
+});
+
 test("globalVideoKey / chunkVideoKey: layerOrder 変更で全チャンクのキーが変わる", () => {
   const before = keysOf(PROPS);
   const changed: RenderProps = { ...PROPS, layerOrder: ["wipe", "caption"] };
