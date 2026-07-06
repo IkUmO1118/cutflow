@@ -456,6 +456,13 @@ export const App = () => {
     return () => es.close();
   }, []);
 
+  // error が立ったらエラートースト(sticky・手動クローズ)を出す。error state 自体は
+  // 起動失敗の全画面(!proj)とプロキシ失敗の分岐(3178)が読むので残す(表示先だけ
+  // ヘッダーからトーストへ移す)。null→msg / msg→別msg の遷移で発火する
+  useEffect(() => {
+    if (error) addToast({ kind: "error", message: `エラー: ${error}` });
+  }, [error, addToast]);
+
   /** 必要になったピークを取りに行く(マイク・BGM・挿入クリップの動画)。
    * 波形は無くても編集できるので、失敗は警告に留める */
   const requestPeaks = (key: string) => {
@@ -2784,7 +2791,6 @@ export const App = () => {
           {proj.dir.replace(/\/+$/, "").split("/").pop()}
         </span>
         <span className="spacer" />
-        {error && <span className="error">エラー: {error}</span>}
         {draftOffer && (
           <span
             className="externalChange"
@@ -3168,7 +3174,7 @@ export const App = () => {
                 </p>
               ) : (
                 <>
-                  <p>プロキシの生成に失敗しました(エラーは上部に表示)</p>
+                  <p>プロキシの生成に失敗しました(エラーは右下の通知に表示)</p>
                   <button className="primary" onClick={() => void generateProxy()}>
                     プロキシ生成を再試行
                   </button>
