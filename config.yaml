@@ -35,6 +35,10 @@ detect:
 preview:
   # 出力する横幅(px)。キャンバス全体を縮小するので確認には十分な小ささでよい
   width: 1280
+  # proxy.mp4 / preview.mp4 のビデオエンコーダ。videotoolbox は macOS の
+  # ハードウェアエンコーダ。生成時間はほぼ同等でファイルサイズが小さい。
+  # libx264 で従来の ultrafast+CRF に戻せる(実測は docs/perf.md 参照)
+  videoEncoder: videotoolbox
 
 # 最終レンダー(Remotion 合成)のレイアウト
 render:
@@ -42,8 +46,22 @@ render:
   wipeWidthPx: 480
   # 字幕・テロップの画面端からの余白(px)。ワイプの位置には影響しない
   wipeMarginPx: 32
+  # ワイプ全画面(overlays.json の wipeFull)の出入りの遷移時間(秒)。0で瞬時
+  wipeTransitionSec: 0.3
+  # カット境界(keep区間の継ぎ目)のトランジション。none で従来どおり瞬時切り替え。
+  # dip-to-black で境界の前後に黒フェードを入れる(尺・音声は変わらない)。
+  # sec は黒への往復の合計秒(前半でフェードアウト、後半でフェードイン)
+  cutTransition:
+    type: none
+    sec: 0.3
   # 字幕のフォントサイズ(px)。初学者の見やすさ優先で大きめ
   captionFontSizePx: 52
+  # テロップ既定の見た目(GUI エディタの設定画面 ⌘, からも変更できる)。
+  # 個別のテロップ・トラック標準スタイルで指定の無い項目に効く
+  captionColor: "#ffffff"
+  captionOutlineColor: "#2563eb" # "none" で縁取りなし
+  captionFontFamily: '"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif'
+  captionFontWeight: 700 # 100〜900
   # plan が章タイトルのテロップ(「章」トラック)を作るときの表示秒数
   chapterCardSec: 3
   # 音声ラウドネス正規化の目標値(LUFS)。YouTube の基準は -14
@@ -57,11 +75,23 @@ render:
     # 合成時のシステム音声の音量(dB)。0で原音量。合成後の全体が
     # targetLufs へ正規化されるので、ここでは声とのバランスだけを決める
     volumeDb: 0
-  # BGM。収録フォルダに bgm.mp3 / bgm.m4a / bgm.wav があれば自動で合成される
+  # マイク音声のノイズ除去(ffmpeg afftdn)。システム音声(アプリ音・デモ音)は
+  # デジタル由来でノイズが無く、通すと音楽・効果音が劣化するため対象外
+  denoise:
+    # true でマイク音声にノイズ除去(ffmpeg afftdn)をかける。既定 false
+    mic: false
+    # afftdn のノイズフロア(dB)。下げるほど控えめ、上げるほど強い
+    noiseFloorDb: -25
+  # BGM。区間ごとに流すなら収録フォルダの bgm.json(tracks[]。区間・曲の
+  # 切り替え・重奏ができる)。bgm.json が無ければ収録フォルダ直下の
+  # bgm.mp3 / bgm.m4a / bgm.wav を全編1曲で流す(後方互換)。下の volumeDb /
+  # fadeOutSec はその後方互換パスと、bgm.json で volumeDb 省略時の既定値
   bgm:
-    # BGMの音量(dB)。0で原音量。声より20dB前後小さくするのが目安
+    # BGMの音量(dB)。0で原音量。声より20dB前後小さくするのが目安。
+    # bgm.json の各区間で volumeDb を省いたときの既定にもなる
     volumeDb: -22
-    # 動画終端でのフェードアウト秒数
+    # 全編1曲(後方互換)のときの動画終端フェードアウト秒数。
+    # bgm.json では各区間の fadeOutSec で終端フェードを付ける
     fadeOutSec: 2
     # 発話中の自動ダッキング(無音検出 cuts.auto.json の発話区間で BGM を下げる)
     ducking:
@@ -69,12 +99,34 @@ render:
       duckDb: -8
       # 下げ・戻しにかける秒数
       fadeSec: 0.4
+  # Remotion 合成段のハードウェアエンコーダ利用。if-possible: 使えれば使う
+  # (macOS は VideoToolbox。使えない環境はソフトウェアへ自動フォールバック)。
+  # disable: 常にソフトウェアエンコード(従来動作)。実測は docs/perf.md 参照
+  hardwareAcceleration: if-possible
+  # チャンク単位の差分レンダー(render chunk cache)。直前フルレンダー以降、
+  # 映像に効く要素(テロップ・位置・ワイプ等)だけを変えた再実行で、変わった
+  # チャンクだけを再レンダーして連結する。音声・keeps・全域設定を変えたときは
+  # 自動でフルレンダーに戻る。chunkSec がチャンクの目標長(秒)。0 で無効。
+  chunkSec: 15
+  # ズーム演出(overlays.json の zooms)の既定設定。zooms[].easeSec で
+  # 個別指定があればそちらが優先する
+  zoom:
+    # ズームイン/アウトの遷移秒数
+    easeSec: 0.4
 
 # GUI エディタ(npm run editor)
 editor:
   # 素材アップロード1ファイルの上限(MB)。動画素材も置けるよう大きめ。
   # ローカル限定サーバーだが、暴走したアップロードでディスクを埋めない歯止め
   maxUploadMb: 2048
+  # タイムラインに置く画像素材・尺不明素材の既定の尺(秒)
+  defaultImageDurationSec: 4
+
+# ショート動画の LLM ハイライト自動選定(plan-shorts コマンド)
+planShorts:
+  # 1本のショートの尺の上限(秒)。plan-shorts が LLM の選んだ区間集合の
+  # 尺合計をこの値以下に収める(超過分は末尾の区間を落とす)。YouTube ショートは60秒
+  maxDurationSec: 60
 
 # 意味カット・章立て・タイトル案の生成
 llm:

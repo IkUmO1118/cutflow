@@ -5,6 +5,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  renameSync,
   rmSync,
   statSync,
   watch,
@@ -19,19 +20,34 @@ import { spawn } from "node:child_process";
 import { build } from "esbuild";
 import { run } from "../src/lib/exec.ts";
 import { bootstrapProject } from "../src/stages/bootstrap.ts";
-import { buildProxy } from "../src/stages/proxy.ts";
+import { buildProxy, isProxyStale } from "../src/stages/proxy.ts";
 import { preview } from "../src/stages/preview.ts";
 import { findBgm, render } from "../src/stages/render.ts";
 import { validateDocs } from "../src/stages/validate.ts";
 import type { Config } from "../src/lib/config.ts";
+import {
+  applyConfigEdits,
+  resolvedEditorCfg,
+  syncEditorCfgFromYaml,
+  validateConfigPatch,
+} from "../src/lib/configEdit.ts";
+import type { ConfigPatch } from "../src/lib/configEdit.ts";
+import { loadShorts } from "../src/lib/shorts.ts";
 import type {
   AutoCuts,
+  Bgm,
   CutPlan,
   Manifest,
   Overlays,
+  Shorts,
   Transcript,
 } from "../src/types.ts";
-import type { DraftData, ProjectData, SaveRequest } from "./client/apiTypes.ts";
+import type {
+  ConfigSaveResult,
+  DraftData,
+  ProjectData,
+  SaveRequest,
+} from "./client/apiTypes.ts";
 
 /**
  * cutflow エディタのローカルサーバー。
@@ -42,7 +58,12 @@ import type { DraftData, ProjectData, SaveRequest } from "./client/apiTypes.ts";
  *   カットは焼き込まず Player が keep 区間を飛び飛びに再生する方式なので、
  *   proxy.mp4 は収録ごとに1回作れば編集中の再生成は不要
  */
-export async function startEditor(dir: string, cfg: Config): Promise<void> {
+export async function startEditor(
+  dir: string,
+  cfg: Config,
+  /** 設定画面(POST /api/config)が書き戻す config.yaml のパス */
+  cfgPath: string,
+): Promise<void> {
   // 動画ファイルだけの収録フォルダでも開けるように、必須3ファイルのうち
   // 無いものだけ決定的に補う(既存ファイルには触れない)。loadProject の
   // 3点チェックは最終防壁として残す
@@ -83,7 +104,7 @@ export async function startEditor(dir: string, cfg: Config): Promise<void> {
   });
 
   const server = createServer((req, res) => {
-    handle(req, res, dir, cfg, { bundleJs, indexHtml }, hub).catch((err: Error) => {
+    handle(req, res, dir, cfg, cfgPath, { bundleJs, indexHtml }, hub).catch((err: Error) => {
       // HttpError は想定内の拒否(不正な保存=400、大きすぎる素材=413 等)。
       // それ以外は想定外なのでログに残して 500 で返す
       if (err instanceof HttpError) {
@@ -124,7 +145,7 @@ class HttpError extends Error {
 const DEFAULT_MAX_UPLOAD_MB = 2048;
 
 /** エディタが編集する(=外部変更を監視する)ファイル */
-const WATCHED_FILES = ["cutplan.json", "overlays.json", "transcript.json"];
+const WATCHED_FILES = ["cutplan.json", "overlays.json", "transcript.json", "shorts.json"];
 /** 未保存編集の自動退避先(隠しファイル。素材一覧・外部変更の監視の対象外) */
 const DRAFT_FILE = ".editor-draft.json";
 /** /api/save が最後に各ファイルを書いた時刻。watch の自己イベント除外用 */
@@ -140,6 +161,7 @@ async function handle(
   res: ServerResponse,
   dir: string,
   cfg: Config,
+  cfgPath: string,
   assets: { bundleJs: string; indexHtml: string },
   hub: EventHub,
 ): Promise<void> {
@@ -213,9 +235,56 @@ async function handle(
     sendJson(res, 200, { ok: true });
     return;
   }
+  if (req.method === "POST" && path === "/api/config") {
+    // 設定画面の保存。config.yaml を部分更新(コメント保持)し、プロセス内の
+    // cfg も更新する(以後の preview / render / proxy に即反映)。
+    // ボディの受信は非同期で、その間にジョブが始まると 409 判定をすり抜けかね
+    // ない。先にボディを読み切り、以降は同期処理だけにして書き込みの窓を閉じる
+    const patch = (await readBody(req)) as ConfigPatch;
+    if (heavyJob || proxyBuilding) {
+      throw new HttpError(
+        409,
+        "書き出し・プロキシ生成の実行中は設定を保存できません。完了までお待ちください",
+      );
+    }
+    const errors = validateConfigPatch(patch);
+    if (errors.length > 0) {
+      throw new HttpError(400, `設定を保存できません: ${errors.join(" / ")}`);
+    }
+    // 現在のディスク内容(外部編集ぶんを含む)を土台にパッチを当て、一時ファイル
+    // + rename でアトミックに置き換える(並行する CLI が半端な YAML を読まない)。
+    // メモリ上の cfg も書き込んだ YAML から取り込み直す(外部編集ぶんも反映)
+    const nextYaml = applyConfigEdits(readFileSync(cfgPath, "utf8"), patch);
+    const tmp = `${cfgPath}.tmp-${process.pid}`;
+    writeFileSync(tmp, nextYaml);
+    renameSync(tmp, cfgPath);
+    syncEditorCfgFromYaml(cfg, nextYaml);
+    const result: ConfigSaveResult = {
+      ok: true,
+      renderCfg: cfg.render,
+      previewCfg: { width: cfg.preview.width },
+      editorCfg: resolvedEditorCfg(cfg, DEFAULT_MAX_UPLOAD_MB),
+    };
+    sendJson(res, 200, result);
+    return;
+  }
   if (req.method === "POST" && path === "/api/upload") {
     const saved = await saveUpload(dir, url.searchParams.get("name") ?? "", req, cfg);
     sendJson(res, 200, saved);
+    return;
+  }
+  if (req.method === "DELETE" && path === "/api/material") {
+    // 素材ファイルの削除(materials/ 内のみ。トラバーサルは normalize 後の
+    // 前方一致で弾く)。タイムラインで参照中かの判定はクライアント側の仕事
+    // (未保存の編集を含めた最新の使用状況を知っているのはクライアントだけ)
+    const rel = url.searchParams.get("file") ?? "";
+    const abs = normalize(join(dir, rel));
+    if (!abs.startsWith(join(resolve(dir), "materials") + sep)) {
+      throw new HttpError(400, `materials/ 内のファイルだけ削除できます: ${rel}`);
+    }
+    if (!existsSync(abs)) throw new HttpError(404, `素材が見つかりません: ${rel}`);
+    rmSync(abs);
+    sendJson(res, 200, { ok: true });
     return;
   }
   if (req.method === "POST" && path === "/api/proxy") {
@@ -308,10 +377,15 @@ function loadProject(dir: string, cfg: Config): ProjectData {
     cutplan,
     overlays: readJson<Overlays>("overlays.json", {}),
     dirFiles,
+    bgm: readJson<Bgm | null>("bgm.json", null),
     bgmFile: findBgm(dir),
+    shorts: loadShorts(dir),
     silences: readJson<AutoCuts | null>("cuts.auto.json", null)?.silences ?? null,
     proxyExists: existsSync(join(dir, "proxy.mp4")),
+    proxyStale: isProxyStale(dir, cfg),
     renderCfg: cfg.render,
+    previewCfg: { width: cfg.preview.width },
+    editorCfg: resolvedEditorCfg(cfg, DEFAULT_MAX_UPLOAD_MB),
     output: { w: cfg.ingest.screenRegion.w, h: cfg.ingest.screenRegion.h },
     draft,
   };
@@ -472,7 +546,7 @@ function readWav(abs: string): {
   };
 }
 
-const MATERIAL_EXT = /^\.(png|jpe?g|webp|gif|bmp|avif|mp4|mov|webm)$/;
+const MATERIAL_EXT = /^\.(png|jpe?g|webp|gif|bmp|avif|mp4|mov|webm|mp3|m4a|wav|aac|ogg|flac)$/;
 const VIDEO_EXT = /^\.(mp4|mov|webm)$/;
 
 /** アップロードのバイト列を通しつつ、累積が上限を超えたら 413 で打ち切る。
@@ -564,21 +638,48 @@ function saveProject(dir: string, body: SaveRequest): void {
     cutplan: body.cutplan ?? readDisk("cutplan.json"),
     transcript: body.transcript ?? readDisk("transcript.json"),
     overlays: body.overlays ?? readDisk("overlays.json"),
+    bgm: body.bgm !== undefined ? body.bgm : readDisk("bgm.json"),
     chapters: readDisk("chapters.json"),
     meta: readDisk("meta.json"),
+    shorts: body.shorts !== undefined ? body.shorts : readDisk("shorts.json"),
+    thumbnail: readDisk("thumbnail.json"),
   });
   if (errors.length > 0) {
     const detail = errors.map((e) => `${e.file} ${e.where}: ${e.message}`).join(" / ");
     throw new HttpError(400, `保存できません(整合性エラー ${errors.length}件): ${detail}`);
   }
 
-  const write = (file: string, data: CutPlan | Overlays | Transcript) => {
+  const write = (file: string, data: CutPlan | Overlays | Transcript | Bgm | Shorts) => {
     selfWroteAt.set(file, Date.now());
     writeFileSync(join(dir, file), JSON.stringify(data, null, 2));
   };
   if (body.cutplan) write("cutplan.json", body.cutplan);
   if (body.overlays) write("overlays.json", body.overlays);
   if (body.transcript) write("transcript.json", body.transcript);
+  // BGM: 区間があれば bgm.json を書き、null / 空なら削除して全編1曲(後方互換)へ戻す
+  if (body.bgm !== undefined) {
+    if (body.bgm && body.bgm.tracks.length > 0) {
+      write("bgm.json", body.bgm);
+    } else {
+      const p = join(dir, "bgm.json");
+      if (existsSync(p)) {
+        selfWroteAt.set("bgm.json", Date.now());
+        rmSync(p);
+      }
+    }
+  }
+  // ショート: 1件以上あれば shorts.json を書き、無ければ削除する(bgm と同型)
+  if (body.shorts !== undefined) {
+    if (body.shorts && body.shorts.shorts.length > 0) {
+      write("shorts.json", body.shorts);
+    } else {
+      const p = join(dir, "shorts.json");
+      if (existsSync(p)) {
+        selfWroteAt.set("shorts.json", Date.now());
+        rmSync(p);
+      }
+    }
+  }
 }
 
 const MIME: Record<string, string> = {
@@ -610,13 +711,25 @@ function serveMedia(
     sendJson(res, 404, { error: `not found: ${rel}` });
     return;
   }
-  const size = statSync(abs).size;
+  const st = statSync(abs);
+  const size = st.size;
+  // no-store だと <video> 要素ごと・シークごとに同じバイト列を毎回取り直し、
+  // カット境界の先読み(premount)が重くなる。再検証付きキャッシュ(no-cache
+  // + ETag)なら、ファイルが変わらない限り 304 で済み、proxy.mp4 や素材を
+  // 作り直した瞬間に ETag が変わって古いキャッシュは自然に外れる
+  const etag = `"${size}-${Math.round(st.mtimeMs)}"`;
   const headers: Record<string, string> = {
     "Content-Type": MIME[extname(abs).toLowerCase()] ?? "application/octet-stream",
     "Accept-Ranges": "bytes",
-    // proxy.mp4 や素材は作り直されることがあるのでキャッシュさせない
-    "Cache-Control": "no-store",
+    "Cache-Control": "no-cache",
+    ETag: etag,
+    "Last-Modified": st.mtime.toUTCString(),
   };
+  if (req.headers["if-none-match"] === etag) {
+    res.writeHead(304, headers);
+    res.end();
+    return;
+  }
   const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? "");
   if (range && (range[1] || range[2])) {
     // suffix 形式(bytes=-N)は末尾 N バイト。end はファイル末尾へ丸める(RFC 9110)

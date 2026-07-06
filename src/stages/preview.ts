@@ -7,6 +7,7 @@ import {
   measuredLoudnormFilter,
 } from "../lib/loudness.ts";
 import { mergeIntervals } from "../lib/timeline.ts";
+import { videoEncodeArgs } from "../lib/videoEncode.ts";
 import type { Config } from "../lib/config.ts";
 import type { CutPlan, Manifest } from "../types.ts";
 
@@ -71,8 +72,7 @@ export async function preview(dir: string, cfg: Config): Promise<string> {
     // -g 30: キーフレーム間隔を1秒に。エディタが preview.mp4 をプロキシとして
     // 再生するため、細かいシークが軽くなるようにしておく
     // (+faststart で moov を先頭に置き、ブラウザの初期ロードも速くする)
-    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28", "-g", "30",
-    "-movflags", "+faststart",
+    ...videoEncodeArgs(cfg),
     // loudnorm は内部で 192kHz にアップサンプルするため 48kHz に戻す
     "-c:a", "aac", "-ar", "48000",
     output,

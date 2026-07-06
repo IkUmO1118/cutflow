@@ -41,6 +41,103 @@ manifest に `layout: "obs-canvas" | "plain"` の区別を持たせて ingest〜
 ズーム映像効果・validate の出力解像度チェックは**いずれも実在しない**。縦ショート/
 zoom/vertical-cover は今回スコープ外(plain で縦は縦のまま出るので一次要件は充足)。
 
+> **付記(マージ後)**: 上記の「訂正」は本判断を feature/editor-bootstrap 上で
+> 単独開発していた時点(profile.ts/zooms 未マージ)の事実。直後に
+> feature/editor-improvements をマージした結果、`src/lib/profile.ts`・
+> ズーム(`overlays.json` の `zooms`)は実在するようになった(下の
+> 2026-07-06 の各判断を参照)。plain 対応の実装時はこれらとの整合を
+> 取ること。
+
+## 2026-07-06 簡易カラー調整(overlays.json の colorFilter)とサムネイル生成(thumbnail.json)
+
+**判断**:
+- **colorFilter**: `overlays.json` のトップレベルに全編一律(区間指定なし)の
+  `{brightness?, contrast?, saturate?}` を追加。実装は CSS filter で、
+  Remotion のベース映像(画面クロップ+カメラ=同一収録動画)にだけ適用する。
+  素材オーバーレイ・挿入クリップは対象外(素材は完成品であり、補正したいのは
+  収録の見た目だけのため)。**ショートにも例外的に継承する**(zooms 等の
+  演出と違い「収録の見た目補正」という扱いなので、本編とショートで肌色が
+  変わる事故を防ぐ)。チャンク差分レンダーではグローバルキー扱い(変更したら
+  全チャンクがフルレンダーになる。wipe 幾何等の既存の全域設定と同じ側)
+- **thumbnail**: 収録フォルダに `thumbnail.json`(`{t, texts[]}`)を書くと
+  `thumbnail` コマンドで `thumbnail.png`(1920x1080)を書き出せる。`t` は
+  frames と違いスナップしない(カットされた瞬間も指定できる。サムネは動画に
+  入っていない絵を使ってよいため)。`texts[]` は transcript と同じ
+  `CaptionStyle` を共有し、`pos` は省略不可。合成は最終レンダーと同じ見た目
+  機構(buildRenderProps)を通し、keep=全編・テロップ=texts のみ・
+  `wipeFull` / `zooms` / `colorFilter` は本編と同じに乗る。ベースは
+  `frames` のプロキシと違い元収録のフル解像度を使う(静止画の可読性が命)。
+  `thumbnail.png` は中間生成物ではなく成果物(`final.mp4` と同格)。
+  エディタ対応は今回やらない
+
+**理由**: どちらも既存の時刻写像・`buildRenderProps`・キャッシュキー機構に
+相乗りさせて実装コストを抑える方針(zooms・ショートと同じ考え方)。colorFilter
+は「演出」(zooms 等)と「見た目補正」を区別し、後者だけをショート・
+サムネイルへ横断的に効かせることで、一箇所直せば全出力の肌色が揃うようにした。
+thumbnail は「動画に入っていない絵も使いたい」という要件が frames の
+スナップ挙動と相容れないため、専用のスナップなし経路として独立させた。
+
+## 2026-07-06 ズーム演出(overlays.json の zooms)
+
+**判断**: 画面の一部を拡大して見せる演出を、既存の `wipeFull` と同じ
+「元収録の秒の区間+宣言的な指定」の作法で `overlays.json` に追加する。
+
+- スキーマ: `zooms: [{ start, end, rect: {x,y,w,h}, easeSec? }]`。`rect` は
+  出力px座標系(テロップ `pos`・overlays `rect` と同じ)で「この矩形を全画面へ
+  拡大する」の意味。倍率は書かせない(`scale = 出力幅 / rect.w` が rect から
+  一意に決まる。倍率と rect の二重指定は矛盾の温床になるため)
+- 拡大は一様スケール(歪ませない)。rect のアスペクトが出力と違う場合も
+  この規則で決まる(validate で警告)
+- かかるのは**ベース映像の背景レイヤー(画面クロップ)だけ**。ワイプ・
+  テロップ・素材オーバーレイ・挿入クリップは動かさない(拡大してもテロップの
+  位置・可読性が変わらないのが狙い)
+- 区間の重なりは禁止(validate エラー)。ズーム中のパン(rect の時間変化)は
+  v1では対応しない(区間を分ければ実用上足りる)
+- 遷移(イーズイン/アウト)は `wipeFull` の `wipeTransitionSec` と同じ
+  smoothstep・区間が短いときの遷移縮小規則を踏襲(`src/lib/zoom.ts` に
+  純関数として切り出し、`remotion/Main.tsx` の背景レイヤーだけに適用)
+- チャンク差分レンダー(render.chunks/)では `wipeFull` と同じ「区間限定
+  (チャンク重なりだけ無効化)」の扱いにする(`src/lib/chunkPlan.ts`)
+- ショート(`profile` の layout 経路)には効かせない。ショートは
+  `overlays.json` を継承しない既存設計(D2)により自動的に対象外になる
+  (特別扱いのコードは書いていない)
+
+**理由**: 「画面のこの部分に注目」を作る解説動画向けの演出。既存の
+時刻写像・キャッシュキー機構への相乗りで実装コストを抑えつつ、
+`wipeFull` で確立済みの UX(タイムラインの属性スパン帯・プレビュー上の
+枠ドラッグ)を踏襲してユーザーの学習コストも増やさない。
+
+## 2026-07-06 ショート動画対応(縦動画の書き出し・エディタ編集)
+
+**判断**(詳細は docs/shorts-design.md、実装済み):
+- **D1**: 出力プロファイルは `src/lib/profile.ts` の組み込みプリセット
+  (`default` / `vertical` / `vertical-cover`)。config.yaml には追加しない
+  (プリセットは閉じた組み込み。設定爆発の回避)。
+- **D2**: `shorts.json` の各ショートは `ranges`(元収録の秒)をそのまま
+  `mergeIntervals` した keep 集合として使う。本編 cutplan の keep とは
+  独立(交差させない)。テロップは transcript.json を流用し、位置/スタイルは
+  ショート専用の `captionTracks`(トラック単位。per-segment 上書きは持たない)
+  で上書きする。
+- **D3**: 縦レイアウトは `vertical`(camera上/screen下スタック)と
+  `vertical-cover`(camera 全画面)の2プリセットに閉じる。既存の横ワイプ
+  経路は無改造(layout 無し = 現行のまま)。
+- **D4**: レンダーはショートごとに `cut.<name>.mp4` → `shorts/<name>.mp4`。
+  承認は本編とは別の `short.approved`(render --short のゲート)。キャッシュは
+  full-skip のみ(チャンク差分レンダーはショートに入れない)。
+- **D5**: エディタの縦プレビューは既存 `proxy.mp4` を流用(縦専用 proxy は
+  作らない)。カメラの甘さは既知・許容。
+- **D6**: エディタは新規ビューを作らず、ヘッダーの「本編/各ショート」
+  セレクタ + プリセット/承認バー、既存 Timeline への `SpanKind: "short"`
+  帯、パネルの「ショート」タブ(CRUD)に留める。ショート編集
+  (ranges・captionTracks・profile・approved)は cutplan/overlays/transcript/
+  bgm の undo 履歴には含めない(別ドキュメントで、この程度の編集に undo
+  一貫性のコストを払う価値が薄いと判断した意図的な簡略化)。
+
+**理由**: 本編とは別解像度・別レイアウトの出力を、既存の時刻写像
+(`lib/timeline.ts`)・`buildRenderProps`・キャッシュキー機構に相乗りさせて
+実装コストを抑える。エディタ側も同じ発想で、新規サーフェスをセレクタ1個・
+タブ1個・SpanKind 1個に絞り `App.tsx`/`Timeline.tsx` の肥大を避けた。
+
 ## 2026-07-02 音量は render でツーパス loudnorm、BGM はファイル規約で自動合成
 
 **判断**: 最終出力の音量は ffmpeg の loudnorm(EBU R128)で -14 LUFS

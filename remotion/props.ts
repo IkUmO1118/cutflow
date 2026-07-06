@@ -2,7 +2,7 @@
 // src/stages/render.ts が生成し、Remotion コンポジション(Main.tsx)が受け取る。
 // 時刻はすべて「カット済み動画(cut.mp4)のタイムライン」の秒。
 
-import type { CaptionStyle, LayerId } from "../src/types.ts";
+import type { CaptionStyle, ColorFilter, LayerId } from "../src/types.ts";
 
 export interface Region {
   x: number;
@@ -33,7 +33,7 @@ export interface Span {
   end: number;
 }
 
-/** 画面いっぱいに表示する素材(画像/動画) */
+/** 表示する素材(画像/動画)。rect が無ければ画面いっぱい */
 export interface OverlayItem {
   start: number;
   end: number;
@@ -41,11 +41,23 @@ export interface OverlayItem {
   file: string;
   /** 素材トラック番号(1始まり)。重なりは layerOrder の ov<N> の位置で決まる */
   track: number;
-  /** contain: 全体を見せる(余白は黒) / cover: 画面を埋める(端が切れる) */
+  /** contain: 全体を見せる(全画面時の余白は黒、rect 配置時は透過) /
+   * cover: 領域を埋める(端が切れる) */
   fit: "contain" | "cover";
-  /** 動画素材の再生開始位置(秒)。挿入(インサート)で割れた2番目以降の
-   * 断片が頭からでなく続きから再生するために使う(画像では無視) */
+  /** 動画素材の再生開始位置(秒)。overlays.json の頭出し(startFrom)に、
+   * 挿入(インサート)で割れた2番目以降の断片の表示済み秒数を足した値
+   * (画像では無視) */
   startFrom?: number;
+  /** 音量(0〜2、1=素材の音量のまま)。省略時 0 = 無音(動画のみ) */
+  volume?: number;
+  /** 不透明度(0〜1)。省略時 1 */
+  opacity?: number;
+  /** フェードイン/アウト(秒)。この断片の頭/末尾で不透明度と音量を遷移する
+   * (挿入で割れたときは buildRenderProps が最初/最後の断片にだけ載せる) */
+  fadeInSec?: number;
+  fadeOutSec?: number;
+  /** 表示領域(出力px)。省略時は全画面 */
+  rect?: Region;
 }
 
 // interface でなく type なのは意図的: Remotion の Composition / Player は
@@ -54,16 +66,25 @@ export type RenderProps = {
   /** publicDir(収録フォルダ)内のカット済み動画ファイル名。
    * 空文字列なら動画なしのプレースホルダー表示(Remotion Studio 用) */
   videoFile: string;
-  /** BGM。収録フォルダに bgm.* が無ければ null */
+  /** BGM トラック(カット後タイムラインの再生区間。buildRenderProps が bgm.json
+   * を写像して組み立てる)。BGM が無ければ空配列。区間はループ再生し、
+   * 覆っていない時間は無音。複数区間で曲の切り替え・重奏を表現する */
   bgm: {
     file: string;
     volumeDb: number;
-    fadeOutSec: number;
-    /** 発話中のダッキング(無音検出由来。buildRenderProps が組み立てる)。
-     * spans の間だけ BGM をさらに duckDb 下げ、前後 fadeSec 秒で遷移する。
-     * 無ければ全編一定音量 */
+    /** 出力タイムラインでの再生区間(カット後の秒) */
+    start: number;
+    end: number;
+    /** 頭出し(ファイル内の再生開始秒)。省略時 0(頭から) */
+    startFrom?: number;
+    /** 区間の頭/末尾のフェード(秒)。省略時 0(なし) */
+    fadeInSec?: number;
+    fadeOutSec?: number;
+    /** 発話中のダッキング(無音検出由来。buildRenderProps が組み立てる。
+     * 全 BGM 区間で共通)。spans の間だけ BGM をさらに duckDb 下げ、前後
+     * fadeSec 秒で遷移する。無ければ一定音量。spans は出力(カット後)の秒 */
     duck?: { spans: Span[]; duckDb: number; fadeSec: number };
-  } | null;
+  }[];
   /** エディタのプレビュー専用: ベース映像(挿入クリップ含む)の音を消す。
    * 最終レンダーでは常に未指定 */
   muteBase?: boolean;
@@ -81,14 +102,48 @@ export type RenderProps = {
   canvas: { w: number; h: number };
   screenRegion: Region;
   cameraRegion: Region;
-  wipe: { widthPx: number; marginPx: number };
-  caption: { fontSizePx: number };
+  /** 右下ワイプの寸法。transitionSec はワイプ全画面(wipeFull)の出入りの
+   * 遷移時間(秒。省略・0 で瞬時) */
+  wipe: { widthPx: number; marginPx: number; transitionSec?: number };
+  /** 簡易カラー調整(overlays.json の colorFilter)。ベース映像(画面クロップ+
+   * カメラ)だけに CSS filter として効く(src/lib/colorFilter.ts が変換)。
+   * 素材オーバーレイ・挿入クリップには効かない。省略時は無補正 */
+  colorFilter?: ColorFilter;
+  /** ベース映像パネルの配置(縦プリセット用。src/lib/profile.ts の
+   * Profile.layout から buildRenderProps が渡す)。省略時は現行ワイプ経路
+   * (screen 全面 + camera 右下ワイプ)のまま */
+  layout?: {
+    panels: { source: "screen" | "camera"; rect?: Region; fit: "contain" | "cover" }[];
+  };
+  /** テロップの既定の見た目(config.yaml の render.caption* を buildRenderProps が
+   * 解決)。fontSizePx 以外は省略可で、無ければ描画側の定数
+   * (CAPTION_DEFAULT_*)が最終フォールバックになる */
+  caption: {
+    fontSizePx: number;
+    color?: string;
+    outlineColor?: string;
+    fontFamily?: string;
+    fontWeight?: number;
+  };
+  /** 位置指定の無いテロップの既定位置(縦プリセット用。profile.layout.caption
+   * から buildRenderProps が渡す)。省略時は現行の下部中央 */
+  captionDefaultPos?: { x: number; y: number; anchor?: "center" | "topLeft" };
   /** テロップ(位置・スタイルは解決済み) */
   captions: Caption[];
   /** 素材オーバーレイ(overlays.json 由来。無ければ空) */
   overlays: OverlayItem[];
   /** ワイプを全画面にする区間 */
   wipeFull: Span[];
+  /** ズーム演出(overlays.json の zooms。カット後の秒に写像・easeSec 解決済み)。
+   * ベース映像の背景レイヤーだけを拡大する(ワイプ・テロップ・素材・挿入は
+   * 動かない)。省略時(空)は現行の描画と完全に同じ */
+  zooms?: { start: number; end: number; rect: Region; easeSec: number }[];
+  /** カット境界のディップ・トゥ・ブラック(config.yaml の render.cutTransition
+   * が dip-to-black のときだけ載る)。sec は黒への往復の合計秒 */
+  cutTransition?: { sec: number };
+  /** dip-to-black の対象境界(カット後の秒。先頭0・末尾は含まない)。
+   * cutTransition が無ければ意味を持たない */
+  cutBoundarySecs?: number[];
   /** 字幕を出さない区間 */
   hideCaption: Span[];
   /** 画面の重なり順(下→上)。省略時は DEFAULT_LAYER_ORDER */
@@ -99,13 +154,17 @@ export type RenderProps = {
   baseSegments?: { start: number; videoStart: number; durationSec: number }[];
   /** ベース映像トラックへの挿入クリップ(カット後の秒)。
    * 表示中はベース映像・ワイプが止まり、挿入素材(音声込み)が全面に出る。
-   * startFrom は頭出し(素材内の再生開始秒。省略時 0・動画のみ有効) */
+   * startFrom は頭出し(素材内の再生開始秒。省略時 0・動画のみ有効)。
+   * volume は音量(0〜2。省略時 1)、fadeIn/OutSec は黒からの明転/暗転(秒) */
   inserts?: {
     start: number;
     end: number;
     file: string;
     fit: "contain" | "cover";
     startFrom?: number;
+    volume?: number;
+    fadeInSec?: number;
+    fadeOutSec?: number;
   }[];
 };
 
@@ -114,7 +173,7 @@ export type RenderProps = {
  * 再生エラーになるため(実データで見る方法は docs/usage.md 参照) */
 export const defaultProps: RenderProps = {
   videoFile: "",
-  bgm: null,
+  bgm: [],
   durationSec: 10,
   fps: 30,
   width: 1920,

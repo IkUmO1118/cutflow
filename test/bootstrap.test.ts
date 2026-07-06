@@ -14,8 +14,11 @@ function baseDocs(over: Partial<LoadedDocs> = {}): LoadedDocs {
     cutplan: initialCutplan(100),
     transcript: emptyTranscript(),
     overlays: {},
+    bgm: null,
     chapters: null,
     meta: null,
+    shorts: null,
+    thumbnail: null,
     ...over,
   };
 }
