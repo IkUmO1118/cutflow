@@ -18,13 +18,20 @@ import {
   CAPTION_DEFAULT_FONT_WEIGHT,
   CAPTION_DEFAULT_OUTLINE,
   DEFAULT_LAYER_ORDER,
+  KARAOKE_DEFAULT_ACTIVE,
   capNum,
   ovNum,
 } from "../src/types.ts";
-import type { CaptionBackground, LayerId } from "../src/types.ts";
+import type { CaptionBackground, CaptionKaraoke, LayerId } from "../src/types.ts";
 import { frameSpans } from "../src/lib/renderProps.ts";
 import { buildCaptionIndex, lookupCaption } from "../src/lib/captionIndex.ts";
 import { blurRadiusPx, mosaicBlockPx, outputRectToCanvasRegion } from "../src/lib/blur.ts";
+import {
+  alignKaraoke,
+  animStateAt,
+  karaokeActiveAt,
+  karaokeFillProgress,
+} from "../src/lib/captionAnim.ts";
 import { cssFilterOf } from "../src/lib/colorFilter.ts";
 import { duckFactorAt } from "../src/lib/duck.ts";
 import { cropFitStyle } from "../src/lib/panelStyle.ts";
@@ -275,18 +282,41 @@ export const Main = (props: RenderProps) => {
     if (track !== null) {
       const caption = captionAt(track);
       if (!caption || inSpan(props.hideCaption)) return null;
+      const fontSizePx = caption.style?.fontSizePx ?? props.caption.fontSizePx;
       const styled = (maxWidth?: string) => (
         <OutlinedText
           text={caption.text}
-          fontSizePx={caption.style?.fontSizePx ?? props.caption.fontSizePx}
+          fontSizePx={fontSizePx}
           color={caption.style?.color ?? props.caption.color}
           outlineColor={caption.style?.outlineColor ?? props.caption.outlineColor}
           fontFamily={caption.style?.fontFamily ?? props.caption.fontFamily}
           fontWeight={caption.style?.fontWeight ?? props.caption.fontWeight}
           background={caption.style?.background}
           maxWidth={maxWidth}
+          words={caption.words}
+          karaokeStyle={caption.style?.karaoke}
+          t={t}
         />
       );
+      // 登場/退場アニメの器。anim 未指定なら包まず素通し(追加 div なし=DOM 完全一致)。
+      // テロップは Sequence に載っていないので、グローバル t と caption.start/end
+      // から進行度を出す(Sequence の相対フレームは使えない。zoomTransformAt と同じ)
+      const anim = caption.style?.anim;
+      const a = animStateAt(anim, caption.start, caption.end, t, fontSizePx);
+      const withAnim = (node: ReactNode): ReactNode =>
+        anim
+          ? (
+            <div
+              style={{
+                opacity: a.opacity,
+                transform: `translate(${a.translateX}px, ${a.translateY}px) scale(${a.scale})`,
+                transformOrigin: "center",
+              }}
+            >
+              {node}
+            </div>
+          )
+          : node;
       // 位置指定の無いテロップは、props.captionDefaultPos(縦プリセット等)が
       // あればそこに、無ければ従来の下部中央にフォールバックする
       const pos = caption.pos ?? props.captionDefaultPos;
@@ -305,7 +335,7 @@ export const Main = (props: RenderProps) => {
               ...(anchor === "topLeft" ? {} : { transform: "translate(-50%, -50%)" }),
             }}
           >
-            {styled()}
+            {withAnim(styled())}
           </div>
         );
       }
@@ -323,7 +353,7 @@ export const Main = (props: RenderProps) => {
             justifyContent: "center",
           }}
         >
-          {styled("90%")}
+          {withAnim(styled("90%"))}
         </div>
       );
     }
@@ -644,6 +674,9 @@ const OutlinedText = ({
   fontWeight = CAPTION_DEFAULT_FONT_WEIGHT,
   background,
   maxWidth,
+  words,
+  karaokeStyle,
+  t,
 }: {
   text: string;
   fontSizePx: number;
@@ -653,9 +686,75 @@ const OutlinedText = ({
   fontWeight?: number;
   background?: CaptionBackground;
   maxWidth?: string;
+  /** カラオケ描画用の語単位タイミング(カット後秒)。省略/空なら通常表示(不変) */
+  words?: { text: string; start: number; end: number }[];
+  karaokeStyle?: CaptionKaraoke;
+  /** 現在時刻(カット後秒)。words 指定時のみ使う */
+  t?: number;
 }) => {
   const strokeW = Math.round(fontSizePx * 0.25);
   const hasStroke = outlineColor !== "none" && outlineColor !== "transparent";
+  // 縁取り層(下)は語ごとに色分けしない=常に1塊 {text} のまま(カラオケでも触らない)。
+  // 本文層(上)だけ、words があれば語 span 列に割る。無ければ従来の1塊 {text}(不変)
+  const km = useMemo(
+    () => (words && words.length > 0 ? alignKaraoke(text, words) : null),
+    [text, words],
+  );
+  const body = km
+    ? (
+      <span style={{ position: "relative" }}>
+        {(() => {
+          const now = t ?? 0;
+          const act = karaokeActiveAt(km, now);
+          const mode = karaokeStyle?.mode ?? "word";
+          return km.map((p, i) => {
+            if (mode === "fill" && p.start !== null && p.end !== null && now >= p.start && now < p.end) {
+              // いま発話中の語だけ左→右の塗り進み。下に inactiveColor の文字、
+              // 上に activeColor の同じ文字を重ね、進捗ぶんだけ clip-path で
+              // 左側だけ見せる(linear-gradient+background-clip:text でも実装
+              // できるが、こちらの方が挙動が単純で色の組み合わせに依存しない)
+              const progress = karaokeFillProgress(p.start, p.end, now) * 100;
+              const activeColor = karaokeStyle?.activeColor ?? KARAOKE_DEFAULT_ACTIVE;
+              const inactiveColor = karaokeStyle?.inactiveColor ?? color;
+              return (
+                <span key={i} style={{ position: "relative", display: "inline-block" }}>
+                  <span style={{ color: inactiveColor }}>{p.text}</span>
+                  <span
+                    aria-hidden
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      color: activeColor,
+                      whiteSpace: "nowrap",
+                      clipPath: `inset(0 ${100 - progress}% 0 0)`,
+                    }}
+                  >
+                    {p.text}
+                  </span>
+                </span>
+              );
+            }
+            const isActive = act[i];
+            return (
+              <span
+                key={i}
+                style={{
+                  color: isActive
+                    ? (karaokeStyle?.activeColor ?? KARAOKE_DEFAULT_ACTIVE)
+                    : (karaokeStyle?.inactiveColor ?? color),
+                  ...(!isActive && karaokeStyle?.inactiveOpacity !== undefined
+                    ? { opacity: karaokeStyle.inactiveOpacity }
+                    : {}),
+                }}
+              >
+                {p.text}
+              </span>
+            );
+          });
+        })()}
+      </span>
+    )
+    : <span style={{ position: "relative", color }}>{text}</span>; // ← words 未指定: 現状と同一
   // 座布団があるときは帯(padding 込み)を外側の器に、テキスト積層を内側に置く。
   // padding を積層側に付けると縁取り層(inset:0)が前面テキストとずれるため
   const stack = (
@@ -685,7 +784,7 @@ const OutlinedText = ({
           {text}
         </span>
       )}
-      <span style={{ position: "relative", color }}>{text}</span>
+      {body}
     </div>
   );
   if (!background) return stack;
