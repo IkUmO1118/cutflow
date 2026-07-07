@@ -12,6 +12,7 @@ import {
   computeSystemSpeech,
   formatAudio,
   formatOcr,
+  pausesWithinKeeps,
   renderPerceptionBlock,
   representativeSourceTime,
   selectOcrTargets,
@@ -132,6 +133,29 @@ test("computeSystemSpeech: 区間に overlap するシステム発話だけを�
 
 test("computeSystemSpeech: overlap ゼロなら空配列", () => {
   assert.deepEqual(computeSystemSpeech(numbered, [{ start: 99, end: 100, text: "x" }]), []);
+});
+
+test("pausesWithinKeeps: silence ∩ keep を minSec 以上・offset 付きで返す", () => {
+  const keeps: Interval[] = [
+    { start: 0, end: 10 },
+    { start: 20, end: 30 },
+  ];
+  const silences: Interval[] = [
+    { start: 2, end: 3.5 },   // keep0 内・1.5秒
+    { start: 9.5, end: 10.5 }, // keep0 と 0.5秒だけ重なる(minSec=0.6 で落ちる)
+    { start: 22, end: 24 },   // keep1 内・2秒・offset 2
+    { start: 100, end: 101 }, // どの keep にも入らない
+  ];
+  const pauses = pausesWithinKeeps(keeps, silences, 0.6);
+  assert.equal(pauses.length, 2);
+  assert.deepEqual(pauses[0], { keepIndex: 0, start: 2, end: 3.5, len: 1.5, offset: 2 });
+  assert.deepEqual(pauses[1], { keepIndex: 1, start: 22, end: 24, len: 2, offset: 2 });
+});
+
+test("pausesWithinKeeps: minSec 未満は全て落ちる", () => {
+  const keeps: Interval[] = [{ start: 0, end: 10 }];
+  const silences: Interval[] = [{ start: 1, end: 1.3 }];
+  assert.deepEqual(pausesWithinKeeps(keeps, silences, 0.6), []);
 });
 
 test("renderPerceptionBlock: system=null は audio/ocr のみの出力とバイト等価(回帰)", () => {

@@ -386,9 +386,12 @@ program
     "機械可読な完全射影を JSON で標準出力に出す(発話・タイトルを切り捨てない)",
   )
   .action((dir: string, opts: { json?: boolean }) => {
+    const cfg = loadConfig(program.opts().config);
     const abs = resolveDir(dir);
-    if (opts.json === true) console.log(JSON.stringify(describeJson(abs), null, 2));
-    else console.log(describe(abs)); // ← 現状のまま(バイト不変)
+    // cfg を渡すのは describe.pauses(既定オフ)を解決するため。既定 config では
+    // pauses オフ=散文/--json ともに従来と完全にバイト等価
+    if (opts.json === true) console.log(JSON.stringify(describeJson(abs, cfg), null, 2));
+    else console.log(describe(abs, cfg));
   });
 
 program
