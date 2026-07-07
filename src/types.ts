@@ -61,6 +61,20 @@ export interface Transcript {
   segments: TranscriptSegment[];
 }
 
+/** transcribe が生成する知覚専用のシステム音声文字起こし(transcript.system.json)。
+ * **描画されない**(テロップにならない)・**編集されない**・`@id`/承認 hash/apply の
+ * 対象外。plan / describe が「アプリ・デモ・TTS が何を鳴らしたか」を読むためだけの
+ * 生成物(GENERATED カテゴリ)。`track`/`pos`/`style`/`words`/`id` を構造的に持たない
+ * ことで「描画・アドレッシングの契約は transcript.json だけが担う」を型で表す。
+ * 時刻は他と同じく元収録(raw)の秒。`speaker` はトラック起源の話者帰属(mic=host に
+ * 対する system の対比。音響的な話者分離ではない=§audio-perception-design D4) */
+export interface SystemTranscript {
+  language: string;
+  model: string;
+  speaker: "system";
+  segments: { start: number; end: number; text: string }[];
+}
+
 export interface TranscriptSegment {
   /** 編集をまたいで安定な永続 id(例 "cap_a1b2c3")。`@id` で人間/AI がこの要素を
    * 指す共通アドレス。文法は `<prefix>_<base36 6桁>`(src/lib/ids.ts が単一の出所)。

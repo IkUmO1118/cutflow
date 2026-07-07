@@ -30,6 +30,8 @@ export const GENERATED_FILES = [
   "render.props.json",
   "whisper-out.json",
   "whisper-out.srt",
+  "transcript.system.json",
+  "whisper-system-out.json",
   "cut.mp4",
   "cut.keeps.json",
   "render.key.json",
