@@ -451,6 +451,7 @@ plan:
     ocr: false         # 画面OCRテキスト(macOS/Apple Vision 必要・区間数ぶん重い)
     ocrMaxSegments: 40
     ocrMaxLines: 6
+    systemSpeech: false # システム音声の発話(要 whisper.systemAudio。下記参照)
 ```
 
 - `audio`: 各区間の `尺` / `直前カット`(直前に落ちた素材秒)/ `内無音`(区間内に
@@ -470,6 +471,45 @@ plan:
   **やらない**(既定 backend の claude-cli では画像添付が難しく、backend 非依存の
   `complete` 設計に反するため。開発系チャンネルは画面の主役が文字なので OCR で
   代替する)
+- `systemSpeech`: システム音声(デモ音・再生動画・TTS)の発話を各区間へ添える。
+  `whisper.systemAudio: true`(下記)で `transcript.system.json` を先に作っておく
+  必要があり、無ければ自動で省略(劣化)する
+
+## システム音声の文字起こし・keep 内の間(AI の耳の強化。既定オフ)
+
+マイク音声(あなたの声)は `transcript.json` に描画用テロップとして起こされるが、
+最終出力に mix される**システム音声**(デモアプリの音・再生した動画・TTS の
+読み上げ)は従来 AI から不可視だった。これを**知覚専用**に文字起こしできる。
+
+```yaml
+whisper:
+  systemAudio: false  # true でシステム音声(ingest.systemTrack)を第2トラックとして
+                      # 文字起こしし transcript.system.json を書く
+describe:
+  pauses: false       # keep 内に残った無音(間)の位置と長さを describe に出す
+  pauseMax: 3         # 1 keep あたりに出す間の件数上限
+  pauseMinSec: 0.6    # これ以上の長さの間だけ出す(秒)
+```
+
+- **システム音声の文字起こし(`whisper.systemAudio`)**: 収録にシステム音声トラック
+  (`ingest.systemTrack`)があるとき、`ingest` が `audio/system.wav` を抽出し、
+  `transcribe` が第2回 whisper で `transcript.system.json`(`speaker: "system"`)を
+  書く。これは**描画されない・編集されない・`@id`/承認/apply の対象外の知覚専用
+  生成物**で、`transcript.json`(テロップの描画契約)には混ざらない。`describe`
+  (散文は `[システム音声]「…」`、`--json` は `systemAudio` キー)と、`plan` の
+  `plan.perception.systemSpeech` で読める。既定 false のとき出力は一切変わらない
+  (収録に system トラックが無ければ true でも自動で無視)。
+- **話者分離について(正直な宣言)**: cutflow の「話者分離」は**収録トラック起源の
+  音源分離**(マイク=あなた / システム=アプリ・デモ・TTS)であって、1本の音声波形
+  から複数の人間の声を聞き分ける**音響的 diarization ではない**。OBS の2トラック
+  収録では声とアプリ音が物理的に別トラックに録れているため、トラックを分けて
+  文字起こしするだけで実用上の分離になる。1マイクに複数人が乗る収録の分離は
+  重い ML 依存(pyannote 等)を招くため**やらない**(ローカル・決定論・ソロ保守の
+  方針)。
+- **keep 内の間(`describe.pauses`)**: `plan.perception.audio` が区間内無音の
+  **合計秒**を渡すのに対し、これは残した keep の**どこに何秒**の間があるかを
+  `describe`(散文/`--json`)に出す(「ここを詰める/カットを足す」判断の材料)。
+  `cuts.auto.json` の無音区間から算出する純関数で**新規計測はしない**。既定 false。
 
 ## ショート動画(shorts.json)
 
