@@ -456,17 +456,27 @@
   .matHandle.s { left: 50%; top: 100%; cursor: ns-resize; }
   .matHandle.sw { left: 0; top: 100%; cursor: nesw-resize; }
   .matHandle.w { left: 0; top: 50%; cursor: ew-resize; }
+  /* 矢印注釈の2点編集レイヤー(ArrowOverlay)。効果自体は Player が描画済みで、
+     ここは透明ハンドル+参考線+参考矢尻だけの編集用オーバーレイ */
+  .arrowOverlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+  .arrowOverlay.dragging { cursor: grabbing; }
+  .arrowOverlay svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .arrowLine {
+    stroke: rgba(96, 165, 250, 0.7); stroke-width: 2; stroke-dasharray: 6 4;
+    fill: none; pointer-events: stroke; cursor: grab;
+  }
+  .arrowHead { fill: rgba(96, 165, 250, 0.7); }
+  .arrowHandle {
+    fill: rgba(96, 165, 250, 0.9); stroke: #fff; stroke-width: 1.5;
+    pointer-events: all; cursor: grab;
+  }
+  .arrowHandle:hover { fill: var(--accent, #60a5fa); }
   /* ボタンは語中で折らず、入り切らないときは行ごと折り返す */
   .btnRow { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
   .btnRow button { font-size: 11px; white-space: nowrap; }
   button.linkish {
     background: none; border: none; padding: 0;
     color: var(--accent, #60a5fa); text-decoration: underline; font-size: 11px;
-  }
-  .warnbox {
-    position: absolute; left: 10px; bottom: 10px;
-    font-size: 12px; color: #fbbf24;
-    background: rgba(0,0,0,0.6); border-radius: 6px; padding: 6px 10px;
   }
   /* ---- 右側の常設インスペクタ(選択クリップのプロパティ) ---- */
   .inspPanel {
@@ -976,6 +986,7 @@
   .tlClip.wipeFull { background: #0e7490; top: 5px; bottom: 5px; }
   .tlClip.zoom { background: #6d28d9; top: 5px; bottom: 5px; }
   .tlClip.blur { background: #9d174d; top: 5px; bottom: 5px; }
+  .tlClip.annotation { background: #b91c1c; top: 5px; bottom: 5px; }
   .tlClip.bgm { background: #1d4029; }
   .tlClip.short { background: #b45309; }
   /* ワイプ本体・BGM は背景レイヤー表示(ポインタ素通し・選択不可) */

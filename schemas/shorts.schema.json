@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cutflow.dev/schemas/shorts.schema.json",
+  "$comment": "src/types.ts の Shorts / Short の射影。profile の enum は src/lib/profile.ts の PROFILES のキーと一致させる(test/schema.test.ts がピン留め)。approved は人間の承認意図の表示に過ぎず、render --short の実ゲートは approvals.json(このスキーマの対象外)。ranges は本編 cutplan.json とは独立のこのショート専用 keep 集合。",
+  "type": "object",
+  "required": ["shorts"],
+  "properties": {
+    "shorts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "approved", "ranges"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z0-9_-]+$" },
+          "profile": { "enum": ["default", "vertical", "vertical-cover", "vertical-screen"] },
+          "approved": { "type": "boolean" },
+          "ranges": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "$ref": "common.schema.json#/$defs/Interval" }
+          },
+          "captionTracks": {
+            "type": "array",
+            "items": { "$ref": "common.schema.json#/$defs/CaptionTrackDef" }
+          }
+        }
+      }
+    }
+  }
+}

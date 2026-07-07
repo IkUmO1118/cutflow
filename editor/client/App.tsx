@@ -35,6 +35,7 @@ import {
   overlayTrack,
 } from "../../src/types.ts";
 import type {
+  Annotation,
   Bgm,
   CaptionPos,
   CaptionStyle,
@@ -47,6 +48,8 @@ import type {
   Transcript,
 } from "../../src/types.ts";
 import type { DraftData, ProjectData } from "./apiTypes.ts";
+import { ArrowOverlay } from "./ArrowOverlay.tsx";
+import type { OverlayArrow } from "./ArrowOverlay.tsx";
 import { CaptionOverlay } from "./CaptionOverlay.tsx";
 import type { OverlayCaption } from "./CaptionOverlay.tsx";
 import { MaterialOverlay } from "./MaterialOverlay.tsx";
@@ -61,6 +64,7 @@ import { useToasts, ToastStack } from "./toasts.tsx";
 import { SHORT_TRACK_DEF, buildTracks } from "./model.ts";
 import type {
   AddKind,
+  AnnotationPatch,
   AudioTrackId,
   Clip,
   CutMark,
@@ -163,6 +167,7 @@ const selectionValid = (sel: Selection, d: HistoryDocs): boolean => {
   }
   if (sel.kind === "zoom") return sel.index < (d.overlays.zooms ?? []).length;
   if (sel.kind === "blur") return sel.index < (d.overlays.blurs ?? []).length;
+  if (sel.kind === "annotation") return sel.index < (d.overlays.annotations ?? []).length;
   if (sel.kind === "bgm") return sel.index < (d.bgm?.tracks?.length ?? 0);
   return true; // wipe は表示専用の常駐クリップ
 };
@@ -764,6 +769,14 @@ export const App = () => {
         );
       }
     }
+    // 注釈グラフィックのショート非継承警告(validate.ts と parity。
+    // annotation×zoom の時間重なりは validate が警告しないのでここでも出さない)
+    if ((overlays.annotations?.length ?? 0) > 0 && (shorts?.shorts.length ?? 0) > 0) {
+      warnings.push(
+        "本編に注釈グラフィックがありますが、ショートには継承されません。" +
+          "ショートにも指し示したい場合は別途足してください",
+      );
+    }
     // 素材はローカルサーバーの /media/ 経由で配信される
     const overlayItems = props.overlays.map((o) => ({ ...o, file: `media/${o.file}` }));
     const insertItems = (props.inserts ?? []).map((o) => ({
@@ -1027,6 +1040,18 @@ export const App = () => {
         });
       });
     });
+    // 注釈: 矢印・囲み・スポットライト(専用の「注釈」トラック)
+    (overlays.annotations ?? []).forEach((a, i) => {
+      const parts = remapInterval(a.start, a.end, timeline);
+      const label = a.type === "arrow" ? "矢印" : a.type === "spotlight" ? "スポット" : "囲み";
+      parts.forEach((iv, j) => {
+        cs.push({
+          kind: "annotation", index: i, track: "annotation",
+          outStart: iv.start, outEnd: iv.end, label, editable: true,
+          noTrimStart: j > 0, noTrimEnd: j < parts.length - 1,
+        });
+      });
+    });
     // 映像(画面+マイク): keep 区間。挿入が途中に入ると割れる
     cutplan.segments.forEach((s, i) => {
       if (s.action !== "keep") return;
@@ -1165,11 +1190,14 @@ export const App = () => {
     pushHistory();
     const segs = [...cutplan.segments];
     const seg = segs[splitIndex];
+    // 分割は「境界維持」: 左(先行)側が元 id を保持し、右側は新規要素として
+    // id を落とす(保存時に id 有効なら ensureIds が新 id を採番。承認は
+    // cut 決定=keep 集合のハッシュだけを見るため、この分割では失効しない)
     segs.splice(
       splitIndex,
       1,
       { ...seg, end: round2(src) },
-      { ...seg, start: round2(src) },
+      { ...seg, start: round2(src), id: undefined },
     );
     setCutplan({ ...cutplan, segments: segs });
     setSelection({ kind: "cut", index: splitIndex + 1 });
@@ -1190,6 +1218,8 @@ export const App = () => {
     const head = round2(outT - sp.start);
     pushHistory();
     const next = [...arr];
+    // 分割は「境界維持」: 左(先行)側が元 id を保持し、右側は新規要素として
+    // id を落とす(cutplan の split と同じ規約。§docs/plans/2026-07-07-stable-ids-design.md)
     next.splice(
       splitInsertIndex,
       1,
@@ -1198,6 +1228,7 @@ export const App = () => {
         ...ins,
         startFrom: round2((ins.startFrom ?? 0) + head),
         durationSec: round2(ins.durationSec - head),
+        id: undefined,
       },
     );
     setOverlays({ ...overlays, inserts: next });
@@ -1425,6 +1456,70 @@ export const App = () => {
       });
     },
     [blurIntervals, overlays],
+  );
+
+  /** 注釈(overlays.annotations)ごとのカット後の表示区間。box/spotlight(rect)
+   * と arrow(点)は type で排他的に扱い、それぞれ別のオーバーレイへ渡す
+   * (両方に出すと二重枠になる) */
+  const annotationIntervals = useMemo(() => {
+    if (!overlays || shortMode) return [];
+    return (overlays.annotations ?? []).map((a, i) => ({
+      index: i,
+      ivs: remapInterval(a.start, a.end, timeline),
+    }));
+  }, [overlays, timeline, shortMode]);
+
+  /** outT に表示中の box/spotlight 注釈の添字列(購読キー) */
+  const visibleAnnotationRectKey = useCallback(
+    (outT: number): string => {
+      let key = "";
+      for (const a of annotationIntervals) {
+        const ann = (overlays?.annotations ?? [])[a.index];
+        if (ann && ann.type !== "arrow" && a.ivs.some((iv) => outT >= iv.start && outT < iv.end)) {
+          key += `${a.index},`;
+        }
+      }
+      return key;
+    },
+    [annotationIntervals, overlays],
+  );
+  /** outT に表示中の box/spotlight 注釈(プレビュー上でドラッグ移動・
+   * リサイズできる rect。MaterialOverlay を流用) */
+  const getVisibleAnnotationRects = useCallback(
+    (outT: number): OverlayRect[] =>
+      annotationIntervals.flatMap((a) => {
+        const ann = (overlays?.annotations ?? [])[a.index];
+        if (!ann || ann.type === "arrow") return [];
+        if (!a.ivs.some((iv) => outT >= iv.start && outT < iv.end)) return [];
+        return [{ index: a.index, rect: ann.rect }];
+      }),
+    [annotationIntervals, overlays],
+  );
+
+  /** outT に表示中の arrow 注釈の添字列(購読キー) */
+  const visibleAnnotationArrowKey = useCallback(
+    (outT: number): string => {
+      let key = "";
+      for (const a of annotationIntervals) {
+        const ann = (overlays?.annotations ?? [])[a.index];
+        if (ann && ann.type === "arrow" && a.ivs.some((iv) => outT >= iv.start && outT < iv.end)) {
+          key += `${a.index},`;
+        }
+      }
+      return key;
+    },
+    [annotationIntervals, overlays],
+  );
+  /** outT に表示中の arrow 注釈(プレビュー上で from/to をドラッグできる) */
+  const getVisibleAnnotationArrows = useCallback(
+    (outT: number): OverlayArrow[] =>
+      annotationIntervals.flatMap((a) => {
+        const ann = (overlays?.annotations ?? [])[a.index];
+        if (!ann || ann.type !== "arrow") return [];
+        if (!a.ivs.some((iv) => outT >= iv.start && outT < iv.end)) return [];
+        return [{ index: a.index, from: ann.from, to: ann.to }];
+      }),
+    [annotationIntervals, overlays],
   );
 
   /** テロップトラックの標準位置・標準スタイル・座標基準(anchor)を設定/解除
@@ -1859,6 +1954,15 @@ export const App = () => {
       if (!t) return;
       arr[sel.index] = { ...sp, ...t };
       setOverlays({ ...ctx.overlays, blurs: arr });
+    } else if (sel.kind === "annotation") {
+      // 注釈区間の move / trim。start/end 以外(rect/from/to/見た目)は動かさない
+      const arr = [...(ctx.overlays.annotations ?? [])];
+      const sp = arr[sel.index];
+      if (!sp) return;
+      const t = retime(sp);
+      if (!t) return;
+      arr[sel.index] = { ...sp, ...t };
+      setOverlays({ ...ctx.overlays, annotations: arr });
     } else if (sel.kind === "bgm") {
       // BGM 区間の move / trim。トラック間移動はない(BGM は1トラック)。
       // 後方互換の全編 BGM(bgm.json 無し)を初めて動かしたら、ここで
@@ -1996,6 +2100,23 @@ export const App = () => {
     setOverlays({ ...overlays, blurs: list });
     setSelection({ kind: "blur", index: list.length - 1 });
   };
+  /** 注釈区間を1つ追加。既定は box(囲み)。中央付近の矩形を叩き台にする
+   * (Inspector で矢印/スポットライトへ切替・rect/from-to を調整する前提) */
+  const addAnnotationSpan = (start: number, end: number) => {
+    if (!overlays || !proj) return;
+    pushHistory();
+    const w = Math.round(proj.output.w / 3);
+    const h = Math.round(proj.output.h / 4);
+    const rect = {
+      x: Math.round((proj.output.w - w) / 2),
+      y: Math.round((proj.output.h - h) / 2),
+      w,
+      h,
+    };
+    const list: Annotation[] = [...(overlays.annotations ?? []), { type: "box", start, end, rect }];
+    setOverlays({ ...overlays, annotations: list });
+    setSelection({ kind: "annotation", index: list.length - 1 });
+  };
   const addCaption = (start: number, end: number, track = 1) => {
     if (!transcript) return;
     pushHistory();
@@ -2012,6 +2133,7 @@ export const App = () => {
     else if (kind === "wipeFull") addWipeFull(start, end);
     else if (kind === "zoom") addZoomSpan(start, end);
     else if (kind === "blur") addBlurSpan(start, end);
+    else if (kind === "annotation") addAnnotationSpan(start, end);
     else if (kind === "bgm") addBgmSpan(start, end);
     else if (kind === "short") addShortRange(start, end);
     else addCaption(start, end, track);
@@ -2031,6 +2153,8 @@ export const App = () => {
       addByKind("zoom", round2(s), round2(e));
     } else if (track === "blur") {
       addByKind("blur", round2(s), round2(e));
+    } else if (track === "annotation") {
+      addByKind("annotation", round2(s), round2(e));
     } else if (track === "bgm") {
       addByKind("bgm", round2(s), round2(e));
     } else if (track === "short") {
@@ -2395,6 +2519,34 @@ export const App = () => {
     });
     setSelection(null);
   };
+  /** 注釈の start/end/rect/from/to/見た目/type を部分更新。coalesceKey は
+   * プレビュー上のドラッグ・スライダーの連続変更を undo 1回にまとめる用。
+   * type 切替は Inspector 側で旧 type 固有キーを undefined にして渡す
+   * (このハンドラは緩い AnnotationPatch を受けて delete-undefined するだけ) */
+  const updateAnnotation = (i: number, patch: AnnotationPatch, coalesceKey?: string) => {
+    pushHistory(coalesceKey ?? null);
+    setOverlays((prev) => {
+      if (!prev) return prev;
+      const arr = [...(prev.annotations ?? [])];
+      const entry: Record<string, unknown> = { ...(arr[i] as object), ...patch };
+      for (const k of Object.keys(patch) as (keyof AnnotationPatch)[]) {
+        if (patch[k] === undefined) delete entry[k];
+      }
+      arr[i] = entry as unknown as Annotation;
+      return { ...prev, annotations: arr };
+    });
+  };
+  const removeAnnotation = (i: number) => {
+    pushHistory();
+    setOverlays((prev) => {
+      if (!prev) return prev;
+      const arr = (prev.annotations ?? []).filter((_, j) => j !== i);
+      // 全区間を消したら annotations キーごと削除(空配列を残さない)
+      const { annotations: _drop, ...rest } = prev;
+      return arr.length === 0 ? rest : { ...rest, annotations: arr };
+    });
+    setSelection(null);
+  };
   /** インサート編集: anchorSrc(元収録の秒)の位置に file を素材の実尺で差し込む */
   const placeInsert = (file: string, durationSec: number | null, anchorSrc: number) => {
     if (!overlays) return;
@@ -2480,6 +2632,7 @@ export const App = () => {
     } else if (selection.kind === "bgm") removeBgm(selection.index);
     else if (selection.kind === "zoom") removeZoom(selection.index);
     else if (selection.kind === "blur") removeBlur(selection.index);
+    else if (selection.kind === "annotation") removeAnnotation(selection.index);
     else if (selection.kind === "short") removeShortRange(selection.index);
     else if (selection.kind === "cut") {
       // 映像クリップの Delete は削除ではなくカット(記録に倒すだけ。
@@ -3111,6 +3264,7 @@ export const App = () => {
         externalChange={externalChange}
         proxyStale={proxyStale}
         proxyBusy={proxyBusy}
+        warnings={built?.warnings ?? []}
         onRestore={restoreDraft}
         onDiscard={discardDraft}
         onReload={() => void reloadFromDisk()}
@@ -3262,6 +3416,26 @@ export const App = () => {
                 onSelect={(i) => setSelection({ kind: "blur", index: i })}
                 onRectChange={(i, rect) => updateBlur(i, { rect }, `blur:${i}:drag`)}
               />
+              {/* 注釈(box/spotlight)の rect 枠。効果は Player が描画済み=編集枠だけ */}
+              <LiveMaterialOverlay
+                width={built.props.width}
+                height={built.props.height}
+                getKey={visibleAnnotationRectKey}
+                getOverlays={getVisibleAnnotationRects}
+                selection={selection?.kind === "annotation" ? selection.index : null}
+                onSelect={(i) => setSelection({ kind: "annotation", index: i })}
+                onRectChange={(i, rect) => updateAnnotation(i, { rect }, `annotation:${i}:drag`)}
+              />
+              {/* 注釈(arrow)の2点編集枠。透明ハンドル+参考線だけ=二重掛けしない */}
+              <LiveArrowOverlay
+                width={built.props.width}
+                height={built.props.height}
+                getKey={visibleAnnotationArrowKey}
+                getArrows={getVisibleAnnotationArrows}
+                selection={selection?.kind === "annotation" ? selection.index : null}
+                onSelect={(i) => setSelection({ kind: "annotation", index: i })}
+                onChange={(i, patch, coalesceKey) => updateAnnotation(i, patch, coalesceKey)}
+              />
               <LiveCaptionOverlay
                 width={built.props.width}
                 height={built.props.height}
@@ -3298,13 +3472,6 @@ export const App = () => {
                   </button>
                 </>
               )}
-            </div>
-          )}
-          {built.warnings.length > 0 && (
-            <div className="warnbox">
-              {built.warnings.map((w) => (
-                <div key={w}>⚠ {w}</div>
-              ))}
             </div>
           )}
         </div>
@@ -3493,6 +3660,8 @@ export const App = () => {
               removeZoom={removeZoom}
               updateBlur={updateBlur}
               removeBlur={removeBlur}
+              updateAnnotation={updateAnnotation}
+              removeAnnotation={removeAnnotation}
               updateInsert={updateInsert}
               removeInsert={removeInsert}
               updateBgm={updateBgm}
@@ -3556,15 +3725,19 @@ export const App = () => {
   );
 };
 
-/** ヘッダー直下の要対応バナー行(T4)。draftOffer / externalChange / proxyStale は
- * 「ユーザーが操作するまで真であり続ける条件」で、時間で消える通知(トースト)とは
- * 寿命モデルが違うのでバナーに残す。いずれも真でなければ何も描かない。複数同時
- * 成立(externalChange + proxyStale 等)は .banner を縦積みで自然に扱う */
+/** ヘッダー直下の要対応バナー行(T4)。draftOffer / externalChange / proxyStale /
+ * warnings(built.warnings。hideCaption・blurs×zoom重なり・blursのショート非継承・
+ * ショートprofileフォールバック等)は「ユーザーが操作するまで真であり続ける条件」で、
+ * 時間で消える通知(トースト)とは寿命モデルが違うのでバナーに残す(warnings は
+ * 対象の JSON を直せば次の再計算で自然に消える。個別の「後で」は持たない)。
+ * いずれも真でなければ何も描かない。複数同時成立(externalChange + proxyStale 等)は
+ * .banner を縦積みで自然に扱う */
 const HeaderBanners = ({
   draftOffer,
   externalChange,
   proxyStale,
   proxyBusy,
+  warnings,
   onRestore,
   onDiscard,
   onReload,
@@ -3575,15 +3748,21 @@ const HeaderBanners = ({
   externalChange: boolean;
   proxyStale: boolean;
   proxyBusy: boolean;
+  warnings: string[];
   onRestore: () => void;
   onDiscard: () => void;
   onReload: () => void;
   onRegenProxy: () => void;
   onDismissProxyStale: () => void;
 }) => {
-  if (!draftOffer && !externalChange && !proxyStale) return null;
+  if (!draftOffer && !externalChange && !proxyStale && warnings.length === 0) return null;
   return (
     <>
+      {warnings.map((w) => (
+        <div className="banner" key={w}>
+          <span className="msg">⚠ {w}</span>
+        </div>
+      ))}
       {draftOffer && (
         <div
           className="banner"
@@ -3725,6 +3904,39 @@ const LiveMaterialOverlay = ({
       selection={selection}
       onSelect={onSelect}
       onRectChange={onRectChange}
+    />
+  );
+};
+
+/** プレビュー上の矢印注釈の2点編集レイヤー。LiveMaterialOverlay と同じく
+ * 「表示中の矢印の組」(キー)だけを購読する */
+const LiveArrowOverlay = ({
+  width,
+  height,
+  getKey,
+  getArrows,
+  selection,
+  onSelect,
+  onChange,
+}: {
+  width: number;
+  height: number;
+  getKey: (outT: number) => string;
+  getArrows: (outT: number) => OverlayArrow[];
+  selection: number | null;
+  onSelect: (index: number) => void;
+  onChange: (index: number, patch: AnnotationPatch, coalesceKey?: string) => void;
+}) => {
+  const key = usePlayheadSelector(getKey);
+  const arrows = useMemo(() => getArrows(playhead.get()), [key, getArrows]);
+  return (
+    <ArrowOverlay
+      width={width}
+      height={height}
+      arrows={arrows}
+      selection={selection}
+      onSelect={onSelect}
+      onChange={onChange}
     />
   );
 };
