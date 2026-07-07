@@ -33,6 +33,7 @@ import { tryServeFrames } from "./lib/framesClient.ts";
 import { formatOcrPreview } from "./lib/ocr.ts";
 import type { OcrResult } from "./lib/ocr.ts";
 import { thumbnail } from "./stages/thumbnail.ts";
+import { formatMaterialsSummary, materials } from "./stages/materials.ts";
 import { fmtT, parseT } from "./lib/fmt.ts";
 import type { ApplyPatch, CutPlan } from "./types.ts";
 
@@ -501,6 +502,20 @@ program
       throw new Error(`--port の値が不正です: ${opts.port}`);
     }
     await startFramesServe(abs, explicit, port);
+  });
+
+program
+  .command("materials <dir>")
+  .description(
+    "素材(B-roll)の中身を知る知覚コマンド。既定は ffprobe だけ(尺・解像度・fps・" +
+      "音声有無)+ overlays/inserts/bgm との参照クロスリンク(未使用・dangling を検出)。" +
+      "materials.probe/index.json に書く",
+  )
+  .action(async (dir: string) => {
+    const abs = resolveDir(dir);
+    const { index, indexPath } = await materials(abs);
+    for (const line of formatMaterialsSummary(index)) console.log(line);
+    console.log(`${index.materials.length}件を ${indexPath} に書きました`);
   });
 
 program
