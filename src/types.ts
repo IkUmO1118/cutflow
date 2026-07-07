@@ -29,6 +29,11 @@ export interface Manifest {
     systemStream: number | null;
     /** 抽出済みマイク音声(16kHz mono wav、収録フォルダからの相対パス) */
     micWav: string;
+    /** 抽出済みシステム音声(16kHz mono wav、収録フォルダからの相対パス)。
+     *  whisper.systemAudio 有効 かつ systemStream が存在するときだけ設定される。
+     *  省略時=未抽出(既定・バイト等価)。知覚専用(transcript.system.json を
+     *  作るためだけの入力。描画・mix には無関係) */
+    systemWav?: string;
   };
   createdAt: string;
 }

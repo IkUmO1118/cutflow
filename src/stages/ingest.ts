@@ -66,6 +66,16 @@ export async function ingest(
   const micWav = join("audio", "mic.wav");
   await extractAudio(sourcePath, micIndex, join(dir, micWav));
 
+  // システム音声(デモ音・再生動画・TTS)を知覚用に第2トラックとして抽出する
+  // (whisper.systemAudio 有効 かつ systemStream があるときだけ)。既定オフでは
+  // 何も抽出せず manifest に systemWav キーを出さない=導入前とバイト等価。
+  // 描画・mix には無関係で、transcribe が transcript.system.json を作るための入力
+  let systemWav: string | undefined;
+  if (hasSystem && cfg.whisper.systemAudio) {
+    systemWav = join("audio", "system.wav");
+    await extractAudio(sourcePath, systemIndex, join(dir, systemWav));
+  }
+
   const width = video.width ?? 0;
   const height = video.height ?? 0;
   const fps = parseFps(video.avg_frame_rate);
@@ -97,6 +107,8 @@ export async function ingest(
       micStream: micIndex,
       systemStream: hasSystem ? systemIndex : null,
       micWav,
+      // systemWav は抽出したときだけ載せる(未抽出時はキーごと省略=バイト等価)
+      ...(systemWav !== undefined ? { systemWav } : {}),
     },
     createdAt: new Date().toISOString(),
   };
