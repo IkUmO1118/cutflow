@@ -319,7 +319,7 @@ export function validateDocs(
     const f = "overlays.json";
     const KNOWN = [
       "overlays", "inserts", "wipeFull", "layerOrder", "captionTracks",
-      "hideCaption", "zooms", "colorFilter", "blurs",
+      "hideCaption", "zooms", "colorFilter", "blurs", "annotations",
     ];
     for (const k of Object.keys(overlays)) {
       if (!KNOWN.includes(k)) warn(f, k, `不明なキーです(有効: ${KNOWN.join(" / ")})`);
@@ -581,6 +581,114 @@ export function validateDocs(
         f, "blurs",
         "本編に領域ぼかしがありますが、ショートには継承されません。" +
           "ショートに秘匿情報が写る場合は別途隠してください",
+      );
+    }
+
+    if (overlays.annotations !== undefined && !Array.isArray(overlays.annotations)) {
+      err(f, "annotations", "配列ではありません");
+    }
+    (Array.isArray(overlays.annotations) ? overlays.annotations : []).forEach(
+      (a: unknown, i: number) => {
+        const w = `annotations[${i}]`;
+        if (!isObj(a)) return err(f, w, "オブジェクトではありません");
+        // start<end・収録尺内はどちらもエラー(warn を渡さない。blurs/zooms と
+        // 同じ厳しさで扱う)
+        checkSpan(f, w, a, dur, err);
+        if (isNum(a.start) && isNum(a.end) && a.start < a.end && !visible(a.start, a.end)) {
+          warn(f, w, `全体がカット区間内にあり表示されません(${fmtT(a.start)}–${fmtT(a.end)})`);
+        }
+        if (a.type !== "arrow" && a.type !== "box" && a.type !== "spotlight") {
+          return err(f, w, `type は "arrow" / "box" / "spotlight" のいずれかです(現在: ${JSON.stringify(a.type)})`);
+        }
+        const checkPoint = (pw: string, p: unknown): p is { x: number; y: number } =>
+          isObj(p) && isNum(p.x) && isNum(p.y);
+        const checkOutOfBounds = (rw: string, x: number, y: number): void => {
+          if (!outputRegion) return;
+          const { w: outW, h: outH } = outputRegion;
+          if (x < 0 || y < 0 || x > outW || y > outH) {
+            warn(f, rw, `座標(x${x} y${y})が出力解像度(${outW}x${outH})の外です(画面外から指す等の意図的な用途もあります)`);
+          }
+        };
+        if (a.type === "arrow") {
+          const from = a.from;
+          const to = a.to;
+          if (!checkPoint(w, from)) {
+            err(f, w, `from は {x, y}(出力px の数値)です(現在: ${JSON.stringify(from)})`);
+          }
+          if (!checkPoint(w, to)) {
+            err(f, w, `to は {x, y}(出力px の数値)です(現在: ${JSON.stringify(to)})`);
+          }
+          if (isObj(from) && isNum(from.x) && isNum(from.y) && isObj(to) && isNum(to.x) && isNum(to.y)) {
+            if (Math.hypot(to.x - from.x, to.y - from.y) < EPS) {
+              err(f, w, "from と to が同一点です(向きが定まらない退化した矢印)");
+            } else {
+              checkOutOfBounds(w, from.x, from.y);
+              checkOutOfBounds(w, to.x, to.y);
+            }
+          }
+          if (a.color !== undefined && (typeof a.color !== "string" || a.color === "")) {
+            err(f, w, `color は CSS カラー文字列です(現在: ${JSON.stringify(a.color)})`);
+          }
+          for (const k of ["widthPx", "headPx"] as const) {
+            if (a[k] !== undefined && (!isNum(a[k]) || (a[k] as number) <= 0)) {
+              err(f, w, `${k} は正の数です(現在: ${JSON.stringify(a[k])})`);
+            }
+          }
+        } else {
+          // box / spotlight 共通: rect
+          const r = a.rect;
+          if (!isObj(r) || !isNum(r.x) || !isNum(r.y) || !isNum(r.w) || !isNum(r.h)) {
+            err(f, w, `rect は {x, y, w, h}(出力px の数値)です(現在: ${JSON.stringify(r)})`);
+          } else if (r.w <= 0 || r.h <= 0) {
+            err(f, w, `rect の w / h は正の数です(現在: ${r.w} x ${r.h})`);
+          } else if (outputRegion) {
+            // はみ出しは blurs と違い警告どまり(画面端でクリップされるだけで
+            // render は壊れず、画面外から指す構図もありうるため。決定6)
+            const { w: outW, h: outH } = outputRegion;
+            if (r.x < 0 || r.y < 0 || r.x + r.w > outW || r.y + r.h > outH) {
+              warn(
+                f, w,
+                `rect が出力解像度(${outW}x${outH})の外にはみ出しています` +
+                  `(現在: x${r.x} y${r.y} w${r.w} h${r.h})`,
+              );
+            }
+          }
+          if (a.type === "box") {
+            for (const k of ["color", "fill"] as const) {
+              if (a[k] !== undefined && (typeof a[k] !== "string" || a[k] === "")) {
+                err(f, w, `${k} は CSS カラー文字列です(現在: ${JSON.stringify(a[k])})`);
+              }
+            }
+            for (const k of ["widthPx", "radiusPx"] as const) {
+              if (a[k] !== undefined && (!isNum(a[k]) || (a[k] as number) < 0)) {
+                err(f, w, `${k} は0以上の数です(現在: ${JSON.stringify(a[k])})`);
+              }
+            }
+          } else {
+            // spotlight
+            if (a.shape !== undefined && a.shape !== "rect" && a.shape !== "ellipse") {
+              err(f, w, `shape は "rect" か "ellipse" です(現在: ${JSON.stringify(a.shape)})`);
+            }
+            if (a.dim !== undefined && (!isNum(a.dim) || a.dim < 0 || a.dim > 1)) {
+              err(f, w, `dim は 0〜1 の数値です(現在: ${JSON.stringify(a.dim)})`);
+            }
+            for (const k of ["featherPx", "radiusPx"] as const) {
+              if (a[k] !== undefined && (!isNum(a[k]) || (a[k] as number) < 0)) {
+                err(f, w, `${k} は0以上の数です(現在: ${JSON.stringify(a[k])})`);
+              }
+            }
+          }
+        }
+      },
+    );
+    if (
+      Array.isArray(overlays.annotations) && overlays.annotations.length > 0 &&
+      isObj(shorts) && Array.isArray(shorts.shorts) && shorts.shorts.length > 0
+    ) {
+      warn(
+        f, "annotations",
+        "本編に注釈グラフィックがありますが、ショートには継承されません。" +
+          "ショートにも指し示したい場合は別途足してください",
       );
     }
 
