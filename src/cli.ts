@@ -515,10 +515,29 @@ program
     "--frames",
     "代表フレーム PNG も抽出する(動画は尺の中点1枚。画像は複製せず自身のパスを記録)",
   )
-  .action(async (dir: string, opts: { frames?: boolean }) => {
+  .option(
+    "--ocr",
+    "フレーム/画像を Apple Vision で OCR する(動画は --frames を含意。非対応環境は" +
+      "警告のうえ probe/frame の出力のみ続行)",
+  )
+  .action(async (dir: string, opts: { frames?: boolean; ocr?: boolean }) => {
+    const cfg = loadConfig(program.opts().config);
     const abs = resolveDir(dir);
-    const { index, indexPath } = await materials(abs, { frames: opts.frames === true });
+    const { index, indexPath } = await materials(
+      abs,
+      { frames: opts.frames === true, ocr: opts.ocr === true },
+      cfg,
+    );
     for (const line of formatMaterialsSummary(index)) console.log(line);
+    for (const m of index.materials) {
+      if (m.ocr) {
+        const rest = m.ocr.lineCount - m.ocr.preview.length;
+        console.log(
+          `  OCR(${m.file}): ${m.ocr.preview.map((t) => `"${t}"`).join(" / ")}` +
+            (rest > 0 ? ` ほか${rest}行` : ""),
+        );
+      }
+    }
     console.log(`${index.materials.length}件を ${indexPath} に書きました`);
   });
 
