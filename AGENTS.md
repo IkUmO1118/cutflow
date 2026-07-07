@@ -74,6 +74,12 @@ false staleness signals or gets silently discarded:
   `render.<name>.key.json` (one set per `shorts.json` entry)
 - Generated directories (entirely regenerated on each run):
   `frames/`, `render.chunks/`, `shorts/`
+- `materials.probe/` — a **cache-style** generated directory (unlike the
+  ones above, it is *not* wiped on every run; it's a differential cache like
+  `render.chunks/`, and deleting the whole directory forces a full
+  regeneration). Written by `materials <dir>` (`index.json` plus per-material
+  `<slug>.png`/`<slug>.ocr.json`/`<slug>.transcribe.json` sidecars). Distinct
+  from `materials/` itself (the human's asset folder, which stays `"other"`)
 - `backups/` (pre-overwrite snapshots) and `.editor-draft.json` (the GUI
   editor's autosaved unsaved draft)
 - `rules.suggested.md` (a disposable draft written by `learn`; a human
