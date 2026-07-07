@@ -23,6 +23,7 @@ import { learn } from "./stages/learn.ts";
 import { preview } from "./stages/preview.ts";
 import { render, renderShort, renderShorts } from "./stages/render.ts";
 import { validate } from "./stages/validate.ts";
+import { assert as assertProject } from "./stages/assert.ts";
 import { idStamp } from "./stages/idStamp.ts";
 import { applyEdits, planApply } from "./lib/applyEdits.ts";
 import { describe, describeJson } from "./stages/describe.ts";
@@ -33,6 +34,7 @@ import { tryServeFrames } from "./lib/framesClient.ts";
 import { formatOcrPreview } from "./lib/ocr.ts";
 import type { OcrResult } from "./lib/ocr.ts";
 import { thumbnail } from "./stages/thumbnail.ts";
+import { formatMaterialsSummary, materials } from "./stages/materials.ts";
 import { fmtT, parseT } from "./lib/fmt.ts";
 import type { ApplyPatch, CutPlan } from "./types.ts";
 
@@ -55,8 +57,12 @@ program.hook("postAction", (_thisCommand, actionCommand) => {
   const sec = ((Date.now() - commandStartedAt) / 1000).toFixed(1);
   const line = `(所要時間: ${sec}秒)`;
   // JSON 射影はパイプ可能な純 JSON を stdout に出すので、診断行だけ stderr へ逃がす。
-  // 他コマンド・散文 describe の stdout は従来どおり console.log(=不変)
-  if (actionCommand.name() === "describe" && actionCommand.opts().json === true) {
+  // mcp は stdout が JSON-RPC 専用チャネルなので同様に stderr へ逃がす(サーバは
+  // 通常 SIGINT まで返らないため多くの場合発火しないが、安全のため明示的に対応)。
+  // 他コマンド・散文 describe/assert の stdout は従来どおり console.log(=不変)
+  const jsonCommands = new Set(["describe", "assert"]);
+  const isMcp = actionCommand.name() === "mcp";
+  if (isMcp || (jsonCommands.has(actionCommand.name()) && actionCommand.opts().json === true)) {
     console.error(line);
   } else {
     console.log(line);
@@ -288,6 +294,38 @@ program
   });
 
 program
+  .command("assert <dir>")
+  .description(
+    "assertions.json の期待値(意図どおりか)を describe --json 射影と照合(壊れていないかは validate)",
+  )
+  .option("--json", "AssertReport を JSON で標準出力に出す(パイプ可)")
+  .option(
+    "--visual",
+    "Tier 2(視覚アサーション。frames --ocr と同じ経路で OCR)も評価する。" +
+      "既定(付けない場合)は Tier 2 を skip し frames/OCR を一切呼ばない。macOS 専用",
+  )
+  .action(async (dir: string, opts: { json?: boolean; visual?: boolean }) => {
+    const abs = resolveDir(dir);
+    const report = await assertProject(abs, { visual: opts.visual === true });
+    if (opts.json === true) {
+      console.log(JSON.stringify(report, null, 2));
+    } else if (report.outcomes.length === 0) {
+      console.log(
+        "アサーションがありません(assertions.json を置くと編集意図を宣言的に検査できます)",
+      );
+    } else {
+      const icon = { pass: "✔", fail: "✖", error: "⚠", skip: "–" } as const;
+      for (const o of report.outcomes) {
+        const label = o.label ? `${o.label} ` : "";
+        console.log(`${icon[o.status]} [${o.type}] ${label}${o.message}`);
+      }
+      const { pass, fail, skip, error } = report.counts;
+      console.log(`\npass ${pass} / fail ${fail} / skip ${skip} / error ${error}`);
+    }
+    if (report.counts.fail > 0 || report.counts.error > 0) process.exit(1);
+  });
+
+program
   .command("id-stamp <dir>")
   .description(
     "編集ファイルの各要素に安定 id を一括採番(@-mention の基盤。冪等・既存 id は不変)",
@@ -386,9 +424,12 @@ program
     "機械可読な完全射影を JSON で標準出力に出す(発話・タイトルを切り捨てない)",
   )
   .action((dir: string, opts: { json?: boolean }) => {
+    const cfg = loadConfig(program.opts().config);
     const abs = resolveDir(dir);
-    if (opts.json === true) console.log(JSON.stringify(describeJson(abs), null, 2));
-    else console.log(describe(abs)); // ← 現状のまま(バイト不変)
+    // cfg を渡すのは describe.pauses(既定オフ)を解決するため。既定 config では
+    // pauses オフ=散文/--json ともに従来と完全にバイト等価
+    if (opts.json === true) console.log(JSON.stringify(describeJson(abs, cfg), null, 2));
+    else console.log(describe(abs, cfg));
   });
 
 program
@@ -498,6 +539,55 @@ program
       throw new Error(`--port の値が不正です: ${opts.port}`);
     }
     await startFramesServe(abs, explicit, port);
+  });
+
+program
+  .command("materials <dir>")
+  .description(
+    "素材(B-roll)の中身を知る知覚コマンド。既定は ffprobe だけ(尺・解像度・fps・" +
+      "音声有無)+ overlays/inserts/bgm との参照クロスリンク(未使用・dangling を検出)。" +
+      "materials.probe/index.json に書く",
+  )
+  .option(
+    "--frames",
+    "代表フレーム PNG も抽出する(動画は尺の中点1枚。画像は複製せず自身のパスを記録)",
+  )
+  .option(
+    "--ocr",
+    "フレーム/画像を Apple Vision で OCR する(動画は --frames を含意。非対応環境は" +
+      "警告のうえ probe/frame の出力のみ続行)",
+  )
+  .option(
+    "--transcribe",
+    "音声付き素材を whisper で文字起こしする(モデル欠如はその素材だけ警告してスキップ)",
+  )
+  .option("--all", "= --frames --ocr --transcribe")
+  .action(async (dir: string, opts: { frames?: boolean; ocr?: boolean; transcribe?: boolean; all?: boolean }) => {
+    const cfg = loadConfig(program.opts().config);
+    const abs = resolveDir(dir);
+    const { index, indexPath } = await materials(
+      abs,
+      {
+        frames: opts.all === true || opts.frames === true,
+        ocr: opts.all === true || opts.ocr === true,
+        transcribe: opts.all === true || opts.transcribe === true,
+      },
+      cfg,
+    );
+    for (const line of formatMaterialsSummary(index)) console.log(line);
+    for (const m of index.materials) {
+      if (m.ocr) {
+        const rest = m.ocr.lineCount - m.ocr.preview.length;
+        console.log(
+          `  OCR(${m.file}): ${m.ocr.preview.map((t) => `"${t}"`).join(" / ")}` +
+            (rest > 0 ? ` ほか${rest}行` : ""),
+        );
+      }
+      if (m.transcribe) {
+        console.log(`  文字起こし(${m.file}): 「${m.transcribe.preview}」(${m.transcribe.segmentCount}区間)`);
+      }
+    }
+    console.log(`${index.materials.length}件を ${indexPath} に書きました`);
   });
 
 program
@@ -654,6 +744,20 @@ program
     // esbuild 等のエディタ専用依存を CLI 起動時に読ませないため動的 import
     const { startEditor } = await import("../editor/server.ts");
     await startEditor(resolveDir(dir), cfg, cfgPath);
+  });
+
+program
+  .command("mcp <dir>")
+  .description(
+    "Model Context Protocol サーバを起動(stdio。read + 承認スコープ外の安全編集の" +
+      "tool だけを露出。approve/render/plan 等は一切露出しない。終了は Ctrl+C)",
+  )
+  .action(async (dir: string) => {
+    const cfg = loadConfig(program.opts().config);
+    const abs = resolveDir(dir);
+    // MCP 専用コードを他コマンド起動時に読ませないため動的 import
+    const { startMcpServer } = await import("./mcp/server.ts");
+    await startMcpServer(abs, cfg);
   });
 
 program

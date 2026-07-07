@@ -25,6 +25,13 @@ export interface Config {
      * 省略時 false(既存挙動と完全一致・words を一切書かない)。true で
      * whisper 実行を -ojf に切り替え、各 segment に words[] を付加する */
     wordTimestamps?: boolean;
+    /** システム音声(ingest.systemTrack)も第2トラックとして文字起こしし、
+     *  知覚専用の transcript.system.json を書くか。省略時 false(既存挙動と
+     *  完全一致=system.wav も transcript.system.json も作らず manifest も不変)。
+     *  render.systemAudio.mix(=出力に音を混ぜる)とは別軸で、こちらは
+     *  「AI がその音を読めるようにする」= 描画はしない知覚専用。
+     *  収録に systemStream が無ければ true でも自動で無視される */
+    systemAudio?: boolean;
   };
   detect: {
     silenceDb: number;
@@ -61,7 +68,22 @@ export interface Config {
       /** 1区間あたりプロンプトに載せる OCR 行数の上限。省略時
        *  DEFAULT_PERCEPTION_OCR_MAX_LINES(6) */
       ocrMaxLines?: number;
+      /** システム音声の発話(transcript.system.json)のうち各区間に重なるものを
+       *  plan の知覚ブロックに添える。省略時 false。transcript.system.json が
+       *  無ければ(= whisper.systemAudio 未使用)自動で劣化=ブロック省略 */
+      systemSpeech?: boolean;
     };
+  };
+  /** describe(操作エージェント向け)の任意露出。省略可・全オフが既定。
+   *  無いときは散文・--json ともに導入前とバイト等価 */
+  describe?: {
+    /** keep 内に残った無音(間)の「位置と長さ」を describe に出す。省略時 false。
+     *  cuts.auto.json の silences から算出(新規計測なし) */
+    pauses?: boolean;
+    /** 1区間あたり出す間の件数上限。省略時 DEFAULT_DESCRIBE_PAUSE_MAX(3) */
+    pauseMax?: number;
+    /** これ以上の長さの間だけ出す(秒)。省略時 DEFAULT_DESCRIBE_PAUSE_MIN_SEC(0.6) */
+    pauseMinSec?: number;
   };
   preview: {
     width: number;
@@ -191,6 +213,7 @@ export function resolvePerceptionCfg(cfg: Config): {
   ocr: boolean;
   ocrMaxSegments: number;
   ocrMaxLines: number;
+  systemSpeech: boolean;
 } {
   const p = cfg.plan?.perception ?? {};
   return {
@@ -198,6 +221,28 @@ export function resolvePerceptionCfg(cfg: Config): {
     ocr: p.ocr ?? false,
     ocrMaxSegments: p.ocrMaxSegments ?? DEFAULT_PERCEPTION_OCR_MAX_SEGMENTS,
     ocrMaxLines: p.ocrMaxLines ?? DEFAULT_PERCEPTION_OCR_MAX_LINES,
+    systemSpeech: p.systemSpeech ?? false,
+  };
+}
+
+/** describe.pauseMax 未指定時の既定(1keepあたりの件数) */
+export const DEFAULT_DESCRIBE_PAUSE_MAX = 3;
+
+/** describe.pauseMinSec 未指定時の既定(秒) */
+export const DEFAULT_DESCRIBE_PAUSE_MIN_SEC = 0.6;
+
+/** describe.pauses を既定値で解決する純関数(省略時は全オフ+既定値)。
+ *  loadConfig は cfg.describe を書き換えない(省略=オフ=バイト等価を守る) */
+export function resolveDescribePausesCfg(cfg: Config): {
+  enabled: boolean;
+  max: number;
+  minSec: number;
+} {
+  const d = cfg.describe ?? {};
+  return {
+    enabled: d.pauses ?? false,
+    max: d.pauseMax ?? DEFAULT_DESCRIBE_PAUSE_MAX,
+    minSec: d.pauseMinSec ?? DEFAULT_DESCRIBE_PAUSE_MIN_SEC,
   };
 }
 
@@ -235,6 +280,7 @@ export function loadConfig(explicitPath?: string): Config {
   cfg.recordingsDir = expandHome(cfg.recordingsDir);
   cfg.whisper.model = expandHome(cfg.whisper.model);
   cfg.whisper.wordTimestamps ??= false;
+  cfg.whisper.systemAudio ??= false;
   cfg.ocr ??= {};
   cfg.ocr.languages ??= [...DEFAULT_OCR_LANGUAGES];
   return cfg;

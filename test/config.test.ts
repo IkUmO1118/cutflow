@@ -13,11 +13,14 @@ import {
   validateConfigPatch,
 } from "../src/lib/configEdit.ts";
 import {
+  DEFAULT_DESCRIBE_PAUSE_MAX,
+  DEFAULT_DESCRIBE_PAUSE_MIN_SEC,
   DEFAULT_PERCEPTION_OCR_MAX_LINES,
   DEFAULT_PERCEPTION_OCR_MAX_SEGMENTS,
   DEFAULT_PLAN_SHORTS_MAX_DURATION_SEC,
   loadConfig,
   planShortsMaxSec,
+  resolveDescribePausesCfg,
   resolvePerceptionCfg,
 } from "../src/lib/config.ts";
 import type { Config } from "../src/lib/config.ts";
@@ -358,6 +361,7 @@ test("resolvePerceptionCfg: plan 省略時は全オフ+既定値", () => {
     ocr: false,
     ocrMaxSegments: DEFAULT_PERCEPTION_OCR_MAX_SEGMENTS,
     ocrMaxLines: DEFAULT_PERCEPTION_OCR_MAX_LINES,
+    systemSpeech: false,
   });
   assert.equal(DEFAULT_PERCEPTION_OCR_MAX_SEGMENTS, 40);
   assert.equal(DEFAULT_PERCEPTION_OCR_MAX_LINES, 6);
@@ -369,6 +373,7 @@ test("resolvePerceptionCfg: plan.perception 省略時も全オフ+既定値", ()
     ocr: false,
     ocrMaxSegments: DEFAULT_PERCEPTION_OCR_MAX_SEGMENTS,
     ocrMaxLines: DEFAULT_PERCEPTION_OCR_MAX_LINES,
+    systemSpeech: false,
   });
 });
 
@@ -380,6 +385,7 @@ test("resolvePerceptionCfg: audio だけ指定すれば他は既定のまま", (
       ocr: false,
       ocrMaxSegments: DEFAULT_PERCEPTION_OCR_MAX_SEGMENTS,
       ocrMaxLines: DEFAULT_PERCEPTION_OCR_MAX_LINES,
+      systemSpeech: false,
     },
   );
 });
@@ -387,10 +393,82 @@ test("resolvePerceptionCfg: audio だけ指定すれば他は既定のまま", (
 test("resolvePerceptionCfg: 全項目を明示指定すればそのまま通る", () => {
   assert.deepEqual(
     resolvePerceptionCfg({
-      plan: { perception: { audio: true, ocr: true, ocrMaxSegments: 10, ocrMaxLines: 3 } },
+      plan: { perception: { audio: true, ocr: true, ocrMaxSegments: 10, ocrMaxLines: 3, systemSpeech: true } },
     } as Config),
-    { audio: true, ocr: true, ocrMaxSegments: 10, ocrMaxLines: 3 },
+    { audio: true, ocr: true, ocrMaxSegments: 10, ocrMaxLines: 3, systemSpeech: true },
   );
+});
+
+test("resolvePerceptionCfg: systemSpeech 省略時は false", () => {
+  assert.equal(
+    resolvePerceptionCfg({ plan: { perception: { audio: true } } } as Config).systemSpeech,
+    false,
+  );
+});
+
+test("resolveDescribePausesCfg: describe 省略時は無効+既定値", () => {
+  assert.deepEqual(resolveDescribePausesCfg({} as Config), {
+    enabled: false,
+    max: DEFAULT_DESCRIBE_PAUSE_MAX,
+    minSec: DEFAULT_DESCRIBE_PAUSE_MIN_SEC,
+  });
+  assert.equal(DEFAULT_DESCRIBE_PAUSE_MAX, 3);
+  assert.equal(DEFAULT_DESCRIBE_PAUSE_MIN_SEC, 0.6);
+});
+
+test("resolveDescribePausesCfg: 部分指定で他は既定のまま", () => {
+  assert.deepEqual(
+    resolveDescribePausesCfg({ describe: { pauses: true } } as Config),
+    { enabled: true, max: DEFAULT_DESCRIBE_PAUSE_MAX, minSec: DEFAULT_DESCRIBE_PAUSE_MIN_SEC },
+  );
+  assert.deepEqual(
+    resolveDescribePausesCfg({ describe: { pauses: true, pauseMax: 5, pauseMinSec: 1.2 } } as Config),
+    { enabled: true, max: 5, minSec: 1.2 },
+  );
+});
+
+test("loadConfig: whisper.systemAudio 省略時は false へ defaulting・cfg.describe は生成しない(バイト等価)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = join(dir, "config.yaml");
+    writeFileSync(
+      path,
+      `recordingsDir: ~/Movies/cutflow
+whisper:
+  bin: whisper-cli
+  model: ~/m.bin
+  language: ja
+detect: { silenceDb: -35, minSilenceSec: 0.7, padSec: 0.15, minKeepSec: 0.5 }
+preview: { width: 1280, videoEncoder: videotoolbox }
+render:
+  wipeWidthPx: 480
+  wipeMarginPx: 32
+  wipeTransitionSec: 0.3
+  cutTransition: { type: none, sec: 0.3 }
+  captionFontSizePx: 52
+  captionColor: "#fff"
+  captionOutlineColor: "#000"
+  captionFontFamily: sans-serif
+  captionFontWeight: 700
+  chapterCardSec: 3
+  targetLufs: -14
+  systemAudio: { mix: true, volumeDb: 0 }
+  denoise: { mic: false, noiseFloorDb: -25 }
+  bgm: { volumeDb: -22, fadeOutSec: 2, ducking: { duckDb: -8, fadeSec: 0.4 } }
+  hardwareAcceleration: if-possible
+  chunkSec: 15
+  zoom: { easeSec: 0.4 }
+editor: { maxUploadMb: 2048, defaultImageDurationSec: 4, defaultShortRangeSec: 10 }
+planShorts: { maxDurationSec: 60 }
+llm: { backend: claude-cli, model: x }
+`,
+    );
+    const cfg = loadConfig(path);
+    assert.equal(cfg.whisper.systemAudio, false);
+    assert.equal(cfg.describe, undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("loadConfig: plan 省略時は cfg.plan が undefined のまま(defaulting しない=バイト等価)", () => {

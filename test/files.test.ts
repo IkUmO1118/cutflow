@@ -23,6 +23,8 @@ const EXPECTED_GENERATED_FILES = [
   "render.props.json",
   "whisper-out.json",
   "whisper-out.srt",
+  "transcript.system.json",
+  "whisper-system-out.json",
   "cut.mp4",
   "cut.keeps.json",
   "render.key.json",
@@ -92,4 +94,10 @@ test("fileRole: 中間生成物ディレクトリ配下は丸ごと generated", 
 
 test("fileRole: materials/ 配下(人間の素材)は other", () => {
   assert.equal(fileRole("materials/broll.mp4"), "other");
+});
+
+test("fileRole: materials.probe/ 配下(素材知覚の集約+キャッシュ)は generated", () => {
+  assert.equal(fileRole("materials.probe/index.json"), "generated");
+  assert.equal(fileRole("materials.probe/materials__opening.mp4.png"), "generated");
+  assert.equal(fileRole("materials.probe/materials__opening.mp4.ocr.json"), "generated");
 });

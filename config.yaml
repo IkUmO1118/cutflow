@@ -31,6 +31,9 @@ whisper:
   # true にすると whisper 実行が -ojf に切り替わり transcript.json が増える
   # (今フェーズでは words[] を消費する機能が無いので既定は false のまま推奨)
   wordTimestamps: false
+  # システム音声(systemTrack)も第2トラックとして文字起こしする(知覚専用・
+  # 描画しない)。既定 false。true で transcript.system.json を書く
+  systemAudio: false
 
 # 無音検出(機械的カットの候補づくり)
 detect:
@@ -165,6 +168,13 @@ plan:
     ocr: true # 画面OCRテキスト(macOS/Apple Vision 必要・区間数ぶん重い)
     ocrMaxSegments: 40
     ocrMaxLines: 6
+    systemSpeech: false  # システム音声の発話を plan に添える(要 whisper.systemAudio)
+
+# describe の任意露出(既定オフ=散文/--json ともバイト等価)
+# describe:
+#   pauses: false      # keep 内の間の位置と長さを出す
+#   pauseMax: 3
+#   pauseMinSec: 0.6
 
 # 意味カット・章立て・タイトル案の生成
 llm:

@@ -91,7 +91,14 @@ function schemaFileNames(): string[] {
 
 test("全単射: schemas/ の編集ファイル用スキーマ == 8編集ファイル(APPLY_FILE_NAME+meta.json)", () => {
   const editableSchemas = schemaFileNames().filter(
-    (f) => f !== "common.schema.json" && f !== "apply-patch.schema.json",
+    (f) =>
+      f !== "common.schema.json" &&
+      f !== "apply-patch.schema.json" &&
+      // assertions.json は8編集ファイル(EDITABLE_FILES/APPLY_FILE_NAME)に
+      // 属さない「other」カテゴリ(rules.md/brief.md と同種の宣言ファイル。
+      // docs/plans/2026-07-07-visual-assertions-design.md 論点1)。
+      // common/apply-patch と同じくこの全単射テストの対象外にする
+      f !== "assertions.schema.json",
   );
   const expected = EDITABLE_FILE_NAMES.map((f) => f.replace(/\.json$/, ".schema.json"));
   sortedEq(editableSchemas, expected);
@@ -116,7 +123,20 @@ test("全単射: GENERATED_FILES に対応するスキーマが無い", () => {
 /* スキーマレジストリ(fixture/example 検証・enum ピン留めの両方で使う)     */
 /* ------------------------------------------------------------------ */
 
-const FILE_KEYS = ["cutplan", "transcript", "overlays", "bgm", "chapters", "meta", "shorts", "thumbnail"];
+// "assertions" は8編集ファイルには属さない(other カテゴリ)が、kitchen-sink
+// example 検証(examples/assertions.max.json が assertions.schema.json に
+// valid)はここに加えるだけで自動的に対象になる(全単射テストとは別軸)
+const FILE_KEYS = [
+  "cutplan",
+  "transcript",
+  "overlays",
+  "bgm",
+  "chapters",
+  "meta",
+  "shorts",
+  "thumbnail",
+  "assertions",
+];
 
 function loadRegistry(): Record<string, JsonSchema> {
   const registry: Record<string, JsonSchema> = {};

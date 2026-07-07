@@ -53,3 +53,30 @@ export async function buildScreenStill(
   );
   return outPath;
 }
+
+/**
+ * クロップ無しの ffmpeg still 抽出引数(素材知覚 `materials --frames` が使う。
+ * screenStillArgs から `-vf crop=...` を除いた一般化版。素材ファイル全体を
+ * そのまま1枚 PNG にする用途 — screenRegion のような部分クロップ概念が
+ * 素材には無いため)
+ */
+export function plainStillArgs(input: string, sourceSec: number, outPath: string): string[] {
+  return [
+    "-y", "-v", "error",
+    "-ss", seekArg(sourceSec),
+    "-i", input,
+    "-frames:v", "1",
+    outPath,
+  ];
+}
+
+/** 動画素材(input、絶対パス)の sourceSec(素材ファイル内の秒)から
+ * クロップ無しで PNG 1枚を outPath に書き出す */
+export async function buildPlainStill(
+  input: string,
+  sourceSec: number,
+  outPath: string,
+): Promise<string> {
+  await run("ffmpeg", plainStillArgs(input, sourceSec, outPath));
+  return outPath;
+}
