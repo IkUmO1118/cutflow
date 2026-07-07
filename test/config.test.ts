@@ -15,13 +15,19 @@ import {
 import {
   DEFAULT_DESCRIBE_PAUSE_MAX,
   DEFAULT_DESCRIBE_PAUSE_MIN_SEC,
+  DEFAULT_AV_COLS,
+  DEFAULT_AV_EVERY_SEC,
   DEFAULT_PERCEPTION_OCR_MAX_LINES,
   DEFAULT_PERCEPTION_OCR_MAX_SEGMENTS,
+  DEFAULT_PLAN_LOOP_MAX_ITERATIONS,
   DEFAULT_PLAN_SHORTS_MAX_DURATION_SEC,
   loadConfig,
+  planLoopEnabled,
   planShortsMaxSec,
+  resolveAvCfg,
   resolveDescribePausesCfg,
   resolvePerceptionCfg,
+  resolvePlanLoopCfg,
 } from "../src/lib/config.ts";
 import type { Config } from "../src/lib/config.ts";
 
@@ -406,6 +412,35 @@ test("resolvePerceptionCfg: systemSpeech 省略時は false", () => {
   );
 });
 
+test("resolvePlanLoopCfg: plan/loop 省略時はループ無効の既定値", () => {
+  assert.deepEqual(resolvePlanLoopCfg({} as Config), {
+    maxIterations: DEFAULT_PLAN_LOOP_MAX_ITERATIONS,
+    targetOutDurationSec: null,
+    stopWhenAssertionsPass: true,
+  });
+  assert.equal(DEFAULT_PLAN_LOOP_MAX_ITERATIONS, 0);
+  assert.equal(planLoopEnabled({} as Config), false);
+  assert.equal(planLoopEnabled({ plan: { loop: { maxIterations: 1 } } } as Config), false);
+});
+
+test("resolvePlanLoopCfg: 明示値を解決し maxIterations>=2 だけ有効", () => {
+  const cfg = {
+    plan: {
+      loop: {
+        maxIterations: 3,
+        targetOutDurationSec: 300,
+        stopWhenAssertionsPass: false,
+      },
+    },
+  } as Config;
+  assert.deepEqual(resolvePlanLoopCfg(cfg), {
+    maxIterations: 3,
+    targetOutDurationSec: 300,
+    stopWhenAssertionsPass: false,
+  });
+  assert.equal(planLoopEnabled(cfg), true);
+});
+
 test("resolveDescribePausesCfg: describe 省略時は無効+既定値", () => {
   assert.deepEqual(resolveDescribePausesCfg({} as Config), {
     enabled: false,
@@ -489,6 +524,28 @@ whisper:
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("resolveAvCfg: 省略時は既定、指定時は上書き", () => {
+  assert.deepEqual(resolveAvCfg({} as Config), {
+    everySec: DEFAULT_AV_EVERY_SEC,
+    cols: DEFAULT_AV_COLS,
+    windowSec: 1,
+    scdetThreshold: 8,
+    freeze: { noiseDb: -50, durationSec: 1 },
+    stripWidthPx: 320,
+  });
+  assert.deepEqual(
+    resolveAvCfg({ av: { everySec: 2, cols: 4, freeze: { noiseDb: -40 } } } as Config),
+    {
+      everySec: 2,
+      cols: 4,
+      windowSec: 1,
+      scdetThreshold: 8,
+      freeze: { noiseDb: -40, durationSec: 1 },
+      stripWidthPx: 320,
+    },
+  );
 });
 
 test("syncEditorCfgFromYaml: 外部編集ぶん(パッチ外のキー)も反映される", () => {

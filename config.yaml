@@ -143,6 +143,17 @@ ocr:
 #   serve:
 #     port: 4311
 
+# A/V フィードバック(av コマンド)。省略時はコード既定を使う
+# av:
+#   everySec: 5
+#   cols: 5
+#   windowSec: 1
+#   scdetThreshold: 8
+#   freeze:
+#     noiseDb: -50
+#     durationSec: 1
+#   stripWidthPx: 320
+
 # GUI エディタ(npm run editor)
 editor:
   # 素材アップロード1ファイルの上限(MB)。動画素材も置けるよう大きめ。
@@ -169,6 +180,11 @@ plan:
     ocrMaxSegments: 40
     ocrMaxLines: 6
     systemSpeech: false  # システム音声の発話を plan に添える(要 whisper.systemAudio)
+  # plan --cuts-only の観測→再調整ループ。省略/0/1 は従来の1ショット。
+  # loop:
+  #   maxIterations: 0
+  #   targetOutDurationSec: null
+  #   stopWhenAssertionsPass: true
 
 # describe の任意露出(既定オフ=散文/--json ともバイト等価)
 # describe:

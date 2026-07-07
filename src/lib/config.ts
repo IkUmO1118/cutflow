@@ -73,6 +73,17 @@ export interface Config {
        *  無ければ(= whisper.systemAudio 未使用)自動で劣化=ブロック省略 */
       systemSpeech?: boolean;
     };
+    /** plan --cuts-only のカット判断を「生成→観測→再調整」の有限反復にする
+     * opt-in 設定。省略時は maxIterations=0 と同義で、従来の1ショットと
+     * バイト等価。maxIterations >= 2 のときだけループする */
+    loop?: {
+      /** 最大反復回数。0 または 1 は従来どおり1ショット */
+      maxIterations?: number;
+      /** 目標出力尺(秒)。指定時は outDuration <= 値を内部アサーションに足す */
+      targetOutDurationSec?: number | null;
+      /** assertions.json + 目標尺が fail/error なしになったら停止する */
+      stopWhenAssertionsPass?: boolean;
+    };
   };
   /** describe(操作エージェント向け)の任意露出。省略可・全オフが既定。
    *  無いときは散文・--json ともに導入前とバイト等価 */
@@ -184,6 +195,17 @@ export interface Config {
       port?: number;
     };
   };
+  av?: {
+    everySec?: number;
+    cols?: number;
+    windowSec?: number;
+    scdetThreshold?: number;
+    freeze?: {
+      noiseDb?: number;
+      durationSec?: number;
+    };
+    stripWidthPx?: number;
+  };
 }
 
 /** editor.defaultImageDurationSec 未指定時の既定(秒) */
@@ -206,6 +228,9 @@ export const DEFAULT_PERCEPTION_OCR_MAX_SEGMENTS = 40;
 /** plan.perception.ocrMaxLines 未指定時の既定(行数) */
 export const DEFAULT_PERCEPTION_OCR_MAX_LINES = 6;
 
+/** plan.loop.maxIterations 未指定時の既定。0 は従来1ショットと同義 */
+export const DEFAULT_PLAN_LOOP_MAX_ITERATIONS = 0;
+
 /** plan.perception を既定値で解決する純関数(省略時は全オフ)。
  *  loadConfig は cfg.plan を書き換えない(省略=オフ=バイト等価を守る) */
 export function resolvePerceptionCfg(cfg: Config): {
@@ -225,11 +250,38 @@ export function resolvePerceptionCfg(cfg: Config): {
   };
 }
 
+/** plan.loop を既定値で解決する純関数。loadConfig は cfg.plan.loop を生成しない
+ * (省略=従来挙動を守るため)ので、利用側は必ずこの関数を通す */
+export function resolvePlanLoopCfg(cfg: Config): {
+  maxIterations: number;
+  targetOutDurationSec: number | null;
+  stopWhenAssertionsPass: boolean;
+} {
+  const l = cfg.plan?.loop ?? {};
+  return {
+    maxIterations: l.maxIterations ?? DEFAULT_PLAN_LOOP_MAX_ITERATIONS,
+    targetOutDurationSec: l.targetOutDurationSec ?? null,
+    stopWhenAssertionsPass: l.stopWhenAssertionsPass ?? true,
+  };
+}
+
+export function planLoopEnabled(cfg: Config): boolean {
+  return resolvePlanLoopCfg(cfg).maxIterations >= 2;
+}
+
 /** describe.pauseMax 未指定時の既定(1keepあたりの件数) */
 export const DEFAULT_DESCRIBE_PAUSE_MAX = 3;
 
 /** describe.pauseMinSec 未指定時の既定(秒) */
 export const DEFAULT_DESCRIBE_PAUSE_MIN_SEC = 0.6;
+
+export const DEFAULT_AV_EVERY_SEC = 5;
+export const DEFAULT_AV_COLS = 5;
+export const DEFAULT_AV_WINDOW_SEC = 1;
+export const DEFAULT_AV_SCDET_THRESHOLD = 8;
+export const DEFAULT_AV_FREEZE_NOISE_DB = -50;
+export const DEFAULT_AV_FREEZE_DURATION_SEC = 1;
+export const DEFAULT_AV_STRIP_WIDTH_PX = 320;
 
 /** describe.pauses を既定値で解決する純関数(省略時は全オフ+既定値)。
  *  loadConfig は cfg.describe を書き換えない(省略=オフ=バイト等価を守る) */
@@ -243,6 +295,28 @@ export function resolveDescribePausesCfg(cfg: Config): {
     enabled: d.pauses ?? false,
     max: d.pauseMax ?? DEFAULT_DESCRIBE_PAUSE_MAX,
     minSec: d.pauseMinSec ?? DEFAULT_DESCRIBE_PAUSE_MIN_SEC,
+  };
+}
+
+export function resolveAvCfg(cfg: Config): {
+  everySec: number;
+  cols: number;
+  windowSec: number;
+  scdetThreshold: number;
+  freeze: { noiseDb: number; durationSec: number };
+  stripWidthPx: number;
+} {
+  const av = cfg.av ?? {};
+  return {
+    everySec: av.everySec ?? DEFAULT_AV_EVERY_SEC,
+    cols: av.cols ?? DEFAULT_AV_COLS,
+    windowSec: av.windowSec ?? DEFAULT_AV_WINDOW_SEC,
+    scdetThreshold: av.scdetThreshold ?? DEFAULT_AV_SCDET_THRESHOLD,
+    freeze: {
+      noiseDb: av.freeze?.noiseDb ?? DEFAULT_AV_FREEZE_NOISE_DB,
+      durationSec: av.freeze?.durationSec ?? DEFAULT_AV_FREEZE_DURATION_SEC,
+    },
+    stripWidthPx: av.stripWidthPx ?? DEFAULT_AV_STRIP_WIDTH_PX,
   };
 }
 

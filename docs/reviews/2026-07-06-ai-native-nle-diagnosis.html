@@ -334,7 +334,7 @@
           <div class="thead"><span class="tid">E</span><h3>ローカル×持ち込み AI の運用基盤</h3></div>
           <p class="tsum">「任意 AI で編集」を支える基盤が薄い。契約は200行の日本語散文 CLAUDE.md に散在し、実質 Claude 前提。</p>
           <ul class="glist">
-            <li><span class="gt">機械可読な契約が無い(JSON Schema 0件)</span><span class="gmeta"><span class="chip major">major</span><span class="chip eff">effort M</span></span><span class="gd">AGENTS.md 型の能力/不変条件マニフェストを出せば非 Claude(codex 等)も守って編集できる。主張#2の要。</span></li>
+            <li><span class="gt">機械可読な契約が無い(JSON Schema 0件)</span><span class="gmeta"><span class="chip major">major</span><span class="chip eff">effort M</span></span><span class="gd">AGENTS_CONTRACT.md 型の能力/不変条件マニフェストを出せば非 Claude(codex 等)も守って編集できる。主張#2の要。</span></li>
             <li><span class="gt">チャンネル/シリーズ単位の rules・学習が無い</span><span class="gmeta"><span class="chip major">major</span><span class="chip eff">effort S</span></span><span class="gd">テロップ様式・声色・禁止語・ペーシングを rules 化。人間の上書きから学ぶ。<span class="mono">.cursor/rules</span> 相当。安く効く。</span></li>
             <li><span class="gt">意味索引/検索が無い(収録横断・長尺retrieval)</span><span class="gmeta"><span class="chip major">major</span><span class="chip eff">effort L</span></span><span class="gd">全 transcript を1プロンプトに詰めるため60分収録で破綻。<span class="mono">@codebase</span> 相当の recall が要る。</span></li>
           </ul>
@@ -378,7 +378,7 @@
             <li><span class="rt">カット判断ループに目耳を接続(plan に画像+音)</span><span class="rm"><span class="tag">知覚</span><span class="tag">L</span></span></li>
             <li><span class="rt">編集 action space + MCP サーバ</span><span class="rm"><span class="tag">行動</span><span class="tag">L</span></span></li>
             <li><span class="rt">安定 ID / @-mention を全セグメントに付与</span><span class="rm"><span class="tag">行動</span><span class="tag">M</span></span></li>
-            <li><span class="rt">機械可読契約(JSON Schema + AGENTS.md)</span><span class="rm"><span class="tag">運用/BYO</span><span class="tag">M</span></span></li>
+            <li><span class="rt">機械可読契約(JSON Schema + AGENTS_CONTRACT.md)</span><span class="rm"><span class="tag">運用/BYO</span><span class="tag">M</span></span></li>
             <li><span class="rt">検査付きアトミック適用を CLI/AI へ露出</span><span class="rm"><span class="tag">行動</span><span class="tag">M</span></span></li>
             <li><span class="rt">GUI に AI 編集の差分レビュー / accept-reject</span><span class="rm"><span class="tag">協調</span><span class="tag">XL</span></span></li>
             <li><span class="rt">対話一発編集の製品化(skill / ワークフロー化)</span><span class="rm"><span class="tag">競合追随</span><span class="tag">L</span></span></li>
