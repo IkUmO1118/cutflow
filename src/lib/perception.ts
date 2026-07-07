@@ -59,6 +59,43 @@ export function computeAudioFeatures(
   });
 }
 
+/** keep 内に残った無音(間)1件(§audio-perception-design D5/§6.2)。
+ * 既存 silenceWithin(区間内無音の合計スカラ)と違い「どこに・何秒」を持つ。
+ * cuts.auto.json の silences ∩ keep から算出=新規計測ゼロ */
+export interface KeepPause {
+  /** この間が属する keep のインデックス(0始まり) */
+  keepIndex: number;
+  /** 元収録秒の区間(silence ∩ keep をクリップしたもの) */
+  start: number;
+  end: number;
+  /** 長さ(秒・丸め済み) */
+  len: number;
+  /** keep 先頭からのオフセット(秒・丸め済み) */
+  offset: number;
+}
+
+/** 各 keep に残った無音(間)を、minSec 以上・keepIndex/start 昇順で返す純関数。
+ * cuts.auto.json の silences だけから引ける(detect への新規計測なし)。keeps は
+ * 呼び出し側が mergeIntervals 済みの前提(describe が渡す keeps はそうなっている) */
+export function pausesWithinKeeps(
+  keeps: Interval[],
+  silences: Interval[],
+  minSec: number,
+): KeepPause[] {
+  const out: KeepPause[] = [];
+  keeps.forEach((k, keepIndex) => {
+    for (const s of silences) {
+      const start = Math.max(k.start, s.start);
+      const end = Math.min(k.end, s.end);
+      const len = end - start;
+      if (len >= minSec) {
+        out.push({ keepIndex, start, end, len: round1(len), offset: round1(start - k.start) });
+      }
+    }
+  });
+  return out;
+}
+
 /** 音特徴をプロンプト用の記述文に整形する(純関数)。番号の連続性のため
  * 全区間を含める(§4 の「省略しない」側の選択。バイト等価の不変条件には
  * 無関係=このブロック自体が opt-in なので影響しない) */
