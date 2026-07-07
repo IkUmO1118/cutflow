@@ -11,6 +11,7 @@ import {
   fingerprintEquals,
   groupReferencesByFile,
   materialSlug,
+  representativeFrameSec,
 } from "../src/lib/materials.ts";
 import type { MaterialInput } from "../src/lib/materials.ts";
 import type { Bgm, Overlays } from "../src/types.ts";
@@ -109,6 +110,19 @@ test("fingerprintEquals: どちらかが未取得(undefined)なら false(再利�
   assert.equal(fingerprintEquals(undefined, { mtimeMs: 100, size: 200 }), false);
   assert.equal(fingerprintEquals({ mtimeMs: 100, size: 200 }, undefined), false);
   assert.equal(fingerprintEquals(undefined, undefined), false);
+});
+
+/* ---------------- representativeFrameSec ---------------- */
+
+test("representativeFrameSec: 尺の中点を返す", () => {
+  assert.equal(representativeFrameSec(4.02), 2.01);
+  assert.equal(representativeFrameSec(10), 5);
+});
+
+test("representativeFrameSec: 尺不明(undefined・0以下)は先頭フレーム(0秒)で代用", () => {
+  assert.equal(representativeFrameSec(undefined), 0);
+  assert.equal(representativeFrameSec(0), 0);
+  assert.equal(representativeFrameSec(-1), 0);
 });
 
 /* ---------------- buildFileSet ---------------- */

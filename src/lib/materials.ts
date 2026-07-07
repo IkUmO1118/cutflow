@@ -218,6 +218,13 @@ export interface MaterialsIndex {
 /** index.json のスキーマバージョン(将来の破壊的変更で上げる) */
 export const MATERIALS_INDEX_SCHEMA_VERSION = 1;
 
+/** 動画素材の代表フレーム抽出秒(尺の中点。§論点4)。durationSec が
+ * 不明(probe 失敗・尺0以下)なら先頭フレーム(0秒)で代用する純関数 */
+export function representativeFrameSec(durationSec: number | undefined): number {
+  if (durationSec === undefined || !(durationSec > 0)) return 0;
+  return durationSec / 2;
+}
+
 /** MaterialInput[] + 参照集合から MaterialsIndex を組み立てる純関数。
  * ファイル順は inputs の順(呼び出し側が buildFileSet でソート済みを渡す想定) */
 export function buildMaterialsIndex(

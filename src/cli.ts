@@ -511,9 +511,13 @@ program
       "音声有無)+ overlays/inserts/bgm との参照クロスリンク(未使用・dangling を検出)。" +
       "materials.probe/index.json に書く",
   )
-  .action(async (dir: string) => {
+  .option(
+    "--frames",
+    "代表フレーム PNG も抽出する(動画は尺の中点1枚。画像は複製せず自身のパスを記録)",
+  )
+  .action(async (dir: string, opts: { frames?: boolean }) => {
     const abs = resolveDir(dir);
-    const { index, indexPath } = await materials(abs);
+    const { index, indexPath } = await materials(abs, { frames: opts.frames === true });
     for (const line of formatMaterialsSummary(index)) console.log(line);
     console.log(`${index.materials.length}件を ${indexPath} に書きました`);
   });
