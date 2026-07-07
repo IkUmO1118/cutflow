@@ -32,6 +32,7 @@ import type {
   Overlays,
   Transcript,
 } from "../types.ts";
+import { resolveAnnotation } from "./annotation.ts";
 import type {
   Caption,
   OverlayItem,
@@ -229,6 +230,15 @@ export function buildRenderProps(args: {
     })),
   );
 
+  // 注釈グラフィック(矢印/囲み/スポットライト)もカット後タイムラインへ
+  // 写像する。既定値は resolveAnnotation が埋める(blurs の type/strength
+  // 解決と同じ考え方)。挿入で割れた断片は独立エントリのまま(マージ不要)
+  const annotationItems = (overlays.annotations ?? []).flatMap((a) =>
+    remapInterval(a.start, a.end, timeline).map((iv) =>
+      resolveAnnotation(a, iv.start, iv.end),
+    ),
+  );
+
   // ベース映像の再生区間。「カット後のどこで、動画内のどの時刻から再生
   // するか」に分割する。動画内の時刻は videoFile が何かで変わる:
   // - render の cut.mp4 は keeps のみの動画 → 挿入なし写像でのカット後時刻
@@ -333,6 +343,7 @@ export function buildRenderProps(args: {
     wipeFull: wipeSpans,
     ...(zoomSpans.length > 0 ? { zooms: zoomSpans } : {}),
     ...(blurSpans.length > 0 ? { blurs: blurSpans } : {}),
+    ...(annotationItems.length > 0 ? { annotations: annotationItems } : {}),
     ...(renderCfg.cutTransition?.type === "dip-to-black"
       ? {
           cutTransition: { sec: renderCfg.cutTransition.sec ?? DEFAULT_CUT_TRANSITION_SEC },

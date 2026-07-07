@@ -670,6 +670,167 @@ test("buildRenderProps: blurs がカット内で全部消えると出力に含�
   assert.equal("blurs" in props, false);
 });
 
+test("buildRenderProps: annotations 未指定なら props に annotations キーが現れない(既存 props と完全一致)", () => {
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 10 }],
+    transcript: { segments: [] },
+    overlays: {},
+    renderCfg,
+    width: 1920,
+    height: 1080,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.equal("annotations" in props, false);
+});
+
+test("buildRenderProps: annotations はカット後タイムラインへ写像され、arrow/box/spotlight の既定が解決される", () => {
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 10 }, { start: 20, end: 30 }],
+    transcript: { segments: [] },
+    overlays: {
+      annotations: [
+        { type: "arrow", start: 22, end: 28, from: { x: 0, y: 0 }, to: { x: 100, y: 0 } },
+        { type: "box", start: 22, end: 28, rect: { x: 0, y: 0, w: 100, h: 50 } },
+        { type: "spotlight", start: 22, end: 28, rect: { x: 0, y: 0, w: 100, h: 50 } },
+      ],
+    },
+    renderCfg,
+    width: 1920,
+    height: 1080,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.deepEqual(props.annotations, [
+    {
+      type: "arrow",
+      start: 12,
+      end: 18,
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 0 },
+      color: "#ff3b30",
+      widthPx: 8,
+      headPx: 28,
+    },
+    {
+      type: "box",
+      start: 12,
+      end: 18,
+      rect: { x: 0, y: 0, w: 100, h: 50 },
+      color: "#ff3b30",
+      widthPx: 6,
+      radiusPx: 8,
+    },
+    {
+      type: "spotlight",
+      start: 12,
+      end: 18,
+      rect: { x: 0, y: 0, w: 100, h: 50 },
+      shape: "rect",
+      dim: 0.6,
+      featherPx: 24,
+      radiusPx: 0,
+    },
+  ]);
+});
+
+test("buildRenderProps: annotations の per-item 上書きは既定より優先", () => {
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 10 }],
+    transcript: { segments: [] },
+    overlays: {
+      annotations: [
+        {
+          type: "arrow",
+          start: 1,
+          end: 5,
+          from: { x: 0, y: 0 },
+          to: { x: 100, y: 0 },
+          color: "#00ff00",
+          widthPx: 3,
+          headPx: 12,
+        },
+      ],
+    },
+    renderCfg,
+    width: 1920,
+    height: 1080,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.deepEqual(props.annotations, [
+    {
+      type: "arrow",
+      start: 1,
+      end: 5,
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 0 },
+      color: "#00ff00",
+      widthPx: 3,
+      headPx: 12,
+    },
+  ]);
+});
+
+test("buildRenderProps: annotations 1件が挿入で2断片に割れると props.annotations も2エントリ(同一 geometry)", () => {
+  const rect = { x: 0, y: 0, w: 500, h: 200 };
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 30 }],
+    transcript: { segments: [] },
+    overlays: {
+      annotations: [{ type: "box", start: 5, end: 25, rect }],
+      inserts: [{ at: 15, file: "materials/ins.mp4", durationSec: 4 }],
+    },
+    renderCfg,
+    width: 1920,
+    height: 1080,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.equal(props.annotations?.length, 2);
+  assert.deepEqual(props.annotations?.[0], {
+    type: "box", start: 5, end: 15, rect, color: "#ff3b30", widthPx: 6, radiusPx: 8,
+  });
+  assert.deepEqual(props.annotations?.[1], {
+    type: "box", start: 19, end: 29, rect, color: "#ff3b30", widthPx: 6, radiusPx: 8,
+  });
+});
+
+test("buildRenderProps: annotations がカット内で全部消えると出力に含まれない", () => {
+  const rect = { x: 0, y: 0, w: 500, h: 200 };
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 10 }, { start: 20, end: 30 }],
+    transcript: { segments: [] },
+    overlays: { annotations: [{ type: "box", start: 12, end: 18, rect }] }, // カット内([10,20))
+    renderCfg,
+    width: 1920,
+    height: 1080,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.equal("annotations" in props, false);
+});
+
 test("buildRenderProps: overlay のフェードは断片より長いとき断片内で完了する長さへ縮む", () => {
   const props = buildRenderProps({
     manifest,
