@@ -6,12 +6,14 @@
 // summarizeProbe)を束ねるだけで、判定ロジック自体はそちらに集約している。
 //
 // キャッシュ: 素材ごとに mtime+size フィンガープリントを前回の index.json と
-// 突き合わせ、不変なら probe/frame をスキップして前回の結果を再利用する
-// (§論点5)。既定(フラグ無し)は probe 層だけを取得する。--ocr/--transcribe
-// はタスク5〜6でここに追加する。
+// 突き合わせ、不変なら probe/frame/ocr をスキップして前回の結果を再利用する
+// (§論点5)。既定(フラグ無し)は probe 層だけを取得する。--transcribe は
+// タスク6でここに追加する。
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { Config } from "../lib/config.ts";
 import { probe, summarizeProbe } from "../lib/ffmpeg.ts";
+import { runOcr } from "../lib/ocr.ts";
 import { buildPlainStill } from "../lib/screenStill.ts";
 import {
   buildFileSet,
@@ -27,10 +29,19 @@ import type {
   MaterialFingerprint,
   MaterialFrame,
   MaterialInput,
+  MaterialOcr,
   MaterialRef,
   MaterialsIndex,
 } from "../lib/materials.ts";
-import type { Bgm, Overlays } from "../types.ts";
+import type { Bgm, Overlays, Region } from "../types.ts";
+
+/** OCR プレビュー(index.json に載せる先頭行数)。frames --ocr の stdout
+ * echo(formatOcrPreview 既定2行)より少し多め(index は後から読む用なので) */
+const OCR_PREVIEW_LINES = 5;
+
+/** 素材フレーム OCR の box 座標系ラベル(素材自身のピクセル座標。本編
+ * screenRegion 出力px とは無関係。§論点4「OCR の座標系」) */
+const MATERIAL_FRAME_COORD_SPACE = "material-frame-px";
 
 /** `materials.probe/` の中身は他の生成ディレクトリ(frames/・render.chunks/)と
  * 同じ「手編集しない generated」だが、frames/ と違い**キャッシュ型**
@@ -42,6 +53,10 @@ export interface MaterialsOptions {
   /** 代表フレーム PNG を抽出する(動画は尺の中点1枚。画像は自身のパスを
    * frame.file に記録=複製しない)。省略時 false(probe 層のみ) */
   frames?: boolean;
+  /** フレーム/画像を Apple Vision で OCR する(動画は --frames を含意)。
+   * 非対応環境(macOS 以外等)では runOcr が null を返し警告のみに留める
+   * (probe/frame の出力は成功のまま)。省略時 false */
+  ocr?: boolean;
 }
 
 export interface MaterialsResult {
@@ -73,7 +88,11 @@ function listPresentMaterialFiles(dir: string): string[] {
  * probe/frame いずれもしない(一覧には出す)。present:false(dangling 参照)も
  * 同様に何も取得しない。
  */
-export async function materials(dir: string, opts: MaterialsOptions = {}): Promise<MaterialsResult> {
+export async function materials(
+  dir: string,
+  opts: MaterialsOptions = {},
+  cfg?: Config,
+): Promise<MaterialsResult> {
   const overlays = readJsonOrFallback<Overlays>(dir, "overlays.json", {});
   const bgm = readJsonOrFallback<Bgm | null>(dir, "bgm.json", null);
 
@@ -110,8 +129,14 @@ export async function materials(dir: string, opts: MaterialsOptions = {}): Promi
 
     const input: MaterialInput = { file, present, kind, fingerprint, probe: probeResult };
 
-    if (opts.frames && (kind === "video" || kind === "image")) {
+    // --ocr は動画に対して --frames を含意する(OCR には PNG が要るため)。
+    // 画像は自身が代表フレームなので frame 解決は ffmpeg を呼ばない
+    if ((opts.frames || opts.ocr) && (kind === "video" || kind === "image")) {
       input.frame = await resolveFrame({ dir, file, abs, kind, probe: probeResult, unchanged, prev });
+    }
+    if (opts.ocr && input.frame !== undefined) {
+      const result = await resolveOcr({ dir, file, frame: input.frame, unchanged, prev, cfg });
+      if (result !== undefined) input.ocr = result;
     }
 
     inputs.push(input);
@@ -156,6 +181,43 @@ async function resolveFrame(args: {
 
   await buildPlainStill(abs, atSec, pngAbsPath);
   return { file: pngRelPath, atSec, width, height };
+}
+
+/**
+ * 1素材ぶんのフレーム/画像 OCR を解決する。region は frame の画素寸法
+ * そのもの(素材フレームのピクセル座標。§論点4)。非対応環境・失敗時は
+ * runOcr が null を返し警告のみ(呼び出し側は input.ocr を付けないだけで、
+ * probe/frame の出力は成功のまま = 優雅な劣化)
+ */
+async function resolveOcr(args: {
+  dir: string;
+  file: string;
+  frame: MaterialFrame;
+  unchanged: boolean;
+  prev: MaterialsIndex["materials"][number] | undefined;
+  cfg?: Config;
+}): Promise<MaterialOcr | undefined> {
+  const { dir, file, frame, unchanged, prev, cfg } = args;
+  const ocrRelPath = join(MATERIALS_PROBE_DIR, `${materialSlug(file)}.ocr.json`);
+  const ocrAbsPath = join(dir, ocrRelPath);
+  const reusable = unchanged && prev?.ocr !== undefined && existsSync(ocrAbsPath);
+  if (reusable) return prev!.ocr;
+
+  const imagePath = join(dir, frame.file);
+  const region: Region = { x: 0, y: 0, w: frame.width, h: frame.height };
+  const result = await runOcr(imagePath, region, {
+    languages: cfg?.ocr?.languages,
+    warn: (msg) => console.warn(`警告: ${msg}`),
+  });
+  if (result === null) return undefined; // 非対応環境等(warn 済み)
+
+  writeFileSync(ocrAbsPath, JSON.stringify(result, null, 2));
+  return {
+    file: ocrRelPath,
+    coordSpace: MATERIAL_FRAME_COORD_SPACE,
+    lineCount: result.lines.length,
+    preview: result.lines.slice(0, OCR_PREVIEW_LINES).map((l) => l.text),
+  };
 }
 
 function refLabel(ref: MaterialRef): string {
