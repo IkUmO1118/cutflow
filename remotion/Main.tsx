@@ -25,6 +25,7 @@ import {
 import type { CaptionBackground, CaptionKaraoke, LayerId } from "../src/types.ts";
 import { frameSpans } from "../src/lib/renderProps.ts";
 import { buildCaptionIndex, lookupCaption } from "../src/lib/captionIndex.ts";
+import { arrowHeadPoints } from "../src/lib/annotation.ts";
 import { blurRadiusPx, mosaicBlockPx, outputRectToCanvasRegion } from "../src/lib/blur.ts";
 import {
   alignKaraoke,
@@ -457,6 +458,98 @@ export const Main = (props: RenderProps) => {
         .map((id) => (
           <Fragment key={id}>{layerNode(id)}</Fragment>
         ))}
+
+      {/* 注釈グラフィック(矢印/囲み/スポットライト)。独立レイヤーで最前面
+          (テロップより上)。layerOrder には載らない固定順。zoom transform の
+          外なので出力px固定。本編経路のみ(!props.layout && hasVideo)。
+          ショート(props.layout あり)には継承しない(D2 と同じ相乗り) */}
+      {hasVideo && !props.layout &&
+        (props.annotations ?? []).map((a, i) => {
+          if (t < a.start || t >= a.end) return null; // 硬い ON/OFF(遷移なし)
+          if (a.type === "arrow") {
+            const { p1, p2 } = arrowHeadPoints(a.from, a.to, a.headPx);
+            return (
+              <svg
+                key={`ann-${i}`}
+                style={{
+                  position: "absolute", inset: 0,
+                  width: props.width, height: props.height, overflow: "visible",
+                }}
+              >
+                <line
+                  x1={a.from.x} y1={a.from.y} x2={a.to.x} y2={a.to.y}
+                  stroke={a.color} strokeWidth={a.widthPx} strokeLinecap="round"
+                />
+                <polygon
+                  points={`${a.to.x},${a.to.y} ${p1.x},${p1.y} ${p2.x},${p2.y}`}
+                  fill={a.color}
+                />
+              </svg>
+            );
+          }
+          if (a.type === "box") {
+            return (
+              <div
+                key={`ann-${i}`}
+                style={{
+                  position: "absolute",
+                  left: a.rect.x,
+                  top: a.rect.y,
+                  width: a.rect.w,
+                  height: a.rect.h,
+                  boxSizing: "border-box",
+                  border: `${a.widthPx}px solid ${a.color}`,
+                  borderRadius: a.radiusPx,
+                  ...(a.fill ? { backgroundColor: a.fill } : {}),
+                }}
+              />
+            );
+          }
+          // spotlight: フルスクリーンの黒(fillOpacity=dim)に mask で rect(または
+          // ellipse)の穴を開ける。featherPx は穴形状への feGaussianBlur で表現
+          const maskId = `ann-spotlight-mask-${i}`;
+          const blurId = `ann-spotlight-blur-${i}`;
+          return (
+            <svg
+              key={`ann-${i}`}
+              style={{
+                position: "absolute", inset: 0,
+                width: props.width, height: props.height,
+              }}
+            >
+              <defs>
+                {a.featherPx > 0 && (
+                  <filter id={blurId}>
+                    <feGaussianBlur stdDeviation={a.featherPx} />
+                  </filter>
+                )}
+                <mask id={maskId}>
+                  <rect x={0} y={0} width={props.width} height={props.height} fill="white" />
+                  <g filter={a.featherPx > 0 ? `url(#${blurId})` : undefined}>
+                    {a.shape === "ellipse" ? (
+                      <ellipse
+                        cx={a.rect.x + a.rect.w / 2}
+                        cy={a.rect.y + a.rect.h / 2}
+                        rx={a.rect.w / 2}
+                        ry={a.rect.h / 2}
+                        fill="black"
+                      />
+                    ) : (
+                      <rect
+                        x={a.rect.x} y={a.rect.y} width={a.rect.w} height={a.rect.h}
+                        rx={a.radiusPx} fill="black"
+                      />
+                    )}
+                  </g>
+                </mask>
+              </defs>
+              <rect
+                x={0} y={0} width={props.width} height={props.height}
+                fill="black" fillOpacity={a.dim} mask={`url(#${maskId})`}
+              />
+            </svg>
+          );
+        })}
 
       {cutOpacity > 0 && (
         <AbsoluteFill style={{ backgroundColor: "black", opacity: cutOpacity }} />
