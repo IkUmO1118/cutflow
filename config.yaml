@@ -171,4 +171,4 @@ llm:
   # claude-cli: Claude Code のサブスクで実行(APIキー不要)
   # api:        従量課金API(ANTHROPIC_API_KEY と model の指定が必要)
   backend: claude-cli
-  model: ""
+  model: "claude-sonnet-5"
