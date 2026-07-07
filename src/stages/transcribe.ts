@@ -4,7 +4,7 @@ import { run } from "../lib/exec.ts";
 import { carryIds, ensureIds, hasAnyId, ID_PREFIX, usedIdsOf } from "../lib/ids.ts";
 import { readEditableDocs } from "./idStamp.ts";
 import type { Config } from "../lib/config.ts";
-import type { Manifest, Transcript, TranscriptSegment, WordTiming } from "../types.ts";
+import type { Manifest, SystemTranscript, Transcript, TranscriptSegment, WordTiming } from "../types.ts";
 
 /** whisper.cpp の -ojf(output-json-full)の token 1件。-oj でも -ojf でも
  * segment(offsets/text)は同一(実測で確認済み)。tokens[] は -ojf のときだけ付く */
@@ -142,5 +142,44 @@ export async function transcribe(
     join(dir, "transcript.json"),
     JSON.stringify(transcript, null, 2),
   );
+
+  // システム音声(デモ音・再生動画・TTS)の第2回 whisper(知覚専用)。
+  // ingest が system.wav を抽出したときだけ(= whisper.systemAudio 有効 かつ
+  // systemStream あり)。micWav 側(上のロジック)には一切触れない完全に独立の
+  // ブロック。描画しないので -osrt は出さず、words も不要なので常に -oj で回す
+  // (micWav 側の wordTimestamps 設定に引きずられない)。id 引き継ぎもしない
+  // (transcript.system.json は @id の対象外)。未抽出時はこのブロックを丸ごと
+  // 飛ばすので transcript.system.json は作られない=導入前とバイト等価
+  if (manifest.audio.systemWav) {
+    const sysBase = join(dir, "whisper-system-out");
+    await run(cfg.whisper.bin, [
+      "-m", cfg.whisper.model,
+      "-l", cfg.whisper.language,
+      "-f", join(dir, manifest.audio.systemWav),
+      "-oj",
+      "-of", sysBase,
+    ]);
+    const sysJson = JSON.parse(
+      readFileSync(`${sysBase}.json`, "utf8"),
+    ) as WhisperJson;
+    const sysSegments = sysJson.transcription
+      .map((t) => ({
+        start: t.offsets.from / 1000,
+        end: t.offsets.to / 1000,
+        text: t.text.trim(),
+      }))
+      .filter((s) => s.text.length > 0);
+    const systemTranscript: SystemTranscript = {
+      language: cfg.whisper.language,
+      model: cfg.whisper.model,
+      speaker: "system",
+      segments: sysSegments,
+    };
+    writeFileSync(
+      join(dir, "transcript.system.json"),
+      JSON.stringify(systemTranscript, null, 2),
+    );
+  }
+
   return transcript;
 }
