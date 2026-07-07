@@ -180,6 +180,11 @@ plan:
     ocrMaxSegments: 40
     ocrMaxLines: 6
     systemSpeech: false  # システム音声の発話を plan に添える(要 whisper.systemAudio)
+  # plan --cuts-only の観測→再調整ループ。省略/0/1 は従来の1ショット。
+  # loop:
+  #   maxIterations: 0
+  #   targetOutDurationSec: null
+  #   stopWhenAssertionsPass: true
 
 # describe の任意露出(既定オフ=散文/--json ともバイト等価)
 # describe:

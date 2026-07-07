@@ -19,12 +19,15 @@ import {
   DEFAULT_AV_EVERY_SEC,
   DEFAULT_PERCEPTION_OCR_MAX_LINES,
   DEFAULT_PERCEPTION_OCR_MAX_SEGMENTS,
+  DEFAULT_PLAN_LOOP_MAX_ITERATIONS,
   DEFAULT_PLAN_SHORTS_MAX_DURATION_SEC,
   loadConfig,
+  planLoopEnabled,
   planShortsMaxSec,
   resolveAvCfg,
   resolveDescribePausesCfg,
   resolvePerceptionCfg,
+  resolvePlanLoopCfg,
 } from "../src/lib/config.ts";
 import type { Config } from "../src/lib/config.ts";
 
@@ -407,6 +410,35 @@ test("resolvePerceptionCfg: systemSpeech 省略時は false", () => {
     resolvePerceptionCfg({ plan: { perception: { audio: true } } } as Config).systemSpeech,
     false,
   );
+});
+
+test("resolvePlanLoopCfg: plan/loop 省略時はループ無効の既定値", () => {
+  assert.deepEqual(resolvePlanLoopCfg({} as Config), {
+    maxIterations: DEFAULT_PLAN_LOOP_MAX_ITERATIONS,
+    targetOutDurationSec: null,
+    stopWhenAssertionsPass: true,
+  });
+  assert.equal(DEFAULT_PLAN_LOOP_MAX_ITERATIONS, 0);
+  assert.equal(planLoopEnabled({} as Config), false);
+  assert.equal(planLoopEnabled({ plan: { loop: { maxIterations: 1 } } } as Config), false);
+});
+
+test("resolvePlanLoopCfg: 明示値を解決し maxIterations>=2 だけ有効", () => {
+  const cfg = {
+    plan: {
+      loop: {
+        maxIterations: 3,
+        targetOutDurationSec: 300,
+        stopWhenAssertionsPass: false,
+      },
+    },
+  } as Config;
+  assert.deepEqual(resolvePlanLoopCfg(cfg), {
+    maxIterations: 3,
+    targetOutDurationSec: 300,
+    stopWhenAssertionsPass: false,
+  });
+  assert.equal(planLoopEnabled(cfg), true);
 });
 
 test("resolveDescribePausesCfg: describe 省略時は無効+既定値", () => {
