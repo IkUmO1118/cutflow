@@ -19,6 +19,7 @@ const EXPECTED_GENERATED_FILES = [
   "manifest.json",
   "cuts.auto.json",
   "plan.raw.txt",
+  "plan.loop.json",
   "plan-shorts.raw.txt",
   "render.props.json",
   "whisper-out.json",
@@ -100,4 +101,10 @@ test("fileRole: materials.probe/ 配下(素材知覚の集約+キャッシュ)�
   assert.equal(fileRole("materials.probe/index.json"), "generated");
   assert.equal(fileRole("materials.probe/materials__opening.mp4.png"), "generated");
   assert.equal(fileRole("materials.probe/materials__opening.mp4.ocr.json"), "generated");
+});
+
+test("fileRole: av.probe/ 配下(A/V 知覚の集約+キャッシュ)は generated", () => {
+  assert.equal(fileRole("av.probe/motion.json"), "generated");
+  assert.equal(fileRole("av.probe/sound.json"), "generated");
+  assert.equal(fileRole("av.probe/motion.strip.png"), "generated");
 });

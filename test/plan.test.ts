@@ -3,14 +3,21 @@
 // 固定して検出できるようにする。
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   parseCutsResponse,
   buildCutplan,
   buildChapterEntries,
   buildChapterTelopEntries,
+  plan,
 } from "../src/stages/plan.ts";
 import type { NumberedSegment } from "../src/stages/plan.ts";
 import { ID_RE } from "../src/lib/ids.ts";
+import type { Config } from "../src/lib/config.ts";
+import type { AssertOutcome } from "../src/stages/assert.ts";
+import type { DescribeProjection } from "../src/stages/describe.ts";
 
 test("正常な cuts 応答をパースできる", () => {
   const raw = JSON.stringify({
@@ -143,4 +150,131 @@ test("buildChapterTelopEntries: idCtx ありで title 一致の旧 id を運ぶ"
   );
   assert.equal(telops[0].id, "cap_aaaaaa");
   assert.match(telops[1].id as string, ID_RE);
+});
+
+function withPlanDir(run: (dir: string) => Promise<void> | void): Promise<void> | void {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-plan-"));
+  writeFileSync(
+    join(dir, "transcript.json"),
+    JSON.stringify({
+      language: "ja",
+      model: "test",
+      segments: [
+        { start: 0, end: 9, text: "導入" },
+        { start: 10, end: 19, text: "本編" },
+        { start: 20, end: 29, text: "脱線" },
+      ],
+    }),
+  );
+  writeFileSync(
+    join(dir, "cuts.auto.json"),
+    JSON.stringify({
+      params: { silenceDb: -35, minSilenceSec: 0.7, padSec: 0.15 },
+      silences: [],
+      keepSegments: [
+        { start: 0, end: 10 },
+        { start: 10, end: 20 },
+        { start: 20, end: 30 },
+      ],
+      keptDurationSec: 30,
+      originalDurationSec: 30,
+    }),
+  );
+  const done = Promise.resolve(run(dir));
+  return done.finally(() => rmSync(dir, { recursive: true, force: true }));
+}
+
+function loopCfg(maxIterations: number): Config {
+  return {
+    plan: { loop: { maxIterations, targetOutDurationSec: 15, stopWhenAssertionsPass: true } },
+  } as Config;
+}
+
+function fakeProjection(outDurationSec: number): DescribeProjection {
+  return {
+    summary: { outDurationSec, keepCount: 2 },
+    cuts: [{}, {}],
+  } as DescribeProjection;
+}
+
+test("plan --cuts-only: deps.complete を使い、ループ無効時は plan.loop.json を書かない", async () => {
+  await withPlanDir(async (dir) => {
+    const cfg = { plan: { loop: { maxIterations: 0 } } } as Config;
+    const result = await plan(dir, cfg, { cutsOnly: true }, {
+      complete: async () => JSON.stringify({ cuts: [{ id: 3, reason: "脱線" }] }),
+    });
+    assert.deepEqual(
+      result.segments.map((s) => [s.start, s.end, s.action, s.reason]),
+      [
+        [0, 10, "keep", ""],
+        [10, 20, "keep", ""],
+        [20, 30, "cut", "脱線"],
+      ],
+    );
+    assert.equal(existsSync(join(dir, "plan.loop.json")), false);
+    assert.equal(readFileSync(join(dir, "plan.raw.txt"), "utf8"), JSON.stringify({ cuts: [{ id: 3, reason: "脱線" }] }));
+  });
+});
+
+test("plan --cuts-only loop: assertions-pass で停止し最終 cutplan と plan.loop.json を書く", async () => {
+  await withPlanDir(async (dir) => {
+    const raws = [
+      JSON.stringify({ cuts: [] }),
+      JSON.stringify({ cuts: [{ id: 3, reason: "脱線" }] }),
+    ];
+    const outcomes: AssertOutcome[][] = [
+      [{ index: 0, type: "outDuration", status: "fail", message: "too long" }],
+      [{ index: 0, type: "outDuration", status: "pass", message: "ok" }],
+    ];
+    let calls = 0;
+    const result = await plan(dir, loopCfg(3), { cutsOnly: true }, {
+      complete: async () => raws[calls++]!,
+      observe: {
+        async observe() {
+          const idx = Math.min(calls - 1, outcomes.length - 1);
+          return { proj: fakeProjection(idx === 0 ? 30 : 10), outcomes: outcomes[idx]! };
+        },
+      },
+    });
+    assert.equal(calls, 2);
+    assert.equal(result.approved, false);
+    assert.equal(result.segments[2].action, "cut");
+    assert.equal(existsSync(join(dir, "approvals.json")), false);
+
+    const log = JSON.parse(readFileSync(join(dir, "plan.loop.json"), "utf8")) as {
+      iterations: { kind: string; stop: string | null; cuts: { id: number; reason: string }[] }[];
+    };
+    assert.equal(log.iterations.length, 2);
+    assert.deepEqual(log.iterations.map((i) => i.kind), ["generate", "critique"]);
+    assert.equal(log.iterations[0].stop, null);
+    assert.equal(log.iterations[1].stop, "assertions-pass");
+    assert.deepEqual(log.iterations[1].cuts, [{ id: 3, reason: "脱線" }]);
+    assert.equal(readFileSync(join(dir, "plan.raw.txt"), "utf8"), raws[1]);
+  });
+});
+
+test("plan --cuts-only loop: 同じ cut 集合を再出力したら fixpoint で停止", async () => {
+  await withPlanDir(async (dir) => {
+    const raw = JSON.stringify({ cuts: [{ id: 2, reason: "重複" }] });
+    let calls = 0;
+    await plan(dir, loopCfg(3), { cutsOnly: true }, {
+      complete: async () => {
+        calls++;
+        return raw;
+      },
+      observe: {
+        async observe() {
+          return {
+            proj: fakeProjection(25),
+            outcomes: [{ index: 0, type: "outDuration", status: "fail", message: "too long" }],
+          };
+        },
+      },
+    });
+    const log = JSON.parse(readFileSync(join(dir, "plan.loop.json"), "utf8")) as {
+      iterations: { stop: string | null }[];
+    };
+    assert.equal(calls, 2);
+    assert.equal(log.iterations.at(-1)?.stop, "fixpoint");
+  });
 });

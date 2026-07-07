@@ -99,7 +99,7 @@ Cursor の本質は二層構造:**(1) 人間が使う本物のエディタ(VS Co
 ### E. ローカル×持ち込み AI の運用基盤(ルール / 索引 / コンテキスト)
 「任意 AI で編集」を支える基盤が薄い。契約は200行の日本語散文 `CLAUDE.md` に散在し、実質 Claude 前提。
 
-- **機械可読な契約が無い(JSON Schema 0件)** — `major` / effort M — AGENTS.md 型の能力/不変条件マニフェストを出せば非 Claude(codex 等)も守って編集できる。主張#2の要。
+- **機械可読な契約が無い(JSON Schema 0件)** — `major` / effort M — AGENTS_CONTRACT.md 型の能力/不変条件マニフェストを出せば非 Claude(codex 等)も守って編集できる。主張#2の要。
 - **チャンネル/シリーズ単位の rules・学習が無い** — `major` / effort **S（安い勝ち）** — テロップ様式・声色・禁止語・ペーシングを rules 化。人間の上書きから学ぶ。`.cursor/rules` 相当。
 - **意味索引/検索が無い(収録横断・長尺 retrieval)** — `major` / effort L — 全 transcript を1プロンプトに詰めるため60分収録で破綻。`@codebase` 相当の recall が要る。
 
@@ -126,7 +126,7 @@ Cursor の本質は二層構造:**(1) 人間が使う本物のエディタ(VS Co
 1. カット判断ループに目耳を接続(plan に画像+音)〔知覚 / L〕
 2. 編集 action space + MCP サーバ〔行動 / L〕
 3. 安定 ID / @-mention を全セグメントに付与〔行動 / M〕
-4. 機械可読契約(JSON Schema + AGENTS.md)〔運用/BYO / M〕
+4. 機械可読契約(JSON Schema + AGENTS_CONTRACT.md)〔運用/BYO / M〕
 5. 検査付きアトミック適用を CLI/AI へ露出〔行動 / M〕
 6. GUI に AI 編集の差分レビュー / accept-reject〔協調 / XL〕
 7. 対話一発編集の製品化(skill / ワークフロー化)〔競合追随 / L〕
