@@ -1,0 +1,225 @@
+// schemas/*.schema.json のドリフト検知テスト(docs/plans/2026-07-07-machine-contract-design.md
+// §論点6)。JSON Schema も AGENTS.md も新しい真実を宣言しない=「既存の単一の
+// 出所」(types.ts / validate.ts / files.ts / ids.ts / profile.ts / applyEdits.ts)
+// への射影であることを、以下の3層で機械的に強制する:
+//   (a) 全単射: schemas/ にある8編集ファイル用スキーマの集合 == 実装の
+//       「8編集ファイル」の単一の出所。GENERATED_FILES に対応するスキーマが無い。
+//   (b) fixture/example 検証: 各 examples/*.max.json と実データ
+//       (describe.test.ts の buildRichFixture)が対応スキーマに valid。
+//   (c) enum/pattern ピン留め: スキーマ中の enum/pattern を、既存の単一の
+//       出所(コード)へ1:1で assert する。
+//
+// (a)の「8編集ファイル」の一次資料について: files.ts の EDITABLE_FILES は
+// plan/transcribe 再実行時に backup 退避する対象という狭い集合(5件。
+// bgm/shorts/thumbnail を含まない)であり、CLAUDE.md が言う「8編集ファイル」
+// 全体の出所ではない(test/files.test.ts が既にこの5件を固定している)。
+// 8件全体の単一の出所は src/lib/applyEdits.ts の APPLY_FILE_NAME(7件。
+// meta.json は「id を持つ要素が無いため apply の対象外」とコメントされている
+// 意図的な欠落)+ "meta.json" とする。
+//
+// CaptionAnimKind/BlurType/AnnotationType/SpotlightShape は types.ts の
+// **型エイリアス**(TS の型は実行時に消える)なので、値としてimportできない。
+// また test/**/*.ts は tsconfig.json の include 対象外で `npx tsc --noEmit`
+// では検査されないため、型レベルの網羅性チェックは実効性が無い
+// (このリポジトリの実際のゲートは `npm test` のみ)。そこで、production
+// コードを一切変更せずに実行時ドリフト検知を行うため、対象ファイルを
+// テキストとして読み、型/配列リテラルを正規表現で抽出して比較する
+// (読むだけの consumer。§不変条件1・6)。
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readdirSync, readFileSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { makeRegistryResolver, validateAgainstSchema } from "./helpers/jsonSchema.ts";
+import type { JsonSchema } from "./helpers/jsonSchema.ts";
+import { EDITABLE_FILES, GENERATED_FILES } from "../src/lib/files.ts";
+import { ID_RE } from "../src/lib/ids.ts";
+import { APPLY_FILE_NAME } from "../src/lib/applyEdits.ts";
+import { PROFILES } from "../src/lib/profile.ts";
+import { buildRichFixture } from "./describe.test.ts";
+
+const SCHEMAS_DIR = join(import.meta.dirname, "..", "schemas");
+const EXAMPLES_DIR = join(SCHEMAS_DIR, "examples");
+const TYPES_TS = readFileSync(join(import.meta.dirname, "..", "src", "types.ts"), "utf8");
+const VALIDATE_TS = readFileSync(join(import.meta.dirname, "..", "src", "stages", "validate.ts"), "utf8");
+
+/** "export type <name> = ...;"(1行/複数行・行コメント混在OK)から
+ * 文字列リテラルの union メンバーだけを抽出する(コメントには引用符が
+ * 出てこない前提。types.ts の実際の書き方と一致) */
+function extractUnionLiterals(source: string, typeName: string): string[] {
+  const re = new RegExp(`export type ${typeName} =([\\s\\S]*?);`, "m");
+  const m = re.exec(source);
+  if (!m) throw new Error(`type ${typeName} が types.ts に見つかりません(実装が変わった可能性)`);
+  return [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
+}
+
+/** "const <name> = [...]"(validate.ts のローカル定数。export されていない
+ * ため import できず、テキストから抽出する)から文字列リテラルを抽出する */
+function extractArrayLiteral(source: string, constName: string): string[] {
+  const re = new RegExp(`const ${constName} = \\[([\\s\\S]*?)\\]`, "m");
+  const m = re.exec(source);
+  if (!m) throw new Error(`${constName} が validate.ts に見つかりません(実装が変わった可能性)`);
+  return [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
+}
+
+const sortedEq = (a: readonly string[], b: readonly string[]): void => {
+  assert.deepEqual([...a].sort(), [...b].sort());
+};
+
+/* ------------------------------------------------------------------ */
+/* (a) 全単射                                                          */
+/* ------------------------------------------------------------------ */
+
+/** 8編集ファイルの一次資料。APPLY_FILE_NAME(applyEdits.ts。7件)+
+ * meta.json(apply の対象外だが編集ファイルではある)で全8件を構成する */
+const EDITABLE_FILE_NAMES: string[] = [...Object.values(APPLY_FILE_NAME), "meta.json"];
+
+function schemaFileNames(): string[] {
+  return readdirSync(SCHEMAS_DIR).filter((f) => f.endsWith(".schema.json"));
+}
+
+test("全単射: schemas/ の編集ファイル用スキーマ == 8編集ファイル(APPLY_FILE_NAME+meta.json)", () => {
+  const editableSchemas = schemaFileNames().filter(
+    (f) => f !== "common.schema.json" && f !== "apply-patch.schema.json",
+  );
+  const expected = EDITABLE_FILE_NAMES.map((f) => f.replace(/\.json$/, ".schema.json"));
+  sortedEq(editableSchemas, expected);
+  assert.equal(EDITABLE_FILE_NAMES.length, 8, "8編集ファイルであること");
+});
+
+test("全単射: files.ts の EDITABLE_FILES(backup対象。5件)は8編集ファイルの部分集合", () => {
+  for (const f of EDITABLE_FILES) {
+    assert.ok(EDITABLE_FILE_NAMES.includes(f), `${f} が8編集ファイルに含まれない`);
+  }
+});
+
+test("全単射: GENERATED_FILES に対応するスキーマが無い", () => {
+  const schemas = new Set(schemaFileNames());
+  for (const f of GENERATED_FILES) {
+    const asSchema = f.replace(/\.[^.]+$/, ".schema.json");
+    assert.ok(!schemas.has(asSchema), `${f} に対応するスキーマが誤って存在する: ${asSchema}`);
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* スキーマレジストリ(fixture/example 検証・enum ピン留めの両方で使う)     */
+/* ------------------------------------------------------------------ */
+
+const FILE_KEYS = ["cutplan", "transcript", "overlays", "bgm", "chapters", "meta", "shorts", "thumbnail"];
+
+function loadRegistry(): Record<string, JsonSchema> {
+  const registry: Record<string, JsonSchema> = {};
+  registry["common.schema.json"] = JSON.parse(readFileSync(join(SCHEMAS_DIR, "common.schema.json"), "utf8"));
+  for (const key of FILE_KEYS) {
+    registry[`${key}.schema.json`] = JSON.parse(readFileSync(join(SCHEMAS_DIR, `${key}.schema.json`), "utf8"));
+  }
+  // apply-patch.schema.json は T4(schemas/apply-patch.schema.json 追加時)に
+  // このレジストリへ足す(依存順: T3 は T2 にのみ依存)
+  return registry;
+}
+
+/* ------------------------------------------------------------------ */
+/* (b) fixture / example 検証                                          */
+/* ------------------------------------------------------------------ */
+
+test("kitchen-sink example: 各 schemas/examples/<file>.max.json が対応スキーマに valid", () => {
+  const registry = loadRegistry();
+  for (const key of FILE_KEYS) {
+    const schema = registry[`${key}.schema.json`];
+    const example = JSON.parse(readFileSync(join(EXAMPLES_DIR, `${key}.max.json`), "utf8"));
+    const resolve = makeRegistryResolver(registry, `${key}.schema.json`);
+    const errs = validateAgainstSchema(example, schema, resolve);
+    assert.deepEqual(errs, [], `${key}.max.json が invalid: ${errs.join("; ")}`);
+  }
+});
+
+test("実データ: buildRichFixture が書く編集ファイルが対応スキーマに valid", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-schema-fixture-"));
+  try {
+    buildRichFixture(dir);
+    const registry = loadRegistry();
+    // buildRichFixture は thumbnail.json を書かないため対象外(examples 側で
+    // 既に valid を確認済み)
+    for (const key of ["cutplan", "transcript", "overlays", "bgm", "chapters", "meta", "shorts"]) {
+      const schema = registry[`${key}.schema.json`];
+      const data = JSON.parse(readFileSync(join(dir, `${key}.json`), "utf8"));
+      const resolve = makeRegistryResolver(registry, `${key}.schema.json`);
+      const errs = validateAgainstSchema(data, schema, resolve);
+      assert.deepEqual(errs, [], `実データの ${key}.json が invalid: ${errs.join("; ")}`);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* (c) enum / pattern ピン留め                                          */
+/* ------------------------------------------------------------------ */
+
+test("ピン留め: common.schema.json の id.pattern === ID_RE.source(ids.ts)", () => {
+  const common = loadRegistry()["common.schema.json"];
+  assert.equal(common.$defs?.id.pattern, ID_RE.source);
+});
+
+test("ピン留め: CaptionAnim の in/out enum === CaptionAnimKind(types.ts)", () => {
+  const kinds = extractUnionLiterals(TYPES_TS, "CaptionAnimKind");
+  assert.ok(kinds.length > 0);
+  const common = loadRegistry()["common.schema.json"];
+  const anim = common.$defs?.CaptionAnim;
+  sortedEq(anim?.properties?.in.enum as string[], kinds);
+  sortedEq(anim?.properties?.out.enum as string[], kinds);
+});
+
+test("ピン留め: blurs[].type の enum === BlurType(types.ts)", () => {
+  const kinds = extractUnionLiterals(TYPES_TS, "BlurType");
+  assert.ok(kinds.length > 0);
+  const overlays = loadRegistry()["overlays.schema.json"];
+  const blurType = overlays.properties?.blurs.items?.properties?.type.enum as string[];
+  sortedEq(blurType, kinds);
+});
+
+test("ピン留め: annotations の type 判別子集合 === AnnotationType(types.ts)", () => {
+  const kinds = extractUnionLiterals(TYPES_TS, "AnnotationType");
+  assert.ok(kinds.length > 0);
+  const common = loadRegistry()["common.schema.json"];
+  const branchDefs = ["ArrowAnnotation", "BoxAnnotation", "SpotlightAnnotation"];
+  const consts = branchDefs.map((name) => common.$defs?.[name].properties?.type.const as string);
+  sortedEq(consts, kinds);
+});
+
+test("ピン留め: SpotlightAnnotation.shape の enum === SpotlightShape(types.ts)", () => {
+  const shapes = extractUnionLiterals(TYPES_TS, "SpotlightShape");
+  assert.ok(shapes.length > 0);
+  const common = loadRegistry()["common.schema.json"];
+  const shapeEnum = common.$defs?.SpotlightAnnotation.properties?.shape.enum as string[];
+  sortedEq(shapeEnum, shapes);
+});
+
+test("ピン留め: overlays.json トップの許可キー === validate.ts の KNOWN", () => {
+  const known = extractArrayLiteral(VALIDATE_TS, "KNOWN");
+  assert.ok(known.length > 0);
+  const overlays = loadRegistry()["overlays.schema.json"];
+  assert.equal(overlays.additionalProperties, false);
+  sortedEq(Object.keys(overlays.properties ?? {}), known);
+});
+
+test("ピン留め: colorFilter の許可キー === validate.ts の CF_KEYS", () => {
+  const cfKeys = extractArrayLiteral(VALIDATE_TS, "CF_KEYS");
+  assert.ok(cfKeys.length > 0);
+  const overlays = loadRegistry()["overlays.schema.json"];
+  const colorFilter = overlays.properties?.colorFilter;
+  assert.equal(colorFilter?.additionalProperties, false);
+  sortedEq(Object.keys(colorFilter?.properties ?? {}), cfKeys);
+});
+
+test("ピン留め: bgm.json トップの許可キーは tracks のみ(validate.ts と一致)", () => {
+  const bgm = loadRegistry()["bgm.schema.json"];
+  assert.equal(bgm.additionalProperties, false);
+  sortedEq(Object.keys(bgm.properties ?? {}), ["tracks"]);
+});
+
+test("ピン留め: shorts の profile enum === Object.keys(PROFILES)(profile.ts)", () => {
+  const shorts = loadRegistry()["shorts.schema.json"];
+  const profileEnum = shorts.properties?.shorts.items?.properties?.profile.enum as string[];
+  sortedEq(profileEnum, Object.keys(PROFILES));
+});
