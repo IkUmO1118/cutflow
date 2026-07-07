@@ -5,7 +5,13 @@ import { complete } from "../lib/llm.ts";
 import { mergeIntervals } from "../lib/timeline.ts";
 import { carryIds, ensureIds, hasAnyId, ID_PREFIX, usedIdsOf } from "../lib/ids.ts";
 import { readEditableDocs } from "./idStamp.ts";
-import { resolvePerceptionCfg } from "../lib/config.ts";
+import { planLoopEnabled, resolvePerceptionCfg, resolvePlanLoopCfg } from "../lib/config.ts";
+import {
+  deriveLoopAssertions,
+  shouldStop,
+  summarizeObservation,
+} from "../lib/planLoop.ts";
+import type { LoopCut, ObservationProvider, PlanLoopCfg } from "../lib/planLoop.ts";
 import {
   computeAudioFeatures,
   computeSegmentOcr,
@@ -27,6 +33,9 @@ import type {
   Transcript,
   TranscriptSegment,
 } from "../types.ts";
+import type { AssertionsDoc } from "../types.ts";
+import { evaluateStructural } from "./assert.ts";
+import { describeJson } from "./describe.ts";
 
 /**
  * このプロジェクトで id が有効(§docs/plans/2026-07-07-stable-ids-design.md の
@@ -74,6 +83,13 @@ export interface PlanOptions {
   cutsOnly?: boolean;
 }
 
+export type CompleteFn = (prompt: string, cfg: Config) => Promise<string>;
+
+export interface PlanDeps {
+  complete?: CompleteFn;
+  observe?: ObservationProvider;
+}
+
 /** buildCutplan の id 引き継ぎ用コンテキスト(§buildIdContext 参照)。
  * 省略時(undefined)は id に一切触れない(=導入前とバイト等価) */
 export interface CutplanIdContext {
@@ -114,6 +130,21 @@ export function buildCutplan(
   return { approved: false, segments };
 }
 
+export class StructuralObservationProvider implements ObservationProvider {
+  private readonly loopCfg: PlanLoopCfg;
+
+  constructor(loopCfg: PlanLoopCfg) {
+    this.loopCfg = loopCfg;
+  }
+
+  async observe(dir: string, cfg: Config) {
+    const proj = describeJson(dir, cfg);
+    const diskAssertions = readAssertionsIfAny(dir);
+    const spec = deriveLoopAssertions(this.loopCfg, diskAssertions);
+    return { proj, outcomes: evaluateStructural(proj, spec) };
+  }
+}
+
 /**
  * LLM で意味的なカット判断(言い直し・脱線)と章立て・タイトル案を作る。
  *
@@ -133,6 +164,7 @@ export async function plan(
   dir: string,
   cfg: Config,
   opts: PlanOptions = {},
+  deps: PlanDeps = {},
 ): Promise<CutPlan> {
   const transcript = readStageJson<Transcript>(
     join(dir, "transcript.json"),
@@ -168,21 +200,36 @@ export async function plan(
   const sysT = pc.systemSpeech ? loadSystemTranscript(dir) : null;
   const system = sysT ? computeSystemSpeech(numbered, sysT.segments) : null;
   const perception = renderPerceptionBlock(audio, system, ocr);
-  const prompt = renderPrompt(dir, templateFile, numbered, auto.originalDurationSec, perception);
-  const raw = await complete(prompt, cfg);
-  // LLM の生応答は必ず残す(パース失敗時の調査と、判断過程の記録のため)
-  writeFileSync(join(dir, "plan.raw.txt"), raw);
+  const completeFn = deps.complete ?? complete;
 
   if (opts.cutsOnly) {
-    const parsed = parseCutsResponse(raw);
-    const cutplan = buildCutplan(
+    if (planLoopEnabled(cfg)) {
+      return runCutsLoop({
+        dir,
+        cfg,
+        numbered,
+        durationSec: auto.originalDurationSec,
+        perception,
+        idCtx,
+        complete: completeFn,
+        observe: deps.observe,
+      });
+    }
+    return generateCutsOnce(
+      dir,
+      cfg,
       numbered,
-      parsed.cuts,
-      idCtx && { existingSegments: idCtx.existingCutplanSegments, used: idCtx.used },
+      auto.originalDurationSec,
+      perception,
+      completeFn,
+      idCtx,
     );
-    writeFileSync(join(dir, "cutplan.json"), JSON.stringify(cutplan, null, 2));
-    return cutplan;
   }
+
+  const prompt = renderPrompt(dir, templateFile, numbered, auto.originalDurationSec, perception);
+  const raw = await completeFn(prompt, cfg);
+  // LLM の生応答は必ず残す(パース失敗時の調査と、判断過程の記録のため)
+  writeFileSync(join(dir, "plan.raw.txt"), raw);
 
   const parsed = parseResponse(raw);
   const cutplan = buildCutplan(
@@ -195,6 +242,105 @@ export async function plan(
   writeChaptersAndMeta(dir, transcript, numbered, parsed, cfg, idCtx && { used: idCtx.used });
 
   return cutplan;
+}
+
+function cutplanIdCtx(
+  idCtx: { used: Set<string>; existingCutplanSegments: PlanSegment[] } | undefined,
+): CutplanIdContext | undefined {
+  return idCtx && { existingSegments: idCtx.existingCutplanSegments, used: idCtx.used };
+}
+
+async function generateCutsOnce(
+  dir: string,
+  cfg: Config,
+  numbered: NumberedSegment[],
+  durationSec: number,
+  perception: string,
+  completeFn: CompleteFn,
+  idCtx?: { used: Set<string>; existingCutplanSegments: PlanSegment[] },
+): Promise<CutPlan> {
+  const prompt = renderPrompt(dir, "plan-cuts.md", numbered, durationSec, perception);
+  const raw = await completeFn(prompt, cfg);
+  // LLM の生応答は必ず残す(パース失敗時の調査と、判断過程の記録のため)
+  writeFileSync(join(dir, "plan.raw.txt"), raw);
+  const parsed = parseCutsResponse(raw);
+  const cutplan = buildCutplan(numbered, parsed.cuts, cutplanIdCtx(idCtx));
+  writeFileSync(join(dir, "cutplan.json"), JSON.stringify(cutplan, null, 2));
+  return cutplan;
+}
+
+interface RunCutsLoopArgs {
+  dir: string;
+  cfg: Config;
+  numbered: NumberedSegment[];
+  durationSec: number;
+  perception: string;
+  idCtx?: { used: Set<string>; existingCutplanSegments: PlanSegment[] };
+  complete: CompleteFn;
+  observe?: ObservationProvider;
+}
+
+interface PlanLoopLogEntry {
+  iter: number;
+  kind: "generate" | "critique";
+  raw: string;
+  cuts: LoopCut[];
+  observation: string;
+  stop: string | null;
+}
+
+async function runCutsLoop(args: RunCutsLoopArgs): Promise<CutPlan> {
+  const loopCfg = resolvePlanLoopCfg(args.cfg);
+  const observer = args.observe ?? new StructuralObservationProvider(loopCfg);
+  const iterations: PlanLoopLogEntry[] = [];
+  let prevCuts: LoopCut[] | null = null;
+  let prevObservation = "";
+  let raw = "";
+  let lastCutplan: CutPlan | null = null;
+
+  for (let iter = 0; iter < loopCfg.maxIterations; iter++) {
+    const kind = iter === 0 ? "generate" : "critique";
+    const prompt = iter === 0
+      ? renderPrompt(args.dir, "plan-cuts.md", args.numbered, args.durationSec, args.perception)
+      : renderCritiquePrompt(
+          args.dir,
+          args.numbered,
+          args.durationSec,
+          args.perception,
+          prevObservation,
+          prevCuts ?? [],
+        );
+    raw = await args.complete(prompt, args.cfg);
+    const parsed = parseCutsResponse(raw);
+    const cuts = parsed.cuts;
+    lastCutplan = buildCutplan(args.numbered, cuts, cutplanIdCtx(args.idCtx));
+    writeFileSync(join(args.dir, "cutplan.json"), JSON.stringify(lastCutplan, null, 2));
+
+    const obs = await observer.observe(args.dir, args.cfg);
+    const observation = summarizeObservation(obs.proj, obs.outcomes, cuts, loopCfg);
+    const decision = shouldStop({
+      iteration: iter,
+      maxIterations: loopCfg.maxIterations,
+      loopCfg,
+      outcomes: obs.outcomes,
+      prevCuts,
+      cuts,
+    });
+    iterations.push({ iter, kind, raw, cuts, observation, stop: decision.reason });
+    prevCuts = cuts;
+    prevObservation = observation;
+    if (decision.stop) break;
+  }
+
+  if (lastCutplan === null) {
+    throw new Error("plan.loop.maxIterations が不正です(maxIterations >= 2 が必要です)");
+  }
+  writeFileSync(join(args.dir, "plan.raw.txt"), raw);
+  writeFileSync(
+    join(args.dir, "plan.loop.json"),
+    JSON.stringify({ schemaVersion: 1, iterations }, null, 2),
+  );
+  return lastCutplan;
 }
 
 /**
@@ -486,6 +632,24 @@ export function renderPrompt(
     .replaceAll("{{perception}}", () => perception);
 }
 
+export function renderCritiquePrompt(
+  dir: string,
+  numbered: NumberedSegment[],
+  durationSec: number,
+  perception: string,
+  observation: string,
+  currentCuts: readonly LoopCut[],
+): string {
+  return renderPrompt(dir, "plan-cuts-critique.md", numbered, durationSec, perception)
+    .replaceAll("{{observation}}", () => observation)
+    .replaceAll("{{currentCuts}}", () => renderCurrentCutsBlock(currentCuts));
+}
+
+function renderCurrentCutsBlock(currentCuts: readonly LoopCut[]): string {
+  if (currentCuts.length === 0) return "なし";
+  return currentCuts.map((c) => `#${c.id} ${c.reason}`).join("\n");
+}
+
 /** cuts-only 応答の期待スキーマ(prompts/plan-cuts.md の出力形式と対応) */
 interface CutsResponse {
   cuts: { id: number; reason: string }[];
@@ -532,4 +696,10 @@ function readStageJson<T>(path: string, requiredStage: string): T {
     );
   }
   return JSON.parse(readFileSync(path, "utf8")) as T;
+}
+
+function readAssertionsIfAny(dir: string): AssertionsDoc | null {
+  const p = join(dir, "assertions.json");
+  if (!existsSync(p)) return null;
+  return JSON.parse(readFileSync(p, "utf8")) as AssertionsDoc;
 }

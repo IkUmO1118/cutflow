@@ -738,6 +738,30 @@ plan:
   `whisper.systemAudio: true`(下記)で `transcript.system.json` を先に作っておく
   必要があり、無ければ自動で省略(劣化)する
 
+## plan --cuts-only の観測ループ(config.yaml の plan.loop。既定オフ)
+
+`plan --cuts-only` だけは opt-in で、カット判断を「生成 → describe/assert による
+観測 → LLM への再調整依頼」の有限反復にできる。`maxIterations` が未指定・0・1
+のときは従来どおり1ショットで、`plan.loop.json` も書かない。
+
+```yaml
+plan:
+  loop:
+    maxIterations: 3              # 2以上で有効。生成1回 + 再調整を最大2回
+    targetOutDurationSec: 300     # 任意。outDuration <= 300 を内部期待値に足す
+    stopWhenAssertionsPass: true  # assertions.json + 目標尺が満たされたら停止
+```
+
+- 対象は `plan --cuts-only` のみ。通常の `plan`、`remeta`、`plan-shorts` は従来どおり
+  1ショット
+- 観測は `describe --json` 相当の構造射影と `assertions.json` の Tier 1 構造評価だけを
+  使う。OCR や実 A/V の重い観測はこのループには接続しない
+- ループ有効時は各反復の候補 `cutplan.json` を書いて観測し、最終応答を
+  `plan.raw.txt`、全履歴を `plan.loop.json` に残す。`cutplan.approved` は常に
+  `false` で、`approvals.json` は触らない
+- 停止条件は `maxIterations` 到達、期待値の fail/error が0、直前と同じ cut 集合の
+  3つ。どれも決定論的に判定される
+
 ## システム音声の文字起こし・keep 内の間(AI の耳の強化。既定オフ)
 
 マイク音声(あなたの声)は `transcript.json` に描画用テロップとして起こされるが、

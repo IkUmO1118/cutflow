@@ -76,7 +76,7 @@ invalidated by re-running commands, and writing to them yourself creates
 false staleness signals or gets silently discarded:
 
 - Fixed-name generated files: `manifest.json`, `cuts.auto.json`,
-  `plan.raw.txt`, `plan-shorts.raw.txt`, `render.props.json`,
+  `plan.raw.txt`, `plan.loop.json`, `plan-shorts.raw.txt`, `render.props.json`,
   `whisper-out.json`, `whisper-out.srt`, `transcript.system.json`,
   `whisper-system-out.json`, `cut.mp4`, `cut.keeps.json`,
   `render.key.json`, `preview.mp4`, `proxy.mp4`, `proxy.key.json`

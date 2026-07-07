@@ -73,6 +73,17 @@ export interface Config {
        *  無ければ(= whisper.systemAudio 未使用)自動で劣化=ブロック省略 */
       systemSpeech?: boolean;
     };
+    /** plan --cuts-only のカット判断を「生成→観測→再調整」の有限反復にする
+     * opt-in 設定。省略時は maxIterations=0 と同義で、従来の1ショットと
+     * バイト等価。maxIterations >= 2 のときだけループする */
+    loop?: {
+      /** 最大反復回数。0 または 1 は従来どおり1ショット */
+      maxIterations?: number;
+      /** 目標出力尺(秒)。指定時は outDuration <= 値を内部アサーションに足す */
+      targetOutDurationSec?: number | null;
+      /** assertions.json + 目標尺が fail/error なしになったら停止する */
+      stopWhenAssertionsPass?: boolean;
+    };
   };
   /** describe(操作エージェント向け)の任意露出。省略可・全オフが既定。
    *  無いときは散文・--json ともに導入前とバイト等価 */
@@ -217,6 +228,9 @@ export const DEFAULT_PERCEPTION_OCR_MAX_SEGMENTS = 40;
 /** plan.perception.ocrMaxLines 未指定時の既定(行数) */
 export const DEFAULT_PERCEPTION_OCR_MAX_LINES = 6;
 
+/** plan.loop.maxIterations 未指定時の既定。0 は従来1ショットと同義 */
+export const DEFAULT_PLAN_LOOP_MAX_ITERATIONS = 0;
+
 /** plan.perception を既定値で解決する純関数(省略時は全オフ)。
  *  loadConfig は cfg.plan を書き換えない(省略=オフ=バイト等価を守る) */
 export function resolvePerceptionCfg(cfg: Config): {
@@ -234,6 +248,25 @@ export function resolvePerceptionCfg(cfg: Config): {
     ocrMaxLines: p.ocrMaxLines ?? DEFAULT_PERCEPTION_OCR_MAX_LINES,
     systemSpeech: p.systemSpeech ?? false,
   };
+}
+
+/** plan.loop を既定値で解決する純関数。loadConfig は cfg.plan.loop を生成しない
+ * (省略=従来挙動を守るため)ので、利用側は必ずこの関数を通す */
+export function resolvePlanLoopCfg(cfg: Config): {
+  maxIterations: number;
+  targetOutDurationSec: number | null;
+  stopWhenAssertionsPass: boolean;
+} {
+  const l = cfg.plan?.loop ?? {};
+  return {
+    maxIterations: l.maxIterations ?? DEFAULT_PLAN_LOOP_MAX_ITERATIONS,
+    targetOutDurationSec: l.targetOutDurationSec ?? null,
+    stopWhenAssertionsPass: l.stopWhenAssertionsPass ?? true,
+  };
+}
+
+export function planLoopEnabled(cfg: Config): boolean {
+  return resolvePlanLoopCfg(cfg).maxIterations >= 2;
 }
 
 /** describe.pauseMax 未指定時の既定(1keepあたりの件数) */
