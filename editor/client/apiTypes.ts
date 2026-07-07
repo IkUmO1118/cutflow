@@ -86,6 +86,8 @@ export interface DraftData {
   transcript: Transcript;
   /** BGM の区間配置(bgm.json)。未設定なら null */
   bgm: Bgm | null;
+  /** ショート動画の定義(shorts.json)。古い draft には無いので省略可 */
+  shorts?: Shorts | null;
 }
 
 /** GET /api/peaks のレスポンス。マイク音声の波形ピーク(タイムライン描画用)。

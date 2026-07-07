@@ -83,6 +83,24 @@ config.yaml の `render.chunkSec` > 0 のときだけ使う。`vNNN.mp4` =
 rules と learn」参照) / `av.probe/`(`av <dir>` の差分更新型キャッシュ。
 `motion.json` / `sound.json` / `motion.strip.png`)
 
+## GUI エディタ起動中の外部 JSON 編集
+
+GUI エディタを開いたまま、Claude Code や別のエディタで
+`cutplan.json` / `transcript.json` / `overlays.json` / `bgm.json` /
+`shorts.json` を編集してよい。GUI 側に未保存の編集が無ければ、外部変更は
+従来どおり自動で読み込まれる。
+
+GUI 側にも未保存の編集があるときは、エディタ上部に外部変更バナーが出る。
+外部変更と GUI 側の未保存編集が別の hunk なら自動マージされ、同じ
+id 付き要素の同じフィールド、または id が無い配列全体が衝突した場合だけ
+「差分をレビュー」で選べる。レビューでは hunk ごとに「自分の版」か
+「ディスク版」を選び、「適用」で GUI の live state に反映する。適用だけでは
+ファイルには書かれないので、内容を確認してから通常どおり保存する。
+
+id が付いた配列は要素/フィールド単位でレビューできる。id が無い配列は
+安全のため配列まるごと1 hunk として扱う。`approved` はレビュー対象外で、
+承認の実体は引き続き `approvals.json` と approve/unapprove 経路が担う。
+
 ## 安定 id / @-mention
 
 編集ファイルの各要素(`cutplan.segments` / `transcript.segments` /
@@ -193,7 +211,7 @@ exit 1。`--dry-run` は `@id` 単位の変更要約(`field: 旧 → 新`)と
 
 現状スコープ外: MCP サーバ本体(`applyEdits(dir, patch)` は
 `process.exit`/`console` に依存しない純関数なので、将来 MCP tool から
-呼び出す土台にはなっている)、GUI 差分レビュー UI、split/move 等の複合 op。
+呼び出す土台にはなっている)、split/move 等の複合 op。
 
 ## 編集後の意図検査(assert)
 

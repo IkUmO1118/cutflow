@@ -18,6 +18,11 @@ import {
   toOutputTime,
   toSourceTime,
 } from "../../src/lib/timeline.ts";
+import {
+  applyResolution,
+  threeWayDiff,
+} from "../../src/lib/docDiff.ts";
+import type { ReviewDocs, Resolution, ThreeWayResult } from "../../src/lib/docDiff.ts";
 import type { TimelineEntry } from "../../src/lib/timeline.ts";
 import { defaultShortProfileName, PROFILES } from "../../src/lib/profile.ts";
 import type { Profile } from "../../src/lib/profile.ts";
@@ -52,6 +57,7 @@ import { ArrowOverlay } from "./ArrowOverlay.tsx";
 import type { OverlayArrow } from "./ArrowOverlay.tsx";
 import { CaptionOverlay } from "./CaptionOverlay.tsx";
 import type { OverlayCaption } from "./CaptionOverlay.tsx";
+import { DiffReview } from "./DiffReview.tsx";
 import { MaterialOverlay } from "./MaterialOverlay.tsx";
 import type { OverlayRect } from "./MaterialOverlay.tsx";
 import { Inspector } from "./Inspector.tsx";
@@ -141,6 +147,7 @@ type HistoryDocs = {
   overlays: Overlays;
   transcript: Transcript;
   bgm: Bgm | null;
+  shorts?: Shorts | null;
 };
 /** undo 履歴の上限(それより古い編集は切り捨てる) */
 const HISTORY_MAX = 100;
@@ -153,7 +160,17 @@ const draftDiffers = (d: DraftData, p: ProjectData): boolean =>
   JSON.stringify(d.cutplan) !== JSON.stringify(p.cutplan) ||
   JSON.stringify(d.overlays) !== JSON.stringify(p.overlays) ||
   JSON.stringify(d.transcript) !== JSON.stringify(p.transcript) ||
-  JSON.stringify(d.bgm ?? null) !== JSON.stringify(p.bgm ?? null);
+  JSON.stringify(d.bgm ?? null) !== JSON.stringify(p.bgm ?? null) ||
+  (d.shorts !== undefined &&
+    JSON.stringify(d.shorts ?? null) !== JSON.stringify(p.shorts ?? null));
+
+const reviewDocsOf = (p: ProjectData): ReviewDocs => ({
+  cutplan: p.cutplan,
+  overlays: p.overlays,
+  transcript: p.transcript,
+  bgm: p.bgm,
+  shorts: p.shorts,
+});
 
 /** undo/redo で復元したドキュメントでも選択が指せているか
  * (配列からはみ出た添字のまま Inspector を出さないための確認) */
@@ -339,6 +356,12 @@ export const App = () => {
   /** 収録フォルダの JSON が外部(Claude Code や手編集)で変わったのに、
    * こちらにも未保存の編集があって自動では読み込み直せない状態 */
   const [externalChange, setExternalChange] = useState(false);
+  const [diffReview, setDiffReview] = useState<{
+    theirs: ProjectData;
+    result: ThreeWayResult;
+  } | null>(null);
+  const [diffResolution, setDiffResolution] = useState<Resolution>(() => new Map());
+  const [diffPanelOpen, setDiffPanelOpen] = useState(false);
   /** 前回のセッションの未保存編集(自動退避)。復元するか人間が選ぶまで保持 */
   const [draftOffer, setDraftOffer] = useState<DraftData | null>(null);
   /** ヘッダー右の「書き出し」ポップオーバー(preview / 承認 / render)の開閉 */
@@ -448,7 +471,55 @@ export const App = () => {
       setCapMulti([]);
       setSelectionState(null);
       setExternalChange(false);
+      setDiffReview(null);
+      setDiffResolution(new Map());
+      setDiffPanelOpen(false);
     } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  const applyMergedDocs = (theirs: ProjectData, merged: ReviewDocs, recordHistory: boolean) => {
+    if (recordHistory) pushHistory();
+    setCutplan(merged.cutplan);
+    setOverlays(merged.overlays);
+    setTranscript(merged.transcript);
+    setBgm(merged.bgm);
+    setShorts(merged.shorts);
+    setProj(theirs);
+    if (!merged.shorts?.shorts.some((s) => s.name === activeShortName)) {
+      setActiveShortName(null);
+    }
+    if (theirs.proxyStale) setProxyStale(true);
+    setCapMulti([]);
+    setSelectionState((sel) => (selectionValid(sel, merged) ? sel : null));
+    setExternalChange(false);
+    setDiffReview(null);
+    setDiffResolution(new Map());
+    setDiffPanelOpen(false);
+  };
+
+  const reviewExternalChange = async () => {
+    if (!proj || !cutplan || !overlays || !transcript) {
+      setExternalChange(true);
+      return;
+    }
+    try {
+      const theirs = await getProject();
+      const base = reviewDocsOf(proj);
+      const mine: ReviewDocs = { cutplan, overlays, transcript, bgm, shorts };
+      const theirsDocs = reviewDocsOf(theirs);
+      const result = threeWayDiff(base, mine, theirsDocs);
+      if (result.cleanMerge) {
+        applyMergedDocs(theirs, applyResolution(theirsDocs, result, new Map()), false);
+        return;
+      }
+      setExternalChange(true);
+      setDiffReview({ theirs, result });
+      setDiffPanelOpen(false);
+      setDiffResolution(new Map(result.conflicts.map((h) => [h, "theirs"] as const)));
+    } catch (e) {
+      setExternalChange(true);
       setError((e as Error).message);
     }
   };
@@ -458,10 +529,12 @@ export const App = () => {
   const dirtyRef = useRef(false);
   const reloadRef = useRef(reloadFromDisk);
   reloadRef.current = reloadFromDisk;
+  const reviewExternalRef = useRef(reviewExternalChange);
+  reviewExternalRef.current = reviewExternalChange;
   useEffect(() => {
     const es = new EventSource("/api/events");
     es.onmessage = () => {
-      if (dirtyRef.current) setExternalChange(true);
+      if (dirtyRef.current) void reviewExternalRef.current();
       else void reloadRef.current();
     };
     return () => es.close();
@@ -507,10 +580,10 @@ export const App = () => {
   const redoRef = useRef<HistoryDocs[]>([]);
   /** 直前に履歴を積んだ編集の種類と時刻(pushHistory の key のまとめ判定用) */
   const historyKeyRef = useRef<{ key: string; at: number } | null>(null);
-  /** イベントハンドラから最新のドキュメント3点を参照するための控え */
+  /** イベントハンドラから最新の編集ドキュメントを参照するための控え */
   const docsRef = useRef<HistoryDocs | null>(null);
   docsRef.current =
-    cutplan && overlays && transcript ? { cutplan, overlays, transcript, bgm } : null;
+    cutplan && overlays && transcript ? { cutplan, overlays, transcript, bgm, shorts } : null;
 
   /** 変更を加える直前に呼び、現在の状態を undo 履歴へ積む(redo は捨てる)。
    * key を渡すと、同じ key が短い間隔で続く間は積み直さない(テロップの
@@ -529,7 +602,8 @@ export const App = () => {
       top?.cutplan === d.cutplan &&
       top?.overlays === d.overlays &&
       top?.transcript === d.transcript &&
-      top?.bgm === d.bgm
+      top?.bgm === d.bgm &&
+      top?.shorts === d.shorts
     ) {
       return;
     }
@@ -550,6 +624,7 @@ export const App = () => {
     setOverlays(d.overlays);
     setTranscript(d.transcript);
     setBgm(d.bgm);
+    setShorts(d.shorts !== undefined ? d.shorts ?? null : shorts);
     setCapMulti([]); // 添字がずれている可能性があるので複数選択は解除
     setSelectionState((sel) => (selectionValid(sel, d) ? sel : null));
   };
@@ -2699,9 +2774,16 @@ export const App = () => {
     setOverlays(d.overlays);
     setTranscript(d.transcript);
     setBgm(d.bgm ?? null);
+    setShorts(d.shorts !== undefined ? d.shorts ?? null : shorts);
     setCapMulti([]);
     setSelectionState((sel) => (selectionValid(sel, d) ? sel : null));
     setDraftOffer(null);
+  };
+
+  const applyDiffReview = () => {
+    if (!diffReview) return;
+    const merged = applyResolution(reviewDocsOf(diffReview.theirs), diffReview.result, diffResolution);
+    applyMergedDocs(diffReview.theirs, merged, true);
   };
   const discardDraft = () => {
     setDraftOffer(null);
@@ -3262,15 +3344,36 @@ export const App = () => {
       <HeaderBanners
         draftOffer={draftOffer}
         externalChange={externalChange}
+        reviewConflictCount={diffReview?.result.conflicts.length ?? 0}
         proxyStale={proxyStale}
         proxyBusy={proxyBusy}
         warnings={built?.warnings ?? []}
         onRestore={restoreDraft}
         onDiscard={discardDraft}
         onReload={() => void reloadFromDisk()}
+        onReview={() => setDiffPanelOpen(true)}
         onRegenProxy={() => void regenProxyForSettings()}
         onDismissProxyStale={() => setProxyStale(false)}
       />
+
+      {diffReview && diffPanelOpen && (
+        <DiffReview
+          conflicts={diffReview.result.conflicts}
+          resolution={diffResolution}
+          onSet={(hunk, side) => {
+            setDiffResolution((prev) => {
+              const next = new Map(prev);
+              next.set(hunk, side);
+              return next;
+            });
+          }}
+          onBulk={(side) => {
+            setDiffResolution(new Map(diffReview.result.conflicts.map((h) => [h, side] as const)));
+          }}
+          onApply={applyDiffReview}
+          onCancel={() => setDiffPanelOpen(false)}
+        />
+      )}
 
       {settingsOpen && (
         <>
@@ -3735,23 +3838,27 @@ export const App = () => {
 const HeaderBanners = ({
   draftOffer,
   externalChange,
+  reviewConflictCount,
   proxyStale,
   proxyBusy,
   warnings,
   onRestore,
   onDiscard,
   onReload,
+  onReview,
   onRegenProxy,
   onDismissProxyStale,
 }: {
   draftOffer: DraftData | null;
   externalChange: boolean;
+  reviewConflictCount: number;
   proxyStale: boolean;
   proxyBusy: boolean;
   warnings: string[];
   onRestore: () => void;
   onDiscard: () => void;
   onReload: () => void;
+  onReview: () => void;
   onRegenProxy: () => void;
   onDismissProxyStale: () => void;
 }) => {
@@ -3784,6 +3891,11 @@ const HeaderBanners = ({
           title="Claude Code などがこのフォルダの JSON を書き換えました。読み込み直すとその内容が反映されます(こちらの未保存の編集は消えます)。保存すればこちらの内容で上書きします"
         >
           <span className="msg">ファイルが外部で変更されました</span>
+          {reviewConflictCount > 0 && (
+            <button className="primary" onClick={onReview}>
+              差分をレビュー({reviewConflictCount})
+            </button>
+          )}
           <button className="warn" onClick={onReload}>
             読み込み直す(未保存の編集は破棄)
           </button>
