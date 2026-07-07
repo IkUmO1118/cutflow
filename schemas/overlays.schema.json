@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cutflow.dev/schemas/overlays.schema.json",
+  "$comment": "src/types.ts の Overlays の射影。トップレベルの許可キーは src/stages/validate.ts の KNOWN 配列と一致させる(test/schema.test.ts がピン留め)。zooms/blurs/annotations は座標系が出力px固定(zoom には追従しない)で、ショートには継承されない(§AGENTS.md 座標規約)。",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "overlays": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["start", "end", "file"],
+        "properties": {
+          "id": { "$ref": "common.schema.json#/$defs/id" },
+          "start": { "type": "number" },
+          "end": { "type": "number" },
+          "file": { "type": "string" },
+          "track": { "type": "integer", "minimum": 1 },
+          "layer": { "enum": ["under", "over"] },
+          "fit": { "enum": ["contain", "cover"] },
+          "startFrom": { "type": "number", "minimum": 0 },
+          "volume": { "type": "number", "minimum": 0, "maximum": 2 },
+          "opacity": { "type": "number", "minimum": 0, "maximum": 1 },
+          "fadeInSec": { "type": "number", "minimum": 0 },
+          "fadeOutSec": { "type": "number", "minimum": 0 },
+          "rect": { "$ref": "common.schema.json#/$defs/Region" }
+        }
+      }
+    },
+    "inserts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["at", "file", "durationSec"],
+        "properties": {
+          "id": { "$ref": "common.schema.json#/$defs/id" },
+          "at": { "type": "number", "minimum": 0 },
+          "file": { "type": "string" },
+          "durationSec": { "type": "number" },
+          "startFrom": { "type": "number", "minimum": 0 },
+          "fit": { "enum": ["contain", "cover"] },
+          "volume": { "type": "number", "minimum": 0, "maximum": 2 },
+          "fadeInSec": { "type": "number", "minimum": 0 },
+          "fadeOutSec": { "type": "number", "minimum": 0 }
+        }
+      }
+    },
+    "wipeFull": {
+      "type": "array",
+      "items": { "$ref": "common.schema.json#/$defs/Interval" }
+    },
+    "layerOrder": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(wipe|caption|ov[1-9][0-9]*|cap[1-9][0-9]*)$"
+      }
+    },
+    "captionTracks": {
+      "type": "array",
+      "items": { "$ref": "common.schema.json#/$defs/CaptionTrackDef" }
+    },
+    "hideCaption": {
+      "type": "array",
+      "items": { "$ref": "common.schema.json#/$defs/Interval" }
+    },
+    "zooms": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["start", "end", "rect"],
+        "properties": {
+          "id": { "$ref": "common.schema.json#/$defs/id" },
+          "start": { "type": "number" },
+          "end": { "type": "number" },
+          "rect": { "$ref": "common.schema.json#/$defs/Region" },
+          "easeSec": { "type": "number", "minimum": 0 }
+        }
+      }
+    },
+    "colorFilter": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "brightness": { "type": "number", "minimum": 0, "maximum": 3 },
+        "contrast": { "type": "number", "minimum": 0, "maximum": 3 },
+        "saturate": { "type": "number", "minimum": 0, "maximum": 3 }
+      }
+    },
+    "blurs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["start", "end", "rect"],
+        "properties": {
+          "id": { "$ref": "common.schema.json#/$defs/id" },
+          "start": { "type": "number" },
+          "end": { "type": "number" },
+          "rect": { "$ref": "common.schema.json#/$defs/Region" },
+          "type": { "enum": ["blur", "mosaic"] },
+          "strength": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    },
+    "annotations": {
+      "type": "array",
+      "items": { "$ref": "common.schema.json#/$defs/Annotation" }
+    }
+  }
+}

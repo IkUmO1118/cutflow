@@ -1,0 +1,16 @@
+{
+  "shorts": [
+    {
+      "name": "highlight-1",
+      "profile": "vertical-cover",
+      "approved": false,
+      "ranges": [
+        { "id": "rg_a1b2c3", "start": 10, "end": 20 },
+        { "start": 40, "end": 50 }
+      ],
+      "captionTracks": [
+        { "track": 1, "name": "短尺文字", "x": 540, "y": 1500, "anchor": "center", "style": { "fontSizePx": 56 } }
+      ]
+    }
+  ]
+}

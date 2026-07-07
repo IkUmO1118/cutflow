@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cutflow.dev/schemas/transcript.schema.json",
+  "$comment": "src/types.ts の Transcript / TranscriptSegment / WordTiming の射影。時刻はすべて元収録(raw)の秒。pos/style は省略時トラック標準(overlays.json の captionTracks)→既定にフォールバックする(§AGENTS.md 座標規約)。",
+  "type": "object",
+  "required": ["language", "model", "segments"],
+  "properties": {
+    "language": { "type": "string" },
+    "model": { "type": "string" },
+    "segments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["start", "end", "text"],
+        "properties": {
+          "id": { "$ref": "common.schema.json#/$defs/id" },
+          "start": { "type": "number" },
+          "end": { "type": "number" },
+          "text": { "type": "string" },
+          "track": { "type": "integer", "minimum": 1 },
+          "pos": { "$ref": "common.schema.json#/$defs/CaptionPos" },
+          "style": { "$ref": "common.schema.json#/$defs/CaptionStyle" },
+          "words": {
+            "type": "array",
+            "items": { "$ref": "common.schema.json#/$defs/WordTiming" }
+          }
+        }
+      }
+    }
+  }
+}

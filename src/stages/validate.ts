@@ -10,6 +10,8 @@ import { join, normalize, resolve, sep } from "node:path";
 import { isCutplanApproved, isShortApproved } from "../lib/approval.ts";
 import { fmtT } from "../lib/fmt.ts";
 import { framesFreshness } from "../lib/framesIndex.ts";
+import { ID_PREFIX, ID_RE } from "../lib/ids.ts";
+import { collectIdOccurrences } from "../lib/mention.ts";
 import { defaultShortProfileName, PROFILES, profileSupportsPlain } from "../lib/profile.ts";
 import { buildTimeline, remapInterval } from "../lib/timeline.ts";
 import type { TimelineEntry } from "../lib/timeline.ts";
@@ -317,7 +319,7 @@ export function validateDocs(
     const f = "overlays.json";
     const KNOWN = [
       "overlays", "inserts", "wipeFull", "layerOrder", "captionTracks",
-      "hideCaption", "zooms", "colorFilter", "blurs",
+      "hideCaption", "zooms", "colorFilter", "blurs", "annotations",
     ];
     for (const k of Object.keys(overlays)) {
       if (!KNOWN.includes(k)) warn(f, k, `不明なキーです(有効: ${KNOWN.join(" / ")})`);
@@ -582,6 +584,114 @@ export function validateDocs(
       );
     }
 
+    if (overlays.annotations !== undefined && !Array.isArray(overlays.annotations)) {
+      err(f, "annotations", "配列ではありません");
+    }
+    (Array.isArray(overlays.annotations) ? overlays.annotations : []).forEach(
+      (a: unknown, i: number) => {
+        const w = `annotations[${i}]`;
+        if (!isObj(a)) return err(f, w, "オブジェクトではありません");
+        // start<end・収録尺内はどちらもエラー(warn を渡さない。blurs/zooms と
+        // 同じ厳しさで扱う)
+        checkSpan(f, w, a, dur, err);
+        if (isNum(a.start) && isNum(a.end) && a.start < a.end && !visible(a.start, a.end)) {
+          warn(f, w, `全体がカット区間内にあり表示されません(${fmtT(a.start)}–${fmtT(a.end)})`);
+        }
+        if (a.type !== "arrow" && a.type !== "box" && a.type !== "spotlight") {
+          return err(f, w, `type は "arrow" / "box" / "spotlight" のいずれかです(現在: ${JSON.stringify(a.type)})`);
+        }
+        const checkPoint = (pw: string, p: unknown): p is { x: number; y: number } =>
+          isObj(p) && isNum(p.x) && isNum(p.y);
+        const checkOutOfBounds = (rw: string, x: number, y: number): void => {
+          if (!outputRegion) return;
+          const { w: outW, h: outH } = outputRegion;
+          if (x < 0 || y < 0 || x > outW || y > outH) {
+            warn(f, rw, `座標(x${x} y${y})が出力解像度(${outW}x${outH})の外です(画面外から指す等の意図的な用途もあります)`);
+          }
+        };
+        if (a.type === "arrow") {
+          const from = a.from;
+          const to = a.to;
+          if (!checkPoint(w, from)) {
+            err(f, w, `from は {x, y}(出力px の数値)です(現在: ${JSON.stringify(from)})`);
+          }
+          if (!checkPoint(w, to)) {
+            err(f, w, `to は {x, y}(出力px の数値)です(現在: ${JSON.stringify(to)})`);
+          }
+          if (isObj(from) && isNum(from.x) && isNum(from.y) && isObj(to) && isNum(to.x) && isNum(to.y)) {
+            if (Math.hypot(to.x - from.x, to.y - from.y) < EPS) {
+              err(f, w, "from と to が同一点です(向きが定まらない退化した矢印)");
+            } else {
+              checkOutOfBounds(w, from.x, from.y);
+              checkOutOfBounds(w, to.x, to.y);
+            }
+          }
+          if (a.color !== undefined && (typeof a.color !== "string" || a.color === "")) {
+            err(f, w, `color は CSS カラー文字列です(現在: ${JSON.stringify(a.color)})`);
+          }
+          for (const k of ["widthPx", "headPx"] as const) {
+            if (a[k] !== undefined && (!isNum(a[k]) || (a[k] as number) <= 0)) {
+              err(f, w, `${k} は正の数です(現在: ${JSON.stringify(a[k])})`);
+            }
+          }
+        } else {
+          // box / spotlight 共通: rect
+          const r = a.rect;
+          if (!isObj(r) || !isNum(r.x) || !isNum(r.y) || !isNum(r.w) || !isNum(r.h)) {
+            err(f, w, `rect は {x, y, w, h}(出力px の数値)です(現在: ${JSON.stringify(r)})`);
+          } else if (r.w <= 0 || r.h <= 0) {
+            err(f, w, `rect の w / h は正の数です(現在: ${r.w} x ${r.h})`);
+          } else if (outputRegion) {
+            // はみ出しは blurs と違い警告どまり(画面端でクリップされるだけで
+            // render は壊れず、画面外から指す構図もありうるため。決定6)
+            const { w: outW, h: outH } = outputRegion;
+            if (r.x < 0 || r.y < 0 || r.x + r.w > outW || r.y + r.h > outH) {
+              warn(
+                f, w,
+                `rect が出力解像度(${outW}x${outH})の外にはみ出しています` +
+                  `(現在: x${r.x} y${r.y} w${r.w} h${r.h})`,
+              );
+            }
+          }
+          if (a.type === "box") {
+            for (const k of ["color", "fill"] as const) {
+              if (a[k] !== undefined && (typeof a[k] !== "string" || a[k] === "")) {
+                err(f, w, `${k} は CSS カラー文字列です(現在: ${JSON.stringify(a[k])})`);
+              }
+            }
+            for (const k of ["widthPx", "radiusPx"] as const) {
+              if (a[k] !== undefined && (!isNum(a[k]) || (a[k] as number) < 0)) {
+                err(f, w, `${k} は0以上の数です(現在: ${JSON.stringify(a[k])})`);
+              }
+            }
+          } else {
+            // spotlight
+            if (a.shape !== undefined && a.shape !== "rect" && a.shape !== "ellipse") {
+              err(f, w, `shape は "rect" か "ellipse" です(現在: ${JSON.stringify(a.shape)})`);
+            }
+            if (a.dim !== undefined && (!isNum(a.dim) || a.dim < 0 || a.dim > 1)) {
+              err(f, w, `dim は 0〜1 の数値です(現在: ${JSON.stringify(a.dim)})`);
+            }
+            for (const k of ["featherPx", "radiusPx"] as const) {
+              if (a[k] !== undefined && (!isNum(a[k]) || (a[k] as number) < 0)) {
+                err(f, w, `${k} は0以上の数です(現在: ${JSON.stringify(a[k])})`);
+              }
+            }
+          }
+        }
+      },
+    );
+    if (
+      Array.isArray(overlays.annotations) && overlays.annotations.length > 0 &&
+      isObj(shorts) && Array.isArray(shorts.shorts) && shorts.shorts.length > 0
+    ) {
+      warn(
+        f, "annotations",
+        "本編に注釈グラフィックがありますが、ショートには継承されません。" +
+          "ショートにも指し示したい場合は別途足してください",
+      );
+    }
+
     if (overlays.colorFilter !== undefined) {
       const cfw = "colorFilter";
       if (!isObj(overlays.colorFilter)) {
@@ -833,6 +943,11 @@ export function validateDocs(
   // だけ手編集すると、概要欄と動画内表示のタイトル・位置がずれる。二重管理で
   // 検知手段がなかった食い違いを警告する(動くので警告どまり)
   checkChapterSync(chapters, transcript, overlays, warn);
+
+  /* -------- 安定 id(§docs/plans/2026-07-07-stable-ids-design.md) -------- */
+  // id は render に一切影響しない(アドレッシング専用)ため、不備はすべて warn。
+  // docs に id が1つも無ければこのブロックは完全に no-op(未使用時バイト等価)
+  checkIds(docs, warn);
 
   const keptSec = keeps.reduce((a, k) => a + (k.end - k.start), 0);
   const summary =
@@ -1134,6 +1249,111 @@ function checkWords(
       warn(file, ww, `confidence は 0〜1 の数値です(現在: ${JSON.stringify(w.confidence)})`);
     }
   });
+}
+
+/**
+ * 安定 id(§docs/plans/2026-07-07-stable-ids-design.md)の検査。
+ * docs に id が1つも無ければ何も push しない(=id 無しプロジェクトでは
+ * validate の警告件数が導入前と完全に不変)。id は render に無関係なので
+ * すべて warn(重複・形式不正・接頭辞ミスマッチ・欠落密度の集約1件)。
+ */
+function checkIds(
+  docs: LoadedDocs,
+  warn: (f: string, w: string, m: string) => void,
+): void {
+  // short は name を id 代わりに使う(専用の id フィールドは持たない)ため、
+  // collectIdOccurrences が返す short エントリはここでの id 有効判定・
+  // 重複/形式/接頭辞検査の対象から除く(shorts.json の name 重複・形式検査は
+  // 既存の別チェックが担う。ここに含めると shorts.json があるだけで
+  // 「id 無しプロジェクト」の警告件数が動いてしまう=バイト等価が壊れる)
+  const occurrences = collectIdOccurrences(docs).filter(([, target]) => target.kind !== "short");
+  if (occurrences.length === 0) return;
+
+  // 重複 id: 2件目以降を、既出の所在を添えて警告
+  const firstSeen = new Map<string, { file: string; path: string }>();
+  for (const [id, target] of occurrences) {
+    const prev = firstSeen.get(id);
+    if (prev) {
+      warn(
+        target.file,
+        target.path,
+        `@id が重複しています: ${id}(既出: ${prev.file} ${prev.path})`,
+      );
+    } else {
+      firstSeen.set(id, { file: target.file, path: target.path });
+    }
+  }
+
+  // 形式不正(id は文字列だが正規表現に合わない)
+  for (const [id, target] of occurrences) {
+    if (!ID_RE.test(id)) {
+      warn(
+        target.file,
+        target.path,
+        `id の形式が不正です(期待: <2〜3文字の接頭辞>_<英数字6桁>。現在: ${JSON.stringify(id)})`,
+      );
+    }
+  }
+
+  // 接頭辞ミスマッチ(コピペ由来の取り違え検出。short は id を持たないため対象外)
+  const kindPrefix: Record<string, string | undefined> = ID_PREFIX;
+  for (const [id, target] of occurrences) {
+    const expected = kindPrefix[target.kind];
+    if (expected && ID_RE.test(id) && !id.startsWith(`${expected}_`)) {
+      warn(
+        target.file,
+        target.path,
+        `id の接頭辞が種別と一致しません(期待: ${expected}_...。現在: ${id})`,
+      );
+    }
+  }
+
+  // id 欠落(密度): per-要素では出さず、1本の集約警告にとどめる
+  const missing = countAddressableMissingIds(docs);
+  if (missing > 0) {
+    warn("-", "-", `${missing} 個の要素に id がありません(\`id-stamp\` で採番できます)`);
+  }
+}
+
+/** id が有効なプロジェクトで、id を持たない「指せる要素」の数を数える
+ * (欠落密度の集約警告に使う。id 自体の妥当性は問わない) */
+function countAddressableMissingIds(docs: LoadedDocs): number {
+  let missing = 0;
+  const scan = (arr: unknown): void => {
+    if (!Array.isArray(arr)) return;
+    for (const x of arr) {
+      if (isObj(x) && typeof x.id !== "string") missing++;
+    }
+  };
+  const cutplan = docs.cutplan;
+  if (isObj(cutplan)) scan(cutplan.segments);
+  const transcript = docs.transcript;
+  if (isObj(transcript)) scan(transcript.segments);
+  const overlays = docs.overlays;
+  if (isObj(overlays)) {
+    scan(overlays.overlays);
+    scan(overlays.inserts);
+    scan(overlays.wipeFull);
+    scan(overlays.hideCaption);
+    scan(overlays.zooms);
+    scan(overlays.blurs);
+    scan(overlays.captionTracks);
+  }
+  const chapters = docs.chapters;
+  if (isObj(chapters)) scan(chapters.chapters);
+  const bgm = docs.bgm;
+  if (isObj(bgm)) scan(bgm.tracks);
+  const shorts = docs.shorts;
+  if (isObj(shorts) && Array.isArray(shorts.shorts)) {
+    for (const s of shorts.shorts) {
+      if (!isObj(s)) continue;
+      scan(s.ranges);
+      scan(s.captionTracks);
+    }
+  }
+  const thumbnail = docs.thumbnail;
+  if (isObj(thumbnail)) scan(thumbnail.texts);
+  return missing;
 }
 
 function isObj(v: unknown): v is Record<string, unknown> {

@@ -1,6 +1,8 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { run } from "../lib/exec.ts";
+import { carryIds, ensureIds, hasAnyId, ID_PREFIX, usedIdsOf } from "../lib/ids.ts";
+import { readEditableDocs } from "./idStamp.ts";
 import type { Config } from "../lib/config.ts";
 import type { Manifest, Transcript, TranscriptSegment, WordTiming } from "../types.ts";
 
@@ -47,6 +49,26 @@ export function buildWords(tokens: WhisperToken[] | undefined): WordTiming[] {
     words.push(word);
   }
   return words;
+}
+
+/**
+ * id 引き継ぎの純関数(fs 非依存)。id が有効なプロジェクトでのみ、既存
+ * transcript.segments から (start,end,text) 完全一致で id を運び(carryIds)、
+ * 残りを採番する(ensureIds)。一致しない再分割(再文字起こしで内容が
+ * 変わった場合)は新 id になる。idCtx 省略時は id に一切触れず、返り値は
+ * segments と同一(=導入前とバイト等価)
+ */
+export function applyTranscriptIds(
+  segments: TranscriptSegment[],
+  idCtx?: { existingSegments: TranscriptSegment[]; used: Set<string> },
+): TranscriptSegment[] {
+  if (!idCtx) return segments;
+  const carried = carryIds(
+    idCtx.existingSegments,
+    segments,
+    (s) => `${s.start}:${s.end}:${s.text}`,
+  );
+  return ensureIds(carried, ID_PREFIX.caption, idCtx.used);
 }
 
 /**
@@ -101,10 +123,20 @@ export async function transcribe(
     }
   }
 
+  // id が有効なプロジェクトでのみ、上書き前(=まだ古い内容)の transcript.json
+  // から (start,end,text) 一致で id を運ぶ(§applyTranscriptIds)
+  const docs = readEditableDocs(dir);
+  const finalSegments = hasAnyId(docs)
+    ? applyTranscriptIds(segments, {
+        existingSegments: docs.transcript?.segments ?? [],
+        used: usedIdsOf(docs),
+      })
+    : segments;
+
   const transcript: Transcript = {
     language: cfg.whisper.language,
     model: cfg.whisper.model,
-    segments,
+    segments: finalSegments,
   };
   writeFileSync(
     join(dir, "transcript.json"),

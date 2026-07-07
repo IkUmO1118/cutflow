@@ -5,9 +5,17 @@ import {
   CAPTION_DEFAULT_FONT_FAMILY,
   CAPTION_DEFAULT_FONT_WEIGHT,
   CAPTION_DEFAULT_OUTLINE,
+  DEFAULT_ANNOTATION_COLOR,
+  DEFAULT_ARROW_HEAD_PX,
+  DEFAULT_ARROW_WIDTH_PX,
   DEFAULT_BLUR_STRENGTH,
   DEFAULT_BLUR_TYPE,
+  DEFAULT_BOX_RADIUS_PX,
+  DEFAULT_BOX_WIDTH_PX,
   DEFAULT_CAPTION_ANIM_SEC,
+  DEFAULT_SPOTLIGHT_DIM,
+  DEFAULT_SPOTLIGHT_FEATHER_PX,
+  DEFAULT_SPOTLIGHT_SHAPE,
   DEFAULT_ZOOM_EASE_SEC,
   KARAOKE_DEFAULT_ACTIVE,
   captionAnchorOf,
@@ -17,6 +25,8 @@ import {
   overlayTrack,
 } from "../../src/types.ts";
 import type {
+  Annotation,
+  AnnotationType,
   Bgm,
   BlurType,
   CaptionAnim,
@@ -28,13 +38,14 @@ import type {
   Overlays,
   Region,
   Short,
+  SpotlightShape,
   Transcript,
 } from "../../src/types.ts";
 import { insertSpans, remapInterval } from "../../src/lib/timeline.ts";
 import type { TimelineEntry } from "../../src/lib/timeline.ts";
 import { defaultShortProfileName, PROFILES, profileSupportsPlain } from "../../src/lib/profile.ts";
 import type { RenderProps } from "../../remotion/props.ts";
-import type { Selection } from "./model.ts";
+import type { AnnotationPatch, Selection } from "./model.ts";
 import { usePlayheadSelector } from "./playhead.ts";
 import {
   NumInput,
@@ -101,6 +112,8 @@ export const Inspector = ({
   removeZoom,
   updateBlur,
   removeBlur,
+  updateAnnotation,
+  removeAnnotation,
   updateInsert,
   removeInsert,
   updateBgm,
@@ -209,6 +222,8 @@ export const Inspector = ({
     coalesceKey?: string,
   ) => void;
   removeBlur: (i: number) => void;
+  updateAnnotation: (i: number, patch: AnnotationPatch, coalesceKey?: string) => void;
+  removeAnnotation: (i: number) => void;
   updateInsert: (i: number, patch: Partial<InsertEntry>, coalesceKey?: string) => void;
   removeInsert: (i: number) => void;
   updateBgm: (i: number, patch: Partial<BgmTrack>, coalesceKey?: string) => void;
@@ -1682,6 +1697,223 @@ export const Inspector = ({
     );
   }
 
+  /* ---------------- 注釈グラフィック ---------------- */
+
+  if (selection.kind === "annotation") {
+    const a = (overlays.annotations ?? [])[selection.index];
+    if (!a) return null;
+    const i = selection.index;
+    const kindLabel = a.type === "arrow" ? "矢印" : a.type === "spotlight" ? "スポットライト" : "囲み";
+
+    const changeType = (next: AnnotationType) => {
+      if (next === a.type) return;
+      if (next === "arrow") {
+        const r = "rect" in a ? a.rect : null;
+        const from = r ? { x: r.x, y: r.y } : { x: 0, y: 0 };
+        const to = r ? { x: r.x + r.w, y: r.y + r.h } : { x: 100, y: 100 };
+        updateAnnotation(i, {
+          type: "arrow",
+          from,
+          to,
+          rect: undefined,
+          fill: undefined,
+          radiusPx: undefined,
+          widthPx: undefined,
+          shape: undefined,
+          dim: undefined,
+          featherPx: undefined,
+        });
+      } else {
+        let rect: Region;
+        if ("rect" in a) rect = a.rect;
+        else {
+          const x = Math.min(a.from.x, a.to.x);
+          const y = Math.min(a.from.y, a.to.y);
+          const w = Math.max(20, Math.abs(a.to.x - a.from.x));
+          const h = Math.max(20, Math.abs(a.to.y - a.from.y));
+          rect = { x, y, w, h };
+        }
+        updateAnnotation(i, {
+          type: next,
+          rect,
+          from: undefined,
+          to: undefined,
+          headPx: undefined,
+          widthPx: undefined,
+          ...(next === "box"
+            ? { shape: undefined, dim: undefined, featherPx: undefined }
+            : { fill: undefined, radiusPx: undefined }),
+        });
+      }
+    };
+
+    return (
+      <div className="insp">
+        <InspHead
+          kind={kindLabel}
+          title={`${fmtTime(a.start)} 〜 ${fmtTime(a.end)}`}
+          chips={[`長さ ${fmtTime(Math.max(0, a.end - a.start))}`]}
+        />
+        <p className="dim hint" style={{ marginTop: 0 }}>
+          画面上の一点・矩形を指し示して「ここを見ろ」を作ります。最前面(テロップより上)に
+          描かれ、ズームには追従せず出力px固定。硬い ON/OFF(遷移なし)。ショートには継承されません。
+        </p>
+        <TimingSection
+          start={a.start}
+          end={a.end}
+          timeline={timeline}
+          getPlayheadSrc={getPlayheadSrc}
+          seekToSrc={seekToSrc}
+          onStart={(v) => updateAnnotation(i, { start: v })}
+          onEnd={(v) => updateAnnotation(i, { end: v })}
+        />
+        <Section title="種別">
+          <Segmented
+            value={a.type}
+            onChange={(v: AnnotationType) => changeType(v)}
+            options={[
+              { value: "arrow", label: "矢印", title: "arrow: from→to へ矢印" },
+              { value: "box", label: "囲み", title: "box: 矩形の枠(任意で塗り)" },
+              { value: "spotlight", label: "スポット", title: "spotlight: 矩形以外を暗くする" },
+            ]}
+          />
+        </Section>
+
+        {a.type === "arrow" ? (
+          <Section title="始点 / 終点">
+            <ArrowPointControl
+              from={a.from}
+              to={a.to}
+              onChange={(patch) => updateAnnotation(i, patch, `annotation:${i}:pt`)}
+            />
+            <p className="dim hint">
+              プレビュー上で始点・終点の丸をドラッグして調整できます(この区間が再生ヘッド上にあるとき)。
+            </p>
+          </Section>
+        ) : (
+          <Section title={a.type === "spotlight" ? "明るく残す範囲" : "囲む範囲"}>
+            <AnnotationRectControl
+              rect={a.rect}
+              onChange={(rect) => updateAnnotation(i, { rect }, `annotation:${i}:rect`)}
+            />
+          </Section>
+        )}
+
+        {a.type === "arrow" && (
+          <Section title="見た目">
+            <ColorField
+              label="色"
+              value={a.color ?? DEFAULT_ANNOTATION_COLOR}
+              onChange={(c) =>
+                updateAnnotation(
+                  i,
+                  { color: c === DEFAULT_ANNOTATION_COLOR ? undefined : c },
+                  `annotation:${i}:color`,
+                )
+              }
+            />
+            <NumField
+              label="線の太さ"
+              value={a.widthPx}
+              placeholder={DEFAULT_ARROW_WIDTH_PX}
+              onCommit={(v) => updateAnnotation(i, { widthPx: v })}
+            />
+            <NumField
+              label="矢尻サイズ"
+              value={a.headPx}
+              placeholder={DEFAULT_ARROW_HEAD_PX}
+              onCommit={(v) => updateAnnotation(i, { headPx: v })}
+            />
+          </Section>
+        )}
+        {a.type === "box" && (
+          <Section title="見た目">
+            <ColorField
+              label="枠の色"
+              value={a.color ?? DEFAULT_ANNOTATION_COLOR}
+              onChange={(c) =>
+                updateAnnotation(
+                  i,
+                  { color: c === DEFAULT_ANNOTATION_COLOR ? undefined : c },
+                  `annotation:${i}:color`,
+                )
+              }
+            />
+            <NumField
+              label="枠の太さ"
+              value={a.widthPx}
+              placeholder={DEFAULT_BOX_WIDTH_PX}
+              onCommit={(v) => updateAnnotation(i, { widthPx: v })}
+            />
+            <NumField
+              label="角丸"
+              value={a.radiusPx}
+              placeholder={DEFAULT_BOX_RADIUS_PX}
+              onCommit={(v) => updateAnnotation(i, { radiusPx: v })}
+            />
+            <FillField
+              value={a.fill}
+              onChange={(fill) => updateAnnotation(i, { fill }, `annotation:${i}:fill`)}
+            />
+          </Section>
+        )}
+        {a.type === "spotlight" && (
+          <Section title="見た目">
+            <div className="field">
+              <label>形状</label>
+              <Segmented
+                value={a.shape ?? DEFAULT_SPOTLIGHT_SHAPE}
+                onChange={(v: SpotlightShape) =>
+                  updateAnnotation(i, {
+                    shape: v === DEFAULT_SPOTLIGHT_SHAPE ? undefined : v,
+                  })
+                }
+                options={[
+                  { value: "rect", label: "矩形", title: "rect(既定)" },
+                  { value: "ellipse", label: "楕円", title: "ellipse" },
+                ]}
+              />
+            </div>
+            <div className="field">
+              <label>外側の暗さ</label>
+              <PctSlider
+                pct={Math.round((a.dim ?? DEFAULT_SPOTLIGHT_DIM) * 100)}
+                title="0=効果なし〜100=真っ黒。省略時 60%(既定)"
+                onChange={(pct) =>
+                  updateAnnotation(
+                    i,
+                    { dim: pct === Math.round(DEFAULT_SPOTLIGHT_DIM * 100) ? undefined : pct / 100 },
+                    `annotation:${i}:dim`,
+                  )
+                }
+              />
+            </div>
+            <NumField
+              label="縁のぼかし"
+              value={a.featherPx}
+              placeholder={DEFAULT_SPOTLIGHT_FEATHER_PX}
+              onCommit={(v) => updateAnnotation(i, { featherPx: v })}
+            />
+            {(a.shape ?? DEFAULT_SPOTLIGHT_SHAPE) === "rect" && (
+              <NumField
+                label="角丸"
+                value={a.radiusPx}
+                placeholder={0}
+                onCommit={(v) => updateAnnotation(i, { radiusPx: v })}
+              />
+            )}
+          </Section>
+        )}
+
+        <Section title="">
+          <button className="danger" onClick={() => removeAnnotation(i)}>
+            この注釈を削除
+          </button>
+        </Section>
+      </div>
+    );
+  }
+
   return null;
 };
 
@@ -2228,6 +2460,176 @@ const BlurRectControl = ({
         なります。
       </p>
     </>
+  );
+};
+
+/** 注釈(box/spotlight)の範囲(rect)。blurs と同じく X/Y/幅/高さの数値欄だけ
+ * (プレビュー上の枠ドラッグ・リサイズは MaterialOverlay を流用。App.tsx の
+ * LiveMaterialOverlay 経由) */
+const AnnotationRectControl = ({
+  rect,
+  onChange,
+}: {
+  rect: Region;
+  onChange: (rect: Region) => void;
+}) => {
+  const patchRect = (p: Partial<Region>) => onChange({ ...rect, ...p });
+  return (
+    <>
+      <div className="field">
+        <label>X / Y</label>
+        <NumInput
+          value={rect.x}
+          title="範囲の左上 X(出力px)"
+          onCommit={(v) => v !== undefined && patchRect({ x: Math.round(v) })}
+        />
+        <NumInput
+          value={rect.y}
+          title="範囲の左上 Y(出力px)"
+          onCommit={(v) => v !== undefined && patchRect({ y: Math.round(v) })}
+        />
+      </div>
+      <div className="field">
+        <label>幅 / 高さ</label>
+        <NumInput
+          value={rect.w}
+          title="範囲の幅(出力px)"
+          onCommit={(v) => v !== undefined && patchRect({ w: Math.max(1, Math.round(v)) })}
+        />
+        <NumInput
+          value={rect.h}
+          title="範囲の高さ(出力px)"
+          onCommit={(v) => v !== undefined && patchRect({ h: Math.max(1, Math.round(v)) })}
+        />
+      </div>
+      <p className="dim hint">
+        プレビュー上で枠をドラッグして移動、四隅・辺のハンドルでリサイズできます
+        (この区間が再生ヘッド上にあるとき)。
+      </p>
+    </>
+  );
+};
+
+/** 矢印の始点/終点(from/to)。プレビュー上のハンドルドラッグ(ArrowOverlay)と
+ * 同じ値をここでも数値で編集できるようにする */
+const ArrowPointControl = ({
+  from,
+  to,
+  onChange,
+}: {
+  from: CaptionPos;
+  to: CaptionPos;
+  onChange: (patch: { from?: CaptionPos; to?: CaptionPos }) => void;
+}) => (
+  <>
+    <div className="field">
+      <label>始点 X / Y</label>
+      <NumInput
+        value={from.x}
+        title="矢印の始点 X(出力px)"
+        onCommit={(v) => v !== undefined && onChange({ from: { ...from, x: Math.round(v) } })}
+      />
+      <NumInput
+        value={from.y}
+        title="矢印の始点 Y(出力px)"
+        onCommit={(v) => v !== undefined && onChange({ from: { ...from, y: Math.round(v) } })}
+      />
+    </div>
+    <div className="field">
+      <label>終点 X / Y</label>
+      <NumInput
+        value={to.x}
+        title="矢印の終点(矢尻)X(出力px)"
+        onCommit={(v) => v !== undefined && onChange({ to: { ...to, x: Math.round(v) } })}
+      />
+      <NumInput
+        value={to.y}
+        title="矢印の終点(矢尻)Y(出力px)"
+        onCommit={(v) => v !== undefined && onChange({ to: { ...to, y: Math.round(v) } })}
+      />
+    </div>
+  </>
+);
+
+/** 注釈の数値プロパティ1件(太さ・角丸・大きさ等)。既定値と一致する値は
+ * undefined を渡してキー削除する(JSON を汚さない)。空欄も undefined */
+const NumField = ({
+  label,
+  value,
+  placeholder,
+  onCommit,
+}: {
+  label: string;
+  value: number | undefined;
+  placeholder: number;
+  onCommit: (v: number | undefined) => void;
+}) => (
+  <div className="field">
+    <label>{label}</label>
+    <NumInput
+      value={value}
+      allowEmpty
+      placeholder={String(placeholder)}
+      title={`空欄=既定(${placeholder})`}
+      onCommit={(v) =>
+        onCommit(v !== undefined && Math.round(v) === placeholder ? undefined : v)
+      }
+    />
+  </div>
+);
+
+/** 注釈の色1件(矢印の線色・囲みの枠色)。既定色一致時の undefined 判定は
+ * 呼び出し側(パネル本体)で行う(色の等価判定は文字列一致でよいため) */
+const ColorField = ({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (c: string) => void;
+}) => (
+  <div className="field">
+    <label>{label}</label>
+    <input type="color" value={value} onChange={(e) => onChange(e.target.value)} />
+  </div>
+);
+
+/** 囲み(box)の塗り(fill)。任意 + alpha。caption の座布団(background)と
+ * 同じく splitColor/joinColor で hex+不透明度に分解して編集する */
+const FillField = ({
+  value,
+  onChange,
+}: {
+  value: string | undefined;
+  onChange: (fill: string | undefined) => void;
+}) => {
+  const col = value ? splitColor(value) : null;
+  return (
+    <div className="field">
+      <label>塗り</label>
+      <input
+        type="checkbox"
+        checked={!!col}
+        title="枠の内側を塗る(既定は塗りなし=枠線のみ)"
+        onChange={(e) => onChange(e.target.checked ? "rgba(255, 59, 48, 0.25)" : undefined)}
+      />
+      {col && (
+        <>
+          <input
+            type="color"
+            value={col.hex}
+            title="塗りの色"
+            onChange={(e) => onChange(joinColor(e.target.value, col.alpha))}
+          />
+          <PctSlider
+            pct={Math.round(col.alpha * 100)}
+            title="塗りの不透明度"
+            onChange={(pct) => onChange(joinColor(col.hex, pct / 100))}
+          />
+        </>
+      )}
+    </div>
   );
 };
 

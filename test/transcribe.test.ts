@@ -3,8 +3,10 @@
 // 模したミニ fixture で、特殊トークン除外・ms→秒変換・trim・confidence 転記を検査する。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildWords } from "../src/stages/transcribe.ts";
+import { buildWords, applyTranscriptIds } from "../src/stages/transcribe.ts";
 import type { WhisperToken } from "../src/stages/transcribe.ts";
+import { ID_RE } from "../src/lib/ids.ts";
+import type { TranscriptSegment } from "../src/types.ts";
 
 test("buildWords: 実測に近い tokens[] から特殊トークンを除いた words[] を組み立てる", () => {
   const tokens: WhisperToken[] = [
@@ -67,4 +69,37 @@ test("buildWords: tokens が undefined なら空配列", () => {
 
 test("buildWords: tokens が空配列なら空配列", () => {
   assert.deepEqual(buildWords([]), []);
+});
+
+/* ---------------- 安定 id(§docs/plans/2026-07-07-stable-ids-design.md) ---------------- */
+
+const segments: TranscriptSegment[] = [
+  { start: 0, end: 1, text: "こんにちは" },
+  { start: 1, end: 2, text: "今日は" },
+];
+
+test("applyTranscriptIds: idCtx 省略時は id に一切触れない(導入前とバイト等価)", () => {
+  const out = applyTranscriptIds(segments);
+  assert.equal(out, segments); // 同一参照(何も変換していない)
+  for (const s of out) assert.equal("id" in s, false);
+});
+
+test("applyTranscriptIds: idCtx ありで (start,end,text) 完全一致の旧 id を運ぶ", () => {
+  const existingSegments: TranscriptSegment[] = [
+    { id: "cap_aaaaaa", start: 0, end: 1, text: "こんにちは" },
+  ];
+  const used = new Set<string>(["cap_aaaaaa"]);
+  const out = applyTranscriptIds(segments, { existingSegments, used });
+  assert.equal(out[0].id, "cap_aaaaaa");
+  assert.match(out[1].id as string, ID_RE);
+});
+
+test("applyTranscriptIds: 内容が変わった(再分割された)セグメントは新 id になる", () => {
+  const existingSegments: TranscriptSegment[] = [
+    { id: "cap_aaaaaa", start: 0, end: 1, text: "こんにちは(旧文言)" },
+  ];
+  const used = new Set<string>(["cap_aaaaaa"]);
+  const out = applyTranscriptIds(segments, { existingSegments, used });
+  assert.notEqual(out[0].id, "cap_aaaaaa");
+  assert.match(out[0].id as string, ID_RE);
 });

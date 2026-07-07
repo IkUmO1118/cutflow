@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cutflow.dev/schemas/common.schema.json",
+  "$comment": "8編集ファイルが共有する $defs。src/types.ts の共有型(Region / CaptionPos / CaptionStyle 系 / WordTiming / CaptionTrackDef / Interval / Annotation union)の射影。id.pattern は src/lib/ids.ts の ID_RE、CaptionAnim の in/out 列挙は src/types.ts の CaptionAnimKind、CaptionKaraoke.mode は同ファイルのカラオケ型、blur type / annotation type / spotlight shape は各 BlurType / AnnotationType / SpotlightShape と揃える(test/schema.test.ts がこれらをコード側の型にピン留めする)。",
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z]{2,3}_[0-9a-z]{6}$",
+      "$comment": "src/lib/ids.ts の ID_RE.source と一致させる(test/schema.test.ts がピン留め)"
+    },
+    "Region": {
+      "type": "object",
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "w": { "type": "number" },
+        "h": { "type": "number" }
+      },
+      "required": ["x", "y", "w", "h"]
+    },
+    "CaptionPos": {
+      "type": "object",
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" }
+      },
+      "required": ["x", "y"]
+    },
+    "Interval": {
+      "$comment": "wipeFull / hideCaption / bgm.tracks の下位で使う { id?, start, end }",
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/id" },
+        "start": { "type": "number" },
+        "end": { "type": "number" }
+      },
+      "required": ["start", "end"]
+    },
+    "CaptionBackground": {
+      "type": "object",
+      "properties": {
+        "color": { "type": "string" },
+        "paddingPx": { "type": "number", "minimum": 0 },
+        "radiusPx": { "type": "number", "minimum": 0 }
+      },
+      "required": ["color"]
+    },
+    "CaptionAnim": {
+      "type": "object",
+      "properties": {
+        "in": { "enum": ["fade", "slide-up", "slide-down", "slide-left", "slide-right", "pop", "none"] },
+        "out": { "enum": ["fade", "slide-up", "slide-down", "slide-left", "slide-right", "pop", "none"] },
+        "durationSec": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "CaptionKaraoke": {
+      "type": "object",
+      "properties": {
+        "activeColor": { "type": "string" },
+        "inactiveColor": { "type": "string" },
+        "inactiveOpacity": { "type": "number", "minimum": 0, "maximum": 1 },
+        "mode": { "enum": ["word", "fill"] }
+      },
+      "additionalProperties": false
+    },
+    "CaptionStyle": {
+      "type": "object",
+      "properties": {
+        "fontSizePx": { "type": "number" },
+        "color": { "type": "string" },
+        "outlineColor": { "type": "string" },
+        "fontFamily": { "type": "string" },
+        "fontWeight": { "type": "number", "minimum": 100, "maximum": 900 },
+        "background": { "$ref": "common.schema.json#/$defs/CaptionBackground" },
+        "anim": { "$ref": "common.schema.json#/$defs/CaptionAnim" },
+        "karaoke": { "$ref": "common.schema.json#/$defs/CaptionKaraoke" }
+      }
+    },
+    "WordTiming": {
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "start": { "type": "number" },
+        "end": { "type": "number" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+      },
+      "required": ["text", "start", "end"]
+    },
+    "CaptionTrackDef": {
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/id" },
+        "track": { "type": "integer", "minimum": 1 },
+        "name": { "type": "string" },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "anchor": { "enum": ["center", "topLeft"] },
+        "style": { "$ref": "common.schema.json#/$defs/CaptionStyle" }
+      },
+      "required": ["track"]
+    },
+    "ArrowAnnotation": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "arrow" },
+        "start": { "type": "number" },
+        "end": { "type": "number" },
+        "from": { "$ref": "common.schema.json#/$defs/CaptionPos" },
+        "to": { "$ref": "common.schema.json#/$defs/CaptionPos" },
+        "color": { "type": "string" },
+        "widthPx": { "type": "number", "minimum": 0 },
+        "headPx": { "type": "number", "minimum": 0 }
+      },
+      "required": ["type", "start", "end", "from", "to"]
+    },
+    "BoxAnnotation": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "box" },
+        "start": { "type": "number" },
+        "end": { "type": "number" },
+        "rect": { "$ref": "common.schema.json#/$defs/Region" },
+        "color": { "type": "string" },
+        "widthPx": { "type": "number", "minimum": 0 },
+        "radiusPx": { "type": "number", "minimum": 0 },
+        "fill": { "type": "string" }
+      },
+      "required": ["type", "start", "end", "rect"]
+    },
+    "SpotlightAnnotation": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "spotlight" },
+        "start": { "type": "number" },
+        "end": { "type": "number" },
+        "rect": { "$ref": "common.schema.json#/$defs/Region" },
+        "shape": { "enum": ["rect", "ellipse"] },
+        "dim": { "type": "number", "minimum": 0, "maximum": 1 },
+        "featherPx": { "type": "number", "minimum": 0 },
+        "radiusPx": { "type": "number", "minimum": 0 }
+      },
+      "required": ["type", "start", "end", "rect"]
+    },
+    "Annotation": {
+      "oneOf": [
+        { "$ref": "common.schema.json#/$defs/ArrowAnnotation" },
+        { "$ref": "common.schema.json#/$defs/BoxAnnotation" },
+        { "$ref": "common.schema.json#/$defs/SpotlightAnnotation" }
+      ]
+    }
+  }
+}

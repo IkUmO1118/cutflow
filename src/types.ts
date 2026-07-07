@@ -48,7 +48,8 @@ export interface Region {
   h: number;
 }
 
-/** transcribe が生成(transcript.json) */
+/** transcribe が生成(transcript.json)。JSON Schema: schemas/transcript.schema.json
+ * (スキーマを変えたらこのコメント・validate.ts・usage.md と揃える。§5点セット) */
 export interface Transcript {
   language: string;
   model: string;
@@ -56,6 +57,13 @@ export interface Transcript {
 }
 
 export interface TranscriptSegment {
+  /** 編集をまたいで安定な永続 id(例 "cap_a1b2c3")。`@id` で人間/AI がこの要素を
+   * 指す共通アドレス。文法は `<prefix>_<base36 6桁>`(src/lib/ids.ts が単一の出所)。
+   * **一度振ったら内容・位置が変わっても不変**(採番は id が無い要素にだけ行う)。
+   * 省略可=id 未採番。id が1つも無いプロジェクトは全コマンドが本機能導入前と
+   * バイト等価(opt-in・sticky。採番は `id-stamp` / 生成 / GUI 保存が行う)。
+   * **render / 承認 hash には一切影響しない**(アドレッシング専用) */
+  id?: string;
   /** 秒 */
   start: number;
   end: number;
@@ -212,7 +220,8 @@ export interface Interval {
   end: number;
 }
 
-/** plan が生成、人間が編集して承認する(cutplan.json) */
+/** plan が生成、人間が編集して承認する(cutplan.json)。JSON Schema:
+ * schemas/cutplan.schema.json(§5点セット) */
 export interface CutPlan {
   /** 人間の承認意図の表示(GUI チェックボックスのモデル)。**render のゲートでは
    * ない**(src/lib/approval.ts を参照)。render は approvals.json の承認
@@ -224,6 +233,13 @@ export interface CutPlan {
 }
 
 export interface PlanSegment {
+  /** 編集をまたいで安定な永続 id(例 "seg_a1b2c3")。`@id` で人間/AI がこの要素を
+   * 指す共通アドレス。文法は `<prefix>_<base36 6桁>`(src/lib/ids.ts が単一の出所)。
+   * **一度振ったら内容・位置が変わっても不変**(採番は id が無い要素にだけ行う)。
+   * 省略可=id 未採番。id が1つも無いプロジェクトは全コマンドが本機能導入前と
+   * バイト等価(opt-in・sticky。採番は `id-stamp` / 生成 / GUI 保存が行う)。
+   * **render / 承認 hash には一切影響しない**(アドレッシング専用) */
+  id?: string;
   start: number;
   end: number;
   /** keep: 残す / cut: 切る(確認用に候補も残しておく) */
@@ -254,9 +270,17 @@ export interface ApprovalRecord {
 
 /** plan が生成(chapters.json)。YouTube チャプター用の章立てメタデータ
  * (概要欄の「0:00 導入」リストの元)。動画への描画には使われない:
- * 章タイトルの表示は plan が通常テロップとして transcript.json に書く */
+ * 章タイトルの表示は plan が通常テロップとして transcript.json に書く。
+ * JSON Schema: schemas/chapters.schema.json(§5点セット) */
 export interface Chapters {
   chapters: {
+    /** 編集をまたいで安定な永続 id(例 "ch_a1b2c3")。`@id` で人間/AI がこの要素を
+     * 指す共通アドレス。文法は `<prefix>_<base36 6桁>`(src/lib/ids.ts が単一の出所)。
+     * **一度振ったら内容・位置が変わっても不変**(採番は id が無い要素にだけ行う)。
+     * 省略可=id 未採番。id が1つも無いプロジェクトは全コマンドが本機能導入前と
+     * バイト等価(opt-in・sticky。採番は `id-stamp` / 生成 / GUI 保存が行う)。
+     * **render / 承認 hash には一切影響しない**(アドレッシング専用) */
+    id?: string;
     start: number;
     title: string;
   }[];
@@ -349,6 +373,13 @@ export const DEFAULT_LAYER_ORDER: LayerId[] = defaultLayerOrder(2);
 /** テロップトラックの標準設定1件。overlays.json の captionTracks と
  * shorts.json の各ショートの captionTracks で共用する */
 export interface CaptionTrackDef {
+  /** 編集をまたいで安定な永続 id(例 "ct_a1b2c3")。`@id` で人間/AI がこの要素を
+   * 指す共通アドレス。文法は `<prefix>_<base36 6桁>`(src/lib/ids.ts が単一の出所)。
+   * **一度振ったら内容・位置が変わっても不変**(採番は id が無い要素にだけ行う)。
+   * 省略可=id 未採番。id が1つも無いプロジェクトは全コマンドが本機能導入前と
+   * バイト等価(opt-in・sticky。採番は `id-stamp` / 生成 / GUI 保存が行う)。
+   * **render / 承認 hash には一切影響しない**(アドレッシング専用) */
+  id?: string;
   track: number;
   name?: string;
   x?: number;
@@ -358,11 +389,19 @@ export interface CaptionTrackDef {
 }
 
 /** 人間が書く演出指定(overlays.json)。ファイルが無ければ全部なし。
- * 時刻は他の編集ファイルと同じく元動画(収録ファイル)の秒 */
+ * 時刻は他の編集ファイルと同じく元動画(収録ファイル)の秒。
+ * JSON Schema: schemas/overlays.schema.json(§5点セット) */
 export interface Overlays {
   /** 素材(画像/動画)を表示する区間。省略時は画面いっぱい、rect で
    * 部分配置(ピクチャ・イン・ピクチャ)もできる */
   overlays?: {
+    /** 編集をまたいで安定な永続 id(例 "mat_a1b2c3")。`@id` で人間/AI がこの要素を
+     * 指す共通アドレス。文法は `<prefix>_<base36 6桁>`(src/lib/ids.ts が単一の出所)。
+     * **一度振ったら内容・位置が変わっても不変**(採番は id が無い要素にだけ行う)。
+     * 省略可=id 未採番。id が1つも無いプロジェクトは全コマンドが本機能導入前と
+     * バイト等価(opt-in・sticky。採番は `id-stamp` / 生成 / GUI 保存が行う)。
+     * **render / 承認 hash には一切影響しない**(アドレッシング専用) */
+    id?: string;
     start: number;
     end: number;
     /** 素材ファイル(収録フォルダからの相対パス) */
@@ -395,6 +434,13 @@ export interface Overlays {
    * 差し込む。at 以降のすべての要素(keep 区間・素材・テロップ)は
    * 元収録の秒のまま動かさず、時刻写像が挿入の尺ぶん後ろへずらす */
   inserts?: {
+    /** 編集をまたいで安定な永続 id(例 "ins_a1b2c3")。`@id` で人間/AI がこの要素を
+     * 指す共通アドレス。文法は `<prefix>_<base36 6桁>`(src/lib/ids.ts が単一の出所)。
+     * **一度振ったら内容・位置が変わっても不変**(採番は id が無い要素にだけ行う)。
+     * 省略可=id 未採番。id が1つも無いプロジェクトは全コマンドが本機能導入前と
+     * バイト等価(opt-in・sticky。採番は `id-stamp` / 生成 / GUI 保存が行う)。
+     * **render / 承認 hash には一切影響しない**(アドレッシング専用) */
+    id?: string;
     /** 挿入位置のアンカー(元収録の秒)。この時刻の手前に挿入される */
     at: number;
     /** 素材ファイル(収録フォルダからの相対パス) */
@@ -415,8 +461,9 @@ export interface Overlays {
     fadeInSec?: number;
     fadeOutSec?: number;
   }[];
-  /** ワイプ(カメラ)を全画面にして背景を隠す区間 */
-  wipeFull?: Interval[];
+  /** ワイプ(カメラ)を全画面にして背景を隠す区間。id は "wf_a1b2c3" 形式
+   *(§Interval & id の共通仕様。src/lib/ids.ts が単一の出所。省略可=id 未採番) */
+  wipeFull?: (Interval & { id?: string })[];
   /** 画面の重なり順(下→上)。ベース映像と BGM は対象外。
    *  省略時は DEFAULT_LAYER_ORDER(エディタのトラック並べ替えが書く) */
   layerOrder?: LayerId[];
@@ -427,8 +474,9 @@ export interface Overlays {
    * 章タイトルのような左寄せ配置のトラックに使う)。
    * name はタイムラインに出すトラック名(省略時は自動ラベル) */
   captionTracks?: CaptionTrackDef[];
-  /** 字幕を出さない区間 */
-  hideCaption?: Interval[];
+  /** 字幕を出さない区間。id は "hc_a1b2c3" 形式(§Interval & id の共通仕様。
+   * src/lib/ids.ts が単一の出所。省略可=id 未採番) */
+  hideCaption?: (Interval & { id?: string })[];
   /** ズーム演出(画面の一部を拡大して見せる)。区間は重ならないこと。
    * かかるのはベース映像の背景レイヤー(画面クロップ)だけで、ワイプ・
    * テロップ・素材オーバーレイ・挿入クリップは動かない。ショート
@@ -445,6 +493,11 @@ export interface Overlays {
    * 出力px固定。ショート(profile 経路)には継承されない(座標が本編基準の
    * ため。shorts があると validate が警告する) */
   blurs?: BlurRegion[];
+  /** 注釈グラフィック(矢印/囲み/スポットライト)。画面の一点/矩形を指し示す
+   * 「ここを見ろ」の描画。独立レイヤーで最前面(テロップより上)。zoom 非追従の
+   * 出力px固定。硬い ON/OFF。ショート(profile 経路)には継承されない
+   * (座標が本編基準のため。shorts があると validate が警告する) */
+  annotations?: Annotation[];
 }
 
 /** 簡易カラー調整(overlays.json の colorFilter)。各キー省略可・既定 1.0
@@ -457,6 +510,13 @@ export interface ColorFilter {
 
 /** ズーム演出1件(overlays.json の zooms)。start/end は元収録の秒 */
 export interface Zoom {
+  /** 編集をまたいで安定な永続 id(例 "zm_a1b2c3")。`@id` で人間/AI がこの要素を
+   * 指す共通アドレス。文法は `<prefix>_<base36 6桁>`(src/lib/ids.ts が単一の出所)。
+   * **一度振ったら内容・位置が変わっても不変**(採番は id が無い要素にだけ行う)。
+   * 省略可=id 未採番。id が1つも無いプロジェクトは全コマンドが本機能導入前と
+   * バイト等価(opt-in・sticky。採番は `id-stamp` / 生成 / GUI 保存が行う)。
+   * **render / 承認 hash には一切影響しない**(アドレッシング専用) */
+  id?: string;
   start: number;
   end: number;
   /** 全画面に拡大する矩形(出力px。テロップ pos・overlays rect と同じ座標系)。
@@ -482,6 +542,13 @@ export type BlurType = "blur" | "mosaic";
  * かかるのはベース映像だけ。zoom には追従せず出力px固定(zoom と時間が重なる
  * と validate が警告する)。ショート(profile 経路)には継承されない */
 export interface BlurRegion {
+  /** 編集をまたいで安定な永続 id(例 "bl_a1b2c3")。`@id` で人間/AI がこの要素を
+   * 指す共通アドレス。文法は `<prefix>_<base36 6桁>`(src/lib/ids.ts が単一の出所)。
+   * **一度振ったら内容・位置が変わっても不変**(採番は id が無い要素にだけ行う)。
+   * 省略可=id 未採番。id が1つも無いプロジェクトは全コマンドが本機能導入前と
+   * バイト等価(opt-in・sticky。採番は `id-stamp` / 生成 / GUI 保存が行う)。
+   * **render / 承認 hash には一切影響しない**(アドレッシング専用) */
+  id?: string;
   start: number;
   end: number;
   /** 隠す矩形(出力px)。画面外へはみ出すと validate がエラーにする */
@@ -497,14 +564,96 @@ export interface BlurRegion {
 export const DEFAULT_BLUR_STRENGTH = 0.5;
 export const DEFAULT_BLUR_TYPE: BlurType = "blur";
 
+/** 注釈グラフィックの種別。判別子は type。将来 "line" 等を足す場合はここに
+ * 1枝追加する(今はスコープ外)。src/types.ts の Annotation union と揃える */
+export type AnnotationType = "arrow" | "box" | "spotlight";
+export type SpotlightShape = "rect" | "ellipse";
+
+/** 注釈グラフィック(overlays.json の annotations)。画面上の一点/矩形を
+ * 指し示して「ここを見ろ」を作る描画プリミティブ。start/end は元収録の秒、
+ * 座標はすべて出力px(テロップ pos・zooms/blurs rect と同座標系)。
+ * 独立レイヤーで最前面(テロップより上)に描く。zoom には追従せず出力px固定。
+ * 遷移は無い硬い ON/OFF。ショート(profile 経路)には継承されない
+ * (座標が本編基準のため。shorts があると validate が警告する) */
+export type Annotation = ArrowAnnotation | BoxAnnotation | SpotlightAnnotation;
+
+interface AnnotationBase {
+  /** 元収録の秒。start < end。挿入・カットの時刻写像はツールが行う */
+  start: number;
+  end: number;
+}
+
+/** 矢印。from から to へ引く線 + 矢尻。色・太さ・矢尻サイズは任意上書き */
+export interface ArrowAnnotation extends AnnotationBase {
+  type: "arrow";
+  /** 始点(出力px) */
+  from: CaptionPos;
+  /** 終点=矢尻の向き先(出力px)。from と同一点は validate がエラー */
+  to: CaptionPos;
+  /** 線と矢尻の色(CSS カラー)。省略時 DEFAULT_ANNOTATION_COLOR */
+  color?: string;
+  /** 線の太さ(px)。省略時 DEFAULT_ARROW_WIDTH_PX */
+  widthPx?: number;
+  /** 矢尻の大きさ(px)。省略時 DEFAULT_ARROW_HEAD_PX */
+  headPx?: number;
+}
+
+/** 囲み。rect の枠線。任意で塗り(fill)も置ける */
+export interface BoxAnnotation extends AnnotationBase {
+  type: "box";
+  /** 囲む矩形(出力px) */
+  rect: Region;
+  /** 枠線の色(CSS カラー)。省略時 DEFAULT_ANNOTATION_COLOR */
+  color?: string;
+  /** 枠線の幅(px)。省略時 DEFAULT_BOX_WIDTH_PX */
+  widthPx?: number;
+  /** 角丸半径(px)。省略時 DEFAULT_BOX_RADIUS_PX */
+  radiusPx?: number;
+  /** 塗り色(CSS カラー。半透明の rgba() 推奨)。省略時は塗りなし(枠線だけ) */
+  fill?: string;
+}
+
+/** スポットライト。rect 以外を暗くして注目を集める */
+export interface SpotlightAnnotation extends AnnotationBase {
+  type: "spotlight";
+  /** 明るく残す矩形(出力px) */
+  rect: Region;
+  /** 明部の形状。省略時 "rect"("ellipse" で楕円) */
+  shape?: SpotlightShape;
+  /** 外側の暗さ(0〜1、0=無効・1=真っ黒)。省略時 DEFAULT_SPOTLIGHT_DIM */
+  dim?: number;
+  /** 縁のぼかし幅(px)。省略時 DEFAULT_SPOTLIGHT_FEATHER_PX */
+  featherPx?: number;
+  /** shape:"rect" の角丸半径(px)。省略時 0(角丸なし)。ellipse では無視 */
+  radiusPx?: number;
+}
+
+/** 注釈グラフィックの色・太さ・大きさの既定(renderProps が解決に使う) */
+export const DEFAULT_ANNOTATION_COLOR = "#ff3b30"; // 鮮やかな赤(注釈の定番)
+export const DEFAULT_ARROW_WIDTH_PX = 8;
+export const DEFAULT_ARROW_HEAD_PX = 28;
+export const DEFAULT_BOX_WIDTH_PX = 6;
+export const DEFAULT_BOX_RADIUS_PX = 8;
+export const DEFAULT_SPOTLIGHT_DIM = 0.6; // 外側の暗さ(0=無効, 1=真っ黒)
+export const DEFAULT_SPOTLIGHT_FEATHER_PX = 24;
+export const DEFAULT_SPOTLIGHT_SHAPE: SpotlightShape = "rect";
+
 /** 人間が書く BGM 指定(bgm.json)。ファイルが無ければ、収録フォルダ直下の
  * bgm.mp3 / bgm.m4a / bgm.wav(あれば)を全編1曲として流す従来動作になる。
- * 時刻は他の編集ファイルと同じく元動画(収録ファイル)の秒 */
+ * 時刻は他の編集ファイルと同じく元動画(収録ファイル)の秒。
+ * JSON Schema: schemas/bgm.schema.json(§5点セット) */
 export interface Bgm {
   /** BGM を流す区間。時系列順でなくてよく、覆っていない区間は無音になる
    * (「イントロだけ BGM なし」= その区間を覆わない)。別ファイルの区間を
    * 並べれば曲の切り替え、区間を重ねれば重奏になる。各区間はループ再生 */
   tracks: {
+    /** 編集をまたいで安定な永続 id(例 "bg_a1b2c3")。`@id` で人間/AI がこの要素を
+     * 指す共通アドレス。文法は `<prefix>_<base36 6桁>`(src/lib/ids.ts が単一の出所)。
+     * **一度振ったら内容・位置が変わっても不変**(採番は id が無い要素にだけ行う)。
+     * 省略可=id 未採番。id が1つも無いプロジェクトは全コマンドが本機能導入前と
+     * バイト等価(opt-in・sticky。採番は `id-stamp` / 生成 / GUI 保存が行う)。
+     * **render / 承認 hash には一切影響しない**(アドレッシング専用) */
+    id?: string;
     /** 流し始め(元収録の秒) */
     start: number;
     /** 流し終わり(元収録の秒) */
@@ -523,14 +672,16 @@ export interface Bgm {
   }[];
 }
 
-/** plan が生成(meta.json)。タイトル案と概要欄の下書き */
+/** plan が生成(meta.json)。タイトル案と概要欄の下書き。
+ * JSON Schema: schemas/meta.schema.json(§5点セット) */
 export interface Meta {
   titles: string[];
   description: string;
 }
 
 /** 人間が書くショート動画指定(shorts.json)。ファイルが無ければショートは
- * 無い。時刻は他の編集ファイルと同じく元動画(収録ファイル)の秒 */
+ * 無い。時刻は他の編集ファイルと同じく元動画(収録ファイル)の秒。
+ * JSON Schema: schemas/shorts.schema.json(§5点セット) */
 export interface Shorts {
   shorts: Short[];
 }
@@ -548,7 +699,10 @@ export interface Short {
   /** このショートの keep 区間(元収録の秒)。本編 cutplan の keep とは独立で、
    * mergeIntervals した集合がそのままショートの keep 集合になる(交差なし)。
    * 飛び区間で連結でき、フィラーを飛ばしたいときはレンジを分割する */
-  ranges: Interval[];
+  /** id は "rg_a1b2c3" 形式(§Interval & id の共通仕様。src/lib/ids.ts が
+   * 単一の出所。省略可=id 未採番)。Short 自体は name が事実上の安定 id
+   * なので別の id フィールドは持たない */
+  ranges: (Interval & { id?: string })[];
   /** 縦用テロップ位置/スタイルの上書き(任意)。overlays.captionTracks と
    * 同型・同じ解決順(セグメント → トラック標準 → 既定)で
    * buildRenderProps に渡す */
@@ -557,13 +711,21 @@ export interface Short {
 
 /** 人間/AIが書くサムネイル指定(thumbnail.json)。t は元収録の秒で、
  * frames と違いスナップしない(カットされた瞬間も指定できる。サムネは
- * 動画に入っていない絵も使ってよいため) */
+ * 動画に入っていない絵も使ってよいため)。
+ * JSON Schema: schemas/thumbnail.schema.json(§5点セット) */
 export interface Thumbnail {
   t: number;
   texts: ThumbnailText[];
 }
 
 export interface ThumbnailText {
+  /** 編集をまたいで安定な永続 id(例 "tx_a1b2c3")。`@id` で人間/AI がこの要素を
+   * 指す共通アドレス。文法は `<prefix>_<base36 6桁>`(src/lib/ids.ts が単一の出所)。
+   * **一度振ったら内容・位置が変わっても不変**(採番は id が無い要素にだけ行う)。
+   * 省略可=id 未採番。id が1つも無いプロジェクトは全コマンドが本機能導入前と
+   * バイト等価(opt-in・sticky。採番は `id-stamp` / 生成 / GUI 保存が行う)。
+   * **render / 承認 hash には一切影響しない**(アドレッシング専用) */
+  id?: string;
   text: string;
   /** 表示位置(テキスト中心、出力px)。transcript のテロップと違い省略不可
    * (サムネに「既定の下部中央」は無い) */
@@ -572,3 +734,48 @@ export interface ThumbnailText {
    * (動画と見た目の言語を揃えるため) */
   style?: CaptionStyle;
 }
+
+/** apply(検査付きアトミック適用)コマンドの入力パッチ。`@id` 宛先の高水準
+ * オペレーション列(ops)と、ファイル単位の全置換(replace)の両方を表す
+ * (docs/plans/2026-07-07-atomic-apply-design.md 論点1)。両方あるときは
+ * ops を先に適用し、その結果へ replace を重ねる(ファイル単位の上書き)。
+ * 書き込みは常に replace 相当の全置換1本へ正規化されてから
+ * (src/lib/applyEdits.ts の)コアを1回だけ通る。
+ * JSON Schema: schemas/apply-patch.schema.json(§5点セット) */
+export interface ApplyPatch {
+  ops?: EditOp[];
+  replace?: ApplyBody;
+}
+
+/** apply が書ける編集ファイルの全置換(SaveRequest 相当)。cutplan.approved /
+ * shorts[].approved は型としては CutPlan/Shorts の一部のまま残るが、
+ * **apply(planApply)は常にディスク現状の値へ強制上書きする**(apply 経由で
+ * 承認を true/false に変えることはできない。§論点6・§不変条件2)。
+ * chapters / thumbnail は EditableDocs と違って meta.json を含まない
+ * (meta.json は id を持つ要素が無く @id op の対象にならないため、apply の
+ * スキーマにも含めない) */
+export interface ApplyBody {
+  cutplan?: CutPlan;
+  transcript?: Transcript;
+  overlays?: Overlays;
+  chapters?: Chapters;
+  /** `null` / 空 tracks は bgm.json を削除する(SaveRequest と同じセマンティクス)。
+   * `undefined`(キー無し)は bgm.json を触らない */
+  bgm?: Bgm | null;
+  /** `null` / 空 shorts は shorts.json を削除する。`undefined`(キー無し)は
+   * shorts.json を触らない */
+  shorts?: Shorts | null;
+  thumbnail?: Thumbnail;
+}
+
+/** apply の高水準オペレーション(`@id` 宛先。docs/plans/2026-07-07-atomic-apply-design.md
+ * 論点1)。`target` は set/remove では既存要素を指す `@id`(Feature 2 の
+ * resolveMention が解決)、add では許可済みのコレクション選択子
+ * (例 "cutplan.segments"。src/lib/applyEdits.ts の allow-list を参照)。
+ * `field` はドット区切りパス(例 "style.fontSizePx")で、パス末端の置換のみ
+ * (中間の欠落・配列添字はエラー)。`field`(または add の value)に
+ * "approved" を指定するのはエラー(apply では承認を変更できない)。*/
+export type EditOp =
+  | { op: "set"; target: string; field: string; value: unknown }
+  | { op: "remove"; target: string }
+  | { op: "add"; target: string; value: Record<string, unknown>; at?: number };

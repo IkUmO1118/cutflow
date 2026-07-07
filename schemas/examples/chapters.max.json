@@ -1,0 +1,6 @@
+{
+  "chapters": [
+    { "id": "ch_a1b2c3", "start": 0, "title": "導入" },
+    { "start": 120, "title": "本題(id未採番)" }
+  ]
+}
