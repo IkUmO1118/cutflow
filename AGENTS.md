@@ -58,6 +58,17 @@ Use that instead of re-deriving project state from the raw JSON files by
 hand — it already resolves raw↔output time mapping, caption/track
 inheritance, and full titles/prose.
 
+`assertions.json` is a separate, optional intent-declaration file — not one
+of the 8 editable files above, and not a generated artifact either. A human
+or an agent writes it to declare the expected post-edit state (output
+duration, which captions must still be visible, that a secret region stays
+blurred, and so on) as plain, git-diffable JSON, and `node src/cli.ts assert
+<dir>` checks the current project against it. It has its own schema
+(`schemas/assertions.schema.json`) but is intentionally excluded from the
+8-file table: no generator command ever writes or overwrites it (unlike
+`cutplan.json` et al., which `plan`/`run` regenerate), so it survives
+regeneration cycles untouched. It never affects rendering.
+
 ## 4. Files you must NOT write
 
 These are intermediate/generated artifacts. They get overwritten or

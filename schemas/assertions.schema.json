@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cutflow.dev/schemas/assertions.schema.json",
+  "$comment": "src/types.ts の AssertionsDoc/Assertion の射影。assertions.json は EDITABLE_FILES にも GENERATED_FILES にも属さない「other」カテゴリ(rules.md/brief.md と同種の宣言ファイル)。`node src/cli.ts assert <dir>` が describe --json 射影(Tier 1)と frames --ocr(Tier 2・--visual のときだけ)に照合する。9種の Assertion は type で判別されるユニオン(oneOf)。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "assertions"],
+  "properties": {
+    "schemaVersion": { "type": "integer" },
+    "assertions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Assertion" }
+    }
+  },
+  "$defs": {
+    "AssertOp": { "enum": ["<=", ">=", "<", ">", "=="] },
+    "Assertion": {
+      "oneOf": [
+        { "$ref": "#/$defs/OutDuration" },
+        { "$ref": "#/$defs/KeepCount" },
+        { "$ref": "#/$defs/CaptionVisible" },
+        { "$ref": "#/$defs/CaptionText" },
+        { "$ref": "#/$defs/TimeKept" },
+        { "$ref": "#/$defs/MaterialExists" },
+        { "$ref": "#/$defs/NoCaptionOverlap" },
+        { "$ref": "#/$defs/ScreenText" },
+        { "$ref": "#/$defs/RegionClear" }
+      ]
+    },
+    "OutDuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "op", "value"],
+      "properties": {
+        "label": { "type": "string" },
+        "type": { "const": "outDuration" },
+        "op": { "$ref": "#/$defs/AssertOp" },
+        "value": { "type": "number" },
+        "short": { "type": "string" }
+      }
+    },
+    "KeepCount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "op", "value"],
+      "properties": {
+        "label": { "type": "string" },
+        "type": { "const": "keepCount" },
+        "op": { "$ref": "#/$defs/AssertOp" },
+        "value": { "type": "number" }
+      }
+    },
+    "CaptionVisible": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "ref"],
+      "properties": {
+        "label": { "type": "string" },
+        "type": { "const": "captionVisible" },
+        "ref": { "type": "string" },
+        "visible": { "type": "boolean" }
+      }
+    },
+    "CaptionText": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "ref"],
+      "properties": {
+        "label": { "type": "string" },
+        "type": { "const": "captionText" },
+        "ref": { "type": "string" },
+        "contains": { "type": "string" },
+        "equals": { "type": "string" }
+      }
+    },
+    "TimeKept": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "at"],
+      "properties": {
+        "label": { "type": "string" },
+        "type": { "const": "timeKept" },
+        "at": { "type": "number" },
+        "kept": { "type": "boolean" }
+      }
+    },
+    "MaterialExists": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "ref"],
+      "properties": {
+        "label": { "type": "string" },
+        "type": { "const": "materialExists" },
+        "ref": { "type": "string" }
+      }
+    },
+    "NoCaptionOverlap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "label": { "type": "string" },
+        "type": { "const": "noCaptionOverlap" },
+        "track": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "ScreenText": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "at", "contains"],
+      "properties": {
+        "label": { "type": "string" },
+        "type": { "const": "screenText" },
+        "at": { "type": "number" },
+        "contains": { "type": "string" },
+        "present": { "type": "boolean" }
+      }
+    },
+    "RegionClear": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "ref"],
+      "properties": {
+        "label": { "type": "string" },
+        "type": { "const": "regionClear" },
+        "ref": { "type": "string" }
+      }
+    }
+  }
+}
