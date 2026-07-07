@@ -134,6 +134,21 @@ test("outDuration: 各 op が summary.outDurationSec と比較される", () => 
   assert.equal(outcomeOf(proj, { type: "outDuration", op: "==", value: 41 }).status, "fail");
 });
 
+test("outDuration: == は許容誤差(±0.05s)内なら pass(算出尺の float 誤差対策)", () => {
+  // 出力尺は timeline から算出された float なので、厳密一致 === では実質通らない。
+  // 微小なズレ(誤差内)は一致とみなし、誤差を超えたら fail する
+  const proj = baseProj({ summary: { ...baseProj().summary, outDurationSec: 40.02 } });
+  assert.equal(outcomeOf(proj, { type: "outDuration", op: "==", value: 40 }).status, "pass");
+  assert.equal(outcomeOf(proj, { type: "outDuration", op: "==", value: 40.05 }).status, "pass");
+  assert.equal(outcomeOf(proj, { type: "outDuration", op: "==", value: 40.2 }).status, "fail");
+});
+
+test("keepCount: == は整数の厳密一致(許容誤差の影響を受けない)", () => {
+  const proj = baseProj({ summary: { ...baseProj().summary, keepCount: 3 } });
+  assert.equal(outcomeOf(proj, { type: "keepCount", op: "==", value: 3 }).status, "pass");
+  assert.equal(outcomeOf(proj, { type: "keepCount", op: "==", value: 4 }).status, "fail");
+});
+
 test("outDuration: short 指定でそのショートの outDurationSec を見る(本編は無視)", () => {
   const proj = baseProj({
     summary: { ...baseProj().summary, outDurationSec: 999 },

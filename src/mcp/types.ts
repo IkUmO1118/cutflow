@@ -7,7 +7,9 @@
 
 export interface JsonRpcRequest {
   jsonrpc: "2.0";
-  id: string | number;
+  // 仕様上 id は string | number | null(null も応答を返す有効なリクエスト)。
+  // オブジェクト/配列/真偽値の id は parseLine が Invalid Request に落とす
+  id: string | number | null;
   method: string;
   params?: unknown;
 }

@@ -43,8 +43,15 @@ export interface AssertReport {
   counts: { pass: number; fail: number; skip: number; error: number };
 }
 
-/** 数値比較(outDuration / keepCount が使う) */
-function compareOp(actual: number, op: AssertOp, value: number): boolean {
+/** outDuration の `==` 比較の許容誤差(秒)。出力尺は timeline から算出された
+ * float なので厳密一致(`actual === value`)はまず通らない。`==` のときだけ
+ * この誤差内なら一致とみなす。keepCount 等の整数比較は eps=0(既定)で従来
+ * どおり厳密なまま(`Math.abs(a-b) <= 0` は有限数で `a === b` と等価) */
+const DURATION_EQ_EPS_SEC = 0.05;
+
+/** 数値比較(outDuration / keepCount が使う)。`eps` は `==` の許容誤差
+ * (省略時 0=厳密一致)。`<`/`>`/`<=`/`>=` は eps を使わない */
+function compareOp(actual: number, op: AssertOp, value: number, eps = 0): boolean {
   switch (op) {
     case "<=":
       return actual <= value;
@@ -55,7 +62,7 @@ function compareOp(actual: number, op: AssertOp, value: number): boolean {
     case ">":
       return actual > value;
     case "==":
-      return actual === value;
+      return Math.abs(actual - value) <= eps;
   }
 }
 
@@ -170,7 +177,7 @@ export function evaluateStructural(
         } else {
           actual = proj.summary.outDurationSec;
         }
-        const ok = compareOp(actual, a.op, a.value);
+        const ok = compareOp(actual, a.op, a.value, DURATION_EQ_EPS_SEC);
         const subject = a.short ? `ショート "${a.short}" の出力尺` : "出力尺";
         return {
           ...base,
