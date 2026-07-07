@@ -18,6 +18,12 @@ function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+/** JSON-RPC の id として有効か(仕様: string | number | null)。
+ * オブジェクト/配列/真偽値は無効=Invalid Request にする */
+function isValidId(v: unknown): v is string | number | null {
+  return typeof v === "string" || typeof v === "number" || v === null;
+}
+
 function makeError(
   id: string | number | null,
   code: number,
@@ -47,14 +53,19 @@ export function parseLine(
   } catch {
     return { error: makeError(null, -32700, "Parse error") };
   }
-  const idIfPresent =
-    isObj(json) && "id" in json ? (json.id as string | number | null) : null;
+  // エラー応答にエコーする id は「有効な id が付いていればそれ、無ければ null」。
+  // 不正な id(オブジェクト等)は echo せず null にする(仕様準拠)
+  const echoId = isObj(json) && isValidId(json.id) ? json.id : null;
   if (!isObj(json) || json.jsonrpc !== "2.0" || typeof json.method !== "string") {
-    return { error: makeError(idIfPresent, -32600, "Invalid Request") };
+    return { error: makeError(echoId, -32600, "Invalid Request") };
   }
   const { method, params } = json as { method: string; params?: unknown };
   if ("id" in json) {
-    return { message: { jsonrpc: "2.0", id: json.id as string | number, method, params } };
+    // id キーはあるが型が不正(オブジェクト/配列/真偽値)→ Invalid Request
+    if (!isValidId(json.id)) {
+      return { error: makeError(null, -32600, "Invalid Request: id must be a string, number, or null") };
+    }
+    return { message: { jsonrpc: "2.0", id: json.id, method, params } };
   }
   return { message: { jsonrpc: "2.0", method, params } };
 }

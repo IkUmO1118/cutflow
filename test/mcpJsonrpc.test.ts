@@ -51,6 +51,29 @@ test("parseLine: jsonrpc:2.0 でない/method が無いオブジェクトは -32
   }
 });
 
+test("parseLine: id が string/number/null 以外(オブジェクト/配列/真偽値)は -32600", () => {
+  for (const bad of ['{"jsonrpc":"2.0","id":{"a":1},"method":"ping"}',
+                     '{"jsonrpc":"2.0","id":[1],"method":"ping"}',
+                     '{"jsonrpc":"2.0","id":true,"method":"ping"}']) {
+    const r = parseLine(bad);
+    assert.ok("error" in r, `should reject: ${bad}`);
+    if ("error" in r) {
+      assert.equal(r.error.error.code, -32600);
+      // 不正 id は echo しない(null)
+      assert.equal(r.error.id, null);
+    }
+  }
+});
+
+test("parseLine: id:null は有効な request としてパースする(仕様: id は null も可)", () => {
+  const r = parseLine('{"jsonrpc":"2.0","id":null,"method":"ping"}');
+  assert.ok("message" in r);
+  if ("message" in r) {
+    assert.ok("id" in r.message); // notification ではなく request
+    if ("id" in r.message) assert.equal(r.message.id, null);
+  }
+});
+
 /* ---------------- serializeMessage ---------------- */
 
 test("serializeMessage: 常に単一行(埋め込み改行が出ない)", () => {
