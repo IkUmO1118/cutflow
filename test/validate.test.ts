@@ -509,6 +509,163 @@ test("blurs: shorts.json が無ければ継承されない警告は出ない", (
   assert.ok(!r.warnings.some((w) => w.where === "blurs" && w.message.includes("継承されません")));
 });
 
+/* -------- overlays.json の annotations -------- */
+
+test("annotations: 妥当な arrow/box/spotlight はエラー・警告なし", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      annotations: [
+        { type: "arrow", start: 1, end: 5, from: { x: 100, y: 100 }, to: { x: 300, y: 100 } },
+        { type: "box", start: 1, end: 5, rect: { x: 0, y: 0, w: 500, h: 200 } },
+        { type: "spotlight", start: 1, end: 5, rect: { x: 0, y: 300, w: 500, h: 200 } },
+      ],
+    },
+  }));
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.warnings, []);
+});
+
+test("annotations: 不正な type はエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      annotations: [{ type: "circle", start: 1, end: 5 }],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "annotations[0]" && e.message.includes("type")));
+});
+
+test("annotations: arrow の from と to が同一点だとエラー(退化した矢印)", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      annotations: [
+        { type: "arrow", start: 1, end: 5, from: { x: 100, y: 100 }, to: { x: 100, y: 100 } },
+      ],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "annotations[0]" && e.message.includes("同一点")));
+});
+
+test("annotations: arrow の widthPx が0以下だとエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      annotations: [
+        { type: "arrow", start: 1, end: 5, from: { x: 0, y: 0 }, to: { x: 100, y: 0 }, widthPx: 0 },
+      ],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "annotations[0]" && e.message.includes("widthPx")));
+});
+
+test("annotations: box/spotlight の rect.w <= 0 はエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      annotations: [
+        { type: "box", start: 1, end: 5, rect: { x: 0, y: 0, w: -100, h: 100 } },
+      ],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "annotations[0]" && e.message.includes("rect")));
+});
+
+test("annotations: spotlight の dim が範囲外(1.5)だとエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      annotations: [
+        { type: "spotlight", start: 1, end: 5, rect: { x: 0, y: 0, w: 100, h: 100 }, dim: 1.5 },
+      ],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "annotations[0]" && e.message.includes("dim")));
+});
+
+test("annotations: spotlight の shape が不正な値だとエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      annotations: [
+        { type: "spotlight", start: 1, end: 5, rect: { x: 0, y: 0, w: 100, h: 100 }, shape: "diamond" },
+      ],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "annotations[0]" && e.message.includes("shape")));
+});
+
+test("annotations: box の rect がはみ出しても警告どまり(blurs と違いエラーにしない)", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      annotations: [
+        { type: "box", start: 1, end: 5, rect: { x: 1800, y: 0, w: 500, h: 200 } },
+      ],
+    },
+  }));
+  assert.deepEqual(r.errors, []);
+  assert.ok(r.warnings.some((w) => w.where === "annotations[0]" && w.message.includes("はみ出しています")));
+});
+
+test("annotations: zoom と時間が重なっても警告は出ない(blurs との相違・決定3)", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      zooms: [{ start: 48, end: 63, rect: { x: 480, y: 270, w: 960, h: 540 } }],
+      annotations: [{ type: "box", start: 50, end: 55, rect: { x: 0, y: 0, w: 500, h: 200 } }],
+    },
+  }));
+  assert.ok(!r.warnings.some((w) => w.where === "annotations[0]" && w.message.includes("zoom")));
+});
+
+test("annotations: 全体がカット区間内だと警告", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    cutplan: {
+      approved: false,
+      segments: [
+        { start: 0, end: 10, action: "keep", reason: "本編" },
+        { start: 10, end: 20, action: "cut", reason: "言い直し" },
+      ],
+    },
+    overlays: {
+      annotations: [{ type: "box", start: 12, end: 18, rect: { x: 0, y: 0, w: 500, h: 200 } }], // カット内([10,20))
+    },
+  }));
+  assert.ok(r.warnings.some((w) => w.where === "annotations[0]" && w.message.includes("表示されません")));
+});
+
+test("annotations: shorts.json があると継承されない警告が出る", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      annotations: [{ type: "box", start: 1, end: 5, rect: { x: 0, y: 0, w: 500, h: 200 } }],
+    },
+    shorts: {
+      shorts: [{ name: "s1", approved: false, ranges: [{ start: 0, end: 5 }] }],
+    },
+  }));
+  assert.ok(r.warnings.some((w) => w.where === "annotations" && w.message.includes("継承されません")));
+});
+
+test("annotations: shorts.json が無ければ継承されない警告は出ない", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      annotations: [{ type: "box", start: 1, end: 5, rect: { x: 0, y: 0, w: 500, h: 200 } }],
+    },
+  }));
+  assert.ok(!r.warnings.some((w) => w.where === "annotations" && w.message.includes("継承されません")));
+});
+
+test("annotations: 未指定の overlays は既存の検査結果と不変(未知キー警告が誤発火しない)", () => {
+  const r = validateDocs(DIR, baseDocs({ manifest: manifestWithScreen, overlays: {} }));
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.warnings, []);
+});
+
 /* -------- F5: plain(カメラ無し)の本編ルール -------- */
 
 const manifestPlain = {
