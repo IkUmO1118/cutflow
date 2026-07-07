@@ -2,7 +2,7 @@
 // src/stages/render.ts が生成し、Remotion コンポジション(Main.tsx)が受け取る。
 // 時刻はすべて「カット済み動画(cut.mp4)のタイムライン」の秒。
 
-import type { CaptionStyle, ColorFilter, LayerId } from "../src/types.ts";
+import type { CaptionStyle, ColorFilter, LayerId, SpotlightShape } from "../src/types.ts";
 
 export interface Region {
   x: number;
@@ -65,6 +65,41 @@ export interface OverlayItem {
   /** 表示領域(出力px)。省略時は全画面 */
   rect?: Region;
 }
+
+/** 注釈グラフィック1件(overlays.json の annotations。カット後の秒へ写像・
+ * 既定解決済み=具体値のみ)。src/lib/annotation.ts の resolveAnnotation が
+ * 組み立てる。Main.tsx はフォールバックを持たずこの値をそのまま描く */
+export type ResolvedAnnotation =
+  | {
+      type: "arrow";
+      start: number;
+      end: number;
+      from: { x: number; y: number };
+      to: { x: number; y: number };
+      color: string;
+      widthPx: number;
+      headPx: number;
+    }
+  | {
+      type: "box";
+      start: number;
+      end: number;
+      rect: Region;
+      color: string;
+      widthPx: number;
+      radiusPx: number;
+      fill?: string;
+    }
+  | {
+      type: "spotlight";
+      start: number;
+      end: number;
+      rect: Region;
+      shape: SpotlightShape;
+      dim: number;
+      featherPx: number;
+      radiusPx: number;
+    };
 
 // interface でなく type なのは意図的: Remotion の Composition / Player は
 // props に Record<string, unknown> 互換を要求し、type エイリアスだけが満たせる
@@ -151,6 +186,10 @@ export type RenderProps = {
    * 隠す。zoom 追従なしの出力px固定。省略時(空)は現行の描画と完全に同じ。
    * props.layout(ショート/縦)経路では描画しない(本編のみ) */
   blurs?: { start: number; end: number; rect: Region; type: "blur" | "mosaic"; strength: number }[];
+  /** 注釈グラフィック(overlays.json の annotations。カット後の秒へ写像・
+   * 既定解決済み)。最前面に出力px固定で描く。省略時(空)は現行の描画と
+   * 完全に同じ。props.layout(ショート/縦)経路では描画しない(本編のみ) */
+  annotations?: ResolvedAnnotation[];
   /** カット境界のディップ・トゥ・ブラック(config.yaml の render.cutTransition
    * が dip-to-black のときだけ載る)。sec は黒への往復の合計秒 */
   cutTransition?: { sec: number };

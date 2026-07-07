@@ -489,6 +489,11 @@ export interface Overlays {
    * 出力px固定。ショート(profile 経路)には継承されない(座標が本編基準の
    * ため。shorts があると validate が警告する) */
   blurs?: BlurRegion[];
+  /** 注釈グラフィック(矢印/囲み/スポットライト)。画面の一点/矩形を指し示す
+   * 「ここを見ろ」の描画。独立レイヤーで最前面(テロップより上)。zoom 非追従の
+   * 出力px固定。硬い ON/OFF。ショート(profile 経路)には継承されない
+   * (座標が本編基準のため。shorts があると validate が警告する) */
+  annotations?: Annotation[];
 }
 
 /** 簡易カラー調整(overlays.json の colorFilter)。各キー省略可・既定 1.0
@@ -554,6 +559,80 @@ export interface BlurRegion {
 /** BlurRegion.strength / type 未指定時の既定。renderProps と描画・検査で共有 */
 export const DEFAULT_BLUR_STRENGTH = 0.5;
 export const DEFAULT_BLUR_TYPE: BlurType = "blur";
+
+/** 注釈グラフィックの種別。判別子は type。将来 "line" 等を足す場合はここに
+ * 1枝追加する(今はスコープ外)。src/types.ts の Annotation union と揃える */
+export type AnnotationType = "arrow" | "box" | "spotlight";
+export type SpotlightShape = "rect" | "ellipse";
+
+/** 注釈グラフィック(overlays.json の annotations)。画面上の一点/矩形を
+ * 指し示して「ここを見ろ」を作る描画プリミティブ。start/end は元収録の秒、
+ * 座標はすべて出力px(テロップ pos・zooms/blurs rect と同座標系)。
+ * 独立レイヤーで最前面(テロップより上)に描く。zoom には追従せず出力px固定。
+ * 遷移は無い硬い ON/OFF。ショート(profile 経路)には継承されない
+ * (座標が本編基準のため。shorts があると validate が警告する) */
+export type Annotation = ArrowAnnotation | BoxAnnotation | SpotlightAnnotation;
+
+interface AnnotationBase {
+  /** 元収録の秒。start < end。挿入・カットの時刻写像はツールが行う */
+  start: number;
+  end: number;
+}
+
+/** 矢印。from から to へ引く線 + 矢尻。色・太さ・矢尻サイズは任意上書き */
+export interface ArrowAnnotation extends AnnotationBase {
+  type: "arrow";
+  /** 始点(出力px) */
+  from: CaptionPos;
+  /** 終点=矢尻の向き先(出力px)。from と同一点は validate がエラー */
+  to: CaptionPos;
+  /** 線と矢尻の色(CSS カラー)。省略時 DEFAULT_ANNOTATION_COLOR */
+  color?: string;
+  /** 線の太さ(px)。省略時 DEFAULT_ARROW_WIDTH_PX */
+  widthPx?: number;
+  /** 矢尻の大きさ(px)。省略時 DEFAULT_ARROW_HEAD_PX */
+  headPx?: number;
+}
+
+/** 囲み。rect の枠線。任意で塗り(fill)も置ける */
+export interface BoxAnnotation extends AnnotationBase {
+  type: "box";
+  /** 囲む矩形(出力px) */
+  rect: Region;
+  /** 枠線の色(CSS カラー)。省略時 DEFAULT_ANNOTATION_COLOR */
+  color?: string;
+  /** 枠線の幅(px)。省略時 DEFAULT_BOX_WIDTH_PX */
+  widthPx?: number;
+  /** 角丸半径(px)。省略時 DEFAULT_BOX_RADIUS_PX */
+  radiusPx?: number;
+  /** 塗り色(CSS カラー。半透明の rgba() 推奨)。省略時は塗りなし(枠線だけ) */
+  fill?: string;
+}
+
+/** スポットライト。rect 以外を暗くして注目を集める */
+export interface SpotlightAnnotation extends AnnotationBase {
+  type: "spotlight";
+  /** 明るく残す矩形(出力px) */
+  rect: Region;
+  /** 明部の形状。省略時 "rect"("ellipse" で楕円) */
+  shape?: SpotlightShape;
+  /** 外側の暗さ(0〜1、0=無効・1=真っ黒)。省略時 DEFAULT_SPOTLIGHT_DIM */
+  dim?: number;
+  /** 縁のぼかし幅(px)。省略時 DEFAULT_SPOTLIGHT_FEATHER_PX */
+  featherPx?: number;
+  /** shape:"rect" の角丸半径(px)。省略時 0(角丸なし)。ellipse では無視 */
+  radiusPx?: number;
+}
+
+/** 注釈グラフィックの色・太さ・大きさの既定(renderProps が解決に使う) */
+export const DEFAULT_ANNOTATION_COLOR = "#ff3b30"; // 鮮やかな赤(注釈の定番)
+export const DEFAULT_ARROW_WIDTH_PX = 8;
+export const DEFAULT_ARROW_HEAD_PX = 28;
+export const DEFAULT_BOX_WIDTH_PX = 6;
+export const DEFAULT_BOX_RADIUS_PX = 8;
+export const DEFAULT_SPOTLIGHT_DIM = 0.6; // 外側の暗さ(0=無効, 1=真っ黒)
+export const DEFAULT_SPOTLIGHT_FEATHER_PX = 24;
+export const DEFAULT_SPOTLIGHT_SHAPE: SpotlightShape = "rect";
 
 /** 人間が書く BGM 指定(bgm.json)。ファイルが無ければ、収録フォルダ直下の
  * bgm.mp3 / bgm.m4a / bgm.wav(あれば)を全編1曲として流す従来動作になる。
