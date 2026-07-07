@@ -203,6 +203,7 @@ without `--force`; with `--force`, hand-edited files are moved to
 | `frames <dir>` | Render still frames at given times with the final-composite look |
 | `frames-serve <dir>` | Long-running frame server (opt-in) that `frames` auto-detects for faster iteration |
 | `thumbnail <dir>` | Generate the thumbnail still image from `thumbnail.json` |
+| `materials <dir>` | Probe materials (B-roll) for duration/resolution/audio and cross-link references (`materials.probe/index.json`) |
 | `approve <dir>` | Approve the cutplan (or `--short <name>`) into `approvals.json` (interactive; requires `--yes` non-interactively) |
 | `unapprove <dir>` | Revoke an approval record |
 | `render <dir>` | Final render; requires a valid approval record (`--short <name>` / `--shorts` for short-form outputs) |

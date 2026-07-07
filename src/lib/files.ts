@@ -55,8 +55,11 @@ const GENERATED_NAME_PATTERNS: readonly RegExp[] = [
  * props.json・OCR サイドカー。frames 実行のたびに全消しされる)・
  * render.chunks/(チャンク差分レンダーのキャッシュ)・shorts/(render --short /
  * --shorts の出力先。final.mp4 相当の成果物だが CLAUDE.md は同じ
- * 「触らない」節で扱っているためここに含める) */
-const GENERATED_DIRS: readonly string[] = ["frames", "render.chunks", "shorts"];
+ * 「触らない」節で扱っているためここに含める)・materials.probe/(`materials
+ * <dir>` が書く素材知覚の集約+キャッシュ。frames/ と違い実行のたびに
+ * 全消しはされない差分更新型。`materials/` 自体(人間の素材置き場)とは
+ * 別名の生成ディレクトリなので "other" にはならない) */
+const GENERATED_DIRS: readonly string[] = ["frames", "render.chunks", "shorts", "materials.probe"];
 
 /** 収録フォルダ直下の承認レコードファイル名(src/lib/approval.ts の再輸出。
  * files.ts をファイル分類の唯一の出所にするため、他コードはここから参照する) */
