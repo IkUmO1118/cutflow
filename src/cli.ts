@@ -35,6 +35,7 @@ import { formatOcrPreview } from "./lib/ocr.ts";
 import type { OcrResult } from "./lib/ocr.ts";
 import { thumbnail } from "./stages/thumbnail.ts";
 import { formatMaterialsSummary, materials } from "./stages/materials.ts";
+import { av, formatAvSummary } from "./stages/av.ts";
 import { fmtT, parseT } from "./lib/fmt.ts";
 import type { ApplyPatch, CutPlan } from "./types.ts";
 
@@ -80,6 +81,20 @@ function parseLayoutOpt(v: string | undefined): "obs-canvas" | "plain" | "auto" 
   if (v === undefined) return undefined;
   if (v === "obs-canvas" || v === "plain" || v === "auto") return v;
   throw new Error(`--layout の値が不正です: ${v}(plain|obs-canvas|auto のいずれか)`);
+}
+
+function parseRangeOpt(v: string | undefined): { startSec: number; endSec: number } | undefined {
+  if (v === undefined) return undefined;
+  const [startRaw, endRaw] = v.split("-");
+  if (startRaw === undefined || endRaw === undefined) {
+    throw new Error(`--range の値が不正です: ${v}(例 10-25.5)`);
+  }
+  const startSec = parseT(startRaw.trim());
+  const endSec = parseT(endRaw.trim());
+  if (startSec === null || endSec === null || endSec <= startSec) {
+    throw new Error(`--range の値が不正です: ${v}(例 10-25.5)`);
+  }
+  return { startSec, endSec };
 }
 
 /**
@@ -588,6 +603,45 @@ program
       }
     }
     console.log(`${index.materials.length}件を ${indexPath} に書きました`);
+  });
+
+program
+  .command("av <dir>")
+  .description(
+    "A/V フィードバック用の知覚コマンド。keep を連結した motion/sound を計測し、" +
+      "av.probe/{motion,sound}.json と motion.strip.png を書く",
+  )
+  .option("--range <a-b>", "出力(カット後)秒の範囲。例 10-25.5")
+  .option("--every <sec>", "motion のサンプル間隔(秒)")
+  .option("--short <name>", "本編ではなく shorts.json の指定ショートを対象にする")
+  .option("--full-res", "motion の基映像に proxy.mp4 ではなく元収録を使う")
+  .option("--motion-only", "motion だけを取得する")
+  .option("--sound-only", "sound だけを取得する")
+  .action(async (
+    dir: string,
+    opts: {
+      range?: string;
+      every?: string;
+      short?: string;
+      fullRes?: boolean;
+      motionOnly?: boolean;
+      soundOnly?: boolean;
+    },
+  ) => {
+    if (opts.motionOnly === true && opts.soundOnly === true) {
+      throw new Error("--motion-only と --sound-only は同時指定できません");
+    }
+    const cfg = loadConfig(program.opts().config);
+    const abs = resolveDir(dir);
+    const result = await av(abs, {
+      range: parseRangeOpt(opts.range),
+      everySec: opts.every !== undefined ? Number(opts.every) : undefined,
+      short: opts.short,
+      fullRes: opts.fullRes === true,
+      motionOnly: opts.motionOnly === true,
+      soundOnly: opts.soundOnly === true,
+    }, cfg);
+    for (const line of formatAvSummary(result)) console.log(line);
   });
 
 program

@@ -15,11 +15,14 @@ import {
 import {
   DEFAULT_DESCRIBE_PAUSE_MAX,
   DEFAULT_DESCRIBE_PAUSE_MIN_SEC,
+  DEFAULT_AV_COLS,
+  DEFAULT_AV_EVERY_SEC,
   DEFAULT_PERCEPTION_OCR_MAX_LINES,
   DEFAULT_PERCEPTION_OCR_MAX_SEGMENTS,
   DEFAULT_PLAN_SHORTS_MAX_DURATION_SEC,
   loadConfig,
   planShortsMaxSec,
+  resolveAvCfg,
   resolveDescribePausesCfg,
   resolvePerceptionCfg,
 } from "../src/lib/config.ts";
@@ -489,6 +492,28 @@ whisper:
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("resolveAvCfg: 省略時は既定、指定時は上書き", () => {
+  assert.deepEqual(resolveAvCfg({} as Config), {
+    everySec: DEFAULT_AV_EVERY_SEC,
+    cols: DEFAULT_AV_COLS,
+    windowSec: 1,
+    scdetThreshold: 8,
+    freeze: { noiseDb: -50, durationSec: 1 },
+    stripWidthPx: 320,
+  });
+  assert.deepEqual(
+    resolveAvCfg({ av: { everySec: 2, cols: 4, freeze: { noiseDb: -40 } } } as Config),
+    {
+      everySec: 2,
+      cols: 4,
+      windowSec: 1,
+      scdetThreshold: 8,
+      freeze: { noiseDb: -40, durationSec: 1 },
+      stripWidthPx: 320,
+    },
+  );
 });
 
 test("syncEditorCfgFromYaml: 外部編集ぶん(パッチ外のキー)も反映される", () => {

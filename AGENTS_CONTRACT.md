@@ -91,6 +91,9 @@ false staleness signals or gets silently discarded:
   regeneration). Written by `materials <dir>` (`index.json` plus per-material
   `<slug>.png`/`<slug>.ocr.json`/`<slug>.transcribe.json` sidecars). Distinct
   from `materials/` itself (the human's asset folder, which stays `"other"`)
+- `av.probe/` — a **cache-style** generated directory written by `av <dir>`
+  (`motion.json`, `sound.json`, `motion.strip.png`). It is not wiped on each
+  run; deleting the whole directory forces a full regeneration
 - `backups/` (pre-overwrite snapshots) and `.editor-draft.json` (the GUI
   editor's autosaved unsaved draft)
 - `rules.suggested.md` (a disposable draft written by `learn`; a human
@@ -222,6 +225,7 @@ without `--force`; with `--force`, hand-edited files are moved to
 | `frames-serve <dir>` | Long-running frame server (opt-in) that `frames` auto-detects for faster iteration |
 | `thumbnail <dir>` | Generate the thumbnail still image from `thumbnail.json` |
 | `materials <dir>` | Probe materials (B-roll) for duration/resolution/audio and cross-link references (`materials.probe/index.json`) |
+| `av <dir>` | Probe kept motion/sound feedback and write `av.probe/` reports |
 | `approve <dir>` | Approve the cutplan (or `--short <name>`) into `approvals.json` (interactive; requires `--yes` non-interactively) |
 | `unapprove <dir>` | Revoke an approval record |
 | `render <dir>` | Final render; requires a valid approval record (`--short <name>` / `--shorts` for short-form outputs) |

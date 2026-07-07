@@ -28,6 +28,8 @@ import type { Problem, ValidateResult } from "../stages/validate.ts";
 import { formatMaterialsSummary, materials } from "../stages/materials.ts";
 import type { MaterialsOptions } from "../stages/materials.ts";
 import type { MaterialsIndex } from "../lib/materials.ts";
+import { av, formatAvSummary } from "../stages/av.ts";
+import type { AvResult } from "../stages/av.ts";
 import { assert as assertProject } from "../stages/assert.ts";
 import type { AssertReport } from "../stages/assert.ts";
 import { parseT } from "../lib/fmt.ts";
@@ -213,6 +215,68 @@ function materialsHumanLines(index: MaterialsIndex): string[] {
   return formatMaterialsSummary(index);
 }
 
+/* ---------------- cutflow_av ---------------- */
+
+interface AvArgs {
+  range?: string;
+  every?: number;
+  short?: string;
+  fullRes?: boolean;
+  motionOnly?: boolean;
+  soundOnly?: boolean;
+}
+
+function parseAvArgs(raw: unknown): AvArgs {
+  const a = asRecord(raw);
+  const args: AvArgs = {};
+  if (a.range !== undefined) {
+    if (typeof a.range !== "string") throw new JsonRpcError(-32602, "range must be a string");
+    args.range = a.range;
+  }
+  if (a.every !== undefined) {
+    if (typeof a.every !== "number") throw new JsonRpcError(-32602, "every must be a number");
+    args.every = a.every;
+  }
+  if (a.short !== undefined) {
+    if (typeof a.short !== "string") throw new JsonRpcError(-32602, "short must be a string");
+    args.short = a.short;
+  }
+  if (a.fullRes !== undefined) {
+    if (typeof a.fullRes !== "boolean") throw new JsonRpcError(-32602, "fullRes must be a boolean");
+    args.fullRes = a.fullRes;
+  }
+  if (a.motionOnly !== undefined) {
+    if (typeof a.motionOnly !== "boolean") throw new JsonRpcError(-32602, "motionOnly must be a boolean");
+    args.motionOnly = a.motionOnly;
+  }
+  if (a.soundOnly !== undefined) {
+    if (typeof a.soundOnly !== "boolean") throw new JsonRpcError(-32602, "soundOnly must be a boolean");
+    args.soundOnly = a.soundOnly;
+  }
+  if (args.motionOnly === true && args.soundOnly === true) {
+    throw new JsonRpcError(-32602, "motionOnly and soundOnly cannot both be true");
+  }
+  return args;
+}
+
+function parseRange(range: string | undefined): { startSec: number; endSec: number } | undefined {
+  if (range === undefined) return undefined;
+  const [startRaw, endRaw] = range.split("-");
+  if (startRaw === undefined || endRaw === undefined) {
+    throw new JsonRpcError(-32602, `cannot parse range: ${range}`);
+  }
+  const startSec = parseT(startRaw.trim());
+  const endSec = parseT(endRaw.trim());
+  if (startSec === null || endSec === null || endSec <= startSec) {
+    throw new JsonRpcError(-32602, `cannot parse range: ${range}`);
+  }
+  return { startSec, endSec };
+}
+
+function avHumanLines(result: AvResult): string[] {
+  return formatAvSummary(result);
+}
+
 /* ---------------- cutflow_assert ---------------- */
 
 function assertHumanLines(report: AssertReport): string[] {
@@ -359,6 +423,36 @@ export function makeTools(dir: string, cfg: Config): ToolDef[] {
         };
         const { index } = await materials(dir, opts, cfg);
         return toToolResult(materialsHumanLines(index), index, false);
+      },
+    },
+    {
+      name: "cutflow_av",
+      description:
+        "Machine-readable motion/sound feedback on the kept output timeline. Writes " +
+        "av.probe/motion.json, av.probe/sound.json, and a motion strip PNG.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          range: { type: "string", description: "output-time range, e.g. \"10-25.5\"" },
+          every: { type: "number", description: "motion sample interval in seconds" },
+          short: { type: "string", description: "named short from shorts.json" },
+          fullRes: { type: "boolean", description: "use source video instead of proxy for motion" },
+          motionOnly: { type: "boolean", description: "collect motion only" },
+          soundOnly: { type: "boolean", description: "collect sound only" },
+        },
+        additionalProperties: false,
+      },
+      handler: async (rawArgs) => {
+        const args = parseAvArgs(rawArgs);
+        const result = await av(dir, {
+          range: parseRange(args.range),
+          everySec: args.every,
+          short: args.short,
+          fullRes: args.fullRes,
+          motionOnly: args.motionOnly,
+          soundOnly: args.soundOnly,
+        }, cfg);
+        return toToolResult(avHumanLines(result), result, false);
       },
     },
     {
