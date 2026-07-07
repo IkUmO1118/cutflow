@@ -156,7 +156,7 @@ class HttpError extends Error {
 const DEFAULT_MAX_UPLOAD_MB = 2048;
 
 /** エディタが編集する(=外部変更を監視する)ファイル */
-const WATCHED_FILES = ["cutplan.json", "overlays.json", "transcript.json", "shorts.json"];
+const WATCHED_FILES = ["cutplan.json", "overlays.json", "transcript.json", "bgm.json", "shorts.json"];
 /** 未保存編集の自動退避先(隠しファイル。素材一覧・外部変更の監視の対象外) */
 const DRAFT_FILE = ".editor-draft.json";
 /** /api/save が最後に各ファイルを書いた時刻。watch の自己イベント除外用 */
