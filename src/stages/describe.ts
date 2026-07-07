@@ -6,6 +6,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fmtT } from "../lib/fmt.ts";
+import { resolveDescribePausesCfg } from "../lib/config.ts";
+import type { Config } from "../lib/config.ts";
+import { pausesWithinKeeps } from "../lib/perception.ts";
+import type { KeepPause } from "../lib/perception.ts";
 import { framesFreshness } from "../lib/framesIndex.ts";
 import type { FramesShot } from "../lib/framesIndex.ts";
 import { loadShorts } from "../lib/shorts.ts";
@@ -20,6 +24,7 @@ import {
 import type { TimelineEntry } from "../lib/timeline.ts";
 import { captionTrack, hasCamera, manifestLayout, overlayTrack } from "../types.ts";
 import type {
+  AutoCuts,
   Bgm,
   BlurType,
   CaptionPos,
@@ -37,6 +42,7 @@ import type {
   Region,
   Short,
   Shorts,
+  SystemTranscript,
   Transcript,
   WordTiming,
 } from "../types.ts";
@@ -59,6 +65,9 @@ interface DescribeInputs {
   chapters: Chapters;
   meta: Meta;
   shorts: Shorts | null;
+  /** システム音声の知覚専用文字起こし(transcript.system.json)。無ければ null
+   *  =散文/--json ともにバイト等価(ファイル存在でのみ露出) */
+  systemTranscript: SystemTranscript | null;
   keeps: Interval[];
   cutRecords: PlanSegment[];
   inserts: LoadedInsert[];
@@ -93,6 +102,7 @@ function loadDescribeInputs(dir: string): DescribeInputs {
   const chapters = readOptional<Chapters>("chapters.json", { chapters: [] });
   const meta = readOptional<Meta>("meta.json", { titles: [], description: "" });
   const shorts = loadShorts(dir);
+  const systemTranscript = readOptional<SystemTranscript | null>("transcript.system.json", null);
 
   const keeps = mergeIntervals(
     cutplan.segments.filter((s) => s.action === "keep"),
@@ -115,6 +125,7 @@ function loadDescribeInputs(dir: string): DescribeInputs {
     chapters,
     meta,
     shorts,
+    systemTranscript,
     keeps,
     cutRecords,
     inserts,
@@ -141,7 +152,7 @@ function keepIndexOf(
   return i >= 0 ? i : null;
 }
 
-export function describe(dir: string): string {
+export function describe(dir: string, cfg?: Config): string {
   const inp = loadDescribeInputs(dir);
   const {
     manifest,
@@ -151,6 +162,7 @@ export function describe(dir: string): string {
     bgm,
     chapters,
     meta,
+    systemTranscript,
     keeps,
     cutRecords,
     inserts,
@@ -158,6 +170,22 @@ export function describe(dir: string): string {
     keptSec,
     outDur,
   } = inp;
+
+  // keep 内の間(cfg.describe.pauses が真のときだけ。cfg 省略時は無効=バイト等価)。
+  // cuts.auto.json の silences から算出(新規計測なし)。keepIndex ごとに引ける形に
+  const pausesCfg = cfg ? resolveDescribePausesCfg(cfg) : { enabled: false, max: 3, minSec: 0.6 };
+  const pausesByKeep = new Map<number, KeepPause[]>();
+  if (pausesCfg.enabled) {
+    const autoPath = join(dir, "cuts.auto.json");
+    const silences = existsSync(autoPath)
+      ? (JSON.parse(readFileSync(autoPath, "utf8")) as AutoCuts).silences
+      : [];
+    for (const p of pausesWithinKeeps(keeps, silences, pausesCfg.minSec)) {
+      const arr = pausesByKeep.get(p.keepIndex) ?? [];
+      if (arr.length < pausesCfg.max) arr.push(p);
+      pausesByKeep.set(p.keepIndex, arr);
+    }
+  }
 
   const quote = (text: string): string => {
     const t = text.trim().replace(/\s+/g, " ");
@@ -213,6 +241,19 @@ export function describe(dir: string): string {
       if (keepIndexOf(s, keeps, timeline) !== i) continue;
       const track = captionTrack(s);
       lines.push(`    ${fmtT(s.start)}${track > 1 ? ` [T${track}]` : ""}「${quote(s.text)}」`);
+    }
+    // システム音声(アプリ/デモ/TTS)の発話。transcript.system.json があるときだけ
+    // (ファイル不在=null なら1行も足さない=散文 golden はバイト等価)
+    if (systemTranscript) {
+      for (const s of systemTranscript.segments) {
+        if (overlaps(s, k.start, k.end)) {
+          lines.push(`    ${fmtT(s.start)} [システム音声]「${quote(s.text)}」`);
+        }
+      }
+    }
+    // keep 内の間(cfg.describe.pauses が真のときだけ。無効なら1行も足さない)
+    for (const p of pausesByKeep.get(i) ?? []) {
+      lines.push(`    間 元 ${fmtT(p.start)}(${p.len.toFixed(1)}秒・keep先頭+${p.offset.toFixed(1)}秒)`);
     }
   }
 
@@ -325,6 +366,15 @@ export interface DescribeProjection {
   meta: { titles: string[]; description: string };
   bgm: BgmProjection;
   shorts: ShortEntry[];
+  /** システム音声の知覚専用文字起こし(transcript.system.json)。**ファイルが
+   *  在るときだけ**このキーが出る(不在時は省略=既存 --json とバイト等価)。
+   *  規則C(トップレベル常在)の明示的な例外=新規任意成果物は存在時のみ */
+  systemAudio?: SystemAudioProjection;
+}
+
+export interface SystemAudioProjection {
+  speaker: "system";
+  segments: { start: number; end: number; text: string; out: Interval[] }[];
 }
 
 export interface SourceInfo {
@@ -357,6 +407,9 @@ export interface KeepEntry {
   durationSec: number;
   outStart: number;
   outEnd: number;
+  /** keep 内に残った無音(間)。`describe.pauses` が真のときだけ付く
+   *  (既定オフ=省略=既存 --json とバイト等価)。ショートの mergedRanges には付かない */
+  pauses?: KeepPause[];
 }
 
 export interface CutEntry {
@@ -501,7 +554,7 @@ function buildKeepEntries(keeps: Interval[], timeline: TimelineEntry[]): KeepEnt
   });
 }
 
-function buildProjection(inp: DescribeInputs): DescribeProjection {
+function buildProjection(inp: DescribeInputs, cfg?: Config): DescribeProjection {
   const { dir, manifest, cutplan, transcript, overlays, chapters, meta, timeline, keeps } = inp;
 
   const source: SourceInfo = {
@@ -528,6 +581,27 @@ function buildProjection(inp: DescribeInputs): DescribeProjection {
   };
 
   const keepEntries = buildKeepEntries(keeps, timeline);
+
+  // keep 内の間(describe.pauses が真のときだけ本編 keeps に付ける。cfg 省略・
+  // 無効なら pauses キーを一切足さない=既存 --json とバイト等価。ショートの
+  // mergedRanges には付けない=buildKeepEntries を共有しつつ本編だけに後付け)
+  const pausesCfg = cfg ? resolveDescribePausesCfg(cfg) : { enabled: false, max: 3, minSec: 0.6 };
+  if (pausesCfg.enabled) {
+    const autoPath = join(dir, "cuts.auto.json");
+    const silences = existsSync(autoPath)
+      ? (JSON.parse(readFileSync(autoPath, "utf8")) as AutoCuts).silences
+      : [];
+    const byKeep = new Map<number, KeepPause[]>();
+    for (const p of pausesWithinKeeps(keeps, silences, pausesCfg.minSec)) {
+      const arr = byKeep.get(p.keepIndex) ?? [];
+      if (arr.length < pausesCfg.max) arr.push(p);
+      byKeep.set(p.keepIndex, arr);
+    }
+    for (const ke of keepEntries) {
+      const ps = byKeep.get(ke.index);
+      if (ps && ps.length > 0) ke.pauses = ps;
+    }
+  }
 
   /* ---- cuts(gap を keep と同じ手順で走査。消える発言は全文) ---- */
   const cuts: CutEntry[] = [];
@@ -700,6 +774,20 @@ function buildProjection(inp: DescribeInputs): DescribeProjection {
     };
   });
 
+  // システム音声(transcript.system.json)。ファイルが在るときだけ systemAudio
+  // キーを足す(不在時は省略=既存 --json とバイト等価。規則C の明示的例外)
+  const systemAudio: SystemAudioProjection | undefined = inp.systemTranscript
+    ? {
+        speaker: "system",
+        segments: inp.systemTranscript.segments.map((s) => ({
+          start: s.start,
+          end: s.end,
+          text: s.text,
+          out: remapInterval(s.start, s.end, timeline),
+        })),
+      }
+    : undefined;
+
   return {
     schemaVersion: 1,
     source,
@@ -712,11 +800,12 @@ function buildProjection(inp: DescribeInputs): DescribeProjection {
     meta: { titles: meta.titles, description: meta.description },
     bgm,
     shorts,
+    ...(systemAudio !== undefined ? { systemAudio } : {}),
   };
 }
 
 /** 編集状態の機械可読な完全射影(`describe --json`)。発話・タイトルは
  * 一切切り捨てない(規則A)。CLI 配線はタスク4(このタスクではまだ未参照) */
-export function describeJson(dir: string): DescribeProjection {
-  return buildProjection(loadDescribeInputs(dir));
+export function describeJson(dir: string, cfg?: Config): DescribeProjection {
+  return buildProjection(loadDescribeInputs(dir), cfg);
 }

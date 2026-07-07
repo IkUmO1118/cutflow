@@ -29,6 +29,11 @@ export interface Manifest {
     systemStream: number | null;
     /** 抽出済みマイク音声(16kHz mono wav、収録フォルダからの相対パス) */
     micWav: string;
+    /** 抽出済みシステム音声(16kHz mono wav、収録フォルダからの相対パス)。
+     *  whisper.systemAudio 有効 かつ systemStream が存在するときだけ設定される。
+     *  省略時=未抽出(既定・バイト等価)。知覚専用(transcript.system.json を
+     *  作るためだけの入力。描画・mix には無関係) */
+    systemWav?: string;
   };
   createdAt: string;
 }
@@ -54,6 +59,20 @@ export interface Transcript {
   language: string;
   model: string;
   segments: TranscriptSegment[];
+}
+
+/** transcribe が生成する知覚専用のシステム音声文字起こし(transcript.system.json)。
+ * **描画されない**(テロップにならない)・**編集されない**・`@id`/承認 hash/apply の
+ * 対象外。plan / describe が「アプリ・デモ・TTS が何を鳴らしたか」を読むためだけの
+ * 生成物(GENERATED カテゴリ)。`track`/`pos`/`style`/`words`/`id` を構造的に持たない
+ * ことで「描画・アドレッシングの契約は transcript.json だけが担う」を型で表す。
+ * 時刻は他と同じく元収録(raw)の秒。`speaker` はトラック起源の話者帰属(mic=host に
+ * 対する system の対比。音響的な話者分離ではない=§audio-perception-design D4) */
+export interface SystemTranscript {
+  language: string;
+  model: string;
+  speaker: "system";
+  segments: { start: number; end: number; text: string }[];
 }
 
 export interface TranscriptSegment {
@@ -779,3 +798,42 @@ export type EditOp =
   | { op: "set"; target: string; field: string; value: unknown }
   | { op: "remove"; target: string }
   | { op: "add"; target: string; value: Record<string, unknown>; at?: number };
+
+/** 編集後の意図を宣言的に検査する期待値ファイル(assertions.json)。人間/AI が
+ * 手で書く「宣言ファイル」で、rules.md / brief.md と同じ第3カテゴリ
+ * (EDITABLE_FILES にも GENERATED_FILES にも属さない。src/lib/files.ts は
+ * 無変更=`fileRole("assertions.json") === "other"`)。plan/run の再実行でも
+ * 上書きされず、収録をまたいで生き残る。判定は `assert <dir>` コマンドが
+ * `describe --json`(構造 Tier 1)と `frames --ocr`(視覚 Tier 2・`--visual`
+ * のときだけ)の射影と照合して行う(src/stages/assert.ts)。
+ * JSON Schema: schemas/assertions.schema.json(§5点セット) */
+export interface AssertionsDoc {
+  schemaVersion: number;
+  assertions: Assertion[];
+}
+
+/** アサーションの数値比較演算子(outDuration / keepCount が使う) */
+export type AssertOp = "<=" | ">=" | "<" | ">" | "==";
+
+/** 1件の期待値宣言。type で判別されるユニオン(9種)。共通で任意の label?
+ * (レポート表示用の作者ラベル。要素の @id とは別物)を持てる。
+ * Tier 1(構造。describe --json 射影から。依存ゼロ・数ミリ秒・全環境):
+ * outDuration / keepCount / captionVisible / captionText / timeKept /
+ * materialExists / noCaptionOverlap。
+ * Tier 2(視覚。frames --ocr から。macOS 依存・`assert --visual` のときだけ
+ * 評価。既定では skip): screenText / regionClear。
+ * ref を取るもの(captionVisible/captionText/materialExists/regionClear)は
+ * `@id`(または素の id)で対象を指す。プロジェクトに id が1つも無い(id-stamp
+ * 未実行)場合は fail ではなく error になる(docs/plans/2026-07-07-
+ * visual-assertions-design.md 論点3) */
+export type Assertion =
+  | { label?: string; type: "outDuration"; op: AssertOp; value: number; short?: string }
+  | { label?: string; type: "keepCount"; op: AssertOp; value: number }
+  | { label?: string; type: "captionVisible"; ref: string; visible?: boolean }
+  | { label?: string; type: "captionText"; ref: string; contains?: string; equals?: string }
+  | { label?: string; type: "timeKept"; at: number; kept?: boolean }
+  | { label?: string; type: "materialExists"; ref: string }
+  | { label?: string; type: "noCaptionOverlap"; track?: number }
+  // Tier 2(視覚・opt-in。--visual のときだけ評価。既定は skip)
+  | { label?: string; type: "screenText"; at: number; contains: string; present?: boolean }
+  | { label?: string; type: "regionClear"; ref: string };

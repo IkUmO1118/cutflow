@@ -9,6 +9,8 @@ import { resolvePerceptionCfg } from "../lib/config.ts";
 import {
   computeAudioFeatures,
   computeSegmentOcr,
+  computeSystemSpeech,
+  loadSystemTranscript,
   renderPerceptionBlock,
 } from "../lib/perception.ts";
 import type { Config } from "../lib/config.ts";
@@ -161,7 +163,11 @@ export async function plan(
         (msg) => console.warn(`警告: ${msg}`),
       )
     : null;
-  const perception = renderPerceptionBlock(audio, ocr);
+  // システム音声の発話(transcript.system.json)を各区間へ帰属(§D7)。
+  // systemSpeech オフ or ファイル不在なら null=従来出力とバイト等価
+  const sysT = pc.systemSpeech ? loadSystemTranscript(dir) : null;
+  const system = sysT ? computeSystemSpeech(numbered, sysT.segments) : null;
+  const perception = renderPerceptionBlock(audio, system, ocr);
   const prompt = renderPrompt(dir, templateFile, numbered, auto.originalDurationSec, perception);
   const raw = await complete(prompt, cfg);
   // LLM の生応答は必ず残す(パース失敗時の調査と、判断過程の記録のため)
@@ -232,7 +238,9 @@ export async function remeta(dir: string, cfg: Config): Promise<Meta> {
           (JSON.parse(readFileSync(autoPath, "utf8")) as AutoCuts).silences,
         )
       : null;
-  const perception = renderPerceptionBlock(audio, null);
+  const sysT = pc.systemSpeech ? loadSystemTranscript(dir) : null;
+  const system = sysT ? computeSystemSpeech(numbered, sysT.segments) : null;
+  const perception = renderPerceptionBlock(audio, system, null);
 
   const prompt = renderPrompt(dir, "meta.md", numbered, manifest.durationSec, perception);
   const raw = await complete(prompt, cfg);
