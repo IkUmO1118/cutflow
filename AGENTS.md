@@ -226,4 +226,53 @@ without `--force`; with `--force`, hand-edited files are moved to
 | `unapprove <dir>` | Revoke an approval record |
 | `render <dir>` | Final render; requires a valid approval record (`--short <name>` / `--shorts` for short-form outputs) |
 | `editor <dir>` | Launch the GUI editor |
+| `mcp <dir>` | Launch a Model Context Protocol server over stdio, bound to this one recording folder (§11) |
 | `run <dir>` | First-time bulk pipeline: ingest → transcribe → detect → plan (§9: do not re-run casually) |
+
+## 11. MCP tools
+
+`node src/cli.ts mcp <dir>` starts a Model Context Protocol server on stdio
+(newline-delimited JSON-RPC 2.0), bound at startup to the single recording
+folder given as `<dir>`. Any MCP-capable host can attach to it and discover
+the tools below via `tools/list`. There is no dependency on any particular
+MCP client implementation — the transport is a minimal, self-contained
+JSON-RPC 2.0 loop over stdin/stdout (`initialize` / `notifications/initialized`
+/ `tools/list` / `tools/call` / `ping`), and stdout carries JSON-RPC only
+(all logging goes to stderr).
+
+### Trust model
+
+**The server exposes only "read" (`describe` / `validate` / `frames` /
+`materials` / `assert`) and "safe edits outside the approval scope"
+(`apply` / `id-stamp`).** `approve`, `unapprove`, `render`, `plan`, `remeta`,
+`plan-shorts`, `run`, `ingest`, `transcribe`, `detect`, `preview`,
+`thumbnail`, `editor`, and `frames-serve` are **never** exposed as tools —
+there is no generic "run a CLI command" tool either, so there is no way to
+reach them through this server. Approval is a human-only action; its actual
+substance is the hash-bound record in `approvals.json` (§5). The MCP server
+cannot mint that record, cannot flip `approved`, and cannot bypass the
+render gate: `cutflow_apply` calls the same `applyEdits`/`planApply`
+functions the `apply` CLI command uses, which refuse to touch
+`approvals.json` and reject any operation that changes `approved` before
+anything is written. The server also cannot leave its bound recording
+folder — `<dir>` is fixed once at startup, and no tool takes a `dir`
+argument.
+
+### Exposed tools
+
+| Tool | Kind | What it does |
+|---|---|---|
+| `cutflow_describe` | read | The full machine-readable projection of the current edit state (same payload as `describe <dir> --json`) |
+| `cutflow_validate` | read | Structural + invariant checks (same as `validate <dir>`); `isError: true` when there are errors |
+| `cutflow_frames` | read (perception) | Render still frames with the final-composite look (same as `frames <dir>`); exactly one of `t` / `captions` / `every` must be given |
+| `cutflow_materials` | read | Probe materials (B-roll) and cross-link overlay/insert/bgm references (same as `materials <dir>`) |
+| `cutflow_assert` | read (verification) | Check `assertions.json` against the current edit state (same as `assert <dir>`) |
+| `cutflow_apply` | safe edit | Checked, atomic `@id`-op / whole-file-replace patch application (same as `apply <dir>`, including `--dry-run` via a `dryRun` argument); cannot change `approved` |
+| `cutflow_id_stamp` | safe edit | Assign stable `@id`s to addressable elements that don't have one yet (same as `id-stamp <dir>`); idempotent, `approvals.json` untouched |
+
+Domain-level failures (a `validate` error, an `apply` patch rejected by its
+checks) are reported as a normal `tools/call` success result with
+`isError: true` and structured JSON content, not as a JSON-RPC protocol
+error — this lets a calling agent read the failure and self-correct.
+Protocol-level problems (malformed JSON-RPC, an unknown method, an unknown
+or malformed tool call) use standard JSON-RPC error codes instead.

@@ -57,9 +57,12 @@ program.hook("postAction", (_thisCommand, actionCommand) => {
   const sec = ((Date.now() - commandStartedAt) / 1000).toFixed(1);
   const line = `(所要時間: ${sec}秒)`;
   // JSON 射影はパイプ可能な純 JSON を stdout に出すので、診断行だけ stderr へ逃がす。
+  // mcp は stdout が JSON-RPC 専用チャネルなので同様に stderr へ逃がす(サーバは
+  // 通常 SIGINT まで返らないため多くの場合発火しないが、安全のため明示的に対応)。
   // 他コマンド・散文 describe/assert の stdout は従来どおり console.log(=不変)
   const jsonCommands = new Set(["describe", "assert"]);
-  if (jsonCommands.has(actionCommand.name()) && actionCommand.opts().json === true) {
+  const isMcp = actionCommand.name() === "mcp";
+  if (isMcp || (jsonCommands.has(actionCommand.name()) && actionCommand.opts().json === true)) {
     console.error(line);
   } else {
     console.log(line);
@@ -741,6 +744,20 @@ program
     // esbuild 等のエディタ専用依存を CLI 起動時に読ませないため動的 import
     const { startEditor } = await import("../editor/server.ts");
     await startEditor(resolveDir(dir), cfg, cfgPath);
+  });
+
+program
+  .command("mcp <dir>")
+  .description(
+    "Model Context Protocol サーバを起動(stdio。read + 承認スコープ外の安全編集の" +
+      "tool だけを露出。approve/render/plan 等は一切露出しない。終了は Ctrl+C)",
+  )
+  .action(async (dir: string) => {
+    const cfg = loadConfig(program.opts().config);
+    const abs = resolveDir(dir);
+    // MCP 専用コードを他コマンド起動時に読ませないため動的 import
+    const { startMcpServer } = await import("./mcp/server.ts");
+    await startMcpServer(abs, cfg);
   });
 
 program
