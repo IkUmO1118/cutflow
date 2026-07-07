@@ -12,11 +12,16 @@
 // Tier 2(視覚・screenText/regionClear)は evaluateStructural では常に skip
 // (--visual が必要)。実評価は evaluateVisual(T4)+ --visual 配線(T5)で行う。
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AssertionsDoc, AssertOp, Region } from "../types.ts";
+import type { AssertionsDoc, AssertOp, Manifest, Region } from "../types.ts";
 import { fmtT } from "../lib/fmt.ts";
+import { runOcr } from "../lib/ocr.ts";
 import type { OcrResult } from "../lib/ocr.ts";
+import { buildScreenStill } from "../lib/screenStill.ts";
+import { buildTimeline, toSourceTime } from "../lib/timeline.ts";
+import type { InsertSpan, TimelineEntry } from "../lib/timeline.ts";
 import { describeJson } from "./describe.ts";
 import type { BlurEntry, CaptionEntry, DescribeProjection, MaterialEntry } from "./describe.ts";
 
@@ -387,7 +392,7 @@ function buildReport(outcomes: AssertOutcome[]): AssertReport {
 export interface AssertRunOptions {
   /** Tier 2(視覚アサーション)も評価する。省略時(既定)は false で、
    * screenText/regionClear は evaluateStructural の skip のまま返る
-   * (frames/OCR を一切呼ばない。T5 で実装) */
+   * (frames/OCR を一切呼ばない) */
   visual?: boolean;
 }
 
@@ -396,9 +401,16 @@ export interface AssertRunOptions {
  * <dir>/assertions.json があれば読んで evaluateStructural へ渡す。
  * assertions.json が無ければ空レポート(counts 全ゼロ)を返す
  * (未使用時は無害・exit 0 の CLI 契約を支える)。
+ *
+ * `opts.visual` が真のときだけ Tier 2(screenText/regionClear)も評価する。
+ * 必要な元収録秒(screenText はその `at`、regionClear は対象 blur の可視
+ * 区間の中央 → toSourceTime で元収録秒へ逆写像)ごとに frames.ts と同じ
+ * 経路(buildScreenStill → runOcr)で screenRegion をフル解像度クロップし
+ * OCR を撮り、evaluateVisual の結果で evaluateStructural の skip を上書きする。
+ * `opts.visual` を付けない限りこのブロックには一切入らない
+ * (frames/OCR を呼ばない=Tier 1 の速度・全環境性は不変)。
  */
-export function assert(dir: string, opts: AssertRunOptions = {}): AssertReport {
-  void opts; // --visual の配線は T5(evaluateVisual 追加後)
+export async function assert(dir: string, opts: AssertRunOptions = {}): Promise<AssertReport> {
   const specPath = join(dir, "assertions.json");
   if (!existsSync(specPath)) {
     return buildReport([]);
@@ -406,5 +418,68 @@ export function assert(dir: string, opts: AssertRunOptions = {}): AssertReport {
   const spec = JSON.parse(readFileSync(specPath, "utf8")) as AssertionsDoc;
   const proj = describeJson(dir);
   const outcomes = evaluateStructural(proj, spec);
-  return buildReport(outcomes);
+  if (!opts.visual) {
+    return buildReport(outcomes);
+  }
+
+  const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")) as Manifest;
+  // describeJson が内部で使ったのと同じ keep/insert 集合からタイムラインを
+  // 組み直す(proj.keeps / proj.overlays.inserts は describeJson が既に
+  // 計算済みの値なので、cutplan.json 等を読み直す必要はない)
+  const keeps = proj.keeps.map((k) => ({ start: k.start, end: k.end }));
+  const inserts: InsertSpan[] = proj.overlays.inserts
+    .filter((i) => i.exists)
+    .map((i) => ({ at: i.at, durationSec: i.durationSec }));
+  const timeline = buildTimeline(keeps, inserts);
+
+  const ocrByTime = await collectOcrSamples(dir, manifest, timeline, proj, spec);
+  const visualOutcomes = evaluateVisual(spec, ocrByTime, proj.overlays.blurs);
+  const merged = outcomes.map((o) => visualOutcomes.find((v) => v.index === o.index) ?? o);
+  return buildReport(merged);
+}
+
+/**
+ * Tier 2 の各アサーションに必要な元収録秒を特定し、frames.ts と同じ経路
+ * (フル解像度 screenRegion クロップ → Apple Vision OCR)で撮る。
+ * 非対応環境・実行失敗は runOcr が null を返す(例外を投げない優雅な劣化。
+ * ocr.ts の契約どおり)。ref が blurs[] に見つからない regionClear は
+ * ここでは何もしない(evaluateVisual が ocrByTime 未設定=error として扱う)。
+ */
+async function collectOcrSamples(
+  dir: string,
+  manifest: Manifest,
+  timeline: TimelineEntry[],
+  proj: DescribeProjection,
+  spec: AssertionsDoc,
+): Promise<Map<number, OcrResult | null>> {
+  const ocrByTime = new Map<number, OcrResult | null>();
+  for (const [index, a] of spec.assertions.entries()) {
+    let sourceSec: number | null = null;
+    if (a.type === "screenText") {
+      sourceSec = a.at;
+    } else if (a.type === "regionClear") {
+      const blur = findById(proj.overlays.blurs, a.ref);
+      if (!blur) continue; // ref 未解決。evaluateVisual が error にする
+      const outMid = blur.out.length > 0 ? (blur.out[0].start + blur.out[0].end) / 2 : null;
+      sourceSec =
+        (outMid !== null ? toSourceTime(outMid, timeline) : null) ??
+        (blur.start + blur.end) / 2;
+    } else {
+      continue;
+    }
+    const cropPath = join(
+      tmpdir(),
+      `cutflow-assert-ocr-${process.pid}-${index}-${sourceSec.toFixed(2)}.png`,
+    );
+    try {
+      await buildScreenStill(dir, manifest, sourceSec, cropPath);
+      const result = await runOcr(cropPath, manifest.video.screenRegion, {
+        warn: (msg) => console.warn(`警告: ${msg}`),
+      });
+      ocrByTime.set(index, result);
+    } finally {
+      if (existsSync(cropPath)) rmSync(cropPath);
+    }
+  }
+  return ocrByTime;
 }
