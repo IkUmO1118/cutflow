@@ -58,7 +58,7 @@ render:
   # 字幕・テロップの画面端からの余白(px)。ワイプの位置には影響しない
   wipeMarginPx: 32
   # ワイプ全画面(overlays.json の wipeFull)の出入りの遷移時間(秒)。0で瞬時
-  wipeTransitionSec: 0.3
+  wipeTransitionSec: 0.2
   # カット境界(keep区間の継ぎ目)のトランジション。none で従来どおり瞬時切り替え。
   # dip-to-black で境界の前後に黒フェードを入れる(尺・音声は変わらない)。
   # sec は黒への往復の合計秒(前半でフェードアウト、後半でフェードイン)
@@ -131,7 +131,7 @@ render:
 ocr:
   # 認識言語の優先順(Vision の recognitionLanguages)。開発画面は英語コードが
   # 主で日本語テロップ/コメントが混在するので en 優先・ja 併記
-  languages: [en, ja]
+  languages: [ en, ja ]
 
 # 常駐フレームサーバ(frames-serve コマンド)。省略可(既定 4311)。
 # 有効化フラグはここには置かない(opt-in は frames-serve の明示起動で
@@ -159,12 +159,12 @@ planShorts:
 
 # plan(カット判断 LLM。plan / plan --cuts-only / remeta)へ発話以外の
 # 知覚を添える(既定オフ。省略すれば導入前と完全にバイト等価)
-# plan:
-#   perception:
-#     audio: true        # 無音・間の注記(決定論・追加依存なし。まずこれから)
-#     ocr: false         # 画面OCRテキスト(macOS/Apple Vision 必要・区間数ぶん重い)
-#     ocrMaxSegments: 40
-#     ocrMaxLines: 6
+plan:
+  perception:
+    audio: true        # 無音・間の注記(決定論・追加依存なし。まずこれから)
+    ocr: true          # 画面OCRテキスト(macOS/Apple Vision 必要・区間数ぶん重い)
+    ocrMaxSegments: 40
+    ocrMaxLines: 6
 
 # 意味カット・章立て・タイトル案の生成
 llm:

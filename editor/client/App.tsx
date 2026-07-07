@@ -3117,6 +3117,7 @@ export const App = () => {
         externalChange={externalChange}
         proxyStale={proxyStale}
         proxyBusy={proxyBusy}
+        warnings={built?.warnings ?? []}
         onRestore={restoreDraft}
         onDiscard={discardDraft}
         onReload={() => void reloadFromDisk()}
@@ -3304,13 +3305,6 @@ export const App = () => {
                   </button>
                 </>
               )}
-            </div>
-          )}
-          {built.warnings.length > 0 && (
-            <div className="warnbox">
-              {built.warnings.map((w) => (
-                <div key={w}>⚠ {w}</div>
-              ))}
             </div>
           )}
         </div>
@@ -3562,15 +3556,19 @@ export const App = () => {
   );
 };
 
-/** ヘッダー直下の要対応バナー行(T4)。draftOffer / externalChange / proxyStale は
- * 「ユーザーが操作するまで真であり続ける条件」で、時間で消える通知(トースト)とは
- * 寿命モデルが違うのでバナーに残す。いずれも真でなければ何も描かない。複数同時
- * 成立(externalChange + proxyStale 等)は .banner を縦積みで自然に扱う */
+/** ヘッダー直下の要対応バナー行(T4)。draftOffer / externalChange / proxyStale /
+ * warnings(built.warnings。hideCaption・blurs×zoom重なり・blursのショート非継承・
+ * ショートprofileフォールバック等)は「ユーザーが操作するまで真であり続ける条件」で、
+ * 時間で消える通知(トースト)とは寿命モデルが違うのでバナーに残す(warnings は
+ * 対象の JSON を直せば次の再計算で自然に消える。個別の「後で」は持たない)。
+ * いずれも真でなければ何も描かない。複数同時成立(externalChange + proxyStale 等)は
+ * .banner を縦積みで自然に扱う */
 const HeaderBanners = ({
   draftOffer,
   externalChange,
   proxyStale,
   proxyBusy,
+  warnings,
   onRestore,
   onDiscard,
   onReload,
@@ -3581,15 +3579,21 @@ const HeaderBanners = ({
   externalChange: boolean;
   proxyStale: boolean;
   proxyBusy: boolean;
+  warnings: string[];
   onRestore: () => void;
   onDiscard: () => void;
   onReload: () => void;
   onRegenProxy: () => void;
   onDismissProxyStale: () => void;
 }) => {
-  if (!draftOffer && !externalChange && !proxyStale) return null;
+  if (!draftOffer && !externalChange && !proxyStale && warnings.length === 0) return null;
   return (
     <>
+      {warnings.map((w) => (
+        <div className="banner" key={w}>
+          <span className="msg">⚠ {w}</span>
+        </div>
+      ))}
       {draftOffer && (
         <div
           className="banner"
