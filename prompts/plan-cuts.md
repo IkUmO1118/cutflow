@@ -1,5 +1,5 @@
 # plan --cuts-only ステージ用プロンプト
-# segments / duration / brief / rules / perception の各プレースホルダーが実行時に置換される
+# segments / duration / brief / rules の各プレースホルダーが実行時に置換される
 
 あなたは開発系YouTube動画の編集者です。撮って出しの録画から、テンポの良い
 動画にするためのカット判断だけを行います(章立て・タイトル案・概要欄は
