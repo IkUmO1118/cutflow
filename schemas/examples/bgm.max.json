@@ -1,0 +1,15 @@
+{
+  "tracks": [
+    {
+      "id": "bg_a1b2c3",
+      "start": 0,
+      "end": 60,
+      "file": "bgm.mp3",
+      "volumeDb": -6,
+      "startFrom": 10,
+      "fadeInSec": 1,
+      "fadeOutSec": 2
+    },
+    { "start": 60, "end": 120, "file": "materials/outro.mp3" }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cutflow.dev/schemas/meta.schema.json",
+  "$comment": "src/types.ts の Meta の射影。タイトル案・概要欄の下書き。動画には影響しない。meta.json は id を持つ要素が無いため、id によるアドレッシング(@id)の対象外(§AGENTS.md)。",
+  "type": "object",
+  "required": ["titles", "description"],
+  "properties": {
+    "titles": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "description": { "type": "string" }
+  }
+}

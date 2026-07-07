@@ -1,0 +1,12 @@
+{
+  "t": 12.5,
+  "texts": [
+    {
+      "id": "tx_a1b2c3",
+      "text": "衝撃の結末",
+      "pos": { "x": 960, "y": 200 },
+      "style": { "fontSizePx": 96, "color": "#ffffff", "outlineColor": "#2563eb", "fontWeight": 900 }
+    },
+    { "text": "副題(style省略)", "pos": { "x": 960, "y": 900 } }
+  ]
+}

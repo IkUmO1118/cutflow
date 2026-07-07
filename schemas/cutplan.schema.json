@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cutflow.dev/schemas/cutplan.schema.json",
+  "$comment": "src/types.ts の CutPlan / PlanSegment の射影。approved は人間の承認意図の表示に過ぎず、render の実ゲートは approvals.json(このスキーマの対象外。§AGENTS.md 承認境界)。segments の時系列順・重なり禁止は node src/cli.ts validate が担う(schema はここでは検査しない)。",
+  "type": "object",
+  "required": ["approved", "segments"],
+  "properties": {
+    "approved": { "type": "boolean" },
+    "segments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["start", "end", "action", "reason"],
+        "properties": {
+          "id": { "$ref": "common.schema.json#/$defs/id" },
+          "start": { "type": "number" },
+          "end": { "type": "number" },
+          "action": { "enum": ["keep", "cut"] },
+          "reason": { "type": "string" }
+        }
+      }
+    }
+  }
+}
