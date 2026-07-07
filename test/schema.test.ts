@@ -42,6 +42,7 @@ const SCHEMAS_DIR = join(import.meta.dirname, "..", "schemas");
 const EXAMPLES_DIR = join(SCHEMAS_DIR, "examples");
 const TYPES_TS = readFileSync(join(import.meta.dirname, "..", "src", "types.ts"), "utf8");
 const VALIDATE_TS = readFileSync(join(import.meta.dirname, "..", "src", "stages", "validate.ts"), "utf8");
+const APPLY_EDITS_TS = readFileSync(join(import.meta.dirname, "..", "src", "lib", "applyEdits.ts"), "utf8");
 
 /** "export type <name> = ...;"(1行/複数行・行コメント混在OK)から
  * 文字列リテラルの union メンバーだけを抽出する(コメントには引用符が
@@ -60,6 +61,16 @@ function extractArrayLiteral(source: string, constName: string): string[] {
   const m = re.exec(source);
   if (!m) throw new Error(`${constName} が validate.ts に見つかりません(実装が変わった可能性)`);
   return [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
+}
+
+/** "const <name>: ... = { "key": {...}, ... }"(applyEdits.ts のローカル
+ * オブジェクト定数。export されていないため import できず、テキストから
+ * オブジェクトキー(先頭の引用符付きキー)だけを抽出する) */
+function extractObjectKeys(source: string, constName: string): string[] {
+  const re = new RegExp(`const ${constName}[^=]*= \\{([\\s\\S]*?)\\n\\};`, "m");
+  const m = re.exec(source);
+  if (!m) throw new Error(`${constName} が applyEdits.ts に見つかりません(実装が変わった可能性)`);
+  return [...m[1].matchAll(/^\s*"([^"]+)":/gm)].map((x) => x[1]);
 }
 
 const sortedEq = (a: readonly string[], b: readonly string[]): void => {
@@ -113,8 +124,9 @@ function loadRegistry(): Record<string, JsonSchema> {
   for (const key of FILE_KEYS) {
     registry[`${key}.schema.json`] = JSON.parse(readFileSync(join(SCHEMAS_DIR, `${key}.schema.json`), "utf8"));
   }
-  // apply-patch.schema.json は T4(schemas/apply-patch.schema.json 追加時)に
-  // このレジストリへ足す(依存順: T3 は T2 にのみ依存)
+  registry["apply-patch.schema.json"] = JSON.parse(
+    readFileSync(join(SCHEMAS_DIR, "apply-patch.schema.json"), "utf8"),
+  );
   return registry;
 }
 
@@ -222,4 +234,52 @@ test("ピン留め: shorts の profile enum === Object.keys(PROFILES)(profile.ts
   const shorts = loadRegistry()["shorts.schema.json"];
   const profileEnum = shorts.properties?.shorts.items?.properties?.profile.enum as string[];
   sortedEq(profileEnum, Object.keys(PROFILES));
+});
+
+/* ------------------------------------------------------------------ */
+/* apply-patch.schema.json(ApplyPatch / EditOp。docs/plans/2026-07-07-      */
+/* atomic-apply-design.md)                                              */
+/* ------------------------------------------------------------------ */
+
+test("ピン留め: add の target 選択子 enum === applyEdits.ts の ADD_SELECTORS", () => {
+  const selectors = extractObjectKeys(APPLY_EDITS_TS, "ADD_SELECTORS");
+  assert.ok(selectors.length > 0);
+  const patch = loadRegistry()["apply-patch.schema.json"];
+  const addTargetEnum = patch.$defs?.AddOp.properties?.target.enum as string[];
+  sortedEq(addTargetEnum, selectors);
+});
+
+test("apply-patch: set/remove/add の実例パッチ(test/applyEdits.test.ts 相当)が valid", () => {
+  const registry = loadRegistry();
+  const schema = registry["apply-patch.schema.json"];
+  const resolve = makeRegistryResolver(registry, "apply-patch.schema.json");
+  const patches: unknown[] = [
+    { ops: [{ op: "set", target: "@seg_a1a1a1", field: "reason", value: "更新後" }] },
+    { ops: [{ op: "remove", target: "@seg_a1a1a1" }] },
+    {
+      ops: [
+        { op: "add", target: "cutplan.segments", value: { start: 20, end: 30, action: "keep", reason: "新規" } },
+      ],
+    },
+    { ops: [{ op: "add", target: "bgm.tracks", value: { start: 0, end: 10, file: "bgm.mp3" }, at: 0 }] },
+    { replace: { chapters: { chapters: [{ start: 0, title: "導入" }] } } },
+    { replace: { bgm: null, shorts: null } },
+  ];
+  for (const patch of patches) {
+    const errs = validateAgainstSchema(patch, schema, resolve);
+    assert.deepEqual(errs, [], `${JSON.stringify(patch)} が invalid: ${errs.join("; ")}`);
+  }
+});
+
+test("apply-patch: allow-list外のadd選択子・未知のop種別はschema段でinvalid", () => {
+  const registry = loadRegistry();
+  const schema = registry["apply-patch.schema.json"];
+  const resolve = makeRegistryResolver(registry, "apply-patch.schema.json");
+  // target が ADD_SELECTORS の allow-list に無い(shorts.shorts 等)は enum 違反で invalid
+  // (§スコープ外: shorts[] 自体・ranges/captionTracks は add の対象外)
+  const badAdd = { ops: [{ op: "add", target: "shorts.shorts", value: { name: "x" } }] };
+  assert.ok(validateAgainstSchema(badAdd, schema, resolve).length > 0);
+  // 未知の op 種別は oneOf のどの分岐にもマッチしない
+  const badOp = { ops: [{ op: "unknown", target: "@seg_a1a1a1" }] };
+  assert.ok(validateAgainstSchema(badOp, schema, resolve).length > 0);
 });

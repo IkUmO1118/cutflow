@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cutflow.dev/schemas/apply-patch.schema.json",
+  "$comment": "src/types.ts の ApplyPatch / EditOp / ApplyBody(apply コマンドの入力形)の射影。この schema は構造(op の形状)だけを固定する。approved を触る op(set の field=\"approved\" / add の value.approved)を拒否する等のcross-field検査は src/lib/applyEdits.ts(planApply/compileOps)の責務でschema段では検査しない(docs/plans/2026-07-07-atomic-apply-design.md §不変条件2)。add の target(コレクション選択子)の許可リストは src/lib/applyEdits.ts の ADD_SELECTORS と一致させる(test/schema.test.ts がピン留め)。",
+  "$defs": {
+    "SetOp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "target", "field", "value"],
+      "properties": {
+        "op": { "const": "set" },
+        "target": { "type": "string" },
+        "field": { "type": "string" },
+        "value": {}
+      }
+    },
+    "RemoveOp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "target"],
+      "properties": {
+        "op": { "const": "remove" },
+        "target": { "type": "string" }
+      }
+    },
+    "AddOp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "target", "value"],
+      "properties": {
+        "op": { "const": "add" },
+        "target": {
+          "enum": [
+            "cutplan.segments",
+            "transcript.segments",
+            "overlays.overlays",
+            "overlays.inserts",
+            "overlays.zooms",
+            "overlays.blurs",
+            "overlays.wipeFull",
+            "overlays.hideCaption",
+            "overlays.captionTracks",
+            "chapters.chapters",
+            "bgm.tracks",
+            "thumbnail.texts"
+          ]
+        },
+        "value": { "type": "object" },
+        "at": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "EditOp": {
+      "oneOf": [
+        { "$ref": "apply-patch.schema.json#/$defs/SetOp" },
+        { "$ref": "apply-patch.schema.json#/$defs/RemoveOp" },
+        { "$ref": "apply-patch.schema.json#/$defs/AddOp" }
+      ]
+    },
+    "ApplyBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cutplan": { "$ref": "cutplan.schema.json" },
+        "transcript": { "$ref": "transcript.schema.json" },
+        "overlays": { "$ref": "overlays.schema.json" },
+        "chapters": { "$ref": "chapters.schema.json" },
+        "bgm": { "oneOf": [{ "type": "null" }, { "$ref": "bgm.schema.json" }] },
+        "shorts": { "oneOf": [{ "type": "null" }, { "$ref": "shorts.schema.json" }] },
+        "thumbnail": { "$ref": "thumbnail.schema.json" }
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "ops": {
+      "type": "array",
+      "items": { "$ref": "apply-patch.schema.json#/$defs/EditOp" }
+    },
+    "replace": { "$ref": "apply-patch.schema.json#/$defs/ApplyBody" }
+  }
+}
