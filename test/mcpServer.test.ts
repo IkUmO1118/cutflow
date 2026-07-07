@@ -127,6 +127,7 @@ test("mcp <dir>: initialize→notifications/initialized→tools/list→tools/cal
     assert.deepEqual(names, [
       "cutflow_apply",
       "cutflow_assert",
+      "cutflow_av",
       "cutflow_describe",
       "cutflow_frames",
       "cutflow_id_stamp",

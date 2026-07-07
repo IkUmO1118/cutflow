@@ -1,79 +1,30 @@
-# cutflow
+# Repository Guidelines
 
-Codex 向けの開発ドキュメントです。編集の正本は `AGENTS_CONTRACT.md`、
-運用上の補足は `CLAUDE.md` にあります。このファイルは、Codex が
-このリポジトリで迷わず作業するための短い実行指針です。
+## Project Structure & Module Organization
 
-## まず守ること
+`src/` contains the CLI and pipeline stages, with shared logic in `src/lib/` and MCP code in `src/mcp/`. `editor/` holds the browser-based editor, and `remotion/` holds the render composition. Tests live in `test/`, fixtures in `test/fixtures/`, schemas in `schemas/`, and user-facing docs in `docs/`. Runtime edits happen in a recording folder, not in source code.
 
-- このプロジェクトで「動画を編集して」と言われたら、コードではなく
-  収録フォルダ内の JSON を編集する
-- 編集対象は `cutplan.json` / `transcript.json` / `overlays.json` /
-  `bgm.json` / `chapters.json` / `meta.json` / `shorts.json` /
-  `thumbnail.json`
-- 動画ファイル自体は触らない
-- 時刻はすべて raw 録画の秒で扱う。カット後の秒へ手計算で変換しない
-- JSON を編集したら必ず `node src/cli.ts validate <dir>` を実行する
-- `plan` と `run` は、明示的に頼まれたときだけ再実行する
-- `cutplan.json` の `approved: true` を自分で立てない
-- `approvals.json` を直接書かない
+## Build, Test, and Development Commands
 
-## 正本
+- `npm test` or `node --test`: runs the Node test suite.
+- `npm run typecheck`: runs `tsc --noEmit` for strict TypeScript checking.
+- `node src/cli.ts validate <dir>`: validates a recording folder after JSON edits.
+- `node src/cli.ts describe <dir> --json`: prints the current project state as machine-readable JSON.
+- `node src/cli.ts frames <dir> --t 90,2:30.5`: renders still frames for visual checks.
+- `node src/cli.ts render <dir>`: produces the final output after approval.
 
-- 機械可読な契約は `AGENTS_CONTRACT.md`
-- ここに書かれている内容と矛盾があれば `AGENTS_CONTRACT.md` を優先する
-- JSON Schema は `schemas/` にある
-- 状態確認は `node src/cli.ts describe <dir> --json` を優先する
+## Coding Style & Naming Conventions
 
-## 安全な作業手順
+Use TypeScript ESM (`NodeNext`) with `strict` mode and `react-jsx`. Keep changes small and follow existing repository style: ASCII by default, descriptive names, and schema-backed JSON files. There is no repo-wide formatter or linter configured, so match nearby code and keep diffs minimal.
 
-1. まず対象フォルダの JSON を読む
-2. 必要なら最小限の JSON 編集を行う
-3. `node src/cli.ts validate <dir>` で整合性を確認する
-4. 目視確認が必要なら `node src/cli.ts frames <dir> --t ...` を使う
-5. 承認が必要なら人間に確認してもらう
-6. 承認後に `node src/cli.ts render <dir>` を実行する
+## Testing Guidelines
 
-## 再実行の注意
+The project uses Node’s built-in test runner. Add or update tests under `test/` with names like `feature.test.ts`. Prefer tests that cover CLI behavior, schema validation, and pipeline invariants. When changing JSON workflows, run the relevant command plus `validate` before handing off.
 
-- `plan` は再実行で `cutplan.json` / `chapters.json` / `meta.json` を上書きしうる
-- `run` も同様に再実行禁止の扱い
-- 章立てやタイトルだけ作り直したいなら `remeta` を使う
-- 手編集を守りたいときに `--force` を自分判断で付けない
+## Commit & Pull Request Guidelines
 
-## 承認
+Git history favors short, scoped messages such as `docs: ...`, `feat(mcp): ...`, and `fix(review): ...`. Keep commits focused. PRs should include a concise summary, the commands you ran, and screenshots or frame captures when UI or render behavior changes.
 
-- 承認の実体は `approvals.json`
-- `cutplan.approved` や `shorts.json` の `approved` は表示上の意図にすぎない
-- 承認レコードは `approve` / `unapprove` と GUI の保存だけが書く
-- 承認後に keep 範囲を変えると承認は失効する
+## Agent-Specific Instructions
 
-## 中間生成物
-
-- `manifest.json` / `cuts.auto.json` / `plan.raw.txt` / `plan-shorts.raw.txt`
-- `render.props.json` / `whisper-out.*` / `transcript.system.json`
-- `whisper-system-out.json` / `cut.mp4` / `cut.keeps.json`
-- `render.key.json` / `preview.mp4` / `proxy.mp4` / `proxy.key.json`
-- `frames/` / `render.chunks/` / `shorts/`
-- `materials.probe/`
-
-これらは再生成される前提なので、手で編集しない。
-
-## 便利なコマンド
-
-- `node src/cli.ts describe <dir>`
-- `node src/cli.ts describe <dir> --json`
-- `node src/cli.ts validate <dir>`
-- `node src/cli.ts frames <dir> --t 90,2:30.5`
-- `node src/cli.ts remeta <dir>`
-- `node src/cli.ts approve <dir>`
-- `node src/cli.ts unapprove <dir>`
-- `node src/cli.ts render <dir>`
-
-## 実装時の注意
-
-- 既存のユーザー変更は勝手に戻さない
-- 破壊的コマンドは使わない
-- 変更後は必要十分な検証までやる
-- 迷ったらコードではなく契約と既存のテストを先に見る
-
+Do not edit generated artifacts such as `manifest.json`, `preview.mp4`, `frames/`, or `render.chunks/`. For editing recording data, modify the JSON in the recording folder and re-run `validate`. If you need the authoritative rules for editable files and approval boundaries, read `AGENTS_CONTRACT.md` first.

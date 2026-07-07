@@ -80,7 +80,8 @@ config.yaml の `render.chunkSec` > 0 のときだけ使う。`vNNN.mp4` =
 差分レンダーだけは無い。詳細は下記「ショート動画」参照) / `rules.suggested.md`
 (`learn` が書く下書き。使い捨てで、次回の `learn` 実行で黙って上書きされる。
 採用したい項目は人間が手で `rules.md` に転記する。詳細は下記「チャンネル
-rules と learn」参照)
+rules と learn」参照) / `av.probe/`(`av <dir>` の差分更新型キャッシュ。
+`motion.json` / `sound.json` / `motion.strip.png`)
 
 ## 安定 id / @-mention
 
@@ -363,6 +364,7 @@ MCP 対応ホストの設定(例: Claude Desktop の `claude_desktop_config.json
 | `cutflow_validate` | 読取 | `validate <dir>` |
 | `cutflow_frames` | 読取(知覚) | `frames <dir>` |
 | `cutflow_materials` | 読取 | `materials <dir>` |
+| `cutflow_av` | 読取 | `av <dir>` |
 | `cutflow_assert` | 読取(検証) | `assert <dir>` |
 | `cutflow_apply` | 安全編集 | `apply <dir>`(`dryRun` 引数で `--dry-run` 相当) |
 | `cutflow_id_stamp` | 安全編集 | `id-stamp <dir>` |
@@ -425,6 +427,7 @@ JSON-RPC エラーではなく `tools/call` の成功 result に `isError: true`
 | `frames <dir> ... --full-res` | 画面キャプチャ内の文字を絵として鮮明に見たいとき。ベース映像をプロキシ(幅1280px)ではなく元収録のフル解像度にした**合成込み**(テロップ/ワイプ/素材/ズーム/ぼかし込み)still を出す。`--ocr` はテキスト抽出、こちらは見た目そのものの鮮明化(レイアウト込みで確認したいとき)。`--ocr` と併用可。`--full-res` を付けない限り既存の `frames` 挙動は完全に不変 |
 | `frames-serve <dir>` | **JSON 微調整ループ(編集 → `frames --t …` → 確認 → 編集 → …)を何度も回すとき**。bundle(webpack)+headless Chrome を暖めたまま待ち受ける opt-in の常駐デーモン(下記「frames-serve(常駐フレームサーバ)」参照)。起動していなければ `frames` は現状どおりの単発実行(挙動・出力は不変) |
 | `materials <dir>` | **素材(B-roll)の中身を知りたい**とき(尺・解像度・fps・音声有無・`overlays.json`/`bgm.json` との参照クロスリンク・未使用/dangling 検出)。既定は ffprobe だけ。`--frames`/`--ocr`/`--transcribe`/`--all` で見た目・画面文字・音声発話まで opt-in で取得(下記「素材(B-roll)の中身を知る(materials)」参照) |
+| `av <dir>` | **keep 後タイムラインの動きと音を知りたい**とき。`av.probe/motion.json` / `sound.json` / `motion.strip.png` に、motion(scene score・freeze・フィルムストリップ)と sound(LUFS 包絡・無音・mic/system 被り・BGM/duck 設定)を出す。`--range` / `--every` / `--short` / `--full-res` / `--motion-only` / `--sound-only` を持つ |
 | `mcp <dir>` | **任意の MCP 対応エージェントにこの収録フォルダを機械的に開かせたい**とき。stdio 上で `describe`/`validate`/`frames`/`materials`/`assert`/`apply`/`id-stamp` 相当の tool を露出する常駐サーバ(上記「MCP サーバ(mcp)」参照)。承認/render/plan 等は露出しない |
 
 `frames` は撮影のたびに、その絵を決める編集 JSON(本編経路は cutplan/
@@ -545,6 +548,46 @@ overlays/inserts/bgm の参照集合(referenced 集合)の**和集合**。これ
 素材メタは**操作エージェント(Claude Code)向けの露出**であり、カット判断
 LLM 自身(`plan`/`plan --cuts-only`/`remeta`)の入力には接続していない
 (`src/stages/plan.ts` と `config.yaml` の `plan.perception` は本機能の対象外)。
+
+## A/V フィードバックを知る(av)
+
+`av <dir>` は、AI が keep 後タイムラインの**動き**と**音**を機械可読に読むための
+知覚コマンド。動画再生 UI は作らず、ffmpeg だけで観測を JSON に落とす。
+
+```sh
+node src/cli.ts av <dir>
+node src/cli.ts av <dir> --range 10-25.5
+node src/cli.ts av <dir> --short intro --sound-only
+node src/cli.ts av <dir> --full-res --motion-only
+```
+
+**出力**: `av.probe/motion.json` / `av.probe/sound.json` /
+`av.probe/motion.strip.png`
+
+- `motion.json`
+  - keep 後タイムライン上のフィルムストリップのタイル時刻
+  - `sceneScore` の時系列
+  - `freezedetect` による freeze 区間
+- `sound.json`
+  - mic+system ベッドの統合 LUFS / true peak / short-term LUFS 包絡
+  - 無音区間
+  - mic/system の window ごとの RMS とどちらが大きいか
+  - BGM 区間と duck 区間(実測ではなく render props 由来の解析値)
+- `motion.strip.png`
+  - keep 後タイムラインを `--every` 秒ごとに並べたフィルムストリップ
+
+**主なオプション**
+
+- `--range <a-b>`: **出力(カット後)秒**で部分区間を切る
+- `--every <sec>`: motion サンプル間隔
+- `--short <name>`: `shorts.json` の対象ショートの `ranges` を使う
+- `--full-res`: motion の基映像に `proxy.mp4` ではなく元収録を使う
+- `--motion-only` / `--sound-only`: 片側だけ取得
+
+**キャッシュ**
+
+- `av.probe/` は `materials.probe/` と同じ差分更新型
+- 同じ入力 key なら JSON を再利用し、ffmpeg を再実行しない
 
 ## 承認(approve/unapprove)
 

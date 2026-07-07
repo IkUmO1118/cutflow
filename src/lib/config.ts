@@ -184,6 +184,17 @@ export interface Config {
       port?: number;
     };
   };
+  av?: {
+    everySec?: number;
+    cols?: number;
+    windowSec?: number;
+    scdetThreshold?: number;
+    freeze?: {
+      noiseDb?: number;
+      durationSec?: number;
+    };
+    stripWidthPx?: number;
+  };
 }
 
 /** editor.defaultImageDurationSec 未指定時の既定(秒) */
@@ -231,6 +242,14 @@ export const DEFAULT_DESCRIBE_PAUSE_MAX = 3;
 /** describe.pauseMinSec 未指定時の既定(秒) */
 export const DEFAULT_DESCRIBE_PAUSE_MIN_SEC = 0.6;
 
+export const DEFAULT_AV_EVERY_SEC = 5;
+export const DEFAULT_AV_COLS = 5;
+export const DEFAULT_AV_WINDOW_SEC = 1;
+export const DEFAULT_AV_SCDET_THRESHOLD = 8;
+export const DEFAULT_AV_FREEZE_NOISE_DB = -50;
+export const DEFAULT_AV_FREEZE_DURATION_SEC = 1;
+export const DEFAULT_AV_STRIP_WIDTH_PX = 320;
+
 /** describe.pauses を既定値で解決する純関数(省略時は全オフ+既定値)。
  *  loadConfig は cfg.describe を書き換えない(省略=オフ=バイト等価を守る) */
 export function resolveDescribePausesCfg(cfg: Config): {
@@ -243,6 +262,28 @@ export function resolveDescribePausesCfg(cfg: Config): {
     enabled: d.pauses ?? false,
     max: d.pauseMax ?? DEFAULT_DESCRIBE_PAUSE_MAX,
     minSec: d.pauseMinSec ?? DEFAULT_DESCRIBE_PAUSE_MIN_SEC,
+  };
+}
+
+export function resolveAvCfg(cfg: Config): {
+  everySec: number;
+  cols: number;
+  windowSec: number;
+  scdetThreshold: number;
+  freeze: { noiseDb: number; durationSec: number };
+  stripWidthPx: number;
+} {
+  const av = cfg.av ?? {};
+  return {
+    everySec: av.everySec ?? DEFAULT_AV_EVERY_SEC,
+    cols: av.cols ?? DEFAULT_AV_COLS,
+    windowSec: av.windowSec ?? DEFAULT_AV_WINDOW_SEC,
+    scdetThreshold: av.scdetThreshold ?? DEFAULT_AV_SCDET_THRESHOLD,
+    freeze: {
+      noiseDb: av.freeze?.noiseDb ?? DEFAULT_AV_FREEZE_NOISE_DB,
+      durationSec: av.freeze?.durationSec ?? DEFAULT_AV_FREEZE_DURATION_SEC,
+    },
+    stripWidthPx: av.stripWidthPx ?? DEFAULT_AV_STRIP_WIDTH_PX,
   };
 }
 

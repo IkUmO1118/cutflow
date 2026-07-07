@@ -8,6 +8,7 @@
 // (排他規則)だけを固定する。
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -84,7 +85,7 @@ function jsonOf(result: ToolResult): unknown {
 
 /* ---------------- レジストリの一覧・承認境界の凍結 ---------------- */
 
-test("makeTools: 露出する tool は describe/validate/frames/apply/id-stamp/materials/assert の7件だけ", () => {
+test("makeTools: 露出する tool は describe/validate/frames/apply/id-stamp/materials/av/assert の8件だけ", () => {
   const dir = makeGoodProject();
   try {
     const tools = makeTools(dir, cfg);
@@ -92,12 +93,39 @@ test("makeTools: 露出する tool は describe/validate/frames/apply/id-stamp/m
     assert.deepEqual(names, [
       "cutflow_apply",
       "cutflow_assert",
+      "cutflow_av",
       "cutflow_describe",
       "cutflow_frames",
       "cutflow_id_stamp",
       "cutflow_materials",
       "cutflow_validate",
     ]);
+  } finally {
+    rm(dir);
+  }
+});
+
+test("cutflow_av: tool 一覧にあり、json payload を返す", async () => {
+  const dir = makeGoodProject();
+  try {
+    execFileSync("ffmpeg", [
+      "-y",
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      "testsrc2=duration=1:size=320x240:rate=10",
+      join(dir, "proxy.mp4"),
+    ]);
+    const tools = makeTools(dir, cfg);
+    const avTool = tools.find((t) => t.name === "cutflow_av")!;
+    const result = await avTool.handler({ motionOnly: true });
+    assert.equal(result.isError, undefined);
+    const payload = jsonOf(result) as { motion?: unknown; sound?: unknown };
+    assert.ok(payload.motion);
+    assert.equal(payload.sound, undefined);
   } finally {
     rm(dir);
   }
