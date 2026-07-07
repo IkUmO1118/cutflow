@@ -48,7 +48,8 @@ export interface Region {
   h: number;
 }
 
-/** transcribe が生成(transcript.json) */
+/** transcribe が生成(transcript.json)。JSON Schema: schemas/transcript.schema.json
+ * (スキーマを変えたらこのコメント・validate.ts・usage.md と揃える。§5点セット) */
 export interface Transcript {
   language: string;
   model: string;
@@ -219,7 +220,8 @@ export interface Interval {
   end: number;
 }
 
-/** plan が生成、人間が編集して承認する(cutplan.json) */
+/** plan が生成、人間が編集して承認する(cutplan.json)。JSON Schema:
+ * schemas/cutplan.schema.json(§5点セット) */
 export interface CutPlan {
   /** 人間の承認意図の表示(GUI チェックボックスのモデル)。**render のゲートでは
    * ない**(src/lib/approval.ts を参照)。render は approvals.json の承認
@@ -268,7 +270,8 @@ export interface ApprovalRecord {
 
 /** plan が生成(chapters.json)。YouTube チャプター用の章立てメタデータ
  * (概要欄の「0:00 導入」リストの元)。動画への描画には使われない:
- * 章タイトルの表示は plan が通常テロップとして transcript.json に書く */
+ * 章タイトルの表示は plan が通常テロップとして transcript.json に書く。
+ * JSON Schema: schemas/chapters.schema.json(§5点セット) */
 export interface Chapters {
   chapters: {
     /** 編集をまたいで安定な永続 id(例 "ch_a1b2c3")。`@id` で人間/AI がこの要素を
@@ -386,7 +389,8 @@ export interface CaptionTrackDef {
 }
 
 /** 人間が書く演出指定(overlays.json)。ファイルが無ければ全部なし。
- * 時刻は他の編集ファイルと同じく元動画(収録ファイル)の秒 */
+ * 時刻は他の編集ファイルと同じく元動画(収録ファイル)の秒。
+ * JSON Schema: schemas/overlays.schema.json(§5点セット) */
 export interface Overlays {
   /** 素材(画像/動画)を表示する区間。省略時は画面いっぱい、rect で
    * 部分配置(ピクチャ・イン・ピクチャ)もできる */
@@ -636,7 +640,8 @@ export const DEFAULT_SPOTLIGHT_SHAPE: SpotlightShape = "rect";
 
 /** 人間が書く BGM 指定(bgm.json)。ファイルが無ければ、収録フォルダ直下の
  * bgm.mp3 / bgm.m4a / bgm.wav(あれば)を全編1曲として流す従来動作になる。
- * 時刻は他の編集ファイルと同じく元動画(収録ファイル)の秒 */
+ * 時刻は他の編集ファイルと同じく元動画(収録ファイル)の秒。
+ * JSON Schema: schemas/bgm.schema.json(§5点セット) */
 export interface Bgm {
   /** BGM を流す区間。時系列順でなくてよく、覆っていない区間は無音になる
    * (「イントロだけ BGM なし」= その区間を覆わない)。別ファイルの区間を
@@ -667,14 +672,16 @@ export interface Bgm {
   }[];
 }
 
-/** plan が生成(meta.json)。タイトル案と概要欄の下書き */
+/** plan が生成(meta.json)。タイトル案と概要欄の下書き。
+ * JSON Schema: schemas/meta.schema.json(§5点セット) */
 export interface Meta {
   titles: string[];
   description: string;
 }
 
 /** 人間が書くショート動画指定(shorts.json)。ファイルが無ければショートは
- * 無い。時刻は他の編集ファイルと同じく元動画(収録ファイル)の秒 */
+ * 無い。時刻は他の編集ファイルと同じく元動画(収録ファイル)の秒。
+ * JSON Schema: schemas/shorts.schema.json(§5点セット) */
 export interface Shorts {
   shorts: Short[];
 }
@@ -704,7 +711,8 @@ export interface Short {
 
 /** 人間/AIが書くサムネイル指定(thumbnail.json)。t は元収録の秒で、
  * frames と違いスナップしない(カットされた瞬間も指定できる。サムネは
- * 動画に入っていない絵も使ってよいため) */
+ * 動画に入っていない絵も使ってよいため)。
+ * JSON Schema: schemas/thumbnail.schema.json(§5点セット) */
 export interface Thumbnail {
   t: number;
   texts: ThumbnailText[];
@@ -732,7 +740,8 @@ export interface ThumbnailText {
  * (docs/plans/2026-07-07-atomic-apply-design.md 論点1)。両方あるときは
  * ops を先に適用し、その結果へ replace を重ねる(ファイル単位の上書き)。
  * 書き込みは常に replace 相当の全置換1本へ正規化されてから
- * (src/lib/applyEdits.ts の)コアを1回だけ通る。 */
+ * (src/lib/applyEdits.ts の)コアを1回だけ通る。
+ * JSON Schema: schemas/apply-patch.schema.json(§5点セット) */
 export interface ApplyPatch {
   ops?: EditOp[];
   replace?: ApplyBody;

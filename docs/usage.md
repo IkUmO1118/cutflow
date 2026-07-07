@@ -194,6 +194,42 @@ exit 1。`--dry-run` は `@id` 単位の変更要約(`field: 旧 → 新`)と
 `process.exit`/`console` に依存しない純関数なので、将来 MCP tool から
 呼び出す土台にはなっている)、GUI 差分レビュー UI、split/move 等の複合 op。
 
+## 機械可読契約(JSON Schema / AGENTS.md)
+
+Claude Code に限らず、任意のコーディングエージェント・素の JSON エディタ・
+外部バリデータが cutflow の編集ファイルを機械的に検証・補完できるよう、
+契約をコードから射影した2種類の成果物がある(`docs/plans/2026-07-07-machine-contract-design.md`
+設計。types.ts / validate.ts / files.ts / ids.ts という**既存の単一の出所**の
+射影であり、新しい真実は宣言しない。ずれたら `npm test`(`test/schema.test.ts` /
+`test/agentsMd.test.ts`)が落ちる)。
+
+- **`schemas/*.schema.json`**(draft 2020-12): 8編集ファイル
+  (`cutplan` / `transcript` / `overlays` / `bgm` / `chapters` / `meta` /
+  `shorts` / `thumbnail`)それぞれに1スキーマ + 共有 `$defs`
+  (`schemas/common.schema.json`。`Region` / `CaptionPos` / `CaptionStyle` 系 /
+  `WordTiming` / `Annotation` union / `CaptionTrackDef` / `id` パターン /
+  `Interval`)。`schemas/apply-patch.schema.json` は `apply` コマンドの入力形
+  (`ApplyPatch` / `EditOp`)。各スキーマの kitchen-sink 例は
+  `schemas/examples/<file>.max.json`(全任意フィールドを1つ以上使う。
+  ドキュメント兼・構造ドリフト検知の fixture)。
+  - **ファイル自体には `$schema` キーを注入しない**(収録フォルダの JSON は
+    このスキーマ導入前とバイト等価。ユーザーデータ不可侵)。エディタ/
+    バリデータ側の設定で `<file>.json` ↔ `schemas/<file>.schema.json` の
+    命名規約に紐づける。
+  - 外部バリデータ(例: `ajv-cli`)で実収録フォルダの JSON を検証したい場合、
+    `--schema schemas/<file>.schema.json` に加えて `schemas/common.schema.json`
+    を(`$ref` 解決のため)一緒に読み込ませる。
+- **`AGENTS.md`**(リポジトリ直下・英語・Claude 非依存): 能力・不変条件・
+  承認境界・触ってよい/いけないファイル・`@id` アドレッシング・主要コマンドを
+  宣言する emerging standard のエージェント向けマニフェスト。CLAUDE.md との
+  役割分担は「AGENTS.md=契約(何が編集可能か・不変条件・コマンド)の正、
+  CLAUDE.md=Claude Code 向けの運用ニュアンス」。
+
+依存追加はゼロ(ajv 等の runtime 依存は足していない)。`test/helpers/jsonSchema.ts`
+はテスト専用の vendored な JSON Schema 部分集合バリデータ(`$ref` / `$defs` /
+`type` / `required` / `properties` / `additionalProperties` / `enum` /
+`const` / `pattern` / `items` / `oneOf` / `minimum` / `maximum` / `minItems`)。
+
 ## ⚠️ 最重要の注意: plan の再実行は手編集を消す
 
 `plan`(と `run`)を再実行すると **cutplan.json / chapters.json / meta.json と
