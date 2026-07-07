@@ -1,5 +1,5 @@
 // schemas/*.schema.json のドリフト検知テスト(docs/plans/2026-07-07-machine-contract-design.md
-// §論点6)。JSON Schema も AGENTS.md も新しい真実を宣言しない=「既存の単一の
+// §論点6)。JSON Schema も AGENTS_CONTRACT.md も新しい真実を宣言しない=「既存の単一の
 // 出所」(types.ts / validate.ts / files.ts / ids.ts / profile.ts / applyEdits.ts)
 // への射影であることを、以下の3層で機械的に強制する:
 //   (a) 全単射: schemas/ にある8編集ファイル用スキーマの集合 == 実装の
