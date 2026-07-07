@@ -7,17 +7,19 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { evaluateStructural, assert as assertProject } from "../src/stages/assert.ts";
+import { evaluateStructural, evaluateVisual, assert as assertProject } from "../src/stages/assert.ts";
 import { buildRichFixture } from "./describe.test.ts";
 import type {
   AssertionsDoc,
   Assertion,
 } from "../src/types.ts";
 import type {
+  BlurEntry,
   CaptionEntry,
   DescribeProjection,
   MaterialEntry,
 } from "../src/stages/describe.ts";
+import type { OcrResult } from "../src/lib/ocr.ts";
 
 /** 最小の DescribeProjection(必要なフィールドだけ上書きして使う) */
 function baseProj(overrides: Partial<DescribeProjection> = {}): DescribeProjection {
@@ -82,6 +84,25 @@ function mkMaterial(overrides: Partial<MaterialEntry>): MaterialEntry {
     track: 1,
     exists: true,
     out: [{ start: 0, end: 1 }],
+    ...overrides,
+  };
+}
+
+function mkBlur(overrides: Partial<BlurEntry>): BlurEntry {
+  return {
+    start: 0,
+    end: 1,
+    out: [{ start: 0, end: 1 }],
+    rect: { x: 100, y: 100, w: 200, h: 100 },
+    ...overrides,
+  };
+}
+
+function mkOcr(overrides: Partial<OcrResult> = {}): OcrResult {
+  return {
+    text: "",
+    lines: [],
+    image: { w: 1280, h: 720 },
     ...overrides,
   };
 }
@@ -308,6 +329,123 @@ test("複数件のアサーションで index が assertions[] の添字と一�
   assert.equal(outcomes[0].index, 0);
   assert.equal(outcomes[1].index, 1);
   assert.equal(outcomes[1].label, "本編は5分以内");
+});
+
+/* ==================================================================== */
+/* evaluateVisual(Tier 2・タスク4)。OcrResult を手組みで固定する。          */
+/* ocrByTime のキーは assertions[] の添字(index)。                        */
+/* ==================================================================== */
+
+test("screenText: present(既定 true)× 含む/含まないの4通り", () => {
+  const found = mkOcr({ text: "$ npm run build\nDone" });
+  const notFound = mkOcr({ text: "$ ls -la" });
+
+  // 含まれる & present:true(既定) → pass
+  assert.equal(
+    evaluateVisual(
+      spec([{ type: "screenText", at: 10, contains: "npm run build" }]),
+      new Map([[0, found]]),
+      [],
+    )[0].status,
+    "pass",
+  );
+  // 含まれない & present:true(既定) → fail
+  assert.equal(
+    evaluateVisual(
+      spec([{ type: "screenText", at: 10, contains: "npm run build" }]),
+      new Map([[0, notFound]]),
+      [],
+    )[0].status,
+    "fail",
+  );
+  // 含まれる & present:false → fail(見つかってはいけない)
+  assert.equal(
+    evaluateVisual(
+      spec([{ type: "screenText", at: 10, contains: "npm run build", present: false }]),
+      new Map([[0, found]]),
+      [],
+    )[0].status,
+    "fail",
+  );
+  // 含まれない & present:false → pass
+  assert.equal(
+    evaluateVisual(
+      spec([{ type: "screenText", at: 10, contains: "npm run build", present: false }]),
+      new Map([[0, notFound]]),
+      [],
+    )[0].status,
+    "pass",
+  );
+});
+
+test("regionClear: blur の rect に OCR の box が交差すれば fail(目隠しできていない)", () => {
+  const blurs = [mkBlur({ id: "bl_aaaaaa", rect: { x: 100, y: 100, w: 200, h: 100 } })];
+  const ocr = mkOcr({
+    text: "sk-secret",
+    lines: [{ text: "sk-secret", confidence: 0.9, box: { x: 150, y: 120, w: 80, h: 20 } }],
+  });
+  const outcomes = evaluateVisual(
+    spec([{ type: "regionClear", ref: "@bl_aaaaaa" }]),
+    new Map([[0, ocr]]),
+    blurs,
+  );
+  assert.equal(outcomes[0].status, "fail");
+});
+
+test("regionClear: 交差しなければ pass(目隠しできている)", () => {
+  const blurs = [mkBlur({ id: "bl_aaaaaa", rect: { x: 100, y: 100, w: 200, h: 100 } })];
+  const ocr = mkOcr({
+    text: "hello",
+    lines: [{ text: "hello", confidence: 0.9, box: { x: 500, y: 500, w: 80, h: 20 } }],
+  });
+  const outcomes = evaluateVisual(
+    spec([{ type: "regionClear", ref: "@bl_aaaaaa" }]),
+    new Map([[0, ocr]]),
+    blurs,
+  );
+  assert.equal(outcomes[0].status, "pass");
+});
+
+test("regionClear: ref が blurs[] に無ければ error", () => {
+  const blurs = [mkBlur({ id: "bl_aaaaaa" })];
+  const outcomes = evaluateVisual(
+    spec([{ type: "regionClear", ref: "@bl_zzzzzz" }]),
+    new Map([[0, mkOcr()]]),
+    blurs,
+  );
+  assert.equal(outcomes[0].status, "error");
+});
+
+test("evaluateVisual: ocrByTime に null(非対応環境)が入っていれば skip", () => {
+  const outcomes = evaluateVisual(
+    spec([{ type: "screenText", at: 10, contains: "x" }]),
+    new Map([[0, null]]),
+    [],
+  );
+  assert.equal(outcomes[0].status, "skip");
+});
+
+test("evaluateVisual: ocrByTime に該当 index が無ければ error(内部矛盾)", () => {
+  const outcomes = evaluateVisual(
+    spec([{ type: "screenText", at: 10, contains: "x" }]),
+    new Map(),
+    [],
+  );
+  assert.equal(outcomes[0].status, "error");
+});
+
+test("evaluateVisual: Tier 1 のアサーションは無視される(混在 spec で Tier2 の分だけ返る)", () => {
+  const outcomes = evaluateVisual(
+    spec([
+      { type: "keepCount", op: ">=", value: 1 },
+      { type: "screenText", at: 10, contains: "x" },
+    ]),
+    new Map([[1, mkOcr({ text: "x" })]]),
+    [],
+  );
+  assert.equal(outcomes.length, 1);
+  assert.equal(outcomes[0].index, 1);
+  assert.equal(outcomes[0].status, "pass");
 });
 
 /* ==================================================================== */

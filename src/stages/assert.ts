@@ -14,10 +14,11 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AssertionsDoc, AssertOp } from "../types.ts";
+import type { AssertionsDoc, AssertOp, Region } from "../types.ts";
 import { fmtT } from "../lib/fmt.ts";
+import type { OcrResult } from "../lib/ocr.ts";
 import { describeJson } from "./describe.ts";
-import type { CaptionEntry, DescribeProjection, MaterialEntry } from "./describe.ts";
+import type { BlurEntry, CaptionEntry, DescribeProjection, MaterialEntry } from "./describe.ts";
 
 /** 1件のアサーションの評価結果 */
 export interface AssertOutcome {
@@ -276,6 +277,104 @@ export function evaluateStructural(
       }
     }
   });
+}
+
+/** 2つの矩形(出力px)が交差するか(AABB 判定)。regionClear が
+ * blurs[].rect と OCR の lines[].box(共に出力px 同座標系)の交差に使う */
+export function rectsIntersect(a: Region, b: Region): boolean {
+  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+}
+
+/**
+ * 視覚アサーション(Tier 2: screenText/regionClear)の純評価コア。
+ * OCR 実行(fs・macOS 依存)はしない——呼び出し側(T5 の fs ラッパー)が
+ * 既に取得した OCR 結果を `ocrByTime` として渡す。
+ *
+ * `ocrByTime` のキーは spec.assertions[] の**添字**(= AssertOutcome.index と
+ * 同じ数値空間)。1件の Tier 2 アサーションにつき1つの OCR サンプル点
+ * (screenText は宣言の `at`、regionClear は対象 blur の可視区間の中央)を
+ * fs ラッパーが決めて撮る設計のため、添字をキーにするのが最も単純で
+ * 誤対応が起きない(「時刻」で引く場合、複数のアサーションが同じ秒を指す
+ * ケースの多重化や、regionClear の「どの時刻を撮ったか」の逆引きが要る)。
+ * 値が `undefined` = そのアサーションの OCR を fs ラッパーが取得しなかった
+ * (内部矛盾。error 扱い)。値が `null` = OCR 非対応環境等で取得できなかった
+ * (ocr.ts の劣化契約どおり skip 扱い)。
+ *
+ * Tier 1(構造)のアサーションはここでは一切扱わない(evaluateStructural が
+ * 既に結果を出している。呼び出し側が index で上書き・マージする)。
+ */
+export function evaluateVisual(
+  spec: AssertionsDoc,
+  ocrByTime: Map<number, OcrResult | null>,
+  blurs: readonly BlurEntry[],
+): AssertOutcome[] {
+  const outcomes: AssertOutcome[] = [];
+  spec.assertions.forEach((a, index) => {
+    if (a.type !== "screenText" && a.type !== "regionClear") return;
+    const base = { index, type: a.type, ...(a.label !== undefined ? { label: a.label } : {}) };
+
+    const ocr = ocrByTime.get(index);
+    if (ocr === undefined) {
+      outcomes.push({
+        ...base,
+        status: "error",
+        message: "OCR結果がありません(--visual の内部エラー。fs ラッパーの実装を確認してください)",
+      });
+      return;
+    }
+    if (ocr === null) {
+      outcomes.push({
+        ...base,
+        status: "skip",
+        message: "OCR が利用できない環境のためスキップしました(macOS + Apple Vision(swift)が必要です)",
+      });
+      return;
+    }
+
+    if (a.type === "screenText") {
+      const present = a.present ?? true;
+      const found = ocr.text.includes(a.contains);
+      const ok = found === present;
+      outcomes.push({
+        ...base,
+        status: ok ? "pass" : "fail",
+        message:
+          `元 ${fmtT(a.at)} の画面 OCR に "${a.contains}" は${found ? "含まれています" : "含まれていません"}` +
+          `(期待: ${present ? "含まれる" : "含まれない"}): ${ok ? "満たされています" : "満たされていません"}`,
+      });
+      return;
+    }
+
+    // regionClear
+    const blur = findById(blurs, a.ref);
+    if (!blur) {
+      outcomes.push({ ...base, status: "error", message: refNotFoundMessageForBlurs(blurs, a.ref) });
+      return;
+    }
+    const hit = ocr.lines.find((l) => rectsIntersect(l.box, blur.rect));
+    outcomes.push({
+      ...base,
+      status: hit ? "fail" : "pass",
+      message: hit
+        ? `blur ${a.ref} の領域内に文字「${hit.text}」が検出されました(目隠しできていません)`
+        : `blur ${a.ref} の領域内に文字は検出されませんでした(目隠しできています)`,
+    });
+  });
+  return outcomes;
+}
+
+/** regionClear の ref 未解決メッセージ(blurs 配列に1つも id が無ければ
+ * id-stamp を促す。evaluateStructural の refNotFoundMessage と同じ考え方だが、
+ * こちらは DescribeProjection 全体ではなく blurs 配列だけを見て判定する
+ * (evaluateVisual は DescribeProjection を受け取らないため) */
+function refNotFoundMessageForBlurs(blurs: readonly BlurEntry[], ref: string): string {
+  if (!blurs.some((b) => b.id !== undefined)) {
+    return (
+      `id が1つも採番されていません。\`node src/cli.ts id-stamp <dir>\` を実行してから ` +
+      `@id で指定してください(ref: ${ref})`
+    );
+  }
+  return `ref が見つかりません: ${ref}`;
 }
 
 /** outcomes[] から counts を集計する */
