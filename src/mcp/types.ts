@@ -1,10 +1,9 @@
-// JSON-RPC 2.0 のメッセージ型(純・fs/プロセス非依存)。
-// docs/plans/2026-07-07-mcp-server-design.md §論点1。
+// JSON-RPC 2.0 のメッセージ型 + MCP tool レジストリの型(純・fs/プロセス
+// 非依存)。docs/plans/2026-07-07-mcp-server-design.md §論点1・§論点5。
 //
 // ここでは stdio transport が実際に使う最小の形だけを定義する:
 // request(id あり)/ notification(id なし)/ response(成功 result または
-// error)。ToolDef/ToolResult(MCP tool レジストリの型)は T2(src/mcp/protocol.ts
-// 導入時)にここへ追記する。
+// error)。
 
 export interface JsonRpcRequest {
   jsonrpc: "2.0";
@@ -64,4 +63,38 @@ export class JsonRpcError extends Error {
     this.code = code;
     this.data = data;
   }
+}
+
+/**
+ * MCP tool の `inputSchema` はツール引数オブジェクトの discovery 用ヒントで
+ * あり、cutflow の編集ファイルスキーマ(schemas/*.schema.json)そのものでは
+ * ない(§design doc 論点2)。二重化せず、ここでは構造を固定しない緩い
+ * JSON 値として扱う(`cutflow_apply` は schemas/apply-patch.schema.json を
+ * そのまま差し込むだけ)。
+ */
+export type JsonSchema = Record<string, unknown>;
+
+export interface ToolResultContent {
+  type: "text";
+  text: string;
+}
+
+/** `tools/call` の成功 result。`isError: true` はプロトコル異常ではなく
+ * ドメイン層の失敗(validate エラー検出・apply 拒否 等)を表す
+ * (§design doc 論点4)。 */
+export interface ToolResult {
+  content: ToolResultContent[];
+  isError?: boolean;
+}
+
+/**
+ * tool レジストリの1件。`makeTools(dir, cfg)`(src/mcp/tools.ts)が
+ * dir/cfg を closure 捕捉した配列として組み立てる。handler は async 可
+ * (frames/materials/assert が Promise を返すため)。
+ */
+export interface ToolDef {
+  name: string;
+  description: string;
+  inputSchema: JsonSchema;
+  handler: (args: unknown) => ToolResult | Promise<ToolResult>;
 }
