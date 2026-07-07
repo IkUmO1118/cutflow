@@ -1,0 +1,92 @@
+{
+  "overlays": [
+    {
+      "id": "mat_a1b2c3",
+      "start": 5,
+      "end": 15,
+      "file": "materials/logo.png",
+      "track": 2,
+      "layer": "over",
+      "fit": "contain",
+      "startFrom": 0,
+      "volume": 0.5,
+      "opacity": 0.9,
+      "fadeInSec": 0.5,
+      "fadeOutSec": 0.5,
+      "rect": { "x": 100, "y": 100, "w": 400, "h": 300 }
+    }
+  ],
+  "inserts": [
+    {
+      "id": "ins_a1b2c3",
+      "at": 20,
+      "file": "materials/insert.mp4",
+      "durationSec": 4,
+      "startFrom": 1,
+      "fit": "cover",
+      "volume": 1,
+      "fadeInSec": 0.3,
+      "fadeOutSec": 0.3
+    }
+  ],
+  "wipeFull": [{ "id": "wf_a1b2c3", "start": 30, "end": 35 }],
+  "layerOrder": ["ov1", "wipe", "ov2", "caption", "cap2"],
+  "captionTracks": [
+    {
+      "id": "ct_a1b2c3",
+      "track": 1,
+      "name": "章",
+      "x": 960,
+      "y": 100,
+      "anchor": "topLeft",
+      "style": { "fontSizePx": 48, "color": "#ffffff" }
+    }
+  ],
+  "hideCaption": [{ "id": "hc_a1b2c3", "start": 40, "end": 42 }],
+  "zooms": [
+    { "id": "zm_a1b2c3", "start": 50, "end": 55, "rect": { "x": 0, "y": 0, "w": 960, "h": 540 }, "easeSec": 0.4 }
+  ],
+  "colorFilter": { "brightness": 1.1, "contrast": 1.05, "saturate": 0.95 },
+  "blurs": [
+    {
+      "id": "bl_a1b2c3",
+      "start": 60,
+      "end": 65,
+      "rect": { "x": 200, "y": 200, "w": 300, "h": 100 },
+      "type": "mosaic",
+      "strength": 0.7
+    }
+  ],
+  "annotations": [
+    {
+      "type": "arrow",
+      "start": 70,
+      "end": 75,
+      "from": { "x": 100, "y": 100 },
+      "to": { "x": 300, "y": 300 },
+      "color": "#ff3b30",
+      "widthPx": 8,
+      "headPx": 28
+    },
+    {
+      "type": "box",
+      "start": 80,
+      "end": 85,
+      "rect": { "x": 400, "y": 400, "w": 200, "h": 150 },
+      "color": "#ff3b30",
+      "widthPx": 6,
+      "radiusPx": 8,
+      "fill": "rgba(255,59,48,0.2)"
+    },
+    {
+      "type": "spotlight",
+      "start": 90,
+      "end": 95,
+      "rect": { "x": 500, "y": 500, "w": 250, "h": 250 },
+      "shape": "ellipse",
+      "dim": 0.6,
+      "featherPx": 24,
+      "radiusPx": 0
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cutflow.dev/schemas/bgm.schema.json",
+  "$comment": "src/types.ts の Bgm の射影。トップレベルの許可キーは src/stages/validate.ts の bgm.json 検査(tracks のみ許可)と一致させる。ファイルが無ければ収録フォルダ直下の bgm.mp3/bgm.m4a/bgm.wav を全編1曲で流す(後方互換。このスキーマの対象外)。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tracks"],
+  "properties": {
+    "tracks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["start", "end", "file"],
+        "properties": {
+          "id": { "$ref": "common.schema.json#/$defs/id" },
+          "start": { "type": "number" },
+          "end": { "type": "number" },
+          "file": { "type": "string" },
+          "volumeDb": { "type": "number" },
+          "startFrom": { "type": "number", "minimum": 0 },
+          "fadeInSec": { "type": "number", "minimum": 0 },
+          "fadeOutSec": { "type": "number", "minimum": 0 }
+        }
+      }
+    }
+  }
+}

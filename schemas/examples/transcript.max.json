@@ -1,0 +1,34 @@
+{
+  "language": "ja",
+  "model": "medium",
+  "segments": [
+    { "id": "cap_a1b2c3", "start": 0, "end": 3, "text": "こんにちは" },
+    {
+      "id": "cap_d4e5f6",
+      "start": 3,
+      "end": 6,
+      "text": "今日はカラオケ演出のテスト",
+      "track": 2,
+      "pos": { "x": 960, "y": 900 },
+      "style": {
+        "fontSizePx": 40,
+        "color": "#ffff00",
+        "outlineColor": "none",
+        "fontFamily": "sans-serif",
+        "fontWeight": 700,
+        "background": { "color": "rgba(0,0,0,0.6)", "paddingPx": 12, "radiusPx": 8 },
+        "anim": { "in": "fade", "out": "slide-up", "durationSec": 0.3 },
+        "karaoke": {
+          "activeColor": "#ffe14d",
+          "inactiveColor": "#ffffff",
+          "inactiveOpacity": 0.4,
+          "mode": "fill"
+        }
+      },
+      "words": [
+        { "text": "今日は", "start": 3.0, "end": 3.4, "confidence": 0.95 },
+        { "text": "カラオケ演出のテスト", "start": 3.4, "end": 6.0 }
+      ]
+    }
+  ]
+}
