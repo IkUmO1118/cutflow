@@ -520,12 +520,21 @@ program
     "フレーム/画像を Apple Vision で OCR する(動画は --frames を含意。非対応環境は" +
       "警告のうえ probe/frame の出力のみ続行)",
   )
-  .action(async (dir: string, opts: { frames?: boolean; ocr?: boolean }) => {
+  .option(
+    "--transcribe",
+    "音声付き素材を whisper で文字起こしする(モデル欠如はその素材だけ警告してスキップ)",
+  )
+  .option("--all", "= --frames --ocr --transcribe")
+  .action(async (dir: string, opts: { frames?: boolean; ocr?: boolean; transcribe?: boolean; all?: boolean }) => {
     const cfg = loadConfig(program.opts().config);
     const abs = resolveDir(dir);
     const { index, indexPath } = await materials(
       abs,
-      { frames: opts.frames === true, ocr: opts.ocr === true },
+      {
+        frames: opts.all === true || opts.frames === true,
+        ocr: opts.all === true || opts.ocr === true,
+        transcribe: opts.all === true || opts.transcribe === true,
+      },
       cfg,
     );
     for (const line of formatMaterialsSummary(index)) console.log(line);
@@ -536,6 +545,9 @@ program
           `  OCR(${m.file}): ${m.ocr.preview.map((t) => `"${t}"`).join(" / ")}` +
             (rest > 0 ? ` ほか${rest}行` : ""),
         );
+      }
+      if (m.transcribe) {
+        console.log(`  文字起こし(${m.file}): 「${m.transcribe.preview}」(${m.transcribe.segmentCount}区間)`);
       }
     }
     console.log(`${index.materials.length}件を ${indexPath} に書きました`);

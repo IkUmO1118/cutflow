@@ -6,13 +6,16 @@
 // summarizeProbe)を束ねるだけで、判定ロジック自体はそちらに集約している。
 //
 // キャッシュ: 素材ごとに mtime+size フィンガープリントを前回の index.json と
-// 突き合わせ、不変なら probe/frame/ocr をスキップして前回の結果を再利用する
-// (§論点5)。既定(フラグ無し)は probe 層だけを取得する。--transcribe は
-// タスク6でここに追加する。
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+// 突き合わせ、不変なら probe/frame/ocr/transcribe をスキップして前回の結果を
+// 再利用する(§論点5)。既定(フラグ無し)は probe 層だけを取得する。opt-in
+// 層は --frames(見た目)/--ocr(画面文字。--frames を含意)/--transcribe
+// (素材音声。hasAudio な素材だけ)/--all(3つ全部)。
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Config } from "../lib/config.ts";
-import { probe, summarizeProbe } from "../lib/ffmpeg.ts";
+import { run } from "../lib/exec.ts";
+import { extractAudio, probe, summarizeProbe } from "../lib/ffmpeg.ts";
 import { runOcr } from "../lib/ocr.ts";
 import { buildPlainStill } from "../lib/screenStill.ts";
 import {
@@ -32,6 +35,7 @@ import type {
   MaterialOcr,
   MaterialRef,
   MaterialsIndex,
+  MaterialTranscribe,
 } from "../lib/materials.ts";
 import type { Bgm, Overlays, Region } from "../types.ts";
 
@@ -57,6 +61,9 @@ export interface MaterialsOptions {
    * 非対応環境(macOS 以外等)では runOcr が null を返し警告のみに留める
    * (probe/frame の出力は成功のまま)。省略時 false */
   ocr?: boolean;
+  /** hasAudio な素材だけ whisper で文字起こしする。whisper モデルが無ければ
+   * 警告してその素材だけスキップする(他の層の出力は成功のまま)。省略時 false */
+  transcribe?: boolean;
 }
 
 export interface MaterialsResult {
@@ -138,6 +145,10 @@ export async function materials(
       const result = await resolveOcr({ dir, file, frame: input.frame, unchanged, prev, cfg });
       if (result !== undefined) input.ocr = result;
     }
+    if (opts.transcribe && probeResult.hasAudio) {
+      const result = await resolveTranscribe({ dir, file, abs, unchanged, prev, cfg });
+      if (result !== undefined) input.transcribe = result;
+    }
 
     inputs.push(input);
   }
@@ -218,6 +229,77 @@ async function resolveOcr(args: {
     lineCount: result.lines.length,
     preview: result.lines.slice(0, OCR_PREVIEW_LINES).map((l) => l.text),
   };
+}
+
+/** whisper -oj の JSON 出力の必要部分(stages/transcribe.ts の WhisperJson と
+ * 同型だが、materials 側は素材ごとの独立実行なので型もローカルに持つ。
+ * transcribe.ts はリファクタしない=本編 transcript.json のバイト等価維持) */
+interface MaterialWhisperJson {
+  transcription: Array<{ offsets: { from: number; to: number }; text: string }>;
+}
+
+/** 文字起こしプレビューの最大文字数(index.json に載せる先頭抜粋) */
+const TRANSCRIBE_PREVIEW_CHARS = 80;
+
+/**
+ * 1素材ぶんの音声文字起こしを解決する(hasAudio な素材だけ呼ばれる想定)。
+ * extractAudio(既存 ffmpeg.ts)で先頭音声ストリームを 16kHz mono wav に
+ * 抽出し、whisper.cpp を `-oj`(語単位タイミング不要)で直接呼ぶ
+ * (stages/transcribe.ts は流用せずリファクタ対象外のまま=本編
+ * transcript.json のバイト等価を守る)。whisper モデルが無ければ警告して
+ * undefined を返す(その素材の transcribe 層だけ欠落。probe/frame/ocr の
+ * 出力には影響しない)
+ */
+async function resolveTranscribe(args: {
+  dir: string;
+  file: string;
+  abs: string;
+  unchanged: boolean;
+  prev: MaterialsIndex["materials"][number] | undefined;
+  cfg?: Config;
+}): Promise<MaterialTranscribe | undefined> {
+  const { dir, file, abs, unchanged, prev, cfg } = args;
+  const transcribeRelPath = join(MATERIALS_PROBE_DIR, `${materialSlug(file)}.transcribe.json`);
+  const transcribeAbsPath = join(dir, transcribeRelPath);
+  const reusable = unchanged && prev?.transcribe !== undefined && existsSync(transcribeAbsPath);
+  if (reusable) return prev!.transcribe;
+
+  if (!cfg || !existsSync(cfg.whisper.model)) {
+    console.warn(
+      `警告: whisper モデルが見つかりません(${cfg?.whisper.model ?? "config.yaml 未指定"})。` +
+        `素材の文字起こしをスキップしました: ${file}`,
+    );
+    return undefined;
+  }
+
+  const slug = materialSlug(file);
+  const tmpWav = join(tmpdir(), `cutflow-materials-${process.pid}-${slug}.wav`);
+  const outBase = join(tmpdir(), `cutflow-materials-whisper-${process.pid}-${slug}`);
+  const outJson = `${outBase}.json`;
+  try {
+    await extractAudio(abs, 0, tmpWav);
+    await run(cfg.whisper.bin, [
+      "-m", cfg.whisper.model,
+      "-l", cfg.whisper.language,
+      "-f", tmpWav,
+      "-oj",
+      "-of", outBase,
+    ]);
+    const whisperJson = JSON.parse(readFileSync(outJson, "utf8")) as MaterialWhisperJson;
+    const segments = whisperJson.transcription
+      .map((t) => ({ start: t.offsets.from / 1000, end: t.offsets.to / 1000, text: t.text.trim() }))
+      .filter((s) => s.text.length > 0);
+    const text = segments.map((s) => s.text).join(" ");
+    writeFileSync(transcribeAbsPath, JSON.stringify({ segments, text }, null, 2));
+    return {
+      file: transcribeRelPath,
+      segmentCount: segments.length,
+      preview: text.length > TRANSCRIBE_PREVIEW_CHARS ? `${text.slice(0, TRANSCRIBE_PREVIEW_CHARS)}…` : text,
+    };
+  } finally {
+    if (existsSync(tmpWav)) rmSync(tmpWav);
+    if (existsSync(outJson)) rmSync(outJson);
+  }
 }
 
 function refLabel(ref: MaterialRef): string {
