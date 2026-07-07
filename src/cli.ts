@@ -23,6 +23,7 @@ import { learn } from "./stages/learn.ts";
 import { preview } from "./stages/preview.ts";
 import { render, renderShort, renderShorts } from "./stages/render.ts";
 import { validate } from "./stages/validate.ts";
+import { assert as assertProject } from "./stages/assert.ts";
 import { idStamp } from "./stages/idStamp.ts";
 import { applyEdits, planApply } from "./lib/applyEdits.ts";
 import { describe, describeJson } from "./stages/describe.ts";
@@ -56,8 +57,9 @@ program.hook("postAction", (_thisCommand, actionCommand) => {
   const sec = ((Date.now() - commandStartedAt) / 1000).toFixed(1);
   const line = `(所要時間: ${sec}秒)`;
   // JSON 射影はパイプ可能な純 JSON を stdout に出すので、診断行だけ stderr へ逃がす。
-  // 他コマンド・散文 describe の stdout は従来どおり console.log(=不変)
-  if (actionCommand.name() === "describe" && actionCommand.opts().json === true) {
+  // 他コマンド・散文 describe/assert の stdout は従来どおり console.log(=不変)
+  const jsonCommands = new Set(["describe", "assert"]);
+  if (jsonCommands.has(actionCommand.name()) && actionCommand.opts().json === true) {
     console.error(line);
   } else {
     console.log(line);
@@ -286,6 +288,33 @@ program
       (r.warnings.length > 0 ? `警告 ${r.warnings.length}件(動作はします)\n` : "") +
         `✔ エラーなし: ${r.summary}`,
     );
+  });
+
+program
+  .command("assert <dir>")
+  .description(
+    "assertions.json の期待値(意図どおりか)を describe --json 射影と照合(壊れていないかは validate)",
+  )
+  .option("--json", "AssertReport を JSON で標準出力に出す(パイプ可)")
+  .action((dir: string, opts: { json?: boolean }) => {
+    const abs = resolveDir(dir);
+    const report = assertProject(abs);
+    if (opts.json === true) {
+      console.log(JSON.stringify(report, null, 2));
+    } else if (report.outcomes.length === 0) {
+      console.log(
+        "アサーションがありません(assertions.json を置くと編集意図を宣言的に検査できます)",
+      );
+    } else {
+      const icon = { pass: "✔", fail: "✖", error: "⚠", skip: "–" } as const;
+      for (const o of report.outcomes) {
+        const label = o.label ? `${o.label} ` : "";
+        console.log(`${icon[o.status]} [${o.type}] ${label}${o.message}`);
+      }
+      const { pass, fail, skip, error } = report.counts;
+      console.log(`\npass ${pass} / fail ${fail} / skip ${skip} / error ${error}`);
+    }
+    if (report.counts.fail > 0 || report.counts.error > 0) process.exit(1);
   });
 
 program
