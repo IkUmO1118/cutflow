@@ -230,7 +230,7 @@ export interface SystemTranscript {
 `SystemTranscript` は `Transcript` を**継承・再利用しない**(意図的)。描画フィールドを
 構造的に持たないことで「これは描画されない」を型で表す。
 
-### 4.3 ファイル分類(`src/lib/files.ts` / `AGENTS.md`)
+### 4.3 ファイル分類(`src/lib/files.ts` / `AGENTS_CONTRACT.md`)
 
 `GENERATED_FILES` に追加:
 
@@ -243,14 +243,14 @@ export interface SystemTranscript {
   "other")。ここは**変えない**(micWav と対称に保つ)。
 - `transcript.system.json` は**編集ファイルではない**(EDITABLE_FILES に入れない)。
   CLAUDE.md の「中間生成物は編集しない」一覧にも追記する。
-- `AGENTS.md` の生成物一覧(`test/agentsMd.test.ts` が `GENERATED_FILES` を
+- `AGENTS_CONTRACT.md` の生成物一覧(`test/agentsMd.test.ts` が `GENERATED_FILES` を
   ピン留め)を同期。
 
 > **5点セットの適用範囲**: 本 Feature の新 JSON は**すべて GENERATED**
 > (`cuts.auto.json`/`manifest.json` と同格で `schemas/*.schema.json` を持たない)。
 > よって `schemas/*` は**触らない**。editable の validate.ts も**触らない**
 > (system transcript は検査対象外)。5点セットのうち本 Feature が触るのは
-> `types.ts` コメント / `docs/usage.md` / `AGENTS.md`(+ files.ts・CLAUDE.md)。
+> `types.ts` コメント / `docs/usage.md` / `AGENTS_CONTRACT.md`(+ files.ts・CLAUDE.md)。
 
 ---
 
@@ -403,7 +403,7 @@ const perception = renderPerceptionBlock(audio, system, ocr);
   (micWav ブロックの後に、`manifest.audio.systemWav` があれば第2回 whisper →
   `transcript.system.json` を書く独立ブロック)、`src/lib/files.ts`
   (`GENERATED_FILES` に `transcript.system.json` / `whisper-system-out.json`)、
-  `AGENTS.md`(生成物一覧同期)。
+  `AGENTS_CONTRACT.md`(生成物一覧同期)。
 - **テスト**: `buildWords` 相当の純粋パース関数を切り出すなら unit で固定。
   `test/agentsMd.test.ts` / `test/files` 系(あれば)が `GENERATED_FILES` 追加で
   緑になることを確認。バイト等価: `systemWav` 未設定 manifest では第2回が走らず

@@ -296,7 +296,7 @@ export interface ProbeStream {
 - **`CLAUDE.md`**: (1)「中間生成物は編集しない」一覧に `materials.probe/`(と中の index.json/PNG/
   ocr.json/transcribe.json)を追記。(2)「動画の中身を知る方法(AI の知覚)」に `materials` コマンドを
   追記。(3)「コマンド」節に `materials <dir>` を追記。
-- **`AGENTS.md`**: §4「Files you must NOT write」の generated dirs に `materials.probe/`、§10
+- **`AGENTS_CONTRACT.md`**: §4「Files you must NOT write」の generated dirs に `materials.probe/`、§10
   Commands 表に `materials <dir>` を追記(**`test/agentsMd.test.ts` が編集ファイル一覧・
   GENERATED_FILES・コマンド名を pin しているので、files.ts と同時に更新しないと `npm test` が落ちる**)。
 - **`docs/usage.md`**: `materials` コマンドの節(フラグ・出力・キャッシュ・座標系)を新設。
@@ -366,10 +366,10 @@ export interface ProbeStream {
   `whisper-out.*` に一切触れない(素材の出力は `materials.probe/` 内だけ)。
 
 ### タスク7:ドキュメント同期
-- **触るファイル**: `CLAUDE.md`(中間生成物一覧・知覚手段・コマンド一覧)、`AGENTS.md`(§4・§10)、
+- **触るファイル**: `CLAUDE.md`(中間生成物一覧・知覚手段・コマンド一覧)、`AGENTS_CONTRACT.md`(§4・§10)、
   `docs/usage.md`(新節)。
 - **テスト**: `npm test`(`test/agentsMd.test.ts` の pin が緑)。`validate` は無関係に通る。
-- **壊してはいけない**: files.ts の分類と AGENTS.md/CLAUDE.md 記述の一致(pin テスト)。
+- **壊してはいけない**: files.ts の分類と AGENTS_CONTRACT.md/CLAUDE.md 記述の一致(pin テスト)。
 
 **実装順序(依存)**: T1(probe)→ T2(列挙・参照・キャッシュ)→ **T3(probe だけで end-to-end。
 ここで診断の blocker=尺・音声・寸法は解消・出荷可能)** → T4(frame)→ T5(ocr, T4 に依存)→

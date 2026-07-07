@@ -1,4 +1,4 @@
-# AGENTS.md — cutflow
+# AGENTS_CONTRACT.md — cutflow
 
 Machine-readable contract for any coding agent (backend-agnostic) editing a
 cutflow recording folder. This file is the source of truth for *what is

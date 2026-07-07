@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://cutflow.dev/schemas/transcript.schema.json",
-  "$comment": "src/types.ts の Transcript / TranscriptSegment / WordTiming の射影。時刻はすべて元収録(raw)の秒。pos/style は省略時トラック標準(overlays.json の captionTracks)→既定にフォールバックする(§AGENTS.md 座標規約)。",
+  "$comment": "src/types.ts の Transcript / TranscriptSegment / WordTiming の射影。時刻はすべて元収録(raw)の秒。pos/style は省略時トラック標準(overlays.json の captionTracks)→既定にフォールバックする(§AGENTS_CONTRACT.md 座標規約)。",
   "type": "object",
   "required": ["language", "model", "segments"],
   "properties": {
