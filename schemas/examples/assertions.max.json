@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "assertions": [
+    { "label": "本編は5分以内", "type": "outDuration", "op": "<=", "value": 300 },
+    { "label": "ショートは60秒以内", "type": "outDuration", "op": "<=", "value": 60, "short": "intro" },
+    { "type": "keepCount", "op": ">=", "value": 3 },
+    { "type": "captionVisible", "ref": "@cap_qs3bwg", "visible": true },
+    { "type": "captionText", "ref": "@cap_qs3bwg", "contains": "テスト", "equals": "これはテストです" },
+    { "type": "timeKept", "at": 42.0, "kept": true },
+    { "type": "materialExists", "ref": "@mat_ab12cd" },
+    { "type": "noCaptionOverlap", "track": 1 },
+    { "type": "screenText", "at": 90, "contains": "npm run build", "present": true },
+    { "type": "regionClear", "ref": "@bl_ff33aa" }
+  ]
+}
