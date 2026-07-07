@@ -203,6 +203,7 @@ without `--force`; with `--force`, hand-edited files are moved to
 | `learn <dir>` | Draft channel-rule suggestions from the latest edit into `rules.suggested.md` |
 | `preview <dir>` | Render a lightweight cut-confirmation video (`preview.mp4`) |
 | `validate <dir>` | Structural + invariant checks (run after every JSON edit) |
+| `assert <dir>` | Check declared editing intent (`assertions.json`) against the `describe --json` projection; `--visual` also evaluates OCR-based checks |
 | `id-stamp <dir>` | Assign stable IDs to addressable elements that don't have one |
 | `apply <dir>` | Checked atomic patch application (`@id` ops + whole-file replace) |
 | `describe <dir>` | Human-readable timeline summary; `--json` for the full machine-readable projection |

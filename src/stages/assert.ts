@@ -12,8 +12,11 @@
 // Tier 2(視覚・screenText/regionClear)は evaluateStructural では常に skip
 // (--visual が必要)。実評価は evaluateVisual(T4)+ --visual 配線(T5)で行う。
 
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { AssertionsDoc, AssertOp } from "../types.ts";
 import { fmtT } from "../lib/fmt.ts";
+import { describeJson } from "./describe.ts";
 import type { CaptionEntry, DescribeProjection, MaterialEntry } from "./describe.ts";
 
 /** 1件のアサーションの評価結果 */
@@ -275,4 +278,34 @@ export function evaluateStructural(
   });
 }
 
-// evaluateVisual(Tier 2)/ assert(dir, opts) fs ラッパーは後続タスク(T2/T4/T5)で追加する。
+/** outcomes[] から counts を集計する */
+function buildReport(outcomes: AssertOutcome[]): AssertReport {
+  const counts = { pass: 0, fail: 0, skip: 0, error: 0 };
+  for (const o of outcomes) counts[o.status]++;
+  return { outcomes, counts };
+}
+
+export interface AssertRunOptions {
+  /** Tier 2(視覚アサーション)も評価する。省略時(既定)は false で、
+   * screenText/regionClear は evaluateStructural の skip のまま返る
+   * (frames/OCR を一切呼ばない。T5 で実装) */
+  visual?: boolean;
+}
+
+/**
+ * `assert <dir>` の fs ラッパー。describeJson(dir) で射影を作り、
+ * <dir>/assertions.json があれば読んで evaluateStructural へ渡す。
+ * assertions.json が無ければ空レポート(counts 全ゼロ)を返す
+ * (未使用時は無害・exit 0 の CLI 契約を支える)。
+ */
+export function assert(dir: string, opts: AssertRunOptions = {}): AssertReport {
+  void opts; // --visual の配線は T5(evaluateVisual 追加後)
+  const specPath = join(dir, "assertions.json");
+  if (!existsSync(specPath)) {
+    return buildReport([]);
+  }
+  const spec = JSON.parse(readFileSync(specPath, "utf8")) as AssertionsDoc;
+  const proj = describeJson(dir);
+  const outcomes = evaluateStructural(proj, spec);
+  return buildReport(outcomes);
+}
