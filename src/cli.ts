@@ -296,9 +296,14 @@ program
     "assertions.json の期待値(意図どおりか)を describe --json 射影と照合(壊れていないかは validate)",
   )
   .option("--json", "AssertReport を JSON で標準出力に出す(パイプ可)")
-  .action((dir: string, opts: { json?: boolean }) => {
+  .option(
+    "--visual",
+    "Tier 2(視覚アサーション。frames --ocr と同じ経路で OCR)も評価する。" +
+      "既定(付けない場合)は Tier 2 を skip し frames/OCR を一切呼ばない。macOS 専用",
+  )
+  .action(async (dir: string, opts: { json?: boolean; visual?: boolean }) => {
     const abs = resolveDir(dir);
-    const report = assertProject(abs);
+    const report = await assertProject(abs, { visual: opts.visual === true });
     if (opts.json === true) {
       console.log(JSON.stringify(report, null, 2));
     } else if (report.outcomes.length === 0) {
