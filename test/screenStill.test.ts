@@ -4,6 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   cropFilterArg,
+  plainStillArgs,
   screenStillArgs,
   seekArg,
 } from "../src/lib/screenStill.ts";
@@ -39,5 +40,16 @@ test("screenStillArgs: -ss / -i / -vf crop / -frames:v 1 / 出力先の順で組
     "-vf", "crop=1920:1080:0:0",
     "-frames:v", "1",
     "/tmp/out.png",
+  ]);
+});
+
+test("plainStillArgs: クロップ無し(-ss / -i / -frames:v 1 / 出力先の順)。素材知覚 --frames が使う", () => {
+  const args = plainStillArgs("materials/opening.mp4", 2.01, "materials.probe/materials__opening.mp4.png");
+  assert.deepEqual(args, [
+    "-y", "-v", "error",
+    "-ss", "2.010",
+    "-i", "materials/opening.mp4",
+    "-frames:v", "1",
+    "materials.probe/materials__opening.mp4.png",
   ]);
 });
