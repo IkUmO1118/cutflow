@@ -5,6 +5,11 @@
 JSON がプロジェクトの正のデータ。**このリポジトリで「動画を編集して」と
 頼まれたら、コードではなく収録フォルダの JSON を編集する。**
 
+> 機械可読・エージェント非依存の契約(編集可能ファイル一覧・JSON Schema・
+> 承認境界・@id・コマンド一覧)は **`AGENTS.md`**(リポジトリ直下・英語)を
+> 正とする。本書(CLAUDE.md)は Claude Code 向けの日本語の運用ニュアンス
+> (バックアップの復元手順・frames の陳腐化の罠など)を補足する。
+
 ## AI が動画を編集するときの決まり
 
 - 編集 = 収録フォルダ内の `cutplan.json` / `transcript.json` / `overlays.json` /
@@ -289,5 +294,12 @@ node src/cli.ts run <dir>         # 収録直後の初回一括(再実行は --f
   `editor/`(GUI。server.ts + client/ の React。正のデータは常にファイル側)、
   `remotion/`(最終合成のコンポジション)
 - 設定はすべて `config.yaml`(コードにハードコードしない方針)
-- スキーマを変えたら `src/types.ts` のコメントと `src/stages/validate.ts` と
-  `docs/usage.md` の表も揃えて更新する
+- スキーマを変えたら次の**5点セット**を揃えて更新する(旧・3点セットに
+  `schemas/*.json` を追加。ファイル分類・コマンドが変わったときだけ
+  `AGENTS.md` も追加): `src/types.ts` のコメント / `src/stages/validate.ts` /
+  `docs/usage.md` の表 / **`schemas/*.schema.json`**(該当ファイルのスキーマと
+  `schemas/examples/<file>.max.json`。`test/schema.test.ts` が types.ts /
+  validate.ts の enum・許可キー・`src/lib/ids.ts` の `ID_RE` 等へピン留めして
+  いるため、ずれると `npm test` が落ちる) / (ファイル分類・CLI コマンドが
+  変わったときだけ)**`AGENTS.md`**(`test/agentsMd.test.ts` が編集ファイル
+  一覧・`GENERATED_FILES`・コマンド名・`ID_PREFIX` の網羅をピン留めしている)
