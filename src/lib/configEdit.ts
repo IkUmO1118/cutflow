@@ -9,7 +9,7 @@ import type { Config } from "./config.ts";
  * defaultImageDurationSec)は null で「キーを削除して既定に戻す」。
  * systemAudio / denoise / ducking はブロック全体を渡す(部分マージで
  * 「mix だけあって volumeDb が無い」壊れた形を作らないため)。
- * ここに無いキー(ingest / whisper / detect / llm 等)は GUI から触らせない
+ * ここに無いキー(ingest / whisper / detect / ai / llm 等)は GUI から触らせない
  */
 export interface ConfigPatch {
   render?: {

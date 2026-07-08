@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cutflow — AIネイティブ NLE 診断</title>
+<style>
+  :root {
+    --bg: #f6f7fb;
+    --paper: #ffffff;
+    --panel: #eef2f8;
+    --ink: #111827;
+    --muted: #5b6474;
+    --line: #d9dfeb;
+    --accent: #155eef;
+    --good: #157f4a;
+    --warn: #9a6700;
+    --bad: #c43228;
+    --shadow: 0 18px 40px rgba(17, 24, 39, 0.08);
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1118;
+      --paper: #151b24;
+      --panel: #1c2430;
+      --ink: #e8edf5;
+      --muted: #9ca7b8;
+      --line: #2a3443;
+      --accent: #7aa2ff;
+      --good: #54c27c;
+      --warn: #e0aa3e;
+      --bad: #ff7b72;
+      --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(circle at top left, rgba(21,94,239,0.10), transparent 28%),
+      radial-gradient(circle at top right, rgba(21,127,74,0.08), transparent 24%),
+      var(--bg);
+    color: var(--ink);
+    font: 16px/1.75 var(--sans);
+  }
+  .page {
+    width: min(1080px, calc(100% - 32px));
+    margin: 32px auto 56px;
+  }
+  .hero,
+  section,
+  .footer {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    box-shadow: var(--shadow);
+  }
+  .hero {
+    padding: 34px 34px 28px;
+    margin-bottom: 18px;
+  }
+  .eyebrow {
+    margin: 0 0 12px;
+    color: var(--accent);
+    font: 700 12px/1.2 var(--mono);
+    letter-spacing: .14em;
+    text-transform: uppercase;
+  }
+  h1 {
+    margin: 0 0 14px;
+    font-size: clamp(32px, 6vw, 56px);
+    line-height: 1.04;
+    letter-spacing: -.03em;
+  }
+  .lede {
+    margin: 0;
+    max-width: 840px;
+    color: var(--muted);
+    font-size: 18px;
+  }
+  .summary {
+    margin-top: 22px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 14px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 16px 18px;
+  }
+  .card h3 {
+    margin: 0 0 8px;
+    font-size: 13px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    font-family: var(--mono);
+  }
+  .card p { margin: 0; }
+  section {
+    padding: 28px 30px;
+    margin: 0 0 18px;
+  }
+  h2 {
+    margin: 0 0 14px;
+    font-size: clamp(24px, 3.2vw, 34px);
+    line-height: 1.15;
+    letter-spacing: -.02em;
+  }
+  h3 {
+    margin: 24px 0 8px;
+    font-size: 20px;
+    line-height: 1.3;
+  }
+  p { margin: 10px 0; }
+  ul, ol {
+    margin: 10px 0 10px 22px;
+    padding: 0;
+  }
+  li { margin: 6px 0; }
+  .quote {
+    margin: 14px 0 0;
+    padding: 14px 16px;
+    border-left: 4px solid var(--accent);
+    background: var(--panel);
+    border-radius: 10px;
+    color: var(--muted);
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    margin-top: 16px;
+  }
+  .metric {
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 16px;
+    background: linear-gradient(180deg, var(--paper), var(--panel));
+  }
+  .metric strong {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 14px;
+  }
+  .score {
+    font: 700 28px/1 var(--mono);
+    margin-bottom: 8px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 14px;
+    font-size: 14px;
+  }
+  th, td {
+    padding: 11px 12px;
+    border-bottom: 1px solid var(--line);
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    color: var(--muted);
+    font: 700 12px/1.2 var(--mono);
+    text-transform: uppercase;
+    letter-spacing: .08em;
+  }
+  .pill {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 999px;
+    font: 700 12px/1.2 var(--mono);
+  }
+  .good { color: var(--good); background: color-mix(in srgb, var(--good) 14%, transparent); }
+  .warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 15%, transparent); }
+  .bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent); }
+  .footer {
+    padding: 20px 24px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  code {
+    font-family: var(--mono);
+    font-size: .95em;
+    background: var(--panel);
+    padding: 1px 6px;
+    border-radius: 6px;
+  }
+</style>
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <p class="eyebrow">cutflow / ai-native nle diagnosis / 2026-07-08</p>
+      <h1>基盤はかなり揃った。次の課題は、AI編集をどう製品化するか。</h1>
+      <p class="lede">この版は 2026-07-06 時点の診断を現行実装へ反映したものです。7/6 版で欠落としていた <code>approved</code> のコード強制、stable id / <code>@id</code>、<code>apply</code>、MCP、OCR、語単位 timestamp、rules / learn、annotation、blur / mosaic、caption anim / karaoke、frames server、素材知覚は既に実装済みです。</p>
+      <div class="summary">
+        <div class="card">
+          <h3>総合判定</h3>
+          <p>「Composer / Agent 以前」ではもうない。現在の cutflow は <strong>Agent-ready NLE</strong> と呼べる段階にある。</p>
+        </div>
+        <div class="card">
+          <h3>最大の未達</h3>
+          <p>不足しているのは基盤ではなく <strong>GUI 内 AI 指示</strong>、<strong>diff 承認フローの主経路化</strong>、<strong>対話一発編集の製品化</strong> である。</p>
+        </div>
+        <div class="card">
+          <h3>判断</h3>
+          <p>旧ロードマップを盲目的に進めるのは不適切。終わった基盤工事より、UX と製品フローへの変換を優先すべきだ。</p>
+        </div>
+      </div>
+    </header>
+
+    <section>
+      <p class="eyebrow">Scorecard</p>
+      <h2>現時点のスコア</h2>
+      <div class="grid">
+        <div class="metric">
+          <strong>人間の手編集(GUI)</strong>
+          <div class="score">8 / 10</div>
+          <p>Player・波形・undo/redo・直接ドラッグ・blur/annotation・ショート切替まで揃った。</p>
+        </div>
+        <div class="metric">
+          <strong>編集表現力</strong>
+          <div class="score">5.5 / 10</div>
+          <p>blur / annotation / caption anim で前進。ただし速度変更とキーフレーム基盤は未着手。</p>
+        </div>
+        <div class="metric">
+          <strong>AI の知覚</strong>
+          <div class="score">5.5 / 10</div>
+          <p>語単位 transcript、system audio transcript、OCR、素材 probe はあるが、実動画・実音の検証は弱い。</p>
+        </div>
+        <div class="metric">
+          <strong>AI 協調レイヤ</strong>
+          <div class="score">6 / 10</div>
+          <p><code>apply</code> / MCP / stable id / diff review はある。GUI 内 AI 指示と常用 UX が未完成。</p>
+        </div>
+      </div>
+      <p class="quote">別軸では「データ所有 × 持ち込み AI」は依然強い。ただし実体はまだ Claude 偏重で、BYO-AI は旗ほど広くない。</p>
+    </section>
+
+    <section>
+      <p class="eyebrow">Core Finding</p>
+      <h2>ボトルネックは「安全に編集できるか」から「AI 編集をどう製品化するか」へ移った</h2>
+      <p>7/6 版の主要批判だった「plan が盲目で聾」「承認が紳士協定」「行動層が生 JSON 手書き」は、現状にはそのまま当てはまらない。</p>
+      <ul>
+        <li>承認ゲートは <code>approvals.json</code> のハッシュ一致で強制され、boolean <code>approved</code> にはフォールバックしない。</li>
+        <li><code>apply</code> は validate 前置のアトミック適用で、<code>approved</code> 変更を拒否する。</li>
+        <li>MCP server により、読取系と安全編集系の tool が露出している。</li>
+        <li>stable id と <code>@id</code> によるアドレッシングがある。</li>
+        <li>plan には opt-in で audio / system speech / OCR が接続されている。</li>
+        <li>GUI には three-way diff と conflict resolution がある。</li>
+      </ul>
+      <p>現在の問題は別の場所にある。AI を GUI の中でどう働かせるか、編集結果をどう自己検証させるか、この基盤をどう「1本仕上げる製品体験」に束ねるか、である。</p>
+    </section>
+
+    <section>
+      <p class="eyebrow">State</p>
+      <h2>人間編集と AI 編集の現在地</h2>
+      <h3>人間編集</h3>
+      <p>GUI は 7/6 時点よりさらに本物の NLE に近づいた。Player、波形、ズーム可能タイムライン、undo/redo、<code>⌘K</code> 分割、複数選択、blur / mosaic の矩形編集、annotation、ショート切替、draft、自動退避、validate 保存ゲート、preview / render 起動、外部変更時の diff review が揃っている。</p>
+      <p>残る弱点は基礎操作ではなく、コピー&ペースト、リップル/ロール、時刻直接入力、marker / in-out、thumbnail / meta / chapters など GUI 面の網羅性である。</p>
+      <h3>AI 編集</h3>
+      <table>
+        <thead>
+          <tr><th>項目</th><th>評価</th><th>補足</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>安全な action space</td><td><span class="pill good">実装済み</span></td><td>MCP、<code>apply</code>、<code>id-stamp</code>、stable id がある</td></tr>
+          <tr><td>承認境界</td><td><span class="pill good">実装済み</span></td><td>AI から承認レコードを mint できない</td></tr>
+          <tr><td>GUI 内 AI 指示</td><td><span class="pill bad">未達</span></td><td>主戦場はまだターミナル</td></tr>
+          <tr><td>AI 提案の常設レビュー</td><td><span class="pill warn">部分完了</span></td><td>external change diff review はあるが主経路ではない</td></tr>
+          <tr><td>対話一発編集</td><td><span class="pill bad">未達</span></td><td>ここが最大の空白</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <p class="eyebrow">Six Themes</p>
+      <h2>6テーマの不足と更新後の見立て</h2>
+
+      <h3>A. AI の知覚強化</h3>
+      <p><span class="pill good">完了</span> フル解像度 still + OCR、語単位 timestamp / confidence、system audio transcript、plan への opt-in 知覚注入、素材 probe / OCR / transcribe。</p>
+      <p><span class="pill warn">残課題</span> plan の知覚は既定主経路ではない。AI は still / OCR / probe を見られるが、実 A/V を再生・試聴して自己検証できない。</p>
+
+      <h3>B. AI の行動インターフェース</h3>
+      <p><span class="pill good">完了</span> MCP、<code>apply</code>、<code>approved</code> 書換拒否、stable ID / <code>@id</code>、read 系 tool 群。</p>
+      <p><span class="pill warn">残課題</span> 道具は安全だが低水準で、task-level tool はまだ薄い。GUI から直接使えない。</p>
+
+      <h3>C. 編集表現力</h3>
+      <p><span class="pill good">完了</span> annotation、blur / mosaic、caption anim / karaoke、color filter。</p>
+      <p><span class="pill bad">残課題</span> 速度変更、フリーズフレーム、汎用キーフレーム基盤、マスク、トラッキング、オートリフレームが無い。時間変化の基盤がボトルネック。</p>
+
+      <h3>D. 高速フィードバックループ</h3>
+      <p><span class="pill good">完了</span> <code>frames-serve</code>、<code>assert</code>、<code>av</code> probe、stale 検知強化。</p>
+      <p><span class="pill warn">残課題</span> AI が見るのは still と probe であり、動画再生ではない。音の主観評価は人間終端。</p>
+
+      <h3>E. ローカル×持ち込み AI の運用基盤</h3>
+      <p><span class="pill good">完了</span> <code>AGENTS_CONTRACT.md</code>、JSON Schema 群、<code>rules.md</code>、<code>learn</code>。</p>
+      <p><span class="pill warn">残課題</span> rules は提案生成までで、自動反映や継続メモリはない。収録横断 retrieval もない。</p>
+
+      <h3>F. ポジショニング / 差別化</h3>
+      <p>強みは変わらない。video-as-code、local-first、approval boundary、agent-editable の組み合わせは依然強い。</p>
+      <p><span class="pill bad">残課題</span> 競合の table stakes になった「言えばやる」体験が未製品化。</p>
+    </section>
+
+    <section>
+      <p class="eyebrow">Roadmap</p>
+      <h2>旧ロードマップの再評価</h2>
+      <table>
+        <thead>
+          <tr><th>項目</th><th>状態</th><th>コメント</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>フル解像度 still + OCR</td><td><span class="pill good">完了</span></td><td><code>frames --full-res --ocr</code> と plan OCR</td></tr>
+          <tr><td>語/トークン単位 timestamp</td><td><span class="pill good">完了</span></td><td><code>transcript.words</code></td></tr>
+          <tr><td>rules + learn</td><td><span class="pill good">完了</span></td><td><code>rules.md</code> と <code>learn</code></td></tr>
+          <tr><td>書込スコープのコード強制</td><td><span class="pill good">完了</span></td><td>approval hash gate と <code>apply</code>/MCP 制限</td></tr>
+          <tr><td>blur / mosaic</td><td><span class="pill good">完了</span></td><td>実装済み</td></tr>
+          <tr><td>caption anim / karaoke</td><td><span class="pill good">完了</span></td><td>実装済み</td></tr>
+          <tr><td>plan に画像+音</td><td><span class="pill warn">概ね完了</span></td><td>opt-in で audio/system/OCR を注入。既定主経路化は未完</td></tr>
+          <tr><td>編集 action space + MCP</td><td><span class="pill good">完了</span></td><td>高水準化の余地はある</td></tr>
+          <tr><td>stable ID / <code>@mention</code></td><td><span class="pill good">完了</span></td><td><code>id-stamp</code> / <code>resolveMention</code></td></tr>
+          <tr><td>機械可読契約</td><td><span class="pill good">完了</span></td><td>schema 群と contract がある</td></tr>
+          <tr><td>AI diff review</td><td><span class="pill warn">部分完了</span></td><td>external change review はある。AI 常設ワークフローは未完</td></tr>
+          <tr><td>対話一発編集</td><td><span class="pill bad">未着手</span></td><td>最大の空白</td></tr>
+          <tr><td>注釈グラフィック層</td><td><span class="pill good">完了</span></td><td>arrow / box / spotlight</td></tr>
+        </tbody>
+      </table>
+      <p class="quote">結論として、旧ロードマップをそのまま進めると、既に終わった基盤工事へ再投資してしまう。</p>
+    </section>
+
+    <section>
+      <p class="eyebrow">Priority</p>
+      <h2>盲目的に進めず、優先順位を組み替えるべき理由</h2>
+      <ol>
+        <li>7/6 の欠落一覧を前提にすると、MCP、<code>apply</code>、approval gate、OCR、rules、annotation など、既に終わった領域へ工数を入れ続けてしまう。</li>
+        <li>現在のボトルネックは「AI に何ができるか」ではなく、「ユーザーがどう AI を使って 1 本を仕上げるか」である。</li>
+        <li>速度変更とキーフレームは周辺改善の延長ではなく、独立した重い設計課題である。</li>
+      </ol>
+      <h3>P0</h3>
+      <ol>
+        <li>GUI 内 AI 指示チャネル</li>
+        <li>AI 編集の常設 diff review フロー</li>
+        <li>plan 知覚経路の既定オン化または明示</li>
+        <li>対話一発編集の workflow 化</li>
+      </ol>
+      <h3>P1</h3>
+      <ol>
+        <li>高水準 editing tools</li>
+        <li>実 A/V フィードバック</li>
+        <li>material / recording 横断 retrieval</li>
+      </ol>
+      <h3>P2</h3>
+      <ol>
+        <li>キーフレーム基盤</li>
+        <li>速度変更</li>
+        <li>BYO-AI 拡張</li>
+      </ol>
+    </section>
+
+    <section>
+      <p class="eyebrow">Position</p>
+      <h2>今の cutflow をどう呼ぶべきか</h2>
+      <p>現在の cutflow は、もう「盲目な一発生成ボタン付きリポジトリ」ではない。安全な編集 API があり、承認境界がコードで強制され、agent-friendly な addressing と MCP があり、目と耳も低帯域ながら接続され始めている。</p>
+      <p>したがって、いま名乗るべきは「動画編集の Cursor の土台」ではなく、<strong>Agent-ready NLE</strong> である。</p>
+      <p class="quote">次に勝負すべきは基盤追加ではない。GUI 内 AI 指示、AI 編集の差分承認フロー、実 A/V の再観測ループ、対話一発編集の製品化、そしてキーフレーム / 速度変更という表現力の本丸である。</p>
+    </section>
+
+    <div class="footer">
+      <p>初版 2026-07-06 の診断を、2026-07-08 時点の実装へ反映して更新。判断は現行コードベースの読解に基づく。</p>
+    </div>
+  </main>
+</body>
+</html>

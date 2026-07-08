@@ -404,6 +404,19 @@ export const Timeline = ({
     if (!el) return 0;
     return trackIndexOfY(clientY - el.getBoundingClientRect().top + el.scrollTop - RULER_H);
   };
+  /** ポインタ直下のトラック行。ドロップ可否の厳密判定用なので上下へ丸めない */
+  const trackAt = (clientY: number): TrackDef | null => {
+    const el = scrollRef.current;
+    if (!el) return null;
+    const y = clientY - el.getBoundingClientRect().top + el.scrollTop - RULER_H;
+    if (y < 0) return null;
+    let acc = 0;
+    for (const t of tracks) {
+      acc += rowH(t.id);
+      if (y < acc) return t;
+    }
+    return null;
+  };
   /** ポインタ位置 → ラベル列(tlLabelScroll)のトラック添字 */
   const labelIndexAt = (clientY: number): number => {
     const el = labelsRef.current;
@@ -696,8 +709,13 @@ export const Timeline = ({
     if (audio === false) return ovNum(t.id) !== null || t.id === "cut";
     return ovNum(t.id) !== null || t.id === "cut" || t.id === "bgm";
   };
-  /** ポインタに一番近い置けるトラック(行の添字距離で上下に探す) */
+  /** ポインタに一番近い置けるトラック(行の添字距離で上下に探す)。
+   *  音声素材だけは、BGM 行へ直接ドラッグしたとき以外は反応させない */
   const dropTrackAt = (clientY: number, audio: boolean | null): TrackDef | null => {
+    if (audio === true) {
+      const t = trackAt(clientY);
+      return t?.id === "bgm" ? t : null;
+    }
     const idx = trackIndexAt(clientY);
     for (let d = 0; d < tracks.length; d++) {
       for (const i of [idx - d, idx + d]) {
