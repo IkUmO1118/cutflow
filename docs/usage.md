@@ -737,7 +737,7 @@ node src/cli.ts learn <dir>
 plan:
   perception:
     audio: true        # 無音・間の注記(決定論・追加依存なし。まずこれから)
-    ocr: false         # 画面OCRテキスト(macOS/Apple Vision 必要・区間数ぶん重い)
+    ocr: true          # 画面OCRテキスト(macOS/Apple Vision 必要・区間数ぶん重い)
     ocrMaxSegments: 40
     ocrMaxLines: 6
     systemSpeech: false # システム音声の発話(要 whisper.systemAudio。下記参照)

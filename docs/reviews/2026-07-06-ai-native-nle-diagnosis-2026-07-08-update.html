@@ -340,6 +340,7 @@
         <li>7/6 の欠落一覧を前提にすると、MCP、<code>apply</code>、approval gate、OCR、rules、annotation など、既に終わった領域へ工数を入れ続けてしまう。</li>
         <li>現在のボトルネックは「AI に何ができるか」ではなく、「ユーザーがどう AI を使って 1 本を仕上げるか」である。</li>
         <li>速度変更とキーフレームは周辺改善の延長ではなく、独立した重い設計課題である。</li>
+        <li>画像を読める AI は有効だが、cutflow の一次ソースは依然として機械可読で再利用可能な観測であるべきだ。VLM は OCR / audio / <code>av.probe</code> の代替ではなく補助として積む方が筋が良い。</li>
       </ol>
       <h3>P0</h3>
       <ol>
@@ -351,14 +352,17 @@
       <h3>P1</h3>
       <ol>
         <li>高水準 editing tools</li>
-        <li>実 A/V フィードバック</li>
+        <li>実 A/V フィードバック(= 決定論的観測の第一レーン化)</li>
+        <li>selection slicer / before-after still / <code>review.frames</code> 直結など、AI workflow の薄い補強</li>
         <li>material / recording 横断 retrieval</li>
+        <li>VLM 補助の限定導入(still review や意味理解の補助。一次ソースにはしない)</li>
       </ol>
       <h3>P2</h3>
       <ol>
         <li>キーフレーム基盤</li>
         <li>速度変更</li>
-        <li>BYO-AI 拡張</li>
+        <li>BYO-AI / マルチモーダル provider 拡張</li>
+        <li>VLM を agent loop や GUI AI workflow の二次観測へ広げる</li>
       </ol>
     </section>
 
@@ -367,7 +371,7 @@
       <h2>今の cutflow をどう呼ぶべきか</h2>
       <p>現在の cutflow は、もう「盲目な一発生成ボタン付きリポジトリ」ではない。安全な編集 API があり、承認境界がコードで強制され、agent-friendly な addressing と MCP があり、目と耳も低帯域ながら接続され始めている。</p>
       <p>したがって、いま名乗るべきは「動画編集の Cursor の土台」ではなく、<strong>Agent-ready NLE</strong> である。</p>
-      <p class="quote">次に勝負すべきは基盤追加ではない。GUI 内 AI 指示、AI 編集の差分承認フロー、実 A/V の再観測ループ、対話一発編集の製品化、そしてキーフレーム / 速度変更という表現力の本丸である。</p>
+      <p class="quote">次に勝負すべきは、決定論的観測を第一レーンとして厚くし、その上に VLM を補助として重ねることだ。GUI 内 AI 指示、AI 編集の差分承認フロー、実 A/V の再観測ループ、対話一発編集の製品化、そしてキーフレーム / 速度変更という表現力の本丸を、この順で束ねるべきである。</p>
     </section>
 
     <div class="footer">
