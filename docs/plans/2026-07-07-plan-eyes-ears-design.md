@@ -1,5 +1,10 @@
 # plan に「目耳」を接続する(カット判断ループへ画像+音)設計
 
+> 2026-07-08 P0 更新: コード上の未指定 fallback は互換のため全オフのままだが、
+> 標準 `config.yaml` では `plan.perception` を明示し `audio/ocr` をオンにする。
+> `plan` / `remeta` / `run` 実行時は今回の知覚状態を表示し、未指定 config では
+> 警告して継続する。
+
 - 対象: NLE ロードマップ NEXT「カット判断ループに目耳を接続(plan に画像+音)」(effort L)
 - 診断: `docs/reviews/2026-07-06-ai-native-nle-diagnosis.md`(読むだけ。**このファイルは触らない**)
 - 前提リポジトリ規約: `CLAUDE.md`(全編集は平文 JSON / 時刻は元収録の秒 / LLM は番号選択のみ / 既定オフ・未使用時バイト等価が鉄則)

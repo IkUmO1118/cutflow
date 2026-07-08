@@ -2,6 +2,34 @@
 
 動画台本・概要欄の素材を兼ねる。新しい判断は上に追記する。
 
+## 2026-07-08 plan 知覚は fallback 強制オンにせず、明示化と workflow 表示を優先
+
+**判断**: `resolvePerceptionCfg()` の未指定 fallback は互換のため全オフのまま保つ。
+一方で標準 `config.yaml` は `plan.perception.audio/ocr` を明示オンにし、`plan` /
+`remeta` / `run` は実行前に今回の知覚状態を必ず表示する。`plan.perception` 自体が
+無い config では警告を出すが、処理は止めない。GUI editor の AI command は
+単発 proposal ではなく、差分確認 → 適用 → 保存 → 任意の frames 確認までを
+1 回の workflow 状態として扱う。
+
+**理由**: 問題は「黙ってオフ」であり、OCR をコード fallback で強制オンにすると
+旧 config / 非対応環境に別の退行を持ち込む。まずは CLI と editor に状態を露出して、
+実際に何が有効かを即座に判断できるようにする方が P0 として堅い。AI 編集も同様で、
+安全境界(diff review + planApply)は既に足りており、欠けていたのは「一発編集が
+どこまで完了したか」の主経路表示だった。
+
+## 2026-07-08 AI 設定は `ai.provider` に統一し、旧 `llm` は互換扱い
+
+**判断**: ユーザー向けの AI 設定入口を `ai.provider` / `ai.model` にする。
+既定は `claude-code`。`codex` / `anthropic` / `openai` も同じ provider 概念で
+扱う。旧 `llm.backend: claude-cli | api` は既存 config の互換のため読み続けるが、
+新規ドキュメントでは `ai.provider` を正とする。
+
+**理由**: 利便性を優先すると、ユーザーに one-shot / agent / API / CLI の内部差を
+設定させない方がよい。一方、実装では provider ごとの能力差を隠しすぎない。
+`claude-code` は `claude -p`、`codex` は read-only の `codex exec`、API provider は
+各 API の one-shot 呼び出しとして扱う。外部 agent が cutflow を操作する本命導線は
+引き続き MCP(`describe/apply/validate/frames`)に寄せる。
+
 ## 2026-07-06 plain(カメラ無し通常動画)のショート化に縦プロファイルを新設
 
 **背景**: plain(`manifest.layout:"plain"`。カメラ無しの通常動画。多くは
