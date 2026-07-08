@@ -2,6 +2,10 @@ import { useEffect, useState } from "react";
 // ConfigPatch はサーバー側モジュールの型だが import type なのでバンドルには入らない
 import type { ConfigPatch } from "../../src/lib/configEdit.ts";
 import type {
+  AiFrameRequest,
+  AiFrameResponse,
+  AiProposeRequest,
+  AiProposeResponse,
   ConfigSaveResult,
   DraftData,
   PeaksData,
@@ -34,6 +38,14 @@ export async function getPeaks(file?: string): Promise<Peaks> {
 
 export async function postSave(body: SaveRequest): Promise<void> {
   await request("/api/save", body);
+}
+
+export async function postAiPropose(body: AiProposeRequest): Promise<AiProposeResponse> {
+  return (await request("/api/ai/propose", body)) as AiProposeResponse;
+}
+
+export async function postAiFrames(body: AiFrameRequest): Promise<AiFrameResponse> {
+  return (await request("/api/ai/frames", body)) as AiFrameResponse;
 }
 
 /** 未保存編集の自動退避(.editor-draft.json)。クラッシュへの保険で、
