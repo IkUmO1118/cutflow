@@ -1,87 +1,184 @@
 import type { Hunk } from "../../src/lib/docDiff.ts";
 
 type Side = "theirs" | "mine";
+export interface DiffWarningGroup {
+  label: string;
+  items: string[];
+}
+
+export interface DiffAction {
+  label: string;
+  kind?: "primary" | "secondary";
+  disabled?: boolean;
+  onClick: () => void;
+}
 
 export const DiffReview = ({
-  conflicts,
+  kind = "external-conflict",
+  title,
+  description,
+  countLabel,
+  hunks,
   resolution,
   onSet,
   onBulk,
   onApply,
   onCancel,
+  warnings = [],
+  warningGroups,
+  frameChecks = [],
+  onCheckFrames,
+  checkingFrames = false,
+  checkFramesLabel = "フレーム確認",
+  actions,
 }: {
-  conflicts: Hunk[];
+  kind?: "external-conflict" | "ai-proposal";
+  title?: string;
+  description?: string;
+  countLabel?: string;
+  hunks: Hunk[];
   resolution: Map<Hunk, Side>;
   onSet: (hunk: Hunk, side: Side) => void;
   onBulk: (side: Side) => void;
   onApply: () => void;
   onCancel: () => void;
-}) => (
-  <>
-    <div className="diffBackdrop" />
-    <section className="diffModal" role="dialog" aria-label="外部変更の差分レビュー">
-      <div className="diffHead">
-        <div>
-          <div className="diffCount">{conflicts.length} 件の競合</div>
-          <h3>外部変更と競合しています</h3>
-          <p>
-            エディタの未保存編集と、ディスク上の変更が同じ場所を変えました。
-            残す内容を選んでください。
-          </p>
-        </div>
-      </div>
-      <div className="diffList">
-        {conflicts.length > 1 && (
-          <div className="diffBulk">
-            <span>一括選択</span>
-            <button onClick={() => onBulk("mine")}>未保存編集を残す</button>
-            <button onClick={() => onBulk("theirs")}>外部変更にする</button>
+  warnings?: string[];
+  warningGroups?: DiffWarningGroup[];
+  frameChecks?: string[];
+  onCheckFrames?: () => void;
+  checkingFrames?: boolean;
+  checkFramesLabel?: string;
+  actions?: DiffAction[];
+}) => {
+  const groups = warningGroups ?? (warnings.length > 0 ? [{ label: "確認事項", items: warnings }] : []);
+  return (
+    <>
+      <div className="diffBackdrop" />
+      <section
+        className="diffModal"
+        role="dialog"
+        aria-label={kind === "ai-proposal" ? "AI 提案の差分レビュー" : "外部変更の差分レビュー"}
+      >
+        <div className="diffHead">
+          <div>
+            <div className="diffCount">{countLabel ?? defaultCountLabel(kind, hunks.length)}</div>
+            <h3>{title ?? (kind === "ai-proposal" ? "AI 提案を確認" : "外部変更と競合しています")}</h3>
+            <p>
+              {description ??
+                (kind === "ai-proposal"
+                  ? "採用する変更だけを選んでください。適用後は未保存編集として画面に反映されます。"
+                  : "エディタの未保存編集と、ディスク上の変更が同じ場所を変えました。残す内容を選んでください。")}
+            </p>
+            {groups.length > 0 && (
+              <div className="diffWarnings">
+                {groups.map((group) => (
+                  <section className="diffWarningGroup" key={group.label}>
+                    <h4>{group.label}</h4>
+                    <ul>
+                      {group.items.map((w, i) => (
+                        <li key={i}>{w}</li>
+                      ))}
+                    </ul>
+                  </section>
+                ))}
+              </div>
+            )}
+            {frameChecks.length > 0 && (
+              <div className="diffFrameChecks">
+                <span>確認推奨: {frameChecks.join(", ")}</span>
+                {onCheckFrames && (
+                  <button onClick={onCheckFrames} disabled={checkingFrames}>
+                    {checkingFrames ? "生成中…" : checkFramesLabel}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
-        )}
-        {conflicts.map((hunk, i) => {
-          const selected = resolution.get(hunk) ?? "theirs";
-          const title = hunkTitle(hunk);
-          return (
-            <article className="diffHunk" key={`${hunk.address.label}:${i}`}>
-              <div className="diffConflictHead">
-                <div>
-                  <div className="diffConflictTitle">{title}</div>
-                  <div className="diffConflictHelp">
-                    この項目が、未保存編集と外部変更の両方で変更されました。
+        </div>
+        <div className="diffList">
+          {hunks.length > 1 && (
+            <div className="diffBulk">
+              <span>一括選択</span>
+              <button onClick={() => onBulk("mine")}>
+                {kind === "ai-proposal" ? "すべて不採用" : "未保存編集を残す"}
+              </button>
+              <button onClick={() => onBulk("theirs")}>
+                {kind === "ai-proposal" ? "すべて採用" : "外部変更にする"}
+              </button>
+            </div>
+          )}
+          {hunks.map((hunk, i) => {
+            const selected = resolution.get(hunk) ?? "theirs";
+            const title = hunkTitle(hunk);
+            return (
+              <article className="diffHunk" key={`${hunk.address.label}:${i}`}>
+                <div className="diffConflictHead">
+                  <div>
+                    <div className="diffConflictTitle">{title}</div>
+                    <div className="diffConflictHelp">
+                      {kind === "ai-proposal"
+                        ? "この項目に AI 提案の変更があります。"
+                        : "この項目が、未保存編集と外部変更の両方で変更されました。"}
+                    </div>
                   </div>
+                  <code>{hunk.address.label}</code>
                 </div>
-                <code>{hunk.address.label}</code>
-              </div>
-              <div className="diffValues">
-                <ValuePane
-                  title="エディタの未保存編集"
-                  note="いま画面上にある、まだ保存していない内容"
-                  value={hunk.mine}
-                  selected={selected === "mine"}
-                  onChoose={() => onSet(hunk, "mine")}
-                />
-                <ValuePane
-                  title="外部で変更された内容"
-                  note="ディスク上の JSON に後から書き込まれた内容"
-                  value={hunk.theirs}
-                  selected={selected === "theirs"}
-                  onChoose={() => onSet(hunk, "theirs")}
-                />
-              </div>
-            </article>
-          );
-        })}
-      </div>
-      <div className="diffFoot">
-        <button onClick={onCancel}>キャンセル</button>
-        <div className="spacer" />
-        <button className="primary" onClick={onApply}>
-          選んだ内容を適用
-        </button>
-      </div>
-    </section>
-  </>
-);
+                <div className="diffValues">
+                  <ValuePane
+                    title={kind === "ai-proposal" ? "現在の内容" : "エディタの未保存編集"}
+                    note={
+                      kind === "ai-proposal"
+                        ? "この hunk を不採用にすると残る内容"
+                        : "いま画面上にある、まだ保存していない内容"
+                    }
+                    value={hunk.mine}
+                    selected={selected === "mine"}
+                    onChoose={() => onSet(hunk, "mine")}
+                  />
+                  <ValuePane
+                    title={kind === "ai-proposal" ? "AI 提案" : "外部で変更された内容"}
+                    note={
+                      kind === "ai-proposal"
+                        ? "この hunk を採用すると入る内容"
+                        : "ディスク上の JSON に後から書き込まれた内容"
+                    }
+                    value={hunk.theirs}
+                    selected={selected === "theirs"}
+                    onChoose={() => onSet(hunk, "theirs")}
+                  />
+                </div>
+              </article>
+            );
+          })}
+        </div>
+        <div className="diffFoot">
+          <button onClick={onCancel}>キャンセル</button>
+          <div className="spacer" />
+          {actions ? (
+            actions.map((action) => (
+              <button
+                key={action.label}
+                className={action.kind === "primary" ? "primary" : undefined}
+                disabled={action.disabled}
+                onClick={action.onClick}
+              >
+                {action.label}
+              </button>
+            ))
+          ) : (
+            <button className="primary" onClick={onApply}>
+              {kind === "ai-proposal" ? "選んだ提案を適用" : "選んだ内容を適用"}
+            </button>
+          )}
+        </div>
+      </section>
+    </>
+  );
+};
+
+function defaultCountLabel(kind: "external-conflict" | "ai-proposal", count: number): string {
+  return kind === "ai-proposal" ? `${count} 件の変更` : `${count} 件の競合`;
+}
 
 const ValuePane = ({
   title,

@@ -7,7 +7,7 @@ import {
 } from "../../src/types.ts";
 import type { Config } from "../../src/lib/config.ts";
 import type { ConfigPatch } from "../../src/lib/configEdit.ts";
-import type { EditorCfg } from "./apiTypes.ts";
+import type { EditorCfg, PlanPerceptionStatus } from "./apiTypes.ts";
 import { NumInput } from "./widgets.tsx";
 import { FONT_PRESETS } from "./Inspector.tsx";
 
@@ -97,6 +97,7 @@ const PROXY_HINT = "プレビューへの反映にはプロキシの再生成が
  */
 export const SettingsModal = ({
   cfg,
+  planPerception,
   onChange,
   onSave,
   onCancel,
@@ -104,6 +105,7 @@ export const SettingsModal = ({
   error,
 }: {
   cfg: CfgValues;
+  planPerception: PlanPerceptionStatus;
   onChange: (patch: Partial<CfgValues>) => void;
   onSave: () => void;
   onCancel: () => void;
@@ -137,6 +139,10 @@ export const SettingsModal = ({
   const familyOptions = FONT_PRESETS.some((p) => p.value === effFamily)
     ? FONT_PRESETS
     : [...FONT_PRESETS, { label: "(その他)", value: effFamily }];
+  const perceptionOn = planPerception.audio || planPerception.ocr || planPerception.systemSpeech;
+  const perceptionOcr = planPerception.ocr
+    ? `on(max ${planPerception.ocrMaxSegments} segments, ${planPerception.ocrMaxLines} lines)`
+    : "off";
 
   return (
     <div className="settingsModal" role="dialog" aria-label="設定">
@@ -145,6 +151,24 @@ export const SettingsModal = ({
         全収録フォルダ共通の設定(config.yaml)。変更はプレビューに即反映され、
         「保存」で書き戻します
       </p>
+
+      <h4>AI / plan</h4>
+      <div className="field statusField">
+        <label>plan の目耳</label>
+        <span className={perceptionOn ? "statusPill ok" : "statusPill"}>
+          {perceptionOn ? "on" : "off"}
+        </span>
+        <span className="hint dim">
+          audio={planPerception.audio ? "on" : "off"} / ocr={perceptionOcr} /
+          systemSpeech={planPerception.systemSpeech ? "on" : "off"}
+        </span>
+      </div>
+      {planPerception.warnings.length > 0 && (
+        <div className="field statusField">
+          <label>注意</label>
+          <span className="hint warnText">{planPerception.warnings.join(" / ")}</span>
+        </div>
+      )}
 
       <h4>出力の見た目</h4>
       <div className="field">
