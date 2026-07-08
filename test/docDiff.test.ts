@@ -1,7 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applyResolution, threeWayDiff } from "../src/lib/docDiff.ts";
-import type { ReviewDocs, Resolution } from "../src/lib/docDiff.ts";
+import {
+  applyProposalResolution,
+  applyResolution,
+  proposalDiff,
+  threeWayDiff,
+} from "../src/lib/docDiff.ts";
+import type { ProposalResolution, ReviewDocs, Resolution } from "../src/lib/docDiff.ts";
 
 const docs = (): ReviewDocs => ({
   cutplan: {
@@ -100,3 +105,66 @@ test("approved は hunk に出さず、merge 結果は theirs を保つ", () => 
   assert.equal(merged.shorts!.shorts[0].approved, false);
 });
 
+test("proposalDiff: base と proposed の全変更を hunk として出す", () => {
+  const base = docs();
+  const proposed = docs();
+  proposed.cutplan.segments[0].reason = "proposal";
+  proposed.transcript.segments[0].text = "shorter";
+  const result = proposalDiff(base, proposed);
+  assert.equal(result.cleanMerge, true);
+  assert.equal(result.conflicts.length, 0);
+  assert.equal(result.hunks.length, 2);
+});
+
+test("applyProposalResolution: すべて不採用なら base と等価", () => {
+  const base = docs();
+  const proposed = docs();
+  proposed.cutplan.segments[0].reason = "proposal";
+  proposed.transcript.segments[0].text = "shorter";
+  const result = proposalDiff(base, proposed);
+  const resolution: ProposalResolution = new Map(result.hunks.map((h) => [h, "mine"] as const));
+  const merged = applyProposalResolution(base, proposed, result, resolution);
+  assert.deepEqual(merged, base);
+});
+
+test("applyProposalResolution: すべて採用なら proposed と等価", () => {
+  const base = docs();
+  const proposed = docs();
+  proposed.cutplan.segments[0].reason = "proposal";
+  proposed.transcript.segments[0].text = "shorter";
+  const result = proposalDiff(base, proposed);
+  const resolution: ProposalResolution = new Map(result.hunks.map((h) => [h, "theirs"] as const));
+  const merged = applyProposalResolution(base, proposed, result, resolution);
+  assert.deepEqual(merged, proposed);
+});
+
+test("applyProposalResolution: 1 hunk だけ不採用にできる", () => {
+  const base = docs();
+  const proposed = docs();
+  proposed.cutplan.segments[0].reason = "proposal";
+  proposed.transcript.segments[0].text = "shorter";
+  const result = proposalDiff(base, proposed);
+  const resolution: ProposalResolution = new Map(result.hunks.map((h) => [h, "theirs"] as const));
+  const rejected = result.hunks.find((h) => h.address.file === "transcript");
+  assert.ok(rejected);
+  resolution.set(rejected, "mine");
+  const merged = applyProposalResolution(base, proposed, result, resolution);
+  assert.equal(merged.cutplan.segments[0].reason, "proposal");
+  assert.equal(merged.transcript.segments[0].text, "base");
+});
+
+test("applyProposalResolution: approved は提案差分にも反映結果にも混ぜない", () => {
+  const base = docs();
+  const proposed = docs();
+  base.cutplan.approved = true;
+  base.shorts!.shorts[0].approved = true;
+  proposed.cutplan.approved = false;
+  proposed.shorts!.shorts[0].approved = false;
+  proposed.transcript.segments[0].text = "proposal";
+  const result = proposalDiff(base, proposed);
+  assert.equal(result.hunks.some((h) => h.address.field === "approved"), false);
+  const merged = applyProposalResolution(base, proposed, result, new Map());
+  assert.equal(merged.cutplan.approved, true);
+  assert.equal(merged.shorts!.shorts[0].approved, true);
+  assert.equal(merged.transcript.segments[0].text, "proposal");
+});

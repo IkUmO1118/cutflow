@@ -172,7 +172,8 @@ planShorts:
   maxDurationSec: 60
 
 # plan(カット判断 LLM。plan / plan --cuts-only / remeta)へ発話以外の
-# 知覚を添える(既定オフ。省略すれば導入前と完全にバイト等価)
+# 知覚を添える。標準設定では audio/ocr を明示オンにする。
+# 古い config でこの節自体が無い場合は互換のため全オフで動き、CLI が警告する
 plan:
   perception:
     audio: true # 無音・間の注記(決定論・追加依存なし。まずこれから)
@@ -192,9 +193,12 @@ plan:
 #   pauseMax: 3
 #   pauseMinSec: 0.6
 
-# 意味カット・章立て・タイトル案の生成
-llm:
-  # claude-cli: Claude Code のサブスクで実行(APIキー不要)
-  # api:        従量課金API(ANTHROPIC_API_KEY と model の指定が必要)
-  backend: claude-cli
-  model: "claude-sonnet-5"
+# AI(意味カット・章立て・タイトル案・AI提案)
+ai:
+  # claude-code: Claude Code の `claude` CLI を使う(APIキー不要)
+  # codex:       Codex CLI の `codex exec` を使う(実験的)
+  # anthropic:   Anthropic API を使う(ANTHROPIC_API_KEY と model が必要)
+  # openai:      OpenAI API を使う(OPENAI_API_KEY と model が必要)
+  provider: codex
+  # auto: CLI provider の既定モデル。API provider ではモデル名を明示する
+  model: gpt-5.4-mini

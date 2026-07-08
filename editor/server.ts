@@ -29,11 +29,14 @@ import { run } from "../src/lib/exec.ts";
 import { ensureIds, hasAnyId, ID_PREFIX, usedIdsOf } from "../src/lib/ids.ts";
 import { mergeBodyOverDisk } from "../src/lib/applyEdits.ts";
 import { bootstrapProject } from "../src/stages/bootstrap.ts";
+import { EditorAiError, proposeEditorAi } from "../src/stages/editorAi.ts";
+import { frames } from "../src/stages/frames.ts";
 import { buildProxy, isProxyStale } from "../src/stages/proxy.ts";
 import { preview } from "../src/stages/preview.ts";
 import { findBgm, render } from "../src/stages/render.ts";
 import { validateDocs } from "../src/stages/validate.ts";
 import { readEditableDocs } from "../src/stages/idStamp.ts";
+import { resolvePerceptionStatus } from "../src/lib/config.ts";
 import type { Config } from "../src/lib/config.ts";
 import {
   applyConfigEdits,
@@ -56,6 +59,8 @@ import type {
 import type {
   ConfigSaveResult,
   DraftData,
+  AiFrameRequest,
+  AiProposeRequest,
   ProjectData,
   SaveRequest,
 } from "./client/apiTypes.ts";
@@ -119,6 +124,10 @@ export async function startEditor(
       // HttpError は想定内の拒否(不正な保存=400、大きすぎる素材=413 等)。
       // それ以外は想定外なのでログに残して 500 で返す
       if (err instanceof HttpError) {
+        sendJson(res, err.status, { error: err.message });
+        return;
+      }
+      if (err instanceof EditorAiError) {
         sendJson(res, err.status, { error: err.message });
         return;
       }
@@ -233,6 +242,36 @@ async function handle(
     const body = (await readBody(req)) as SaveRequest;
     saveProject(dir, body);
     sendJson(res, 200, { ok: true });
+    return;
+  }
+  if (req.method === "POST" && path === "/api/ai/propose") {
+    const body = (await readBody(req)) as AiProposeRequest;
+    const proposal = await proposeEditorAi(dir, cfg, body);
+    sendJson(res, 200, proposal);
+    return;
+  }
+  if (req.method === "POST" && path === "/api/ai/frames") {
+    const body = (await readBody(req)) as AiFrameRequest;
+    if (!Array.isArray(body.times) || body.times.length === 0 || body.times.length > 8) {
+      throw new HttpError(400, "frames の確認時刻は 1〜8 件で指定してください");
+    }
+    const times = body.times.map(Number);
+    if (times.some((t) => !Number.isFinite(t) || t < 0)) {
+      throw new HttpError(400, "frames の確認時刻は 0 以上の数値で指定してください");
+    }
+    if (heavyJob) {
+      throw new HttpError(409, `${jaStage(heavyJob.stage)}を実行中です。完了までお待ちください`);
+    }
+    if (proxyBuilding) await proxyBuilding;
+    const shots = await frames(
+      dir,
+      { mode: "times", times, axis: body.axis ?? "source" },
+      cfg,
+      body.activeShortName ?? undefined,
+      body.ocr === true,
+      body.fullRes === true,
+    );
+    sendJson(res, 200, { shots });
     return;
   }
   if (path === "/api/draft" && (req.method === "POST" || req.method === "DELETE")) {
@@ -365,7 +404,7 @@ let heavyJob: { stage: "preview" | "render"; promise: Promise<string> } | null =
 /** ジョブ名の日本語表記(409 メッセージ用) */
 const jaStage = (s: string): string => (s === "render" ? "レンダー" : "プレビュー生成");
 
-function loadProject(dir: string, cfg: Config): ProjectData {
+export function loadProject(dir: string, cfg: Config): ProjectData {
   const readJson = <T>(file: string, fallback: T): T => {
     const p = join(dir, file);
     return existsSync(p) ? (JSON.parse(readFileSync(p, "utf8")) as T) : fallback;
@@ -414,6 +453,7 @@ function loadProject(dir: string, cfg: Config): ProjectData {
     output: { w: manifest.video.screenRegion.w, h: manifest.video.screenRegion.h },
     hasCamera: hasCamera(manifest),
     draft,
+    planPerception: resolvePerceptionStatus(cfg),
   };
 }
 
