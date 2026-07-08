@@ -43,6 +43,8 @@ export interface ThreeWayResult {
 }
 
 export type Resolution = Map<Hunk, "theirs" | "mine">;
+export type ProposalDiffResult = ThreeWayResult;
+export type ProposalResolution = Resolution;
 
 interface ArraySpec {
   file: ReviewFileKey;
@@ -314,34 +316,49 @@ function setPath(obj: unknown, field: string | undefined, value: unknown): unkno
   return obj;
 }
 
-function applyMineValue(merged: ReviewDocs, hunk: Hunk): void {
+function restoreApprovalsFrom(base: ReviewDocs, merged: ReviewDocs): void {
+  merged.cutplan.approved = base.cutplan.approved;
+  if (merged.shorts) {
+    const baseByName = new Map((base.shorts?.shorts ?? []).map((s) => [s.name, s.approved]));
+    merged.shorts.shorts = merged.shorts.shorts.map((s) => ({
+      ...s,
+      approved: baseByName.get(s.name) ?? false,
+    }));
+  }
+}
+
+function applyHunkValue(merged: ReviewDocs, hunk: Hunk, value: unknown): void {
   const doc = merged[hunk.address.file] as unknown;
   const { arrayKey, elementId, field } = hunk.address;
   if (arrayKey) {
     if (!isObj(doc)) return;
     if (!elementId) {
-      if (hunk.mine === undefined) delete doc[arrayKey];
-      else doc[arrayKey] = deepClone(hunk.mine);
+      if (value === undefined) delete doc[arrayKey];
+      else doc[arrayKey] = deepClone(value);
       return;
     }
     const arr = Array.isArray(doc[arrayKey]) ? (doc[arrayKey] as unknown[]) : [];
     doc[arrayKey] = arr;
     const i = arr.findIndex((x) => validIdOf(x) === elementId);
-    if (hunk.mine === undefined) {
+    if (value === undefined) {
       if (i >= 0) arr.splice(i, 1);
       return;
     }
     if (field) {
-      if (i < 0) arr.push(deepClone(hunk.mine));
-      else setPath(arr[i], field, hunk.mine);
+      if (i < 0) arr.push(deepClone(value));
+      else setPath(arr[i], field, value);
       return;
     }
-    if (i >= 0) arr[i] = deepClone(hunk.mine);
-    else arr.push(deepClone(hunk.mine));
+    if (i >= 0) arr[i] = deepClone(value);
+    else arr.push(deepClone(value));
     return;
   }
-  const next = setPath(doc, field, hunk.mine);
+  const next = setPath(doc, field, value);
   (merged as unknown as Record<string, unknown>)[hunk.address.file] = next;
+}
+
+function applyMineValue(merged: ReviewDocs, hunk: Hunk): void {
+  applyHunkValue(merged, hunk, hunk.mine);
 }
 
 export function applyResolution(
@@ -358,13 +375,25 @@ export function applyResolution(
         : "theirs";
     if (side === "mine") applyMineValue(merged, hunk);
   }
-  merged.cutplan.approved = theirs.cutplan.approved;
-  if (merged.shorts) {
-    const theirsByName = new Map((theirs.shorts?.shorts ?? []).map((s) => [s.name, s.approved]));
-    merged.shorts.shorts = merged.shorts.shorts.map((s) => ({
-      ...s,
-      approved: theirsByName.get(s.name) ?? false,
-    }));
+  restoreApprovalsFrom(theirs, merged);
+  return merged;
+}
+
+export function proposalDiff(base: ReviewDocs, proposed: ReviewDocs): ProposalDiffResult {
+  return threeWayDiff(base, base, proposed);
+}
+
+export function applyProposalResolution(
+  base: ReviewDocs,
+  _proposed: ReviewDocs,
+  result: ProposalDiffResult,
+  resolution: ProposalResolution,
+): ReviewDocs {
+  const merged = deepClone(base);
+  for (const hunk of result.hunks) {
+    const side = resolution.get(hunk) ?? "theirs";
+    if (side === "theirs") applyHunkValue(merged, hunk, hunk.theirs);
   }
+  restoreApprovalsFrom(base, merged);
   return merged;
 }
