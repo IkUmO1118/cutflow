@@ -6,6 +6,16 @@ import { parse } from "yaml";
 import { DEFAULT_OCR_LANGUAGES } from "./ocr.ts";
 import type { Region } from "../types.ts";
 
+export type AiProvider = "claude-code" | "codex" | "anthropic" | "openai";
+export type LegacyLlmBackend = "claude-cli" | "api";
+
+export interface AiConfig {
+  /** 生成 AI の入口。agent と one-shot の違いは provider 側の既定で吸収する */
+  provider: AiProvider;
+  /** "auto" または省略で provider の既定。API provider は明示 model を推奨 */
+  model?: string;
+}
+
 export interface Config {
   recordingsDir: string;
   ingest: {
@@ -39,7 +49,10 @@ export interface Config {
     padSec: number;
     minKeepSec: number;
   };
-  llm: { backend: "claude-cli" | "api"; model: string };
+  /** AI 設定の新しい入口。省略時は llm(旧設定)から解決し、両方無ければ claude-code */
+  ai?: AiConfig;
+  /** 旧 LLM 設定。互換のため読み続けるが、新規設定は ai.provider を使う */
+  llm?: { backend: LegacyLlmBackend; model: string };
   /** ショート LLM ハイライト自動選定(plan-shorts)の設定。省略可
    * (古い config.yaml との互換。省略時は既定値を使う) */
   planShorts?: {
@@ -250,6 +263,41 @@ export function resolvePerceptionCfg(cfg: Config): {
   };
 }
 
+export interface PerceptionStatus {
+  explicit: boolean;
+  audio: boolean;
+  ocr: boolean;
+  systemSpeech: boolean;
+  ocrMaxSegments: number;
+  ocrMaxLines: number;
+  warnings: string[];
+}
+
+export function resolvePerceptionStatus(cfg: Config): PerceptionStatus {
+  const pc = resolvePerceptionCfg(cfg);
+  const explicit = cfg.plan?.perception !== undefined;
+  const warnings: string[] = [];
+  if (!explicit) {
+    warnings.push(
+      "plan.perception が config.yaml にありません。plan の知覚(audio/ocr/systemSpeech)は全てオフです。",
+    );
+  }
+  return { explicit, ...pc, warnings };
+}
+
+export function formatPerceptionStatusLines(status: PerceptionStatus): string[] {
+  return [
+    ...status.warnings.map((w) => `警告: ${w}`),
+    `plan 知覚: audio=${status.audio ? "on" : "off"} / ` +
+      `ocr=${
+        status.ocr
+          ? `on(max ${status.ocrMaxSegments} segments, ${status.ocrMaxLines} lines)`
+          : "off"
+      } / ` +
+      `systemSpeech=${status.systemSpeech ? "on" : "off"}`,
+  ];
+}
+
 /** plan.loop を既定値で解決する純関数。loadConfig は cfg.plan.loop を生成しない
  * (省略=従来挙動を守るため)ので、利用側は必ずこの関数を通す */
 export function resolvePlanLoopCfg(cfg: Config): {
@@ -318,6 +366,19 @@ export function resolveAvCfg(cfg: Config): {
     },
     stripWidthPx: av.stripWidthPx ?? DEFAULT_AV_STRIP_WIDTH_PX,
   };
+}
+
+export function resolveAiCfg(cfg: Config): Required<AiConfig> {
+  if (cfg.ai?.provider) {
+    return { provider: cfg.ai.provider, model: cfg.ai.model ?? "auto" };
+  }
+  if (cfg.llm?.backend === "claude-cli") {
+    return { provider: "claude-code", model: cfg.llm.model || "auto" };
+  }
+  if (cfg.llm?.backend === "api") {
+    return { provider: "anthropic", model: cfg.llm.model || "auto" };
+  }
+  return { provider: "claude-code", model: "auto" };
 }
 
 /** "~/foo" をホームディレクトリに展開する */

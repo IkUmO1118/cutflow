@@ -19,10 +19,18 @@ import {
   toSourceTime,
 } from "../../src/lib/timeline.ts";
 import {
+  applyProposalResolution,
   applyResolution,
+  proposalDiff,
   threeWayDiff,
 } from "../../src/lib/docDiff.ts";
-import type { ReviewDocs, Resolution, ThreeWayResult } from "../../src/lib/docDiff.ts";
+import type {
+  ProposalDiffResult,
+  ProposalResolution,
+  ReviewDocs,
+  Resolution,
+  ThreeWayResult,
+} from "../../src/lib/docDiff.ts";
 import type { TimelineEntry } from "../../src/lib/timeline.ts";
 import { defaultShortProfileName, PROFILES } from "../../src/lib/profile.ts";
 import type { Profile } from "../../src/lib/profile.ts";
@@ -52,12 +60,14 @@ import type {
   Shorts,
   Transcript,
 } from "../../src/types.ts";
-import type { DraftData, ProjectData } from "./apiTypes.ts";
+import type { AiProposeResponse, AiScope, AiSelectionContext, DraftData, ProjectData } from "./apiTypes.ts";
+import { AiCommand } from "./AiCommand.tsx";
 import { ArrowOverlay } from "./ArrowOverlay.tsx";
 import type { OverlayArrow } from "./ArrowOverlay.tsx";
 import { CaptionOverlay } from "./CaptionOverlay.tsx";
 import type { OverlayCaption } from "./CaptionOverlay.tsx";
 import { DiffReview } from "./DiffReview.tsx";
+import type { DiffAction, DiffWarningGroup } from "./DiffReview.tsx";
 import { MaterialOverlay } from "./MaterialOverlay.tsx";
 import type { OverlayRect } from "./MaterialOverlay.tsx";
 import { Inspector } from "./Inspector.tsx";
@@ -95,6 +105,8 @@ import {
   getProject,
   postConfig,
   postDraft,
+  postAiFrames,
+  postAiPropose,
   postPreview,
   postProxy,
   postRender,
@@ -106,6 +118,40 @@ import {
 import type { Peaks } from "./widgets.tsx";
 
 type OverlayEntry = NonNullable<Overlays["overlays"]>[number];
+
+type AiWorkflowPhase =
+  | "idle"
+  | "proposing"
+  | "reviewing"
+  | "applying"
+  | "saving"
+  | "verifying"
+  | "complete"
+  | "failed";
+
+interface AiWorkflowState {
+  phase: AiWorkflowPhase;
+  instruction: string;
+  scope: AiScope;
+  response?: AiProposeResponse;
+  diff?: ProposalDiffResult;
+  resolution?: ProposalResolution;
+  saved?: boolean;
+  frameFiles?: string[];
+  error?: string;
+}
+
+interface AiWorkflowReviewState extends AiWorkflowState {
+  phase: "reviewing";
+  response: AiProposeResponse;
+  diff: ProposalDiffResult;
+  resolution: ProposalResolution;
+}
+
+interface ApplyAiWorkflowOptions {
+  save: boolean;
+  verifyFrames: boolean;
+}
 
 const isMaterialFile = (f: string) =>
   f.startsWith("materials/") &&
@@ -134,6 +180,37 @@ const resolveShortProfile = (
   if (!p) throw new Error(`未知の profile 名です: ${key}`);
   return p;
 };
+
+const aiWorkflowPhaseLabel = (workflow: AiWorkflowState | null): string => {
+  if (!workflow) return "待機";
+  if (workflow.phase === "proposing") return "提案中";
+  if (workflow.phase === "reviewing") return "確認中";
+  if (workflow.phase === "applying") return "適用済み(未保存)";
+  if (workflow.phase === "saving") return "保存中";
+  if (workflow.phase === "verifying") return "確認画像を生成中";
+  if (workflow.phase === "failed") return "失敗";
+  if (workflow.saved) {
+    return workflow.frameFiles && workflow.frameFiles.length > 0 ? "保存+確認完了" : "保存完了";
+  }
+  return "適用済み(未保存)";
+};
+
+const aiWorkflowTone = (workflow: AiWorkflowState | null): "warn" | "ok" | "error" | "" => {
+  if (!workflow) return "";
+  if (workflow.phase === "failed") return "error";
+  if (workflow.phase === "reviewing" || workflow.phase === "proposing") return "warn";
+  if (workflow.phase === "complete") return workflow.saved ? "ok" : "warn";
+  if (workflow.phase === "idle") return "";
+  return "warn";
+};
+
+const isAiWorkflowReviewState = (
+  workflow: AiWorkflowState | null,
+): workflow is AiWorkflowReviewState =>
+  workflow?.phase === "reviewing" &&
+  workflow.response !== undefined &&
+  workflow.diff !== undefined &&
+  workflow.resolution !== undefined;
 
 /** BGM に使えるファイル(音声、または音を持つ動画)の拡張子 */
 const BGM_EXT_RE = /\.(mp3|m4a|wav|aac|ogg|flac|mp4|mov|webm|mkv)$/i;
@@ -236,7 +313,7 @@ export const App = () => {
    * (別ドキュメントで、範囲ドラッグ程度の編集に undo 一貫性のコストを
    * 払う価値が薄いと判断した意図的な簡略化) */
   const [shorts, setShorts] = useState<Shorts | null>(null);
-  /** 選択中のショート名。null = 本編モード(D6: ヘッダーのセレクタで切替) */
+  /** 選択中のショート名。null = 本編モード(プレビュー下のセレクタで切替) */
   const [activeShortName, setActiveShortName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // 通知トースト(error / job)。要対応の継続条件はバナー行が持つ(T4)
@@ -362,6 +439,9 @@ export const App = () => {
   } | null>(null);
   const [diffResolution, setDiffResolution] = useState<Resolution>(() => new Map());
   const [diffPanelOpen, setDiffPanelOpen] = useState(false);
+  const [aiWorkflow, setAiWorkflow] = useState<AiWorkflowState | null>(null);
+  const [aiCommandOpen, setAiCommandOpen] = useState(false);
+  const [aiCommandScope, setAiCommandScope] = useState<AiScope>("global");
   /** 前回のセッションの未保存編集(自動退避)。復元するか人間が選ぶまで保持 */
   const [draftOffer, setDraftOffer] = useState<DraftData | null>(null);
   /** ヘッダー右の「書き出し」ポップオーバー(preview / 承認 / render)の開閉 */
@@ -474,6 +554,7 @@ export const App = () => {
       setDiffReview(null);
       setDiffResolution(new Map());
       setDiffPanelOpen(false);
+      setAiWorkflow(null);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -497,6 +578,7 @@ export const App = () => {
     setDiffReview(null);
     setDiffResolution(new Map());
     setDiffPanelOpen(false);
+    setAiWorkflow(null);
   };
 
   const reviewExternalChange = async () => {
@@ -916,6 +998,12 @@ export const App = () => {
   );
   const anyDirty =
     cutplanDirty || overlaysDirty || transcriptDirty || bgmDirty || shortsDirty;
+  const aiBusy = aiWorkflow?.phase === "proposing";
+  const aiFrameBusy = aiWorkflow?.phase === "verifying";
+  const aiWorkflowLocked =
+    aiWorkflow !== null &&
+    ["proposing", "reviewing", "applying", "saving", "verifying"].includes(aiWorkflow.phase);
+  const aiWorkflowReview = isAiWorkflowReviewState(aiWorkflow) ? aiWorkflow : null;
   // SSE ハンドラ(マウント時に固定)から最新の dirty 状態を見るための控え
   dirtyRef.current = anyDirty;
 
@@ -2735,6 +2823,9 @@ export const App = () => {
     setProj({ ...proj, cutplan, overlays, transcript, bgm, shorts });
     // 保存 = こちらの内容で上書きすると選んだということ。外部変更の警告は下げる
     setExternalChange(false);
+    setAiWorkflow((wf) =>
+      wf && wf.phase === "complete" && wf.saved === false ? { ...wf, saved: true } : wf,
+    );
     // 保存できたら下書きの退避は不要(残すと次回起動時に復元を聞いてしまう)
     deleteDraft().catch(() => {});
   };
@@ -2784,6 +2875,250 @@ export const App = () => {
     if (!diffReview) return;
     const merged = applyResolution(reviewDocsOf(diffReview.theirs), diffReview.result, diffResolution);
     applyMergedDocs(diffReview.theirs, merged, true);
+  };
+
+  const buildAiSelectionContext = (scope: AiScope): AiSelectionContext => {
+    const outputSec = playhead.get();
+    const playheadSec = getPlayheadSrc() ?? undefined;
+    const ctx: AiSelectionContext = {
+      scope,
+      activeShortName,
+    };
+    if (scope !== "global") {
+      ctx.outputSec = round2(outputSec);
+      if (playheadSec !== undefined) ctx.playheadSec = round2(playheadSec);
+    }
+    if (scope !== "selection" || !selection) return ctx;
+
+    const idOf = (v: unknown): string | undefined =>
+      v && typeof v === "object" && "id" in v && typeof (v as { id?: unknown }).id === "string"
+        ? (v as { id: string }).id
+        : undefined;
+    const addRange = (v: unknown) => {
+      if (
+        v &&
+        typeof v === "object" &&
+        "start" in v &&
+        "end" in v &&
+        typeof (v as { start?: unknown }).start === "number" &&
+        typeof (v as { end?: unknown }).end === "number"
+      ) {
+        ctx.selectedRange = {
+          startSec: round2((v as { start: number }).start),
+          endSec: round2((v as { end: number }).end),
+        };
+      }
+    };
+    const setObject = (kind: AiSelectionContext["selectedKind"], v: unknown) => {
+      ctx.selectedKind = kind;
+      const id = idOf(v);
+      if (id) ctx.selectedIds = [id];
+      addRange(v);
+    };
+
+    if (selection.kind === "caption") {
+      const s = transcript?.segments[selection.index];
+      setObject("caption", s);
+      if (s) ctx.selectedText = s.text;
+    } else if (selection.kind === "cut") {
+      setObject("cut", cutplan?.segments[selection.index]);
+    } else if (selection.kind === "overlays") {
+      setObject("overlay", overlays?.overlays?.[selection.index]);
+    } else if (selection.kind === "insert") {
+      const ins = overlays?.inserts?.[selection.index];
+      setObject("overlay", ins);
+      if (ins) ctx.selectedRange = { startSec: round2(ins.at), endSec: round2(ins.at + ins.durationSec) };
+    } else if (selection.kind === "wipeFull") {
+      setObject("overlay", overlays?.wipeFull?.[selection.index]);
+    } else if (selection.kind === "zoom") {
+      setObject("overlay", overlays?.zooms?.[selection.index]);
+    } else if (selection.kind === "blur") {
+      setObject("blur", overlays?.blurs?.[selection.index]);
+    } else if (selection.kind === "annotation") {
+      setObject("annotation", overlays?.annotations?.[selection.index]);
+    } else if (selection.kind === "bgm") {
+      setObject("range", bgm?.tracks?.[selection.index]);
+    } else if (selection.kind === "short") {
+      ctx.selectedKind = "short";
+      const range = activeShort?.ranges[selection.index];
+      const id = idOf(range);
+      if (id) ctx.selectedIds = [id];
+      addRange(range);
+    }
+    return ctx;
+  };
+
+  const startAiWorkflow = async (scope: AiScope, instruction: string) => {
+    if (!proj) return;
+    if (anyDirty) {
+      setError("AI 一発編集は保存済みの状態から開始します。先に保存してください");
+      return;
+    }
+    setAiWorkflow({ phase: "proposing", instruction, scope });
+    setError(null);
+    try {
+      const response = await postAiPropose({
+        instruction,
+        activeShortName,
+        selection: buildAiSelectionContext(scope),
+      });
+      const diff = proposalDiff(reviewDocsOf(proj), response.proposedDocs);
+      if (diff.hunks.length === 0) {
+        setAiWorkflow({
+          phase: "complete",
+          instruction,
+          scope,
+          response,
+          diff,
+          resolution: new Map(),
+          saved: false,
+        });
+        addToast({ kind: "info", message: "AI 提案に差分はありませんでした", ttlMs: 4000 });
+        return;
+      }
+      setAiWorkflow({
+        phase: "reviewing",
+        instruction,
+        scope,
+        response,
+        diff,
+        resolution: new Map(diff.hunks.map((h) => [h, "theirs"] as const)),
+      });
+    } catch (e) {
+      const message = (e as Error).message;
+      setAiWorkflow({ phase: "failed", instruction, scope, error: message });
+      setError(message);
+    }
+  };
+
+  const mergedAiWorkflowDocs = () => {
+    if (!aiWorkflowReview || !proj) return;
+    const base = reviewDocsOf(proj);
+    return applyProposalResolution(
+      base,
+      aiWorkflowReview.response.proposedDocs,
+      aiWorkflowReview.diff,
+      aiWorkflowReview.resolution,
+    );
+  };
+
+  const applyLiveDocs = (merged: ReturnType<typeof applyProposalResolution>) => {
+    pushHistory();
+    setCutplan(merged.cutplan);
+    setOverlays(merged.overlays);
+    setTranscript(merged.transcript);
+    setBgm(merged.bgm);
+    setShorts(merged.shorts);
+    if (!merged.shorts?.shorts.some((s) => s.name === activeShortName)) {
+      setActiveShortName(null);
+    }
+    setCapMulti([]);
+    setSelectionState((sel) => (selectionValid(sel, merged) ? sel : null));
+  };
+
+  const parseAiFrameTime = (raw: string): number | null => {
+    const t = raw.trim();
+    if (/^\d+(\.\d+)?$/.test(t)) return Number(t);
+    const m = /^(?:(\d+):)?(\d+):(\d+(?:\.\d+)?)$/.exec(t);
+    if (!m) return null;
+    return Number(m[1] ?? 0) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+  };
+
+  const applyAiWorkflow = async ({ save, verifyFrames }: ApplyAiWorkflowOptions) => {
+    if (!aiWorkflowReview) return;
+    const merged = mergedAiWorkflowDocs();
+    if (!merged) return;
+    const nextPhase: AiWorkflowPhase = verifyFrames
+      ? "verifying"
+      : save
+        ? "saving"
+        : "applying";
+    const frameTimes = aiWorkflowReview.response.review.frames.map(parseAiFrameTime);
+    const badFrameTimes = aiWorkflowReview.response.review.frames.filter(
+      (_, i) => frameTimes[i] === null,
+    );
+    if (verifyFrames && badFrameTimes.length > 0) {
+      setError(`確認時刻を解釈できません: ${badFrameTimes.join(", ")}`);
+      return;
+    }
+    setAiWorkflow({ ...aiWorkflowReview, phase: nextPhase });
+    setError(null);
+    const toastId = verifyFrames
+      ? addToast({ kind: "progress", message: "AI提案を保存してフレーム生成中…" })
+      : null;
+    let saveSucceeded = false;
+    try {
+      applyLiveDocs(merged);
+      if (!save) {
+        setAiWorkflow({
+          ...aiWorkflowReview,
+          phase: "complete",
+          saved: false,
+        });
+        return;
+      }
+      const frameShortName = merged.shorts?.shorts.some((s) => s.name === activeShortName)
+        ? activeShortName
+        : null;
+      await postSave({
+        cutplan: merged.cutplan,
+        overlays: merged.overlays,
+        transcript: merged.transcript,
+        bgm: merged.bgm,
+        shorts: merged.shorts,
+      });
+      saveSucceeded = true;
+      setProj((p) => p && { ...p, ...merged });
+      setExternalChange(false);
+      deleteDraft().catch(() => {});
+      if (!verifyFrames) {
+        setAiWorkflow({
+          ...aiWorkflowReview,
+          phase: "complete",
+          saved: true,
+        });
+        return;
+      }
+      const res = await postAiFrames({
+        times: frameTimes as number[],
+        axis: "source",
+        activeShortName: frameShortName,
+      });
+      const files = res.shots.map((s) => s.file);
+      const first = files[0];
+      if (toastId !== null) {
+        updateToast(toastId, {
+          kind: "success",
+          message: `${res.shots.length}枚のフレームを生成しました`,
+          ...(first
+            ? { action: { label: "開く", onClick: () => postReveal(first).catch((e) => setError((e as Error).message)) } }
+            : {}),
+          ttlMs: 8000,
+        });
+      }
+      setAiWorkflow({
+        ...aiWorkflowReview,
+        phase: "complete",
+        saved: true,
+        frameFiles: files,
+      });
+    } catch (e) {
+      const raw = (e as Error).message;
+      const message =
+        verifyFrames && saveSucceeded
+          ? `保存済みですが確認画像の生成に失敗しました: ${raw}`
+          : save
+            ? `画面には反映しましたが保存に失敗しました: ${raw}`
+            : raw;
+      setAiWorkflow({
+        ...aiWorkflowReview,
+        phase: "failed",
+        saved: saveSucceeded,
+        error: message,
+      });
+      setError(message);
+      if (toastId !== null) dismissToast(toastId);
+    }
   };
   const discardDraft = () => {
     setDraftOffer(null);
@@ -3144,6 +3479,14 @@ export const App = () => {
         if (e.key === "Escape" && !inField && !settingsSaving) cancelSettings();
         return;
       }
+      if (aiCommandOpen) {
+        // AI コマンドパネル表示中は再生・削除などを止める。入力中でも Esc で閉じる。
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setAiCommandOpen(false);
+        }
+        return;
+      }
       // 入力欄の中はブラウザ標準の undo/redo に任せる(下の guard で除外)
       if (inField) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
@@ -3189,6 +3532,45 @@ export const App = () => {
     return <div className="fatal dim">読み込み中…</div>;
   }
 
+  const aiWorkflowTitle = aiWorkflow
+    ? [
+        `AI 一発編集: ${aiWorkflowPhaseLabel(aiWorkflow)}`,
+        `指示: ${aiWorkflow.instruction}`,
+        ...(aiWorkflow.error ? [aiWorkflow.error] : []),
+      ].join("\n")
+    : "AI 一発編集";
+  const aiFrameParse = aiWorkflowReview
+    ? {
+        times: aiWorkflowReview.response.review.frames.map(parseAiFrameTime),
+        bad: aiWorkflowReview.response.review.frames.filter(
+          (_, i) => parseAiFrameTime(aiWorkflowReview.response!.review.frames[i]) === null,
+        ),
+      }
+    : { times: [], bad: [] as string[] };
+  const aiWorkflowActions: DiffAction[] | undefined = aiWorkflowReview
+    ? [
+        {
+          label: "適用のみ",
+          onClick: () => void applyAiWorkflow({ save: false, verifyFrames: false }),
+        },
+        {
+          label: "適用して保存",
+          kind: "primary",
+          onClick: () => void applyAiWorkflow({ save: true, verifyFrames: false }),
+        },
+        ...(
+          aiWorkflowReview.response.review.frames.length > 0 && aiFrameParse.bad.length === 0
+            ? [
+                {
+                  label: "適用して確認",
+                  onClick: () => void applyAiWorkflow({ save: true, verifyFrames: true }),
+                } satisfies DiffAction,
+              ]
+            : []
+        ),
+      ]
+    : undefined;
+
   // 開閉はコンポーネントを外さず CSS で隠す(タイムラインのズーム等の状態を保つ)
   const appClass =
     "app" +
@@ -3225,22 +3607,31 @@ export const App = () => {
         >
           {busy === "save" ? "保存中…" : anyDirty ? "● 未保存 (⌘S)" : "保存済み"}
         </span>
-        {/* 本編/各ショートの切替(D6)。選択中はプレビュー・タイムラインが
-            当該ショートの縦レイアウト・ranges 帯に切り替わる */}
-        <span className="modeSwitch">
-          <select
-            value={activeShortName ?? ""}
-            title="本編 / 各ショートの切替"
-            onChange={(e) => setActiveShortName(e.target.value || null)}
+        {aiWorkflow && (
+          <span
+            className={`saveStatus aiWorkflow ${aiWorkflowTone(aiWorkflow)}`.trim()}
+            title={aiWorkflowTitle}
           >
-            <option value="">本編</option>
-            {(shorts?.shorts ?? []).map((s) => (
-              <option key={s.name} value={s.name}>
-                ショート: {s.name}
-              </option>
-            ))}
-          </select>
-        </span>
+            AI編集: {aiWorkflowPhaseLabel(aiWorkflow)}
+          </span>
+        )}
+        <button
+          className="aiCommandLauncher"
+          disabled={aiWorkflowLocked}
+          title={
+            aiWorkflowLocked
+              ? "AI 一発編集を確認中"
+              : anyDirty
+                ? "保存してから AI 一発編集"
+                : "AI 一発編集を開く"
+          }
+          onClick={() => {
+            setAiCommandScope("global");
+            setAiCommandOpen(true);
+          }}
+        >
+          AI編集
+        </button>
         {/* レイアウト切替(VSCode 風)。アイコンの塗られた面 = 表示中のパネル。
             閉じてもデータ・編集状態には影響しない(表示だけの切替) */}
         <div className="layoutBtns">
@@ -3356,9 +3747,77 @@ export const App = () => {
         onDismissProxyStale={() => setProxyStale(false)}
       />
 
+      {aiCommandOpen && (
+        <>
+          <div className="aiCommandBackdrop" onClick={() => setAiCommandOpen(false)} />
+          <section className="aiCommandModal" role="dialog" aria-label="AI 一発編集">
+            <div className="aiCommandModalHead">
+              <div>
+                <div className="aiCommandKicker">AI 一発編集</div>
+                <h3>どの範囲を編集するか選んで指示</h3>
+              </div>
+              <button className="icon" aria-label="閉じる" onClick={() => setAiCommandOpen(false)}>
+                ×
+              </button>
+            </div>
+            <div className="aiScopeTabs" role="tablist" aria-label="AI 編集の対象範囲">
+              <button
+                className={aiCommandScope === "global" ? "on" : ""}
+                onClick={() => setAiCommandScope("global")}
+              >
+                全体
+                <span>構成・テンポ・全体調整</span>
+              </button>
+              <button
+                className={aiCommandScope === "playhead" ? "on" : ""}
+                onClick={() => setAiCommandScope("playhead")}
+              >
+                現在位置
+                <span>再生ヘッド周辺</span>
+              </button>
+              <button
+                className={aiCommandScope === "selection" ? "on" : ""}
+                disabled={!selection}
+                onClick={() => setAiCommandScope("selection")}
+              >
+                選択中
+                <span>{selection ? "選択要素だけ" : "未選択"}</span>
+              </button>
+            </div>
+            <AiCommand
+              disabled={anyDirty || aiWorkflowLocked}
+              busy={aiBusy}
+              disabledReason={
+                anyDirty
+                  ? "保存してから AI 一発編集"
+                  : aiWorkflowLocked
+                    ? "AI 一発編集を確認中"
+                    : undefined
+              }
+              placeholder={
+                aiCommandScope === "global"
+                  ? "例: 全体のテンポを上げて冗長な間を削る"
+                  : aiCommandScope === "selection"
+                    ? "例: この字幕を短く自然にする"
+                    : "例: 現在位置の前後を見やすく調整する"
+              }
+              submitLabel="実行"
+              onSubmit={(instruction) => {
+                setAiCommandOpen(false);
+                void startAiWorkflow(aiCommandScope, instruction);
+              }}
+            />
+            <p className="dim hint">
+              全体はプロジェクト要約を、現在位置と選択中は周辺文脈を使います。
+              提案はすぐ保存せず、差分レビューで確認します。
+            </p>
+          </section>
+        </>
+      )}
+
       {diffReview && diffPanelOpen && (
         <DiffReview
-          conflicts={diffReview.result.conflicts}
+          hunks={diffReview.result.conflicts}
           resolution={diffResolution}
           onSet={(hunk, side) => {
             setDiffResolution((prev) => {
@@ -3375,6 +3834,60 @@ export const App = () => {
         />
       )}
 
+      {aiWorkflowReview && (
+        <DiffReview
+          kind="ai-proposal"
+          title="AI 一発編集を確認"
+          description={
+            aiWorkflowReview.response.summary.length > 0
+              ? aiWorkflowReview.response.summary.join(" / ")
+              : "適用する変更だけを選んでください。保存と確認はこの画面から続けて行えます。"
+          }
+          hunks={aiWorkflowReview.diff.hunks}
+          resolution={aiWorkflowReview.resolution}
+          warningGroups={[
+            ...(
+              aiWorkflowReview.response.applyPlan.warnings.length > 0
+                ? [{
+                    label: "検証警告",
+                    items: aiWorkflowReview.response.applyPlan.warnings.map((w) => `${w.file} ${w.where}: ${w.message}`),
+                  } satisfies DiffWarningGroup]
+                : []
+            ),
+            ...(
+              aiWorkflowReview.response.review.notes.length > 0
+                ? [{ label: "AIメモ", items: aiWorkflowReview.response.review.notes } satisfies DiffWarningGroup]
+                : []
+            ),
+            ...(
+              aiFrameParse.bad.length > 0
+                ? [{
+                    label: "確認フレーム",
+                    items: [`時刻を解釈できません: ${aiFrameParse.bad.join(", ")}`],
+                  } satisfies DiffWarningGroup]
+                : []
+            ),
+          ]}
+          frameChecks={aiWorkflowReview.response.review.frames}
+          onSet={(hunk, side) => {
+            setAiWorkflow((prev) => {
+              if (!prev?.resolution) return prev;
+              const next = new Map(prev.resolution);
+              next.set(hunk, side);
+              return { ...prev, resolution: next };
+            });
+          }}
+          onBulk={(side) => {
+            setAiWorkflow((prev) =>
+              prev?.diff ? { ...prev, resolution: new Map(prev.diff.hunks.map((h) => [h, side] as const)) } : prev,
+            );
+          }}
+          onApply={() => void applyAiWorkflow({ save: true, verifyFrames: false })}
+          onCancel={() => setAiWorkflow(null)}
+          actions={aiWorkflowActions}
+        />
+      )}
+
       {settingsOpen && (
         <>
           {/* backdrop クリック = キャンセル(未保存の設定編集を復元して閉じる) */}
@@ -3384,6 +3897,7 @@ export const App = () => {
           />
           <SettingsModal
             cfg={cfgValuesOf(proj)}
+            planPerception={proj.planPerception}
             onChange={(patch) => setProj((p) => p && { ...p, ...patch })}
             onSave={() => void saveSettings()}
             onCancel={cancelSettings}
@@ -3656,6 +4170,22 @@ export const App = () => {
           </button>
         </div>
         <div className="tRight">
+          {/* 本編/各ショートの切替。プレビュー・タイムラインの表示対象を変える
+              操作なので、ヘッダーではなく再生コントロール側に置く */}
+          <span className="modeSwitch">
+            <select
+              value={activeShortName ?? ""}
+              title="本編 / 各ショートの切替"
+              onChange={(e) => setActiveShortName(e.target.value || null)}
+            >
+              <option value="">本編</option>
+              {(shorts?.shorts ?? []).map((s) => (
+                <option key={s.name} value={s.name}>
+                  ショート: {s.name}
+                </option>
+              ))}
+            </select>
+          </span>
           <select
             className="rate"
             value={playbackRate}
@@ -3715,6 +4245,21 @@ export const App = () => {
           style={{ width: inspW, maxWidth: `calc(100% - ${VIEWER_MIN}px)` }}
         >
           <div className="panelBody">
+            <AiCommand
+              compact
+              disabled={anyDirty || aiWorkflowLocked}
+              busy={aiBusy}
+              disabledReason={
+                anyDirty
+                  ? "保存してから AI 一発編集"
+                  : aiWorkflowLocked
+                    ? "AI 一発編集を確認中"
+                    : undefined
+              }
+              placeholder={selection ? "選択中の内容を AI で編集" : "現在位置を AI で編集"}
+              submitLabel="実行"
+              onSubmit={(instruction) => startAiWorkflow(selection ? "selection" : "playhead", instruction)}
+            />
             <Inspector
               // 選択が変わったら編集欄ごと作り直す(未確定の入力を持ち越さない)
               key={

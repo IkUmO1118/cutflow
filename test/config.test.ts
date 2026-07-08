@@ -24,9 +24,12 @@ import {
   loadConfig,
   planLoopEnabled,
   planShortsMaxSec,
+  formatPerceptionStatusLines,
+  resolveAiCfg,
   resolveAvCfg,
   resolveDescribePausesCfg,
   resolvePerceptionCfg,
+  resolvePerceptionStatus,
   resolvePlanLoopCfg,
 } from "../src/lib/config.ts";
 import type { Config } from "../src/lib/config.ts";
@@ -412,6 +415,57 @@ test("resolvePerceptionCfg: systemSpeech 省略時は false", () => {
   );
 });
 
+test("resolvePerceptionStatus: plan.perception 未指定なら explicit=false と warning を返す", () => {
+  assert.deepEqual(resolvePerceptionStatus({} as Config), {
+    explicit: false,
+    audio: false,
+    ocr: false,
+    ocrMaxSegments: DEFAULT_PERCEPTION_OCR_MAX_SEGMENTS,
+    ocrMaxLines: DEFAULT_PERCEPTION_OCR_MAX_LINES,
+    systemSpeech: false,
+    warnings: [
+      "plan.perception が config.yaml にありません。plan の知覚(audio/ocr/systemSpeech)は全てオフです。",
+    ],
+  });
+});
+
+test("resolvePerceptionStatus: 明示 config なら warning なし", () => {
+  assert.deepEqual(
+    resolvePerceptionStatus({
+      plan: { perception: { audio: true, ocr: true, ocrMaxSegments: 10, ocrMaxLines: 3 } },
+    } as Config),
+    {
+      explicit: true,
+      audio: true,
+      ocr: true,
+      ocrMaxSegments: 10,
+      ocrMaxLines: 3,
+      systemSpeech: false,
+      warnings: [],
+    },
+  );
+});
+
+test("formatPerceptionStatusLines: warning と status 行を CLI 向け文言で返す", () => {
+  assert.deepEqual(
+    formatPerceptionStatusLines(resolvePerceptionStatus({} as Config)),
+    [
+      "警告: plan.perception が config.yaml にありません。plan の知覚(audio/ocr/systemSpeech)は全てオフです。",
+      "plan 知覚: audio=off / ocr=off / systemSpeech=off",
+    ],
+  );
+  assert.deepEqual(
+    formatPerceptionStatusLines(
+      resolvePerceptionStatus({
+        plan: { perception: { audio: true, ocr: true, systemSpeech: true } },
+      } as Config),
+    ),
+    [
+      "plan 知覚: audio=on / ocr=on(max 40 segments, 6 lines) / systemSpeech=on",
+    ],
+  );
+});
+
 test("resolvePlanLoopCfg: plan/loop 省略時はループ無効の既定値", () => {
   assert.deepEqual(resolvePlanLoopCfg({} as Config), {
     maxIterations: DEFAULT_PLAN_LOOP_MAX_ITERATIONS,
@@ -459,6 +513,32 @@ test("resolveDescribePausesCfg: 部分指定で他は既定のまま", () => {
   assert.deepEqual(
     resolveDescribePausesCfg({ describe: { pauses: true, pauseMax: 5, pauseMinSec: 1.2 } } as Config),
     { enabled: true, max: 5, minSec: 1.2 },
+  );
+});
+
+test("resolveAiCfg: ai.provider を優先し、省略時は claude-code auto", () => {
+  assert.deepEqual(resolveAiCfg({} as Config), { provider: "claude-code", model: "auto" });
+  assert.deepEqual(
+    resolveAiCfg({ ai: { provider: "codex" } } as Config),
+    { provider: "codex", model: "auto" },
+  );
+  assert.deepEqual(
+    resolveAiCfg({
+      ai: { provider: "openai", model: "gpt-x" },
+      llm: { backend: "claude-cli", model: "" },
+    } as Config),
+    { provider: "openai", model: "gpt-x" },
+  );
+});
+
+test("resolveAiCfg: 旧 llm 設定を互換解決する", () => {
+  assert.deepEqual(
+    resolveAiCfg({ llm: { backend: "claude-cli", model: "" } } as Config),
+    { provider: "claude-code", model: "auto" },
+  );
+  assert.deepEqual(
+    resolveAiCfg({ llm: { backend: "api", model: "claude-x" } } as Config),
+    { provider: "anthropic", model: "claude-x" },
   );
 });
 

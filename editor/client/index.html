@@ -99,10 +99,45 @@
   header .approve input { accent-color: var(--accent); cursor: pointer; }
   header .saveStatus { font-size: 12px; color: var(--dim); white-space: nowrap; }
   header .saveStatus.dirty { color: #fbbf24; }
-  header .modeSwitch {
+  header .saveStatus.warn { color: #fbbf24; }
+  header .saveStatus.ok { color: #93c5fd; }
+  header .saveStatus.error { color: #f87171; }
+  .aiCommand {
+    display: flex; align-items: center; gap: 6px;
+    min-width: 220px; max-width: 360px;
+  }
+  header .aiCommandLauncher {
+    padding: 5px 10px;
+    border-color: rgba(37, 99, 235, 0.45);
+    color: #bfdbfe;
+    background: rgba(37, 99, 235, 0.1);
+    white-space: nowrap;
+  }
+  header .aiCommandLauncher:hover:not(:disabled) {
+    border-color: rgba(37, 99, 235, 0.7);
+    background: rgba(37, 99, 235, 0.18);
+  }
+  .aiCommand .aiBadge {
+    flex: none;
+    padding: 2px 6px;
+    border: 1px solid rgba(37, 99, 235, 0.6); border-radius: 4px;
+    color: #93c5fd; background: rgba(37, 99, 235, 0.12);
+    font-size: 11px; font-weight: 700;
+  }
+  .aiCommand input { min-width: 0; flex: 1; }
+  .aiCommand button { flex: none; white-space: nowrap; }
+  .aiCommand.compact {
+    position: sticky; top: 0; z-index: 2;
+    min-width: 0; max-width: none;
+    padding: 10px 14px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  .aiCommand.compact .aiBadge { align-self: center; }
+  .modeSwitch {
     display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
   }
-  header .modeSwitch select { max-width: 160px; }
+  .modeSwitch select { max-width: 170px; }
   /* レイアウト切替(VSCode 風)。アイコンの塗られた面 = 表示中のパネル。
      設定の歯車と同じ「枠付きのアイコンだけボタン」で並べる */
   header .layoutBtns { display: inline-flex; gap: 4px; }
@@ -162,32 +197,90 @@
     border-bottom: 1px solid var(--border); padding-bottom: 4px;
   }
   .settingsModal .field { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+  .settingsModal .field.statusField { align-items: flex-start; }
   .settingsModal .field > label {
     width: 190px; flex: none; color: var(--dim); font-size: 12px;
   }
   .settingsModal .field label.hint {
     display: inline-flex; align-items: center; gap: 4px; color: var(--dim);
   }
+  .settingsModal .statusPill {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 36px; padding: 2px 7px;
+    border: 1px solid var(--border); border-radius: 999px;
+    color: var(--dim); background: rgba(255, 255, 255, 0.03);
+    font-size: 11px; font-weight: 700;
+  }
+  .settingsModal .statusPill.ok {
+    color: #93c5fd;
+    border-color: rgba(37, 99, 235, 0.55);
+    background: rgba(37, 99, 235, 0.12);
+  }
   .settingsModal .foot {
     display: flex; justify-content: flex-end; align-items: center;
     gap: 8px; margin-top: 16px;
   }
   .settingsModal .foot .error { margin-right: auto; font-size: 12px; }
+  .aiCommandBackdrop {
+    position: fixed; inset: 0; z-index: 22;
+    background: rgba(0, 0, 0, 0.34);
+  }
+  .aiCommandModal {
+    position: fixed; left: 50%; top: 88px; transform: translateX(-50%);
+    z-index: 23; width: 620px; max-width: calc(100vw - 36px);
+    padding: 16px;
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+  }
+  .aiCommandModalHead {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+    margin-bottom: 12px;
+  }
+  .aiCommandModalHead h3 { margin: 2px 0 0; font-size: 17px; }
+  .aiCommandModalHead .icon {
+    padding: 2px 8px; font-size: 18px; color: var(--dim);
+    background: transparent; border-color: transparent;
+  }
+  .aiCommandKicker {
+    font-size: 11px; color: #93c5fd; font-weight: 700; letter-spacing: 0.08em;
+  }
+  .aiScopeTabs {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+    margin-bottom: 12px;
+  }
+  .aiScopeTabs button {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
+    padding: 9px 10px; text-align: left;
+    background: var(--panel); border-color: var(--border);
+  }
+  .aiScopeTabs button.on {
+    border-color: rgba(37, 99, 235, 0.75);
+    background: rgba(37, 99, 235, 0.16);
+    color: var(--text);
+  }
+  .aiScopeTabs button span {
+    color: var(--dim); font-size: 11px; font-weight: 400;
+  }
+  .aiCommandModal .aiCommand { max-width: none; width: 100%; }
+  .aiCommandModal .hint { margin: 10px 0 0; line-height: 1.55; }
   .diffBackdrop {
     position: fixed; inset: 0; z-index: 24;
     background: rgba(0, 0, 0, 0.42);
   }
   .diffModal {
-    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    position: fixed; left: 50%; top: 20px; bottom: 20px; transform: translateX(-50%);
     z-index: 25; width: 1020px; max-width: calc(100vw - 40px);
-    max-height: min(90vh, 800px);
     display: flex; flex-direction: column;
-    overflow: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
     box-shadow: 0 14px 36px rgba(0, 0, 0, 0.48);
   }
   .diffHead {
+    flex: 0 0 auto;
+    position: sticky; top: 0; z-index: 1;
     padding: 22px 24px 24px;
+    background: var(--panel);
     border-bottom: 1px solid var(--border);
   }
   .diffCount {
@@ -199,6 +292,25 @@
   }
   .diffHead h3 { margin: 0 0 7px; font-size: 20px; line-height: 1.25; }
   .diffHead p { margin: 0; max-width: 760px; color: var(--dim); font-size: 13px; line-height: 1.65; }
+  .diffWarnings {
+    margin: 12px 0 0; padding: 10px 12px;
+    max-width: 820px;
+    border: 1px solid rgba(217, 119, 6, 0.45); border-radius: 6px;
+    background: rgba(217, 119, 6, 0.1);
+    color: #fbbf24;
+    font-size: 12px; line-height: 1.55;
+  }
+  .diffWarningGroup + .diffWarningGroup { margin-top: 8px; }
+  .diffWarningGroup h4 {
+    margin: 0 0 4px; font-size: 12px; color: #fcd34d;
+  }
+  .diffWarningGroup ul { margin: 0; padding-left: 18px; }
+  .diffFrameChecks {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    margin-top: 10px; max-width: 820px;
+    color: var(--dim); font-size: 12px;
+  }
+  .diffFrameChecks button { padding: 5px 9px; }
   .diffBulk {
     display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
     padding: 10px 12px;
@@ -207,7 +319,7 @@
   }
   .diffBulk span { color: var(--dim); font-size: 12px; margin-right: auto; }
   .diffList {
-    flex: 1; min-height: 0; overflow-y: auto;
+    flex: 0 0 auto;
     display: flex; flex-direction: column; gap: 16px;
     padding: 24px;
     background: #11151d;
@@ -280,8 +392,11 @@
     border: 1px solid var(--border); border-radius: 5px;
   }
   .diffFoot {
+    flex: 0 0 auto;
+    position: sticky; bottom: 0; z-index: 1;
     display: flex; align-items: center; gap: 12px;
     padding: 14px 24px;
+    background: var(--panel);
     border-top: 1px solid var(--border);
   }
   @media (max-width: 720px) {
@@ -716,14 +831,6 @@
   .rectPresets button { padding: 2px 8px; font-size: 11px; color: var(--dim); }
   .rectPresets button:hover { color: var(--text); }
   .rectPresets button.on { color: var(--text); border-color: var(--accent); }
-  /* テロップの実効スタイルのサンプル(市松模様の上に本編と同じ描き方で) */
-  .capSample {
-    background: repeating-conic-gradient(#20242c 0% 25%, #181b21 0% 50%) 0 / 16px 16px;
-    border: 1px solid var(--border); border-radius: 6px;
-    padding: 12px 8px; margin-bottom: 4px;
-    display: flex; align-items: center; justify-content: center;
-    overflow: hidden;
-  }
   /* 素材ファイルのどこを使っているかのバー(頭出し+使用尺 vs 実尺) */
   .srcRange {
     position: relative; flex: 1; height: 10px;
@@ -808,6 +915,7 @@
     overflow: hidden;
   }
   .transport .tRight { justify-content: flex-end; }
+  .transport .modeSwitch select { max-width: 190px; }
   .transport .tCenter { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
   .transport .tCenter .loop { margin-left: 8px; }
   .transport button.icon.active { color: var(--accent); }

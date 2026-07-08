@@ -11,7 +11,12 @@ import {
   writeCutplanApproval,
   writeShortApproval,
 } from "./lib/approval.ts";
-import { loadConfig, resolveConfigPath } from "./lib/config.ts";
+import {
+  formatPerceptionStatusLines,
+  loadConfig,
+  resolvePerceptionStatus,
+  resolveConfigPath,
+} from "./lib/config.ts";
 import { findSource } from "./lib/findSource.ts";
 import { loadShort, loadShorts } from "./lib/shorts.ts";
 import { ingest } from "./stages/ingest.ts";
@@ -131,6 +136,12 @@ function guardRerun(
   }
 }
 
+function printPerceptionStatus(cfg: Parameters<typeof resolvePerceptionStatus>[0]): void {
+  for (const line of formatPerceptionStatusLines(resolvePerceptionStatus(cfg))) {
+    console.log(line);
+  }
+}
+
 program
   .command("ingest <dir>")
   .description("収録ファイルを解析し manifest.json とマイク音声を生成")
@@ -199,6 +210,7 @@ program
       opts.force === true,
       "plan",
     );
+    printPerceptionStatus(cfg);
     const p = await plan(abs, cfg, { cutsOnly });
     printPlanSummary(p.segments);
   });
@@ -219,6 +231,7 @@ program
       "meta.json",
     ]);
     if (dest) console.log(`上書き前に手編集ファイルを退避しました: ${dest}`);
+    printPerceptionStatus(cfg);
     console.log("remeta 実行中(LLM で章立て・タイトル案を生成)...");
     const m = await remeta(abs, cfg);
     console.log(`remeta 完了: タイトル案 ${m.titles.length}件`);
@@ -843,6 +856,7 @@ program
     console.log(
       `detect 完了: ${c.originalDurationSec}秒 → ${c.keptDurationSec}秒`,
     );
+    printPerceptionStatus(cfg);
     console.log("plan 実行中(LLM でカット判断・章立てを生成)...");
     const p = await plan(abs, cfg);
     printPlanSummary(p.segments);

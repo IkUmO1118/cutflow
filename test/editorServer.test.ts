@@ -4,8 +4,12 @@
 // コードはサーバー再起動まで反映されない)。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { stampSaveBody } from "../editor/server.ts";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { loadProject, stampSaveBody } from "../editor/server.ts";
 import { ID_RE } from "../src/lib/ids.ts";
+import type { Config } from "../src/lib/config.ts";
 import type { SaveRequest } from "../editor/client/apiTypes.ts";
 
 test("stampSaveBody: idEnabled=false は body をそのまま返す(参照も同一・バイト等価)", () => {
@@ -100,4 +104,51 @@ test("stampSaveBody: body に無いドキュメントは undefined のまま(触
   assert.equal(out.transcript, undefined);
   assert.equal(out.bgm, undefined);
   assert.equal(out.shorts, undefined);
+});
+
+test("loadProject: /api/project 相当の payload に planPerception を含む", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-editor-project-"));
+  const write = (file: string, data: unknown) =>
+    writeFileSync(join(dir, file), JSON.stringify(data, null, 2));
+  try {
+    write("manifest.json", {
+      dir,
+      source: "raw.mkv",
+      durationSec: 12,
+      layout: "plain",
+      video: {
+        width: 1920,
+        height: 1080,
+        fps: 30,
+        screenRegion: { x: 0, y: 0, w: 1920, h: 1080 },
+      },
+      audio: { micStream: 0, systemStream: null, micWav: "mic.wav" },
+      createdAt: "2026-07-08T00:00:00Z",
+    });
+    write("transcript.json", {
+      language: "ja",
+      model: "test",
+      segments: [{ start: 0, end: 1, text: "hello" }],
+    });
+    write("cutplan.json", {
+      approved: false,
+      segments: [{ start: 0, end: 12, action: "keep", reason: "" }],
+    });
+    const project = loadProject(dir, {
+      render: {} as Config["render"],
+      preview: { width: 1280 },
+      plan: { perception: { audio: true, ocr: true, systemSpeech: false } },
+    } as Config);
+    assert.deepEqual(project.planPerception, {
+      explicit: true,
+      audio: true,
+      ocr: true,
+      ocrMaxSegments: 40,
+      ocrMaxLines: 6,
+      systemSpeech: false,
+      warnings: [],
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -2,6 +2,7 @@
 // 編集対象のドキュメント自体はパイプラインの型(src/types.ts)をそのまま使う。
 
 import type { Config } from "../../src/lib/config.ts";
+import type { PerceptionStatus } from "../../src/lib/config.ts";
 import type {
   Bgm,
   CutPlan,
@@ -11,6 +12,13 @@ import type {
   Shorts,
   Transcript,
 } from "../../src/types.ts";
+import type { FrameShot } from "../../src/stages/frames.ts";
+export type {
+  AiProposeRequest,
+  AiProposeResponse,
+  AiScope,
+  AiSelectionContext,
+} from "../../src/stages/editorAi.ts";
 
 /** GET /api/project のレスポンス。収録フォルダの編集に必要な全データ
  * (chapters.json は YouTube チャプター用メタデータでエディタでは扱わない) */
@@ -52,7 +60,11 @@ export interface ProjectData {
   /** 前回のセッションが保存せずに終わった(クラッシュ等)ときに残る
    * 未保存編集の退避(.editor-draft.json)。無ければ null */
   draft: DraftData | null;
+  /** plan/remeta に渡る知覚設定の解決結果。header の短い状態表示用 */
+  planPerception: PlanPerceptionStatus;
 }
+
+export type PlanPerceptionStatus = PerceptionStatus;
 
 /** エディタ設定の解決済み実値(config.yaml editor セクション+既定値) */
 export interface EditorCfg {
@@ -73,6 +85,18 @@ export interface ConfigSaveResult {
   renderCfg: Config["render"];
   previewCfg: { width: number };
   editorCfg: EditorCfg;
+}
+
+export interface AiFrameRequest {
+  times: number[];
+  axis?: "source" | "output";
+  activeShortName?: string | null;
+  ocr?: boolean;
+  fullRes?: boolean;
+}
+
+export interface AiFrameResponse {
+  shots: FrameShot[];
 }
 
 /** POST /api/draft のボディ = .editor-draft.json の中身。未保存の編集を

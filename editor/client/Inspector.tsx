@@ -481,7 +481,6 @@ export const Inspector = ({
             )
           }
         />
-        <CaptionSample text={s.text} eff={effStyle} />
         <TimingSection
           start={s.start}
           end={s.end}
@@ -2671,68 +2670,6 @@ const SourceRangeBar = ({
   );
 };
 
-/** テロップの実効スタイルのサンプル(本編と同じ描き方: 縁取りは下層の
- * text-stroke、座布団は外側の帯)。大きさは読める程度に縮めた目安で、
- * 実寸の確認はプレビューに任せる */
-const CaptionSample = ({ text, eff }: { text: string; eff: CaptionStyle }) => {
-  const fontSize = eff.fontSizePx ?? 44;
-  const size = Math.max(14, Math.min(30, fontSize * 0.45));
-  const ratio = size / fontSize;
-  const color = eff.color ?? CAPTION_DEFAULT_COLOR;
-  const outline = eff.outlineColor ?? CAPTION_DEFAULT_OUTLINE;
-  const hasStroke = outline !== "none" && outline !== "transparent";
-  const line = text.trim().split("\n")[0] || "テロップ";
-  const stack = (
-    <div
-      style={{
-        position: "relative",
-        fontFamily: eff.fontFamily ?? CAPTION_DEFAULT_FONT_FAMILY,
-        fontSize: size,
-        fontWeight: eff.fontWeight ?? CAPTION_DEFAULT_FONT_WEIGHT,
-        lineHeight: 1.4,
-        whiteSpace: "nowrap",
-      }}
-    >
-      {hasStroke && (
-        <span
-          aria-hidden
-          style={{
-            position: "absolute",
-            inset: 0,
-            color: outline,
-            WebkitTextStroke: `${size * 0.25}px ${outline}`,
-          }}
-        >
-          {line}
-        </span>
-      )}
-      <span style={{ position: "relative", color }}>{line}</span>
-    </div>
-  );
-  const bg = eff.background;
-  const padX = Math.round((bg?.paddingPx ?? Math.round(fontSize * 0.35)) * ratio);
-  return (
-    <div
-      className="capSample"
-      title="実際の合成と同じ描き方のサンプル(大きさは目安。実寸はプレビューで確認)"
-    >
-      {bg ? (
-        <div
-          style={{
-            backgroundColor: bg.color,
-            padding: `${Math.round(padX * 0.5)}px ${padX}px`,
-            borderRadius: Math.round((bg.radiusPx ?? 8) * ratio),
-          }}
-        >
-          {stack}
-        </div>
-      ) : (
-        stack
-      )}
-    </div>
-  );
-};
-
 /* ================= 複数テロップの一括編集 ================= */
 
 const BatchCaptionPanel = ({
@@ -3117,7 +3054,6 @@ const ShortCaptionPanel = ({
           updateCaption(index, { text: e.target.value }, `caption:${index}:text`)
         }
       />
-      <CaptionSample text={s.text} eff={base} />
       <TimingSection
         start={s.start}
         end={s.end}

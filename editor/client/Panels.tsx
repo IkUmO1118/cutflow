@@ -255,8 +255,8 @@ export const CaptionsPanel = ({
 
 /**
  * 左パネル「ショート」タブ。shorts.json の一覧・追加・削除・リネームを行う
- * (5-5)。ranges・プリセット・承認・字幕配置はヘッダーのショートモード
- * (App.tsx の本編/ショートセレクタ + プリセット/承認バー)とタイムライン・
+ * (5-5)。ranges・プリセット・承認・字幕配置はプレビュー下のショートモード
+ * (App.tsx の本編/ショートセレクタ)とタイムライン・
  * インスペクタで編集する(D6: このタブは CRUD だけに絞る)。
  */
 export const ShortsPanel = ({
@@ -268,7 +268,7 @@ export const ShortsPanel = ({
   onRename,
 }: {
   shorts: Shorts | null;
-  /** 現在編集中のショート名(ヘッダーのセレクタと同じ状態) */
+  /** 現在編集中のショート名(プレビュー下のセレクタと同じ状態) */
   activeShortName: string | null;
   /** 行クリックでそのショートの編集モードへ切り替える */
   onSelect: (name: string) => void;
@@ -291,7 +291,7 @@ export const ShortsPanel = ({
       {list.length === 0 ? (
         <p className="dim hint" style={{ padding: "0 14px" }}>
           ショートがまだありません。「＋ ショートを追加」で作成すると、
-          ヘッダーのセレクタが自動でそのショートに切り替わります。
+          プレビュー下のセレクタが自動でそのショートに切り替わります。
         </p>
       ) : (
         <div className="capList">
@@ -352,9 +352,9 @@ export const ShortsPanel = ({
         </div>
       )}
       <p className="dim hint" style={{ padding: "0 14px" }}>
-        行クリックでそのショートの編集モードへ切り替わります(ヘッダーの
+        行クリックでそのショートの編集モードへ切り替わります(プレビュー下の
         セレクタと同じ)。ranges・レイアウト・承認・字幕配置はショート
-        モードのヘッダー・タイムライン・プレビューで編集します。
+        モードのタイムライン・プレビュー・インスペクタで編集します。
       </p>
     </div>
   );
