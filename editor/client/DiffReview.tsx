@@ -1,4 +1,6 @@
 import type { Hunk } from "../../src/lib/docDiff.ts";
+import type { ReviewBundle } from "../../src/stages/review.ts";
+import type { ReactNode } from "react";
 
 type Side = "theirs" | "mine";
 export interface DiffWarningGroup {
@@ -27,6 +29,9 @@ export const DiffReview = ({
   warnings = [],
   warningGroups,
   frameChecks = [],
+  reviewBundle,
+  reviewStale = false,
+  extraControls,
   onCheckFrames,
   checkingFrames = false,
   checkFramesLabel = "フレーム確認",
@@ -45,6 +50,9 @@ export const DiffReview = ({
   warnings?: string[];
   warningGroups?: DiffWarningGroup[];
   frameChecks?: string[];
+  reviewBundle?: ReviewBundle;
+  reviewStale?: boolean;
+  extraControls?: ReactNode;
   onCheckFrames?: () => void;
   checkingFrames?: boolean;
   checkFramesLabel?: string;
@@ -93,6 +101,82 @@ export const DiffReview = ({
                 )}
               </div>
             )}
+            {reviewBundle && (
+              <div className="reviewBundle">
+                {reviewStale && (
+                  <div className="reviewStale">比較は現在の採否と一致しません</div>
+                )}
+                <section className="reviewChecks">
+                  <h4>deterministic checks</h4>
+                  <ul>
+                    {reviewBundle.observation.checks.map((check) => (
+                      <li key={check.id} className={`status-${check.status}`}>
+                        [{check.status}] {check.message}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+                {reviewBundle.stills.length > 0 && (
+                  <section className="reviewStills">
+                    <h4>before / after</h4>
+                    <div className="reviewStillGrid">
+                      {reviewBundle.stills.map((still, index) => (
+                        <article key={`${still.requested.reason}:${index}`} className="reviewStillCard">
+                          <div className="reviewStillMeta">
+                            {still.requested.reason} / {still.requested.axis} {still.requested.atSec.toFixed(2)}s
+                          </div>
+                          <div className="reviewStillPair">
+                            <figure>
+                              <img src={`/media/${encodeURIComponent(still.before.file).replace(/%2F/g, "/")}`} alt="before" />
+                              <figcaption>before</figcaption>
+                            </figure>
+                            <figure>
+                              <img src={`/media/${encodeURIComponent(still.after.file).replace(/%2F/g, "/")}`} alt="after" />
+                              <figcaption>after</figcaption>
+                            </figure>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+                )}
+                {(reviewBundle.clips?.beforeFile || reviewBundle.clips?.afterFile) && (
+                  <section className="reviewClips">
+                    <h4>比較動画</h4>
+                    <div className="reviewClipPair">
+                      {reviewBundle.clips?.beforeFile && (
+                        <figure>
+                          <video src={`/media/${encodeURIComponent(reviewBundle.clips.beforeFile).replace(/%2F/g, "/")}`} controls preload="metadata" />
+                          <figcaption>before</figcaption>
+                        </figure>
+                      )}
+                      {reviewBundle.clips?.afterFile && (
+                        <figure>
+                          <video src={`/media/${encodeURIComponent(reviewBundle.clips.afterFile).replace(/%2F/g, "/")}`} controls preload="metadata" />
+                          <figcaption>after</figcaption>
+                        </figure>
+                      )}
+                    </div>
+                  </section>
+                )}
+                {reviewBundle.vlm && (
+                  <section className="reviewVlm">
+                    <h4>AI画像観測（決定論的checkではありません）</h4>
+                    <ul>
+                      {reviewBundle.vlm.summary.map((message, index) => (
+                        <li key={`summary:${index}`}>{message}</li>
+                      ))}
+                      {reviewBundle.vlm.observations.map((item, index) => (
+                        <li key={`${item.frame}:${item.category}:${index}`}>
+                          [{item.severity}] frame {item.frame} / {item.category}: {item.message}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+              </div>
+            )}
+            {extraControls}
           </div>
         </div>
         <div className="diffList">

@@ -34,6 +34,11 @@ import { assert as assertProject } from "../stages/assert.ts";
 import type { AssertReport } from "../stages/assert.ts";
 import { parseT } from "../lib/fmt.ts";
 import type { ApplyPatch } from "../types.ts";
+import { applyIntentEdits, planIntentEdits, type EditIntent } from "../lib/editIntent.ts";
+import { retrievalSearch } from "../stages/retrievalSearch.ts";
+import { reviewEdit } from "../stages/review.ts";
+import { readEditSnapshot } from "../lib/renderSnapshot.ts";
+import type { EditSnapshot, ReviewSpec } from "../lib/review.ts";
 import { JsonRpcError } from "./types.ts";
 import type { JsonSchema, ToolDef, ToolResult } from "./types.ts";
 
@@ -384,6 +389,92 @@ export function makeTools(dir: string, cfg: Config): ToolDef[] {
         }
         const result = applyEdits(dir, patch);
         return toToolResult(applyResultHumanLines(result), result, result.plan.errors.length > 0);
+      },
+    },
+    {
+      name: "cutflow_edit",
+      description:
+        "Compile schema-backed editing tasks to a checked ApplyPatch. dryRun is required; " +
+        "false writes only after the same planApply validation used by cutflow_apply.",
+      inputSchema: {
+        type: "object",
+        required: ["tasks", "dryRun"],
+        properties: {
+          tasks: { type: "array", minItems: 1, items: { type: "object" } },
+          dryRun: { type: "boolean" },
+        },
+        additionalProperties: false,
+      },
+      handler: (rawArgs) => {
+        const args = asRecord(rawArgs);
+        if (!Array.isArray(args.tasks)) throw new JsonRpcError(-32602, "tasks must be an array");
+        if (typeof args.dryRun !== "boolean") throw new JsonRpcError(-32602, "dryRun must be a boolean");
+        const result = args.dryRun
+          ? planIntentEdits(dir, args.tasks as EditIntent[])
+          : applyIntentEdits(dir, args.tasks as EditIntent[]);
+        const errors = "plan" in result ? result.plan.errors : result.errors;
+        return toToolResult(
+          [...result.intentPlan.summary, ...problemLines(errors, "✖")],
+          result,
+          errors.length > 0,
+        );
+      },
+    },
+    {
+      name: "cutflow_review",
+      description:
+        "Generate a deterministic before/after ReviewBundle without writing editable JSON. " +
+        "candidate is optional and defaults to the current edit snapshot.",
+      inputSchema: {
+        type: "object",
+        required: ["spec"],
+        properties: {
+          spec: { type: "object" },
+          candidate: { type: "object" },
+          short: { type: "string" },
+        },
+        additionalProperties: false,
+      },
+      handler: async (rawArgs) => {
+        const args = asRecord(rawArgs);
+        if (!isObj(args.spec)) throw new JsonRpcError(-32602, "spec must be an object");
+        const base = readEditSnapshot(dir);
+        const candidate = isObj(args.candidate) ? args.candidate as unknown as EditSnapshot : base;
+        const bundle = await reviewEdit(dir, cfg, base, candidate, args.spec as unknown as ReviewSpec, {
+          shortName: typeof args.short === "string" ? args.short : undefined,
+        });
+        return toToolResult([`review: ${bundle.stills.length} stills`], bundle, false);
+      },
+    },
+    {
+      name: "cutflow_search",
+      description:
+        "Read-only lexical search across recording/material metadata, OCR and transcripts. " +
+        "Returns recording names and relative paths only.",
+      inputSchema: {
+        type: "object",
+        required: ["query"],
+        properties: {
+          query: { type: "string" },
+          kind: { type: "string", enum: ["recording", "material", "caption"] },
+          scope: { type: "string", enum: ["current", "other", "all"] },
+          limit: { type: "number" },
+        },
+        additionalProperties: false,
+      },
+      handler: (rawArgs) => {
+        const args = asRecord(rawArgs);
+        if (typeof args.query !== "string" || !args.query.trim()) {
+          throw new JsonRpcError(-32602, "query must be a non-empty string");
+        }
+        const results = retrievalSearch(cfg.recordingsDir, {
+          query: args.query,
+          kind: args.kind as "recording" | "material" | "caption" | undefined,
+          scope: args.scope as "current" | "other" | "all" | undefined,
+          limit: typeof args.limit === "number" ? args.limit : undefined,
+          currentRecording: dir,
+        });
+        return toToolResult([`${results.length}件`], results, false);
       },
     },
     {

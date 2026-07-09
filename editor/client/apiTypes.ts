@@ -13,12 +13,27 @@ import type {
   Transcript,
 } from "../../src/types.ts";
 import type { FrameShot } from "../../src/stages/frames.ts";
+import type { ReviewBundle } from "../../src/stages/review.ts";
+import type { ReviewDocs } from "../../src/lib/docDiff.ts";
+import type { ReviewSpec } from "../../src/lib/review.ts";
 export type {
   AiProposeRequest,
   AiProposeResponse,
   AiScope,
   AiSelectionContext,
 } from "../../src/stages/editorAi.ts";
+
+export interface AiReviewRequest {
+  proposedDocs: ReviewDocs;
+  acceptedHunkLabels: string[];
+  spec: ReviewSpec;
+  activeShortName?: string | null;
+  vlm?: boolean;
+}
+
+export interface AiReviewResponse {
+  bundle: ReviewBundle;
+}
 
 /** GET /api/project のレスポンス。収録フォルダの編集に必要な全データ
  * (chapters.json は YouTube チャプター用メタデータでエディタでは扱わない) */

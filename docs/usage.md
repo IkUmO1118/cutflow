@@ -1203,3 +1203,29 @@ npx remotion studio --props <収録フォルダ>/render.props.json --public-dir 
 
 Studio はブラウザで開く動画エディタ風の画面で、Main.tsx を保存すると
 即座に反映される。デザインが決まったら通常の `render` を実行する。
+
+## AI提案の比較・高水準編集・ローカル検索
+
+GUIのAI提案では、保存前にbefore/after still、任意の30秒以内のclip、
+structure/motion/sound/OCRの決定論的checkを生成できる。画像対応API providerを
+使う場合だけ、次を明示設定したうえで比較画面のチェックボックスを有効にすると、
+最大4枚を長辺1600px以下へ縮小して外部APIへ送る。既定はoffで、VLMの失敗は
+保存や決定論的reviewを失敗させない。
+
+```yaml
+editor:
+  aiReview:
+    vlm: false
+    maxImages: 4
+```
+
+過去recordingとmaterialは外部APIなしで索引・検索できる。
+
+```sh
+node src/cli.ts index
+node src/cli.ts search "ログイン画面" --kind material --json
+```
+
+MCPでは`cutflow_review`、`cutflow_edit`、`cutflow_search`を利用できる。
+`cutflow_edit`は`dryRun`が必須で、書き込み時も既存の`planApply`検査を通る。
+検索はread-onlyで、結果に絶対pathを含めず、他recordingの素材をコピーしない。

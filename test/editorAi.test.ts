@@ -75,13 +75,70 @@ test("parseAiPatchResponse: JSON だけの AI 応答を parse できる", () => 
       title: "字幕短縮",
       summary: ["冗長語を削る"],
       patch: { ops: [{ op: "set", target: "@cap_aaaaaa", field: "text", value: "こんにちは世界" }] },
-      review: { frames: ["1.2"], notes: ["字幕を確認"] },
+      review: {
+        frames: [{ atSec: 1.2, reason: "字幕の中点" }],
+        range: { startSec: 0.5, endSec: 2.5 },
+        clip: true,
+        observations: { ocr: true },
+        notes: ["字幕を確認"],
+      },
     }),
   );
   assert.equal(parsed.title, "字幕短縮");
   assert.equal(parsed.summary[0], "冗長語を削る");
   assert.equal(parsed.patch.ops?.length, 1);
-  assert.deepEqual(parsed.review.frames, ["1.2"]);
+  assert.deepEqual(parsed.review.frames, [{ axis: "source", atSec: 1.2, reason: "字幕の中点" }]);
+  assert.deepEqual(parsed.review.range, { axis: "source", startSec: 0.5, endSec: 2.5 });
+  assert.equal(parsed.review.clip, true);
+  assert.deepEqual(parsed.review.observations, { ocr: true });
+});
+
+test("parseAiPatchResponse: legacy review.frames string[] を正規化する", () => {
+  const parsed = parseAiPatchResponse(
+    JSON.stringify({
+      patch: { ops: [] },
+      review: { frames: ["1.2", "4.5"], notes: [] },
+    }),
+  );
+  assert.deepEqual(parsed.review.frames, [
+    { axis: "source", atSec: 1.2, reason: "legacy-frame" },
+    { axis: "source", atSec: 4.5, reason: "legacy-frame" },
+  ]);
+});
+
+test("parseAiPatchResponse: legacy update_caption intentを正規化する", () => {
+  const parsed = parseAiPatchResponse(JSON.stringify({
+    edit: {
+      mode: "tasks",
+      tasks: [{ type: "update_caption", target: "@cap_aaaaaa", text: "短い字幕" }],
+    },
+    review: { frames: [], notes: [] },
+  }));
+  assert.deepEqual(parsed.tasks, [{
+    type: "set-caption-text",
+    target: "@cap_aaaaaa",
+    text: "短い字幕",
+  }]);
+});
+
+test("parseAiPatchResponse: caption field aliasと@無しidを正規化する", () => {
+  const parsed = parseAiPatchResponse(JSON.stringify({
+    edit: {
+      mode: "tasks",
+      tasks: [{
+        type: "set-caption-text",
+        caption_id: "cap_aaaaaa",
+        new_text: "短い字幕",
+      }],
+    },
+    review: { frames: [], notes: [] },
+  }));
+  assert.equal(parsed.tasks?.[0].type, "set-caption-text");
+  assert.deepEqual(parsed.tasks?.[0], {
+    type: "set-caption-text",
+    target: "@cap_aaaaaa",
+    text: "短い字幕",
+  });
 });
 
 test("parseAiPatchResponse: markdown fenced JSON は rejected", () => {
@@ -92,7 +149,7 @@ test("parseAiPatchResponse: markdown fenced JSON は rejected", () => {
 });
 
 test("parseAiPatchResponse: patch 欠落を error にする", () => {
-  assert.throws(() => parseAiPatchResponse("{\"title\":\"x\"}"), /patch オブジェクト/);
+  assert.throws(() => parseAiPatchResponse("{\"title\":\"x\"}"), /edit または patch/);
 });
 
 test("planEditorAiPatch: planApply 結果から proposedDocs を作るが書き込まない", () => {
@@ -160,8 +217,10 @@ test("buildEditorAiPrompt: 指示と選択文脈と project projection を含め
     assert.match(prompt, /cap_aaaaaa/);
     assert.doesNotMatch(prompt, /遠い字幕です/);
     assert.match(prompt, /Current project projection/);
-    assert.match(prompt, /"required": \[\s*"title",\s*"summary",\s*"patch",\s*"review"\s*\]/s);
+    assert.match(prompt, /"required": \[\s*"title",\s*"summary",\s*"edit",\s*"review"\s*\]/s);
     assert.match(prompt, /"op": \{\s*"const": "set"\s*\}/s);
+    assert.doesNotMatch(prompt, /"oneOf"/);
+    assert.match(prompt, /"anyOf"/);
   });
 });
 

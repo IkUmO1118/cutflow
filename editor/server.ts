@@ -34,6 +34,7 @@ import { frames } from "../src/stages/frames.ts";
 import { buildProxy, isProxyStale } from "../src/stages/proxy.ts";
 import { preview } from "../src/stages/preview.ts";
 import { findBgm, render } from "../src/stages/render.ts";
+import { reviewEdit } from "../src/stages/review.ts";
 import { validateDocs } from "../src/stages/validate.ts";
 import { readEditableDocs } from "../src/stages/idStamp.ts";
 import { resolvePerceptionStatus } from "../src/lib/config.ts";
@@ -47,6 +48,8 @@ import {
 import type { ConfigPatch } from "../src/lib/configEdit.ts";
 import { loadShorts } from "../src/lib/shorts.ts";
 import { hasCamera } from "../src/types.ts";
+import { applyProposalResolution, proposalDiff } from "../src/lib/docDiff.ts";
+import { snapshotOfReviewDocs, validateReviewSpec, MAX_REVIEW_FRAMES, MAX_REVIEW_OCR_FRAMES } from "../src/lib/review.ts";
 import type {
   AutoCuts,
   Bgm,
@@ -61,6 +64,7 @@ import type {
   DraftData,
   AiFrameRequest,
   AiProposeRequest,
+  AiReviewRequest,
   ProjectData,
   SaveRequest,
 } from "./client/apiTypes.ts";
@@ -250,6 +254,27 @@ async function handle(
     sendJson(res, 200, proposal);
     return;
   }
+  if (req.method === "POST" && path === "/api/ai/review") {
+    const body = (await readBody(req, 4 * 1024 * 1024)) as AiReviewRequest;
+    const base = currentReviewDocs(dir);
+    const requestErrors = validateReviewRequest(base, body);
+    if (requestErrors.length > 0) throw new HttpError(400, requestErrors.join(" / "));
+    const key = `review:${reviewRequestKey(body)}`;
+    if (proxyBuilding) await proxyBuilding;
+    const bundle = await runHeavyJob("review", key, async () => {
+      const candidate = buildAiReviewCandidate(dir, body);
+      return await reviewEdit(
+        dir,
+        cfg,
+        snapshotOfReviewDocs(base),
+        snapshotOfReviewDocs(candidate),
+        body.spec,
+        { shortName: body.activeShortName ?? undefined, vlm: body.vlm === true },
+      );
+    });
+    sendJson(res, 200, { bundle });
+    return;
+  }
   if (req.method === "POST" && path === "/api/ai/frames") {
     const body = (await readBody(req)) as AiFrameRequest;
     if (!Array.isArray(body.times) || body.times.length === 0 || body.times.length > 8) {
@@ -353,21 +378,9 @@ async function handle(
     //  完了までレスポンスを保留する。preview / render は入力ファイル一式を
     //  ディスクから読むので、クライアントは実行前に必ず保存(⌘S)する。
     const stage = path === "/api/preview" ? "preview" : "render";
-    if (heavyJob && heavyJob.stage !== stage) {
-      sendJson(res, 409, {
-        error: `${jaStage(heavyJob.stage)}を実行中です。完了までお待ちください`,
-      });
-      return;
-    }
-    heavyJob ??= {
-      stage,
-      promise: (stage === "preview" ? preview(dir, cfg) : render(dir, cfg)).finally(
-        () => {
-          heavyJob = null;
-        },
-      ),
-    };
-    const out = await heavyJob.promise;
+    const out = await runHeavyJob(stage, stage, () =>
+      stage === "preview" ? preview(dir, cfg) : render(dir, cfg),
+    ) as string;
     // レンダーは完成物を Finder で開いて教える(ターミナルへ戻らなくてよい)
     if (stage === "render") spawn("open", ["-R", out], { stdio: "ignore" }).on("error", () => {});
     sendJson(res, 200, { ok: true, path: out });
@@ -397,12 +410,126 @@ async function handle(
 /** proxy.mp4 の生成(数十秒かかる)の実行中プロミス。二重生成の防止用 */
 let proxyBuilding: Promise<string> | null = null;
 
-/** 実行中の重いジョブ(preview / render)。同時に1つだけ走らせ、同じ stage の
- * 二重起動はプロミスを共有、別 stage の要求は 409 で拒否する */
-let heavyJob: { stage: "preview" | "render"; promise: Promise<string> } | null = null;
+type HeavyJobStage = "preview" | "render" | "review";
+
+/** 実行中の重いジョブ(preview / render / review)。同時に1つだけ走らせ、
+ * 同じ key の二重起動はプロミスを共有、別 key は 409 で拒否する */
+let heavyJob: { stage: HeavyJobStage; key: string; promise: Promise<unknown> } | null = null;
 
 /** ジョブ名の日本語表記(409 メッセージ用) */
-const jaStage = (s: string): string => (s === "render" ? "レンダー" : "プレビュー生成");
+const jaStage = (s: HeavyJobStage): string =>
+  s === "render" ? "レンダー" : s === "review" ? "比較生成" : "プレビュー生成";
+
+async function runHeavyJob<T>(
+  stage: HeavyJobStage,
+  key: string,
+  task: () => Promise<T>,
+): Promise<T> {
+  if (heavyJob) {
+    if (heavyJob.key !== key) {
+      throw new HttpError(409, `${jaStage(heavyJob.stage)}を実行中です。完了までお待ちください`);
+    }
+    return await heavyJob.promise as T;
+  }
+  const promise = task().finally(() => {
+    if (heavyJob?.key === key) heavyJob = null;
+  });
+  heavyJob = { stage, key, promise };
+  return await promise;
+}
+
+function currentReviewDocs(dir: string) {
+  const docs = readEditableDocs(dir);
+  if (!docs.cutplan || !docs.transcript) {
+    throw new HttpError(400, "review の元になる編集ファイルが不足しています");
+  }
+  return {
+    cutplan: docs.cutplan,
+    overlays: docs.overlays ?? {},
+    transcript: docs.transcript,
+    bgm: docs.bgm ?? null,
+    shorts: docs.shorts ?? null,
+  };
+}
+
+function reviewRequestKey(body: AiReviewRequest): string {
+  return JSON.stringify({
+    activeShortName: body.activeShortName ?? null,
+    acceptedHunkLabels: [...body.acceptedHunkLabels].sort(),
+    spec: body.spec,
+    proposedDocs: body.proposedDocs,
+  });
+}
+
+function validateReviewRequest(base: ReturnType<typeof currentReviewDocs>, body: AiReviewRequest): string[] {
+  const errors: string[] = [];
+  if (!body || typeof body !== "object") {
+    return ["request body が不正です"];
+  }
+  if (!Array.isArray(body.acceptedHunkLabels)) {
+    errors.push("acceptedHunkLabels は配列で指定してください");
+    return errors;
+  }
+  if (!body.spec || typeof body.spec !== "object" || !Array.isArray(body.spec.frames)) {
+    errors.push("spec.frames は配列で指定してください");
+    return errors;
+  }
+  if (!body.proposedDocs || typeof body.proposedDocs !== "object") {
+    errors.push("proposedDocs が不正です");
+    return errors;
+  }
+  const diff = proposalDiff(base, body.proposedDocs);
+  const labels = new Set(diff.hunks.map((hunk) => hunk.address.label));
+  const unknown = body.acceptedHunkLabels.filter((label) => typeof label !== "string" || !labels.has(label));
+  if (unknown.length > 0) {
+    errors.push(`unknown hunk labels: ${unknown.join(", ")}`);
+  }
+  const specProblems = validateReviewSpec(body.spec);
+  if (specProblems.length > 0) {
+    errors.push(...specProblems.map((problem) => `${problem.where}: ${problem.message}`));
+  }
+  if (body.spec.frames.length > MAX_REVIEW_FRAMES) {
+    errors.push(`frames は最大${MAX_REVIEW_FRAMES}件です`);
+  }
+  if (body.spec.frames.filter((frame) => frame.ocr === true).length > MAX_REVIEW_OCR_FRAMES) {
+    errors.push(`OCR frame は最大${MAX_REVIEW_OCR_FRAMES}件です`);
+  }
+  return errors;
+}
+
+function validateReviewCandidate(dir: string, candidate: ReturnType<typeof currentReviewDocs>): string[] {
+  const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8"));
+  const validate = validateDocs(dir, {
+    manifest,
+    cutplan: candidate.cutplan,
+    transcript: candidate.transcript,
+    overlays: candidate.overlays,
+    bgm: candidate.bgm,
+    chapters: null,
+    meta: null,
+    shorts: candidate.shorts,
+    thumbnail: null,
+  });
+  return validate.errors.map((error) => `${error.file} ${error.where}: ${error.message}`);
+}
+
+export function buildAiReviewCandidate(
+  dir: string,
+  body: AiReviewRequest,
+): ReturnType<typeof currentReviewDocs> {
+  const base = currentReviewDocs(dir);
+  const errors = validateReviewRequest(base, body);
+  if (errors.length > 0) throw new HttpError(400, errors.join(" / "));
+  const diff = proposalDiff(base, body.proposedDocs);
+  const resolution = new Map(diff.hunks.map((hunk) => [
+    hunk,
+    body.acceptedHunkLabels.includes(hunk.address.label) ? "theirs" : "mine",
+  ] as const));
+  const candidate = applyProposalResolution(base, body.proposedDocs, diff, resolution);
+  const candidateErrors = validateReviewCandidate(dir, candidate);
+  if (candidateErrors.length > 0) throw new HttpError(400, candidateErrors.join(" / "));
+  return candidate;
+}
 
 export function loadProject(dir: string, cfg: Config): ProjectData {
   const readJson = <T>(file: string, fallback: T): T => {
@@ -905,9 +1032,15 @@ function serveMedia(
   }
 }
 
-async function readBody(req: IncomingMessage): Promise<unknown> {
+async function readBody(req: IncomingMessage, maxBytes = Infinity): Promise<unknown> {
   const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
+  let total = 0;
+  for await (const chunk of req) {
+    const buf = chunk as Buffer;
+    total += buf.length;
+    if (total > maxBytes) throw new HttpError(413, "request body が大きすぎます");
+    chunks.push(buf);
+  }
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 

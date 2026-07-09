@@ -164,6 +164,9 @@ editor:
   # ショート新規追加時、選択中の keep クリップもプレイヘッドも
   # 無いときの既定レンジ長(秒)
   defaultShortRangeSec: 10
+  aiReview:
+    vlm: true
+    maxImages: 4
 
 # ショート動画の LLM ハイライト自動選定(plan-shorts コマンド)
 planShorts:
@@ -199,6 +202,6 @@ ai:
   # codex:       Codex CLI の `codex exec` を使う(実験的)
   # anthropic:   Anthropic API を使う(ANTHROPIC_API_KEY と model が必要)
   # openai:      OpenAI API を使う(OPENAI_API_KEY と model が必要)
-  provider: codex
+  provider: openai
   # auto: CLI provider の既定モデル。API provider ではモデル名を明示する
   model: gpt-5.4-mini
