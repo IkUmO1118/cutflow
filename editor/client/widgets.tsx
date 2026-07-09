@@ -16,6 +16,16 @@ import type {
   UploadResult,
 } from "./apiTypes.ts";
 
+export class ApiError extends Error {
+  status: number;
+  code?: string;
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
+
 export async function getProject(): Promise<ProjectData> {
   return (await request("/api/project", undefined)) as ProjectData;
 }
@@ -134,7 +144,11 @@ async function request(
       data && typeof data === "object" && "error" in data
         ? String((data as { error: unknown }).error)
         : res.statusText;
-    throw new Error(msg);
+    const code =
+      data && typeof data === "object" && "code" in data && typeof (data as { code: unknown }).code === "string"
+        ? (data as { code: string }).code
+        : undefined;
+    throw new ApiError(msg, res.status, code);
   }
   return data;
 }

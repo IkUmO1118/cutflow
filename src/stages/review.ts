@@ -69,8 +69,11 @@ export interface ReviewStill {
 
 export interface ReviewKey {
   shortName: string | null;
+  proposalId?: string;
   baseHash: string;
   candidateHash: string;
+  acceptedLabelsHash?: string;
+  acceptedLabels?: string[];
   specHash: string;
 }
 
