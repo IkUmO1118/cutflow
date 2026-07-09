@@ -7,9 +7,12 @@ import { mergeBodyOverDisk, planApply } from "../lib/applyEdits.ts";
 import type { ApplyPlan } from "../lib/applyEdits.ts";
 import type { ReviewDocs } from "../lib/docDiff.ts";
 import type { Config } from "../lib/config.ts";
+import { sliceReviewContext, type ReviewFrameRequest, type ReviewRange } from "../lib/review.ts";
 import { describeJson } from "./describe.ts";
 import type { DescribeProjection, CaptionEntry, MappedInterval } from "./describe.ts";
 import type { ApplyPatch, Bgm, CutPlan, Overlays, Shorts, Transcript } from "../types.ts";
+import { planIntentEdits, type EditIntent } from "../lib/editIntent.ts";
+import { retrievalSearch } from "./retrievalSearch.ts";
 
 export type AiScope = "global" | "playhead" | "selection";
 
@@ -34,10 +37,18 @@ export interface AiProposeResponse {
   title: string;
   summary: string[];
   patch: ApplyPatch;
+  tasks?: EditIntent[];
   applyPlan: ApplyPlan;
   proposedDocs: ReviewDocs;
   review: {
-    frames: string[];
+    frames: ReviewFrameRequest[];
+    range?: ReviewRange;
+    clip?: boolean;
+    observations?: {
+      motion?: boolean;
+      sound?: boolean;
+      ocr?: boolean;
+    };
     notes: string[];
   };
 }
@@ -46,8 +57,16 @@ export interface ParsedAiPatchResponse {
   title: string;
   summary: string[];
   patch: ApplyPatch;
+  tasks?: EditIntent[];
   review: {
-    frames: string[];
+    frames: ReviewFrameRequest[];
+    range?: ReviewRange;
+    clip?: boolean;
+    observations?: {
+      motion?: boolean;
+      sound?: boolean;
+      ocr?: boolean;
+    };
     notes: string[];
   };
 }
@@ -66,6 +85,63 @@ function isObj(v: unknown): v is Record<string, unknown> {
 
 function stringsOf(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+}
+
+function isFiniteNonNegative(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v) && v >= 0;
+}
+
+function normalizeReviewFrames(v: unknown): ReviewFrameRequest[] {
+  if (!Array.isArray(v)) return [];
+  if (v.every((item) => typeof item === "string")) {
+    return v.flatMap((item): ReviewFrameRequest[] => {
+      const atSec = Number(item.trim());
+      if (!Number.isFinite(atSec) || atSec < 0) return [];
+      return [{ axis: "source", atSec, reason: "legacy-frame" }];
+    });
+  }
+  return v.flatMap((item): ReviewFrameRequest[] => {
+    if (!isObj(item) || !isFiniteNonNegative(item.atSec) || typeof item.reason !== "string") return [];
+    return [{
+      axis: item.axis === "output" ? "output" : "source",
+      atSec: item.atSec,
+      reason: item.reason.trim() || "review-frame",
+      ...(typeof item.ocr === "boolean" ? { ocr: item.ocr } : {}),
+      ...(typeof item.fullRes === "boolean" ? { fullRes: item.fullRes } : {}),
+    }];
+  });
+}
+
+function normalizeReviewRange(v: unknown): ReviewRange | undefined {
+  if (!isObj(v) || !isFiniteNonNegative(v.startSec) || !isFiniteNonNegative(v.endSec)) return undefined;
+  if (v.endSec <= v.startSec) return undefined;
+  return {
+    axis: v.axis === "output" ? "output" : "source",
+    startSec: v.startSec,
+    endSec: v.endSec,
+  };
+}
+
+function normalizeEditIntents(value: unknown): EditIntent[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.map((item) => {
+    if (!isObj(item)) return item as unknown as EditIntent;
+    if (item.type === "update_caption" || item.type === "set-caption-text") {
+      const rawTarget =
+        item.target ?? item.caption ?? item.captionId ?? item.caption_id ?? item.id ?? item.ref;
+      const target =
+        typeof rawTarget === "string" && rawTarget.startsWith("cap_")
+          ? `@${rawTarget}`
+          : rawTarget;
+      return {
+        ...item,
+        type: "set-caption-text",
+        target,
+        text: item.text ?? item.value ?? item.newText ?? item.new_text ?? item.captionText,
+      } as unknown as EditIntent;
+    }
+    return item as unknown as EditIntent;
+  });
 }
 
 const EDITOR_AI_PATCH_ITEM_SCHEMA: Record<string, unknown> = {
@@ -121,28 +197,118 @@ const EDITOR_AI_PATCH_ITEM_SCHEMA: Record<string, unknown> = {
 
 const EDITOR_AI_RESPONSE_SCHEMA: JsonSchemaTextFormat = {
   name: "editor_ai_proposal",
-  strict: true,
+  // EditIntent is an extensible union with optional fields. OpenAI's strict
+  // subset requires every object field to be required, so boundary planning
+  // (`parseAiPatchResponse` + `planApply`) remains the authoritative validator.
+  strict: false,
   schema: {
     type: "object",
     additionalProperties: false,
-    required: ["title", "summary", "patch", "review"],
+    required: ["title", "summary", "edit", "review"],
     properties: {
       title: { type: "string" },
       summary: { type: "array", items: { type: "string" } },
-      patch: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          ops: { type: "array", items: EDITOR_AI_PATCH_ITEM_SCHEMA },
-          replace: { type: "object" },
-        },
+      edit: {
+        oneOf: [
+          {
+            type: "object",
+            additionalProperties: false,
+            required: ["mode", "tasks"],
+            properties: {
+              mode: { const: "tasks" },
+              tasks: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    type: {
+                      enum: [
+                        "set-range-action",
+                        "trim-pauses",
+                        "set-caption-text",
+                        "add-blur",
+                        "add-annotation",
+                        "place-material",
+                      ],
+                    },
+                    target: { type: "string" },
+                    text: { type: "string" },
+                    range: { type: "object" },
+                    action: { enum: ["keep", "cut"] },
+                    reason: { type: "string" },
+                    minPauseSec: { type: "number" },
+                    keepHeadSec: { type: "number" },
+                    keepTailSec: { type: "number" },
+                    rect: { type: "object" },
+                    effect: { enum: ["blur", "mosaic"] },
+                    strength: { type: "number" },
+                    annotation: { type: "object" },
+                    file: { type: "string" },
+                    placement: { type: "object" },
+                    audio: { type: "object" },
+                  },
+                },
+              },
+            },
+          },
+          {
+            type: "object",
+            additionalProperties: false,
+            required: ["mode", "patch"],
+            properties: {
+              mode: { const: "patch" },
+              patch: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  ops: { type: "array", items: EDITOR_AI_PATCH_ITEM_SCHEMA },
+                  replace: { type: "object" },
+                },
+              },
+            },
+          },
+        ],
       },
       review: {
         type: "object",
         additionalProperties: false,
         required: ["frames", "notes"],
         properties: {
-          frames: { type: "array", items: { type: "string" } },
+          frames: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["atSec", "reason"],
+              properties: {
+                axis: { enum: ["source", "output"] },
+                atSec: { type: "number", minimum: 0 },
+                reason: { type: "string" },
+                ocr: { type: "boolean" },
+                fullRes: { type: "boolean" },
+              },
+            },
+          },
+          range: {
+            type: "object",
+            additionalProperties: false,
+            required: ["startSec", "endSec"],
+            properties: {
+              axis: { enum: ["source", "output"] },
+              startSec: { type: "number", minimum: 0 },
+              endSec: { type: "number", minimum: 0 },
+            },
+          },
+          clip: { type: "boolean" },
+          observations: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              motion: { type: "boolean" },
+              sound: { type: "boolean" },
+              ocr: { type: "boolean" },
+            },
+          },
           notes: { type: "array", items: { type: "string" } },
         },
       },
@@ -286,17 +452,29 @@ export function parseAiPatchResponse(raw: string): ParsedAiPatchResponse {
   if (!isObj(parsed)) {
     throw new EditorAiError(400, "AI 応答が JSON オブジェクトではありません");
   }
-  const patch = parsed.patch;
-  if (!isObj(patch)) {
-    throw new EditorAiError(400, "AI 応答に patch オブジェクトがありません");
-  }
+  const edit = isObj(parsed.edit) ? parsed.edit : null;
+  const tasks = edit?.mode === "tasks" ? normalizeEditIntents(edit.tasks) : undefined;
+  const patch = edit?.mode === "patch" && isObj(edit.patch) ? edit.patch : parsed.patch;
+  if (!tasks && !isObj(patch)) throw new EditorAiError(400, "AI 応答に edit または patch がありません");
   const review = isObj(parsed.review) ? parsed.review : {};
   return {
     title: typeof parsed.title === "string" && parsed.title.trim() ? parsed.title.trim() : "AI 提案",
     summary: stringsOf(parsed.summary),
-    patch: patch as ApplyPatch,
+    patch: isObj(patch) ? patch as ApplyPatch : {},
+    ...(tasks ? { tasks } : {}),
     review: {
-      frames: stringsOf(review.frames),
+      frames: normalizeReviewFrames(review.frames),
+      ...(normalizeReviewRange(review.range) ? { range: normalizeReviewRange(review.range) } : {}),
+      ...(typeof review.clip === "boolean" ? { clip: review.clip } : {}),
+      ...(isObj(review.observations)
+        ? {
+            observations: {
+              ...(typeof review.observations.motion === "boolean" ? { motion: review.observations.motion } : {}),
+              ...(typeof review.observations.sound === "boolean" ? { sound: review.observations.sound } : {}),
+              ...(typeof review.observations.ocr === "boolean" ? { ocr: review.observations.ocr } : {}),
+            },
+          }
+        : {}),
       notes: stringsOf(review.notes),
     },
   };
@@ -315,18 +493,31 @@ export function buildEditorAiPrompt(
     activeShortName: req.activeShortName ?? req.selection?.activeShortName ?? null,
   };
   const projectProjection = sliceProjectProjection(describeJson(dir, cfg), selectionContext);
+  const wantsRetrieval = /(素材|B-?roll|過去|以前|似た|画像|動画)/i.test(req.instruction);
+  const retrieval = wantsRetrieval
+    ? retrievalSearch(cfg.recordingsDir, {
+        query: req.instruction,
+        kind: "material",
+        scope: "other",
+        currentRecording: dir,
+        limit: 5,
+      })
+    : [];
   return template
     .replace("{{outputSchema}}", editorAiOutputSchemaText())
     .replace("{{instruction}}", req.instruction.trim())
     .replace("{{selectionContext}}", JSON.stringify(selectionContext, null, 2))
-    .replace("{{projectJson}}", JSON.stringify(projectProjection, null, 2));
+    .replace("{{projectJson}}", JSON.stringify(projectProjection, null, 2))
+    .replace("{{retrievalResults}}", JSON.stringify(retrieval, null, 2));
 }
 
 export function planEditorAiPatch(
   dir: string,
   parsed: ParsedAiPatchResponse,
 ): AiProposeResponse {
-  const applyPlan = planApply(dir, parsed.patch);
+  const intentPlan = parsed.tasks ? planIntentEdits(dir, parsed.tasks) : null;
+  const compiledPatch = intentPlan?.intentPlan.patch ?? parsed.patch;
+  const applyPlan = intentPlan ?? planApply(dir, compiledPatch);
   if (applyPlan.errors.length > 0) {
     const detail = applyPlan.errors.map((e) => `${e.file} ${e.where}: ${e.message}`).join(" / ");
     throw new EditorAiError(400, `AI 提案を適用できません: ${detail}`);
@@ -339,7 +530,8 @@ export function planEditorAiPatch(
   return {
     title: parsed.title,
     summary: parsed.summary,
-    patch: parsed.patch,
+    patch: compiledPatch,
+    ...(parsed.tasks ? { tasks: parsed.tasks } : {}),
     applyPlan,
     proposedDocs,
     review: parsed.review,
@@ -356,5 +548,21 @@ export async function proposeEditorAi(
   }
   const prompt = buildEditorAiPrompt(dir, cfg, req);
   const raw = await completeWithJsonSchema(prompt, cfg, EDITOR_AI_RESPONSE_SCHEMA);
-  return planEditorAiPatch(dir, parseAiPatchResponse(raw));
+  const parsed = parseAiPatchResponse(raw);
+  if (parsed.review.frames.length === 0 && req.selection) {
+    const sliced = sliceReviewContext(describeJson(dir, cfg), {
+      scope: req.selection.scope,
+      playheadSec: req.selection.playheadSec,
+      selectedRange: req.selection.selectedRange,
+      selectedIds: req.selection.selectedIds,
+      activeShortName: req.activeShortName,
+    });
+    parsed.review.frames = sliced.frameCandidates.map((frame) => ({
+      axis: "source",
+      atSec: frame.sourceSec,
+      reason: frame.reason,
+    }));
+    parsed.review.range = { axis: "source", ...sliced.sourceRange };
+  }
+  return planEditorAiPatch(dir, parsed);
 }

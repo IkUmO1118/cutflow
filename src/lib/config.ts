@@ -128,6 +128,12 @@ export interface Config {
      * プレイヘッドも無いときの既定レンジ長(秒)。
      * 省略時は DEFAULT_SHORT_RANGE_SEC */
     defaultShortRangeSec?: number;
+    aiReview?: {
+      /** before/after still を外部APIへ送る明示的opt-in。既定false */
+      vlm?: boolean;
+      /** APIへ送る画像枚数。1-4、既定4 */
+      maxImages?: number;
+    };
   };
   render: {
     wipeWidthPx: number;
@@ -226,6 +232,13 @@ export const DEFAULT_IMAGE_DURATION_SEC = 4;
 
 /** editor.defaultShortRangeSec 未指定時の既定(秒) */
 export const DEFAULT_SHORT_RANGE_SEC = 10;
+
+export function resolveAiReviewCfg(cfg: Config): { vlm: boolean; maxImages: number } {
+  return {
+    vlm: cfg.editor?.aiReview?.vlm ?? false,
+    maxImages: Math.max(1, Math.min(cfg.editor?.aiReview?.maxImages ?? 4, 4)),
+  };
+}
 
 /** planShorts.maxDurationSec 未指定時の既定(秒)。YouTube ショートの上限に合わせる */
 export const DEFAULT_PLAN_SHORTS_MAX_DURATION_SEC = 60;

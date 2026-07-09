@@ -94,6 +94,9 @@ false staleness signals or gets silently discarded:
 - `av.probe/` — a **cache-style** generated directory written by `av <dir>`
   (`motion.json`, `sound.json`, `motion.strip.png`). It is not wiped on each
   run; deleting the whole directory forces a full regeneration
+- `review.probe/` — a **replace-on-run** generated directory written by
+  `review <dir>` (`index.json`, `before/`, `after/`, `ocr/`). It is wiped and
+  rebuilt on each review run
 - `backups/` (pre-overwrite snapshots) and `.editor-draft.json` (the GUI
   editor's autosaved unsaved draft)
 - `rules.suggested.md` (a disposable draft written by `learn`; a human
@@ -226,6 +229,9 @@ without `--force`; with `--force`, hand-edited files are moved to
 | `thumbnail <dir>` | Generate the thumbnail still image from `thumbnail.json` |
 | `materials <dir>` | Probe materials (B-roll) for duration/resolution/audio and cross-link references (`materials.probe/index.json`) |
 | `av <dir>` | Probe kept motion/sound feedback and write `av.probe/` reports |
+| `review <dir>` | Generate a deterministic before/after review bundle and write `review.probe/index.json` |
+| `index` | Build the local cross-recording retrieval index |
+| `search <query>` | Search recording/material metadata, OCR, and transcripts locally |
 | `approve <dir>` | Approve the cutplan (or `--short <name>`) into `approvals.json` (interactive; requires `--yes` non-interactively) |
 | `unapprove <dir>` | Revoke an approval record |
 | `render <dir>` | Final render; requires a valid approval record (`--short <name>` / `--shorts` for short-form outputs) |

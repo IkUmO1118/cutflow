@@ -8,7 +8,13 @@ The JSON contract is the schema below. Treat it as authoritative:
 
 Rules:
 
-- `patch` is required and must match the ApplyPatch shape above.
+- Prefer `edit.mode: "tasks"` for supported operations. Use `edit.mode: "patch"` only as fallback.
+- The only valid task `type` values are:
+  `set-range-action`, `trim-pauses`, `set-caption-text`, `add-blur`,
+  `add-annotation`, and `place-material`.
+- To change caption text, use exactly
+  `{"type":"set-caption-text","target":"@cap_xxxxxx","text":"..."}`.
+  Never invent aliases such as `update_caption`.
 - Prefer `ops` with stable `@id` targets when possible.
 - Use `replace` only when an edit cannot be expressed clearly with `ops`.
 - Do not edit `approved` or `approvals.json`.
@@ -33,3 +39,7 @@ Selection context:
 Current project projection:
 
 {{projectJson}}
+
+Bounded local retrieval results (may be empty; these are suggestions only and must not be edited in place):
+
+{{retrievalResults}}

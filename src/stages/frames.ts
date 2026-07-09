@@ -42,12 +42,9 @@ import {
   selectComposition,
 } from "@remotion/renderer";
 import { fmtT } from "../lib/fmt.ts";
-import { defaultShortProfileName, resolveProfile } from "../lib/profile.ts";
-import { buildRenderProps } from "../lib/renderProps.ts";
-import { loadShort } from "../lib/shorts.ts";
+import { readEditSnapshot, resolveSnapshotRenderContext } from "../lib/renderSnapshot.ts";
 import {
   buildTimeline,
-  mergeIntervals,
   snapToOutput,
   toOutputTime,
   toSourceTime,
@@ -56,11 +53,10 @@ import { writeFramesIndex } from "../lib/framesIndex.ts";
 import { runOcr } from "../lib/ocr.ts";
 import { buildScreenStill } from "../lib/screenStill.ts";
 import { buildProxy, isProxyStale } from "./proxy.ts";
-import { hasCamera } from "../types.ts";
 import type { TimelineEntry } from "../lib/timeline.ts";
 import type { Config } from "../lib/config.ts";
-import type { Profile } from "../lib/profile.ts";
-import type { CutPlan, Interval, Manifest, Overlays, Transcript } from "../types.ts";
+import type { Manifest } from "../types.ts";
+import type { RenderProps } from "../../remotion/props.ts";
 
 export interface FrameShot {
   /** 指定された時刻(秒。times は axis の軸 / captions・every は出力の秒) */
@@ -131,51 +127,11 @@ export async function renderFrames(
 ): Promise<FrameShot[]> {
   const { short: shortName, ocr, fullRes } = opts;
   const { serveUrl, browser } = warm;
-  const readJson = <T>(file: string, fallback: T | null): T => {
-    const p = join(dir, file);
-    if (!existsSync(p)) {
-      if (fallback !== null) return fallback;
-      throw new Error(`${file} がありません。先にパイプライン(run)を実行してください`);
-    }
-    return JSON.parse(readFileSync(p, "utf8")) as T;
-  };
-  const manifest = readJson<Manifest>("manifest.json", null);
-  const transcript = readJson<Transcript>("transcript.json", null);
+  const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")) as Manifest;
+  const snapshot = readEditSnapshot(dir);
 
-  // --short 指定時はショート専用の keep 集合(ranges)・captionTracks・
-  // プロファイルを使う(本編 cutplan/overlays とは独立。D2)。
-  // それ以外は従来どおり本編 cutplan.json ベース
-  let keeps: Interval[];
-  let overlays: Overlays;
-  let profile: Profile;
-  if (shortName) {
-    const short = loadShort(dir, shortName);
-    keeps = mergeIntervals(short.ranges);
-    // colorFilter だけは本編から例外的に継承する(render.ts のショート経路と
-    // 同じ理由。D2 の対象外)。blurs は継承しない(座標が本編の出力px基準に
-    // 束縛され、ショートの座標系とは一致しないため。render.ts の同箇所と同じ)
-    const mainOverlays = readJson<Overlays>("overlays.json", {});
-    overlays = {
-      captionTracks: short.captionTracks,
-      ...(mainOverlays.colorFilter ? { colorFilter: mainOverlays.colorFilter } : {}),
-    };
-    profile = resolveProfile(
-      manifest.video.screenRegion,
-      short.profile ?? defaultShortProfileName(hasCamera(manifest)),
-    );
-  } else {
-    const cutplan = readJson<CutPlan>("cutplan.json", null);
-    keeps = mergeIntervals(cutplan.segments.filter((s) => s.action === "keep"));
-    overlays = readJson<Overlays>("overlays.json", {});
-    profile = resolveProfile(manifest.video.screenRegion, "default");
-  }
-  if (keeps.length === 0) {
-    throw new Error(
-      shortName
-        ? `ショート "${shortName}" の ranges が0件です(shorts.json を確認してください)`
-        : "keep 区間が0件です(cutplan.json を確認してください)",
-    );
-  }
+  const renderCtx = resolveSnapshotRenderContext({ dir, cfg, snapshot, shortName, fullRes });
+  const { keeps, overlays, props } = renderCtx;
 
   // ベース映像はエディタと同じ軽量プロキシ。無ければここで作る(収録ごとに1回)。
   // 焼き込み済みの設定(ラウドネス・システム音声・プレビュー幅・エンコーダ)か
@@ -191,22 +147,6 @@ export async function renderFrames(
     }
   }
 
-  const props = buildRenderProps({
-    manifest,
-    keeps,
-    transcript,
-    overlays,
-    renderCfg: cfg.render,
-    width: profile.width,
-    height: profile.height,
-    profile,
-    videoFile: fullRes ? manifest.source : "proxy.mp4",
-    videoIsSource: true,
-    bgm: null, // 静止画に音は無関係
-    bgmFallbackFile: null,
-    overlayExists: (f) => existsSync(join(dir, f)),
-    warn: (msg) => console.warn(`警告: ${msg}`),
-  });
   const outDir = join(dir, "frames");
   mkdirSync(outDir, { recursive: true });
   // 前回の実行が残した PNG・OCR サイドカーを全削除(冒頭コメント参照。
@@ -304,7 +244,7 @@ interface Target {
 /** リクエストを「出力秒のリスト」に展開する */
 function buildTargets(
   req: FrameRequest,
-  props: ReturnType<typeof buildRenderProps>,
+  props: RenderProps,
   maxOut: number,
   timeline: TimelineEntry[],
 ): Target[] {
