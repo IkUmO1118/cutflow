@@ -7,6 +7,7 @@ import { readEditSnapshot } from "../src/lib/renderSnapshot.ts";
 import {
   normalizeReviewSpec,
   sliceReviewContext,
+  validateReviewSpec,
   type EditSnapshot,
 } from "../src/lib/review.ts";
 import { reviewEdit } from "../src/stages/review.ts";
@@ -104,6 +105,17 @@ test("normalizeReviewSpec: frame/clip 上限を clamp する", () => {
   assert.equal(normalized.range.endSec - normalized.range.startSec, 60);
   assert.equal(normalized.frames.filter((frame) => frame.ocr).length, 4);
   assert.ok(normalized.warnings.length >= 3);
+});
+
+test("validateReviewSpec: observations は boolean 以外を拒否する", () => {
+  const problems = validateReviewSpec({
+    frames: [{ axis: "source", atSec: 1, reason: "caption" }],
+    observations: { motion: "yes" as never, sound: 1 as never },
+  });
+  assert.deepEqual(
+    problems.map((problem) => problem.where),
+    ["observations.motion", "observations.sound"],
+  );
 });
 
 test("sliceReviewContext: selectedIds と playhead から bounded range を作る", () => {
