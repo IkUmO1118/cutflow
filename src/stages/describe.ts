@@ -602,8 +602,8 @@ function buildProjection(inp: DescribeInputs, cfg?: Config): DescribeProjection 
   const { dir, manifest, cutplan, transcript, overlays, chapters, meta, timeline, keeps } = inp;
   const outputTimesForSourceAt = (at: number): number[] =>
     timeline
-      .filter((e) => at >= e.start && at <= e.end)
-      .map((e) => round2(at + e.offset));
+      .filter((e) => at >= e.sourceStart && at <= e.sourceEnd)
+      .map((e) => round2(e.outputStart + (at - e.sourceStart) / e.speed));
 
   const source: SourceInfo = {
     file: manifest.source,

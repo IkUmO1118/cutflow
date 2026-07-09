@@ -15,6 +15,7 @@ import {
   mergeIntervals,
   remapInterval,
   snapToOutput,
+  timelineDuration,
   toOutputTime,
   toSourceTime,
 } from "../../src/lib/timeline.ts";
@@ -106,6 +107,7 @@ import {
   fmtTime,
   getPeaks,
   getProject,
+  postAiDoctor,
   postConfig,
   postDraft,
   postAiPropose,
@@ -468,6 +470,8 @@ export const App = () => {
   /** proxy.mp4 に焼き込まれる設定(targetLufs / systemAudio / denoise /
    * preview.width)を保存した後、プレビューへ反映するには再生成が要ることを促すバナー */
   const [proxyStale, setProxyStale] = useState(false);
+  const [aiDoctorResult, setAiDoctorResult] = useState<import("./apiTypes.ts").AiDoctorResult[] | null>(null);
+  const [aiDoctorBusy, setAiDoctorBusy] = useState(false);
   /** 再生速度(プレビューのみ)。次回起動時も引き継ぐ */
   const [playbackRate, setPlaybackRate] = useState(() => {
     const saved = Number(localStorage.getItem("cutflow.editor.playbackRate"));
@@ -517,6 +521,7 @@ export const App = () => {
             renderCfg: res.renderCfg,
             previewCfg: res.previewCfg,
             editorCfg: res.editorCfg,
+            aiProfiles: res.aiProfiles,
           },
       );
       if (patchTouchesProxy(patch)) setProxyStale(true);
@@ -526,6 +531,28 @@ export const App = () => {
       setSettingsError((e as Error).message);
     } finally {
       setSettingsSaving(false);
+    }
+  };
+  const runAiDoctor = async (route?: "text" | "structured" | "vision") => {
+    setAiDoctorBusy(true);
+    try {
+      setAiDoctorResult(await postAiDoctor(route ? { route } : {}));
+    } catch (e) {
+      setAiDoctorResult([{
+        profile: route ?? "all",
+        adapter: "claude-code",
+        model: "n/a",
+        origin: null,
+        checks: {
+          config: { status: "error", message: (e as Error).message },
+          credential: { status: "skip", message: "" },
+          text: { status: "skip", message: "" },
+          structured: { status: "skip", message: "" },
+          image: { status: "skip", message: "" },
+        },
+      }]);
+    } finally {
+      setAiDoctorBusy(false);
     }
   };
 
@@ -1971,7 +1998,7 @@ export const App = () => {
     }
     const { sel, mode } = ctx;
     const tl = ctx.timeline;
-    const outDur = tl.length > 0 ? tl[tl.length - 1].end + tl[tl.length - 1].offset : 0;
+    const outDur = timelineDuration(tl);
     /** ドラッグ開始時のカット後位置 out0 に移動量を足し、元収録の秒へ逆変換 */
     const dragTo = (out0: number, delta: number): number | null =>
       toSourceTime(clamp(out0 + delta, 0, Math.max(0, outDur - 0.01)), tl);
@@ -2045,7 +2072,7 @@ export const App = () => {
         // move: 自分を除いた写像の上でアンカー(元収録の秒)を追従させる
         const others = arr.filter((_, j) => j !== sel.index);
         const tlx = buildTimeline(keepsOf(ctx.cutplan), others);
-        const durX = tlx.length > 0 ? tlx[tlx.length - 1].end + tlx[tlx.length - 1].offset : 0;
+        const durX = timelineDuration(tlx);
         const out0 = snapToOutput(ins.at, tlx) ?? durX;
         const target = out0 + d;
         if (target >= durX - 0.005) {
@@ -3572,6 +3599,21 @@ export const App = () => {
   const aiFrameParse = aiWorkflowReview
     ? aiWorkflowReview.response.proposal.review.frames.map(formatReviewFrame)
     : [];
+  const visionProfile = proj.aiRoutes.vision
+    ? proj.aiProfiles.find((profile) => profile.name === proj.aiRoutes.vision)
+    : undefined;
+  const aiVlmDisabledReason =
+    !proj.aiRoutes.vision
+      ? "vision route が未設定です"
+      : !visionProfile
+        ? "vision profile が見つかりません"
+        : !proj.aiReviewCfg.vlm
+          ? "config editor.aiReview.vlm=false です"
+          : !visionProfile.capabilities.imageInput
+            ? `AI profile "${visionProfile.name}" は imageInput=false です`
+            : visionProfile.credential === "missing"
+              ? "vision profile の認証情報が見つかりません"
+              : null;
   const aiWorkflowActions: DiffAction[] | undefined = aiWorkflowReview
     ? [
         ...(reviewSpecOfProposalReview(aiWorkflowReview.response.proposal.review)
@@ -3904,9 +3946,12 @@ export const App = () => {
               <input
                 type="checkbox"
                 checked={aiVlmReview}
+                disabled={aiVlmDisabledReason !== null}
                 onChange={(event) => setAiVlmReview(event.currentTarget.checked)}
               />
-              画像もAIに確認させる（外部APIへ最大4枚送信）
+              {aiVlmDisabledReason === null
+                ? `画像もAIに確認させる（最大${proj.aiReviewCfg.maxImages}枚の縮小stillを ${visionProfile?.name}${visionProfile?.origin ? ` (${visionProfile.origin})` : ""} へ送信）`
+                : `画像もAIに確認させる（${aiVlmDisabledReason}）`}
             </label>
           }
           onSet={(hunk, side) => {
@@ -3943,6 +3988,10 @@ export const App = () => {
             onCancel={cancelSettings}
             saving={settingsSaving}
             error={settingsError}
+            aiProfiles={proj.aiProfiles}
+            aiDoctor={aiDoctorResult}
+            aiDoctorBusy={aiDoctorBusy}
+            onAiDoctor={(route) => void runAiDoctor(route)}
           />
         </>
       )}

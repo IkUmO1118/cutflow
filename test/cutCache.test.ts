@@ -19,12 +19,12 @@ const CFG = {
   },
 } as Config;
 
-const KEEPS = [{ start: 0, end: 10 }, { start: 20, end: 30 }];
+const KEEPS = [{ start: 0, end: 10, speed: 1 }, { start: 20, end: 30, speed: 1 }];
 
 function keyOf(overrides: {
   manifest?: Manifest;
   cfg?: Config;
-  keeps?: { start: number; end: number }[];
+  keeps?: { start: number; end: number; speed: number }[];
   sourceMtimeMs?: number;
   sourceSize?: number;
 }) {
@@ -43,7 +43,13 @@ test("cutCacheKeyEquals: 全く同じ入力からは一致するキー", () => {
 
 test("cutCacheKeyEquals: keeps が変わると不一致", () => {
   const a = keyOf({});
-  const b = keyOf({ keeps: [{ start: 0, end: 11 }, { start: 20, end: 30 }] });
+  const b = keyOf({ keeps: [{ start: 0, end: 11, speed: 1 }, { start: 20, end: 30, speed: 1 }] });
+  assert.ok(!cutCacheKeyEquals(a, b));
+});
+
+test("cutCacheKeyEquals: speed が変わると不一致", () => {
+  const a = keyOf({});
+  const b = keyOf({ keeps: [{ start: 0, end: 10, speed: 2 }, { start: 20, end: 30, speed: 1 }] });
   assert.ok(!cutCacheKeyEquals(a, b));
 });
 

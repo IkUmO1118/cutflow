@@ -62,14 +62,17 @@ export function remapKeyframesForPiece(
 ): ResolvedKeyframe[] {
   const sourceStartValues = valuesAt(baseline, toResolved(sourceKeyframes), piece.sourceStart);
   const sourceEndValues = valuesAt(baseline, toResolved(sourceKeyframes), piece.sourceEnd);
-  const offset = piece.outputStart - piece.sourceStart;
   const startEasing = easingAt(sourceKeyframes, piece.sourceStart);
   const out: ResolvedKeyframe[] = [
     { at: piece.outputStart, easing: startEasing, values: sourceStartValues },
     ...sourceKeyframes
       .filter((k) => k.at > piece.sourceStart && k.at < piece.sourceEnd)
       .map((k) => ({
-        at: round2(k.at + offset),
+        at: round2(
+          piece.outputStart +
+            ((k.at - piece.sourceStart) / (piece.sourceEnd - piece.sourceStart)) *
+              (piece.outputEnd - piece.outputStart),
+        ),
         easing: k.easing ?? "linear",
         values: { ...k.values },
       })),

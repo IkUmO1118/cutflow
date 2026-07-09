@@ -1,5 +1,6 @@
 import {
   buildTimeline,
+  buildTimelineModel,
   insertSpans,
   remapInterval,
   remapIntervalPieces,
@@ -159,7 +160,8 @@ export function buildRenderProps(args: {
     warn(`挿入素材が見つかりません: ${ins.file}(挿入ごと除外し、以降は前へ詰まります)`);
     return false;
   });
-  const timeline = buildTimeline(keeps, activeInserts);
+  const builtTimeline = buildTimelineModel(keeps, activeInserts);
+  const timeline = builtTimeline.entries;
   const captions: Caption[] = transcript.segments
     .flatMap((s) => {
       // 位置・スタイルはここで解決する(セグメント指定 → トラック標準 → 既定)。
@@ -349,9 +351,12 @@ export function buildRenderProps(args: {
   //   区間が分かれ、Player が飛び飛びに再生する(カット編集の即時反映)
   const keepsOnly = buildTimeline(keeps);
   const segments = timeline.map((e) => ({
-    start: round2(e.start + e.offset),
-    videoStart: videoIsSource ? e.start : (toOutputTime(e.start, keepsOnly) ?? 0),
-    durationSec: round2(e.end - e.start),
+    start: e.outputStart,
+    videoStart: videoIsSource
+      ? e.sourceStart
+      : (toOutputTime(e.sourceStart, keepsOnly) ?? 0),
+    durationSec: round2(e.outputEnd - e.outputStart),
+    ...(videoIsSource && e.speed !== 1 ? { playbackRate: e.speed } : {}),
   }));
   // 動画内でも連続している区間はまとめる
   const baseSegments: typeof segments = [];
@@ -360,14 +365,18 @@ export function buildRenderProps(args: {
     if (
       last &&
       near(last.start + last.durationSec, seg.start) &&
-      near(last.videoStart + last.durationSec, seg.videoStart)
+      near(
+        last.videoStart + last.durationSec * (last.playbackRate ?? 1),
+        seg.videoStart,
+      ) &&
+      (last.playbackRate ?? 1) === (seg.playbackRate ?? 1)
     ) {
       last.durationSec = round2(last.durationSec + seg.durationSec);
     } else {
       baseSegments.push({ ...seg });
     }
   }
-  const insertItems = insertSpans(keeps, activeInserts).map((sp) => {
+  const insertItems = builtTimeline.inserts.map((sp) => {
     const ins = activeInserts[sp.index];
     return {
       start: sp.start,
@@ -381,9 +390,7 @@ export function buildRenderProps(args: {
     };
   });
 
-  const durationSec =
-    keeps.reduce((sum, k) => sum + (k.end - k.start), 0) +
-    activeInserts.reduce((sum, i) => sum + i.durationSec, 0);
+  const durationSec = builtTimeline.durationSec;
   const duck = buildDuck(silences ?? null, manifest.durationSec, timeline, renderCfg);
   return {
     videoFile,
