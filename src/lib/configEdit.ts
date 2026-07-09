@@ -300,6 +300,8 @@ export function syncEditorCfgFromYaml(cfg: Config, rawYaml: string): void {
   if (parsed.render) cfg.render = parsed.render;
   if (parsed.preview) cfg.preview = parsed.preview;
   cfg.editor = parsed.editor; // 省略可。undefined でも resolvedEditorCfg が既定で補う
+  cfg.ai = parsed.ai;
+  cfg.plan = parsed.plan;
 }
 
 /** エディタ・サーバーがクライアントへ渡す解決済みのエディタ設定 */
