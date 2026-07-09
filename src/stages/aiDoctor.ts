@@ -1,6 +1,8 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { deflateSync } from "node:zlib";
 import { completeAi } from "../lib/ai/client.ts";
 import { originOfProfile, resolveCredential } from "../lib/ai/http.ts";
 import { profileForRoute, resolveAiRuntimeConfig, validateAiConfig } from "../lib/config.ts";
@@ -30,8 +32,18 @@ export interface AiDoctorOptions {
   route?: AiRoute;
 }
 
-const DOCTOR_IMAGE_BASE64 =
-  "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAQAAAC1+jfqAAAAKUlEQVR4AWP4z8Dwn4GBgYHhP8N/BoZGRmYGLAwM/5kZGTGQwAAb6sI9j7ZHJ0AAAAASUVORK5CYII=";
+let repoEnvLoaded = false;
+
+function loadRepoEnv(): void {
+  if (repoEnvLoaded) return;
+  repoEnvLoaded = true;
+  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+  try {
+    process.loadEnvFile?.(join(repoRoot, ".env"));
+  } catch {
+    // .env is optional. Doctor falls back to inherited process env.
+  }
+}
 
 function ok(message: string): DoctorCheck {
   return { status: "ok", message };
@@ -46,6 +58,57 @@ function skip(message: string): DoctorCheck {
   return { status: "skip", message };
 }
 
+const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
+  let c = n;
+  for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+  return c >>> 0;
+});
+
+function crc32(buf: Buffer): number {
+  let c = 0xffffffff;
+  for (const byte of buf) c = CRC_TABLE[(c ^ byte) & 0xff]! ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const name = Buffer.from(type, "ascii");
+  const len = Buffer.alloc(4);
+  len.writeUInt32BE(data.length, 0);
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(Buffer.concat([name, data])), 0);
+  return Buffer.concat([len, name, data, crc]);
+}
+
+function doctorPng(): Buffer {
+  const width = 64;
+  const height = 64;
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 2; // truecolor RGB
+  ihdr[10] = 0;
+  ihdr[11] = 0;
+  ihdr[12] = 0;
+  const raw = Buffer.alloc((width * 3 + 1) * height);
+  for (let y = 0; y < height; y++) {
+    const row = y * (width * 3 + 1);
+    raw[row] = 0; // no filter
+    for (let x = 0; x < width; x++) {
+      const i = row + 1 + x * 3;
+      raw[i] = 255;
+      raw[i + 1] = x < width / 2 ? 32 : 180;
+      raw[i + 2] = y < height / 2 ? 32 : 180;
+    }
+  }
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk("IHDR", ihdr),
+    pngChunk("IDAT", deflateSync(raw)),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
 function targetProfiles(cfg: Config, opts: AiDoctorOptions): ResolvedAiProfile[] {
   const runtime = resolveAiRuntimeConfig(cfg);
   if (opts.profile) {
@@ -58,10 +121,11 @@ function targetProfiles(cfg: Config, opts: AiDoctorOptions): ResolvedAiProfile[]
 }
 
 export async function aiDoctor(cfg: Config, opts: AiDoctorOptions = {}): Promise<AiDoctorResult[]> {
+  loadRepoEnv();
   const configErrors = validateAiConfig(cfg.ai);
   const tmp = mkdtempSync(join(tmpdir(), "cutflow-ai-doctor-"));
   const imageFile = join(tmp, "ai-doctor.png");
-  writeFileSync(imageFile, Buffer.from(DOCTOR_IMAGE_BASE64, "base64"));
+  writeFileSync(imageFile, doctorPng());
   try {
     const results: AiDoctorResult[] = [];
     for (const profile of targetProfiles(cfg, opts)) {
@@ -116,7 +180,7 @@ export async function aiDoctor(cfg: Config, opts: AiDoctorOptions = {}): Promise
                   type: "object",
                   additionalProperties: false,
                   required: ["ok"],
-                  properties: { ok: { const: true } },
+                  properties: { ok: { type: "boolean", const: true } },
                 },
               },
             },

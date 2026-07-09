@@ -167,6 +167,7 @@ editor:
   aiReview:
     vlm: true
     maxImages: 4
+    maxRefinements: 3
 
 # ショート動画の LLM ハイライト自動選定(plan-shorts コマンド)
 planShorts:
@@ -202,10 +203,21 @@ ai:
   # codex:       Codex CLI の `codex exec` を使う(実験的)
   # anthropic:   Anthropic API を使う(ANTHROPIC_API_KEY と model が必要)
   # openai:      OpenAI API を使う(OPENAI_API_KEY と model が必要)
+  profiles:
+    local:
+      adapter: codex
+      model: gpt-5.4-mini
+    cloud-vision:
+      adapter: openai
+      model: gpt-5.4-mini
+  routes:
+    text: local
+    structured: local
+    vision: cloud-vision
   # 旧形式(後方互換):
-  provider: openai
+  # provider: codex
   # auto: CLI provider の既定モデル。API provider ではモデル名を明示する
-  model: gpt-5.4-mini
+  # model: gpt-5.4-mini
   #
   # 推奨の新形式(profiles + routes)。text/structured/vision を分けられる。
   # profiles:
