@@ -62,7 +62,8 @@ import type {
 } from "../../src/types.ts";
 import type { AiProposeResponse, AiScope, AiSelectionContext, DraftData, ProjectData } from "./apiTypes.ts";
 import type { ReviewBundle } from "../../src/stages/review.ts";
-import type { ReviewFrameRequest, ReviewRange, ReviewSpec } from "../../src/lib/review.ts";
+import type { ReviewFrameRequest } from "../../src/lib/review.ts";
+import { reviewSpecOfProposalReview } from "../../src/lib/editorAiReview.ts";
 import { AiCommand } from "./AiCommand.tsx";
 import { ArrowOverlay } from "./ArrowOverlay.tsx";
 import type { OverlayArrow } from "./ArrowOverlay.tsx";
@@ -116,6 +117,7 @@ import {
   postSave,
   probeMaterialDuration,
   uploadMaterial,
+  ApiError,
 } from "./widgets.tsx";
 import type { Peaks } from "./widgets.tsx";
 
@@ -252,32 +254,6 @@ const reviewDocsOf = (p: ProjectData): ReviewDocs => ({
   bgm: p.bgm,
   shorts: p.shorts,
 });
-
-const rangeFromReviewFrames = (frames: ReviewFrameRequest[]): ReviewRange => {
-  const axis = frames[0]?.axis ?? "source";
-  const secs = frames.filter((frame) => frame.axis === axis).map((frame) => frame.atSec);
-  const start = Math.max(0, Math.min(...secs) - 2);
-  const end = Math.max(start + 0.1, Math.max(...secs) + 2);
-  return { axis, startSec: start, endSec: end };
-};
-
-const reviewSpecOf = (review: AiProposeResponse["review"]): ReviewSpec | null => {
-  if (review.frames.length === 0) return null;
-  return {
-    frames: review.frames,
-    ...(review.range ? { range: review.range } : {}),
-    ...(review.clip
-      ? {
-          clip: {
-            range: review.range ?? rangeFromReviewFrames(review.frames),
-            includeBefore: true,
-            includeAfter: true,
-          },
-        }
-      : {}),
-    ...(review.observations ? { observations: { ...review.observations } } : {}),
-  };
-};
 
 const formatReviewFrame = (frame: ReviewFrameRequest): string =>
   `${fmtTime(frame.atSec)} (${frame.axis}) - ${frame.reason}`;
@@ -2995,7 +2971,7 @@ export const App = () => {
         activeShortName,
         selection: buildAiSelectionContext(scope),
       });
-      const diff = proposalDiff(reviewDocsOf(proj), response.proposedDocs);
+      const diff = proposalDiff(reviewDocsOf(proj), response.proposal.proposedDocs);
       if (diff.hunks.length === 0) {
         setAiWorkflow({
           phase: "complete",
@@ -3029,7 +3005,7 @@ export const App = () => {
     const base = reviewDocsOf(proj);
     return applyProposalResolution(
       base,
-      aiWorkflowReview.response.proposedDocs,
+      aiWorkflowReview.response.proposal.proposedDocs,
       aiWorkflowReview.diff,
       aiWorkflowReview.resolution,
     );
@@ -3051,7 +3027,7 @@ export const App = () => {
 
   const generateAiReview = async (): Promise<ReviewBundle | null> => {
     if (!aiWorkflowReview) return null;
-    const spec = reviewSpecOf(aiWorkflowReview.response.review);
+    const spec = reviewSpecOfProposalReview(aiWorkflowReview.response.proposal.review);
     if (!spec) {
       setError("比較対象の review.frames がありません");
       return null;
@@ -3062,14 +3038,12 @@ export const App = () => {
     setError(null);
     try {
       const res = await postAiReview({
-        proposedDocs: aiWorkflowReview.response.proposedDocs,
+        proposalId: aiWorkflowReview.response.proposalId,
         acceptedHunkLabels: aiWorkflowReview.diff.hunks.flatMap((hunk) =>
           (aiWorkflowReview.resolution.get(hunk) ?? "theirs") === "theirs"
             ? [hunk.address.label]
             : [],
         ),
-        spec,
-        activeShortName,
         vlm: aiVlmReview,
       });
       setAiWorkflow((prev) =>
@@ -3085,10 +3059,21 @@ export const App = () => {
       );
       return res.bundle;
     } catch (e) {
-      const message = `比較の生成に失敗しました: ${(e as Error).message}`;
+      const apiError = e instanceof ApiError ? e : null;
+      const message =
+        apiError?.code === "proposal_expired" || apiError?.code === "proposal_stale"
+          ? `比較は失効しました: ${apiError.message}`
+          : `比較の生成に失敗しました: ${(e as Error).message}`;
       setAiWorkflow((prev) =>
         prev && isAiWorkflowReviewState(prev)
-          ? { ...prev, phase: "reviewing", error: message }
+          ? {
+              ...prev,
+              phase: "reviewing",
+              error: message,
+              reviewStale: apiError?.code === "proposal_expired" || apiError?.code === "proposal_stale"
+                ? true
+                : prev.reviewStale,
+            }
           : prev,
       );
       setError(message);
@@ -3579,15 +3564,17 @@ export const App = () => {
       ].join("\n")
     : "AI 一発編集";
   const mergedAiCandidate = aiWorkflowReview ? mergedAiWorkflowDocs() : null;
-  const aiReviewStale = aiWorkflowReview?.reviewBundle
-    ? JSON.stringify(mergedAiCandidate) !== (aiWorkflowReview.reviewCandidateKey ?? "")
+  const aiReviewStale = aiWorkflowReview
+    ? (aiWorkflowReview.reviewBundle
+        ? JSON.stringify(mergedAiCandidate) !== (aiWorkflowReview.reviewCandidateKey ?? "")
+        : false) || aiWorkflowReview.reviewStale === true
     : false;
   const aiFrameParse = aiWorkflowReview
-    ? aiWorkflowReview.response.review.frames.map(formatReviewFrame)
+    ? aiWorkflowReview.response.proposal.review.frames.map(formatReviewFrame)
     : [];
   const aiWorkflowActions: DiffAction[] | undefined = aiWorkflowReview
     ? [
-        ...(reviewSpecOf(aiWorkflowReview.response.review)
+        ...(reviewSpecOfProposalReview(aiWorkflowReview.response.proposal.review)
           ? [{
               label: aiWorkflowReview.phase === "verifying" ? "比較を生成中…" : "比較を生成",
               disabled: aiWorkflowReview.phase === "verifying",
@@ -3605,7 +3592,7 @@ export const App = () => {
           disabled: aiWorkflowReview.phase === "verifying",
           onClick: () => void applyAiWorkflow({ save: true, reviewFirst: false }),
         },
-        ...(reviewSpecOf(aiWorkflowReview.response.review)
+        ...(reviewSpecOfProposalReview(aiWorkflowReview.response.proposal.review)
           ? [{
               label: "適用して確認",
               disabled: aiWorkflowReview.phase === "verifying",
@@ -3883,8 +3870,8 @@ export const App = () => {
           kind="ai-proposal"
           title="AI 一発編集を確認"
           description={
-            aiWorkflowReview.response.summary.length > 0
-              ? aiWorkflowReview.response.summary.join(" / ")
+            aiWorkflowReview.response.proposal.summary.length > 0
+              ? aiWorkflowReview.response.proposal.summary.join(" / ")
               : "適用する変更だけを選んでください。保存と確認はこの画面から続けて行えます。"
           }
           hunks={aiWorkflowReview.diff.hunks}
@@ -3896,16 +3883,16 @@ export const App = () => {
                 : []
             ),
             ...(
-              aiWorkflowReview.response.applyPlan.warnings.length > 0
+              aiWorkflowReview.response.proposal.applyPlan.warnings.length > 0
                 ? [{
                     label: "検証警告",
-                    items: aiWorkflowReview.response.applyPlan.warnings.map((w) => `${w.file} ${w.where}: ${w.message}`),
+                    items: aiWorkflowReview.response.proposal.applyPlan.warnings.map((w) => `${w.file} ${w.where}: ${w.message}`),
                   } satisfies DiffWarningGroup]
                 : []
             ),
             ...(
-              aiWorkflowReview.response.review.notes.length > 0
-                ? [{ label: "AIメモ", items: aiWorkflowReview.response.review.notes } satisfies DiffWarningGroup]
+              aiWorkflowReview.response.proposal.review.notes.length > 0
+                ? [{ label: "AIメモ", items: aiWorkflowReview.response.proposal.review.notes } satisfies DiffWarningGroup]
                 : []
             ),
           ]}

@@ -8,6 +8,7 @@ import type { ApplyPlan } from "../lib/applyEdits.ts";
 import type { ReviewDocs } from "../lib/docDiff.ts";
 import type { Config } from "../lib/config.ts";
 import { sliceReviewContext, type ReviewFrameRequest, type ReviewRange } from "../lib/review.ts";
+import type { EditorAiReviewPlan } from "../lib/editorAiReview.ts";
 import { describeJson } from "./describe.ts";
 import type { DescribeProjection, CaptionEntry, MappedInterval } from "./describe.ts";
 import type { ApplyPatch, Bgm, CutPlan, Overlays, Shorts, Transcript } from "../types.ts";
@@ -40,17 +41,7 @@ export interface AiProposeResponse {
   tasks?: EditIntent[];
   applyPlan: ApplyPlan;
   proposedDocs: ReviewDocs;
-  review: {
-    frames: ReviewFrameRequest[];
-    range?: ReviewRange;
-    clip?: boolean;
-    observations?: {
-      motion?: boolean;
-      sound?: boolean;
-      ocr?: boolean;
-    };
-    notes: string[];
-  };
+  review: EditorAiReviewPlan;
 }
 
 export interface ParsedAiPatchResponse {
@@ -58,17 +49,7 @@ export interface ParsedAiPatchResponse {
   summary: string[];
   patch: ApplyPatch;
   tasks?: EditIntent[];
-  review: {
-    frames: ReviewFrameRequest[];
-    range?: ReviewRange;
-    clip?: boolean;
-    observations?: {
-      motion?: boolean;
-      sound?: boolean;
-      ocr?: boolean;
-    };
-    notes: string[];
-  };
+  review: EditorAiReviewPlan;
 }
 
 export class EditorAiError extends Error {
