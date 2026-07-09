@@ -1,16 +1,25 @@
 import {
   buildTimeline,
+  buildTimelineModel,
   insertSpans,
   remapInterval,
+  remapIntervalPieces,
   toOutputTime,
 } from "./timeline.ts";
-import type { TimelineEntry } from "./timeline.ts";
+import type { RemappedPiece, TimelineEntry } from "./timeline.ts";
 import type { Config } from "./config.ts";
 import type { Profile } from "./profile.ts";
+import { remapKeyframesForPiece } from "./keyframes.ts";
 import {
   DEFAULT_BLUR_STRENGTH,
   DEFAULT_BLUR_TYPE,
+  DEFAULT_BOX_RADIUS_PX,
+  DEFAULT_BOX_WIDTH_PX,
   DEFAULT_CUT_TRANSITION_SEC,
+  DEFAULT_ARROW_HEAD_PX,
+  DEFAULT_ARROW_WIDTH_PX,
+  DEFAULT_SPOTLIGHT_DIM,
+  DEFAULT_SPOTLIGHT_FEATHER_PX,
   DEFAULT_WIPE_TRANSITION_SEC,
   DEFAULT_ZOOM_EASE_SEC,
   capId,
@@ -31,14 +40,71 @@ import type {
   Manifest,
   Overlays,
   Transcript,
+  Annotation,
 } from "../types.ts";
 import { resolveAnnotation } from "./annotation.ts";
 import type {
   Caption,
   OverlayItem,
   RenderProps,
+  ResolvedKeyframe,
   Span,
 } from "../../remotion/props.ts";
+
+type NumericBaseline = Record<string, number>;
+
+function keyframesForPieces<TValues extends object>(
+  keyframes: { at: number; easing?: import("../types.ts").KeyframeEasing; values: TValues }[] | undefined,
+  pieces: RemappedPiece[],
+  baseline: NumericBaseline,
+): { start: number; end: number; keyframes?: ResolvedKeyframe[] }[] {
+  return pieces.map((piece) => ({
+    start: piece.outputStart,
+    end: piece.outputEnd,
+    ...(keyframes
+      ? {
+          keyframes: remapKeyframesForPiece(
+            keyframes.map((k) => ({ ...k, values: { ...(k.values as Record<string, number>) } })),
+            piece,
+            baseline,
+          ),
+        }
+      : {}),
+  }));
+}
+
+function annotationBaselineOf(a: Annotation): NumericBaseline {
+  switch (a.type) {
+    case "arrow":
+      return {
+        fromX: a.from.x,
+        fromY: a.from.y,
+        toX: a.to.x,
+        toY: a.to.y,
+        widthPx: a.widthPx ?? DEFAULT_ARROW_WIDTH_PX,
+        headPx: a.headPx ?? DEFAULT_ARROW_HEAD_PX,
+      };
+    case "box":
+      return {
+        x: a.rect.x,
+        y: a.rect.y,
+        w: a.rect.w,
+        h: a.rect.h,
+        widthPx: a.widthPx ?? DEFAULT_BOX_WIDTH_PX,
+        radiusPx: a.radiusPx ?? DEFAULT_BOX_RADIUS_PX,
+      };
+    case "spotlight":
+      return {
+        x: a.rect.x,
+        y: a.rect.y,
+        w: a.rect.w,
+        h: a.rect.h,
+        dim: a.dim ?? DEFAULT_SPOTLIGHT_DIM,
+        featherPx: a.featherPx ?? DEFAULT_SPOTLIGHT_FEATHER_PX,
+        radiusPx: a.radiusPx ?? 0,
+      };
+  }
+}
 
 /**
  * 編集ファイル群(元収録秒)からカット後タイムラインの RenderProps を組み立てる。
@@ -94,7 +160,8 @@ export function buildRenderProps(args: {
     warn(`挿入素材が見つかりません: ${ins.file}(挿入ごと除外し、以降は前へ詰まります)`);
     return false;
   });
-  const timeline = buildTimeline(keeps, activeInserts);
+  const builtTimeline = buildTimelineModel(keeps, activeInserts);
+  const timeline = builtTimeline.entries;
   const captions: Caption[] = transcript.segments
     .flatMap((s) => {
       // 位置・スタイルはここで解決する(セグメント指定 → トラック標準 → 既定)。
@@ -155,7 +222,18 @@ export function buildRenderProps(args: {
       return [];
     }
     let shown = 0;
-    const parts = remapInterval(o.start, o.end, timeline);
+    const pieces = remapIntervalPieces(o.start, o.end, timeline);
+    const parts = keyframesForPieces(
+      o.keyframes as typeof o.keyframes,
+      pieces,
+      {
+        x: o.rect?.x ?? 0,
+        y: o.rect?.y ?? 0,
+        w: o.rect?.w ?? width,
+        h: o.rect?.h ?? height,
+        opacity: o.opacity ?? 1,
+      },
+    );
     return parts.map((iv, j) => {
       const from = (o.startFrom ?? 0) + shown;
       const item: OverlayItem = {
@@ -176,7 +254,17 @@ export function buildRenderProps(args: {
         ...(j === parts.length - 1 && o.fadeOutSec
           ? { fadeOutSec: Math.min(o.fadeOutSec, round2(iv.end - iv.start)) }
           : {}),
-        ...(o.rect ? { rect: o.rect } : {}),
+        ...((o.rect || o.keyframes)
+          ? {
+              rect: {
+                x: o.rect?.x ?? 0,
+                y: o.rect?.y ?? 0,
+                w: o.rect?.w ?? width,
+                h: o.rect?.h ?? height,
+              },
+            }
+          : {}),
+        ...(iv.keyframes ? { keyframes: iv.keyframes } : {}),
       };
       shown += iv.end - iv.start;
       return item;
@@ -221,12 +309,23 @@ export function buildRenderProps(args: {
   // マージ不要(zooms と同じく断片ごとに独立エントリのまま。判断5)。
   // wipeFull のような近接マージはしない(blur に遷移が無いため不要)
   const blurSpans = (overlays.blurs ?? []).flatMap((b) =>
-    remapInterval(b.start, b.end, timeline).map((iv) => ({
+    keyframesForPieces(
+      b.keyframes as typeof b.keyframes,
+      remapIntervalPieces(b.start, b.end, timeline),
+      {
+        x: b.rect.x,
+        y: b.rect.y,
+        w: b.rect.w,
+        h: b.rect.h,
+        strength: b.strength ?? DEFAULT_BLUR_STRENGTH,
+      },
+    ).map((iv) => ({
       start: iv.start,
       end: iv.end,
       rect: b.rect,
       type: b.type ?? DEFAULT_BLUR_TYPE,
       strength: b.strength ?? DEFAULT_BLUR_STRENGTH,
+      ...(iv.keyframes ? { keyframes: iv.keyframes } : {}),
     })),
   );
 
@@ -234,9 +333,14 @@ export function buildRenderProps(args: {
   // 写像する。既定値は resolveAnnotation が埋める(blurs の type/strength
   // 解決と同じ考え方)。挿入で割れた断片は独立エントリのまま(マージ不要)
   const annotationItems = (overlays.annotations ?? []).flatMap((a) =>
-    remapInterval(a.start, a.end, timeline).map((iv) =>
-      resolveAnnotation(a, iv.start, iv.end),
-    ),
+    keyframesForPieces(
+      a.keyframes as { at: number; easing?: import("../types.ts").KeyframeEasing; values: object }[] | undefined,
+      remapIntervalPieces(a.start, a.end, timeline),
+      annotationBaselineOf(a),
+    ).map((iv) => {
+      const resolved = resolveAnnotation(a, iv.start, iv.end);
+      return iv.keyframes ? { ...resolved, keyframes: iv.keyframes } : resolved;
+    }),
   );
 
   // ベース映像の再生区間。「カット後のどこで、動画内のどの時刻から再生
@@ -247,9 +351,12 @@ export function buildRenderProps(args: {
   //   区間が分かれ、Player が飛び飛びに再生する(カット編集の即時反映)
   const keepsOnly = buildTimeline(keeps);
   const segments = timeline.map((e) => ({
-    start: round2(e.start + e.offset),
-    videoStart: videoIsSource ? e.start : (toOutputTime(e.start, keepsOnly) ?? 0),
-    durationSec: round2(e.end - e.start),
+    start: e.outputStart,
+    videoStart: videoIsSource
+      ? e.sourceStart
+      : (toOutputTime(e.sourceStart, keepsOnly) ?? 0),
+    durationSec: round2(e.outputEnd - e.outputStart),
+    ...(videoIsSource && e.speed !== 1 ? { playbackRate: e.speed } : {}),
   }));
   // 動画内でも連続している区間はまとめる
   const baseSegments: typeof segments = [];
@@ -258,14 +365,18 @@ export function buildRenderProps(args: {
     if (
       last &&
       near(last.start + last.durationSec, seg.start) &&
-      near(last.videoStart + last.durationSec, seg.videoStart)
+      near(
+        last.videoStart + last.durationSec * (last.playbackRate ?? 1),
+        seg.videoStart,
+      ) &&
+      (last.playbackRate ?? 1) === (seg.playbackRate ?? 1)
     ) {
       last.durationSec = round2(last.durationSec + seg.durationSec);
     } else {
       baseSegments.push({ ...seg });
     }
   }
-  const insertItems = insertSpans(keeps, activeInserts).map((sp) => {
+  const insertItems = builtTimeline.inserts.map((sp) => {
     const ins = activeInserts[sp.index];
     return {
       start: sp.start,
@@ -279,9 +390,7 @@ export function buildRenderProps(args: {
     };
   });
 
-  const durationSec =
-    keeps.reduce((sum, k) => sum + (k.end - k.start), 0) +
-    activeInserts.reduce((sum, i) => sum + i.durationSec, 0);
+  const durationSec = builtTimeline.durationSec;
   const duck = buildDuck(silences ?? null, manifest.durationSec, timeline, renderCfg);
   return {
     videoFile,

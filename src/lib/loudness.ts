@@ -1,6 +1,7 @@
 import { run } from "./exec.ts";
 import type { Config } from "./config.ts";
-import type { Interval, Manifest } from "../types.ts";
+import type { Manifest } from "../types.ts";
+import type { PlaybackSegment } from "./timeline.ts";
 
 /** 出力に入れる音声の構成(マイク+任意でシステム音声) */
 export interface AudioSource {
@@ -37,19 +38,40 @@ export function audioSourceOf(manifest: Manifest, cfg: Config): AudioSource {
  * 出す。実測パスと render / preview / proxy で共有し、正規化の実測対象と
  * 実際に出力される音を常に一致させる。
  */
-export function keepAudioParts(source: AudioSource, keeps: Interval[]): string[] {
+export function atempoFilters(speed: number): number[] {
+  if (speed === 1) return [];
+  const out: number[] = [];
+  let remaining = speed;
+  while (remaining < 0.5) {
+    out.push(0.5);
+    remaining /= 0.5;
+  }
+  while (remaining > 2) {
+    out.push(2);
+    remaining /= 2;
+  }
+  if (Math.abs(remaining - 1) > 1e-9) out.push(remaining);
+  return out;
+}
+
+export function keepAudioParts(source: AudioSource, keeps: PlaybackSegment[]): string[] {
   const { micStream, systemStream, systemVolumeDb, denoiseMic, noiseFloorDb } = source;
   return keeps.flatMap((k, i) => {
     const trim = `atrim=start=${k.start}:end=${k.end},asetpts=PTS-STARTPTS`;
+    const tempo = atempoFilters(k.speed).map((rate) => `atempo=${rate}`).join(",");
     // ノイズ除去はマイクのみ(システム音声はデジタル由来でノイズが無い)
     const micTrim = denoiseMic ? `${trim},afftdn=nf=${noiseFloorDb}` : trim;
-    if (systemStream === null) return [`[0:a:${micStream}]${micTrim}[a${i}]`];
+    if (systemStream === null) {
+      return [
+        `[0:a:${micStream}]${micTrim}${tempo ? `,${tempo}` : ""}[a${i}]`,
+      ];
+    }
     const vol = systemVolumeDb !== 0 ? `,volume=${systemVolumeDb}dB` : "";
     return [
       `[0:a:${micStream}]${micTrim}[mic${i}]`,
       `[0:a:${systemStream}]${trim}${vol}[sys${i}]`,
       // normalize=0: 入力数で音量を割らない(片方が無音でも声量が変わらない)
-      `[mic${i}][sys${i}]amix=inputs=2:duration=first:normalize=0[a${i}]`,
+      `[mic${i}][sys${i}]amix=inputs=2:duration=first:normalize=0${tempo ? `,${tempo}` : ""}[a${i}]`,
     ];
   });
 }
@@ -67,7 +89,7 @@ export function keepAudioParts(source: AudioSource, keeps: Interval[]): string[]
 export async function measuredLoudnormFilter(args: {
   input: string;
   source: AudioSource;
-  keeps: Interval[];
+  keeps: PlaybackSegment[];
   targetLufs: number;
 }): Promise<string> {
   const { input, source, keeps, targetLufs } = args;

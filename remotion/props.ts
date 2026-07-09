@@ -2,7 +2,13 @@
 // src/stages/render.ts が生成し、Remotion コンポジション(Main.tsx)が受け取る。
 // 時刻はすべて「カット済み動画(cut.mp4)のタイムライン」の秒。
 
-import type { CaptionStyle, ColorFilter, LayerId, SpotlightShape } from "../src/types.ts";
+import type {
+  CaptionStyle,
+  ColorFilter,
+  KeyframeEasing,
+  LayerId,
+  SpotlightShape,
+} from "../src/types.ts";
 
 export interface Region {
   x: number;
@@ -39,6 +45,12 @@ export interface Span {
   end: number;
 }
 
+export interface ResolvedKeyframe {
+  at: number;
+  easing: KeyframeEasing;
+  values: Record<string, number>;
+}
+
 /** 表示する素材(画像/動画)。rect が無ければ画面いっぱい */
 export interface OverlayItem {
   start: number;
@@ -64,6 +76,16 @@ export interface OverlayItem {
   fadeOutSec?: number;
   /** 表示領域(出力px)。省略時は全画面 */
   rect?: Region;
+  keyframes?: ResolvedKeyframe[];
+}
+
+export interface ResolvedBlur {
+  start: number;
+  end: number;
+  rect: Region;
+  type: "blur" | "mosaic";
+  strength: number;
+  keyframes?: ResolvedKeyframe[];
 }
 
 /** 注釈グラフィック1件(overlays.json の annotations。カット後の秒へ写像・
@@ -79,6 +101,7 @@ export type ResolvedAnnotation =
       color: string;
       widthPx: number;
       headPx: number;
+      keyframes?: ResolvedKeyframe[];
     }
   | {
       type: "box";
@@ -89,6 +112,7 @@ export type ResolvedAnnotation =
       widthPx: number;
       radiusPx: number;
       fill?: string;
+      keyframes?: ResolvedKeyframe[];
     }
   | {
       type: "spotlight";
@@ -99,6 +123,7 @@ export type ResolvedAnnotation =
       dim: number;
       featherPx: number;
       radiusPx: number;
+      keyframes?: ResolvedKeyframe[];
     };
 
 // interface でなく type なのは意図的: Remotion の Composition / Player は
@@ -185,7 +210,7 @@ export type RenderProps = {
    * type/strength 解決済み)。ベース映像(画面クロップ)の rect 部分だけを
    * 隠す。zoom 追従なしの出力px固定。省略時(空)は現行の描画と完全に同じ。
    * props.layout(ショート/縦)経路では描画しない(本編のみ) */
-  blurs?: { start: number; end: number; rect: Region; type: "blur" | "mosaic"; strength: number }[];
+  blurs?: ResolvedBlur[];
   /** 注釈グラフィック(overlays.json の annotations。カット後の秒へ写像・
    * 既定解決済み)。最前面に出力px固定で描く。省略時(空)は現行の描画と
    * 完全に同じ。props.layout(ショート/縦)経路では描画しない(本編のみ) */
@@ -203,7 +228,12 @@ export type RenderProps = {
   /** ベース映像(videoFile)の再生区間。挿入(inserts)があると分割される。
    * start はカット後の秒、videoStart は videoFile 内の秒。
    * 省略時は全編連続再生(挿入なし) */
-  baseSegments?: { start: number; videoStart: number; durationSec: number }[];
+  baseSegments?: {
+    start: number;
+    videoStart: number;
+    durationSec: number;
+    playbackRate?: number;
+  }[];
   /** ベース映像トラックへの挿入クリップ(カット後の秒)。
    * 表示中はベース映像・ワイプが止まり、挿入素材(音声込み)が全面に出る。
    * startFrom は頭出し(素材内の再生開始秒。省略時 0・動画のみ有効)。

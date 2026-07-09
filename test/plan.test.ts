@@ -278,3 +278,42 @@ test("plan --cuts-only loop: 同じ cut 集合を再出力したら fixpoint で
     assert.equal(log.iterations.at(-1)?.stop, "fixpoint");
   });
 });
+
+test("plan --cuts-only loop: observe が secondary/warnings を返すと log に summary だけ残す", async () => {
+  await withPlanDir(async (dir) => {
+    await plan(dir, loopCfg(2), { cutsOnly: true }, {
+      complete: async () => JSON.stringify({ cuts: [{ id: 2, reason: "重複" }] }),
+      observe: {
+        async observe() {
+          return {
+            proj: fakeProjection(25),
+            outcomes: [{ index: 0, type: "outDuration", status: "fail", message: "too long" }],
+            warnings: ["secondary warning"],
+            secondary: {
+              schemaVersion: 1,
+              kind: "vlm",
+              summary: ["summary"],
+              items: [],
+              uncertainties: [],
+              confidence: "medium",
+              provenance: {
+                profile: "vision",
+                adapter: "openai",
+                model: "gpt-x",
+                observedAt: "2026-07-09T00:00:00Z",
+                imageCount: 1,
+                inputDigest: "abc",
+              },
+            },
+          };
+        },
+      },
+    });
+    const log = JSON.parse(readFileSync(join(dir, "plan.loop.json"), "utf8")) as {
+      iterations: Array<{ secondaryObservation?: { inputDigest: string; profile: string; model: string }; secondaryWarnings?: string[]; observation: string }>;
+    };
+    assert.equal(log.iterations[0]?.secondaryObservation?.inputDigest, "abc");
+    assert.deepEqual(log.iterations[0]?.secondaryWarnings, ["secondary warning"]);
+    assert.match(log.iterations[0]?.observation ?? "", /画像モデルによる二次観測/);
+  });
+});

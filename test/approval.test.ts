@@ -92,6 +92,24 @@ test("cutplanApprovalHash: ms 未満の浮動小数ジッタは吸収される",
   assert.equal(a, b);
 });
 
+test("cutplanApprovalHash: speed 1 だけなら旧 hash と互換", () => {
+  const a = cutplanApprovalHash(cutplanOf(BASE_SEGMENTS));
+  const b = cutplanApprovalHash(cutplanOf(
+    BASE_SEGMENTS.map((s) => (s.action === "keep" ? { ...s, speed: 1 } : s)),
+  ));
+  assert.equal(a, b);
+});
+
+test("cutplanApprovalHash: speed が変わると hash も変わる", () => {
+  const a = cutplanApprovalHash(cutplanOf(BASE_SEGMENTS));
+  const b = cutplanApprovalHash(cutplanOf(
+    BASE_SEGMENTS.map((s) =>
+      s.action === "keep" && s.start === 12 ? { ...s, speed: 2 } : s,
+    ),
+  ));
+  assert.notEqual(a, b);
+});
+
 function shortOf(overrides: Partial<Short> = {}): Short {
   return {
     name: "clip-1",

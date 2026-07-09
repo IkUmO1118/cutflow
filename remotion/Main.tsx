@@ -35,6 +35,7 @@ import {
 } from "../src/lib/captionAnim.ts";
 import { cssFilterOf } from "../src/lib/colorFilter.ts";
 import { duckFactorAt } from "../src/lib/duck.ts";
+import { valuesAt } from "../src/lib/keyframes.ts";
 import { cropFitStyle } from "../src/lib/panelStyle.ts";
 import { zoomTransformAt } from "../src/lib/zoom.ts";
 import type { OverlayItem, Region, RenderProps, Span } from "./props.ts";
@@ -155,7 +156,10 @@ export const Main = (props: RenderProps) => {
     [baseSegs, props.inserts, fps, durationInFrames],
   );
   const continuous =
-    baseSegs.length === 1 && baseSegs[0].start === 0 && baseSegs[0].videoStart === 0;
+    baseSegs.length === 1 &&
+    baseSegs[0].start === 0 &&
+    baseSegs[0].videoStart === 0 &&
+    baseSegs[0].playbackRate === undefined;
   const renderBase = (
     region: Region,
     width: number,
@@ -190,6 +194,7 @@ export const Main = (props: RenderProps) => {
           <CroppedVideo
             src={src}
             startFromFrames={Math.round(seg.videoStart * fps)}
+            {...(seg.playbackRate !== undefined ? { playbackRate: seg.playbackRate } : {})}
             canvas={props.canvas}
             region={region}
             width={width}
@@ -405,22 +410,31 @@ export const Main = (props: RenderProps) => {
       {hasVideo && !props.layout &&
         (props.blurs ?? []).map((b, i) => {
           if (t < b.start || t >= b.end) return null; // 硬い ON/OFF(遷移なし)
-          const cr = outputRectToCanvasRegion(b.rect, props.screenRegion, props.width, props.height);
+          const now = b.keyframes
+            ? valuesAt(
+                { x: b.rect.x, y: b.rect.y, w: b.rect.w, h: b.rect.h, strength: b.strength },
+                b.keyframes,
+                t,
+              )
+            : null;
+          const rect = now ? { x: now.x, y: now.y, w: now.w, h: now.h } : b.rect;
+          const strength = now?.strength ?? b.strength;
+          const cr = outputRectToCanvasRegion(rect, props.screenRegion, props.width, props.height);
           const container = {
             position: "absolute" as const,
-            left: b.rect.x,
-            top: b.rect.y,
-            width: b.rect.w,
-            height: b.rect.h,
+            left: rect.x,
+            top: rect.y,
+            width: rect.w,
+            height: rect.h,
             overflow: "hidden" as const,
           };
           if (b.type === "mosaic") {
-            const block = mosaicBlockPx(b.strength);
+            const block = mosaicBlockPx(strength);
             // 縮小レンダー → pixelated 拡大。box を block で割った小箱に描き、
             // その箱を scale(block) で拡大(ニアレストネイバー)。端数は ceil して
             // 余りをはみ出させ overflow:hidden で切る(隙間を作らない)
-            const smallW = Math.max(1, Math.ceil(b.rect.w / block));
-            const smallH = Math.max(1, Math.ceil(b.rect.h / block));
+            const smallW = Math.max(1, Math.ceil(rect.w / block));
+            const smallH = Math.max(1, Math.ceil(rect.h / block));
             return (
               <div key={`blur-${i}`} style={container}>
                 <div
@@ -446,9 +460,9 @@ export const Main = (props: RenderProps) => {
           return (
             <div
               key={`blur-${i}`}
-              style={{ ...container, filter: `blur(${blurRadiusPx(b.strength)}px)` }}
+              style={{ ...container, filter: `blur(${blurRadiusPx(strength)}px)` }}
             >
-              {renderBase(cr, b.rect.w, b.rect.h, true, "cover")}
+              {renderBase(cr, rect.w, rect.h, true, "cover")}
             </div>
           );
         })}
@@ -467,7 +481,25 @@ export const Main = (props: RenderProps) => {
         (props.annotations ?? []).map((a, i) => {
           if (t < a.start || t >= a.end) return null; // 硬い ON/OFF(遷移なし)
           if (a.type === "arrow") {
-            const { p1, p2 } = arrowHeadPoints(a.from, a.to, a.headPx);
+            const now = a.keyframes
+              ? valuesAt(
+                  {
+                    fromX: a.from.x,
+                    fromY: a.from.y,
+                    toX: a.to.x,
+                    toY: a.to.y,
+                    widthPx: a.widthPx,
+                    headPx: a.headPx,
+                  },
+                  a.keyframes,
+                  t,
+                )
+              : null;
+            const from = now ? { x: now.fromX, y: now.fromY } : a.from;
+            const to = now ? { x: now.toX, y: now.toY } : a.to;
+            const widthPx = now?.widthPx ?? a.widthPx;
+            const headPx = now?.headPx ?? a.headPx;
+            const { p1, p2 } = arrowHeadPoints(from, to, headPx);
             return (
               <svg
                 key={`ann-${i}`}
@@ -477,29 +509,43 @@ export const Main = (props: RenderProps) => {
                 }}
               >
                 <line
-                  x1={a.from.x} y1={a.from.y} x2={a.to.x} y2={a.to.y}
-                  stroke={a.color} strokeWidth={a.widthPx} strokeLinecap="round"
+                  x1={from.x} y1={from.y} x2={to.x} y2={to.y}
+                  stroke={a.color} strokeWidth={widthPx} strokeLinecap="round"
                 />
                 <polygon
-                  points={`${a.to.x},${a.to.y} ${p1.x},${p1.y} ${p2.x},${p2.y}`}
+                  points={`${to.x},${to.y} ${p1.x},${p1.y} ${p2.x},${p2.y}`}
                   fill={a.color}
                 />
               </svg>
             );
           }
           if (a.type === "box") {
+            const now = a.keyframes
+              ? valuesAt(
+                  {
+                    x: a.rect.x,
+                    y: a.rect.y,
+                    w: a.rect.w,
+                    h: a.rect.h,
+                    widthPx: a.widthPx,
+                    radiusPx: a.radiusPx,
+                  },
+                  a.keyframes,
+                  t,
+                )
+              : null;
             return (
               <div
                 key={`ann-${i}`}
                 style={{
                   position: "absolute",
-                  left: a.rect.x,
-                  top: a.rect.y,
-                  width: a.rect.w,
-                  height: a.rect.h,
+                  left: now?.x ?? a.rect.x,
+                  top: now?.y ?? a.rect.y,
+                  width: now?.w ?? a.rect.w,
+                  height: now?.h ?? a.rect.h,
                   boxSizing: "border-box",
-                  border: `${a.widthPx}px solid ${a.color}`,
-                  borderRadius: a.radiusPx,
+                  border: `${now?.widthPx ?? a.widthPx}px solid ${a.color}`,
+                  borderRadius: now?.radiusPx ?? a.radiusPx,
                   ...(a.fill ? { backgroundColor: a.fill } : {}),
                 }}
               />
@@ -509,6 +555,25 @@ export const Main = (props: RenderProps) => {
           // ellipse)の穴を開ける。featherPx は穴形状への feGaussianBlur で表現
           const maskId = `ann-spotlight-mask-${i}`;
           const blurId = `ann-spotlight-blur-${i}`;
+          const now = a.keyframes
+            ? valuesAt(
+                {
+                  x: a.rect.x,
+                  y: a.rect.y,
+                  w: a.rect.w,
+                  h: a.rect.h,
+                  dim: a.dim,
+                  featherPx: a.featherPx,
+                  radiusPx: a.radiusPx,
+                },
+                a.keyframes,
+                t,
+              )
+            : null;
+          const rect = now ? { x: now.x, y: now.y, w: now.w, h: now.h } : a.rect;
+          const dim = now?.dim ?? a.dim;
+          const featherPx = now?.featherPx ?? a.featherPx;
+          const radiusPx = now?.radiusPx ?? a.radiusPx;
           return (
             <svg
               key={`ann-${i}`}
@@ -518,26 +583,26 @@ export const Main = (props: RenderProps) => {
               }}
             >
               <defs>
-                {a.featherPx > 0 && (
+                {featherPx > 0 && (
                   <filter id={blurId}>
-                    <feGaussianBlur stdDeviation={a.featherPx} />
+                    <feGaussianBlur stdDeviation={featherPx} />
                   </filter>
                 )}
                 <mask id={maskId}>
                   <rect x={0} y={0} width={props.width} height={props.height} fill="white" />
-                  <g filter={a.featherPx > 0 ? `url(#${blurId})` : undefined}>
+                  <g filter={featherPx > 0 ? `url(#${blurId})` : undefined}>
                     {a.shape === "ellipse" ? (
                       <ellipse
-                        cx={a.rect.x + a.rect.w / 2}
-                        cy={a.rect.y + a.rect.h / 2}
-                        rx={a.rect.w / 2}
-                        ry={a.rect.h / 2}
+                        cx={rect.x + rect.w / 2}
+                        cy={rect.y + rect.h / 2}
+                        rx={rect.w / 2}
+                        ry={rect.h / 2}
                         fill="black"
                       />
                     ) : (
                       <rect
-                        x={a.rect.x} y={a.rect.y} width={a.rect.w} height={a.rect.h}
-                        rx={a.radiusPx} fill="black"
+                        x={rect.x} y={rect.y} width={rect.w} height={rect.h}
+                        rx={radiusPx} fill="black"
                       />
                     )}
                   </g>
@@ -545,7 +610,7 @@ export const Main = (props: RenderProps) => {
               </defs>
               <rect
                 x={0} y={0} width={props.width} height={props.height}
-                fill="black" fillOpacity={a.dim} mask={`url(#${maskId})`}
+                fill="black" fillOpacity={dim} mask={`url(#${maskId})`}
               />
             </svg>
           );
@@ -652,9 +717,21 @@ const OverlayLayer = ({
  * 透過)、無指定は従来どおり全画面+黒余白 */
 const OverlayItemView = ({ item: o, fps }: { item: OverlayItem; fps: number }) => {
   const frame = useCurrentFrame();
+  const { fps: configFps } = useVideoConfig();
   const durFrames = Math.max(1, Math.round((o.end - o.start) * fps));
   const fade = fadeFactor(frame, durFrames, fps, o.fadeInSec, o.fadeOutSec);
-  const opacity = (o.opacity ?? 1) * fade;
+  const t = o.start + frame / configFps;
+  const base = o.rect
+    ? {
+        x: o.rect.x,
+        y: o.rect.y,
+        w: o.rect.w,
+        h: o.rect.h,
+        opacity: o.opacity ?? 1,
+      }
+    : null;
+  const now = base && o.keyframes ? valuesAt(base, o.keyframes, t) : base;
+  const opacity = (now?.opacity ?? o.opacity ?? 1) * fade;
   const vol = o.volume ?? 0;
   const media = isImageFile(o.file) ? (
     <Img
@@ -672,14 +749,14 @@ const OverlayItemView = ({ item: o, fps }: { item: OverlayItem; fps: number }) =
       style={{ width: "100%", height: "100%", objectFit: o.fit }}
     />
   );
-  return o.rect ? (
+  return now ? (
     <div
       style={{
         position: "absolute",
-        left: o.rect.x,
-        top: o.rect.y,
-        width: o.rect.w,
-        height: o.rect.h,
+        left: now.x,
+        top: now.y,
+        width: now.w,
+        height: now.h,
         overflow: "hidden",
         opacity,
       }}
@@ -990,6 +1067,7 @@ const CroppedVideo = ({
   height,
   muted,
   startFromFrames = 0,
+  playbackRate,
   fit = "cover",
   filter,
   imageRendering,
@@ -1002,6 +1080,7 @@ const CroppedVideo = ({
   muted: boolean;
   /** 動画内の再生開始位置(フレーム)。挿入で分割されたベース区間用 */
   startFromFrames?: number;
+  playbackRate?: number;
   /** 箱(width x height)への region の収め方。省略時 "cover" */
   fit?: "contain" | "cover";
   /** 簡易カラー調整(colorFilter)の CSS filter 文字列。省略時は無補正 */
@@ -1041,6 +1120,7 @@ const CroppedVideo = ({
         src={src}
         muted={muted}
         startFrom={startFromFrames}
+        {...(playbackRate !== undefined ? { playbackRate, preservePitch: true } : {})}
         // エディタ(Player)では背景とワイプが別々の <video> になり、Player は
         // 自前の時計とのずれがこの値を超えると currentTime シークで補正する。
         // 小さすぎる(旧 0.1)と UI が一瞬詰まっただけで全 <video> が一斉に

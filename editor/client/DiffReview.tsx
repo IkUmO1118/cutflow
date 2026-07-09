@@ -159,16 +159,16 @@ export const DiffReview = ({
                     </div>
                   </section>
                 )}
-                {reviewBundle.vlm && (
+                {reviewBundle.secondaryObservation && (
                   <section className="reviewVlm">
                     <h4>AI画像観測（決定論的checkではありません）</h4>
                     <ul>
-                      {reviewBundle.vlm.summary.map((message, index) => (
+                      {reviewBundle.secondaryObservation.summary.map((message, index) => (
                         <li key={`summary:${index}`}>{message}</li>
                       ))}
-                      {reviewBundle.vlm.observations.map((item, index) => (
-                        <li key={`${item.frame}:${item.category}:${index}`}>
-                          [{item.severity}] frame {item.frame} / {item.category}: {item.message}
+                      {reviewBundle.secondaryObservation.items.map((item, index) => (
+                        <li key={`${item.frameId}:${item.category}:${index}`}>
+                          [{item.severity}] {item.side} {item.frameId} / {item.category}: {item.message}
                         </li>
                       ))}
                     </ul>

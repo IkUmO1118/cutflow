@@ -103,6 +103,103 @@ frames 確認` を 1 つの workflow として扱い、レビュー画面から
 `適用のみ` / `適用して保存` / `適用して確認` を選ぶ。`適用して確認` は
 隠れた保存ではなく、保存してから確認フレームを生成する明示的な経路。
 
+## AI provider 設定
+
+AI は未設定でも deterministic な CLI / editor / render は動く。AI を使うときは
+`config.yaml` の `ai:` で provider を設定する。旧形式の
+`ai.provider` / `ai.model` と `llm.backend` はそのまま動くが、**新規設定は
+profiles + routes を推奨**する。
+
+```yaml
+ai:
+  profiles:
+    local:
+      adapter: openai-compatible
+      protocol: chat-completions
+      baseUrl: http://127.0.0.1:11434/v1
+      model: qwen-local
+      auth: { type: none }
+      capabilities:
+        structuredOutput: json-object
+        imageInput: false
+
+    cloud-vision:
+      adapter: openai
+      model: gpt-5.4-mini
+
+  routes:
+    text: local
+    structured: local
+    vision: cloud-vision
+```
+
+- `text`: 自由文生成
+- `structured`: plan / remeta / plan-shorts / editor AI 提案の schema 付き出力
+- `vision`: still 比較の VLM review
+
+組み込み adapter:
+
+| adapter | text | structured | image | 備考 |
+|---|---|---|---|---|
+| `claude-code` | yes | native schema | no | `claude` CLI |
+| `codex` | yes | prompt | no | `codex exec` |
+| `openai` | yes | native schema | yes | `OPENAI_API_KEY` |
+| `anthropic` | yes | native schema(tool) | yes | `ANTHROPIC_API_KEY` |
+| `openai-compatible` | yes | explicit | explicit | local / self-hosted 用 |
+
+`openai-compatible` は capability を推測しない。`structuredOutput` と
+`imageInput` を明示する。
+
+### AI doctor
+
+接続確認は `ai doctor` で行う。収録フォルダは不要で、`config.yaml` だけを使う。
+
+```sh
+node src/cli.ts ai doctor
+node src/cli.ts ai doctor --profile local
+node src/cli.ts ai doctor --route vision
+node src/cli.ts ai doctor --json
+```
+
+検査内容:
+
+- config validation
+- credential の有無
+- text probe
+- structured probe
+- image probe
+
+`imageInput=false` や `structuredOutput=none` の profile は対応 check を `skip`
+する。`ai doctor` は recording JSON や artifact を書かない。
+
+### VLM review と送信先
+
+GUI の「画像もAIに確認させる」は既定 off。次の条件をすべて満たすときだけ使える。
+
+- `editor.aiReview.vlm=true`
+- `vision` route がある
+- その profile が `imageInput=true`
+- credential が揃っている
+
+送るのは **縮小 still のみ**。raw 動画、raw 音声、full-res still、recording path、
+`.env`、approval record は送らない。送信枚数は 2 または 4 枚に正規化される。
+before/after のペアは崩さない。
+
+### 失敗ポリシー
+
+- plan / remeta / plan-shorts / editor AI 提案: provider failure はその操作の error。
+  editable JSON は変えない。
+- VLM review: optional lane。失敗しても deterministic review bundle は成功させ、
+  warning として表示する。
+- provider 間の自動 fallback はしない。local failure で勝手に cloud へ送らない。
+
+### Privacy / secret
+
+- API key は `config.yaml` に書かず、環境変数名だけを使う
+- browser / log / artifact に key 値は出さない
+- custom endpoint は `https` または loopback `http` だけ許可
+- redirect は拒否し、response size は上限付きで読む
+
 id が付いた配列は要素/フィールド単位でレビューできる。id が無い配列は
 安全のため配列まるごと1 hunk として扱う。`approved` はレビュー対象外で、
 承認の実体は引き続き `approvals.json` と approve/unapprove 経路が担う。

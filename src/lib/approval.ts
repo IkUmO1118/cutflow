@@ -12,8 +12,15 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { mergeIntervals } from "./timeline.ts";
-import type { Approvals, ApprovalRecord, CutPlan, Interval, Short } from "../types.ts";
+import { playbackSegmentsOf } from "./timeline.ts";
+import {
+  DEFAULT_PLAYBACK_SPEED,
+  type Approvals,
+  type ApprovalRecord,
+  type CutPlan,
+  type Interval,
+  type Short,
+} from "../types.ts";
 
 /** 収録フォルダ直下の承認レコードファイル名。編集ワークフロー
  * (EDITABLE_FILES)にも中間生成物(GENERATED_FILES)にも属さない第3カテゴリ。
@@ -24,7 +31,15 @@ export const APPROVALS_FILE = "approvals.json";
 /** keep 区間を承認ハッシュ用に正規化する: mergeIntervals 後に [start, end] の
  * タプル配列にし、各値を ms 丸め(浮動小数のジッタを吸収)する */
 function normalizeKeeps(keeps: Interval[]): [number, number][] {
-  return mergeIntervals(keeps).map((k) => [round3(k.start), round3(k.end)]);
+  return keeps.map((k) => [round3(k.start), round3(k.end)]);
+}
+
+function normalizePlaybackSegments(cutplan: CutPlan): [number, number, number][] {
+  return playbackSegmentsOf(cutplan).map((k) => [
+    round3(k.start),
+    round3(k.end),
+    round3(k.speed),
+  ]);
 }
 
 function round3(x: number): number {
@@ -42,8 +57,13 @@ function sha256Of(payload: unknown): string {
  * 含めない(出力に影響しない注釈のため、reason だけの編集で承認は失効しない)。
  */
 export function cutplanApprovalHash(cutplan: CutPlan): string {
-  const keeps = cutplan.segments.filter((s) => s.action === "keep");
-  return sha256Of(normalizeKeeps(keeps));
+  const playback = normalizePlaybackSegments(cutplan);
+  const hasNonDefaultSpeed = playback.some(([, , speed]) => speed !== DEFAULT_PLAYBACK_SPEED);
+  return sha256Of(
+    hasNonDefaultSpeed
+      ? { version: 2, playback }
+      : normalizeKeeps(playback.map(([start, end]) => ({ start, end }))),
+  );
 }
 
 /**

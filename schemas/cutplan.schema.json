@@ -16,7 +16,8 @@
           "start": { "type": "number" },
           "end": { "type": "number" },
           "action": { "enum": ["keep", "cut"] },
-          "reason": { "type": "string" }
+          "reason": { "type": "string" },
+          "speed": { "type": "number", "minimum": 0.25, "maximum": 4 }
         }
       }
     }
