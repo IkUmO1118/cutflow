@@ -228,7 +228,12 @@ export type RenderProps = {
   /** ベース映像(videoFile)の再生区間。挿入(inserts)があると分割される。
    * start はカット後の秒、videoStart は videoFile 内の秒。
    * 省略時は全編連続再生(挿入なし) */
-  baseSegments?: { start: number; videoStart: number; durationSec: number }[];
+  baseSegments?: {
+    start: number;
+    videoStart: number;
+    durationSec: number;
+    playbackRate?: number;
+  }[];
   /** ベース映像トラックへの挿入クリップ(カット後の秒)。
    * 表示中はベース映像・ワイプが止まり、挿入素材(音声込み)が全面に出る。
    * startFrom は頭出し(素材内の再生開始秒。省略時 0・動画のみ有効)。

@@ -264,7 +264,13 @@ export interface PlanSegment {
   /** keep: 残す / cut: 切る(確認用に候補も残しておく) */
   action: "keep" | "cut";
   reason: string;
+  /** keep 区間の再生倍率。省略時1。cut segment には指定不可 */
+  speed?: number;
 }
+
+export const MIN_PLAYBACK_SPEED = 0.25;
+export const MAX_PLAYBACK_SPEED = 4;
+export const DEFAULT_PLAYBACK_SPEED = 1;
 
 /** 承認レコード(approvals.json)。承認は cutplan/short の keep 集合の
  * ハッシュに束縛され、内容が変われば hash 不一致で自動失効する。

@@ -156,7 +156,10 @@ export const Main = (props: RenderProps) => {
     [baseSegs, props.inserts, fps, durationInFrames],
   );
   const continuous =
-    baseSegs.length === 1 && baseSegs[0].start === 0 && baseSegs[0].videoStart === 0;
+    baseSegs.length === 1 &&
+    baseSegs[0].start === 0 &&
+    baseSegs[0].videoStart === 0 &&
+    baseSegs[0].playbackRate === undefined;
   const renderBase = (
     region: Region,
     width: number,
@@ -191,6 +194,7 @@ export const Main = (props: RenderProps) => {
           <CroppedVideo
             src={src}
             startFromFrames={Math.round(seg.videoStart * fps)}
+            {...(seg.playbackRate !== undefined ? { playbackRate: seg.playbackRate } : {})}
             canvas={props.canvas}
             region={region}
             width={width}
@@ -1063,6 +1067,7 @@ const CroppedVideo = ({
   height,
   muted,
   startFromFrames = 0,
+  playbackRate,
   fit = "cover",
   filter,
   imageRendering,
@@ -1075,6 +1080,7 @@ const CroppedVideo = ({
   muted: boolean;
   /** 動画内の再生開始位置(フレーム)。挿入で分割されたベース区間用 */
   startFromFrames?: number;
+  playbackRate?: number;
   /** 箱(width x height)への region の収め方。省略時 "cover" */
   fit?: "contain" | "cover";
   /** 簡易カラー調整(colorFilter)の CSS filter 文字列。省略時は無補正 */
@@ -1114,6 +1120,7 @@ const CroppedVideo = ({
         src={src}
         muted={muted}
         startFrom={startFromFrames}
+        {...(playbackRate !== undefined ? { playbackRate, preservePitch: true } : {})}
         // エディタ(Player)では背景とワイプが別々の <video> になり、Player は
         // 自前の時計とのずれがこの値を超えると currentTime シークで補正する。
         // 小さすぎる(旧 0.1)と UI が一瞬詰まっただけで全 <video> が一斉に

@@ -6,7 +6,7 @@ import {
   keepAudioParts,
   measuredLoudnormFilter,
 } from "../lib/loudness.ts";
-import { mergeIntervals } from "../lib/timeline.ts";
+import { playbackSegmentsOf } from "../lib/timeline.ts";
 import { videoEncodeArgs } from "../lib/videoEncode.ts";
 import type { Config } from "../lib/config.ts";
 import type { CutPlan, Manifest } from "../types.ts";
@@ -30,9 +30,7 @@ export async function preview(dir: string, cfg: Config): Promise<string> {
   }
   const cutplan = JSON.parse(readFileSync(planPath, "utf8")) as CutPlan;
 
-  // エディタの分割編集で同じ境界のまま割れている keep は1つに繋いで扱う
-  // (映像は同一なので、ffmpeg の継ぎ目と stale 判定のぶれを作らない)
-  const keeps = mergeIntervals(cutplan.segments.filter((s) => s.action === "keep"));
+  const keeps = playbackSegmentsOf(cutplan);
   if (keeps.length === 0) {
     throw new Error("keep 区間が0件です(cutplan.json を確認してください)");
   }
@@ -44,7 +42,9 @@ export async function preview(dir: string, cfg: Config): Promise<string> {
   const labels: string[] = [];
   keeps.forEach((k, i) => {
     parts.push(
-      `[0:v]trim=start=${k.start}:end=${k.end},setpts=PTS-STARTPTS[v${i}]`,
+      `[0:v]trim=start=${k.start}:end=${k.end},setpts=${
+        k.speed === 1 ? "PTS-STARTPTS" : `(PTS-STARTPTS)/${k.speed}`
+      }[v${i}]`,
     );
     labels.push(`[v${i}][a${i}]`);
   });
@@ -81,7 +81,15 @@ export async function preview(dir: string, cfg: Config): Promise<string> {
   // いまの cutplan と合っているか」を、保存→リロード後でも判定できるように
   writeFileSync(
     join(dir, "preview.keeps.json"),
-    JSON.stringify(keeps.map((k) => ({ start: k.start, end: k.end })), null, 2),
+    JSON.stringify(
+      keeps.map((k) => ({
+        start: k.start,
+        end: k.end,
+        ...(k.speed !== 1 ? { speed: k.speed } : {}),
+      })),
+      null,
+      2,
+    ),
   );
   return output;
 }

@@ -1,9 +1,17 @@
-import { keepAudioParts, type AudioSource } from "./loudness.ts";
+import { atempoFilters, keepAudioParts, type AudioSource } from "./loudness.ts";
 import type { Interval } from "../types.ts";
+import type { PlaybackSegment } from "./timeline.ts";
 
-export function buildConcatVideoFilter(segments: Interval[]): { filter: string; outLabel: string } {
+export function buildConcatVideoFilter(
+  segments: PlaybackSegment[] | Interval[],
+): { filter: string; outLabel: string } {
   const trims = segments.map(
-    (seg, i) => `[0:v:0]trim=start=${seg.start}:end=${seg.end},setpts=PTS-STARTPTS[v${i}]`,
+    (seg, i) =>
+      `[0:v:0]trim=start=${seg.start}:end=${seg.end},setpts=${
+        "speed" in seg && typeof seg.speed === "number" && seg.speed !== 1
+          ? `(PTS-STARTPTS)/${seg.speed}`
+          : "PTS-STARTPTS"
+      }[v${i}]`,
   );
   const labels = segments.map((_, i) => `[v${i}]`).join("");
   return {
@@ -41,22 +49,35 @@ export function buildMotionMetricFilter(args: {
 
 export function buildConcatAudioFilter(
   source: AudioSource,
-  keeps: Interval[],
+  keeps: PlaybackSegment[] | Interval[],
   inputLabel = "mix",
 ): string {
-  const parts = keepAudioParts(source, keeps);
+  const parts = keepAudioParts(
+    source,
+    keeps.map((k) => ({
+      start: k.start,
+      end: k.end,
+      speed: "speed" in k && typeof k.speed === "number" ? k.speed : 1,
+    })),
+  );
   const labels = keeps.map((_, i) => `[a${i}]`).join("");
   return [...parts, `${labels}concat=n=${keeps.length}:v=0:a=1[${inputLabel}]`].join(";");
 }
 
 export function buildSingleTrackConcatFilter(
   streamIndex: number,
-  keeps: Interval[],
+  keeps: PlaybackSegment[] | Interval[],
   postChain: string,
   label = "aout",
 ): string {
   const trims = keeps.map(
-    (seg, i) => `[0:a:${streamIndex}]atrim=start=${seg.start}:end=${seg.end},asetpts=PTS-STARTPTS[a${i}]`,
+    (seg, i) => {
+      const speed = "speed" in seg && typeof seg.speed === "number" ? seg.speed : 1;
+      const tempo = atempoFilters(speed).map((rate) => `atempo=${rate}`).join(",");
+      return `[0:a:${streamIndex}]atrim=start=${seg.start}:end=${seg.end},asetpts=PTS-STARTPTS${
+        tempo ? `,${tempo}` : ""
+      }[a${i}]`;
+    },
   );
   const labels = keeps.map((_, i) => `[a${i}]`).join("");
   return [...trims, `${labels}concat=n=${keeps.length}:v=0:a=1[ac]`, `[ac]${postChain}[${label}]`].join(";");

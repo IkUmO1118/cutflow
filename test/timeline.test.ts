@@ -6,6 +6,7 @@ import {
   buildTimeline,
   insertSpans,
   mergeIntervals,
+  playbackSegmentsOf,
   remapInterval,
   remapIntervalPieces,
   snapToOutput,
@@ -19,10 +20,10 @@ const keeps = [
   { start: 20, end: 30 },
 ];
 
-test("buildTimeline: keep ごとに offset を持つエントリ", () => {
+test("buildTimeline: keep ごとに source/output 範囲を持つエントリ", () => {
   assert.deepEqual(buildTimeline(keeps), [
-    { start: 0, end: 10, offset: 0 },
-    { start: 20, end: 30, offset: -10 },
+    { sourceStart: 0, sourceEnd: 10, outputStart: 0, outputEnd: 10, speed: 1 },
+    { sourceStart: 20, sourceEnd: 30, outputStart: 10, outputEnd: 20, speed: 1 },
   ]);
 });
 
@@ -72,13 +73,10 @@ test("mergeIntervals: 隣接・重複はまとめ、離れていれば分ける"
 test("挿入は keep を割り、アンカー以降を後ろへずらす", () => {
   const single = [{ start: 0, end: 10 }];
   const inserts = [{ at: 5, durationSec: 2 }];
-  // アンカー 5 の手前に 2 秒差し込む → keep は 0–5 と 5–10 に割れ、後半の
-  // offset が挿入尺ぶん増える
   assert.deepEqual(buildTimeline(single, inserts), [
-    { start: 0, end: 5, offset: 0 },
-    { start: 5, end: 10, offset: 2 },
+    { sourceStart: 0, sourceEnd: 5, outputStart: 0, outputEnd: 5, speed: 1 },
+    { sourceStart: 5, sourceEnd: 10, outputStart: 7, outputEnd: 12, speed: 1 },
   ]);
-  // 挿入クリップ自体のカット後区間(出力 5–7)
   assert.deepEqual(insertSpans(single, inserts), [{ start: 5, end: 7, index: 0 }]);
 });
 
@@ -88,8 +86,33 @@ test("remapIntervalPieces: keep/cut/insert をまたいでも piece を結合し
     [{ at: 12, durationSec: 2 }],
   );
   assert.deepEqual(remapIntervalPieces(4, 14, tl), [
-    { sourceStart: 4, sourceEnd: 5, outputStart: 4, outputEnd: 5 },
-    { sourceStart: 10, sourceEnd: 12, outputStart: 5, outputEnd: 7 },
-    { sourceStart: 12, sourceEnd: 14, outputStart: 9, outputEnd: 11 },
+    { sourceStart: 4, sourceEnd: 5, outputStart: 4, outputEnd: 5, speed: 1 },
+    { sourceStart: 10, sourceEnd: 12, outputStart: 5, outputEnd: 7, speed: 1 },
+    { sourceStart: 12, sourceEnd: 14, outputStart: 9, outputEnd: 11, speed: 1 },
+  ]);
+});
+
+test("speed 2 の keep は出力尺が半分になる", () => {
+  const tl = buildTimeline([{ start: 10, end: 20, speed: 2 }]);
+  assert.deepEqual(tl, [
+    { sourceStart: 10, sourceEnd: 20, outputStart: 0, outputEnd: 5, speed: 2 },
+  ]);
+  assert.equal(toOutputTime(14, tl), 2);
+  assert.equal(toSourceTime(2, tl), 14);
+});
+
+test("playbackSegmentsOf: 隣接 keep は同 speed のときだけ結合する", () => {
+  const out = playbackSegmentsOf({
+    approved: false,
+    segments: [
+      { start: 0, end: 5, action: "keep", reason: "a" },
+      { start: 5, end: 10, action: "keep", reason: "b" },
+      { start: 10, end: 15, action: "keep", reason: "c", speed: 2 },
+      { start: 15, end: 20, action: "keep", reason: "d", speed: 2 },
+    ],
+  });
+  assert.deepEqual(out, [
+    { start: 0, end: 10, speed: 1 },
+    { start: 10, end: 20, speed: 2 },
   ]);
 });
