@@ -103,6 +103,19 @@ export interface AiProfileStatus {
   capabilities: AiCapabilities;
 }
 
+let repoEnvLoadedForStatus = false;
+
+function loadRepoEnvForStatus(): void {
+  if (repoEnvLoadedForStatus) return;
+  repoEnvLoadedForStatus = true;
+  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+  try {
+    process.loadEnvFile?.(join(repoRoot, ".env"));
+  } catch {
+    // .env is optional. Status falls back to inherited process env.
+  }
+}
+
 export interface Config {
   recordingsDir: string;
   ingest: {
@@ -183,6 +196,11 @@ export interface Config {
       targetOutDurationSec?: number | null;
       /** assertions.json + 目標尺が fail/error なしになったら停止する */
       stopWhenAssertionsPass?: boolean;
+      secondaryObservation?: {
+        enabled?: boolean;
+        maxCalls?: number;
+        maxImages?: number;
+      };
     };
   };
   /** describe(操作エージェント向け)の任意露出。省略可・全オフが既定。
@@ -220,6 +238,8 @@ export interface Config {
       vlm?: boolean;
       /** APIへ送る画像枚数。1-4、既定4 */
       maxImages?: number;
+      /** GUI refine の上限。既定2、最大3 */
+      maxRefinements?: number;
     };
   };
   render: {
@@ -330,7 +350,7 @@ export function resolveAiReviewCfg(cfg: Config): { vlm: boolean; maxImages: numb
   const requested = cfg.editor?.aiReview?.maxImages ?? 4;
   return {
     vlm: cfg.editor?.aiReview?.vlm ?? false,
-    maxImages: requested <= 2 ? 2 : 4,
+    maxImages: Math.max(1, Math.min(MAX_AI_IMAGES, Math.trunc(requested))),
   };
 }
 
@@ -350,6 +370,8 @@ export const DEFAULT_PERCEPTION_OCR_MAX_LINES = 6;
 
 /** plan.loop.maxIterations 未指定時の既定。0 は従来1ショットと同義 */
 export const DEFAULT_PLAN_LOOP_MAX_ITERATIONS = 0;
+export const DEFAULT_PLAN_LOOP_SECONDARY_MAX_CALLS = 1;
+export const DEFAULT_PLAN_LOOP_SECONDARY_MAX_IMAGES = 2;
 
 /** plan.perception を既定値で解決する純関数(省略時は全オフ)。
  *  loadConfig は cfg.plan を書き換えない(省略=オフ=バイト等価を守る) */
@@ -420,8 +442,68 @@ export function resolvePlanLoopCfg(cfg: Config): {
   };
 }
 
+export function resolvePlanLoopSecondaryObservationCfg(cfg: Config): {
+  enabled: boolean;
+  maxCalls: number;
+  maxImages: number;
+} {
+  const s = cfg.plan?.loop?.secondaryObservation ?? {};
+  return {
+    enabled: s.enabled ?? false,
+    maxCalls: s.maxCalls ?? DEFAULT_PLAN_LOOP_SECONDARY_MAX_CALLS,
+    maxImages: s.maxImages ?? DEFAULT_PLAN_LOOP_SECONDARY_MAX_IMAGES,
+  };
+}
+
 export function planLoopEnabled(cfg: Config): boolean {
   return resolvePlanLoopCfg(cfg).maxIterations >= 2;
+}
+
+function validateWorkflowConfig(cfg: Config): string[] {
+  const errors: string[] = [];
+  const editorAiReview = cfg.editor?.aiReview as Record<string, unknown> | undefined;
+  if (editorAiReview) {
+    errors.push(...unknownKeys(editorAiReview, ["vlm", "maxImages", "maxRefinements"]).map((key) => `editor.aiReview.${key} は未対応です`));
+    if ("vlm" in editorAiReview && typeof editorAiReview.vlm !== "boolean") {
+      errors.push("editor.aiReview.vlm は boolean で指定してください");
+    }
+    if ("maxImages" in editorAiReview) {
+      const value = editorAiReview.maxImages;
+      if (!Number.isInteger(value) || Number(value) < 1 || Number(value) > 4) {
+        errors.push("editor.aiReview.maxImages は 1..4 の整数で指定してください");
+      }
+    }
+    if ("maxRefinements" in editorAiReview) {
+      const value = editorAiReview.maxRefinements;
+      if (!Number.isInteger(value) || Number(value) < 1 || Number(value) > 3) {
+        errors.push("editor.aiReview.maxRefinements は 1..3 の整数で指定してください");
+      }
+    }
+  }
+  const planLoop = cfg.plan?.loop as Record<string, unknown> | undefined;
+  if (planLoop) {
+    errors.push(...unknownKeys(planLoop, ["maxIterations", "targetOutDurationSec", "stopWhenAssertionsPass", "secondaryObservation"]).map((key) => `plan.loop.${key} は未対応です`));
+    const secondary = planLoop.secondaryObservation as Record<string, unknown> | undefined;
+    if (secondary) {
+      errors.push(...unknownKeys(secondary, ["enabled", "maxCalls", "maxImages"]).map((key) => `plan.loop.secondaryObservation.${key} は未対応です`));
+      if ("enabled" in secondary && typeof secondary.enabled !== "boolean") {
+        errors.push("plan.loop.secondaryObservation.enabled は boolean で指定してください");
+      }
+      if ("maxCalls" in secondary) {
+        const value = secondary.maxCalls;
+        if (!Number.isInteger(value) || Number(value) < 0 || Number(value) > 2) {
+          errors.push("plan.loop.secondaryObservation.maxCalls は 0..2 の整数で指定してください");
+        }
+      }
+      if ("maxImages" in secondary) {
+        const value = secondary.maxImages;
+        if (!Number.isInteger(value) || Number(value) < 1 || Number(value) > 2) {
+          errors.push("plan.loop.secondaryObservation.maxImages は 1..2 の整数で指定してください");
+        }
+      }
+    }
+  }
+  return errors;
 }
 
 /** describe.pauseMax 未指定時の既定(1keepあたりの件数) */
@@ -726,6 +808,7 @@ export function validateAiConfig(value: unknown): string[] {
 }
 
 export function aiProfileStatuses(cfg: Config): AiProfileStatus[] {
+  loadRepoEnvForStatus();
   const runtime = resolveAiRuntimeConfig(cfg);
   return [...runtime.profiles.values()].map((profile) => ({
     name: profile.name,
@@ -831,6 +914,10 @@ export function loadConfig(explicitPath?: string): Config {
   const aiErrors = validateAiConfig(cfg.ai);
   if (aiErrors.length > 0) {
     throw new Error(`AI config error:\n- ${aiErrors.join("\n- ")}`);
+  }
+  const workflowErrors = validateWorkflowConfig(cfg);
+  if (workflowErrors.length > 0) {
+    throw new Error(`Workflow config error:\n- ${workflowErrors.join("\n- ")}`);
   }
   cfg.recordingsDir = expandHome(cfg.recordingsDir);
   cfg.whisper.model = expandHome(cfg.whisper.model);
