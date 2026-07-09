@@ -1,0 +1,38 @@
+{
+  "range": {
+    "axis": "source",
+    "startSec": 0,
+    "endSec": 12
+  },
+  "frames": [
+    {
+      "axis": "source",
+      "atSec": 2,
+      "reason": "冒頭の表示確認",
+      "ocr": false,
+      "fullRes": false
+    },
+    {
+      "axis": "source",
+      "atSec": 8,
+      "reason": "中盤の表示確認",
+      "ocr": false,
+      "fullRes": false
+    }
+  ],
+  "clip": {
+    "range": {
+      "axis": "source",
+      "startSec": 0,
+      "endSec": 12
+    },
+    "includeBefore": true,
+    "includeAfter": true
+  },
+  "observations": {
+    "structure": true,
+    "motion": false,
+    "sound": false,
+    "ocr": false
+  }
+}
