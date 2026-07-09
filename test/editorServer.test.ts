@@ -7,10 +7,10 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadProject, stampSaveBody } from "../editor/server.ts";
+import { buildAiReviewCandidate, loadProject, stampSaveBody } from "../editor/server.ts";
 import { ID_RE } from "../src/lib/ids.ts";
 import type { Config } from "../src/lib/config.ts";
-import type { SaveRequest } from "../editor/client/apiTypes.ts";
+import type { AiReviewRequest, SaveRequest } from "../editor/client/apiTypes.ts";
 
 test("stampSaveBody: idEnabled=false は body をそのまま返す(参照も同一・バイト等価)", () => {
   const body: SaveRequest = {
@@ -148,6 +148,129 @@ test("loadProject: /api/project 相当の payload に planPerception を含む",
       systemSpeech: false,
       warnings: [],
     });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("buildAiReviewCandidate: acceptedHunkLabels から candidate を再構築し approved は base を保つ", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-editor-review-"));
+  const write = (file: string, data: unknown) =>
+    writeFileSync(join(dir, file), JSON.stringify(data, null, 2));
+  try {
+    write("manifest.json", {
+      dir,
+      source: "raw.mp4",
+      durationSec: 12,
+      layout: "plain",
+      video: {
+        width: 1280,
+        height: 720,
+        fps: 30,
+        screenRegion: { x: 0, y: 0, w: 1280, h: 720 },
+      },
+      audio: { micStream: 0, systemStream: null, micWav: "mic.wav" },
+      createdAt: "2026-07-09T00:00:00Z",
+    });
+    write("cutplan.json", {
+      approved: false,
+      segments: [{ id: "seg_aaaaaa", start: 0, end: 12, action: "keep", reason: "base" }],
+    });
+    write("transcript.json", {
+      language: "ja",
+      model: "test",
+      segments: [{ id: "cap_aaaaaa", start: 1, end: 3, text: "hello" }],
+    });
+    write("overlays.json", {});
+    const body: AiReviewRequest = {
+      proposedDocs: {
+        cutplan: {
+          approved: true,
+          segments: [{ id: "seg_aaaaaa", start: 0, end: 12, action: "keep", reason: "proposal" }],
+        },
+        overlays: {},
+        transcript: {
+          language: "ja",
+          model: "test",
+          segments: [{ id: "cap_aaaaaa", start: 1, end: 3, text: "hello" }],
+        },
+        bgm: null,
+        shorts: null,
+      },
+      acceptedHunkLabels: ["cutplan segments seg_aaaaaa .reason"],
+      spec: { frames: [{ axis: "source", atSec: 1, reason: "caption" }] },
+    };
+    const candidate = buildAiReviewCandidate(dir, body);
+    assert.equal(candidate.cutplan.approved, false);
+    assert.equal(candidate.cutplan.segments[0].reason, "proposal");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("buildAiReviewCandidate: 上限超過と unknown hunk は 400", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-editor-review-"));
+  const write = (file: string, data: unknown) =>
+    writeFileSync(join(dir, file), JSON.stringify(data, null, 2));
+  try {
+    write("manifest.json", {
+      dir,
+      source: "raw.mp4",
+      durationSec: 12,
+      layout: "plain",
+      video: {
+        width: 1280,
+        height: 720,
+        fps: 30,
+        screenRegion: { x: 0, y: 0, w: 1280, h: 720 },
+      },
+      audio: { micStream: 0, systemStream: null, micWav: "mic.wav" },
+      createdAt: "2026-07-09T00:00:00Z",
+    });
+    write("cutplan.json", {
+      approved: false,
+      segments: [{ id: "seg_aaaaaa", start: 0, end: 12, action: "keep", reason: "base" }],
+    });
+    write("transcript.json", {
+      language: "ja",
+      model: "test",
+      segments: [{ id: "cap_aaaaaa", start: 1, end: 3, text: "hello" }],
+    });
+    write("overlays.json", {});
+    const proposedDocs = {
+      cutplan: {
+        approved: false,
+        segments: [{ id: "seg_aaaaaa", start: 0, end: 12, action: "keep", reason: "proposal" }],
+      },
+      overlays: {},
+      transcript: {
+        language: "ja",
+        model: "test",
+        segments: [{ id: "cap_aaaaaa", start: 1, end: 3, text: "hello" }],
+      },
+      bgm: null,
+      shorts: null,
+    };
+    assert.throws(
+      () =>
+        buildAiReviewCandidate(dir, {
+          proposedDocs,
+          acceptedHunkLabels: ["missing-label"],
+          spec: { frames: [{ axis: "source", atSec: 1, reason: "a" }] },
+        }),
+      /unknown hunk labels/,
+    );
+    assert.throws(
+      () =>
+        buildAiReviewCandidate(dir, {
+          proposedDocs,
+          acceptedHunkLabels: [],
+          spec: {
+            frames: Array.from({ length: 9 }, (_, i) => ({ axis: "source" as const, atSec: i, reason: String(i) })),
+          },
+        }),
+      /frames は最大8件です/,
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
