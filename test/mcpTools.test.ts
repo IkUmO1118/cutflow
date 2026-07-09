@@ -85,7 +85,7 @@ function jsonOf(result: ToolResult): unknown {
 
 /* ---------------- レジストリの一覧・承認境界の凍結 ---------------- */
 
-test("makeTools: 露出する tool は describe/validate/frames/apply/id-stamp/materials/av/assert の8件だけ", () => {
+test("makeTools: 安全なread/review/edit/search toolだけを露出する", () => {
   const dir = makeGoodProject();
   try {
     const tools = makeTools(dir, cfg);
@@ -95,9 +95,12 @@ test("makeTools: 露出する tool は describe/validate/frames/apply/id-stamp/m
       "cutflow_assert",
       "cutflow_av",
       "cutflow_describe",
+      "cutflow_edit",
       "cutflow_frames",
       "cutflow_id_stamp",
       "cutflow_materials",
+      "cutflow_review",
+      "cutflow_search",
       "cutflow_validate",
     ]);
   } finally {

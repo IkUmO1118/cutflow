@@ -42,7 +42,7 @@ test("AGENTS_CONTRACT.md: コマンド表がCLI登録の全コマンド名を過
   const names = extractCliCommandNames(CLI_TS);
   assert.ok(names.length > 0);
   for (const name of names) {
-    assert.ok(AGENTS_MD.includes(`\`${name} <dir>\``), `${name} が AGENTS_CONTRACT.md のコマンド表に見つかりません`);
+    assert.ok(AGENTS_MD.includes(`| \`${name}`), `${name} が AGENTS_CONTRACT.md のコマンド表に見つかりません`);
   }
 });
 

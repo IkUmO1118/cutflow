@@ -41,8 +41,13 @@ import type { OcrResult } from "./lib/ocr.ts";
 import { thumbnail } from "./stages/thumbnail.ts";
 import { formatMaterialsSummary, materials } from "./stages/materials.ts";
 import { av, formatAvSummary } from "./stages/av.ts";
+import { reviewEdit } from "./stages/review.ts";
+import { readEditSnapshot } from "./lib/renderSnapshot.ts";
 import { fmtT, parseT } from "./lib/fmt.ts";
 import type { ApplyPatch, CutPlan } from "./types.ts";
+import type { EditSnapshot, ReviewSpec } from "./lib/review.ts";
+import { buildRetrievalIndex } from "./stages/retrievalIndex.ts";
+import { retrievalSearch } from "./stages/retrievalSearch.ts";
 
 const program = new Command();
 program
@@ -79,6 +84,21 @@ function resolveDir(dir: string): string {
   const abs = resolve(dir);
   if (!existsSync(abs)) throw new Error(`フォルダがありません: ${abs}`);
   return abs;
+}
+
+function readJsonFile<T>(file: string): T {
+  const abs = resolve(file);
+  if (!existsSync(abs)) {
+    throw new Error(
+      `JSONファイルが見つかりません: ${abs}\n` +
+      "review specの例: docs/examples/review-spec.json",
+    );
+  }
+  try {
+    return JSON.parse(readFileSync(abs, "utf8")) as T;
+  } catch (error) {
+    throw new Error(`JSONファイルを読めません: ${abs}: ${(error as Error).message}`);
+  }
 }
 
 /** --layout フラグの値を検査する。未指定は undefined(config 既定へ委ねる) */
@@ -655,6 +675,74 @@ program
       soundOnly: opts.soundOnly === true,
     }, cfg);
     for (const line of formatAvSummary(result)) console.log(line);
+  });
+
+program
+  .command("review <dir>")
+  .description(
+    "before/after の deterministic review bundle を生成し review.probe/index.json に書く",
+  )
+  .requiredOption("--spec <file>", "ReviewSpec JSON")
+  .option("--candidate <file>", "candidate EditSnapshot JSON。省略時は現在の編集状態を使う")
+  .option("--short <name>", "本編ではなく指定ショートを対象にする")
+  .option("--json", "bundle JSON を stdout に出す")
+  .action(async (
+    dir: string,
+    opts: { spec: string; candidate?: string; short?: string; json?: boolean },
+  ) => {
+    const cfg = loadConfig(program.opts().config);
+    const abs = resolveDir(dir);
+    const base = readEditSnapshot(abs);
+    const candidate = opts.candidate ? readJsonFile<EditSnapshot>(opts.candidate) : base;
+    const spec = readJsonFile<ReviewSpec>(opts.spec);
+    const bundle = await reviewEdit(abs, cfg, base, candidate, spec, { shortName: opts.short });
+    if (opts.json === true) {
+      console.log(JSON.stringify(bundle, null, 2));
+      return;
+    }
+    console.log(`review 完了: ${join(abs, "review.probe", "index.json")}`);
+    console.log(`stills: ${bundle.stills.length}件 / warnings: ${bundle.warnings.length}件`);
+    for (const check of bundle.observation.checks) {
+      console.log(`[${check.status}] ${check.source} ${check.message}`);
+    }
+  });
+
+program
+  .command("index")
+  .description("recordingsDir のローカル検索indexを更新する")
+  .option("--json", "index JSONをstdoutへ出す")
+  .action((opts: { json?: boolean }) => {
+    const cfg = loadConfig(program.opts().config);
+    const index = buildRetrievalIndex(cfg.recordingsDir);
+    if (opts.json) console.log(JSON.stringify(index, null, 2));
+    else console.log(`index完了: ${index.recordings.length} recordings / ${index.documents.length} documents`);
+  });
+
+program
+  .command("search <query>")
+  .description("recording/material metadata、OCR、transcriptをローカル検索する")
+  .option("--kind <kind>", "recording | material | caption")
+  .option("--scope <scope>", "current | other | all", "all")
+  .option("--limit <n>", "最大件数", "10")
+  .option("--json", "JSONをstdoutへ出す")
+  .action((query: string, opts: { kind?: string; scope?: string; limit?: string; json?: boolean }) => {
+    const cfg = loadConfig(program.opts().config);
+    if (opts.kind && !["recording", "material", "caption"].includes(opts.kind)) {
+      throw new Error("--kind は recording | material | caption です");
+    }
+    if (opts.scope && !["current", "other", "all"].includes(opts.scope)) {
+      throw new Error("--scope は current | other | all です");
+    }
+    const results = retrievalSearch(cfg.recordingsDir, {
+      query,
+      kind: opts.kind as "recording" | "material" | "caption" | undefined,
+      scope: opts.scope as "current" | "other" | "all" | undefined,
+      limit: Number(opts.limit),
+    });
+    if (opts.json) console.log(JSON.stringify(results, null, 2));
+    else for (const result of results) {
+      console.log(`${result.score}\t${result.recording}\t${result.kind}\t${result.relativePath ?? "-"}\t${result.snippet}`);
+    }
   });
 
 program

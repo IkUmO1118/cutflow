@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { run } from "./exec.ts";
@@ -9,6 +9,77 @@ export interface JsonSchemaTextFormat {
   name: string;
   schema: Record<string, unknown>;
   strict?: boolean;
+}
+
+export function supportsImageReview(cfg: Config): boolean {
+  const provider = resolveAiCfg(cfg).provider;
+  return provider === "openai" || provider === "anthropic";
+}
+
+export async function completeImageReview(
+  prompt: string,
+  imageFiles: string[],
+  cfg: Config,
+  format: JsonSchemaTextFormat,
+): Promise<string> {
+  const ai = resolveAiCfg(cfg);
+  if (ai.provider !== "openai" && ai.provider !== "anthropic") {
+    throw new Error(`ai.provider=${ai.provider} は画像review非対応です`);
+  }
+  const images = imageFiles.map((file) => ({
+    mime: file.toLowerCase().endsWith(".jpg") || file.toLowerCase().endsWith(".jpeg") ? "image/jpeg" : "image/png",
+    data: readFileSync(file).toString("base64"),
+  }));
+  if (ai.provider === "openai") {
+    if (!process.env.OPENAI_API_KEY) loadRepoEnv();
+    const key = process.env.OPENAI_API_KEY;
+    if (!key) throw new Error("OPENAI_API_KEY が必要です");
+    const res = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        model: requireExplicitModel("openai", ai.model),
+        input: [{
+          role: "user",
+          content: [
+            { type: "input_text", text: prompt },
+            ...images.map((image) => ({ type: "input_image", image_url: `data:${image.mime};base64,${image.data}` })),
+          ],
+        }],
+        max_output_tokens: 2048,
+        text: { format: { type: "json_schema", name: format.name, strict: true, schema: format.schema } },
+      }),
+    });
+    if (!res.ok) throw new Error(`OpenAI API エラー: ${res.status} ${await res.text()}`);
+    const data = await res.json() as { output_text?: string; output?: { content?: { type?: string; text?: string }[] }[] };
+    return data.output_text ?? (data.output ?? []).flatMap((item) => item.content ?? [])
+      .filter((item) => item.type === "output_text").map((item) => item.text ?? "").join("");
+  }
+  if (!process.env.ANTHROPIC_API_KEY) loadRepoEnv();
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) throw new Error("ANTHROPIC_API_KEY が必要です");
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    body: JSON.stringify({
+      model: requireExplicitModel("anthropic", ai.model),
+      max_tokens: 2048,
+      messages: [{
+        role: "user",
+        content: [
+          { type: "text", text: prompt },
+          ...images.map((image) => ({ type: "image", source: { type: "base64", media_type: image.mime, data: image.data } })),
+        ],
+      }],
+      tools: [{ name: "structured_output", description: "Return observations only.", input_schema: format.schema }],
+      tool_choice: { type: "tool", name: "structured_output" },
+    }),
+  });
+  if (!res.ok) throw new Error(`Anthropic API エラー: ${res.status} ${await res.text()}`);
+  const data = await res.json() as { content?: { type?: string; input?: unknown }[] };
+  const tool = (data.content ?? []).find((item) => item.type === "tool_use");
+  if (!tool) throw new Error("Anthropic API からstructured outputを取得できませんでした");
+  return JSON.stringify(tool.input);
 }
 
 /**
@@ -211,7 +282,7 @@ async function completeViaOpenAi(
                 type: "json_schema",
                 name: format.name,
                 strict: format.strict ?? true,
-                schema: format.schema,
+                schema: openAiCompatibleSchema(format.schema),
               },
             },
           }
@@ -231,4 +302,20 @@ async function completeViaOpenAi(
     .filter((c) => c.type === "output_text")
     .map((c) => c.text ?? "")
     .join("");
+}
+
+/**
+ * OpenAI Structured Outputs supports `anyOf` but rejects JSON Schema's
+ * equivalent `oneOf`. Keep the provider-neutral schemas expressive and only
+ * translate this keyword at the API boundary.
+ */
+export function openAiCompatibleSchema(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(openAiCompatibleSchema);
+  if (value === null || typeof value !== "object") return value;
+  const source = value as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(source)) {
+    out[key === "oneOf" ? "anyOf" : key] = openAiCompatibleSchema(child);
+  }
+  return out;
 }

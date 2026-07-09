@@ -129,9 +129,12 @@ test("mcp <dir>: initialize→notifications/initialized→tools/list→tools/cal
       "cutflow_assert",
       "cutflow_av",
       "cutflow_describe",
+      "cutflow_edit",
       "cutflow_frames",
       "cutflow_id_stamp",
       "cutflow_materials",
+      "cutflow_review",
+      "cutflow_search",
       "cutflow_validate",
     ]);
     // 承認/破壊系は tools/list にも出ない
