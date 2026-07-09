@@ -33,7 +33,7 @@ export async function buildProxy(dir: string, cfg: Config): Promise<string> {
   }
   // 音声はマイク+システム音声のミックス(cut.mp4 / preview.mp4 と共通の構成)
   const source = audioSourceOf(manifest, cfg);
-  const whole = [{ start: 0, end: manifest.durationSec }];
+  const whole = [{ start: 0, end: manifest.durationSec, speed: 1 }];
   const loudnorm = await measuredLoudnormFilter({
     input,
     source,

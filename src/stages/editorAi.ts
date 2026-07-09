@@ -9,6 +9,9 @@ import type { ReviewDocs } from "../lib/docDiff.ts";
 import type { Config } from "../lib/config.ts";
 import { sliceReviewContext, type ReviewFrameRequest, type ReviewRange } from "../lib/review.ts";
 import type { EditorAiReviewPlan } from "../lib/editorAiReview.ts";
+import { summarizeSecondaryObservation } from "../lib/vlmObservation.ts";
+import type { DeterministicReviewObservation } from "../lib/reviewObservation.ts";
+import type { SecondaryObservation } from "../lib/vlmObservation.ts";
 import { describeJson } from "./describe.ts";
 import type { DescribeProjection, CaptionEntry, MappedInterval } from "./describe.ts";
 import type { ApplyPatch, Bgm, CutPlan, Overlays, Shorts, Transcript } from "../types.ts";
@@ -50,6 +53,16 @@ export interface ParsedAiPatchResponse {
   patch: ApplyPatch;
   tasks?: EditIntent[];
   review: EditorAiReviewPlan;
+}
+
+export interface RefineEditorAiInput {
+  originalInstruction: string;
+  base: ReviewDocs;
+  previousProposal: ReviewDocs;
+  acceptedHunkLabels: string[];
+  primaryObservation: DeterministicReviewObservation;
+  secondaryObservation: SecondaryObservation;
+  refinementIteration: number;
 }
 
 export class EditorAiError extends Error {
@@ -423,6 +436,35 @@ function reviewDocsOf(docs: ReturnType<typeof mergeBodyOverDisk>): ReviewDocs {
   };
 }
 
+function buildRefinePrompt(input: RefineEditorAiInput): string {
+  return [
+    "Original instruction:",
+    input.originalInstruction,
+    "",
+    "Base docs:",
+    JSON.stringify(input.base, null, 2),
+    "",
+    "Previous proposal:",
+    JSON.stringify(input.previousProposal, null, 2),
+    "",
+    `Accepted hunk labels: ${JSON.stringify(input.acceptedHunkLabels)}`,
+    "",
+    "Primary observation:",
+    JSON.stringify(input.primaryObservation, null, 2),
+    "",
+    summarizeSecondaryObservation(input.secondaryObservation),
+    "",
+    "機械検査が一次情報です。画像モデルの観測は補足です。",
+    "観測を根拠に必要最小限だけ修正してください。",
+    "画像モデルが座標を推測しても使用しないでください。",
+    "approved、approvals.json、render、saveを変更・実行しないでください。",
+    "前提案と同じpatchを返すより、変更不要ならpatchを空にしてください。",
+    "",
+    "Return the same JSON schema as the editor proposal.",
+    editorAiOutputSchemaText(),
+  ].join("\n");
+}
+
 export function parseAiPatchResponse(raw: string): ParsedAiPatchResponse {
   let parsed: unknown;
   try {
@@ -528,7 +570,7 @@ export async function proposeEditorAi(
     throw new EditorAiError(400, "AI 指示が空です");
   }
   const prompt = buildEditorAiPrompt(dir, cfg, req);
-  const raw = await completeWithJsonSchema(prompt, cfg, EDITOR_AI_RESPONSE_SCHEMA);
+  const raw = await completeWithJsonSchema(prompt, cfg, EDITOR_AI_RESPONSE_SCHEMA, "editor-proposal");
   const parsed = parseAiPatchResponse(raw);
   if (parsed.review.frames.length === 0 && req.selection) {
     const sliced = sliceReviewContext(describeJson(dir, cfg), {
@@ -544,6 +586,27 @@ export async function proposeEditorAi(
       reason: frame.reason,
     }));
     parsed.review.range = { axis: "source", ...sliced.sourceRange };
+  }
+  return planEditorAiPatch(dir, parsed);
+}
+
+export async function refineEditorAi(
+  dir: string,
+  cfg: Config,
+  input: RefineEditorAiInput,
+): Promise<AiProposeResponse> {
+  const raw = await completeWithJsonSchema(
+    buildRefinePrompt(input),
+    cfg,
+    EDITOR_AI_RESPONSE_SCHEMA,
+    "editor-proposal",
+  );
+  const parsed = parseAiPatchResponse(raw);
+  const patchOps = parsed.patch.ops?.length ?? 0;
+  const replaceKeys = Object.keys(parsed.patch.replace ?? {}).length;
+  const taskCount = parsed.tasks?.length ?? 0;
+  if (patchOps === 0 && replaceKeys === 0 && taskCount === 0) {
+    throw new EditorAiError(422, "NO_REFINEMENT");
   }
   return planEditorAiPatch(dir, parsed);
 }

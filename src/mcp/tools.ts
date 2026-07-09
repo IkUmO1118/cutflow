@@ -432,18 +432,35 @@ export function makeTools(dir: string, cfg: Config): ToolDef[] {
           spec: { type: "object" },
           candidate: { type: "object" },
           short: { type: "string" },
+          secondaryObservation: { type: "string", enum: ["none", "vlm"] },
         },
         additionalProperties: false,
       },
       handler: async (rawArgs) => {
         const args = asRecord(rawArgs);
         if (!isObj(args.spec)) throw new JsonRpcError(-32602, "spec must be an object");
+        if (
+          args.secondaryObservation !== undefined &&
+          args.secondaryObservation !== "none" &&
+          args.secondaryObservation !== "vlm"
+        ) {
+          throw new JsonRpcError(-32602, "secondaryObservation must be none or vlm");
+        }
         const base = readEditSnapshot(dir);
         const candidate = isObj(args.candidate) ? args.candidate as unknown as EditSnapshot : base;
         const bundle = await reviewEdit(dir, cfg, base, candidate, args.spec as unknown as ReviewSpec, {
           shortName: typeof args.short === "string" ? args.short : undefined,
+          secondaryObservation: args.secondaryObservation === "vlm" ? "vlm" : "none",
         });
-        return toToolResult([`review: ${bundle.stills.length} stills`], bundle, false);
+        const primaryWarn = bundle.observation.checks.filter((check) => check.status === "warn").length;
+        const primaryPass = bundle.observation.checks.filter((check) => check.status === "pass").length;
+        return toToolResult([
+          `review: ${bundle.stills.length} stills`,
+          `primary: ${primaryWarn} warn / ${primaryPass} pass`,
+          bundle.secondaryObservation
+            ? `secondary: vlm ${bundle.secondaryObservation.confidence} / ${bundle.secondaryObservation.items.length} observations`
+            : "secondary: none",
+        ], bundle, false);
       },
     },
     {

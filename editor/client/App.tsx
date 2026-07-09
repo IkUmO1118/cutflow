@@ -15,6 +15,7 @@ import {
   mergeIntervals,
   remapInterval,
   snapToOutput,
+  timelineDuration,
   toOutputTime,
   toSourceTime,
 } from "../../src/lib/timeline.ts";
@@ -76,7 +77,7 @@ import type { OverlayRect } from "./MaterialOverlay.tsx";
 import { Inspector } from "./Inspector.tsx";
 import { CaptionsPanel, MaterialsPanel, ShortsPanel } from "./Panels.tsx";
 import { SettingsModal, buildConfigPatch, patchTouchesProxy } from "./SettingsModal.tsx";
-import type { CfgValues } from "./SettingsModal.tsx";
+import type { AiSettingsValue, CfgValues } from "./SettingsModal.tsx";
 import { Timeline } from "./Timeline.tsx";
 import { playhead, usePlayheadSelector } from "./playhead.ts";
 import { useToasts, ToastStack } from "./toasts.tsx";
@@ -106,7 +107,9 @@ import {
   fmtTime,
   getPeaks,
   getProject,
+  postAiDoctor,
   postConfig,
+  postAiRefine,
   postDraft,
   postAiPropose,
   postAiReview,
@@ -468,6 +471,8 @@ export const App = () => {
   /** proxy.mp4 に焼き込まれる設定(targetLufs / systemAudio / denoise /
    * preview.width)を保存した後、プレビューへ反映するには再生成が要ることを促すバナー */
   const [proxyStale, setProxyStale] = useState(false);
+  const [aiDoctorResult, setAiDoctorResult] = useState<import("./apiTypes.ts").AiDoctorResult[] | null>(null);
+  const [aiDoctorBusy, setAiDoctorBusy] = useState(false);
   /** 再生速度(プレビューのみ)。次回起動時も引き継ぐ */
   const [playbackRate, setPlaybackRate] = useState(() => {
     const saved = Number(localStorage.getItem("cutflow.editor.playbackRate"));
@@ -481,7 +486,69 @@ export const App = () => {
     renderCfg: p.renderCfg,
     previewCfg: p.previewCfg,
     editorCfg: p.editorCfg,
+    aiCfg: aiSettingsOf(p),
   });
+  const aiSettingsOf = (p: ProjectData): AiSettingsValue => {
+    const textProfile = p.aiProfiles.find((profile) => profile.name === p.aiRoutes.text);
+    const structuredProfile = p.aiProfiles.find((profile) => profile.name === p.aiRoutes.structured);
+    const sameMain =
+      textProfile &&
+      structuredProfile &&
+      textProfile.name === structuredProfile.name &&
+      ["claude-code", "codex", "openai", "anthropic"].includes(textProfile.adapter);
+    return {
+      adapter: sameMain ? textProfile.adapter as AiSettingsValue["adapter"] : "custom",
+      model: textProfile?.model ?? "auto",
+      visionRoute: !!p.aiRoutes.vision,
+      review: p.aiReviewCfg,
+    };
+  };
+  const projectWithCfgPatch = (p: ProjectData, patch: Partial<CfgValues>): ProjectData => {
+    let next = {
+      ...p,
+      ...(patch.renderCfg ? { renderCfg: patch.renderCfg } : {}),
+      ...(patch.previewCfg ? { previewCfg: patch.previewCfg } : {}),
+      ...(patch.editorCfg ? { editorCfg: patch.editorCfg } : {}),
+    };
+    if (patch.aiCfg) {
+      const ai = patch.aiCfg;
+      const routes = ai.adapter === "custom"
+        ? next.aiRoutes
+        : {
+            text: "local",
+            structured: "local",
+            ...(ai.visionRoute ? { vision: "local" } : {}),
+          };
+      const profiles = ai.adapter === "custom"
+        ? next.aiProfiles
+        : [
+            ...next.aiProfiles.filter((profile) => profile.name !== "local"),
+            {
+              name: "local",
+              adapter: ai.adapter,
+              model: ai.model.trim() || "auto",
+              origin: null,
+              credential:
+                ai.adapter === "openai" || ai.adapter === "anthropic"
+                  ? next.aiProfiles.find((profile) => profile.name === "local")?.credential ?? "missing"
+                  : "not-required",
+              capabilities:
+                ai.adapter === "claude-code"
+                  ? { textInput: true as const, textOutput: true as const, structuredOutput: "native-json-schema" as const, imageInput: false, maxImages: 0 }
+                  : ai.adapter === "codex"
+                    ? { textInput: true as const, textOutput: true as const, structuredOutput: "prompt" as const, imageInput: false, maxImages: 0 }
+                    : { textInput: true as const, textOutput: true as const, structuredOutput: "native-json-schema" as const, imageInput: true, maxImages: 4 },
+            },
+          ];
+      next = {
+        ...next,
+        aiProfiles: profiles,
+        aiRoutes: routes,
+        aiReviewCfg: ai.review,
+      };
+    }
+    return next;
+  };
   const openSettings = () => {
     if (!proj) return;
     settingsSnapRef.current = structuredClone(cfgValuesOf(proj));
@@ -491,7 +558,7 @@ export const App = () => {
   /** キャンセル: ライブ反映済みの編集をモーダルを開いた時点へ戻す */
   const cancelSettings = () => {
     const snap = settingsSnapRef.current;
-    if (snap) setProj((p) => p && { ...p, ...structuredClone(snap) });
+    if (snap) setProj((p) => p && projectWithCfgPatch(p, structuredClone(snap)));
     settingsSnapRef.current = null;
     setSettingsOpen(false);
   };
@@ -517,6 +584,9 @@ export const App = () => {
             renderCfg: res.renderCfg,
             previewCfg: res.previewCfg,
             editorCfg: res.editorCfg,
+            aiProfiles: res.aiProfiles,
+            aiRoutes: res.aiRoutes,
+            aiReviewCfg: res.aiReviewCfg,
           },
       );
       if (patchTouchesProxy(patch)) setProxyStale(true);
@@ -526,6 +596,28 @@ export const App = () => {
       setSettingsError((e as Error).message);
     } finally {
       setSettingsSaving(false);
+    }
+  };
+  const runAiDoctor = async (route?: "text" | "structured" | "vision") => {
+    setAiDoctorBusy(true);
+    try {
+      setAiDoctorResult(await postAiDoctor(route ? { route } : {}));
+    } catch (e) {
+      setAiDoctorResult([{
+        profile: route ?? "all",
+        adapter: "claude-code",
+        model: "n/a",
+        origin: null,
+        checks: {
+          config: { status: "error", message: (e as Error).message },
+          credential: { status: "skip", message: "" },
+          text: { status: "skip", message: "" },
+          structured: { status: "skip", message: "" },
+          image: { status: "skip", message: "" },
+        },
+      }]);
+    } finally {
+      setAiDoctorBusy(false);
     }
   };
 
@@ -543,6 +635,9 @@ export const App = () => {
               renderCfg: prev.renderCfg,
               previewCfg: prev.previewCfg,
               editorCfg: prev.editorCfg,
+              aiProfiles: prev.aiProfiles,
+              aiRoutes: prev.aiRoutes,
+              aiReviewCfg: prev.aiReviewCfg,
             }
           : p,
       );
@@ -1971,7 +2066,7 @@ export const App = () => {
     }
     const { sel, mode } = ctx;
     const tl = ctx.timeline;
-    const outDur = tl.length > 0 ? tl[tl.length - 1].end + tl[tl.length - 1].offset : 0;
+    const outDur = timelineDuration(tl);
     /** ドラッグ開始時のカット後位置 out0 に移動量を足し、元収録の秒へ逆変換 */
     const dragTo = (out0: number, delta: number): number | null =>
       toSourceTime(clamp(out0 + delta, 0, Math.max(0, outDur - 0.01)), tl);
@@ -2045,7 +2140,7 @@ export const App = () => {
         // move: 自分を除いた写像の上でアンカー(元収録の秒)を追従させる
         const others = arr.filter((_, j) => j !== sel.index);
         const tlx = buildTimeline(keepsOf(ctx.cutplan), others);
-        const durX = tlx.length > 0 ? tlx[tlx.length - 1].end + tlx[tlx.length - 1].offset : 0;
+        const durX = timelineDuration(tlx);
         const out0 = snapToOutput(ins.at, tlx) ?? durX;
         const target = out0 + d;
         if (target >= durX - 0.005) {
@@ -3044,7 +3139,7 @@ export const App = () => {
             ? [hunk.address.label]
             : [],
         ),
-        vlm: aiVlmReview,
+        secondaryObservation: aiVlmReview ? "vlm" : "none",
       });
       setAiWorkflow((prev) =>
         prev && isAiWorkflowReviewState(prev)
@@ -3078,6 +3173,42 @@ export const App = () => {
       );
       setError(message);
       return null;
+    }
+  };
+
+  const refineAiWorkflow = async () => {
+    if (!aiWorkflowReview?.reviewBundle?.secondaryObservation) return;
+    setAiWorkflow({ ...aiWorkflowReview, phase: "proposing" });
+    setError(null);
+    try {
+      const res = await postAiRefine({
+        proposalId: aiWorkflowReview.response.proposalId,
+        acceptedHunkLabels: aiWorkflowReview.diff.hunks.flatMap((hunk) =>
+          (aiWorkflowReview.resolution.get(hunk) ?? "theirs") === "theirs"
+            ? [hunk.address.label]
+            : []),
+        reviewKey: {
+          candidateHash: aiWorkflowReview.reviewBundle.key.candidateHash,
+          specHash: aiWorkflowReview.reviewBundle.key.specHash,
+          acceptedLabelsHash: aiWorkflowReview.reviewBundle.key.acceptedLabelsHash ?? "",
+        },
+      });
+      const diff = proposalDiff(reviewDocsOf(proj!), res.proposal.proposedDocs);
+      setAiWorkflow({
+        phase: "reviewing",
+        instruction: aiWorkflowReview.instruction,
+        scope: aiWorkflowReview.scope,
+        response: { proposalId: res.proposalId, proposal: res.proposal },
+        diff,
+        resolution: new Map(diff.hunks.map((h) => [h, "theirs"] as const)),
+        reviewBundle: undefined,
+        reviewCandidateKey: undefined,
+        reviewStale: false,
+      });
+    } catch (e) {
+      const message = `再調整に失敗しました: ${(e as Error).message}`;
+      setAiWorkflow((prev) => prev ? { ...prev, phase: "reviewing", error: message } : prev);
+      setError(message);
     }
   };
 
@@ -3572,6 +3703,21 @@ export const App = () => {
   const aiFrameParse = aiWorkflowReview
     ? aiWorkflowReview.response.proposal.review.frames.map(formatReviewFrame)
     : [];
+  const visionProfile = proj.aiRoutes.vision
+    ? proj.aiProfiles.find((profile) => profile.name === proj.aiRoutes.vision)
+    : undefined;
+  const aiVlmDisabledReason =
+    !proj.aiRoutes.vision
+      ? "vision route が未設定です"
+      : !visionProfile
+        ? "vision profile が見つかりません"
+        : !proj.aiReviewCfg.vlm
+          ? "config editor.aiReview.vlm=false です"
+          : !visionProfile.capabilities.imageInput
+            ? `AI profile "${visionProfile.name}" は imageInput=false です`
+            : visionProfile.credential === "missing"
+              ? "vision profile の認証情報が見つかりません"
+              : null;
   const aiWorkflowActions: DiffAction[] | undefined = aiWorkflowReview
     ? [
         ...(reviewSpecOfProposalReview(aiWorkflowReview.response.proposal.review)
@@ -3900,14 +4046,28 @@ export const App = () => {
           reviewBundle={aiWorkflowReview.reviewBundle}
           reviewStale={aiReviewStale}
           extraControls={
-            <label className="aiVlmToggle">
-              <input
-                type="checkbox"
-                checked={aiVlmReview}
-                onChange={(event) => setAiVlmReview(event.currentTarget.checked)}
-              />
-              画像もAIに確認させる（外部APIへ最大4枚送信）
-            </label>
+            <>
+              <label className="aiVlmToggle">
+                <input
+                  type="checkbox"
+                  checked={aiVlmReview}
+                  disabled={aiVlmDisabledReason !== null}
+                  onChange={(event) => setAiVlmReview(event.currentTarget.checked)}
+                />
+                {aiVlmDisabledReason === null
+                  ? `画像もAIに確認させる（最大${proj.aiReviewCfg.maxImages}枚の縮小stillを ${visionProfile?.name}${visionProfile?.origin ? ` (${visionProfile.origin})` : ""} へ送信）`
+                  : `画像もAIに確認させる（${aiVlmDisabledReason}）`}
+              </label>
+              <button
+                disabled={
+                  aiWorkflowReview.phase === "verifying" ||
+                  !aiWorkflowReview.reviewBundle?.secondaryObservation
+                }
+                onClick={() => void refineAiWorkflow()}
+              >
+                AI に観測を渡して再調整
+              </button>
+            </>
           }
           onSet={(hunk, side) => {
             setAiWorkflow((prev) => {
@@ -3938,11 +4098,15 @@ export const App = () => {
           <SettingsModal
             cfg={cfgValuesOf(proj)}
             planPerception={proj.planPerception}
-            onChange={(patch) => setProj((p) => p && { ...p, ...patch })}
+            onChange={(patch) => setProj((p) => p && projectWithCfgPatch(p, patch))}
             onSave={() => void saveSettings()}
             onCancel={cancelSettings}
             saving={settingsSaving}
             error={settingsError}
+            aiProfiles={proj.aiProfiles}
+            aiDoctor={aiDoctorResult}
+            aiDoctorBusy={aiDoctorBusy}
+            onAiDoctor={(route) => void runAiDoctor(route)}
           />
         </>
       )}
