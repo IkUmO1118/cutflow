@@ -147,6 +147,18 @@ export function validateReviewSpec(spec: ReviewSpec): Problem[] {
       err("clip.includeAfter", "true / false を指定してください");
     }
   }
+  if (spec.observations !== undefined) {
+    if (typeof spec.observations !== "object" || spec.observations === null || Array.isArray(spec.observations)) {
+      err("observations", "object を指定してください");
+    } else {
+      for (const key of ["structure", "motion", "sound", "ocr"] as const) {
+        const value = spec.observations[key];
+        if (value !== undefined && typeof value !== "boolean") {
+          err(`observations.${key}`, "true / false を指定してください");
+        }
+      }
+    }
+  }
   return errors;
 }
 
