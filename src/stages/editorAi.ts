@@ -109,178 +109,68 @@ function normalizeEditIntents(value: unknown): EditIntent[] | undefined {
     if (!isObj(item)) return item as unknown as EditIntent;
     if (item.type === "update_caption" || item.type === "set-caption-text") {
       const rawTarget =
-        item.target ?? item.captionId ?? item.caption_id;
+        item.target ?? item.caption ?? item.captionId ?? item.caption_id ?? item.id ?? item.ref;
       const target =
         typeof rawTarget === "string" && rawTarget.startsWith("cap_")
           ? `@${rawTarget}`
           : rawTarget;
       return {
+        ...item,
         type: "set-caption-text",
         target,
-        text: item.text ?? item.newText ?? item.new_text,
+        text: item.text ?? item.value ?? item.newText ?? item.new_text ?? item.captionText,
       } as unknown as EditIntent;
     }
     return item as unknown as EditIntent;
   });
 }
 
-const RANGE_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["startSec", "endSec"],
-  properties: {
-    startSec: { type: "number", minimum: 0 },
-    endSec: { type: "number", minimum: 0 },
-  },
-} as const;
-
-const REGION_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["x", "y", "w", "h"],
-  properties: {
-    x: { type: "number" },
-    y: { type: "number" },
-    w: { type: "number", minimum: 0 },
-    h: { type: "number", minimum: 0 },
-  },
-} as const;
-
-const POINT_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["x", "y"],
-  properties: { x: { type: "number" }, y: { type: "number" } },
-} as const;
-
-const EDIT_INTENT_SCHEMA: Record<string, unknown> = {
-  anyOf: [
+const EDITOR_AI_PATCH_ITEM_SCHEMA: Record<string, unknown> = {
+  oneOf: [
     {
       type: "object",
       additionalProperties: false,
-      required: ["type", "range", "action", "reason"],
+      required: ["op", "target", "field", "value"],
       properties: {
-        type: { const: "set-range-action" },
-        range: RANGE_SCHEMA,
-        action: { enum: ["keep", "cut"] },
-        reason: { type: "string" },
+        op: { const: "set" },
+        target: { type: "string" },
+        field: { type: "string" },
+        value: {},
       },
     },
     {
       type: "object",
       additionalProperties: false,
-      required: ["type", "range", "minPauseSec", "keepHeadSec", "keepTailSec", "reason"],
+      required: ["op", "target"],
       properties: {
-        type: { const: "trim-pauses" },
-        range: { anyOf: [RANGE_SCHEMA, { type: "null" }] },
-        minPauseSec: { type: "number", minimum: 0 },
-        keepHeadSec: { type: "number", minimum: 0 },
-        keepTailSec: { type: "number", minimum: 0 },
-        reason: { type: "string" },
+        op: { const: "remove" },
+        target: { type: "string" },
       },
     },
     {
       type: "object",
       additionalProperties: false,
-      required: ["type", "target", "text"],
+      required: ["op", "target", "value"],
       properties: {
-        type: { const: "set-caption-text" },
-        target: { type: "string", pattern: "^@cap_[0-9a-z]{6}$" },
-        text: { type: "string", minLength: 1 },
-      },
-    },
-    {
-      type: "object",
-      additionalProperties: false,
-      required: ["type", "range", "rect", "effect", "strength"],
-      properties: {
-        type: { const: "add-blur" },
-        range: RANGE_SCHEMA,
-        rect: REGION_SCHEMA,
-        effect: { enum: ["blur", "mosaic"] },
-        strength: { type: "number", minimum: 0, maximum: 1 },
-      },
-    },
-    {
-      type: "object",
-      additionalProperties: false,
-      required: ["type", "range", "annotation"],
-      properties: {
-        type: { const: "add-annotation" },
-        range: RANGE_SCHEMA,
-        annotation: {
-          anyOf: [
-            {
-              type: "object",
-              additionalProperties: false,
-              required: ["type", "from", "to"],
-              properties: { type: { const: "arrow" }, from: POINT_SCHEMA, to: POINT_SCHEMA },
-            },
-            {
-              type: "object",
-              additionalProperties: false,
-              required: ["type", "rect"],
-              properties: { type: { const: "box" }, rect: REGION_SCHEMA },
-            },
-            {
-              type: "object",
-              additionalProperties: false,
-              required: ["type", "rect", "shape"],
-              properties: {
-                type: { const: "spotlight" },
-                rect: REGION_SCHEMA,
-                shape: { enum: ["rect", "ellipse"] },
-              },
-            },
+        op: { const: "add" },
+        target: {
+          enum: [
+            "cutplan.segments",
+            "transcript.segments",
+            "overlays.overlays",
+            "overlays.inserts",
+            "overlays.zooms",
+            "overlays.blurs",
+            "overlays.wipeFull",
+            "overlays.hideCaption",
+            "overlays.captionTracks",
+            "chapters.chapters",
+            "bgm.tracks",
+            "thumbnail.texts",
           ],
         },
-      },
-    },
-    {
-      type: "object",
-      additionalProperties: false,
-      required: ["type", "file", "range", "placement", "audio"],
-      properties: {
-        type: { const: "place-material" },
-        file: { type: "string" },
-        range: RANGE_SCHEMA,
-        placement: {
-          anyOf: [
-            {
-              type: "object",
-              additionalProperties: false,
-              required: ["mode", "rect", "fit", "track"],
-              properties: {
-                mode: { const: "overlay" },
-                rect: { anyOf: [REGION_SCHEMA, { type: "null" }] },
-                fit: { enum: ["contain", "cover"] },
-                track: { type: "integer", minimum: 1 },
-              },
-            },
-            {
-              type: "object",
-              additionalProperties: false,
-              required: ["mode", "durationSec", "startFrom", "fit"],
-              properties: {
-                mode: { const: "insert" },
-                durationSec: { type: "number", minimum: 0 },
-                startFrom: { type: "number", minimum: 0 },
-                fit: { enum: ["contain", "cover"] },
-              },
-            },
-          ],
-        },
-        audio: {
-          anyOf: [
-            {
-              type: "object",
-              additionalProperties: false,
-              required: ["volume"],
-              properties: { volume: { type: "number", minimum: 0, maximum: 2 } },
-            },
-            { type: "null" },
-          ],
-        },
+        value: { type: "object" },
+        at: { type: "integer", minimum: 0 },
       },
     },
   ],
@@ -288,7 +178,10 @@ const EDIT_INTENT_SCHEMA: Record<string, unknown> = {
 
 const EDITOR_AI_RESPONSE_SCHEMA: JsonSchemaTextFormat = {
   name: "editor_ai_proposal",
-  strict: true,
+  // EditIntent is an extensible union with optional fields. OpenAI's strict
+  // subset requires every object field to be required, so boundary planning
+  // (`parseAiPatchResponse` + `planApply`) remains the authoritative validator.
+  strict: false,
   schema: {
     type: "object",
     additionalProperties: false,
@@ -297,7 +190,7 @@ const EDITOR_AI_RESPONSE_SCHEMA: JsonSchemaTextFormat = {
       title: { type: "string" },
       summary: { type: "array", items: { type: "string" } },
       edit: {
-        anyOf: [
+        oneOf: [
           {
             type: "object",
             additionalProperties: false,
@@ -306,7 +199,36 @@ const EDITOR_AI_RESPONSE_SCHEMA: JsonSchemaTextFormat = {
               mode: { const: "tasks" },
               tasks: {
                 type: "array",
-                items: EDIT_INTENT_SCHEMA,
+                items: {
+                  type: "object",
+                  properties: {
+                    type: {
+                      enum: [
+                        "set-range-action",
+                        "trim-pauses",
+                        "set-caption-text",
+                        "add-blur",
+                        "add-annotation",
+                        "place-material",
+                      ],
+                    },
+                    target: { type: "string" },
+                    text: { type: "string" },
+                    range: { type: "object" },
+                    action: { enum: ["keep", "cut"] },
+                    reason: { type: "string" },
+                    minPauseSec: { type: "number" },
+                    keepHeadSec: { type: "number" },
+                    keepTailSec: { type: "number" },
+                    rect: { type: "object" },
+                    effect: { enum: ["blur", "mosaic"] },
+                    strength: { type: "number" },
+                    annotation: { type: "object" },
+                    file: { type: "string" },
+                    placement: { type: "object" },
+                    audio: { type: "object" },
+                  },
+                },
               },
             },
           },
@@ -319,42 +241,9 @@ const EDITOR_AI_RESPONSE_SCHEMA: JsonSchemaTextFormat = {
               patch: {
                 type: "object",
                 additionalProperties: false,
-                required: ["ops"],
                 properties: {
-                  ops: {
-                    type: "array",
-                    items: {
-                      anyOf: [
-                        {
-                          type: "object",
-                          additionalProperties: false,
-                          required: ["op", "target", "field", "value"],
-                          properties: {
-                            op: { const: "set" },
-                            target: { type: "string" },
-                            field: { type: "string" },
-                            value: {
-                              anyOf: [
-                                { type: "string" },
-                                { type: "number" },
-                                { type: "boolean" },
-                                { type: "null" },
-                              ],
-                            },
-                          },
-                        },
-                        {
-                          type: "object",
-                          additionalProperties: false,
-                          required: ["op", "target"],
-                          properties: {
-                            op: { const: "remove" },
-                            target: { type: "string" },
-                          },
-                        },
-                      ],
-                    },
-                  },
+                  ops: { type: "array", items: EDITOR_AI_PATCH_ITEM_SCHEMA },
+                  replace: { type: "object" },
                 },
               },
             },
@@ -364,14 +253,14 @@ const EDITOR_AI_RESPONSE_SCHEMA: JsonSchemaTextFormat = {
       review: {
         type: "object",
         additionalProperties: false,
-        required: ["frames", "range", "clip", "observations", "notes"],
+        required: ["frames", "notes"],
         properties: {
           frames: {
             type: "array",
             items: {
               type: "object",
               additionalProperties: false,
-              required: ["axis", "atSec", "reason", "ocr", "fullRes"],
+              required: ["atSec", "reason"],
               properties: {
                 axis: { enum: ["source", "output"] },
                 atSec: { type: "number", minimum: 0 },
@@ -382,22 +271,19 @@ const EDITOR_AI_RESPONSE_SCHEMA: JsonSchemaTextFormat = {
             },
           },
           range: {
-            anyOf: [{
-              type: "object",
-              additionalProperties: false,
-              required: ["axis", "startSec", "endSec"],
-              properties: {
-                axis: { enum: ["source", "output"] },
-                startSec: { type: "number", minimum: 0 },
-                endSec: { type: "number", minimum: 0 },
-              },
-            }, { type: "null" }],
+            type: "object",
+            additionalProperties: false,
+            required: ["startSec", "endSec"],
+            properties: {
+              axis: { enum: ["source", "output"] },
+              startSec: { type: "number", minimum: 0 },
+              endSec: { type: "number", minimum: 0 },
+            },
           },
           clip: { type: "boolean" },
           observations: {
             type: "object",
             additionalProperties: false,
-            required: ["motion", "sound", "ocr"],
             properties: {
               motion: { type: "boolean" },
               sound: { type: "boolean" },

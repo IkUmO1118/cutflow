@@ -10,7 +10,7 @@ import {
   planEditorAiPatch,
 } from "../src/stages/editorAi.ts";
 import type { Config } from "../src/lib/config.ts";
-import { completeWithJsonSchema } from "../src/lib/llm.ts";
+import { completeWithJsonSchema, openAiCompatibleSchema } from "../src/lib/llm.ts";
 
 function withTmpProject(fn: (dir: string) => void): void {
   const dir = mkdtempSync(join(tmpdir(), "cutflow-editor-ai-"));
@@ -136,6 +136,8 @@ test("parseAiPatchResponse: caption field aliasと@無しidを正規化する", 
   assert.equal(parsed.tasks?.[0].type, "set-caption-text");
   assert.deepEqual(parsed.tasks?.[0], {
     type: "set-caption-text",
+    caption_id: "cap_aaaaaa",
+    new_text: "短い字幕",
     target: "@cap_aaaaaa",
     text: "短い字幕",
   });
@@ -219,8 +221,6 @@ test("buildEditorAiPrompt: 指示と選択文脈と project projection を含め
     assert.match(prompt, /Current project projection/);
     assert.match(prompt, /"required": \[\s*"title",\s*"summary",\s*"edit",\s*"review"\s*\]/s);
     assert.match(prompt, /"op": \{\s*"const": "set"\s*\}/s);
-    assert.doesNotMatch(prompt, /"oneOf"/);
-    assert.match(prompt, /"anyOf"/);
   });
 });
 
@@ -265,6 +265,23 @@ test("completeWithJsonSchema: openai provider は text.format=json_schema を送
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("openAiCompatibleSchema: oneOfを再帰的にanyOfへ変換する", () => {
+  const converted = openAiCompatibleSchema({
+    type: "object",
+    properties: {
+      edit: {
+        oneOf: [
+          { type: "object", properties: { mode: { const: "tasks" } } },
+          { type: "object", properties: { mode: { const: "patch" } } },
+        ],
+      },
+    },
+  });
+  const json = JSON.stringify(converted);
+  assert.doesNotMatch(json, /"oneOf"/);
+  assert.match(json, /"anyOf"/);
 });
 
 test("completeWithJsonSchema: anthropic provider は tool schema を送る", async () => {
