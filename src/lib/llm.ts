@@ -282,7 +282,7 @@ async function completeViaOpenAi(
                 type: "json_schema",
                 name: format.name,
                 strict: format.strict ?? true,
-                schema: format.schema,
+                schema: openAiCompatibleSchema(format.schema),
               },
             },
           }
@@ -302,4 +302,20 @@ async function completeViaOpenAi(
     .filter((c) => c.type === "output_text")
     .map((c) => c.text ?? "")
     .join("");
+}
+
+/**
+ * OpenAI Structured Outputs supports `anyOf` but rejects JSON Schema's
+ * equivalent `oneOf`. Keep the provider-neutral schemas expressive and only
+ * translate this keyword at the API boundary.
+ */
+export function openAiCompatibleSchema(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(openAiCompatibleSchema);
+  if (value === null || typeof value !== "object") return value;
+  const source = value as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(source)) {
+    out[key === "oneOf" ? "anyOf" : key] = openAiCompatibleSchema(child);
+  }
+  return out;
 }
