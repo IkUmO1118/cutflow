@@ -109,6 +109,7 @@ import {
   getProject,
   postAiDoctor,
   postConfig,
+  postAiRefine,
   postDraft,
   postAiPropose,
   postAiReview,
@@ -522,6 +523,8 @@ export const App = () => {
             previewCfg: res.previewCfg,
             editorCfg: res.editorCfg,
             aiProfiles: res.aiProfiles,
+            aiRoutes: res.aiRoutes,
+            aiReviewCfg: res.aiReviewCfg,
           },
       );
       if (patchTouchesProxy(patch)) setProxyStale(true);
@@ -3071,7 +3074,7 @@ export const App = () => {
             ? [hunk.address.label]
             : [],
         ),
-        vlm: aiVlmReview,
+        secondaryObservation: aiVlmReview ? "vlm" : "none",
       });
       setAiWorkflow((prev) =>
         prev && isAiWorkflowReviewState(prev)
@@ -3105,6 +3108,42 @@ export const App = () => {
       );
       setError(message);
       return null;
+    }
+  };
+
+  const refineAiWorkflow = async () => {
+    if (!aiWorkflowReview?.reviewBundle?.secondaryObservation) return;
+    setAiWorkflow({ ...aiWorkflowReview, phase: "proposing" });
+    setError(null);
+    try {
+      const res = await postAiRefine({
+        proposalId: aiWorkflowReview.response.proposalId,
+        acceptedHunkLabels: aiWorkflowReview.diff.hunks.flatMap((hunk) =>
+          (aiWorkflowReview.resolution.get(hunk) ?? "theirs") === "theirs"
+            ? [hunk.address.label]
+            : []),
+        reviewKey: {
+          candidateHash: aiWorkflowReview.reviewBundle.key.candidateHash,
+          specHash: aiWorkflowReview.reviewBundle.key.specHash,
+          acceptedLabelsHash: aiWorkflowReview.reviewBundle.key.acceptedLabelsHash ?? "",
+        },
+      });
+      const diff = proposalDiff(reviewDocsOf(proj!), res.proposal.proposedDocs);
+      setAiWorkflow({
+        phase: "reviewing",
+        instruction: aiWorkflowReview.instruction,
+        scope: aiWorkflowReview.scope,
+        response: { proposalId: res.proposalId, proposal: res.proposal },
+        diff,
+        resolution: new Map(diff.hunks.map((h) => [h, "theirs"] as const)),
+        reviewBundle: undefined,
+        reviewCandidateKey: undefined,
+        reviewStale: false,
+      });
+    } catch (e) {
+      const message = `再調整に失敗しました: ${(e as Error).message}`;
+      setAiWorkflow((prev) => prev ? { ...prev, phase: "reviewing", error: message } : prev);
+      setError(message);
     }
   };
 
@@ -3942,17 +3981,28 @@ export const App = () => {
           reviewBundle={aiWorkflowReview.reviewBundle}
           reviewStale={aiReviewStale}
           extraControls={
-            <label className="aiVlmToggle">
-              <input
-                type="checkbox"
-                checked={aiVlmReview}
-                disabled={aiVlmDisabledReason !== null}
-                onChange={(event) => setAiVlmReview(event.currentTarget.checked)}
-              />
-              {aiVlmDisabledReason === null
-                ? `画像もAIに確認させる（最大${proj.aiReviewCfg.maxImages}枚の縮小stillを ${visionProfile?.name}${visionProfile?.origin ? ` (${visionProfile.origin})` : ""} へ送信）`
-                : `画像もAIに確認させる（${aiVlmDisabledReason}）`}
-            </label>
+            <>
+              <label className="aiVlmToggle">
+                <input
+                  type="checkbox"
+                  checked={aiVlmReview}
+                  disabled={aiVlmDisabledReason !== null}
+                  onChange={(event) => setAiVlmReview(event.currentTarget.checked)}
+                />
+                {aiVlmDisabledReason === null
+                  ? `画像もAIに確認させる（最大${proj.aiReviewCfg.maxImages}枚の縮小stillを ${visionProfile?.name}${visionProfile?.origin ? ` (${visionProfile.origin})` : ""} へ送信）`
+                  : `画像もAIに確認させる（${aiVlmDisabledReason}）`}
+              </label>
+              <button
+                disabled={
+                  aiWorkflowReview.phase === "verifying" ||
+                  !aiWorkflowReview.reviewBundle?.secondaryObservation
+                }
+                onClick={() => void refineAiWorkflow()}
+              >
+                AI に観測を渡して再調整
+              </button>
+            </>
           }
           onSet={(hunk, side) => {
             setAiWorkflow((prev) => {

@@ -13,7 +13,7 @@ import type {
   Transcript,
 } from "../../src/types.ts";
 import type { FrameShot } from "../../src/stages/frames.ts";
-import type { ReviewBundle } from "../../src/stages/review.ts";
+import type { ReviewBundle, ReviewKey } from "../../src/stages/review.ts";
 export type {
   AiProposeRequest,
   AiScope,
@@ -29,11 +29,26 @@ export interface AiProposeResponse {
 export interface AiReviewRequest {
   proposalId: string;
   acceptedHunkLabels: string[];
-  vlm?: boolean;
+  secondaryObservation?: "none" | "vlm";
 }
 
 export interface AiReviewResponse {
   bundle: ReviewBundle;
+}
+
+export interface AiRefineRequest {
+  proposalId: string;
+  acceptedHunkLabels: string[];
+  reviewKey: Pick<ReviewKey, "candidateHash" | "specHash" | "acceptedLabelsHash">;
+}
+
+export interface AiRefineResponse {
+  proposalId: string;
+  proposal: EditorAiProposeResponse;
+  refinement: {
+    iteration: number;
+    parentProposalId: string;
+  };
 }
 
 export interface AiDoctorCheck {
@@ -99,7 +114,7 @@ export interface ProjectData {
   planPerception: PlanPerceptionStatus;
   aiProfiles: AiProfileStatus[];
   aiRoutes: { text: string; structured: string; vision?: string };
-  aiReviewCfg: { vlm: boolean; maxImages: number };
+  aiReviewCfg: { vlm: boolean; maxImages: number; maxRefinements: number };
 }
 
 export type PlanPerceptionStatus = PerceptionStatus;
@@ -124,6 +139,8 @@ export interface ConfigSaveResult {
   previewCfg: { width: number };
   editorCfg: EditorCfg;
   aiProfiles: AiProfileStatus[];
+  aiRoutes: { text: string; structured: string; vision?: string };
+  aiReviewCfg: { vlm: boolean; maxImages: number; maxRefinements: number };
 }
 
 export type { AiCapabilities, AiProfileStatus };
