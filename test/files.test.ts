@@ -108,3 +108,10 @@ test("fileRole: av.probe/ 配下(A/V 知覚の集約+キャッシュ)は generat
   assert.equal(fileRole("av.probe/sound.json"), "generated");
   assert.equal(fileRole("av.probe/motion.strip.png"), "generated");
 });
+
+test("fileRole: review.probe/ 配下(review bundle)は generated", () => {
+  assert.equal(fileRole("review.probe/index.json"), "generated");
+  assert.equal(fileRole("review.probe/before/out12.30s.png"), "generated");
+  assert.equal(fileRole("review.probe/after/clip.mp4"), "generated");
+  assert.equal(fileRole("review.probe/ocr/after-out12.30s.json"), "generated");
+});

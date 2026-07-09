@@ -61,6 +61,8 @@ import type {
   Transcript,
 } from "../../src/types.ts";
 import type { AiProposeResponse, AiScope, AiSelectionContext, DraftData, ProjectData } from "./apiTypes.ts";
+import type { ReviewBundle } from "../../src/stages/review.ts";
+import type { ReviewFrameRequest, ReviewRange, ReviewSpec } from "../../src/lib/review.ts";
 import { AiCommand } from "./AiCommand.tsx";
 import { ArrowOverlay } from "./ArrowOverlay.tsx";
 import type { OverlayArrow } from "./ArrowOverlay.tsx";
@@ -105,8 +107,8 @@ import {
   getProject,
   postConfig,
   postDraft,
-  postAiFrames,
   postAiPropose,
+  postAiReview,
   postPreview,
   postProxy,
   postRender,
@@ -137,12 +139,14 @@ interface AiWorkflowState {
   diff?: ProposalDiffResult;
   resolution?: ProposalResolution;
   saved?: boolean;
-  frameFiles?: string[];
+  reviewBundle?: ReviewBundle;
+  reviewCandidateKey?: string;
+  reviewStale?: boolean;
   error?: string;
 }
 
 interface AiWorkflowReviewState extends AiWorkflowState {
-  phase: "reviewing";
+  phase: "reviewing" | "verifying";
   response: AiProposeResponse;
   diff: ProposalDiffResult;
   resolution: ProposalResolution;
@@ -150,7 +154,7 @@ interface AiWorkflowReviewState extends AiWorkflowState {
 
 interface ApplyAiWorkflowOptions {
   save: boolean;
-  verifyFrames: boolean;
+  reviewFirst: boolean;
 }
 
 const isMaterialFile = (f: string) =>
@@ -187,10 +191,10 @@ const aiWorkflowPhaseLabel = (workflow: AiWorkflowState | null): string => {
   if (workflow.phase === "reviewing") return "確認中";
   if (workflow.phase === "applying") return "適用済み(未保存)";
   if (workflow.phase === "saving") return "保存中";
-  if (workflow.phase === "verifying") return "確認画像を生成中";
+  if (workflow.phase === "verifying") return "比較を生成中";
   if (workflow.phase === "failed") return "失敗";
   if (workflow.saved) {
-    return workflow.frameFiles && workflow.frameFiles.length > 0 ? "保存+確認完了" : "保存完了";
+    return workflow.reviewBundle ? "保存+比較完了" : "保存完了";
   }
   return "適用済み(未保存)";
 };
@@ -207,7 +211,7 @@ const aiWorkflowTone = (workflow: AiWorkflowState | null): "warn" | "ok" | "erro
 const isAiWorkflowReviewState = (
   workflow: AiWorkflowState | null,
 ): workflow is AiWorkflowReviewState =>
-  workflow?.phase === "reviewing" &&
+  (workflow?.phase === "reviewing" || workflow?.phase === "verifying") &&
   workflow.response !== undefined &&
   workflow.diff !== undefined &&
   workflow.resolution !== undefined;
@@ -248,6 +252,35 @@ const reviewDocsOf = (p: ProjectData): ReviewDocs => ({
   bgm: p.bgm,
   shorts: p.shorts,
 });
+
+const rangeFromReviewFrames = (frames: ReviewFrameRequest[]): ReviewRange => {
+  const axis = frames[0]?.axis ?? "source";
+  const secs = frames.filter((frame) => frame.axis === axis).map((frame) => frame.atSec);
+  const start = Math.max(0, Math.min(...secs) - 2);
+  const end = Math.max(start + 0.1, Math.max(...secs) + 2);
+  return { axis, startSec: start, endSec: end };
+};
+
+const reviewSpecOf = (review: AiProposeResponse["review"]): ReviewSpec | null => {
+  if (review.frames.length === 0) return null;
+  return {
+    frames: review.frames,
+    ...(review.range ? { range: review.range } : {}),
+    ...(review.clip
+      ? {
+          clip: {
+            range: review.range ?? rangeFromReviewFrames(review.frames),
+            includeBefore: true,
+            includeAfter: true,
+          },
+        }
+      : {}),
+    ...(review.observations ? { observations: { ...review.observations } } : {}),
+  };
+};
+
+const formatReviewFrame = (frame: ReviewFrameRequest): string =>
+  `${fmtTime(frame.atSec)} (${frame.axis}) - ${frame.reason}`;
 
 /** undo/redo で復元したドキュメントでも選択が指せているか
  * (配列からはみ出た添字のまま Inspector を出さないための確認) */
@@ -440,6 +473,7 @@ export const App = () => {
   const [diffResolution, setDiffResolution] = useState<Resolution>(() => new Map());
   const [diffPanelOpen, setDiffPanelOpen] = useState(false);
   const [aiWorkflow, setAiWorkflow] = useState<AiWorkflowState | null>(null);
+  const [aiVlmReview, setAiVlmReview] = useState(false);
   const [aiCommandOpen, setAiCommandOpen] = useState(false);
   const [aiCommandScope, setAiCommandScope] = useState<AiScope>("global");
   /** 前回のセッションの未保存編集(自動退避)。復元するか人間が選ぶまで保持 */
@@ -999,7 +1033,6 @@ export const App = () => {
   const anyDirty =
     cutplanDirty || overlaysDirty || transcriptDirty || bgmDirty || shortsDirty;
   const aiBusy = aiWorkflow?.phase === "proposing";
-  const aiFrameBusy = aiWorkflow?.phase === "verifying";
   const aiWorkflowLocked =
     aiWorkflow !== null &&
     ["proposing", "reviewing", "applying", "saving", "verifying"].includes(aiWorkflow.phase);
@@ -3016,36 +3049,67 @@ export const App = () => {
     setSelectionState((sel) => (selectionValid(sel, merged) ? sel : null));
   };
 
-  const parseAiFrameTime = (raw: string): number | null => {
-    const t = raw.trim();
-    if (/^\d+(\.\d+)?$/.test(t)) return Number(t);
-    const m = /^(?:(\d+):)?(\d+):(\d+(?:\.\d+)?)$/.exec(t);
-    if (!m) return null;
-    return Number(m[1] ?? 0) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+  const generateAiReview = async (): Promise<ReviewBundle | null> => {
+    if (!aiWorkflowReview) return null;
+    const spec = reviewSpecOf(aiWorkflowReview.response.review);
+    if (!spec) {
+      setError("比較対象の review.frames がありません");
+      return null;
+    }
+    const merged = mergedAiWorkflowDocs();
+    if (!merged) return null;
+    setAiWorkflow({ ...aiWorkflowReview, phase: "verifying" });
+    setError(null);
+    try {
+      const res = await postAiReview({
+        proposedDocs: aiWorkflowReview.response.proposedDocs,
+        acceptedHunkLabels: aiWorkflowReview.diff.hunks.flatMap((hunk) =>
+          (aiWorkflowReview.resolution.get(hunk) ?? "theirs") === "theirs"
+            ? [hunk.address.label]
+            : [],
+        ),
+        spec,
+        activeShortName,
+        vlm: aiVlmReview,
+      });
+      setAiWorkflow((prev) =>
+        prev && isAiWorkflowReviewState(prev)
+          ? {
+              ...prev,
+              phase: "reviewing",
+              reviewBundle: res.bundle,
+              reviewCandidateKey: JSON.stringify(merged),
+              reviewStale: false,
+            }
+          : prev,
+      );
+      return res.bundle;
+    } catch (e) {
+      const message = `比較の生成に失敗しました: ${(e as Error).message}`;
+      setAiWorkflow((prev) =>
+        prev && isAiWorkflowReviewState(prev)
+          ? { ...prev, phase: "reviewing", error: message }
+          : prev,
+      );
+      setError(message);
+      return null;
+    }
   };
 
-  const applyAiWorkflow = async ({ save, verifyFrames }: ApplyAiWorkflowOptions) => {
+  const applyAiWorkflow = async ({ save, reviewFirst }: ApplyAiWorkflowOptions) => {
     if (!aiWorkflowReview) return;
     const merged = mergedAiWorkflowDocs();
     if (!merged) return;
-    const nextPhase: AiWorkflowPhase = verifyFrames
-      ? "verifying"
-      : save
-        ? "saving"
-        : "applying";
-    const frameTimes = aiWorkflowReview.response.review.frames.map(parseAiFrameTime);
-    const badFrameTimes = aiWorkflowReview.response.review.frames.filter(
-      (_, i) => frameTimes[i] === null,
-    );
-    if (verifyFrames && badFrameTimes.length > 0) {
-      setError(`確認時刻を解釈できません: ${badFrameTimes.join(", ")}`);
-      return;
+    if (reviewFirst) {
+      const bundle = await generateAiReview();
+      if (!bundle) return;
+      if (!save) return;
+      aiWorkflowReview.reviewBundle = bundle;
+      aiWorkflowReview.reviewCandidateKey = JSON.stringify(merged);
     }
+    const nextPhase: AiWorkflowPhase = save ? "saving" : "applying";
     setAiWorkflow({ ...aiWorkflowReview, phase: nextPhase });
     setError(null);
-    const toastId = verifyFrames
-      ? addToast({ kind: "progress", message: "AI提案を保存してフレーム生成中…" })
-      : null;
     let saveSucceeded = false;
     try {
       applyLiveDocs(merged);
@@ -3054,12 +3118,12 @@ export const App = () => {
           ...aiWorkflowReview,
           phase: "complete",
           saved: false,
+          reviewBundle: aiWorkflowReview.reviewBundle,
+          reviewCandidateKey: aiWorkflowReview.reviewCandidateKey,
+          reviewStale: false,
         });
         return;
       }
-      const frameShortName = merged.shorts?.shorts.some((s) => s.name === activeShortName)
-        ? activeShortName
-        : null;
       await postSave({
         cutplan: merged.cutplan,
         overlays: merged.overlays,
@@ -3071,53 +3135,28 @@ export const App = () => {
       setProj((p) => p && { ...p, ...merged });
       setExternalChange(false);
       deleteDraft().catch(() => {});
-      if (!verifyFrames) {
-        setAiWorkflow({
-          ...aiWorkflowReview,
-          phase: "complete",
-          saved: true,
-        });
-        return;
-      }
-      const res = await postAiFrames({
-        times: frameTimes as number[],
-        axis: "source",
-        activeShortName: frameShortName,
-      });
-      const files = res.shots.map((s) => s.file);
-      const first = files[0];
-      if (toastId !== null) {
-        updateToast(toastId, {
-          kind: "success",
-          message: `${res.shots.length}枚のフレームを生成しました`,
-          ...(first
-            ? { action: { label: "開く", onClick: () => postReveal(first).catch((e) => setError((e as Error).message)) } }
-            : {}),
-          ttlMs: 8000,
-        });
-      }
       setAiWorkflow({
         ...aiWorkflowReview,
         phase: "complete",
         saved: true,
-        frameFiles: files,
+        reviewBundle: aiWorkflowReview.reviewBundle,
+        reviewCandidateKey: aiWorkflowReview.reviewCandidateKey,
+        reviewStale: false,
       });
+      return;
     } catch (e) {
       const raw = (e as Error).message;
       const message =
-        verifyFrames && saveSucceeded
-          ? `保存済みですが確認画像の生成に失敗しました: ${raw}`
-          : save
-            ? `画面には反映しましたが保存に失敗しました: ${raw}`
-            : raw;
+        save ? `画面には反映しましたが保存に失敗しました: ${raw}` : raw;
       setAiWorkflow({
         ...aiWorkflowReview,
         phase: "failed",
         saved: saveSucceeded,
         error: message,
+        reviewBundle: aiWorkflowReview.reviewBundle,
+        reviewCandidateKey: aiWorkflowReview.reviewCandidateKey,
       });
       setError(message);
-      if (toastId !== null) dismissToast(toastId);
     }
   };
   const discardDraft = () => {
@@ -3539,35 +3578,40 @@ export const App = () => {
         ...(aiWorkflow.error ? [aiWorkflow.error] : []),
       ].join("\n")
     : "AI 一発編集";
+  const mergedAiCandidate = aiWorkflowReview ? mergedAiWorkflowDocs() : null;
+  const aiReviewStale = aiWorkflowReview?.reviewBundle
+    ? JSON.stringify(mergedAiCandidate) !== (aiWorkflowReview.reviewCandidateKey ?? "")
+    : false;
   const aiFrameParse = aiWorkflowReview
-    ? {
-        times: aiWorkflowReview.response.review.frames.map(parseAiFrameTime),
-        bad: aiWorkflowReview.response.review.frames.filter(
-          (_, i) => parseAiFrameTime(aiWorkflowReview.response!.review.frames[i]) === null,
-        ),
-      }
-    : { times: [], bad: [] as string[] };
+    ? aiWorkflowReview.response.review.frames.map(formatReviewFrame)
+    : [];
   const aiWorkflowActions: DiffAction[] | undefined = aiWorkflowReview
     ? [
+        ...(reviewSpecOf(aiWorkflowReview.response.review)
+          ? [{
+              label: aiWorkflowReview.phase === "verifying" ? "比較を生成中…" : "比較を生成",
+              disabled: aiWorkflowReview.phase === "verifying",
+              onClick: () => void generateAiReview(),
+            } satisfies DiffAction]
+          : []),
         {
           label: "適用のみ",
-          onClick: () => void applyAiWorkflow({ save: false, verifyFrames: false }),
+          disabled: aiWorkflowReview.phase === "verifying",
+          onClick: () => void applyAiWorkflow({ save: false, reviewFirst: false }),
         },
         {
           label: "適用して保存",
           kind: "primary",
-          onClick: () => void applyAiWorkflow({ save: true, verifyFrames: false }),
+          disabled: aiWorkflowReview.phase === "verifying",
+          onClick: () => void applyAiWorkflow({ save: true, reviewFirst: false }),
         },
-        ...(
-          aiWorkflowReview.response.review.frames.length > 0 && aiFrameParse.bad.length === 0
-            ? [
-                {
-                  label: "適用して確認",
-                  onClick: () => void applyAiWorkflow({ save: true, verifyFrames: true }),
-                } satisfies DiffAction,
-              ]
-            : []
-        ),
+        ...(reviewSpecOf(aiWorkflowReview.response.review)
+          ? [{
+              label: "適用して確認",
+              disabled: aiWorkflowReview.phase === "verifying",
+              onClick: () => void applyAiWorkflow({ save: true, reviewFirst: true }),
+            } satisfies DiffAction]
+          : []),
       ]
     : undefined;
 
@@ -3847,6 +3891,11 @@ export const App = () => {
           resolution={aiWorkflowReview.resolution}
           warningGroups={[
             ...(
+              aiWorkflowReview.error
+                ? [{ label: "比較エラー", items: [aiWorkflowReview.error] } satisfies DiffWarningGroup]
+                : []
+            ),
+            ...(
               aiWorkflowReview.response.applyPlan.warnings.length > 0
                 ? [{
                     label: "検証警告",
@@ -3859,16 +3908,20 @@ export const App = () => {
                 ? [{ label: "AIメモ", items: aiWorkflowReview.response.review.notes } satisfies DiffWarningGroup]
                 : []
             ),
-            ...(
-              aiFrameParse.bad.length > 0
-                ? [{
-                    label: "確認フレーム",
-                    items: [`時刻を解釈できません: ${aiFrameParse.bad.join(", ")}`],
-                  } satisfies DiffWarningGroup]
-                : []
-            ),
           ]}
-          frameChecks={aiWorkflowReview.response.review.frames}
+          frameChecks={aiFrameParse}
+          reviewBundle={aiWorkflowReview.reviewBundle}
+          reviewStale={aiReviewStale}
+          extraControls={
+            <label className="aiVlmToggle">
+              <input
+                type="checkbox"
+                checked={aiVlmReview}
+                onChange={(event) => setAiVlmReview(event.currentTarget.checked)}
+              />
+              画像もAIに確認させる（外部APIへ最大4枚送信）
+            </label>
+          }
           onSet={(hunk, side) => {
             setAiWorkflow((prev) => {
               if (!prev?.resolution) return prev;
@@ -3882,7 +3935,7 @@ export const App = () => {
               prev?.diff ? { ...prev, resolution: new Map(prev.diff.hunks.map((h) => [h, side] as const)) } : prev,
             );
           }}
-          onApply={() => void applyAiWorkflow({ save: true, verifyFrames: false })}
+          onApply={() => void applyAiWorkflow({ save: true, reviewFirst: false })}
           onCancel={() => setAiWorkflow(null)}
           actions={aiWorkflowActions}
         />
