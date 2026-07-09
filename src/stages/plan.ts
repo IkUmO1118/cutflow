@@ -5,13 +5,25 @@ import { completeWithJsonSchema } from "../lib/llm.ts";
 import { mergeIntervals } from "../lib/timeline.ts";
 import { carryIds, ensureIds, hasAnyId, ID_PREFIX, usedIdsOf } from "../lib/ids.ts";
 import { readEditableDocs } from "./idStamp.ts";
-import { planLoopEnabled, resolvePerceptionCfg, resolvePlanLoopCfg } from "../lib/config.ts";
+import {
+  planLoopEnabled,
+  resolvePerceptionCfg,
+  resolvePlanLoopCfg,
+  resolvePlanLoopSecondaryObservationCfg,
+} from "../lib/config.ts";
 import {
   deriveLoopAssertions,
+  selectPlanLoopReviewTimes,
   shouldStop,
   summarizeObservation,
 } from "../lib/planLoop.ts";
-import type { LoopCut, ObservationProvider, PlanLoopCfg } from "../lib/planLoop.ts";
+import type {
+  LoopCut,
+  ObservationProvider,
+  ObservationInput,
+  PlanLoopCfg,
+  PlanSecondaryObservationCfg,
+} from "../lib/planLoop.ts";
 import {
   computeAudioFeatures,
   computeSegmentOcr,
@@ -21,6 +33,14 @@ import {
 } from "../lib/perception.ts";
 import type { Config } from "../lib/config.ts";
 import { captionTrack } from "../types.ts";
+import { frames } from "./frames.ts";
+import {
+  MAX_SECONDARY_OUTPUT_TOKENS,
+  reviewFrameId,
+  VlmSecondaryObservationProvider,
+  type SecondaryObservationProvider,
+} from "../lib/vlmObservation.ts";
+import type { DeterministicReviewObservation, ReviewCheck, SideObservation } from "../lib/reviewObservation.ts";
 import type {
   AutoCuts,
   Chapters,
@@ -36,6 +56,7 @@ import type {
 import type { AssertionsDoc } from "../types.ts";
 import { evaluateStructural } from "./assert.ts";
 import { describeJson } from "./describe.ts";
+import type { DescribeProjection } from "./describe.ts";
 
 /**
  * このプロジェクトで id が有効(§docs/plans/2026-07-07-stable-ids-design.md の
@@ -81,6 +102,7 @@ export interface PlanOptions {
    * 分解する用途(transcribe=テロップ / detect+plan --cuts-only=カット /
    * remeta=章・メタ) */
   cutsOnly?: boolean;
+  withVlm?: boolean;
 }
 
 export type CompleteFn = (prompt: string, cfg: Config) => Promise<string>;
@@ -88,6 +110,7 @@ export type CompleteFn = (prompt: string, cfg: Config) => Promise<string>;
 export interface PlanDeps {
   complete?: CompleteFn;
   observe?: ObservationProvider;
+  secondaryProvider?: SecondaryObservationProvider;
 }
 
 /** buildCutplan の id 引き継ぎ用コンテキスト(§buildIdContext 参照)。
@@ -137,12 +160,110 @@ export class StructuralObservationProvider implements ObservationProvider {
     this.loopCfg = loopCfg;
   }
 
-  async observe(dir: string, cfg: Config) {
+  async observe(dir: string, cfg: Config): Promise<ObservationInput> {
     const proj = describeJson(dir, cfg);
     const diskAssertions = readAssertionsIfAny(dir);
     const spec = deriveLoopAssertions(this.loopCfg, diskAssertions);
-    return { proj, outcomes: evaluateStructural(proj, spec) };
+    return { proj, outcomes: evaluateStructural(proj, spec), warnings: [] };
   }
+}
+
+export class VisualSecondaryPlanObservationProvider implements ObservationProvider {
+  private readonly structural: ObservationProvider;
+  private readonly secondaryCfg: PlanSecondaryObservationCfg;
+  private readonly secondaryProvider: SecondaryObservationProvider;
+  private callCount = 0;
+  private previousProjection: DescribeProjection | null = null;
+
+  constructor(
+    loopCfg: PlanLoopCfg,
+    secondaryCfg: PlanSecondaryObservationCfg,
+    secondaryProvider: SecondaryObservationProvider = new VlmSecondaryObservationProvider(),
+  ) {
+    this.structural = new StructuralObservationProvider(loopCfg);
+    this.secondaryCfg = secondaryCfg;
+    this.secondaryProvider = secondaryProvider;
+  }
+
+  async observe(dir: string, cfg: Config): Promise<ObservationInput> {
+    const primary = await this.structural.observe(dir, cfg);
+    const warnings = [...primary.warnings];
+    if (!this.secondaryCfg.enabled) {
+      this.previousProjection = primary.proj;
+      return { ...primary, warnings };
+    }
+    if (this.callCount >= this.secondaryCfg.maxCalls) {
+      warnings.push("secondary observation は call budget 上限のためスキップしました");
+      this.previousProjection = primary.proj;
+      return { ...primary, warnings };
+    }
+    const times = selectPlanLoopReviewTimes({
+      projection: primary.proj,
+      previousProjection: this.previousProjection,
+      limit: this.secondaryCfg.maxImages,
+    });
+    this.previousProjection = primary.proj;
+    if (times.length === 0) {
+      return { ...primary, warnings };
+    }
+    try {
+      const shots = await frames(dir, { mode: "times", times, axis: "source" }, cfg);
+      this.callCount += 1;
+      const secondary = await this.secondaryProvider.observe({
+        frames: shots.slice(0, this.secondaryCfg.maxImages).map((shot) => ({
+          frameId: reviewFrameId({
+            side: "after",
+            sourceSec: shot.requested,
+            outSec: shot.outSec,
+            reason: shot.note ?? "plan-loop",
+          }),
+          side: "after",
+          file: shot.file,
+          mediaType: "image/png",
+          sourceSec: shot.requested,
+          outputSec: shot.outSec,
+          reason: shot.note ?? "plan-loop",
+        })),
+        primary: deterministicObservationFromLoop(primary),
+        task: {},
+        budget: {
+          maxImages: this.secondaryCfg.maxImages,
+          maxOutputTokens: MAX_SECONDARY_OUTPUT_TOKENS,
+        },
+      }, cfg);
+      return { ...primary, secondary, warnings };
+    } catch (error) {
+      warnings.push(`secondary observation に失敗しました: ${(error as Error).message}`);
+      return { ...primary, warnings };
+    }
+  }
+}
+
+function deterministicObservationFromLoop(input: ObservationInput): DeterministicReviewObservation {
+  const side: SideObservation = {
+    durationSec: input.proj.summary.outDurationSec,
+    keepCount: input.proj.summary.keepCount,
+    cutCount: input.proj.cuts.length,
+    captionCount: input.proj.summary.captionCount ?? 0,
+    visibleCaptionTexts: [],
+  };
+  const checks: ReviewCheck[] = input.outcomes.map((outcome, index) => ({
+    id: `assert-${index}`,
+    status:
+      outcome.status === "pass" || outcome.status === "skip"
+        ? outcome.status
+        : outcome.status === "fail"
+          ? "warn"
+          : "warn",
+    message: outcome.message,
+    source: "structure",
+  }));
+  return {
+    before: side,
+    after: side,
+    delta: { durationSec: 0, keepCount: 0, cutCount: 0, captionCount: 0 },
+    checks,
+  };
 }
 
 /**
@@ -211,8 +332,16 @@ export async function plan(
         durationSec: auto.originalDurationSec,
         perception,
         idCtx,
-      complete: deps.complete ?? completeStructuredCuts,
-        observe: deps.observe,
+        complete: deps.complete ?? completeStructuredCuts,
+        observe:
+          deps.observe ??
+          (opts.withVlm
+            ? new VisualSecondaryPlanObservationProvider(
+                resolvePlanLoopCfg(cfg),
+                resolvePlanLoopSecondaryObservationCfg(cfg),
+                deps.secondaryProvider,
+              )
+            : undefined),
       });
     }
     return generateCutsOnce(
@@ -287,6 +416,15 @@ interface PlanLoopLogEntry {
   cuts: LoopCut[];
   observation: string;
   stop: string | null;
+  secondaryObservation?: {
+    kind: "vlm";
+    confidence: "low" | "medium" | "high";
+    itemCount: number;
+    inputDigest: string;
+    profile: string;
+    model: string;
+  };
+  secondaryWarnings?: string[];
 }
 
 async function runCutsLoop(args: RunCutsLoopArgs): Promise<CutPlan> {
@@ -316,8 +454,12 @@ async function runCutsLoop(args: RunCutsLoopArgs): Promise<CutPlan> {
     lastCutplan = buildCutplan(args.numbered, cuts, cutplanIdCtx(args.idCtx));
     writeFileSync(join(args.dir, "cutplan.json"), JSON.stringify(lastCutplan, null, 2));
 
-    const obs = await observer.observe(args.dir, args.cfg);
-    const observation = summarizeObservation(obs.proj, obs.outcomes, cuts, loopCfg);
+    const observed = await observer.observe(args.dir, args.cfg);
+    const obs: ObservationInput = {
+      ...observed,
+      warnings: observed.warnings ?? [],
+    };
+    const observation = summarizeObservation(obs.proj, obs.outcomes, cuts, loopCfg, obs.secondary);
     const decision = shouldStop({
       iteration: iter,
       maxIterations: loopCfg.maxIterations,
@@ -326,7 +468,27 @@ async function runCutsLoop(args: RunCutsLoopArgs): Promise<CutPlan> {
       prevCuts,
       cuts,
     });
-    iterations.push({ iter, kind, raw, cuts, observation, stop: decision.reason });
+    iterations.push({
+      iter,
+      kind,
+      raw,
+      cuts,
+      observation,
+      stop: decision.reason,
+      ...(obs.secondary
+        ? {
+            secondaryObservation: {
+              kind: "vlm",
+              confidence: obs.secondary.confidence,
+              itemCount: obs.secondary.items.length,
+              inputDigest: obs.secondary.provenance.inputDigest,
+              profile: obs.secondary.provenance.profile,
+              model: obs.secondary.provenance.model,
+            },
+          }
+        : {}),
+      ...(obs.warnings.length > 0 ? { secondaryWarnings: obs.warnings } : {}),
+    });
     prevCuts = cuts;
     prevObservation = observation;
     if (decision.stop) break;

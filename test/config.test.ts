@@ -22,6 +22,8 @@ import {
   DEFAULT_PERCEPTION_OCR_MAX_LINES,
   DEFAULT_PERCEPTION_OCR_MAX_SEGMENTS,
   DEFAULT_PLAN_LOOP_MAX_ITERATIONS,
+  DEFAULT_PLAN_LOOP_SECONDARY_MAX_CALLS,
+  DEFAULT_PLAN_LOOP_SECONDARY_MAX_IMAGES,
   DEFAULT_PLAN_SHORTS_MAX_DURATION_SEC,
   loadConfig,
   MAX_AI_IMAGES,
@@ -35,6 +37,7 @@ import {
   resolvePerceptionCfg,
   resolvePerceptionStatus,
   resolvePlanLoopCfg,
+  resolvePlanLoopSecondaryObservationCfg,
 } from "../src/lib/config.ts";
 import type { Config } from "../src/lib/config.ts";
 
@@ -497,6 +500,21 @@ test("resolvePlanLoopCfg: 明示値を解決し maxIterations>=2 だけ有効", 
     stopWhenAssertionsPass: false,
   });
   assert.equal(planLoopEnabled(cfg), true);
+});
+
+test("resolvePlanLoopSecondaryObservationCfg: 省略時は無効+既定値、指定時はそのまま", () => {
+  assert.deepEqual(resolvePlanLoopSecondaryObservationCfg({} as Config), {
+    enabled: false,
+    maxCalls: DEFAULT_PLAN_LOOP_SECONDARY_MAX_CALLS,
+    maxImages: DEFAULT_PLAN_LOOP_SECONDARY_MAX_IMAGES,
+  });
+  assert.deepEqual(resolvePlanLoopSecondaryObservationCfg({
+    plan: { loop: { secondaryObservation: { enabled: true, maxCalls: 2, maxImages: 1 } } },
+  } as Config), {
+    enabled: true,
+    maxCalls: 2,
+    maxImages: 1,
+  });
 });
 
 test("resolveDescribePausesCfg: describe 省略時は無効+既定値", () => {
