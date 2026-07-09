@@ -1,24 +1,38 @@
+import { useState } from "react";
 import {
   CAPTION_DEFAULT_COLOR,
   CAPTION_DEFAULT_FONT_FAMILY,
   CAPTION_DEFAULT_FONT_WEIGHT,
   CAPTION_DEFAULT_OUTLINE,
+  DEFAULT_CUT_TRANSITION_SEC,
+  DEFAULT_ZOOM_EASE_SEC,
   DEFAULT_WIPE_TRANSITION_SEC,
 } from "../../src/types.ts";
-import type { Config } from "../../src/lib/config.ts";
+import type { AiAdapterKind, AiConfig, AiProvider, Config } from "../../src/lib/config.ts";
 import type { ConfigPatch } from "../../src/lib/configEdit.ts";
 import type { AiDoctorResult, AiProfileStatus, EditorCfg, PlanPerceptionStatus } from "./apiTypes.ts";
 import { NumInput } from "./widgets.tsx";
 import { FONT_PRESETS } from "./Inspector.tsx";
 
 type RenderCfg = Config["render"];
+type PreviewCfg = { width: number; videoEncoder?: "libx264" | "videotoolbox" };
+type AiReviewCfg = { vlm: boolean; maxImages: number; maxRefinements: number };
+type MainAiAdapter = Extract<AiAdapterKind, "claude-code" | "codex" | "openai" | "anthropic">;
+
+export interface AiSettingsValue {
+  adapter: MainAiAdapter | "custom";
+  model: string;
+  visionRoute: boolean;
+  review: AiReviewCfg;
+}
 
 /** 設定モーダルが編集する値(ProjectData の該当フィールドと同じ形)。
  * App が proj に対して直接パッチを当てるので、編集は即プレビューに反映される */
 export interface CfgValues {
   renderCfg: RenderCfg;
-  previewCfg: { width: number };
+  previewCfg: PreviewCfg;
   editorCfg: EditorCfg;
+  aiCfg: AiSettingsValue;
 }
 
 /**
@@ -59,11 +73,23 @@ export function buildConfigPatch(snap: CfgValues, cur: CfgValues): ConfigPatch |
     bgm.ducking = c.bgm.ducking ?? { duckDb: 0, fadeSec: 0.4 };
   }
   if (Object.keys(bgm).length > 0) r.bgm = bgm;
+  if (JSON.stringify(c.cutTransition) !== JSON.stringify(s.cutTransition)) {
+    r.cutTransition = c.cutTransition ?? { type: "none", sec: DEFAULT_CUT_TRANSITION_SEC };
+  }
+  if (c.hardwareAcceleration !== s.hardwareAcceleration) {
+    r.hardwareAcceleration = c.hardwareAcceleration ?? null;
+  }
+  if (JSON.stringify(c.zoom) !== JSON.stringify(s.zoom)) {
+    r.zoom = c.zoom ?? { easeSec: DEFAULT_ZOOM_EASE_SEC };
+  }
 
   const patch: ConfigPatch = {};
   if (Object.keys(r).length > 0) patch.render = r;
   if (cur.previewCfg.width !== snap.previewCfg.width) {
-    patch.preview = { width: cur.previewCfg.width };
+    patch.preview = { ...(patch.preview ?? {}), width: cur.previewCfg.width };
+  }
+  if (cur.previewCfg.videoEncoder !== snap.previewCfg.videoEncoder) {
+    patch.preview = { ...(patch.preview ?? {}), videoEncoder: cur.previewCfg.videoEncoder };
   }
   const e: NonNullable<ConfigPatch["editor"]> = {};
   if (cur.editorCfg.maxUploadMb !== snap.editorCfg.maxUploadMb) {
@@ -72,8 +98,40 @@ export function buildConfigPatch(snap: CfgValues, cur: CfgValues): ConfigPatch |
   if (cur.editorCfg.defaultImageDurationSec !== snap.editorCfg.defaultImageDurationSec) {
     e.defaultImageDurationSec = cur.editorCfg.defaultImageDurationSec;
   }
+  if (cur.editorCfg.defaultShortRangeSec !== snap.editorCfg.defaultShortRangeSec) {
+    e.defaultShortRangeSec = cur.editorCfg.defaultShortRangeSec;
+  }
+  if (JSON.stringify(cur.aiCfg.review) !== JSON.stringify(snap.aiCfg.review)) {
+    e.aiReview = cur.aiCfg.review;
+  }
   if (Object.keys(e).length > 0) patch.editor = e;
+  if (
+    cur.aiCfg.adapter !== "custom" &&
+    (
+      cur.aiCfg.adapter !== snap.aiCfg.adapter ||
+      cur.aiCfg.model !== snap.aiCfg.model ||
+      cur.aiCfg.visionRoute !== snap.aiCfg.visionRoute
+    )
+  ) {
+    patch.ai = buildSingleProviderAiConfig(cur.aiCfg);
+  }
   return Object.keys(patch).length > 0 ? patch : null;
+}
+
+function buildSingleProviderAiConfig(ai: AiSettingsValue): AiConfig {
+  const adapter = ai.adapter as AiProvider;
+  const profile = {
+    adapter,
+    ...(ai.model.trim() ? { model: ai.model.trim() } : {}),
+  };
+  return {
+    profiles: { local: profile },
+    routes: {
+      text: "local",
+      structured: "local",
+      ...(ai.visionRoute ? { vision: "local" } : {}),
+    },
+  };
 }
 
 /** proxy.mp4 に焼き込まれる設定に触れているか(保存後に再生成を促す) */
@@ -82,7 +140,8 @@ export function patchTouchesProxy(patch: ConfigPatch): boolean {
     patch.render?.targetLufs !== undefined ||
     patch.render?.systemAudio !== undefined ||
     patch.render?.denoise !== undefined ||
-    patch.preview?.width !== undefined
+    patch.preview?.width !== undefined ||
+    patch.preview?.videoEncoder !== undefined
   );
 }
 
@@ -120,6 +179,7 @@ export const SettingsModal = ({
   aiDoctorBusy: boolean;
   onAiDoctor: (route?: "text" | "structured" | "vision") => void;
 }) => {
+  const [tab, setTab] = useState<"ai" | "look" | "audio" | "editor">("ai");
   const r = cfg.renderCfg;
   /** render のキーを差し替える(undefined 指定でキーごと消す=既定に戻す) */
   const patchRender = (p: Partial<RenderCfg>) => {
@@ -133,6 +193,10 @@ export const SettingsModal = ({
   const sysAudio = r.systemAudio ?? { mix: false, volumeDb: 0 };
   const denoise = r.denoise ?? { mic: false, noiseFloorDb: -25 };
   const ducking = r.bgm.ducking ?? { duckDb: 0, fadeSec: 0.4 };
+  const cutTransition = r.cutTransition ?? { type: "none", sec: DEFAULT_CUT_TRANSITION_SEC };
+  const zoom = r.zoom ?? { easeSec: DEFAULT_ZOOM_EASE_SEC };
+  const hardwareAcceleration = r.hardwareAcceleration ?? "if-possible";
+  const videoEncoder = cfg.previewCfg.videoEncoder ?? "videotoolbox";
   const effColor = r.captionColor ?? CAPTION_DEFAULT_COLOR;
   const effOutline = r.captionOutlineColor ?? CAPTION_DEFAULT_OUTLINE;
   const effFamily = r.captionFontFamily ?? CAPTION_DEFAULT_FONT_FAMILY;
@@ -148,9 +212,25 @@ export const SettingsModal = ({
     ? FONT_PRESETS
     : [...FONT_PRESETS, { label: "(その他)", value: effFamily }];
   const perceptionOn = planPerception.audio || planPerception.ocr || planPerception.systemSpeech;
-  const perceptionOcr = planPerception.ocr
-    ? `on(max ${planPerception.ocrMaxSegments} segments, ${planPerception.ocrMaxLines} lines)`
-    : "off";
+  const mainAi = cfg.aiCfg;
+  const canUseVisionWithMain =
+    mainAi.adapter === "openai" || mainAi.adapter === "anthropic";
+  const currentVisionProfile = aiProfiles.find((profile) =>
+    profile.capabilities.imageInput && profile.name !== "local",
+  );
+  const visionEnabled = mainAi.review.vlm && (mainAi.visionRoute || !!currentVisionProfile);
+  const planItems = [
+    ["音声の間", planPerception.audio ? "on" : "off"],
+    ["画面OCR", planPerception.ocr ? `on / ${planPerception.ocrMaxSegments}区間` : "off"],
+    ["システム音声", planPerception.systemSpeech ? "on" : "off"],
+  ] as const;
+  const doctorStatusOf = (item: AiDoctorResult): "ok" | "warn" | "error" | "skip" => {
+    const statuses = Object.values(item.checks).map((check) => check.status);
+    if (statuses.includes("error")) return "error";
+    if (statuses.includes("warn")) return "warn";
+    if (statuses.some((status) => status === "ok")) return "ok";
+    return "skip";
+  };
 
   return (
     <div className="settingsModal" role="dialog" aria-label="設定">
@@ -160,35 +240,168 @@ export const SettingsModal = ({
         「保存」で書き戻します
       </p>
 
-      <h4>AI / plan</h4>
-      <div className="field statusField">
-        <label>plan の目耳</label>
-        <span className={perceptionOn ? "statusPill ok" : "statusPill"}>
-          {perceptionOn ? "on" : "off"}
-        </span>
-        <span className="hint dim">
-          audio={planPerception.audio ? "on" : "off"} / ocr={perceptionOcr} /
-          systemSpeech={planPerception.systemSpeech ? "on" : "off"}
-        </span>
+      <div className="settingsTabs" role="tablist" aria-label="設定カテゴリ">
+        {[
+          ["ai", "AI / plan"],
+          ["look", "見た目"],
+          ["audio", "音声"],
+          ["editor", "エディタ"],
+        ].map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            className={tab === id ? "active" : ""}
+            onClick={() => setTab(id as typeof tab)}
+          >
+            {label}
+          </button>
+        ))}
       </div>
-      {planPerception.warnings.length > 0 && (
+
+      {tab === "ai" && (
+        <>
+      <h4>AI / plan</h4>
+      <div className="field">
+        <label>主AI</label>
+        <select
+          value={mainAi.adapter}
+          title="編集提案・plan・structured output に使うAI。customはconfig.yamlの高度な設定を保持します"
+          onChange={(e) => {
+            const adapter = e.target.value as AiSettingsValue["adapter"];
+            onChange({
+              aiCfg: {
+                ...mainAi,
+                adapter,
+                model: adapter === "claude-code" || adapter === "codex" ? "auto" : mainAi.model,
+                visionRoute:
+                  adapter === "openai" || adapter === "anthropic" ? mainAi.visionRoute : false,
+              },
+            });
+          }}
+        >
+          <option value="claude-code">Claude Code</option>
+          <option value="codex">Codex</option>
+          <option value="openai">OpenAI API</option>
+          <option value="anthropic">Anthropic API</option>
+          <option value="custom">高度な設定(config.yaml)</option>
+        </select>
+        <input
+          value={mainAi.model}
+          disabled={mainAi.adapter === "custom"}
+          title="API provider はモデル名を明示。Claude Code / Codex は auto でCLI既定"
+          onChange={(e) => onChange({ aiCfg: { ...mainAi, model: e.target.value } })}
+          style={{ flex: 1, minWidth: 160 }}
+        />
+      </div>
+      <div className="field">
+        <label>AI画像確認</label>
+        <input
+          type="checkbox"
+          checked={mainAi.review.vlm}
+          title="before/after still を画像対応providerへ送って、AI編集の検証・再調整に使う"
+          onChange={(e) =>
+            onChange({
+              aiCfg: {
+                ...mainAi,
+                review: { ...mainAi.review, vlm: e.target.checked },
+                visionRoute: e.target.checked && canUseVisionWithMain ? true : mainAi.visionRoute,
+              },
+            })
+          }
+        />
+        <span className="hint dim">
+          {mainAi.review.vlm
+            ? mainAi.visionRoute || currentVisionProfile
+              ? "有効"
+              : "vision route が必要"
+            : "無効"}
+        </span>
+        <NumInput
+          value={mainAi.review.maxImages}
+          title="画像確認で送るstill枚数。多いほど確認は増えるが遅くなります"
+          onCommit={(v) =>
+            v !== undefined &&
+            onChange({
+              aiCfg: {
+                ...mainAi,
+                review: { ...mainAi.review, maxImages: Math.round(v) },
+              },
+            })
+          }
+        />
+        <span className="hint dim">枚</span>
+      </div>
+      <div className="field">
+        <label>AI再調整の上限</label>
+        <NumInput
+          value={mainAi.review.maxRefinements}
+          title="AI提案を観測結果で再調整できる最大回数。増やしすぎると迷走しやすいため最大3"
+          onCommit={(v) =>
+            v !== undefined &&
+            onChange({
+              aiCfg: {
+                ...mainAi,
+                review: { ...mainAi.review, maxRefinements: Math.round(v) },
+              },
+            })
+          }
+        />
+        <span className="hint dim">1〜3</span>
+      </div>
+      {mainAi.adapter !== "custom" && mainAi.review.vlm && !canUseVisionWithMain && !currentVisionProfile && (
         <div className="field statusField">
-          <label>注意</label>
-          <span className="hint warnText">{planPerception.warnings.join(" / ")}</span>
+          <label>画像確認</label>
+          <span className="hint warnText">
+            Claude Code / Codex 単体では画像確認は使えません。編集AIはそのまま使えます
+          </span>
         </div>
       )}
-      <div className="field statusField" style={{ alignItems: "flex-start" }}>
-        <label>AI provider</label>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
-          {aiProfiles.map((profile) => (
-            <div key={profile.name} className="hint dim">
-              <strong>{profile.name}</strong> {profile.adapter} / {profile.model}
-              {" "}- text/json={profile.capabilities.structuredOutput} / image={profile.capabilities.imageInput ? `on(${profile.capabilities.maxImages})` : "off"}
-              {" "}/ credential={profile.credential}
-              {profile.origin ? ` / ${profile.origin}` : ""}
-            </div>
-          ))}
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      <div className="settingsCardGrid">
+        <div className="settingsCard">
+          <div className="settingsCardHead">
+            <span>plan の目耳</span>
+            <span className={perceptionOn ? "statusPill ok" : "statusPill"}>
+              {perceptionOn ? "on" : "off"}
+            </span>
+          </div>
+          <div className="settingsKv">
+            {planItems.map(([label, value]) => (
+              <div key={label}>
+                <span>{label}</span>
+                <strong>{value}</strong>
+              </div>
+            ))}
+          </div>
+          {planPerception.warnings.length > 0 && (
+            <p className="hint warnText">{planPerception.warnings.join(" / ")}</p>
+          )}
+        </div>
+
+        <div className="settingsCard">
+          <div className="settingsCardHead">
+            <span>AI provider</span>
+            <span className={visionEnabled ? "statusPill ok" : "statusPill"}>
+              {visionEnabled ? "vision on" : "text only"}
+            </span>
+          </div>
+          <div className="providerList">
+            {aiProfiles.map((profile) => (
+              <div key={profile.name} className="providerRow">
+                <div>
+                  <strong>{profile.name}</strong>
+                  <span>{profile.adapter} / {profile.model}</span>
+                </div>
+                <div className="providerCaps">
+                  <span>{profile.capabilities.structuredOutput}</span>
+                  <span>{profile.capabilities.imageInput ? `画像 ${profile.capabilities.maxImages}枚` : "画像なし"}</span>
+                  <span>{profile.credential}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="settingsActions">
             <button type="button" onClick={() => onAiDoctor()} disabled={aiDoctorBusy}>
               {aiDoctorBusy ? "接続確認中…" : "接続確認"}
             </button>
@@ -197,15 +410,26 @@ export const SettingsModal = ({
             </button>
           </div>
           {aiDoctor && aiDoctor.length > 0 && (
-            <div className="hint dim">
-              {aiDoctor.map((item) =>
-                `${item.profile}: text=${item.checks.text.status} structured=${item.checks.structured.status} image=${item.checks.image.status} auth=${item.checks.credential.status}`,
-              ).join(" / ")}
+            <div className="doctorGrid">
+              {aiDoctor.map((item) => (
+                <div key={item.profile} className={`doctorRow ${doctorStatusOf(item)}`}>
+                  <strong>{item.profile}</strong>
+                  <span>text {item.checks.text.status}</span>
+                  <span>json {item.checks.structured.status}</span>
+                  <span>image {item.checks.image.status}</span>
+                  <span>auth {item.checks.credential.status}</span>
+                </div>
+              ))}
             </div>
           )}
         </div>
       </div>
 
+        </>
+      )}
+
+      {tab === "look" && (
+        <>
       <h4>出力の見た目</h4>
       <div className="field">
         <label>ワイプ幅 / 余白 (px)</label>
@@ -231,6 +455,45 @@ export const SettingsModal = ({
           }
         />
         <span className="hint dim">0 で瞬時</span>
+      </div>
+      <div className="field">
+        <label>カット境界</label>
+        <select
+          value={cutTransition.type ?? "none"}
+          title="keep境界の見た目。dip-to-black は黒フェードを重ねます"
+          onChange={(e) =>
+            patchRender({
+              cutTransition: {
+                ...cutTransition,
+                type: e.target.value as "none" | "dip-to-black",
+              },
+            })
+          }
+        >
+          <option value="none">瞬時に切り替え</option>
+          <option value="dip-to-black">黒フェード</option>
+        </select>
+        <NumInput
+          value={cutTransition.sec ?? DEFAULT_CUT_TRANSITION_SEC}
+          title="黒フェードの往復秒数。type=none では使われません"
+          onCommit={(v) =>
+            v !== undefined &&
+            patchRender({ cutTransition: { ...cutTransition, sec: Math.min(3, Math.max(0, v)) } })
+          }
+        />
+        <span className="hint dim">秒</span>
+      </div>
+      <div className="field">
+        <label>ズーム遷移 (秒)</label>
+        <NumInput
+          value={zoom.easeSec ?? DEFAULT_ZOOM_EASE_SEC}
+          title="ズーム演出の既定イーズ秒。個別ズームの easeSec があればそちらを優先"
+          onCommit={(v) =>
+            v !== undefined &&
+            patchRender({ zoom: { ...zoom, easeSec: Math.min(3, Math.max(0, v)) } })
+          }
+        />
+        <span className="hint dim">個別指定が優先</span>
       </div>
       <div className="field">
         <label>字幕サイズ (px)</label>
@@ -332,6 +595,11 @@ export const SettingsModal = ({
         <span className="hint dim">plan / remeta 実行時のみ反映</span>
       </div>
 
+        </>
+      )}
+
+      {tab === "audio" && (
+        <>
       <h4>音声</h4>
       <div className="field">
         <label>ラウドネス目標 (LUFS)</label>
@@ -421,6 +689,11 @@ export const SettingsModal = ({
         <span className="hint dim">0 dB で無効</span>
       </div>
 
+        </>
+      )}
+
+      {tab === "editor" && (
+        <>
       <h4>エディタ</h4>
       <div className="field">
         <label>プレビュー幅 (px)</label>
@@ -432,6 +705,40 @@ export const SettingsModal = ({
           }
         />
         <span className="hint dim">要プロキシ再生成</span>
+      </div>
+      <div className="field">
+        <label>プレビューエンコード</label>
+        <select
+          value={videoEncoder}
+          title={`proxy.mp4 / preview.mp4 のビデオエンコーダ。${PROXY_HINT}`}
+          onChange={(e) =>
+            onChange({
+              previewCfg: {
+                ...cfg.previewCfg,
+                videoEncoder: e.target.value as "libx264" | "videotoolbox",
+              },
+            })
+          }
+        >
+          <option value="videotoolbox">高速・省容量(macOS)</option>
+          <option value="libx264">互換性優先(libx264)</option>
+        </select>
+        <span className="hint dim">要プロキシ再生成</span>
+      </div>
+      <div className="field">
+        <label>最終レンダー</label>
+        <select
+          value={hardwareAcceleration}
+          title="Remotion合成段のハードウェアエンコード利用"
+          onChange={(e) =>
+            patchRender({
+              hardwareAcceleration: e.target.value as "if-possible" | "disable",
+            })
+          }
+        >
+          <option value="if-possible">可能なら高速化</option>
+          <option value="disable">互換性優先</option>
+        </select>
       </div>
       <div className="field">
         <label>素材の既定尺 (秒)</label>
@@ -447,6 +754,19 @@ export const SettingsModal = ({
         />
       </div>
       <div className="field">
+        <label>ショート既定尺 (秒)</label>
+        <NumInput
+          value={cfg.editorCfg.defaultShortRangeSec}
+          title="ショートを新規追加するとき、選択範囲も再生位置も無い場合に使う既定レンジ"
+          onCommit={(v) =>
+            v !== undefined &&
+            onChange({
+              editorCfg: { ...cfg.editorCfg, defaultShortRangeSec: v },
+            })
+          }
+        />
+      </div>
+      <div className="field">
         <label>アップロード上限 (MB)</label>
         <NumInput
           value={cfg.editorCfg.maxUploadMb}
@@ -457,6 +777,9 @@ export const SettingsModal = ({
           }
         />
       </div>
+
+        </>
+      )}
 
       <div className="foot">
         {error && <span className="error">{error}</span>}
