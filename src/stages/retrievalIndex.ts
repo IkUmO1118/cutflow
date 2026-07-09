@@ -96,7 +96,10 @@ function documentsForRecording(
   readJson(dir, "materials.probe/index.json", warnings, (value) => {
     const candidates = Array.isArray(value) ? value : arrayAt(value, "materials");
     for (const [index, material] of candidates.entries()) {
-      const file = String(material.file ?? material.path ?? "");
+      const file = safeRelativePath(material.file ?? material.path);
+      if ((material.file ?? material.path) !== undefined && file === undefined) {
+        warnings.push(`${recording}/materials.probe/index.json: invalid material path at index ${index}`);
+      }
       const title = file || `material ${index + 1}`;
       add(out, recording, "material", title, JSON.stringify(material), file || undefined, undefined, fingerprint, String(index));
       const ocr = textFrom(material.ocr);
@@ -188,4 +191,11 @@ function textFrom(value: unknown): string {
     return Object.values(value as Record<string, unknown>).map(textFrom).filter(Boolean).join(" ");
   }
   return "";
+}
+
+function safeRelativePath(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const file = value.trim().replace(/\\/g, "/");
+  if (!file || file.startsWith("/") || file.split("/").some((part) => part === "..")) return undefined;
+  return file;
 }
