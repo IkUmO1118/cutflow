@@ -21,8 +21,6 @@ import {
 } from "@remotion/renderer";
 import { resolveAvCfg } from "../lib/config.ts";
 import { resolveAiReviewCfg } from "../lib/config.ts";
-import { completeAi, supportsImageReview } from "../lib/llm.ts";
-import type { AiImagePart } from "../lib/llm.ts";
 import { run } from "../lib/exec.ts";
 import { detectSilence, probe } from "../lib/ffmpeg.ts";
 import { runOcr as defaultRunOcr } from "../lib/ocr.ts";
@@ -51,6 +49,14 @@ import { validateDocs } from "./validate.ts";
 import type { Config } from "../lib/config.ts";
 import type { DeterministicReviewObservation, SideObservation } from "../lib/reviewObservation.ts";
 import type { Manifest, Overlays } from "../types.ts";
+import {
+  MAX_SECONDARY_OUTPUT_TOKENS,
+  type SecondaryObservation,
+  type SecondaryObservationProvider,
+  VlmSecondaryObservationProvider,
+  selectSecondaryObservationFrames,
+} from "../lib/vlmObservation.ts";
+import { supportsImageReview } from "../lib/llm.ts";
 
 const REVIEW_DIR = "review.probe";
 
@@ -93,25 +99,8 @@ export interface ReviewBundle {
     afterFile?: string;
   };
   observation: DeterministicReviewObservation;
-  vlm?: VlmReviewResult;
-  vlmProvider?: {
-    profile: string;
-    adapter: string;
-    model: string;
-    requestId?: string;
-  };
+  secondaryObservation?: SecondaryObservation;
   warnings: string[];
-}
-
-export interface VlmReviewResult {
-  summary: string[];
-  observations: {
-    frame: number;
-    severity: "info" | "warn";
-    category: "layout" | "readability" | "occlusion" | "continuity" | "content";
-    message: string;
-  }[];
-  confidence: "low" | "medium" | "high";
 }
 
 export interface ReviewHooks {
@@ -135,7 +124,8 @@ export interface ReviewHooks {
 
 export interface ReviewOptions {
   shortName?: string;
-  vlm?: boolean;
+  secondaryObservation?: "none" | "vlm";
+  provider?: SecondaryObservationProvider;
   hooks?: ReviewHooks;
 }
 
@@ -250,21 +240,36 @@ export async function reviewEdit(
     ocrSupported: stills.some((still) => still.requested.ocr && still.after.ocrFile !== undefined),
   });
   warnings.push(...candidateValidate.warnings.map((warning) => `${warning.file} ${warning.where}: ${warning.message}`));
-  let vlm: VlmReviewResult | undefined;
-  let vlmProvider: ReviewBundle["vlmProvider"] | undefined;
-  if (opts.vlm === true) {
+  let secondaryObservation: SecondaryObservation | undefined;
+  if (opts.secondaryObservation === "vlm") {
     const aiReview = resolveAiReviewCfg(cfg);
     if (!aiReview.vlm) {
-      warnings.push("VLM review は config editor.aiReview.vlm=false のため実行しませんでした");
+      warnings.push("VLM secondary observation は config editor.aiReview.vlm=false のため実行しませんでした");
     } else if (!supportsImageReview(cfg)) {
-      warnings.push("現在のAI providerは画像reviewに対応していません");
+      warnings.push("現在のAI providerは画像secondary observationに対応していません");
     } else {
       try {
-        const vlmResult = await runVlmReview(dir, stills, observation, cfg, aiReview.maxImages);
-        vlm = vlmResult.result;
-        vlmProvider = vlmResult.provider;
+        const provider = opts.provider ?? new VlmSecondaryObservationProvider();
+        const frames = selectSecondaryObservationFrames(
+          stills.map((still) => ({
+            requested: { reason: still.requested.reason },
+            before: { file: join(dir, still.before.file), sourceSec: still.before.sourceSec, outSec: still.before.outSec },
+            after: { file: join(dir, still.after.file), sourceSec: still.after.sourceSec, outSec: still.after.outSec },
+          })),
+          aiReview.maxImages,
+        );
+        if (frames.length === 0) {
+          warnings.push("secondary observation 向け still がありませんでした");
+        } else {
+          secondaryObservation = await provider.observe({
+            frames,
+            primary: observation,
+            task: {},
+            budget: { maxImages: aiReview.maxImages, maxOutputTokens: MAX_SECONDARY_OUTPUT_TOKENS },
+          }, cfg);
+        }
       } catch (error) {
-        warnings.push(`VLM reviewに失敗しました: ${(error as Error).message}`);
+        warnings.push(`secondary observation に失敗しました: ${(error as Error).message}`);
       }
     }
   }
@@ -292,105 +297,13 @@ export async function reviewEdit(
         }
       : {}),
     observation,
-    ...(vlm ? { vlm } : {}),
-    ...(vlmProvider ? { vlmProvider } : {}),
+    ...(secondaryObservation ? { secondaryObservation } : {}),
     warnings,
   };
   const tmp = join(outDir, "index.json.tmp");
   writeFileSync(tmp, JSON.stringify(bundle, null, 2), "utf8");
   renameSync(tmp, join(outDir, "index.json"));
   return bundle;
-}
-
-async function runVlmReview(
-  dir: string,
-  stills: ReviewStill[],
-  observation: DeterministicReviewObservation,
-  cfg: Config,
-  maxImages: number,
-): Promise<{ result: VlmReviewResult; provider: NonNullable<ReviewBundle["vlmProvider"]> }> {
-  const schema = {
-    type: "object",
-    additionalProperties: false,
-    required: ["summary", "observations", "confidence"],
-    properties: {
-      summary: { type: "array", items: { type: "string" } },
-      observations: {
-        type: "array",
-        items: {
-          type: "object",
-          additionalProperties: false,
-          required: ["frame", "severity", "category", "message"],
-          properties: {
-            frame: { type: "integer", minimum: 0 },
-            severity: { enum: ["info", "warn"] },
-            category: { enum: ["layout", "readability", "occlusion", "continuity", "content"] },
-            message: { type: "string" },
-          },
-        },
-      },
-      confidence: { enum: ["low", "medium", "high"] },
-    },
-  };
-  const prompt = [
-    "Observe the labeled before/after frames. Return observations only.",
-    "Never return patch, coordinates, approval recommendation, pass, or fail.",
-    "Deterministic checks and OCR are primary when they conflict with the images.",
-    JSON.stringify({ checks: observation.checks, delta: observation.delta }),
-  ].join("\n");
-  const tempDir = mkdtempSync(join(tmpdir(), "cutflow-vlm-"));
-  try {
-    const selected = stills.flatMap((still, frame) => [
-      { side: "before" as const, frame, still: still.before },
-      { side: "after" as const, frame, still: still.after },
-    ]);
-    const pairLimited = Math.max(2, Math.min(maxImages <= 2 ? 2 : 4, 4));
-    const selectedPairs = selected.slice(0, pairLimited);
-    const resized: AiImagePart[] = [];
-    for (let index = 0; index < selectedPairs.length; index++) {
-      const item = selectedPairs[index];
-      const out = join(tempDir, `frame-${index + 1}.png`);
-      await run("ffmpeg", [
-        "-hide_banner", "-loglevel", "error", "-y", "-i", join(dir, item.still.file),
-        "-vf", "scale=w='min(1600,iw)':h='min(1600,ih)':force_original_aspect_ratio=decrease",
-        "-frames:v", "1", out,
-      ]);
-      resized.push({
-        type: "image",
-        file: out,
-        mediaType: "image/png",
-        label: `image ${index}: ${item.side} source=${item.still.sourceSec ?? "null"} output=${item.still.outSec.toFixed(2)} reason=${stills[item.frame]?.requested.reason ?? "frame"}`,
-      });
-    }
-    const response = await completeAi({
-      route: "vision",
-      parts: [{ type: "text", text: prompt }, ...resized],
-      output: { kind: "json-schema", format: { name: "cutflow_vlm_review", schema, strict: true } },
-      purpose: "vision-review",
-    }, cfg);
-    const raw = response.text;
-    const parsed = JSON.parse(raw) as VlmReviewResult;
-    if (!Array.isArray(parsed.summary) || !Array.isArray(parsed.observations)
-      || !["low", "medium", "high"].includes(parsed.confidence)
-      || parsed.observations.some((item) =>
-        !Number.isInteger(item.frame)
-        || !["info", "warn"].includes(item.severity)
-        || !["layout", "readability", "occlusion", "continuity", "content"].includes(item.category)
-        || typeof item.message !== "string")) {
-      throw new Error("VLM response schemaが不正です");
-    }
-    return {
-      result: parsed,
-      provider: {
-        profile: response.profile,
-        adapter: response.adapter,
-        model: response.model,
-        ...(response.requestId ? { requestId: response.requestId } : {}),
-      },
-    };
-  } finally {
-    rmSync(tempDir, { recursive: true, force: true });
-  }
 }
 
 function buildReviewRenderContext(
