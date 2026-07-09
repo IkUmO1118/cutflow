@@ -6,6 +6,8 @@ import type {
   AiFrameResponse,
   AiProposeRequest,
   AiProposeResponse,
+  AiRefineRequest,
+  AiRefineResponse,
   AiReviewRequest,
   AiReviewResponse,
   AiDoctorResult,
@@ -63,6 +65,10 @@ export async function postAiFrames(body: AiFrameRequest): Promise<AiFrameRespons
 
 export async function postAiReview(body: AiReviewRequest): Promise<AiReviewResponse> {
   return (await request("/api/ai/review", body)) as AiReviewResponse;
+}
+
+export async function postAiRefine(body: AiRefineRequest): Promise<AiRefineResponse> {
+  return (await request("/api/ai/refine", body)) as AiRefineResponse;
 }
 
 export async function postAiDoctor(body: { route?: "text" | "structured" | "vision" }): Promise<AiDoctorResult[]> {

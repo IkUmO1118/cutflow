@@ -30,7 +30,7 @@ import { run } from "../src/lib/exec.ts";
 import { ensureIds, hasAnyId, ID_PREFIX, usedIdsOf } from "../src/lib/ids.ts";
 import { mergeBodyOverDisk } from "../src/lib/applyEdits.ts";
 import { bootstrapProject } from "../src/stages/bootstrap.ts";
-import { EditorAiError, proposeEditorAi } from "../src/stages/editorAi.ts";
+import { EditorAiError, proposeEditorAi, refineEditorAi } from "../src/stages/editorAi.ts";
 import type { AiProposeResponse as EditorAiStageProposeResponse } from "../src/stages/editorAi.ts";
 import { reviewSpecOfProposalReview } from "../src/lib/editorAiReview.ts";
 import { frames } from "../src/stages/frames.ts";
@@ -67,6 +67,7 @@ import type {
   ConfigSaveResult,
   DraftData,
   AiFrameRequest,
+  AiRefineRequest,
   AiProposeRequest,
   AiReviewRequest,
   ProjectData,
@@ -75,6 +76,8 @@ import type {
 import type { EditableDocs } from "../src/lib/ids.ts";
 import type { ReviewDocs } from "../src/lib/docDiff.ts";
 import type { ReviewSpec } from "../src/lib/review.ts";
+import type { DeterministicReviewObservation } from "../src/lib/reviewObservation.ts";
+import type { SecondaryObservation } from "../src/lib/vlmObservation.ts";
 
 /**
  * cutflow エディタのローカルサーバー。
@@ -206,6 +209,16 @@ interface StoredProposal {
   baseDocs: ReviewDocs;
   baseDocsHash: string;
   activeShortName: string | null;
+  instruction: string;
+  parentProposalId: string | null;
+  refinementIteration: number;
+  lineageExpiresAtMs: number;
+  lastReview?: {
+    key: { candidateHash: string; specHash: string; acceptedLabelsHash: string };
+    acceptedHunkLabels: string[];
+    primary: DeterministicReviewObservation;
+    secondary?: SecondaryObservation;
+  };
   createdAtMs: number;
   expiresAtMs: number;
 }
@@ -301,6 +314,7 @@ async function handle(
       }
       return storeProposal(
         proposal,
+        body.instruction,
         base,
         spec,
         hashEditableDocsState(currentEditableDocs(dir)),
@@ -315,7 +329,8 @@ async function handle(
     const requestErrors = validateReviewRequest(body);
     if (requestErrors.length > 0) throw new HttpError(400, requestErrors.join(" / "));
     const record = getStoredProposal(body.proposalId);
-    const key = `review:${reviewRequestKey(record, body.acceptedHunkLabels, cfg, body.vlm === true)}`;
+    const secondaryObservation = body.secondaryObservation === "vlm" ? "vlm" : "none";
+    const key = `review:${reviewRequestKey(record, body.acceptedHunkLabels, cfg, secondaryObservation)}`;
     if (proxyBuilding) await proxyBuilding;
     const bundle = await runHeavyJob("review", key, async () => {
       const currentHash = hashEditableDocsState(currentEditableDocs(dir));
@@ -330,7 +345,10 @@ async function handle(
         snapshotOfReviewDocs(record.baseDocs),
         snapshotOfReviewDocs(candidate),
         record.normalizedReviewSpec,
-        { shortName: record.activeShortName ?? undefined, vlm: body.vlm === true },
+        {
+          shortName: record.activeShortName ?? undefined,
+          secondaryObservation,
+        },
       );
       const finalHash = hashEditableDocsState(currentEditableDocs(dir));
       if (finalHash !== record.baseDocsHash) {
@@ -343,9 +361,78 @@ async function handle(
       bundle.key.acceptedLabels = [...new Set(body.acceptedHunkLabels)].sort();
       bundle.key.baseHash = record.baseDocsHash;
       bundle.key.candidateHash = hashReviewDocs(candidate);
+      record.lastReview = {
+        key: {
+          candidateHash: bundle.key.candidateHash,
+          specHash: bundle.key.specHash,
+          acceptedLabelsHash: bundle.key.acceptedLabelsHash,
+        },
+        acceptedHunkLabels: [...new Set(body.acceptedHunkLabels)].sort(),
+        primary: bundle.observation,
+        ...(bundle.secondaryObservation ? { secondary: bundle.secondaryObservation } : {}),
+      };
       return bundle;
     });
     sendJson(res, 200, { bundle });
+    return;
+  }
+  if (req.method === "POST" && path === "/api/ai/refine") {
+    const body = (await readBody(req, 4 * 1024 * 1024)) as AiRefineRequest;
+    const requestErrors = validateRefineRequest(body);
+    if (requestErrors.length > 0) throw new HttpError(400, requestErrors.join(" / "));
+    const record = getStoredProposal(body.proposalId);
+    const key = `refine:${refineRequestKey(record, body, cfg)}`;
+    const response = await runHeavyJob("propose", key, async () => {
+      const currentHash = hashEditableDocsState(currentEditableDocs(dir));
+      if (currentHash !== record.baseDocsHash) {
+        expireStoredProposal(record.proposalId);
+        throw new HttpError(409, "proposal の基準状態が変化しました。再提案してください", PROPOSAL_STALE_CODE);
+      }
+      if (!record.lastReview?.secondary) {
+        throw new HttpError(422, "secondary observation がありません", "SECONDARY_OBSERVATION_UNAVAILABLE");
+      }
+      if (
+        record.lastReview.key.candidateHash !== body.reviewKey.candidateHash ||
+        record.lastReview.key.specHash !== body.reviewKey.specHash ||
+        record.lastReview.key.acceptedLabelsHash !== body.reviewKey.acceptedLabelsHash
+      ) {
+        throw new HttpError(409, "review の基準状態が変化しました", "REVIEW_STALE");
+      }
+      if (record.refinementIteration >= ((cfg.editor?.aiReview as { maxRefinements?: number } | undefined)?.maxRefinements ?? 2)) {
+        throw new HttpError(422, "refinement 上限に達しました", "REFINEMENT_LIMIT_REACHED");
+      }
+      const proposal = await refineEditorAi(dir, cfg, {
+        originalInstruction: record.instruction,
+        base: record.baseDocs,
+        previousProposal: record.proposal.proposedDocs,
+        acceptedHunkLabels: [...new Set(body.acceptedHunkLabels)].sort(),
+        primaryObservation: record.lastReview.primary,
+        secondaryObservation: record.lastReview.secondary,
+        refinementIteration: record.refinementIteration + 1,
+      });
+      const spec = reviewSpecOfProposalReview(proposal.review);
+      if (!spec) throw new HttpError(422, "NO_REFINEMENT", "NO_REFINEMENT");
+      const child = storeProposal(
+        proposal,
+        record.instruction,
+        record.baseDocs,
+        spec,
+        record.baseDocsHash,
+        record.activeShortName,
+        record.proposalId,
+        record.refinementIteration + 1,
+        record.lineageExpiresAtMs,
+      );
+      return {
+        proposalId: child.proposalId,
+        proposal: child.proposal,
+        refinement: {
+          iteration: child.refinementIteration,
+          parentProposalId: record.proposalId,
+        },
+      };
+    });
+    sendJson(res, 200, response);
     return;
   }
   if (req.method === "POST" && path === "/api/ai/frames") {
@@ -413,6 +500,11 @@ async function handle(
       previewCfg: { width: cfg.preview.width },
       editorCfg: resolvedEditorCfg(cfg, DEFAULT_MAX_UPLOAD_MB),
       aiProfiles: aiProfileStatuses(cfg),
+      aiRoutes: resolveAiRuntimeConfig(cfg).routes,
+      aiReviewCfg: {
+        ...resolveAiReviewCfg(cfg),
+        maxRefinements: Math.min(3, Math.max(1, (cfg.editor?.aiReview as { maxRefinements?: number } | undefined)?.maxRefinements ?? 2)),
+      },
     };
     sendJson(res, 200, result);
     return;
@@ -595,14 +687,19 @@ function evictOldestProposalIfNeeded(): void {
 
 function storeProposal(
   proposal: Awaited<ReturnType<typeof proposeEditorAi>>,
+  instruction: string,
   baseDocs: ReviewDocs,
   normalizedReviewSpec: ReviewSpec,
   baseDocsHash: string,
   activeShortName: string | null,
+  parentProposalId: string | null = null,
+  refinementIteration = 0,
+  lineageExpiresAtMs?: number,
 ): StoredProposal {
   pruneExpiredProposals();
   evictOldestProposalIfNeeded();
   const now = Date.now();
+  const expiresAtMs = lineageExpiresAtMs ?? (now + PROPOSAL_TTL_MS);
   const record: StoredProposal = {
     proposalId: randomUUID(),
     proposal: cloneProposal(proposal),
@@ -610,8 +707,12 @@ function storeProposal(
     baseDocs: deepClone(baseDocs),
     baseDocsHash,
     activeShortName,
+    instruction,
+    parentProposalId,
+    refinementIteration,
+    lineageExpiresAtMs: expiresAtMs,
     createdAtMs: now,
-    expiresAtMs: now + PROPOSAL_TTL_MS,
+    expiresAtMs,
   };
   proposalStore.set(record.proposalId, record);
   return record;
@@ -649,15 +750,29 @@ function acceptedLabelsHash(labels: string[]): string {
   return sha256Hex(JSON.stringify([...new Set(labels)].sort()));
 }
 
-function reviewRequestKey(record: StoredProposal, acceptedHunkLabels: string[], cfg: Config, vlm = false): string {
+function reviewRequestKey(record: StoredProposal, acceptedHunkLabels: string[], cfg: Config, secondaryObservation: "none" | "vlm" = "none"): string {
   const runtime = resolveAiRuntimeConfig(cfg);
   const visionProfile = runtime.routes.vision ? profileForRoute(runtime, "vision") : null;
   return JSON.stringify({
     proposalId: record.proposalId,
     acceptedLabelsHash: acceptedLabelsHash(acceptedHunkLabels),
-    vlm,
+    secondaryObservation,
     visionProfile: visionProfile?.name ?? null,
     visionModel: visionProfile?.model ?? null,
+  });
+}
+
+function refineRequestKey(record: StoredProposal, body: AiRefineRequest, cfg: Config): string {
+  const runtime = resolveAiRuntimeConfig(cfg);
+  const structuredProfile = profileForRoute(runtime, "structured");
+  return JSON.stringify({
+    parentProposalId: record.proposalId,
+    acceptedLabelsHash: acceptedLabelsHash(body.acceptedHunkLabels),
+    reviewKey: body.reviewKey,
+    secondaryInputDigest: record.lastReview?.secondary?.provenance.inputDigest ?? null,
+    refinementIteration: record.refinementIteration + 1,
+    structuredProfile: structuredProfile.name,
+    structuredModel: structuredProfile.model,
   });
 }
 
@@ -667,9 +782,9 @@ export function validateReviewRequest(body: AiReviewRequest): string[] {
     return ["request body が不正です"];
   }
   const keys = Object.keys(body).sort();
-  const allowedKeys = new Set(["acceptedHunkLabels", "proposalId", "vlm"]);
+  const allowedKeys = new Set(["acceptedHunkLabels", "proposalId", "secondaryObservation"]);
   if (keys.some((key) => !allowedKeys.has(key))) {
-    errors.push("request body は proposalId / acceptedHunkLabels / vlm だけを指定してください");
+    errors.push("request body は proposalId / acceptedHunkLabels / secondaryObservation だけを指定してください");
   }
   if (typeof body.proposalId !== "string" || body.proposalId.trim() === "") {
     errors.push("proposalId は空でない文字列で指定してください");
@@ -685,8 +800,33 @@ export function validateReviewRequest(body: AiReviewRequest): string[] {
   if (new Set(labels).size !== labels.length) {
     errors.push("acceptedHunkLabels に重複があります");
   }
-  if ("vlm" in body && body.vlm !== undefined && typeof body.vlm !== "boolean") {
-    errors.push("vlm は true / false で指定してください");
+  if (
+    "secondaryObservation" in body &&
+    body.secondaryObservation !== undefined &&
+    body.secondaryObservation !== "none" &&
+    body.secondaryObservation !== "vlm"
+  ) {
+    errors.push("secondaryObservation は none / vlm で指定してください");
+  }
+  return errors;
+}
+
+function validateRefineRequest(body: AiRefineRequest): string[] {
+  const errors: string[] = [];
+  if (!body || typeof body !== "object") return ["request body が不正です"];
+  const keys = Object.keys(body).sort();
+  const allowedKeys = new Set(["acceptedHunkLabels", "proposalId", "reviewKey"]);
+  if (keys.some((key) => !allowedKeys.has(key))) {
+    errors.push("request body は proposalId / acceptedHunkLabels / reviewKey だけを指定してください");
+  }
+  if (typeof body.proposalId !== "string" || body.proposalId.trim() === "") {
+    errors.push("proposalId は空でない文字列で指定してください");
+  }
+  if (!Array.isArray(body.acceptedHunkLabels)) {
+    errors.push("acceptedHunkLabels は配列で指定してください");
+  }
+  if (!body.reviewKey || typeof body.reviewKey !== "object") {
+    errors.push("reviewKey は object で指定してください");
   }
   return errors;
 }
@@ -780,7 +920,10 @@ export function loadProject(dir: string, cfg: Config): ProjectData {
     planPerception: resolvePerceptionStatus(cfg),
     aiProfiles: aiProfileStatuses(cfg),
     aiRoutes: aiRuntime.routes,
-    aiReviewCfg: resolveAiReviewCfg(cfg),
+    aiReviewCfg: {
+      ...resolveAiReviewCfg(cfg),
+      maxRefinements: Math.min(3, Math.max(1, (cfg.editor?.aiReview as { maxRefinements?: number } | undefined)?.maxRefinements ?? 2)),
+    },
   };
 }
 
