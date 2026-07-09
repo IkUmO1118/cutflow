@@ -528,7 +528,7 @@ export async function proposeEditorAi(
     throw new EditorAiError(400, "AI 指示が空です");
   }
   const prompt = buildEditorAiPrompt(dir, cfg, req);
-  const raw = await completeWithJsonSchema(prompt, cfg, EDITOR_AI_RESPONSE_SCHEMA);
+  const raw = await completeWithJsonSchema(prompt, cfg, EDITOR_AI_RESPONSE_SCHEMA, "editor-proposal");
   const parsed = parseAiPatchResponse(raw);
   if (parsed.review.frames.length === 0 && req.selection) {
     const sliced = sliceReviewContext(describeJson(dir, cfg), {

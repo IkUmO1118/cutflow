@@ -13,19 +13,23 @@ import {
   validateConfigPatch,
 } from "../src/lib/configEdit.ts";
 import {
+  aiCapabilities,
   DEFAULT_DESCRIBE_PAUSE_MAX,
   DEFAULT_DESCRIBE_PAUSE_MIN_SEC,
   DEFAULT_AV_COLS,
   DEFAULT_AV_EVERY_SEC,
+  DEFAULT_AI_MAX_OUTPUT_TOKENS,
   DEFAULT_PERCEPTION_OCR_MAX_LINES,
   DEFAULT_PERCEPTION_OCR_MAX_SEGMENTS,
   DEFAULT_PLAN_LOOP_MAX_ITERATIONS,
   DEFAULT_PLAN_SHORTS_MAX_DURATION_SEC,
   loadConfig,
+  MAX_AI_IMAGES,
   planLoopEnabled,
   planShortsMaxSec,
   formatPerceptionStatusLines,
   resolveAiCfg,
+  resolveAiRuntimeConfig,
   resolveAvCfg,
   resolveDescribePausesCfg,
   resolvePerceptionCfg,
@@ -540,6 +544,70 @@ test("resolveAiCfg: 旧 llm 設定を互換解決する", () => {
     resolveAiCfg({ llm: { backend: "api", model: "claude-x" } } as Config),
     { provider: "anthropic", model: "claude-x" },
   );
+});
+
+test("resolveAiRuntimeConfig: routed ai config を route/profile へ解決する", () => {
+  const runtime = resolveAiRuntimeConfig({
+    ai: {
+      profiles: {
+        local: {
+          adapter: "openai-compatible",
+          protocol: "chat-completions",
+          baseUrl: "http://127.0.0.1:11434/v1/",
+          model: "qwen-local",
+          auth: { type: "none" },
+          capabilities: { structuredOutput: "json-object", imageInput: false },
+        },
+        vision: {
+          adapter: "openai",
+          model: "gpt-vision",
+        },
+      },
+      routes: { text: "local", structured: "local", vision: "vision" },
+    },
+  } as Config);
+  assert.equal(runtime.source, "routed");
+  assert.equal(runtime.routes.text, "local");
+  assert.equal(runtime.routes.vision, "vision");
+  assert.equal(runtime.profiles.get("local")?.protocol, "chat-completions");
+  assert.equal(runtime.profiles.get("local")?.baseUrl, "http://127.0.0.1:11434/v1");
+  assert.equal(runtime.profiles.get("local")?.capabilities.structuredOutput, "json-object");
+  assert.equal(runtime.profiles.get("local")?.maxOutputTokens, DEFAULT_AI_MAX_OUTPUT_TOKENS);
+  assert.equal(runtime.profiles.get("vision")?.capabilities.imageInput, true);
+  assert.equal(runtime.profiles.get("vision")?.capabilities.maxImages, MAX_AI_IMAGES);
+});
+
+test("resolveAiRuntimeConfig: openai-compatible は capability 明示必須", () => {
+  assert.throws(
+    () => resolveAiRuntimeConfig({
+      ai: {
+        profiles: {
+          local: {
+            adapter: "openai-compatible",
+            protocol: "chat-completions",
+            baseUrl: "http://127.0.0.1:8000/v1",
+            auth: { type: "none" },
+          },
+        },
+        routes: { text: "local", structured: "local" },
+      },
+    } as Config),
+    /structuredOutput/,
+  );
+});
+
+test("aiCapabilities: vision route 未設定なら null、設定なら capability を返す", () => {
+  assert.equal(aiCapabilities({} as Config, "vision"), null);
+  const caps = aiCapabilities({
+    ai: {
+      profiles: {
+        main: { adapter: "anthropic", model: "claude-x" },
+      },
+      routes: { text: "main", structured: "main", vision: "main" },
+    },
+  } as Config, "vision");
+  assert.equal(caps?.imageInput, true);
+  assert.equal(caps?.structuredOutput, "native-json-schema");
 });
 
 test("loadConfig: whisper.systemAudio 省略時は false へ defaulting・cfg.describe は生成しない(バイト等価)", () => {

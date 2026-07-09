@@ -39,8 +39,9 @@ import { preview } from "../src/stages/preview.ts";
 import { findBgm, render } from "../src/stages/render.ts";
 import { reviewEdit } from "../src/stages/review.ts";
 import { validateDocs } from "../src/stages/validate.ts";
+import { aiDoctor } from "../src/stages/aiDoctor.ts";
 import { readEditableDocs } from "../src/stages/idStamp.ts";
-import { resolvePerceptionStatus } from "../src/lib/config.ts";
+import { aiProfileStatuses, profileForRoute, resolveAiReviewCfg, resolveAiRuntimeConfig, resolvePerceptionStatus } from "../src/lib/config.ts";
 import type { Config } from "../src/lib/config.ts";
 import {
   applyConfigEdits,
@@ -314,7 +315,7 @@ async function handle(
     const requestErrors = validateReviewRequest(body);
     if (requestErrors.length > 0) throw new HttpError(400, requestErrors.join(" / "));
     const record = getStoredProposal(body.proposalId);
-    const key = `review:${reviewRequestKey(record, body.acceptedHunkLabels, body.vlm === true)}`;
+    const key = `review:${reviewRequestKey(record, body.acceptedHunkLabels, cfg, body.vlm === true)}`;
     if (proxyBuilding) await proxyBuilding;
     const bundle = await runHeavyJob("review", key, async () => {
       const currentHash = hashEditableDocsState(currentEditableDocs(dir));
@@ -411,8 +412,14 @@ async function handle(
       renderCfg: cfg.render,
       previewCfg: { width: cfg.preview.width },
       editorCfg: resolvedEditorCfg(cfg, DEFAULT_MAX_UPLOAD_MB),
+      aiProfiles: aiProfileStatuses(cfg),
     };
     sendJson(res, 200, result);
+    return;
+  }
+  if (req.method === "POST" && path === "/api/ai/doctor") {
+    const body = (await readBody(req)) as { route?: "text" | "structured" | "vision" };
+    sendJson(res, 200, await aiDoctor(cfg, { route: body.route }));
     return;
   }
   if (req.method === "POST" && path === "/api/upload") {
@@ -642,11 +649,15 @@ function acceptedLabelsHash(labels: string[]): string {
   return sha256Hex(JSON.stringify([...new Set(labels)].sort()));
 }
 
-function reviewRequestKey(record: StoredProposal, acceptedHunkLabels: string[], vlm = false): string {
+function reviewRequestKey(record: StoredProposal, acceptedHunkLabels: string[], cfg: Config, vlm = false): string {
+  const runtime = resolveAiRuntimeConfig(cfg);
+  const visionProfile = runtime.routes.vision ? profileForRoute(runtime, "vision") : null;
   return JSON.stringify({
     proposalId: record.proposalId,
     acceptedLabelsHash: acceptedLabelsHash(acceptedHunkLabels),
     vlm,
+    visionProfile: visionProfile?.name ?? null,
+    visionModel: visionProfile?.model ?? null,
   });
 }
 
@@ -717,6 +728,7 @@ export function buildAiReviewCandidateFromStoredProposal(
 }
 
 export function loadProject(dir: string, cfg: Config): ProjectData {
+  const aiRuntime = resolveAiRuntimeConfig(cfg);
   const readJson = <T>(file: string, fallback: T): T => {
     const p = join(dir, file);
     return existsSync(p) ? (JSON.parse(readFileSync(p, "utf8")) as T) : fallback;
@@ -766,6 +778,9 @@ export function loadProject(dir: string, cfg: Config): ProjectData {
     hasCamera: hasCamera(manifest),
     draft,
     planPerception: resolvePerceptionStatus(cfg),
+    aiProfiles: aiProfileStatuses(cfg),
+    aiRoutes: aiRuntime.routes,
+    aiReviewCfg: resolveAiReviewCfg(cfg),
   };
 }
 
