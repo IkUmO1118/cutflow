@@ -7,6 +7,7 @@ import {
   insertSpans,
   mergeIntervals,
   remapInterval,
+  remapIntervalPieces,
   snapToOutput,
   toOutputTime,
   toSourceTime,
@@ -79,4 +80,16 @@ test("挿入は keep を割り、アンカー以降を後ろへずらす", () =>
   ]);
   // 挿入クリップ自体のカット後区間(出力 5–7)
   assert.deepEqual(insertSpans(single, inserts), [{ start: 5, end: 7, index: 0 }]);
+});
+
+test("remapIntervalPieces: keep/cut/insert をまたいでも piece を結合しない", () => {
+  const tl = buildTimeline(
+    [{ start: 0, end: 5 }, { start: 10, end: 15 }],
+    [{ at: 12, durationSec: 2 }],
+  );
+  assert.deepEqual(remapIntervalPieces(4, 14, tl), [
+    { sourceStart: 4, sourceEnd: 5, outputStart: 4, outputEnd: 5 },
+    { sourceStart: 10, sourceEnd: 12, outputStart: 5, outputEnd: 7 },
+    { sourceStart: 12, sourceEnd: 14, outputStart: 9, outputEnd: 11 },
+  ]);
 });

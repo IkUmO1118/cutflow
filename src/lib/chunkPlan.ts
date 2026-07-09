@@ -149,6 +149,7 @@ function videoOverlayProjection(o: OverlayItem) {
     fadeInSec: o.fadeInSec ?? null,
     fadeOutSec: o.fadeOutSec ?? null,
     rect: o.rect ?? null,
+    keyframes: o.keyframes ?? null,
   };
 }
 
@@ -201,6 +202,7 @@ export function chunkVideoKey(
     // blurs も zooms と同型の時間局所要素。重なるチャンクだけキーが変わる
     // (globalVideoProps には入れない=全域無効化を避ける。§4 タスク6)
     blurs: sortStable((props.blurs ?? []).filter((b) => overlaps(b.start, b.end))),
+    annotations: sortStable((props.annotations ?? []).filter((a) => overlaps(a.start, a.end))),
     hideCaption: sortStable((props.hideCaption ?? []).filter((s) => overlaps(s.start, s.end))),
     cutTransition:
       cutBoundariesHere.length > 0 ? { sec: cutSec, boundaries: cutBoundariesHere } : null,

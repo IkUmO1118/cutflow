@@ -16,6 +16,13 @@ export interface InsertSpan {
   durationSec: number;
 }
 
+export interface RemappedPiece {
+  sourceStart: number;
+  sourceEnd: number;
+  outputStart: number;
+  outputEnd: number;
+}
+
 /**
  * keep 区間(+挿入)からカット後タイムラインへの写像を作る。
  * 挿入はアンカー時刻の手前に尺を差し込むので、アンカー以降の keep の
@@ -149,6 +156,30 @@ export function remapInterval(
       const last = result[result.length - 1];
       if (last && Math.abs(last.end - iv.start) < 0.005) last.end = iv.end;
       else result.push(iv);
+    }
+  }
+  return result;
+}
+
+export function remapIntervalPieces(
+  start: number,
+  end: number,
+  timeline: TimelineEntry[],
+): RemappedPiece[] {
+  const result: RemappedPiece[] = [];
+  const i0 = lowerBound(timeline.length, (j) => timeline[j].end > start);
+  for (let i = i0; i < timeline.length; i++) {
+    const e = timeline[i];
+    if (e.start >= end) break;
+    const sourceStart = Math.max(start, e.start);
+    const sourceEnd = Math.min(end, e.end);
+    if (sourceEnd > sourceStart) {
+      result.push({
+        sourceStart,
+        sourceEnd,
+        outputStart: round2(sourceStart + e.offset),
+        outputEnd: round2(sourceEnd + e.offset),
+      });
     }
   }
   return result;

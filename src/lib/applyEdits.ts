@@ -174,13 +174,14 @@ export function compileOps(docs: LoadedDocs, ops: EditOp[]): CompileOpsResult {
     const opKind = (rawOp as Record<string, unknown>).op;
 
     if (opKind === "set") {
-      const { target, field, value } = op as { op: "set"; target: unknown; field: unknown; value: unknown };
+      const { target, value } = op as { op: "set"; target: unknown; value: unknown };
+      const field = (op as { field?: unknown; path?: unknown }).field ?? (op as { path?: unknown }).path;
       if (typeof target !== "string" || target === "") {
         errors.push({ file: "(patch)", where: `${where}.target`, message: "target がありません" });
         return;
       }
       if (typeof field !== "string" || field === "") {
-        errors.push({ file: "(patch)", where: `${where}.field`, message: "field がありません" });
+        errors.push({ file: "(patch)", where: `${where}.field`, message: "field/path がありません" });
         return;
       }
       const segs = field.split(".");
