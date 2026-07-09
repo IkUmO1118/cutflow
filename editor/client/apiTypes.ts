@@ -99,7 +99,7 @@ export interface ProjectData {
   proxyStale: boolean;
   renderCfg: Config["render"];
   /** カット確認用プレビュー動画・プロキシの横幅(config の preview.width) */
-  previewCfg: { width: number };
+  previewCfg: { width: number; videoEncoder?: "libx264" | "videotoolbox" };
   /** エディタ設定(サーバー側で省略時の既定値まで解決した実値) */
   editorCfg: EditorCfg;
   /** 最終レンダーの出力解像度(manifest の screenRegion) */
@@ -136,7 +136,7 @@ export interface EditorCfg {
 export interface ConfigSaveResult {
   ok: true;
   renderCfg: Config["render"];
-  previewCfg: { width: number };
+  previewCfg: { width: number; videoEncoder?: "libx264" | "videotoolbox" };
   editorCfg: EditorCfg;
   aiProfiles: AiProfileStatus[];
   aiRoutes: { text: string; structured: string; vision?: string };

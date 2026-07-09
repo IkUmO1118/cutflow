@@ -497,7 +497,7 @@ async function handle(
     const result: ConfigSaveResult = {
       ok: true,
       renderCfg: cfg.render,
-      previewCfg: { width: cfg.preview.width },
+      previewCfg: { width: cfg.preview.width, videoEncoder: cfg.preview.videoEncoder },
       editorCfg: resolvedEditorCfg(cfg, DEFAULT_MAX_UPLOAD_MB),
       aiProfiles: aiProfileStatuses(cfg),
       aiRoutes: resolveAiRuntimeConfig(cfg).routes,
@@ -912,7 +912,7 @@ export function loadProject(dir: string, cfg: Config): ProjectData {
     proxyExists: existsSync(join(dir, "proxy.mp4")),
     proxyStale: isProxyStale(dir, cfg),
     renderCfg: cfg.render,
-    previewCfg: { width: cfg.preview.width },
+    previewCfg: { width: cfg.preview.width, videoEncoder: cfg.preview.videoEncoder },
     editorCfg: resolvedEditorCfg(cfg, DEFAULT_MAX_UPLOAD_MB),
     output: { w: manifest.video.screenRegion.w, h: manifest.video.screenRegion.h },
     hasCamera: hasCamera(manifest),

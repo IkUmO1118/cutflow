@@ -190,13 +190,38 @@ test("validateConfigPatch: 正常系は空配列", () => {
         systemAudio: { mix: true, volumeDb: 0 },
         denoise: { mic: false, noiseFloorDb: -25 },
         bgm: { volumeDb: -22, ducking: { duckDb: -8, fadeSec: 0.4 } },
+        cutTransition: { type: "dip-to-black", sec: 0.4 },
         hardwareAcceleration: "disable",
+        zoom: { easeSec: 0.4 },
       },
-      preview: { width: 1280 },
-      editor: { maxUploadMb: 2048, defaultImageDurationSec: 4 },
+      preview: { width: 1280, videoEncoder: "videotoolbox" },
+      editor: {
+        maxUploadMb: 2048,
+        defaultImageDurationSec: 4,
+        defaultShortRangeSec: 10,
+        aiReview: { vlm: true, maxImages: 4, maxRefinements: 2 },
+      },
+      ai: {
+        profiles: { local: { adapter: "openai", model: "gpt-5.4-mini" } },
+        routes: { text: "local", structured: "local", vision: "local" },
+      },
     }),
     [],
   );
+});
+
+test("applyConfigEdits: ai は単一provider設定として置き換える", () => {
+  const out = applyConfigEdits(RAW, {
+    ai: {
+      profiles: { local: { adapter: "codex", model: "auto" } },
+      routes: { text: "local", structured: "local" },
+    },
+  });
+  const cfg = parse(out) as Config;
+  assert.deepEqual(cfg.ai, {
+    profiles: { local: { adapter: "codex", model: "auto" } },
+    routes: { text: "local", structured: "local" },
+  });
 });
 
 test("validateConfigPatch: hardwareAcceleration は if-possible/disable/null のみ許可", () => {

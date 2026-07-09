@@ -77,7 +77,7 @@ import type { OverlayRect } from "./MaterialOverlay.tsx";
 import { Inspector } from "./Inspector.tsx";
 import { CaptionsPanel, MaterialsPanel, ShortsPanel } from "./Panels.tsx";
 import { SettingsModal, buildConfigPatch, patchTouchesProxy } from "./SettingsModal.tsx";
-import type { CfgValues } from "./SettingsModal.tsx";
+import type { AiSettingsValue, CfgValues } from "./SettingsModal.tsx";
 import { Timeline } from "./Timeline.tsx";
 import { playhead, usePlayheadSelector } from "./playhead.ts";
 import { useToasts, ToastStack } from "./toasts.tsx";
@@ -486,7 +486,69 @@ export const App = () => {
     renderCfg: p.renderCfg,
     previewCfg: p.previewCfg,
     editorCfg: p.editorCfg,
+    aiCfg: aiSettingsOf(p),
   });
+  const aiSettingsOf = (p: ProjectData): AiSettingsValue => {
+    const textProfile = p.aiProfiles.find((profile) => profile.name === p.aiRoutes.text);
+    const structuredProfile = p.aiProfiles.find((profile) => profile.name === p.aiRoutes.structured);
+    const sameMain =
+      textProfile &&
+      structuredProfile &&
+      textProfile.name === structuredProfile.name &&
+      ["claude-code", "codex", "openai", "anthropic"].includes(textProfile.adapter);
+    return {
+      adapter: sameMain ? textProfile.adapter as AiSettingsValue["adapter"] : "custom",
+      model: textProfile?.model ?? "auto",
+      visionRoute: !!p.aiRoutes.vision,
+      review: p.aiReviewCfg,
+    };
+  };
+  const projectWithCfgPatch = (p: ProjectData, patch: Partial<CfgValues>): ProjectData => {
+    let next = {
+      ...p,
+      ...(patch.renderCfg ? { renderCfg: patch.renderCfg } : {}),
+      ...(patch.previewCfg ? { previewCfg: patch.previewCfg } : {}),
+      ...(patch.editorCfg ? { editorCfg: patch.editorCfg } : {}),
+    };
+    if (patch.aiCfg) {
+      const ai = patch.aiCfg;
+      const routes = ai.adapter === "custom"
+        ? next.aiRoutes
+        : {
+            text: "local",
+            structured: "local",
+            ...(ai.visionRoute ? { vision: "local" } : {}),
+          };
+      const profiles = ai.adapter === "custom"
+        ? next.aiProfiles
+        : [
+            ...next.aiProfiles.filter((profile) => profile.name !== "local"),
+            {
+              name: "local",
+              adapter: ai.adapter,
+              model: ai.model.trim() || "auto",
+              origin: null,
+              credential:
+                ai.adapter === "openai" || ai.adapter === "anthropic"
+                  ? next.aiProfiles.find((profile) => profile.name === "local")?.credential ?? "missing"
+                  : "not-required",
+              capabilities:
+                ai.adapter === "claude-code"
+                  ? { textInput: true as const, textOutput: true as const, structuredOutput: "native-json-schema" as const, imageInput: false, maxImages: 0 }
+                  : ai.adapter === "codex"
+                    ? { textInput: true as const, textOutput: true as const, structuredOutput: "prompt" as const, imageInput: false, maxImages: 0 }
+                    : { textInput: true as const, textOutput: true as const, structuredOutput: "native-json-schema" as const, imageInput: true, maxImages: 4 },
+            },
+          ];
+      next = {
+        ...next,
+        aiProfiles: profiles,
+        aiRoutes: routes,
+        aiReviewCfg: ai.review,
+      };
+    }
+    return next;
+  };
   const openSettings = () => {
     if (!proj) return;
     settingsSnapRef.current = structuredClone(cfgValuesOf(proj));
@@ -496,7 +558,7 @@ export const App = () => {
   /** キャンセル: ライブ反映済みの編集をモーダルを開いた時点へ戻す */
   const cancelSettings = () => {
     const snap = settingsSnapRef.current;
-    if (snap) setProj((p) => p && { ...p, ...structuredClone(snap) });
+    if (snap) setProj((p) => p && projectWithCfgPatch(p, structuredClone(snap)));
     settingsSnapRef.current = null;
     setSettingsOpen(false);
   };
@@ -573,6 +635,9 @@ export const App = () => {
               renderCfg: prev.renderCfg,
               previewCfg: prev.previewCfg,
               editorCfg: prev.editorCfg,
+              aiProfiles: prev.aiProfiles,
+              aiRoutes: prev.aiRoutes,
+              aiReviewCfg: prev.aiReviewCfg,
             }
           : p,
       );
@@ -4033,7 +4098,7 @@ export const App = () => {
           <SettingsModal
             cfg={cfgValuesOf(proj)}
             planPerception={proj.planPerception}
-            onChange={(patch) => setProj((p) => p && { ...p, ...patch })}
+            onChange={(patch) => setProj((p) => p && projectWithCfgPatch(p, patch))}
             onSave={() => void saveSettings()}
             onCancel={cancelSettings}
             saving={settingsSaving}
