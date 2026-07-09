@@ -14,20 +14,21 @@ import type {
 } from "../../src/types.ts";
 import type { FrameShot } from "../../src/stages/frames.ts";
 import type { ReviewBundle } from "../../src/stages/review.ts";
-import type { ReviewDocs } from "../../src/lib/docDiff.ts";
-import type { ReviewSpec } from "../../src/lib/review.ts";
 export type {
   AiProposeRequest,
-  AiProposeResponse,
   AiScope,
   AiSelectionContext,
 } from "../../src/stages/editorAi.ts";
+import type { AiProposeResponse as EditorAiProposeResponse } from "../../src/stages/editorAi.ts";
+
+export interface AiProposeResponse {
+  proposalId: string;
+  proposal: EditorAiProposeResponse;
+}
 
 export interface AiReviewRequest {
-  proposedDocs: ReviewDocs;
+  proposalId: string;
   acceptedHunkLabels: string[];
-  spec: ReviewSpec;
-  activeShortName?: string | null;
   vlm?: boolean;
 }
 

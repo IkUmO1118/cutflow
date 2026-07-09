@@ -11,6 +11,7 @@ import {
   watch,
   writeFileSync,
 } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { basename, dirname, extname, join, normalize, resolve, sep } from "node:path";
@@ -30,6 +31,8 @@ import { ensureIds, hasAnyId, ID_PREFIX, usedIdsOf } from "../src/lib/ids.ts";
 import { mergeBodyOverDisk } from "../src/lib/applyEdits.ts";
 import { bootstrapProject } from "../src/stages/bootstrap.ts";
 import { EditorAiError, proposeEditorAi } from "../src/stages/editorAi.ts";
+import type { AiProposeResponse as EditorAiStageProposeResponse } from "../src/stages/editorAi.ts";
+import { reviewSpecOfProposalReview } from "../src/lib/editorAiReview.ts";
 import { frames } from "../src/stages/frames.ts";
 import { buildProxy, isProxyStale } from "../src/stages/proxy.ts";
 import { preview } from "../src/stages/preview.ts";
@@ -49,7 +52,7 @@ import type { ConfigPatch } from "../src/lib/configEdit.ts";
 import { loadShorts } from "../src/lib/shorts.ts";
 import { hasCamera } from "../src/types.ts";
 import { applyProposalResolution, proposalDiff } from "../src/lib/docDiff.ts";
-import { snapshotOfReviewDocs, validateReviewSpec, MAX_REVIEW_FRAMES, MAX_REVIEW_OCR_FRAMES } from "../src/lib/review.ts";
+import { snapshotOfReviewDocs, validateReviewSpec } from "../src/lib/review.ts";
 import type {
   AutoCuts,
   Bgm,
@@ -68,6 +71,9 @@ import type {
   ProjectData,
   SaveRequest,
 } from "./client/apiTypes.ts";
+import type { EditableDocs } from "../src/lib/ids.ts";
+import type { ReviewDocs } from "../src/lib/docDiff.ts";
+import type { ReviewSpec } from "../src/lib/review.ts";
 
 /**
  * cutflow エディタのローカルサーバー。
@@ -114,6 +120,7 @@ export async function startEditor(
   watch(dir, (_event, filename) => {
     if (!filename || !WATCHED_FILES.includes(filename)) return;
     if (Date.now() - (selfWroteAt.get(filename) ?? 0) < 1500) return;
+    invalidateStoredProposals();
     changed.add(filename);
     notifyTimer ??= setTimeout(() => {
       const files = [...changed];
@@ -128,7 +135,7 @@ export async function startEditor(
       // HttpError は想定内の拒否(不正な保存=400、大きすぎる素材=413 等)。
       // それ以外は想定外なのでログに残して 500 で返す
       if (err instanceof HttpError) {
-        sendJson(res, err.status, { error: err.message });
+        sendJson(res, err.status, { error: err.message, ...(err.code ? { code: err.code } : {}) });
         return;
       }
       if (err instanceof EditorAiError) {
@@ -159,9 +166,11 @@ export async function startEditor(
  * handle の外側の catch がステータスを見て返す */
 class HttpError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  code?: string;
+  constructor(status: number, message: string, code?: string) {
     super(message);
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -169,7 +178,16 @@ class HttpError extends Error {
 const DEFAULT_MAX_UPLOAD_MB = 2048;
 
 /** エディタが編集する(=外部変更を監視する)ファイル */
-const WATCHED_FILES = ["cutplan.json", "overlays.json", "transcript.json", "bgm.json", "shorts.json"];
+const WATCHED_FILES = [
+  "cutplan.json",
+  "overlays.json",
+  "transcript.json",
+  "bgm.json",
+  "shorts.json",
+  "chapters.json",
+  "meta.json",
+  "thumbnail.json",
+];
 /** 未保存編集の自動退避先(隠しファイル。素材一覧・外部変更の監視の対象外) */
 const DRAFT_FILE = ".editor-draft.json";
 /** /api/save が最後に各ファイルを書いた時刻。watch の自己イベント除外用 */
@@ -179,6 +197,22 @@ const selfWroteAt = new Map<string, number>();
 interface EventHub {
   clients: Set<ServerResponse>;
 }
+
+interface StoredProposal {
+  proposalId: string;
+  proposal: EditorAiStageProposeResponse;
+  normalizedReviewSpec: ReviewSpec;
+  baseDocs: ReviewDocs;
+  baseDocsHash: string;
+  activeShortName: string | null;
+  createdAtMs: number;
+  expiresAtMs: number;
+}
+
+const PROPOSAL_TTL_MS = 30 * 60 * 1000;
+const MAX_STORED_PROPOSALS = 32;
+const PROPOSAL_EXPIRED_CODE = "proposal_expired";
+const PROPOSAL_STALE_CODE = "proposal_stale";
 
 async function handle(
   req: IncomingMessage,
@@ -244,33 +278,71 @@ async function handle(
   }
   if (req.method === "POST" && path === "/api/save") {
     const body = (await readBody(req)) as SaveRequest;
+    if (heavyJob) {
+      throw new HttpError(409, `${jaStage(heavyJob.stage)}を実行中です。完了までお待ちください`);
+    }
     saveProject(dir, body);
+    invalidateStoredProposals();
     sendJson(res, 200, { ok: true });
     return;
   }
   if (req.method === "POST" && path === "/api/ai/propose") {
     const body = (await readBody(req)) as AiProposeRequest;
-    const proposal = await proposeEditorAi(dir, cfg, body);
-    sendJson(res, 200, proposal);
+    const key = `propose:${sha256Hex(stableCanonicalize(body))}`;
+    const record = await runHeavyJob("propose", key, async () => {
+      const proposal = await proposeEditorAi(dir, cfg, body);
+      const base = currentReviewDocs(dir);
+      const spec = reviewSpecOfProposalReview(proposal.review);
+      if (!spec) throw new HttpError(400, "比較対象の review.frames がありません");
+      const specProblems = validateReviewSpec(spec);
+      if (specProblems.length > 0) {
+        throw new HttpError(400, specProblems.map((problem) => `${problem.where}: ${problem.message}`).join(" / "));
+      }
+      return storeProposal(
+        proposal,
+        base,
+        spec,
+        hashEditableDocsState(currentEditableDocs(dir)),
+        body.activeShortName ?? null,
+      );
+    });
+    sendJson(res, 200, { proposalId: record.proposalId, proposal: record.proposal });
     return;
   }
   if (req.method === "POST" && path === "/api/ai/review") {
     const body = (await readBody(req, 4 * 1024 * 1024)) as AiReviewRequest;
-    const base = currentReviewDocs(dir);
-    const requestErrors = validateReviewRequest(base, body);
+    const requestErrors = validateReviewRequest(body);
     if (requestErrors.length > 0) throw new HttpError(400, requestErrors.join(" / "));
-    const key = `review:${reviewRequestKey(body)}`;
+    const record = getStoredProposal(body.proposalId);
+    const key = `review:${reviewRequestKey(record, body.acceptedHunkLabels, body.vlm === true)}`;
     if (proxyBuilding) await proxyBuilding;
     const bundle = await runHeavyJob("review", key, async () => {
-      const candidate = buildAiReviewCandidate(dir, body);
-      return await reviewEdit(
+      const currentHash = hashEditableDocsState(currentEditableDocs(dir));
+      if (currentHash !== record.baseDocsHash) {
+        expireStoredProposal(record.proposalId);
+        throw new HttpError(409, "proposal の基準状態が変化しました。再提案してください", PROPOSAL_STALE_CODE);
+      }
+      const candidate = buildAiReviewCandidateFromStoredProposal(dir, record, body.acceptedHunkLabels);
+      const bundle = await reviewEdit(
         dir,
         cfg,
-        snapshotOfReviewDocs(base),
+        snapshotOfReviewDocs(record.baseDocs),
         snapshotOfReviewDocs(candidate),
-        body.spec,
-        { shortName: body.activeShortName ?? undefined, vlm: body.vlm === true },
+        record.normalizedReviewSpec,
+        { shortName: record.activeShortName ?? undefined, vlm: body.vlm === true },
       );
+      const finalHash = hashEditableDocsState(currentEditableDocs(dir));
+      if (finalHash !== record.baseDocsHash) {
+        rmSync(join(dir, "review.probe"), { recursive: true, force: true });
+        expireStoredProposal(record.proposalId);
+        throw new HttpError(409, "proposal の基準状態が変化しました。再提案してください", PROPOSAL_STALE_CODE);
+      }
+      bundle.key.proposalId = record.proposalId;
+      bundle.key.acceptedLabelsHash = acceptedLabelsHash(body.acceptedHunkLabels);
+      bundle.key.acceptedLabels = [...new Set(body.acceptedHunkLabels)].sort();
+      bundle.key.baseHash = record.baseDocsHash;
+      bundle.key.candidateHash = hashReviewDocs(candidate);
+      return bundle;
     });
     sendJson(res, 200, { bundle });
     return;
@@ -410,15 +482,23 @@ async function handle(
 /** proxy.mp4 の生成(数十秒かかる)の実行中プロミス。二重生成の防止用 */
 let proxyBuilding: Promise<string> | null = null;
 
-type HeavyJobStage = "preview" | "render" | "review";
+type HeavyJobStage = "preview" | "render" | "review" | "propose";
 
 /** 実行中の重いジョブ(preview / render / review)。同時に1つだけ走らせ、
  * 同じ key の二重起動はプロミスを共有、別 key は 409 で拒否する */
 let heavyJob: { stage: HeavyJobStage; key: string; promise: Promise<unknown> } | null = null;
 
+const proposalStore = new Map<string, StoredProposal>();
+
 /** ジョブ名の日本語表記(409 メッセージ用) */
 const jaStage = (s: HeavyJobStage): string =>
-  s === "render" ? "レンダー" : s === "review" ? "比較生成" : "プレビュー生成";
+  s === "render"
+    ? "レンダー"
+    : s === "review"
+      ? "比較生成"
+      : s === "propose"
+        ? "AI提案生成"
+        : "プレビュー生成";
 
 async function runHeavyJob<T>(
   stage: HeavyJobStage,
@@ -438,6 +518,112 @@ async function runHeavyJob<T>(
   return await promise;
 }
 
+function deepClone<T>(value: T): T {
+  return value === undefined ? value : JSON.parse(JSON.stringify(value)) as T;
+}
+
+function cloneProposal<T>(value: T): T {
+  return deepClone(value);
+}
+
+function currentEditableDocs(dir: string): EditableDocs & { meta: unknown | null } {
+  const docs = readEditableDocs(dir);
+  return {
+    ...docs,
+    meta: existsSync(join(dir, "meta.json"))
+      ? JSON.parse(readFileSync(join(dir, "meta.json"), "utf8"))
+      : null,
+  };
+}
+
+function stableCanonicalize(value: unknown): string {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return `[${value.map((item) => stableCanonicalize(item)).join(",")}]`;
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b));
+    return `{${entries.map(([key, val]) => `${JSON.stringify(key)}:${stableCanonicalize(val)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function sha256Hex(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function hashEditableDocsState(docs: EditableDocs & { meta: unknown | null }): string {
+  return sha256Hex(stableCanonicalize({
+    bgm: docs.bgm,
+    chapters: docs.chapters,
+    cutplan: docs.cutplan,
+    meta: docs.meta,
+    overlays: docs.overlays,
+    shorts: docs.shorts,
+    thumbnail: docs.thumbnail,
+    transcript: docs.transcript,
+  }));
+}
+
+function hashReviewDocs(docs: ReviewDocs): string {
+  return sha256Hex(stableCanonicalize(docs));
+}
+
+function pruneExpiredProposals(now = Date.now()): void {
+  for (const [proposalId, record] of proposalStore) {
+    if (record.expiresAtMs <= now) proposalStore.delete(proposalId);
+  }
+}
+
+function invalidateStoredProposals(): void {
+  proposalStore.clear();
+}
+
+function evictOldestProposalIfNeeded(): void {
+  if (proposalStore.size < MAX_STORED_PROPOSALS) return;
+  let oldest: StoredProposal | null = null;
+  for (const record of proposalStore.values()) {
+    if (!oldest || record.createdAtMs < oldest.createdAtMs) oldest = record;
+  }
+  if (oldest) proposalStore.delete(oldest.proposalId);
+}
+
+function storeProposal(
+  proposal: Awaited<ReturnType<typeof proposeEditorAi>>,
+  baseDocs: ReviewDocs,
+  normalizedReviewSpec: ReviewSpec,
+  baseDocsHash: string,
+  activeShortName: string | null,
+): StoredProposal {
+  pruneExpiredProposals();
+  evictOldestProposalIfNeeded();
+  const now = Date.now();
+  const record: StoredProposal = {
+    proposalId: randomUUID(),
+    proposal: cloneProposal(proposal),
+    normalizedReviewSpec: deepClone(normalizedReviewSpec),
+    baseDocs: deepClone(baseDocs),
+    baseDocsHash,
+    activeShortName,
+    createdAtMs: now,
+    expiresAtMs: now + PROPOSAL_TTL_MS,
+  };
+  proposalStore.set(record.proposalId, record);
+  return record;
+}
+
+function getStoredProposal(proposalId: string): StoredProposal {
+  pruneExpiredProposals();
+  const record = proposalStore.get(proposalId);
+  if (!record || record.expiresAtMs <= Date.now()) {
+    proposalStore.delete(proposalId);
+    throw new HttpError(410, "proposal は期限切れです。再提案してください", PROPOSAL_EXPIRED_CODE);
+  }
+  return record;
+}
+
+function expireStoredProposal(proposalId: string): void {
+  proposalStore.delete(proposalId);
+}
+
 function currentReviewDocs(dir: string) {
   const docs = readEditableDocs(dir);
   if (!docs.cutplan || !docs.transcript) {
@@ -452,47 +638,44 @@ function currentReviewDocs(dir: string) {
   };
 }
 
-function reviewRequestKey(body: AiReviewRequest): string {
+function acceptedLabelsHash(labels: string[]): string {
+  return sha256Hex(JSON.stringify([...new Set(labels)].sort()));
+}
+
+function reviewRequestKey(record: StoredProposal, acceptedHunkLabels: string[], vlm = false): string {
   return JSON.stringify({
-    activeShortName: body.activeShortName ?? null,
-    acceptedHunkLabels: [...body.acceptedHunkLabels].sort(),
-    spec: body.spec,
-    proposedDocs: body.proposedDocs,
+    proposalId: record.proposalId,
+    acceptedLabelsHash: acceptedLabelsHash(acceptedHunkLabels),
+    vlm,
   });
 }
 
-function validateReviewRequest(base: ReturnType<typeof currentReviewDocs>, body: AiReviewRequest): string[] {
+export function validateReviewRequest(body: AiReviewRequest): string[] {
   const errors: string[] = [];
   if (!body || typeof body !== "object") {
     return ["request body が不正です"];
+  }
+  const keys = Object.keys(body).sort();
+  const allowedKeys = new Set(["acceptedHunkLabels", "proposalId", "vlm"]);
+  if (keys.some((key) => !allowedKeys.has(key))) {
+    errors.push("request body は proposalId / acceptedHunkLabels / vlm だけを指定してください");
+  }
+  if (typeof body.proposalId !== "string" || body.proposalId.trim() === "") {
+    errors.push("proposalId は空でない文字列で指定してください");
   }
   if (!Array.isArray(body.acceptedHunkLabels)) {
     errors.push("acceptedHunkLabels は配列で指定してください");
     return errors;
   }
-  if (!body.spec || typeof body.spec !== "object" || !Array.isArray(body.spec.frames)) {
-    errors.push("spec.frames は配列で指定してください");
-    return errors;
+  const labels = body.acceptedHunkLabels.filter((label): label is string => typeof label === "string");
+  if (labels.length !== body.acceptedHunkLabels.length) {
+    errors.push("acceptedHunkLabels は文字列配列で指定してください");
   }
-  if (!body.proposedDocs || typeof body.proposedDocs !== "object") {
-    errors.push("proposedDocs が不正です");
-    return errors;
+  if (new Set(labels).size !== labels.length) {
+    errors.push("acceptedHunkLabels に重複があります");
   }
-  const diff = proposalDiff(base, body.proposedDocs);
-  const labels = new Set(diff.hunks.map((hunk) => hunk.address.label));
-  const unknown = body.acceptedHunkLabels.filter((label) => typeof label !== "string" || !labels.has(label));
-  if (unknown.length > 0) {
-    errors.push(`unknown hunk labels: ${unknown.join(", ")}`);
-  }
-  const specProblems = validateReviewSpec(body.spec);
-  if (specProblems.length > 0) {
-    errors.push(...specProblems.map((problem) => `${problem.where}: ${problem.message}`));
-  }
-  if (body.spec.frames.length > MAX_REVIEW_FRAMES) {
-    errors.push(`frames は最大${MAX_REVIEW_FRAMES}件です`);
-  }
-  if (body.spec.frames.filter((frame) => frame.ocr === true).length > MAX_REVIEW_OCR_FRAMES) {
-    errors.push(`OCR frame は最大${MAX_REVIEW_OCR_FRAMES}件です`);
+  if ("vlm" in body && body.vlm !== undefined && typeof body.vlm !== "boolean") {
+    errors.push("vlm は true / false で指定してください");
   }
   return errors;
 }
@@ -513,19 +696,21 @@ function validateReviewCandidate(dir: string, candidate: ReturnType<typeof curre
   return validate.errors.map((error) => `${error.file} ${error.where}: ${error.message}`);
 }
 
-export function buildAiReviewCandidate(
+export function buildAiReviewCandidateFromStoredProposal(
   dir: string,
-  body: AiReviewRequest,
+  record: Pick<StoredProposal, "baseDocs" | "proposal">,
+  acceptedHunkLabels: string[],
 ): ReturnType<typeof currentReviewDocs> {
-  const base = currentReviewDocs(dir);
-  const errors = validateReviewRequest(base, body);
-  if (errors.length > 0) throw new HttpError(400, errors.join(" / "));
-  const diff = proposalDiff(base, body.proposedDocs);
+  const labels = [...new Set(acceptedHunkLabels)].sort();
+  const diff = proposalDiff(record.baseDocs, record.proposal.proposedDocs);
+  const knownLabels = new Set(diff.hunks.map((hunk) => hunk.address.label));
+  const unknown = labels.filter((label) => !knownLabels.has(label));
+  if (unknown.length > 0) throw new HttpError(400, `unknown hunk labels: ${unknown.join(", ")}`);
   const resolution = new Map(diff.hunks.map((hunk) => [
     hunk,
-    body.acceptedHunkLabels.includes(hunk.address.label) ? "theirs" : "mine",
+    labels.includes(hunk.address.label) ? "theirs" : "mine",
   ] as const));
-  const candidate = applyProposalResolution(base, body.proposedDocs, diff, resolution);
+  const candidate = applyProposalResolution(record.baseDocs, record.proposal.proposedDocs, diff, resolution);
   const candidateErrors = validateReviewCandidate(dir, candidate);
   if (candidateErrors.length > 0) throw new HttpError(400, candidateErrors.join(" / "));
   return candidate;
