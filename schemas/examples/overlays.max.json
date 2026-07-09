@@ -13,7 +13,18 @@
       "opacity": 0.9,
       "fadeInSec": 0.5,
       "fadeOutSec": 0.5,
-      "rect": { "x": 100, "y": 100, "w": 400, "h": 300 }
+      "rect": { "x": 100, "y": 100, "w": 400, "h": 300 },
+      "keyframes": [
+        {
+          "at": 5,
+          "easing": "ease-out",
+          "values": { "x": 100, "y": 100, "w": 360, "h": 270, "opacity": 0 }
+        },
+        {
+          "at": 10,
+          "values": { "x": 200, "y": 150, "opacity": 1 }
+        }
+      ]
     }
   ],
   "inserts": [
@@ -54,7 +65,11 @@
       "end": 65,
       "rect": { "x": 200, "y": 200, "w": 300, "h": 100 },
       "type": "mosaic",
-      "strength": 0.7
+      "strength": 0.7,
+      "keyframes": [
+        { "at": 60, "easing": "hold", "values": { "x": 200, "y": 200, "strength": 0.5 } },
+        { "at": 64, "values": { "x": 260, "y": 220, "w": 320, "strength": 0.7 } }
+      ]
     }
   ],
   "annotations": [
@@ -66,7 +81,11 @@
       "to": { "x": 300, "y": 300 },
       "color": "#ff3b30",
       "widthPx": 8,
-      "headPx": 28
+      "headPx": 28,
+      "keyframes": [
+        { "at": 70, "values": { "fromX": 100, "fromY": 100, "toX": 300, "toY": 300, "widthPx": 8, "headPx": 28 } },
+        { "at": 75, "values": { "toX": 400, "toY": 260 } }
+      ]
     },
     {
       "type": "box",
@@ -76,7 +95,11 @@
       "color": "#ff3b30",
       "widthPx": 6,
       "radiusPx": 8,
-      "fill": "rgba(255,59,48,0.2)"
+      "fill": "rgba(255,59,48,0.2)",
+      "keyframes": [
+        { "at": 80, "values": { "x": 400, "y": 400, "w": 200, "h": 150, "widthPx": 6, "radiusPx": 8 } },
+        { "at": 85, "values": { "x": 450, "y": 420, "w": 240 } }
+      ]
     },
     {
       "type": "spotlight",
@@ -86,7 +109,11 @@
       "shape": "ellipse",
       "dim": 0.6,
       "featherPx": 24,
-      "radiusPx": 0
+      "radiusPx": 0,
+      "keyframes": [
+        { "at": 90, "values": { "x": 500, "y": 500, "w": 250, "h": 250, "dim": 0.6, "featherPx": 24, "radiusPx": 0 } },
+        { "at": 95, "values": { "x": 520, "y": 480, "dim": 0.7 } }
+      ]
     }
   ]
 }

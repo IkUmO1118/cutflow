@@ -4,6 +4,177 @@
   "$comment": "src/types.ts の Overlays の射影。トップレベルの許可キーは src/stages/validate.ts の KNOWN 配列と一致させる(test/schema.test.ts がピン留め)。zooms/blurs/annotations は座標系が出力px固定(zoom には追従しない)で、ショートには継承されない(§AGENTS_CONTRACT.md 座標規約)。",
   "type": "object",
   "additionalProperties": false,
+  "$defs": {
+    "MaterialKeyframe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["at", "values"],
+      "properties": {
+        "at": { "type": "number" },
+        "easing": { "$ref": "common.schema.json#/$defs/KeyframeEasing" },
+        "values": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" },
+            "w": { "type": "number", "exclusiveMinimum": 0 },
+            "h": { "type": "number", "exclusiveMinimum": 0 },
+            "opacity": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        }
+      }
+    },
+    "BlurKeyframe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["at", "values"],
+      "properties": {
+        "at": { "type": "number" },
+        "easing": { "$ref": "common.schema.json#/$defs/KeyframeEasing" },
+        "values": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" },
+            "w": { "type": "number", "exclusiveMinimum": 0 },
+            "h": { "type": "number", "exclusiveMinimum": 0 },
+            "strength": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        }
+      }
+    },
+    "ArrowKeyframe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["at", "values"],
+      "properties": {
+        "at": { "type": "number" },
+        "easing": { "$ref": "common.schema.json#/$defs/KeyframeEasing" },
+        "values": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "fromX": { "type": "number" },
+            "fromY": { "type": "number" },
+            "toX": { "type": "number" },
+            "toY": { "type": "number" },
+            "widthPx": { "type": "number", "exclusiveMinimum": 0 },
+            "headPx": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        }
+      }
+    },
+    "BoxKeyframe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["at", "values"],
+      "properties": {
+        "at": { "type": "number" },
+        "easing": { "$ref": "common.schema.json#/$defs/KeyframeEasing" },
+        "values": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" },
+            "w": { "type": "number", "exclusiveMinimum": 0 },
+            "h": { "type": "number", "exclusiveMinimum": 0 },
+            "widthPx": { "type": "number", "exclusiveMinimum": 0 },
+            "radiusPx": { "type": "number", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "SpotlightKeyframe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["at", "values"],
+      "properties": {
+        "at": { "type": "number" },
+        "easing": { "$ref": "common.schema.json#/$defs/KeyframeEasing" },
+        "values": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" },
+            "w": { "type": "number", "exclusiveMinimum": 0 },
+            "h": { "type": "number", "exclusiveMinimum": 0 },
+            "dim": { "type": "number", "minimum": 0, "maximum": 1 },
+            "featherPx": { "type": "number", "minimum": 0 },
+            "radiusPx": { "type": "number", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "ArrowAnnotation": {
+      "type": "object",
+      "required": ["type", "start", "end", "from", "to"],
+      "properties": {
+        "type": { "const": "arrow" },
+        "start": { "type": "number" },
+        "end": { "type": "number" },
+        "from": { "$ref": "common.schema.json#/$defs/CaptionPos" },
+        "to": { "$ref": "common.schema.json#/$defs/CaptionPos" },
+        "color": { "type": "string" },
+        "widthPx": { "type": "number", "minimum": 0 },
+        "headPx": { "type": "number", "minimum": 0 },
+        "keyframes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/ArrowKeyframe" }
+        }
+      }
+    },
+    "BoxAnnotation": {
+      "type": "object",
+      "required": ["type", "start", "end", "rect"],
+      "properties": {
+        "type": { "const": "box" },
+        "start": { "type": "number" },
+        "end": { "type": "number" },
+        "rect": { "$ref": "common.schema.json#/$defs/Region" },
+        "color": { "type": "string" },
+        "widthPx": { "type": "number", "minimum": 0 },
+        "radiusPx": { "type": "number", "minimum": 0 },
+        "fill": { "type": "string" },
+        "keyframes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/BoxKeyframe" }
+        }
+      }
+    },
+    "SpotlightAnnotation": {
+      "type": "object",
+      "required": ["type", "start", "end", "rect"],
+      "properties": {
+        "type": { "const": "spotlight" },
+        "start": { "type": "number" },
+        "end": { "type": "number" },
+        "rect": { "$ref": "common.schema.json#/$defs/Region" },
+        "shape": { "enum": ["rect", "ellipse"] },
+        "dim": { "type": "number", "minimum": 0, "maximum": 1 },
+        "featherPx": { "type": "number", "minimum": 0 },
+        "radiusPx": { "type": "number", "minimum": 0 },
+        "keyframes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/SpotlightKeyframe" }
+        }
+      }
+    }
+  },
   "properties": {
     "overlays": {
       "type": "array",
@@ -23,7 +194,13 @@
           "opacity": { "type": "number", "minimum": 0, "maximum": 1 },
           "fadeInSec": { "type": "number", "minimum": 0 },
           "fadeOutSec": { "type": "number", "minimum": 0 },
-          "rect": { "$ref": "common.schema.json#/$defs/Region" }
+          "rect": { "$ref": "common.schema.json#/$defs/Region" },
+          "keyframes": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": { "$ref": "#/$defs/MaterialKeyframe" }
+          }
         }
       }
     },
@@ -98,13 +275,25 @@
           "end": { "type": "number" },
           "rect": { "$ref": "common.schema.json#/$defs/Region" },
           "type": { "enum": ["blur", "mosaic"] },
-          "strength": { "type": "number", "minimum": 0, "maximum": 1 }
+          "strength": { "type": "number", "minimum": 0, "maximum": 1 },
+          "keyframes": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": { "$ref": "#/$defs/BlurKeyframe" }
+          }
         }
       }
     },
     "annotations": {
       "type": "array",
-      "items": { "$ref": "common.schema.json#/$defs/Annotation" }
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/ArrowAnnotation" },
+          { "$ref": "#/$defs/BoxAnnotation" },
+          { "$ref": "#/$defs/SpotlightAnnotation" }
+        ]
+      }
     }
   }
 }

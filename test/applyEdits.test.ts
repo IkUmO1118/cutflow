@@ -71,6 +71,14 @@ test("compileOps: set が @id 解決先の1フィールドだけ変える(他は
   assert.equal((body2.transcript!.segments[0].style as { fontSizePx: number }).fontSizePx, 60);
 });
 
+test("compileOps: set は path エイリアスでも受け付ける", () => {
+  const docs = baseDocs();
+  const ops: EditOp[] = [{ op: "set", target: "@seg_a1a1a1", path: "reason", value: "path更新" }];
+  const { body, errors } = compileOps(docs, ops);
+  assert.deepEqual(errors, []);
+  assert.equal(body.cutplan!.segments[0].reason, "path更新");
+});
+
 test("compileOps: remove が所属配列から抜く", () => {
   const docs = baseDocs();
   const ops: EditOp[] = [{ op: "remove", target: "@seg_b2b2b2" }];
