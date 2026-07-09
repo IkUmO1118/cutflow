@@ -311,6 +311,39 @@
     color: var(--dim); font-size: 12px;
   }
   .diffFrameChecks button { padding: 5px 9px; }
+  .reviewBundle {
+    margin-top: 14px; padding: 12px;
+    max-width: 920px;
+    border: 1px solid var(--border); border-radius: 6px;
+    background: rgba(255, 255, 255, 0.03);
+  }
+  .reviewBundle h4 { margin: 0 0 8px; font-size: 13px; }
+  .reviewBundle section + section { margin-top: 14px; }
+  .reviewStale {
+    margin-bottom: 10px; color: #fbbf24; font-size: 12px;
+  }
+  .reviewChecks ul { margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.55; }
+  .reviewChecks .status-fail { color: #fca5a5; }
+  .reviewChecks .status-warn { color: #fcd34d; }
+  .reviewChecks .status-pass { color: #86efac; }
+  .reviewChecks .status-skip { color: var(--dim); }
+  .reviewStillGrid { display: grid; gap: 10px; }
+  .reviewStillCard {
+    padding: 10px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--panel);
+  }
+  .reviewStillMeta { margin-bottom: 8px; font-size: 12px; color: var(--dim); }
+  .reviewStillPair, .reviewClipPair {
+    display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .reviewStillPair figure, .reviewClipPair figure { margin: 0; }
+  .reviewStillPair img, .reviewClipPair video {
+    width: 100%; aspect-ratio: 16 / 9; object-fit: contain;
+    border-radius: 4px; background: black;
+  }
+  .reviewStillPair figcaption, .reviewClipPair figcaption {
+    margin-top: 4px; font-size: 11px; color: var(--dim);
+  }
   .diffBulk {
     display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
     padding: 10px 12px;

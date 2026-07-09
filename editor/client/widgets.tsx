@@ -6,6 +6,8 @@ import type {
   AiFrameResponse,
   AiProposeRequest,
   AiProposeResponse,
+  AiReviewRequest,
+  AiReviewResponse,
   ConfigSaveResult,
   DraftData,
   PeaksData,
@@ -46,6 +48,10 @@ export async function postAiPropose(body: AiProposeRequest): Promise<AiProposeRe
 
 export async function postAiFrames(body: AiFrameRequest): Promise<AiFrameResponse> {
   return (await request("/api/ai/frames", body)) as AiFrameResponse;
+}
+
+export async function postAiReview(body: AiReviewRequest): Promise<AiReviewResponse> {
+  return (await request("/api/ai/review", body)) as AiReviewResponse;
 }
 
 /** 未保存編集の自動退避(.editor-draft.json)。クラッシュへの保険で、
