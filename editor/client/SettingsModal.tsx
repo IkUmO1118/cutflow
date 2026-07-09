@@ -7,7 +7,7 @@ import {
 } from "../../src/types.ts";
 import type { Config } from "../../src/lib/config.ts";
 import type { ConfigPatch } from "../../src/lib/configEdit.ts";
-import type { EditorCfg, PlanPerceptionStatus } from "./apiTypes.ts";
+import type { AiDoctorResult, AiProfileStatus, EditorCfg, PlanPerceptionStatus } from "./apiTypes.ts";
 import { NumInput } from "./widgets.tsx";
 import { FONT_PRESETS } from "./Inspector.tsx";
 
@@ -103,6 +103,10 @@ export const SettingsModal = ({
   onCancel,
   saving,
   error,
+  aiProfiles,
+  aiDoctor,
+  aiDoctorBusy,
+  onAiDoctor,
 }: {
   cfg: CfgValues;
   planPerception: PlanPerceptionStatus;
@@ -111,6 +115,10 @@ export const SettingsModal = ({
   onCancel: () => void;
   saving: boolean;
   error: string | null;
+  aiProfiles: AiProfileStatus[];
+  aiDoctor: AiDoctorResult[] | null;
+  aiDoctorBusy: boolean;
+  onAiDoctor: (route?: "text" | "structured" | "vision") => void;
 }) => {
   const r = cfg.renderCfg;
   /** render のキーを差し替える(undefined 指定でキーごと消す=既定に戻す) */
@@ -169,6 +177,34 @@ export const SettingsModal = ({
           <span className="hint warnText">{planPerception.warnings.join(" / ")}</span>
         </div>
       )}
+      <div className="field statusField" style={{ alignItems: "flex-start" }}>
+        <label>AI provider</label>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
+          {aiProfiles.map((profile) => (
+            <div key={profile.name} className="hint dim">
+              <strong>{profile.name}</strong> {profile.adapter} / {profile.model}
+              {" "}- text/json={profile.capabilities.structuredOutput} / image={profile.capabilities.imageInput ? `on(${profile.capabilities.maxImages})` : "off"}
+              {" "}/ credential={profile.credential}
+              {profile.origin ? ` / ${profile.origin}` : ""}
+            </div>
+          ))}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button type="button" onClick={() => onAiDoctor()} disabled={aiDoctorBusy}>
+              {aiDoctorBusy ? "接続確認中…" : "接続確認"}
+            </button>
+            <button type="button" onClick={() => onAiDoctor("vision")} disabled={aiDoctorBusy}>
+              visionのみ確認
+            </button>
+          </div>
+          {aiDoctor && aiDoctor.length > 0 && (
+            <div className="hint dim">
+              {aiDoctor.map((item) =>
+                `${item.profile}: text=${item.checks.text.status} structured=${item.checks.structured.status} image=${item.checks.image.status} auth=${item.checks.credential.status}`,
+              ).join(" / ")}
+            </div>
+          )}
+        </div>
+      </div>
 
       <h4>出力の見た目</h4>
       <div className="field">

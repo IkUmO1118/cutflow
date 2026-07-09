@@ -218,6 +218,9 @@ without `--force`; with `--force`, hand-edited files are moved to
 | `remeta <dir>` | Regenerate chapters/titles/description only, leaving `cutplan.json` untouched |
 | `plan-shorts <dir>` | Draft short-form video picks into `shorts.json` (all `approved: false`) |
 | `learn <dir>` | Draft channel-rule suggestions from the latest edit into `rules.suggested.md` |
+| `ai` | Parent command for AI diagnostics (`ai doctor`) |
+| `doctor` | Nested under `ai`; probes configured AI profiles/routes for text, structured output, and image connectivity |
+| `ai doctor` | Validate AI profile config and probe text/structured/image connectivity without writing project artifacts |
 | `preview <dir>` | Render a lightweight cut-confirmation video (`preview.mp4`) |
 | `validate <dir>` | Structural + invariant checks (run after every JSON edit) |
 | `assert <dir>` | Check declared editing intent (`assertions.json`) against the `describe --json` projection; `--visual` also evaluates OCR-based checks |

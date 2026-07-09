@@ -21,7 +21,8 @@ import {
 } from "@remotion/renderer";
 import { resolveAvCfg } from "../lib/config.ts";
 import { resolveAiReviewCfg } from "../lib/config.ts";
-import { completeImageReview, supportsImageReview } from "../lib/llm.ts";
+import { completeAi, supportsImageReview } from "../lib/llm.ts";
+import type { AiImagePart } from "../lib/llm.ts";
 import { run } from "../lib/exec.ts";
 import { detectSilence, probe } from "../lib/ffmpeg.ts";
 import { runOcr as defaultRunOcr } from "../lib/ocr.ts";
@@ -93,6 +94,12 @@ export interface ReviewBundle {
   };
   observation: DeterministicReviewObservation;
   vlm?: VlmReviewResult;
+  vlmProvider?: {
+    profile: string;
+    adapter: string;
+    model: string;
+    requestId?: string;
+  };
   warnings: string[];
 }
 
@@ -244,6 +251,7 @@ export async function reviewEdit(
   });
   warnings.push(...candidateValidate.warnings.map((warning) => `${warning.file} ${warning.where}: ${warning.message}`));
   let vlm: VlmReviewResult | undefined;
+  let vlmProvider: ReviewBundle["vlmProvider"] | undefined;
   if (opts.vlm === true) {
     const aiReview = resolveAiReviewCfg(cfg);
     if (!aiReview.vlm) {
@@ -252,7 +260,9 @@ export async function reviewEdit(
       warnings.push("現在のAI providerは画像reviewに対応していません");
     } else {
       try {
-        vlm = await runVlmReview(dir, stills, observation, cfg, aiReview.maxImages);
+        const vlmResult = await runVlmReview(dir, stills, observation, cfg, aiReview.maxImages);
+        vlm = vlmResult.result;
+        vlmProvider = vlmResult.provider;
       } catch (error) {
         warnings.push(`VLM reviewに失敗しました: ${(error as Error).message}`);
       }
@@ -283,6 +293,7 @@ export async function reviewEdit(
       : {}),
     observation,
     ...(vlm ? { vlm } : {}),
+    ...(vlmProvider ? { vlmProvider } : {}),
     warnings,
   };
   const tmp = join(outDir, "index.json.tmp");
@@ -297,10 +308,7 @@ async function runVlmReview(
   observation: DeterministicReviewObservation,
   cfg: Config,
   maxImages: number,
-): Promise<VlmReviewResult> {
-  const files = stills.flatMap((still) => [still.before.file, still.after.file])
-    .slice(0, Math.min(maxImages, 4))
-    .map((file) => join(dir, file));
+): Promise<{ result: VlmReviewResult; provider: NonNullable<ReviewBundle["vlmProvider"]> }> {
   const schema = {
     type: "object",
     additionalProperties: false,
@@ -332,17 +340,35 @@ async function runVlmReview(
   ].join("\n");
   const tempDir = mkdtempSync(join(tmpdir(), "cutflow-vlm-"));
   try {
-    const resized: string[] = [];
-    for (let index = 0; index < files.length; index++) {
+    const selected = stills.flatMap((still, frame) => [
+      { side: "before" as const, frame, still: still.before },
+      { side: "after" as const, frame, still: still.after },
+    ]);
+    const pairLimited = Math.max(2, Math.min(maxImages <= 2 ? 2 : 4, 4));
+    const selectedPairs = selected.slice(0, pairLimited);
+    const resized: AiImagePart[] = [];
+    for (let index = 0; index < selectedPairs.length; index++) {
+      const item = selectedPairs[index];
       const out = join(tempDir, `frame-${index + 1}.png`);
       await run("ffmpeg", [
-        "-hide_banner", "-loglevel", "error", "-y", "-i", files[index],
+        "-hide_banner", "-loglevel", "error", "-y", "-i", join(dir, item.still.file),
         "-vf", "scale=w='min(1600,iw)':h='min(1600,ih)':force_original_aspect_ratio=decrease",
         "-frames:v", "1", out,
       ]);
-      resized.push(out);
+      resized.push({
+        type: "image",
+        file: out,
+        mediaType: "image/png",
+        label: `image ${index}: ${item.side} source=${item.still.sourceSec ?? "null"} output=${item.still.outSec.toFixed(2)} reason=${stills[item.frame]?.requested.reason ?? "frame"}`,
+      });
     }
-    const raw = await completeImageReview(prompt, resized, cfg, { name: "cutflow_vlm_review", schema, strict: true });
+    const response = await completeAi({
+      route: "vision",
+      parts: [{ type: "text", text: prompt }, ...resized],
+      output: { kind: "json-schema", format: { name: "cutflow_vlm_review", schema, strict: true } },
+      purpose: "vision-review",
+    }, cfg);
+    const raw = response.text;
     const parsed = JSON.parse(raw) as VlmReviewResult;
     if (!Array.isArray(parsed.summary) || !Array.isArray(parsed.observations)
       || !["low", "medium", "high"].includes(parsed.confidence)
@@ -353,7 +379,15 @@ async function runVlmReview(
         || typeof item.message !== "string")) {
       throw new Error("VLM response schemaが不正です");
     }
-    return parsed;
+    return {
+      result: parsed,
+      provider: {
+        profile: response.profile,
+        adapter: response.adapter,
+        model: response.model,
+        ...(response.requestId ? { requestId: response.requestId } : {}),
+      },
+    };
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }

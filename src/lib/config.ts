@@ -5,15 +5,102 @@ import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 import { DEFAULT_OCR_LANGUAGES } from "./ocr.ts";
 import type { Region } from "../types.ts";
+import { normalizeBaseUrl, originOfProfile, resolveCredential } from "./ai/http.ts";
 
 export type AiProvider = "claude-code" | "codex" | "anthropic" | "openai";
 export type LegacyLlmBackend = "claude-cli" | "api";
+export type AiProfileName = string;
+export type AiAdapterKind = AiProvider | "openai-compatible";
+export type AiRoute = "text" | "structured" | "vision";
 
-export interface AiConfig {
+export interface LegacyAiConfig {
   /** 生成 AI の入口。agent と one-shot の違いは provider 側の既定で吸収する */
   provider: AiProvider;
   /** "auto" または省略で provider の既定。API provider は明示 model を推奨 */
   model?: string;
+}
+
+export interface AiProfileConfig {
+  adapter: AiAdapterKind;
+  model?: string;
+  protocol?: "chat-completions" | "responses";
+  baseUrl?: string;
+  auth?: AiAuthConfig;
+  capabilities?: AiCapabilitiesConfig;
+  timeoutMs?: number;
+  maxRetries?: number;
+  maxOutputTokens?: number;
+  maxResponseBytes?: number;
+}
+
+export type AiAuthConfig =
+  | { type: "none" }
+  | { type: "bearer"; apiKeyEnv: string }
+  | { type: "x-api-key"; apiKeyEnv: string };
+
+export interface AiCapabilitiesConfig {
+  structuredOutput?: "native-json-schema" | "json-object" | "prompt" | "none";
+  imageInput?: boolean;
+  maxImages?: number;
+}
+
+export interface AiRoutesConfig {
+  text: string;
+  structured: string;
+  vision?: string;
+}
+
+export interface RoutedAiConfig {
+  profiles: Record<string, AiProfileConfig>;
+  routes: AiRoutesConfig;
+  defaults?: {
+    timeoutMs?: number;
+    maxRetries?: number;
+    maxResponseBytes?: number;
+  };
+}
+
+export type AiConfig = LegacyAiConfig | RoutedAiConfig;
+
+export interface AiCapabilities {
+  textInput: true;
+  textOutput: true;
+  structuredOutput: "native-json-schema" | "json-object" | "prompt" | "none";
+  imageInput: boolean;
+  maxImages: number;
+}
+
+export interface ResolvedAiProfile {
+  name: string;
+  adapter: AiAdapterKind;
+  model: string;
+  protocol: "cli" | "responses" | "messages" | "chat-completions";
+  baseUrl?: string;
+  auth: AiAuthConfig;
+  capabilities: AiCapabilities;
+  timeoutMs: number;
+  maxRetries: number;
+  maxOutputTokens: number;
+  maxResponseBytes: number;
+}
+
+export interface ResolvedAiConfig {
+  profiles: ReadonlyMap<string, ResolvedAiProfile>;
+  routes: {
+    text: string;
+    structured: string;
+    vision?: string;
+  };
+  source: "routed" | "legacy-ai" | "legacy-llm" | "default";
+}
+
+export interface AiProfileStatus {
+  name: string;
+  adapter: AiAdapterKind;
+  model: string;
+  origin: string | null;
+  credential: "not-required" | "present" | "missing";
+  capabilities: AiCapabilities;
 }
 
 export interface Config {
@@ -232,11 +319,18 @@ export const DEFAULT_IMAGE_DURATION_SEC = 4;
 
 /** editor.defaultShortRangeSec 未指定時の既定(秒) */
 export const DEFAULT_SHORT_RANGE_SEC = 10;
+export const DEFAULT_AI_TIMEOUT_MS = 120_000;
+export const DEFAULT_AI_MAX_RETRIES = 1;
+export const DEFAULT_AI_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+export const DEFAULT_AI_MAX_OUTPUT_TOKENS = 8192;
+export const MAX_AI_IMAGES = 4;
+const LEGACY_AI_PROFILE = "legacy-default";
 
 export function resolveAiReviewCfg(cfg: Config): { vlm: boolean; maxImages: number } {
+  const requested = cfg.editor?.aiReview?.maxImages ?? 4;
   return {
     vlm: cfg.editor?.aiReview?.vlm ?? false,
-    maxImages: Math.max(1, Math.min(cfg.editor?.aiReview?.maxImages ?? 4, 4)),
+    maxImages: requested <= 2 ? 2 : 4,
   };
 }
 
@@ -381,17 +475,326 @@ export function resolveAvCfg(cfg: Config): {
   };
 }
 
-export function resolveAiCfg(cfg: Config): Required<AiConfig> {
-  if (cfg.ai?.provider) {
-    return { provider: cfg.ai.provider, model: cfg.ai.model ?? "auto" };
+function isLegacyAiConfig(value: AiConfig | undefined): value is LegacyAiConfig {
+  return !!value && "provider" in value;
+}
+
+function defaultAuthForAdapter(adapter: AiAdapterKind): AiAuthConfig {
+  if (adapter === "openai") return { type: "bearer", apiKeyEnv: "OPENAI_API_KEY" };
+  if (adapter === "anthropic") return { type: "x-api-key", apiKeyEnv: "ANTHROPIC_API_KEY" };
+  return { type: "none" };
+}
+
+function defaultProtocolForAdapter(adapter: AiAdapterKind, protocol?: string): ResolvedAiProfile["protocol"] {
+  if (adapter === "claude-code" || adapter === "codex") return "cli";
+  if (adapter === "anthropic") return "messages";
+  if (adapter === "openai") return "responses";
+  if (protocol === "responses") return "responses";
+  return "chat-completions";
+}
+
+function defaultCapabilitiesForAdapter(adapter: AiAdapterKind): AiCapabilities {
+  if (adapter === "claude-code") {
+    return { textInput: true, textOutput: true, structuredOutput: "native-json-schema", imageInput: false, maxImages: 0 };
+  }
+  if (adapter === "codex") {
+    return { textInput: true, textOutput: true, structuredOutput: "prompt", imageInput: false, maxImages: 0 };
+  }
+  if (adapter === "openai") {
+    return {
+      textInput: true,
+      textOutput: true,
+      structuredOutput: "native-json-schema",
+      imageInput: true,
+      maxImages: MAX_AI_IMAGES,
+    };
+  }
+  if (adapter === "anthropic") {
+    return {
+      textInput: true,
+      textOutput: true,
+      structuredOutput: "native-json-schema",
+      imageInput: true,
+      maxImages: MAX_AI_IMAGES,
+    };
+  }
+  return {
+    textInput: true,
+    textOutput: true,
+    structuredOutput: "none",
+    imageInput: false,
+    maxImages: 0,
+  };
+}
+
+function validateAiProfileName(name: string): void {
+  if (name === LEGACY_AI_PROFILE) throw new Error(`AI profile名 "${LEGACY_AI_PROFILE}" は予約済みです`);
+  if (!/^[a-z][a-z0-9-]{0,31}$/.test(name)) {
+    throw new Error(`AI profile名 "${name}" は不正です`);
+  }
+}
+
+function requireRouteProfile(
+  profiles: ReadonlyMap<string, ResolvedAiProfile>,
+  route: string,
+  profileName: string,
+): string {
+  if (!profiles.has(profileName)) {
+    throw new Error(`AI route "${route}" は未知のprofile "${profileName}" を参照しています`);
+  }
+  return profileName;
+}
+
+function resolveProfile(
+  name: string,
+  profile: AiProfileConfig,
+  defaults?: RoutedAiConfig["defaults"],
+): ResolvedAiProfile {
+  const baseCaps = defaultCapabilitiesForAdapter(profile.adapter);
+  const structuredOutput = profile.capabilities?.structuredOutput ?? baseCaps.structuredOutput;
+  const imageInput = profile.capabilities?.imageInput ?? baseCaps.imageInput;
+  const maxImages = imageInput ? Math.max(1, Math.min(profile.capabilities?.maxImages ?? baseCaps.maxImages, MAX_AI_IMAGES)) : 0;
+  if (profile.adapter === "openai-compatible") {
+    if (!profile.baseUrl) throw new Error(`AI profile "${name}" は baseUrl が必要です`);
+    if (!profile.protocol) throw new Error(`AI profile "${name}" は protocol が必要です`);
+    if (profile.capabilities?.structuredOutput === undefined) {
+      throw new Error(`AI profile "${name}" は capabilities.structuredOutput が必要です`);
+    }
+    if (profile.capabilities?.imageInput === undefined) {
+      throw new Error(`AI profile "${name}" は capabilities.imageInput が必要です`);
+    }
+  }
+  return {
+    name,
+    adapter: profile.adapter,
+    model: profile.model ?? "auto",
+    protocol: defaultProtocolForAdapter(profile.adapter, profile.protocol),
+    ...(profile.baseUrl ? { baseUrl: profile.baseUrl.replace(/\/+$/, "") } : {}),
+    auth: profile.auth ?? defaultAuthForAdapter(profile.adapter),
+    capabilities: {
+      textInput: true,
+      textOutput: true,
+      structuredOutput,
+      imageInput,
+      maxImages,
+    },
+    timeoutMs: Math.max(1_000, Math.min(profile.timeoutMs ?? defaults?.timeoutMs ?? DEFAULT_AI_TIMEOUT_MS, 300_000)),
+    maxRetries: Math.max(0, Math.min(profile.maxRetries ?? defaults?.maxRetries ?? DEFAULT_AI_MAX_RETRIES, 2)),
+    maxOutputTokens: Math.max(64, Math.min(profile.maxOutputTokens ?? DEFAULT_AI_MAX_OUTPUT_TOKENS, 131_072)),
+    maxResponseBytes: Math.max(1024, Math.min(profile.maxResponseBytes ?? defaults?.maxResponseBytes ?? DEFAULT_AI_MAX_RESPONSE_BYTES, 8 * 1024 * 1024)),
+  };
+}
+
+function legacyRuntime(provider: AiProvider, model: string, source: ResolvedAiConfig["source"]): ResolvedAiConfig {
+  const profile: ResolvedAiProfile = {
+    name: LEGACY_AI_PROFILE,
+    adapter: provider,
+    model,
+    protocol: defaultProtocolForAdapter(provider),
+    auth: defaultAuthForAdapter(provider),
+    capabilities: defaultCapabilitiesForAdapter(provider),
+    timeoutMs: DEFAULT_AI_TIMEOUT_MS,
+    maxRetries: DEFAULT_AI_MAX_RETRIES,
+    maxOutputTokens: DEFAULT_AI_MAX_OUTPUT_TOKENS,
+    maxResponseBytes: DEFAULT_AI_MAX_RESPONSE_BYTES,
+  };
+  return {
+    profiles: new Map([[LEGACY_AI_PROFILE, profile]]),
+    routes: {
+      text: LEGACY_AI_PROFILE,
+      structured: LEGACY_AI_PROFILE,
+      ...(provider === "openai" || provider === "anthropic" ? { vision: LEGACY_AI_PROFILE } : {}),
+    },
+    source,
+  };
+}
+
+function unknownKeys(value: Record<string, unknown>, allowed: string[]): string[] {
+  return Object.keys(value).filter((key) => !allowed.includes(key));
+}
+
+export function validateAiConfig(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return ["ai は object である必要があります"];
+  const ai = value as Record<string, unknown>;
+  const errors: string[] = [];
+  if ("provider" in ai && "profiles" in ai) errors.push("ai.provider と ai.profiles は併記できません");
+  const topUnknown = unknownKeys(ai, ["provider", "model", "profiles", "routes", "defaults"]);
+  errors.push(...topUnknown.map((key) => `ai.${key} は未対応です`));
+  for (const key of ["apiKey", "token", "authorization", "headers"]) {
+    if (key in ai) errors.push(`ai.${key} は使えません`);
+  }
+  if ("provider" in ai) {
+    if (!["claude-code", "codex", "anthropic", "openai"].includes(String(ai.provider))) {
+      errors.push(`ai.provider が不正です: ${String(ai.provider)}`);
+    }
+    return errors;
+  }
+  if ("profiles" in ai) {
+    const profiles = ai.profiles;
+    const routes = ai.routes;
+    if (!profiles || typeof profiles !== "object" || Array.isArray(profiles)) errors.push("ai.profiles は object である必要があります");
+    if (!routes || typeof routes !== "object" || Array.isArray(routes)) errors.push("ai.routes は object である必要があります");
+    if (errors.length > 0) return errors;
+    const profileEntries = Object.entries(profiles as Record<string, unknown>);
+    if (profileEntries.length > 16) errors.push("AI profile は最大16件です");
+    for (const [name, rawProfile] of profileEntries) {
+      if (name === LEGACY_AI_PROFILE || !/^[a-z][a-z0-9-]{0,31}$/.test(name)) errors.push(`AI profile名 "${name}" は不正です`);
+      if (!rawProfile || typeof rawProfile !== "object" || Array.isArray(rawProfile)) {
+        errors.push(`AI profile "${name}" は object である必要があります`);
+        continue;
+      }
+      const profile = rawProfile as Record<string, unknown>;
+      errors.push(...unknownKeys(profile, [
+        "adapter", "model", "protocol", "baseUrl", "auth", "capabilities",
+        "timeoutMs", "maxRetries", "maxOutputTokens", "maxResponseBytes",
+      ]).map((key) => `ai.profiles.${name}.${key} は未対応です`));
+      for (const key of ["apiKey", "token", "authorization", "headers"]) {
+        if (key in profile) errors.push(`ai.profiles.${name}.${key} は使えません`);
+      }
+      const adapter = String(profile.adapter ?? "");
+      if (!["claude-code", "codex", "anthropic", "openai", "openai-compatible"].includes(adapter)) {
+        errors.push(`AI profile "${name}" の adapter が不正です`);
+      }
+      if (adapter === "openai-compatible") {
+        if (typeof profile.baseUrl !== "string" || profile.baseUrl.length === 0) errors.push(`AI profile "${name}" は baseUrl が必要です`);
+        else {
+          try {
+            normalizeBaseUrl(profile.baseUrl);
+          } catch (error) {
+            errors.push(`AI profile "${name}" の baseUrl が不正です: ${(error as Error).message}`);
+          }
+        }
+        if (profile.protocol !== "chat-completions" && profile.protocol !== "responses") {
+          errors.push(`AI profile "${name}" は protocol が必要です`);
+        }
+        if (!profile.model) errors.push(`AI profile "${name}" は model が必要です`);
+        if (!(profile.capabilities && typeof profile.capabilities === "object")) {
+          errors.push(`AI profile "${name}" は capabilities が必要です`);
+        } else {
+          const caps = profile.capabilities as Record<string, unknown>;
+          if (!["native-json-schema", "json-object", "prompt", "none"].includes(String(caps.structuredOutput ?? ""))) {
+            errors.push(`AI profile "${name}" は capabilities.structuredOutput が必要です`);
+          }
+          if (typeof caps.imageInput !== "boolean") errors.push(`AI profile "${name}" は capabilities.imageInput が必要です`);
+        }
+      }
+      if ((adapter === "openai" || adapter === "anthropic") && "baseUrl" in profile) {
+        errors.push(`AI profile "${name}" では baseUrl を指定できません`);
+      }
+      if ((adapter === "claude-code" || adapter === "codex") && ("baseUrl" in profile || "auth" in profile)) {
+        errors.push(`AI profile "${name}" の CLI adapter では baseUrl/auth を指定できません`);
+      }
+      if (profile.auth !== undefined) {
+        if (!profile.auth || typeof profile.auth !== "object" || Array.isArray(profile.auth)) {
+          errors.push(`AI profile "${name}" の auth は object である必要があります`);
+        } else {
+          const auth = profile.auth as Record<string, unknown>;
+          errors.push(...unknownKeys(auth, ["type", "apiKeyEnv"]).map((key) => `ai.profiles.${name}.auth.${key} は未対応です`));
+          if (!["none", "bearer", "x-api-key"].includes(String(auth.type ?? ""))) errors.push(`AI profile "${name}" の auth.type が不正です`);
+          if (auth.type === "none" && "apiKeyEnv" in auth) errors.push(`AI profile "${name}" の auth.type=none に apiKeyEnv は指定できません`);
+          if ((auth.type === "bearer" || auth.type === "x-api-key") && typeof auth.apiKeyEnv !== "string") {
+            errors.push(`AI profile "${name}" の auth.apiKeyEnv が必要です`);
+          }
+        }
+      }
+      if (profile.capabilities !== undefined) {
+        if (!profile.capabilities || typeof profile.capabilities !== "object" || Array.isArray(profile.capabilities)) {
+          errors.push(`AI profile "${name}" の capabilities は object である必要があります`);
+        } else {
+          const caps = profile.capabilities as Record<string, unknown>;
+          errors.push(...unknownKeys(caps, ["structuredOutput", "imageInput", "maxImages"]).map((key) => `ai.profiles.${name}.capabilities.${key} は未対応です`));
+          if (caps.maxImages !== undefined && ![1, 2, 3, 4].includes(Number(caps.maxImages))) {
+            errors.push(`AI profile "${name}" の capabilities.maxImages が不正です`);
+          }
+        }
+      }
+    }
+    const routeObj = routes as Record<string, unknown>;
+    const routeUnknown = unknownKeys(routeObj, ["text", "structured", "vision"]);
+    errors.push(...routeUnknown.map((key) => `ai.routes.${key} は未対応です`));
+    if (typeof routeObj.text !== "string") errors.push("ai.routes.text が必要です");
+    if (typeof routeObj.structured !== "string") errors.push("ai.routes.structured が必要です");
+    for (const route of ["text", "structured", "vision"] as const) {
+      const value = routeObj[route];
+      if (value !== undefined && typeof value === "string" && !(profiles as Record<string, unknown>)[value]) {
+        errors.push(`AI route "${route}" は未知のprofile "${value}" を参照しています`);
+      }
+    }
+  }
+  return errors;
+}
+
+export function aiProfileStatuses(cfg: Config): AiProfileStatus[] {
+  const runtime = resolveAiRuntimeConfig(cfg);
+  return [...runtime.profiles.values()].map((profile) => ({
+    name: profile.name,
+    adapter: profile.adapter,
+    model: profile.model,
+    origin: originOfProfile(profile),
+    credential:
+      profile.auth.type === "none"
+        ? "not-required"
+        : resolveCredential(profile.auth, process.env)
+          ? "present"
+          : "missing",
+    capabilities: profile.capabilities,
+  }));
+}
+
+export function resolveAiRuntimeConfig(cfg: Config): ResolvedAiConfig {
+  if (cfg.ai && "provider" in cfg.ai && "profiles" in cfg.ai) {
+    throw new Error("ai.provider と ai.profiles は併記できません");
+  }
+  if (isLegacyAiConfig(cfg.ai)) {
+    return legacyRuntime(cfg.ai.provider, cfg.ai.model ?? "auto", "legacy-ai");
+  }
+  if (cfg.ai?.profiles) {
+    const names = Object.keys(cfg.ai.profiles);
+    if (names.length > 16) throw new Error("AI profile は最大16件です");
+    const profiles = new Map<string, ResolvedAiProfile>();
+    for (const name of names) {
+      validateAiProfileName(name);
+      profiles.set(name, resolveProfile(name, cfg.ai.profiles[name], cfg.ai.defaults));
+    }
+    return {
+      profiles,
+      routes: {
+        text: requireRouteProfile(profiles, "text", cfg.ai.routes.text),
+        structured: requireRouteProfile(profiles, "structured", cfg.ai.routes.structured),
+        ...(cfg.ai.routes.vision ? { vision: requireRouteProfile(profiles, "vision", cfg.ai.routes.vision) } : {}),
+      },
+      source: "routed",
+    };
   }
   if (cfg.llm?.backend === "claude-cli") {
-    return { provider: "claude-code", model: cfg.llm.model || "auto" };
+    return legacyRuntime("claude-code", cfg.llm.model || "auto", "legacy-llm");
   }
   if (cfg.llm?.backend === "api") {
-    return { provider: "anthropic", model: cfg.llm.model || "auto" };
+    return legacyRuntime("anthropic", cfg.llm.model || "auto", "legacy-llm");
   }
-  return { provider: "claude-code", model: "auto" };
+  return legacyRuntime("claude-code", "auto", "default");
+}
+
+export function profileForRoute(runtime: ResolvedAiConfig, route: AiRoute): ResolvedAiProfile {
+  const profileName = runtime.routes[route];
+  if (!profileName) throw new Error(`AI route "${route}" は未設定です`);
+  const profile = runtime.profiles.get(profileName);
+  if (!profile) throw new Error(`AI route "${route}" のprofile "${profileName}" が見つかりません`);
+  return profile;
+}
+
+export function aiCapabilities(cfg: Config, route: AiRoute): AiCapabilities | null {
+  const runtime = resolveAiRuntimeConfig(cfg);
+  const profileName = runtime.routes[route];
+  if (!profileName) return null;
+  return runtime.profiles.get(profileName)?.capabilities ?? null;
+}
+
+export function resolveAiCfg(cfg: Config): Required<LegacyAiConfig> {
+  const runtime = resolveAiRuntimeConfig(cfg);
+  const profile = profileForRoute(runtime, "text");
+  return { provider: profile.adapter === "openai-compatible" ? "openai" : profile.adapter, model: profile.model };
 }
 
 /** "~/foo" をホームディレクトリに展開する */
@@ -425,6 +828,10 @@ export function resolveConfigPath(explicitPath?: string): string {
 /** config.yaml を読み込む(パスの解決は resolveConfigPath) */
 export function loadConfig(explicitPath?: string): Config {
   const cfg = parse(readFileSync(resolveConfigPath(explicitPath), "utf8")) as Config;
+  const aiErrors = validateAiConfig(cfg.ai);
+  if (aiErrors.length > 0) {
+    throw new Error(`AI config error:\n- ${aiErrors.join("\n- ")}`);
+  }
   cfg.recordingsDir = expandHome(cfg.recordingsDir);
   cfg.whisper.model = expandHome(cfg.whisper.model);
   cfg.whisper.wordTimestamps ??= false;

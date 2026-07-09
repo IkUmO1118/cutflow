@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { complete } from "../lib/llm.ts";
+import { completeWithJsonSchema } from "../lib/llm.ts";
 import { mergeIntervals } from "../lib/timeline.ts";
 import { carryIds, ensureIds, hasAnyId, ID_PREFIX, usedIdsOf } from "../lib/ids.ts";
 import { readEditableDocs } from "./idStamp.ts";
@@ -200,7 +200,7 @@ export async function plan(
   const sysT = pc.systemSpeech ? loadSystemTranscript(dir) : null;
   const system = sysT ? computeSystemSpeech(numbered, sysT.segments) : null;
   const perception = renderPerceptionBlock(audio, system, ocr);
-  const completeFn = deps.complete ?? complete;
+  const completeFn = deps.complete ?? completeStructuredPlan;
 
   if (opts.cutsOnly) {
     if (planLoopEnabled(cfg)) {
@@ -211,7 +211,7 @@ export async function plan(
         durationSec: auto.originalDurationSec,
         perception,
         idCtx,
-        complete: completeFn,
+      complete: deps.complete ?? completeStructuredCuts,
         observe: deps.observe,
       });
     }
@@ -221,7 +221,7 @@ export async function plan(
       numbered,
       auto.originalDurationSec,
       perception,
-      completeFn,
+      deps.complete ?? completeStructuredCuts,
       idCtx,
     );
   }
@@ -389,7 +389,7 @@ export async function remeta(dir: string, cfg: Config): Promise<Meta> {
   const perception = renderPerceptionBlock(audio, system, null);
 
   const prompt = renderPrompt(dir, "meta.md", numbered, manifest.durationSec, perception);
-  const raw = await complete(prompt, cfg);
+  const raw = await completeStructuredPlan(prompt, cfg);
   writeFileSync(join(dir, "plan.raw.txt"), raw);
 
   const parsed = parseResponse(raw);
@@ -702,4 +702,74 @@ function readAssertionsIfAny(dir: string): AssertionsDoc | null {
   const p = join(dir, "assertions.json");
   if (!existsSync(p)) return null;
   return JSON.parse(readFileSync(p, "utf8")) as AssertionsDoc;
+}
+
+const PLAN_RESPONSE_SCHEMA = {
+  name: "cutflow_plan_response",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["cuts", "chapters", "titles", "description"],
+    properties: {
+      cuts: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["id", "reason"],
+          properties: {
+            id: { type: "integer" },
+            reason: { type: "string" },
+          },
+        },
+      },
+      chapters: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["startId", "title"],
+          properties: {
+            startId: { type: "integer" },
+            title: { type: "string" },
+          },
+        },
+      },
+      titles: { type: "array", items: { type: "string" } },
+      description: { type: "string" },
+    },
+  },
+} as const;
+
+const CUTS_RESPONSE_SCHEMA = {
+  name: "cutflow_plan_cuts",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["cuts"],
+    properties: {
+      cuts: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["id", "reason"],
+          properties: {
+            id: { type: "integer" },
+            reason: { type: "string" },
+          },
+        },
+      },
+    },
+  },
+} as const;
+
+async function completeStructuredPlan(prompt: string, cfg: Config): Promise<string> {
+  return await completeWithJsonSchema(prompt, cfg, PLAN_RESPONSE_SCHEMA, "plan");
+}
+
+async function completeStructuredCuts(prompt: string, cfg: Config): Promise<string> {
+  return await completeWithJsonSchema(prompt, cfg, CUTS_RESPONSE_SCHEMA, "plan");
 }

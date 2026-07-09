@@ -1,7 +1,7 @@
 // エディタのサーバー(editor/server.ts)とクライアントで共有する API の型。
 // 編集対象のドキュメント自体はパイプラインの型(src/types.ts)をそのまま使う。
 
-import type { Config } from "../../src/lib/config.ts";
+import type { AiAdapterKind, AiCapabilities, AiProfileStatus, Config } from "../../src/lib/config.ts";
 import type { PerceptionStatus } from "../../src/lib/config.ts";
 import type {
   Bgm,
@@ -34,6 +34,25 @@ export interface AiReviewRequest {
 
 export interface AiReviewResponse {
   bundle: ReviewBundle;
+}
+
+export interface AiDoctorCheck {
+  status: "ok" | "warn" | "error" | "skip";
+  message: string;
+}
+
+export interface AiDoctorResult {
+  profile: string;
+  adapter: AiAdapterKind;
+  model: string;
+  origin: string | null;
+  checks: {
+    config: AiDoctorCheck;
+    credential: AiDoctorCheck;
+    text: AiDoctorCheck;
+    structured: AiDoctorCheck;
+    image: AiDoctorCheck;
+  };
 }
 
 /** GET /api/project のレスポンス。収録フォルダの編集に必要な全データ
@@ -78,6 +97,9 @@ export interface ProjectData {
   draft: DraftData | null;
   /** plan/remeta に渡る知覚設定の解決結果。header の短い状態表示用 */
   planPerception: PlanPerceptionStatus;
+  aiProfiles: AiProfileStatus[];
+  aiRoutes: { text: string; structured: string; vision?: string };
+  aiReviewCfg: { vlm: boolean; maxImages: number };
 }
 
 export type PlanPerceptionStatus = PerceptionStatus;
@@ -101,7 +123,10 @@ export interface ConfigSaveResult {
   renderCfg: Config["render"];
   previewCfg: { width: number };
   editorCfg: EditorCfg;
+  aiProfiles: AiProfileStatus[];
 }
+
+export type { AiCapabilities, AiProfileStatus };
 
 export interface AiFrameRequest {
   times: number[];
