@@ -12,10 +12,13 @@ import {
   writeShortApproval,
 } from "./lib/approval.ts";
 import {
+  aiProfileStatuses,
   formatPerceptionStatusLines,
   loadConfig,
   resolvePerceptionStatus,
   resolveConfigPath,
+  resolvePlanLoopSecondaryObservationCfg,
+  resolveAiRuntimeConfig,
 } from "./lib/config.ts";
 import { findSource } from "./lib/findSource.ts";
 import { loadShort, loadShorts } from "./lib/shorts.ts";
@@ -42,12 +45,14 @@ import { thumbnail } from "./stages/thumbnail.ts";
 import { formatMaterialsSummary, materials } from "./stages/materials.ts";
 import { av, formatAvSummary } from "./stages/av.ts";
 import { reviewEdit } from "./stages/review.ts";
+import { aiDoctor } from "./stages/aiDoctor.ts";
 import { readEditSnapshot } from "./lib/renderSnapshot.ts";
 import { fmtT, parseT } from "./lib/fmt.ts";
 import type { ApplyPatch, CutPlan } from "./types.ts";
 import type { EditSnapshot, ReviewSpec } from "./lib/review.ts";
 import { buildRetrievalIndex } from "./stages/retrievalIndex.ts";
 import { retrievalSearch } from "./stages/retrievalSearch.ts";
+import type { AiRoute } from "./lib/config.ts";
 
 const program = new Command();
 program
@@ -162,6 +167,61 @@ function printPerceptionStatus(cfg: Parameters<typeof resolvePerceptionStatus>[0
   }
 }
 
+function ensurePlanVlmReady(cfg: Parameters<typeof loadConfig>[0] extends never ? never : ReturnType<typeof loadConfig>): { profile: string; origin: string | null; maxCalls: number; maxImages: number } {
+  const secondaryCfg = resolvePlanLoopSecondaryObservationCfg(cfg);
+  if (!secondaryCfg.enabled) {
+    throw new Error("plan.loop.secondaryObservation.enabled=true が必要です");
+  }
+  const runtime = resolveAiRuntimeConfig(cfg);
+  if (!runtime.routes.vision) {
+    throw new Error("vision route が未設定です");
+  }
+  const status = aiProfileStatuses(cfg).find((item) => item.name === runtime.routes.vision);
+  if (!status) {
+    throw new Error(`vision profile "${runtime.routes.vision}" が見つかりません`);
+  }
+  if (!status.capabilities.imageInput) {
+    throw new Error(`AI profile "${status.name}" は imageInput=false です`);
+  }
+  if (status.credential === "missing") {
+    throw new Error(`vision profile "${status.name}" の認証情報が見つかりません`);
+  }
+  return {
+    profile: status.name,
+    origin: status.origin,
+    maxCalls: secondaryCfg.maxCalls,
+    maxImages: secondaryCfg.maxImages,
+  };
+}
+
+program
+  .command("ai")
+  .description("AI provider diagnostics")
+  .command("doctor")
+  .description("AI profile / route の接続確認")
+  .option("--profile <name>", "特定profileのみ検査")
+  .option("--route <route>", "特定route(text|structured|vision)のみ検査")
+  .option("--json", "JSONで出力")
+  .action(async (opts: { profile?: string; route?: AiRoute; json?: boolean }) => {
+    const cfg = loadConfig(program.opts().config);
+    const results = await aiDoctor(cfg, { profile: opts.profile, route: opts.route });
+    if (opts.json) {
+      console.log(JSON.stringify(results, null, 2));
+      return;
+    }
+    console.log("PROFILE\tADAPTER\tTEXT\tSTRUCTURED\tIMAGE\tAUTH");
+    for (const item of results) {
+      console.log([
+        item.profile,
+        item.adapter,
+        item.checks.text.status,
+        item.checks.structured.status,
+        item.checks.image.status,
+        item.checks.credential.status,
+      ].join("\t"));
+    }
+  });
+
 program
   .command("ingest <dir>")
   .description("収録ファイルを解析し manifest.json とマイク音声を生成")
@@ -220,10 +280,14 @@ program
     "カット判断だけを行い cutplan.json / plan.raw.txt だけを書く" +
       "(chapters / meta / transcript の章テロップ / overlays の章トラックには触らない)",
   )
-  .action(async (dir: string, opts: { force?: boolean; cutsOnly?: boolean }) => {
+  .option("--with-vlm", "VLM二次観測を明示的に有効化(cuts-only loop 専用)")
+  .action(async (dir: string, opts: { force?: boolean; cutsOnly?: boolean; withVlm?: boolean }) => {
     const cfg = loadConfig(program.opts().config);
     const abs = resolveDir(dir);
     const cutsOnly = opts.cutsOnly === true;
+    if (opts.withVlm === true && !cutsOnly) {
+      throw new Error("--with-vlm は --cuts-only と一緒に指定してください");
+    }
     guardRerun(
       abs,
       cutsOnly ? ["cutplan.json"] : ["cutplan.json", "chapters.json", "meta.json"],
@@ -231,7 +295,13 @@ program
       "plan",
     );
     printPerceptionStatus(cfg);
-    const p = await plan(abs, cfg, { cutsOnly });
+    if (opts.withVlm === true) {
+      const vlm = ensurePlanVlmReady(cfg);
+      console.error(
+        `VLM二次観測: profile=${vlm.profile} origin=${vlm.origin ?? "local"} 最大${vlm.maxCalls}回 / 各${vlm.maxImages}枚`,
+      );
+    }
+    const p = await plan(abs, cfg, { cutsOnly, withVlm: opts.withVlm === true });
     printPlanSummary(p.segments);
   });
 
@@ -695,7 +765,10 @@ program
     const base = readEditSnapshot(abs);
     const candidate = opts.candidate ? readJsonFile<EditSnapshot>(opts.candidate) : base;
     const spec = readJsonFile<ReviewSpec>(opts.spec);
-    const bundle = await reviewEdit(abs, cfg, base, candidate, spec, { shortName: opts.short });
+    const bundle = await reviewEdit(abs, cfg, base, candidate, spec, {
+      shortName: opts.short,
+      secondaryObservation: "none",
+    });
     if (opts.json === true) {
       console.log(JSON.stringify(bundle, null, 2));
       return;

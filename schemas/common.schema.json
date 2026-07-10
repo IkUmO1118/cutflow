@@ -8,6 +8,9 @@
       "pattern": "^[a-z]{2,3}_[0-9a-z]{6}$",
       "$comment": "src/lib/ids.ts の ID_RE.source と一致させる(test/schema.test.ts がピン留め)"
     },
+    "KeyframeEasing": {
+      "enum": ["linear", "ease-in", "ease-out", "ease-in-out", "hold"]
+    },
     "Region": {
       "type": "object",
       "properties": {
@@ -110,7 +113,10 @@
         "to": { "$ref": "common.schema.json#/$defs/CaptionPos" },
         "color": { "type": "string" },
         "widthPx": { "type": "number", "minimum": 0 },
-        "headPx": { "type": "number", "minimum": 0 }
+        "headPx": { "type": "number", "minimum": 0 },
+        "keyframes": {
+          "type": "array"
+        }
       },
       "required": ["type", "start", "end", "from", "to"]
     },
@@ -124,7 +130,10 @@
         "color": { "type": "string" },
         "widthPx": { "type": "number", "minimum": 0 },
         "radiusPx": { "type": "number", "minimum": 0 },
-        "fill": { "type": "string" }
+        "fill": { "type": "string" },
+        "keyframes": {
+          "type": "array"
+        }
       },
       "required": ["type", "start", "end", "rect"]
     },
@@ -138,7 +147,10 @@
         "shape": { "enum": ["rect", "ellipse"] },
         "dim": { "type": "number", "minimum": 0, "maximum": 1 },
         "featherPx": { "type": "number", "minimum": 0 },
-        "radiusPx": { "type": "number", "minimum": 0 }
+        "radiusPx": { "type": "number", "minimum": 0 },
+        "keyframes": {
+          "type": "array"
+        }
       },
       "required": ["type", "start", "end", "rect"]
     },

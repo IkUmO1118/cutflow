@@ -40,7 +40,7 @@ import {
 import { defaultShortProfileName, resolveProfile } from "../lib/profile.ts";
 import { buildRenderProps } from "../lib/renderProps.ts";
 import { loadShort, loadShorts } from "../lib/shorts.ts";
-import { mergeIntervals } from "../lib/timeline.ts";
+import { mergeIntervals, playbackSegmentsOf } from "../lib/timeline.ts";
 import { timed } from "../lib/timing.ts";
 import { hasCamera } from "../types.ts";
 import type { ChunksCacheKey, FileStat } from "../lib/chunkPlan.ts";
@@ -96,7 +96,7 @@ export async function render(dir: string, cfg: Config): Promise<string> {
 
   // エディタの分割編集で同じ境界のまま割れている keep は1つに繋いで扱う
   // (preview.ts と同じ規則。カット後タイムラインへの写像は割れ方に依らない)
-  const keeps = mergeIntervals(cutplan.segments.filter((s) => s.action === "keep"));
+  const keeps = playbackSegmentsOf(cutplan);
   if (keeps.length === 0) {
     throw new Error("keep 区間が0件です(cutplan.json を確認してください)");
   }
@@ -309,7 +309,7 @@ async function renderOneShort(
     );
   }
   const name = short.name;
-  const shortKeeps = mergeIntervals(short.ranges);
+  const shortKeeps = mergeIntervals(short.ranges).map((k) => ({ ...k, speed: 1 }));
 
   const cutPath = join(dir, `cut.${name}.mp4`);
   const cutKeepsPath = join(dir, `cut.${name}.keeps.json`);
@@ -600,7 +600,7 @@ export function findBgm(dir: string): string | null {
 async function cutFullRes(
   dir: string,
   manifest: Manifest,
-  keeps: { start: number; end: number }[],
+  keeps: { start: number; end: number; speed: number }[],
   output: string,
   cfg: Config,
 ): Promise<void> {
@@ -608,7 +608,9 @@ async function cutFullRes(
   const source = audioSourceOf(manifest, cfg);
 
   const videoParts = keeps.map(
-    (k, i) => `[0:v]trim=start=${k.start}:end=${k.end},setpts=PTS-STARTPTS[v${i}]`,
+    (k, i) => `[0:v]trim=start=${k.start}:end=${k.end},setpts=${
+      k.speed === 1 ? "PTS-STARTPTS" : `(PTS-STARTPTS)/${k.speed}`
+    }[v${i}]`,
   );
   const audioParts = keepAudioParts(source, keeps);
 

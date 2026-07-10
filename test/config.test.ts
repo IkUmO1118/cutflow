@@ -13,24 +13,31 @@ import {
   validateConfigPatch,
 } from "../src/lib/configEdit.ts";
 import {
+  aiCapabilities,
   DEFAULT_DESCRIBE_PAUSE_MAX,
   DEFAULT_DESCRIBE_PAUSE_MIN_SEC,
   DEFAULT_AV_COLS,
   DEFAULT_AV_EVERY_SEC,
+  DEFAULT_AI_MAX_OUTPUT_TOKENS,
   DEFAULT_PERCEPTION_OCR_MAX_LINES,
   DEFAULT_PERCEPTION_OCR_MAX_SEGMENTS,
   DEFAULT_PLAN_LOOP_MAX_ITERATIONS,
+  DEFAULT_PLAN_LOOP_SECONDARY_MAX_CALLS,
+  DEFAULT_PLAN_LOOP_SECONDARY_MAX_IMAGES,
   DEFAULT_PLAN_SHORTS_MAX_DURATION_SEC,
   loadConfig,
+  MAX_AI_IMAGES,
   planLoopEnabled,
   planShortsMaxSec,
   formatPerceptionStatusLines,
   resolveAiCfg,
+  resolveAiRuntimeConfig,
   resolveAvCfg,
   resolveDescribePausesCfg,
   resolvePerceptionCfg,
   resolvePerceptionStatus,
   resolvePlanLoopCfg,
+  resolvePlanLoopSecondaryObservationCfg,
 } from "../src/lib/config.ts";
 import type { Config } from "../src/lib/config.ts";
 
@@ -183,13 +190,38 @@ test("validateConfigPatch: 正常系は空配列", () => {
         systemAudio: { mix: true, volumeDb: 0 },
         denoise: { mic: false, noiseFloorDb: -25 },
         bgm: { volumeDb: -22, ducking: { duckDb: -8, fadeSec: 0.4 } },
+        cutTransition: { type: "dip-to-black", sec: 0.4 },
         hardwareAcceleration: "disable",
+        zoom: { easeSec: 0.4 },
       },
-      preview: { width: 1280 },
-      editor: { maxUploadMb: 2048, defaultImageDurationSec: 4 },
+      preview: { width: 1280, videoEncoder: "videotoolbox" },
+      editor: {
+        maxUploadMb: 2048,
+        defaultImageDurationSec: 4,
+        defaultShortRangeSec: 10,
+        aiReview: { vlm: true, maxImages: 4, maxRefinements: 2 },
+      },
+      ai: {
+        profiles: { local: { adapter: "openai", model: "gpt-5.4-mini" } },
+        routes: { text: "local", structured: "local", vision: "local" },
+      },
     }),
     [],
   );
+});
+
+test("applyConfigEdits: ai は単一provider設定として置き換える", () => {
+  const out = applyConfigEdits(RAW, {
+    ai: {
+      profiles: { local: { adapter: "codex", model: "auto" } },
+      routes: { text: "local", structured: "local" },
+    },
+  });
+  const cfg = parse(out) as Config;
+  assert.deepEqual(cfg.ai, {
+    profiles: { local: { adapter: "codex", model: "auto" } },
+    routes: { text: "local", structured: "local" },
+  });
 });
 
 test("validateConfigPatch: hardwareAcceleration は if-possible/disable/null のみ許可", () => {
@@ -495,6 +527,21 @@ test("resolvePlanLoopCfg: 明示値を解決し maxIterations>=2 だけ有効", 
   assert.equal(planLoopEnabled(cfg), true);
 });
 
+test("resolvePlanLoopSecondaryObservationCfg: 省略時は無効+既定値、指定時はそのまま", () => {
+  assert.deepEqual(resolvePlanLoopSecondaryObservationCfg({} as Config), {
+    enabled: false,
+    maxCalls: DEFAULT_PLAN_LOOP_SECONDARY_MAX_CALLS,
+    maxImages: DEFAULT_PLAN_LOOP_SECONDARY_MAX_IMAGES,
+  });
+  assert.deepEqual(resolvePlanLoopSecondaryObservationCfg({
+    plan: { loop: { secondaryObservation: { enabled: true, maxCalls: 2, maxImages: 1 } } },
+  } as Config), {
+    enabled: true,
+    maxCalls: 2,
+    maxImages: 1,
+  });
+});
+
 test("resolveDescribePausesCfg: describe 省略時は無効+既定値", () => {
   assert.deepEqual(resolveDescribePausesCfg({} as Config), {
     enabled: false,
@@ -540,6 +587,70 @@ test("resolveAiCfg: 旧 llm 設定を互換解決する", () => {
     resolveAiCfg({ llm: { backend: "api", model: "claude-x" } } as Config),
     { provider: "anthropic", model: "claude-x" },
   );
+});
+
+test("resolveAiRuntimeConfig: routed ai config を route/profile へ解決する", () => {
+  const runtime = resolveAiRuntimeConfig({
+    ai: {
+      profiles: {
+        local: {
+          adapter: "openai-compatible",
+          protocol: "chat-completions",
+          baseUrl: "http://127.0.0.1:11434/v1/",
+          model: "qwen-local",
+          auth: { type: "none" },
+          capabilities: { structuredOutput: "json-object", imageInput: false },
+        },
+        vision: {
+          adapter: "openai",
+          model: "gpt-vision",
+        },
+      },
+      routes: { text: "local", structured: "local", vision: "vision" },
+    },
+  } as Config);
+  assert.equal(runtime.source, "routed");
+  assert.equal(runtime.routes.text, "local");
+  assert.equal(runtime.routes.vision, "vision");
+  assert.equal(runtime.profiles.get("local")?.protocol, "chat-completions");
+  assert.equal(runtime.profiles.get("local")?.baseUrl, "http://127.0.0.1:11434/v1");
+  assert.equal(runtime.profiles.get("local")?.capabilities.structuredOutput, "json-object");
+  assert.equal(runtime.profiles.get("local")?.maxOutputTokens, DEFAULT_AI_MAX_OUTPUT_TOKENS);
+  assert.equal(runtime.profiles.get("vision")?.capabilities.imageInput, true);
+  assert.equal(runtime.profiles.get("vision")?.capabilities.maxImages, MAX_AI_IMAGES);
+});
+
+test("resolveAiRuntimeConfig: openai-compatible は capability 明示必須", () => {
+  assert.throws(
+    () => resolveAiRuntimeConfig({
+      ai: {
+        profiles: {
+          local: {
+            adapter: "openai-compatible",
+            protocol: "chat-completions",
+            baseUrl: "http://127.0.0.1:8000/v1",
+            auth: { type: "none" },
+          },
+        },
+        routes: { text: "local", structured: "local" },
+      },
+    } as Config),
+    /structuredOutput/,
+  );
+});
+
+test("aiCapabilities: vision route 未設定なら null、設定なら capability を返す", () => {
+  assert.equal(aiCapabilities({} as Config, "vision"), null);
+  const caps = aiCapabilities({
+    ai: {
+      profiles: {
+        main: { adapter: "anthropic", model: "claude-x" },
+      },
+      routes: { text: "main", structured: "main", vision: "main" },
+    },
+  } as Config, "vision");
+  assert.equal(caps?.imageInput, true);
+  assert.equal(caps?.structuredOutput, "native-json-schema");
 });
 
 test("loadConfig: whisper.systemAudio 省略時は false へ defaulting・cfg.describe は生成しない(バイト等価)", () => {

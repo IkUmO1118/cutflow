@@ -6,11 +6,16 @@
     "SetOp": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["op", "target", "field", "value"],
+      "required": ["op", "target", "value"],
+      "oneOf": [
+        { "required": ["field"] },
+        { "required": ["path"] }
+      ],
       "properties": {
         "op": { "const": "set" },
         "target": { "type": "string" },
         "field": { "type": "string" },
+        "path": { "type": "string" },
         "value": {}
       }
     },

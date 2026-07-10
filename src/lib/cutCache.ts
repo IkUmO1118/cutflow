@@ -1,5 +1,6 @@
 import type { Config } from "./config.ts";
-import type { Interval, Manifest } from "../types.ts";
+import type { Manifest } from "../types.ts";
+import type { PlaybackSegment } from "./timeline.ts";
 
 /**
  * cut.mp4 の再利用可否を決めるキャッシュキー(cut.keeps.json の内容)。
@@ -7,7 +8,7 @@ import type { Interval, Manifest } from "../types.ts";
  * キーも変わり、render は cutFullRes(loudnorm実測込み)を再実行する。
  */
 export interface CutCacheKey {
-  keeps: Interval[];
+  keeps: { start: number; end: number; speed?: number }[];
   targetLufs: number;
   systemAudio: { mix: boolean; volumeDb: number };
   denoise: { mic: boolean; noiseFloorDb: number };
@@ -17,7 +18,7 @@ export interface CutCacheKey {
 }
 
 export function buildCutCacheKey(args: {
-  keeps: Interval[];
+  keeps: PlaybackSegment[];
   manifest: Manifest;
   cfg: Config;
   sourceMtimeMs: number;
@@ -25,7 +26,11 @@ export function buildCutCacheKey(args: {
 }): CutCacheKey {
   const { keeps, manifest, cfg, sourceMtimeMs, sourceSize } = args;
   return {
-    keeps: keeps.map((k) => ({ start: k.start, end: k.end })),
+    keeps: keeps.map((k) => ({
+      start: k.start,
+      end: k.end,
+      ...(k.speed !== 1 ? { speed: k.speed } : {}),
+    })),
     targetLufs: cfg.render.targetLufs,
     systemAudio: {
       mix: cfg.render.systemAudio?.mix ?? false,
