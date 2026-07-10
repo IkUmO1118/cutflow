@@ -74,7 +74,6 @@ export async function postAiRefine(body: AiRefineRequest): Promise<AiRefineRespo
 export async function postAiDoctor(body: { route?: "text" | "structured" | "vision" }): Promise<AiDoctorResult[]> {
   return (await request("/api/ai/doctor", body)) as AiDoctorResult[];
 }
-
 /** 未保存編集の自動退避(.editor-draft.json)。クラッシュへの保険で、
  * 正のデータには触らない。保存が成功したら deleteDraft で消す */
 export async function postDraft(body: DraftData): Promise<void> {

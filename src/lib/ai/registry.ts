@@ -86,11 +86,23 @@ export const openAiAdapter: AiAdapter = {
     if (!token) throw new Error(`${profile.auth.apiKeyEnv} が必要です`);
     const images = imagePartsOf(request);
     const text = textPartsOf(request).join("\n\n");
-    const body = images.length === 0 && request.output?.kind !== "json-schema"
+    const body = images.length === 0
       ? {
           model: requireExplicitModel("openai", profile.model),
           input: text,
           max_output_tokens: request.maxOutputTokens ?? profile.maxOutputTokens,
+          ...(request.output?.kind === "json-schema"
+            ? {
+                text: {
+                  format: {
+                    type: "json_schema",
+                    name: request.output.format.name,
+                    strict: request.output.format.strict ?? true,
+                    schema: openAiCompatibleSchema(request.output.format.schema),
+                  },
+                },
+              }
+            : {}),
         }
       : {
           model: requireExplicitModel("openai", profile.model),
