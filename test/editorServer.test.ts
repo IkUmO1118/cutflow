@@ -10,12 +10,14 @@ import { join } from "node:path";
 import {
   buildAiReviewCandidateFromStoredProposal,
   loadProject,
+  refineRequestKey,
   stampSaveBody,
+  validateRefineRequest,
   validateReviewRequest,
 } from "../editor/server.ts";
 import { ID_RE } from "../src/lib/ids.ts";
 import type { Config } from "../src/lib/config.ts";
-import type { AiReviewRequest, SaveRequest } from "../editor/client/apiTypes.ts";
+import type { AiRefineRequest, AiReviewRequest, SaveRequest } from "../editor/client/apiTypes.ts";
 
 test("stampSaveBody: idEnabled=false は body をそのまま返す(参照も同一・バイト等価)", () => {
   const body: SaveRequest = {
@@ -251,6 +253,60 @@ test("validateReviewRequest: proposalId / acceptedHunkLabels / secondaryObservat
     acceptedHunkLabels: ["a", "a"],
   });
   assert.match(dup.join(" / "), /重複/);
+});
+
+test("validateRefineRequest: proposalId 必須、unknown key 拒否、重複拒否", () => {
+  const missing = validateRefineRequest({
+    acceptedHunkLabels: [],
+  } as unknown as AiRefineRequest);
+  assert.match(missing.join(" / "), /proposalId は空でない文字列/);
+
+  const extra = validateRefineRequest({
+    proposalId: "p1",
+    acceptedHunkLabels: [],
+    instruction: "字幕を短く",
+    extra: true,
+  } as unknown as AiRefineRequest);
+  assert.match(extra.join(" / "), /proposalId \/ acceptedHunkLabels \/ instruction \/ vlm \/ mode だけ/);
+
+  const dup = validateRefineRequest({
+    proposalId: "p1",
+    acceptedHunkLabels: ["a", "a"],
+  });
+  assert.match(dup.join(" / "), /重複/);
+
+  const invalidMode = validateRefineRequest({
+    proposalId: "p1",
+    acceptedHunkLabels: [],
+    mode: "unexpected",
+  } as unknown as AiRefineRequest);
+  assert.match(invalidMode.join(" / "), /mode は normal \/ warning-fix/);
+});
+
+test("refineRequestKey: mode を含み、省略時は normal 扱い", () => {
+  const record = {
+    proposalId: "p1",
+  } as Parameters<typeof refineRequestKey>[0];
+  const normal = refineRequestKey(record, {
+    proposalId: "ignored",
+    acceptedHunkLabels: ["b", "a"],
+    instruction: "  字幕を短く  ",
+  });
+  const warningFix = refineRequestKey(record, {
+    proposalId: "ignored",
+    acceptedHunkLabels: ["a", "b"],
+    instruction: "字幕を短く",
+    mode: "warning-fix",
+  });
+  const explicitNormal = refineRequestKey(record, {
+    proposalId: "ignored",
+    acceptedHunkLabels: ["a", "b"],
+    instruction: "字幕を短く",
+    mode: "normal",
+  });
+  assert.equal(normal, explicitNormal);
+  assert.notEqual(normal, warningFix);
+  assert.match(warningFix, /"mode":"warning-fix"/);
 });
 
 test("buildAiReviewCandidateFromStoredProposal: unknown hunk labels は 400", () => {

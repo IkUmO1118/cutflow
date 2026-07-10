@@ -9,9 +9,6 @@ import type { ReviewDocs } from "../lib/docDiff.ts";
 import type { Config } from "../lib/config.ts";
 import { sliceReviewContext, type ReviewFrameRequest, type ReviewRange } from "../lib/review.ts";
 import type { EditorAiReviewPlan } from "../lib/editorAiReview.ts";
-import { summarizeSecondaryObservation } from "../lib/vlmObservation.ts";
-import type { DeterministicReviewObservation } from "../lib/reviewObservation.ts";
-import type { SecondaryObservation } from "../lib/vlmObservation.ts";
 import { describeJson } from "./describe.ts";
 import type { DescribeProjection, CaptionEntry, MappedInterval } from "./describe.ts";
 import type { ApplyPatch, Bgm, CutPlan, Overlays, Shorts, Transcript } from "../types.ts";
@@ -55,14 +52,43 @@ export interface ParsedAiPatchResponse {
   review: EditorAiReviewPlan;
 }
 
-export interface RefineEditorAiInput {
+interface RefineEditorAiInput {
+  mode: "normal" | "warning-fix";
   originalInstruction: string;
-  base: ReviewDocs;
-  previousProposal: ReviewDocs;
+  additionalInstruction?: string;
+  baseDocs: ReviewDocs;
+  candidateDocs: ReviewDocs;
+  applyWarnings: string[];
   acceptedHunkLabels: string[];
-  primaryObservation: DeterministicReviewObservation;
-  secondaryObservation: SecondaryObservation;
-  refinementIteration: number;
+  rejectedHunkLabels: string[];
+  priorProposalDiff: {
+    label: string;
+    kind: string;
+    current: unknown;
+    proposed: unknown;
+  }[];
+  priorProposal: AiProposeResponse;
+  reviewBundle: {
+    observation: {
+      checks: unknown[];
+      delta: unknown;
+    };
+    vlm?: {
+      summary: string[];
+      observations: unknown[];
+      confidence: string;
+    };
+  };
+}
+
+interface RefineEditorAiPromptOptions {
+  patchOnly?: boolean;
+  retryReason?: string;
+}
+
+interface ProposeEditorAiPromptOptions {
+  patchOnly?: boolean;
+  patchOnlyReason?: string;
 }
 
 export class EditorAiError extends Error {
@@ -83,6 +109,99 @@ function stringsOf(v: unknown): string[] {
 
 function isFiniteNonNegative(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v) && v >= 0;
+}
+
+function normalizeIntentRange(
+  rawRange: unknown,
+): { startSec: number; endSec: number } | undefined {
+  if (isObj(rawRange) && isFiniteNonNegative(rawRange.startSec) && isFiniteNonNegative(rawRange.endSec)) {
+    return { startSec: rawRange.startSec, endSec: rawRange.endSec };
+  }
+  if (isObj(rawRange) && isFiniteNonNegative(rawRange.start) && isFiniteNonNegative(rawRange.end)) {
+    return { startSec: rawRange.start, endSec: rawRange.end };
+  }
+  return undefined;
+}
+
+function omitUndefined(value: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined));
+}
+
+function normalizeAnnotationPayload(rawTask: Record<string, unknown>): unknown {
+  const nested = isObj(rawTask.annotation) ? rawTask.annotation : null;
+  const type = nested?.type ?? rawTask.annotationType ?? rawTask.annotation_type ?? rawTask.kind ?? rawTask.type;
+  if (type === "add-annotation") return nested ?? rawTask.annotation;
+  if (type === "arrow") {
+    return omitUndefined({
+      type: "arrow",
+      from: nested?.from ?? rawTask.from,
+      to: nested?.to ?? rawTask.to,
+      color: nested?.color ?? rawTask.color,
+      widthPx: nested?.widthPx ?? rawTask.widthPx,
+      headPx: nested?.headPx ?? rawTask.headPx,
+    });
+  }
+  if (type === "box") {
+    return omitUndefined({
+      type: "box",
+      rect: nested?.rect ?? rawTask.rect,
+      color: nested?.color ?? rawTask.color,
+      widthPx: nested?.widthPx ?? rawTask.widthPx,
+      radiusPx: nested?.radiusPx ?? rawTask.radiusPx,
+      fill: nested?.fill ?? rawTask.fill,
+    });
+  }
+  if (type === "spotlight") {
+    return omitUndefined({
+      type: "spotlight",
+      rect: nested?.rect ?? rawTask.rect,
+      shape: nested?.shape ?? rawTask.shape,
+      dim: nested?.dim ?? rawTask.dim,
+      featherPx: nested?.featherPx ?? rawTask.featherPx,
+      radiusPx: nested?.radiusPx ?? rawTask.radiusPx,
+    });
+  }
+  return nested ?? rawTask.annotation;
+}
+
+function normalizeAnnotationAddValue(value: unknown): unknown {
+  if (!isObj(value)) return value;
+  const range =
+    normalizeIntentRange(value.range)
+    ?? normalizeIntentRange(value)
+    ?? normalizeIntentRange(isObj(value.annotation) ? value.annotation : null);
+  const rawAnnotation = normalizeAnnotationPayload(value);
+  const annotation = isObj(rawAnnotation)
+    ? (({ start: _start, end: _end, startSec: _startSec, endSec: _endSec, ...rest }) => rest)(rawAnnotation)
+    : rawAnnotation;
+  if (!isObj(annotation) || !range) return value;
+  return {
+    ...annotation,
+    start: range.startSec,
+    end: range.endSec,
+  };
+}
+
+function normalizeApplyPatchValue(patch: ApplyPatch): ApplyPatch {
+  if (!Array.isArray(patch.ops)) return patch;
+  return {
+    ...patch,
+    ops: patch.ops.map((op) => {
+      if (
+        op.op === "add"
+        && op.target === "overlays.annotations"
+        && isObj(op.value)
+      ) {
+        return { ...op, value: normalizeAnnotationAddValue(op.value) as Record<string, unknown> };
+      }
+      return op;
+    }),
+  };
+}
+
+function hasPatchEdits(patch: ApplyPatch): boolean {
+  return (Array.isArray(patch.ops) && patch.ops.length > 0)
+    || (isObj(patch.replace) && Object.keys(patch.replace).length > 0);
 }
 
 function normalizeReviewFrames(v: unknown): ReviewFrameRequest[] {
@@ -134,6 +253,35 @@ function normalizeEditIntents(value: unknown): EditIntent[] | undefined {
         text: item.text ?? item.value ?? item.newText ?? item.new_text ?? item.captionText,
       } as unknown as EditIntent;
     }
+    if (item.type === "add-annotation") {
+      const range =
+        normalizeIntentRange(item.range)
+        ?? normalizeIntentRange(item)
+        ?? normalizeIntentRange(isObj(item.annotation) ? item.annotation : null);
+      const rawAnnotation = normalizeAnnotationPayload(item);
+      const annotation = isObj(rawAnnotation)
+        ? (({ start: _start, end: _end, startSec: _startSec, endSec: _endSec, ...rest }) => rest)(rawAnnotation)
+        : rawAnnotation;
+      return {
+        ...item,
+        ...(range ? { range } : {}),
+        annotation,
+      } as unknown as EditIntent;
+    }
+    if (item.type === "add-blur" || item.type === "place-material" || item.type === "set-range-action") {
+      const range = normalizeIntentRange(item.range) ?? normalizeIntentRange(item);
+      return {
+        ...item,
+        ...(range ? { range } : {}),
+      } as unknown as EditIntent;
+    }
+    if (item.type === "trim-pauses" && item.range !== undefined) {
+      const range = normalizeIntentRange(item.range) ?? normalizeIntentRange(item);
+      return {
+        ...item,
+        ...(range ? { range } : {}),
+      } as unknown as EditIntent;
+    }
     return item as unknown as EditIntent;
   });
 }
@@ -174,6 +322,7 @@ const EDITOR_AI_PATCH_ITEM_SCHEMA: Record<string, unknown> = {
             "overlays.inserts",
             "overlays.zooms",
             "overlays.blurs",
+            "overlays.annotations",
             "overlays.wipeFull",
             "overlays.hideCaption",
             "overlays.captionTracks",
@@ -314,8 +463,37 @@ function editorAiOutputSchemaText(): string {
   return JSON.stringify(EDITOR_AI_RESPONSE_SCHEMA.schema, null, 2);
 }
 
+function refineContextJson(input: RefineEditorAiInput): string {
+  return JSON.stringify({
+    mode: input.mode,
+    originalInstruction: input.originalInstruction.trim(),
+    additionalInstruction: input.additionalInstruction?.trim() || null,
+    priorProposal: {
+      title: input.priorProposal.title,
+      summary: input.priorProposal.summary,
+      review: input.priorProposal.review,
+    },
+    applyWarnings: input.applyWarnings,
+    priorProposalDiff: input.priorProposalDiff,
+    acceptedHunkLabels: input.acceptedHunkLabels,
+    rejectedHunkLabels: input.rejectedHunkLabels,
+    baseDocs: input.baseDocs,
+    candidateDocs: input.candidateDocs,
+    deterministicObservation: input.reviewBundle.observation,
+    vlmSummary: input.reviewBundle.vlm
+      ? {
+          secondaryObservation: true,
+          confidence: input.reviewBundle.vlm.confidence,
+          summary: input.reviewBundle.vlm.summary,
+          observations: input.reviewBundle.vlm.observations,
+        }
+      : null,
+  }, null, 2);
+}
+
 const PLAYHEAD_CONTEXT_SEC = 12;
 const SELECTION_CONTEXT_PAD_SEC = 4;
+const GLOBAL_TIMELINE_LIMIT = 24;
 
 function overlapsRange(v: { start: number; end: number }, start: number, end: number): boolean {
   return Math.min(v.end, end) - Math.max(v.start, start) > 0.05;
@@ -343,6 +521,7 @@ function rangeFromSelection(proj: DescribeProjection, selection: AiSelectionCont
   for (const o of proj.overlays.materials) if (o.id && ids.has(o.id)) candidates.push({ start: o.start, end: o.end });
   for (const z of proj.overlays.zooms) if (z.id && ids.has(z.id)) candidates.push({ start: z.start, end: z.end });
   for (const b of proj.overlays.blurs) if (b.id && ids.has(b.id)) candidates.push({ start: b.start, end: b.end });
+  for (const a of proj.overlays.annotations) if (a.id && ids.has(a.id)) candidates.push({ start: a.start, end: a.end });
   for (const w of proj.overlays.wipeFull) if (w.id && ids.has(w.id)) candidates.push({ start: w.start, end: w.end });
   for (const h of proj.overlays.hideCaption) if (h.id && ids.has(h.id)) candidates.push({ start: h.start, end: h.end });
   if (candidates.length === 0) return null;
@@ -356,7 +535,53 @@ function captionsInRange(captions: CaptionEntry[], start: number, end: number): 
   return captions.filter((c) => overlapsRange(c, start, end) || outOverlapsRange(c, start, end));
 }
 
-function sliceProjectProjection(proj: DescribeProjection, selection: AiSelectionContext): unknown {
+function wantsGlobalTimelineContext(req: AiProposeRequest): boolean {
+  if (req.selection && req.selection.scope !== "global") return false;
+  return /(最適|タイミング|注釈|annotation|arrow|box|spotlight|ここ|強調|目立|示|指|highlight|callout)/i
+    .test(req.instruction);
+}
+
+function globalTimelineCandidates(proj: DescribeProjection): unknown {
+  const visibleCaptions = proj.captions
+    .filter((c) => c.visible)
+    .slice(0, GLOBAL_TIMELINE_LIMIT)
+    .map((c) => ({
+      kind: "caption",
+      ...(c.id ? { id: c.id } : {}),
+      start: c.start,
+      end: c.end,
+      text: c.text,
+      out: c.out,
+    }));
+  const keeps = proj.keeps.slice(0, GLOBAL_TIMELINE_LIMIT).map((k) => ({
+    kind: "keep",
+    index: k.index,
+    start: k.start,
+    end: k.end,
+    durationSec: k.durationSec,
+    outStart: k.outStart,
+    outEnd: k.outEnd,
+  }));
+  const chapters = proj.chapters.slice(0, GLOBAL_TIMELINE_LIMIT).map((c) => ({
+    kind: "chapter",
+    ...(c.id ? { id: c.id } : {}),
+    start: c.start,
+    out: c.out,
+    title: c.title,
+  }));
+  return {
+    note: "Use these candidates to choose best-effort timing for global edit requests. Do not claim local context is unavailable when these candidates are present.",
+    visibleCaptions,
+    keeps,
+    chapters,
+  };
+}
+
+function sliceProjectProjection(
+  proj: DescribeProjection,
+  selection: AiSelectionContext,
+  options: { includeGlobalTimeline?: boolean } = {},
+): unknown {
   if (selection.scope === "global") {
     return {
       schemaVersion: proj.schemaVersion,
@@ -378,8 +603,12 @@ function sliceProjectProjection(proj: DescribeProjection, selection: AiSelection
         inserts: proj.overlays.inserts.length,
         zooms: proj.overlays.zooms.length,
         blurs: proj.overlays.blurs.length,
+        annotations: proj.overlays.annotations.length,
       },
-      note: "This is a project-level summary. Ask for a narrower scope if exact local timing context is needed.",
+      note: options.includeGlobalTimeline
+        ? "This is a project-level summary with timeline candidates. Choose a best-effort timing from the candidates for global edit requests."
+        : "This is a project-level summary. Ask for a narrower scope if exact local timing context is needed.",
+      ...(options.includeGlobalTimeline ? { timelineCandidates: globalTimelineCandidates(proj) } : {}),
     };
   }
 
@@ -412,6 +641,7 @@ function sliceProjectProjection(proj: DescribeProjection, selection: AiSelection
       wipeFull: proj.overlays.wipeFull.filter((w) => mappedOverlapsRange(w, range.start, range.end)),
       zooms: proj.overlays.zooms.filter((z) => mappedOverlapsRange(z, range.start, range.end)),
       blurs: proj.overlays.blurs.filter((b) => mappedOverlapsRange(b, range.start, range.end)),
+      annotations: proj.overlays.annotations.filter((a) => mappedOverlapsRange(a, range.start, range.end)),
       hideCaption: proj.overlays.hideCaption.filter((h) => mappedOverlapsRange(h, range.start, range.end)),
       captionTracks: proj.overlays.captionTracks,
       layerOrder: proj.overlays.layerOrder,
@@ -436,35 +666,6 @@ function reviewDocsOf(docs: ReturnType<typeof mergeBodyOverDisk>): ReviewDocs {
   };
 }
 
-function buildRefinePrompt(input: RefineEditorAiInput): string {
-  return [
-    "Original instruction:",
-    input.originalInstruction,
-    "",
-    "Base docs:",
-    JSON.stringify(input.base, null, 2),
-    "",
-    "Previous proposal:",
-    JSON.stringify(input.previousProposal, null, 2),
-    "",
-    `Accepted hunk labels: ${JSON.stringify(input.acceptedHunkLabels)}`,
-    "",
-    "Primary observation:",
-    JSON.stringify(input.primaryObservation, null, 2),
-    "",
-    summarizeSecondaryObservation(input.secondaryObservation),
-    "",
-    "機械検査が一次情報です。画像モデルの観測は補足です。",
-    "観測を根拠に必要最小限だけ修正してください。",
-    "画像モデルが座標を推測しても使用しないでください。",
-    "approved、approvals.json、render、saveを変更・実行しないでください。",
-    "前提案と同じpatchを返すより、変更不要ならpatchを空にしてください。",
-    "",
-    "Return the same JSON schema as the editor proposal.",
-    editorAiOutputSchemaText(),
-  ].join("\n");
-}
-
 export function parseAiPatchResponse(raw: string): ParsedAiPatchResponse {
   let parsed: unknown;
   try {
@@ -483,7 +684,7 @@ export function parseAiPatchResponse(raw: string): ParsedAiPatchResponse {
   return {
     title: typeof parsed.title === "string" && parsed.title.trim() ? parsed.title.trim() : "AI 提案",
     summary: stringsOf(parsed.summary),
-    patch: isObj(patch) ? patch as ApplyPatch : {},
+    patch: isObj(patch) ? normalizeApplyPatchValue(patch as ApplyPatch) : {},
     ...(tasks ? { tasks } : {}),
     review: {
       frames: normalizeReviewFrames(review.frames),
@@ -507,6 +708,7 @@ export function buildEditorAiPrompt(
   dir: string,
   cfg: Config,
   req: AiProposeRequest,
+  options: ProposeEditorAiPromptOptions = {},
 ): string {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
   const template = readFileSync(join(repoRoot, "prompts/editor-ai-propose.md"), "utf8");
@@ -515,7 +717,11 @@ export function buildEditorAiPrompt(
     ...(req.selection ?? {}),
     activeShortName: req.activeShortName ?? req.selection?.activeShortName ?? null,
   };
-  const projectProjection = sliceProjectProjection(describeJson(dir, cfg), selectionContext);
+  const projectProjection = sliceProjectProjection(
+    describeJson(dir, cfg),
+    selectionContext,
+    { includeGlobalTimeline: wantsGlobalTimelineContext(req) },
+  );
   const wantsRetrieval = /(素材|B-?roll|過去|以前|似た|画像|動画)/i.test(req.instruction);
   const retrieval = wantsRetrieval
     ? retrievalSearch(cfg.recordingsDir, {
@@ -528,10 +734,110 @@ export function buildEditorAiPrompt(
     : [];
   return template
     .replace("{{outputSchema}}", editorAiOutputSchemaText())
+    .replace("{{patchOnlyRules}}", options.patchOnly
+      ? [
+          "",
+          "Patch-only requirement:",
+          "- Return `edit.mode: \"patch\"` only. Do not return `edit.mode: \"tasks\"`.",
+          "- For this request, generate concrete `ops` or `replace` edits directly.",
+          "- For existing item edits, `set` and item `remove` targets must be stable ids like `@cap_xxxxxx`, `@mat_xxxxxx`, `@ins_xxxxxx`, `@bl_xxxxxx`, or `@ann_xxxxxx`.",
+          "- Collection selectors such as `overlays.overlays`, `overlays.inserts`, and `overlays.annotations` are valid only for `add` ops or for clearing the whole collection with `remove`.",
+          `- Reason: ${options.patchOnlyReason ?? "annotation edits must bypass intent compilation"}`,
+        ].join("\n")
+      : "")
     .replace("{{instruction}}", req.instruction.trim())
     .replace("{{selectionContext}}", JSON.stringify(selectionContext, null, 2))
     .replace("{{projectJson}}", JSON.stringify(projectProjection, null, 2))
     .replace("{{retrievalResults}}", JSON.stringify(retrieval, null, 2));
+}
+
+function shouldForcePatchOnly(req: AiProposeRequest): boolean {
+  if (req.selection?.selectedKind === "annotation") return true;
+  if (req.selection?.selectedIds?.some((id) => id.startsWith("ann_"))) return true;
+  return /(注釈|annotation|arrow|box|spotlight)/i.test(req.instruction);
+}
+
+function isAiProposalRetryCandidate(message: string): boolean {
+  return /AI 提案を適用できません: /.test(message)
+    && (
+      /\(intent\)/.test(message)
+      || /overlays\.json annotations\[/.test(message)
+      || /overlays\.json zooms\[\d+\]: rect /.test(message)
+      || /\(patch\).*overlays\.annotations/.test(message)
+      || /\(patch\).*overlays\.overlays/.test(message)
+      || /\(patch\).*overlays\.inserts/.test(message)
+      || /@ann_/.test(message)
+    );
+}
+
+export function buildRefineEditorAiPrompt(
+  input: RefineEditorAiInput,
+  options: RefineEditorAiPromptOptions = {},
+): string {
+  const warningFixRules = input.mode === "warning-fix"
+    ? [
+        "",
+        'When mode is "warning-fix":',
+        "- The only goal is to reduce or resolve applyWarnings.",
+        "- Do not perform general copy editing, caption shortening, cut changes, styling changes, or unrelated cleanup.",
+        "- Keep acceptedHunkLabels unless the warning explicitly proves one is invalid.",
+        "- Do not reintroduce rejectedHunkLabels unless the additional instruction explicitly asks for it.",
+        "- Do not edit chapters.json in this implementation. If chapters.json should change, leave a review note instead.",
+        "- Prefer transcript.json chapter telop edits over chapters.json edits for chapter/telop sync warnings.",
+        "- For overlays.json zoom rect aspect ratio warnings, adjust only the affected zoom rect and preserve id/start/end.",
+        "- For overlays.json zoom rect errors, keep the affected zoom rect inside the output resolution and preserve id/start/end.",
+        "- If a warning cannot be fixed safely, leave the patch unchanged for that warning and explain it in review.notes.",
+        "- In review.notes, state how many warnings you addressed.",
+        "- In review.notes, explain every warning you did not address.",
+        "- If fixing a warning would require chapters.json changes, write `chapters.json の編集が必要` in review.notes.",
+      ]
+    : [];
+  const patchOnlyRules = options.patchOnly
+      ? [
+        "",
+        "Retry requirement:",
+        "- The previous attempt failed validation before apply.",
+        "- Return `edit.mode: \"patch\"` only. Do not return `edit.mode: \"tasks\"` in this retry.",
+        "- Use concrete `ops` or `replace` edits that can be applied directly.",
+        "- For existing item edits, `set` and item `remove` targets must be stable ids like `@cap_xxxxxx`, `@mat_xxxxxx`, `@ins_xxxxxx`, `@bl_xxxxxx`, or `@ann_xxxxxx`.",
+        "- Collection selectors such as `overlays.overlays`, `overlays.inserts`, and `overlays.annotations` are valid only for `add` ops or for clearing the whole collection with `remove`.",
+        "- For overlays.json zoom rect failures, keep the affected zoom rect inside the output resolution and preserve id/start/end.",
+        `- Previous failure: ${options.retryReason ?? "unknown"}`,
+      ]
+    : [];
+  return [
+    "You are revising a cutflow GUI edit proposal.",
+    "Return exactly one JSON object. Do not wrap it in Markdown. Do not add prose before or after it.",
+    "",
+    "The JSON contract is the schema below. Treat it as authoritative:",
+    "",
+    editorAiOutputSchemaText(),
+    "",
+    "Rules:",
+    "",
+    '- Prefer `edit.mode: "tasks"` for supported operations. Use `edit.mode: "patch"` only as fallback.',
+    '- Only edit `cutplan`, `transcript`, `overlays`, `bgm`, or `shorts`.',
+    '- Do not use `target: "overlays.annotations"` for `set` edits to an existing annotation.',
+    '- For existing annotation item edits, use the stable item id such as `@ann_xxxxxx`, or use `replace` when a whole-array rewrite is truly necessary.',
+    '- Use `target: "overlays.annotations"` only for `add`, or for clearing the whole collection with `remove`.',
+    "- Do not edit `approved` or `approvals.json`.",
+    "- Do not edit generated artifacts.",
+    "- `baseDocs` is the saved baseline on disk.",
+    "- `candidateDocs` is the user's currently preferred candidate after keeping only accepted hunks from the prior proposal.",
+    "- `acceptedHunkLabels` are prior proposal hunks the user currently plans to use.",
+    "- `rejectedHunkLabels` are prior proposal hunks the user does not plan to use. Do not reintroduce those changes unless the additional instruction explicitly asks for them.",
+    "- `priorProposalDiff` lists every hunk from the prior proposal with current and proposed values.",
+    "- Deterministic checks are the primary observation. Treat them as authoritative over image impressions.",
+    "- VLM summary is secondary observation only. It can describe visual concerns, but it is not the source of truth for coordinates, patches, or approval.",
+    "- Never generate a patch directly from VLM observations alone.",
+    "- Keep the revised patch focused on the original instruction plus any additional instruction.",
+    ...warningFixRules,
+    ...patchOnlyRules,
+    "",
+    "Refinement context:",
+    "",
+    refineContextJson(input),
+  ].join("\n");
 }
 
 export function planEditorAiPatch(
@@ -539,6 +845,25 @@ export function planEditorAiPatch(
   parsed: ParsedAiPatchResponse,
 ): AiProposeResponse {
   const intentPlan = parsed.tasks ? planIntentEdits(dir, parsed.tasks) : null;
+  if (intentPlan && intentPlan.errors.length > 0 && hasPatchEdits(parsed.patch)) {
+    const patchApplyPlan = planApply(dir, parsed.patch);
+    if (patchApplyPlan.errors.length === 0) {
+      const unsupported = patchApplyPlan.changedFiles.filter((f) => f === "chapters.json" || f === "thumbnail.json");
+      if (unsupported.length > 0) {
+        throw new EditorAiError(400, `GUI 提案では編集できないファイルです: ${unsupported.join(", ")}`);
+      }
+      const proposedDocs = reviewDocsOf(mergeBodyOverDisk(dir, patchApplyPlan.body));
+      return {
+        title: parsed.title,
+        summary: parsed.summary,
+        patch: parsed.patch,
+        ...(parsed.tasks ? { tasks: parsed.tasks } : {}),
+        applyPlan: patchApplyPlan,
+        proposedDocs,
+        review: parsed.review,
+      };
+    }
+  }
   const compiledPatch = intentPlan?.intentPlan.patch ?? parsed.patch;
   const applyPlan = intentPlan ?? planApply(dir, compiledPatch);
   if (applyPlan.errors.length > 0) {
@@ -569,25 +894,44 @@ export async function proposeEditorAi(
   if (!req.instruction.trim()) {
     throw new EditorAiError(400, "AI 指示が空です");
   }
-  const prompt = buildEditorAiPrompt(dir, cfg, req);
-  const raw = await completeWithJsonSchema(prompt, cfg, EDITOR_AI_RESPONSE_SCHEMA, "editor-proposal");
-  const parsed = parseAiPatchResponse(raw);
-  if (parsed.review.frames.length === 0 && req.selection) {
-    const sliced = sliceReviewContext(describeJson(dir, cfg), {
-      scope: req.selection.scope,
-      playheadSec: req.selection.playheadSec,
-      selectedRange: req.selection.selectedRange,
-      selectedIds: req.selection.selectedIds,
-      activeShortName: req.activeShortName,
-    });
-    parsed.review.frames = sliced.frameCandidates.map((frame) => ({
-      axis: "source",
-      atSec: frame.sourceSec,
-      reason: frame.reason,
-    }));
-    parsed.review.range = { axis: "source", ...sliced.sourceRange };
+  const fillReviewFrames = (parsed: ParsedAiPatchResponse): ParsedAiPatchResponse => {
+    if (parsed.review.frames.length === 0 && req.selection) {
+      const sliced = sliceReviewContext(describeJson(dir, cfg), {
+        scope: req.selection.scope,
+        playheadSec: req.selection.playheadSec,
+        selectedRange: req.selection.selectedRange,
+        selectedIds: req.selection.selectedIds,
+        activeShortName: req.activeShortName,
+      });
+      parsed.review.frames = sliced.frameCandidates.map((frame) => ({
+        axis: "source",
+        atSec: frame.sourceSec,
+        reason: frame.reason,
+      }));
+      parsed.review.range = { axis: "source", ...sliced.sourceRange };
+    }
+    return parsed;
+  };
+  const runAttempt = async (options: ProposeEditorAiPromptOptions = {}): Promise<AiProposeResponse> => {
+    const prompt = buildEditorAiPrompt(dir, cfg, req, options);
+    const raw = await completeWithJsonSchema(prompt, cfg, EDITOR_AI_RESPONSE_SCHEMA);
+    const parsed = fillReviewFrames(parseAiPatchResponse(raw));
+    return planEditorAiPatch(dir, parsed);
+  };
+  try {
+    return await runAttempt(shouldForcePatchOnly(req)
+      ? { patchOnly: true, patchOnlyReason: "annotation edits must bypass intent compilation" }
+      : {});
+  } catch (error) {
+    if (
+      error instanceof EditorAiError
+      && (shouldForcePatchOnly(req) || isAiProposalRetryCandidate(error.message))
+      && isAiProposalRetryCandidate(error.message)
+    ) {
+      return runAttempt({ patchOnly: true, patchOnlyReason: error.message });
+    }
+    throw error;
   }
-  return planEditorAiPatch(dir, parsed);
 }
 
 export async function refineEditorAi(
@@ -595,18 +939,27 @@ export async function refineEditorAi(
   cfg: Config,
   input: RefineEditorAiInput,
 ): Promise<AiProposeResponse> {
-  const raw = await completeWithJsonSchema(
-    buildRefinePrompt(input),
-    cfg,
-    EDITOR_AI_RESPONSE_SCHEMA,
-    "editor-proposal",
-  );
-  const parsed = parseAiPatchResponse(raw);
-  const patchOps = parsed.patch.ops?.length ?? 0;
-  const replaceKeys = Object.keys(parsed.patch.replace ?? {}).length;
-  const taskCount = parsed.tasks?.length ?? 0;
-  if (patchOps === 0 && replaceKeys === 0 && taskCount === 0) {
-    throw new EditorAiError(422, "NO_REFINEMENT");
+  if (!input.originalInstruction.trim()) {
+    throw new EditorAiError(400, "AI 指示が空です");
   }
-  return planEditorAiPatch(dir, parsed);
+  const runAttempt = async (options: RefineEditorAiPromptOptions = {}): Promise<AiProposeResponse> => {
+    const prompt = buildRefineEditorAiPrompt(input, options);
+    const raw = await completeWithJsonSchema(prompt, cfg, EDITOR_AI_RESPONSE_SCHEMA);
+    const parsed = parseAiPatchResponse(raw);
+    return planEditorAiPatch(dir, parsed);
+  };
+  try {
+    return await runAttempt();
+  } catch (error) {
+    if (
+      error instanceof EditorAiError
+      && (
+        (input.mode === "warning-fix" && /AI 提案を適用できません: \(intent\)/.test(error.message))
+        || isAiProposalRetryCandidate(error.message)
+      )
+    ) {
+      return runAttempt({ patchOnly: true, retryReason: error.message });
+    }
+    throw error;
+  }
 }
