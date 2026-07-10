@@ -54,6 +54,7 @@ import { loadShorts } from "../src/lib/shorts.ts";
 import { hasCamera } from "../src/types.ts";
 import { applyProposalResolution, proposalDiff } from "../src/lib/docDiff.ts";
 import { snapshotOfReviewDocs, validateReviewSpec } from "../src/lib/review.ts";
+import { supportsImageReview } from "../src/lib/llm.ts";
 import type {
   AutoCuts,
   Bgm,
@@ -67,8 +68,8 @@ import type {
   ConfigSaveResult,
   DraftData,
   AiFrameRequest,
-  AiRefineRequest,
   AiProposeRequest,
+  AiRefineRequest,
   AiReviewRequest,
   ProjectData,
   SaveRequest,
@@ -227,6 +228,7 @@ const PROPOSAL_TTL_MS = 30 * 60 * 1000;
 const MAX_STORED_PROPOSALS = 32;
 const PROPOSAL_EXPIRED_CODE = "proposal_expired";
 const PROPOSAL_STALE_CODE = "proposal_stale";
+const SECONDARY_OBSERVATION_UNAVAILABLE_CODE = "SECONDARY_OBSERVATION_UNAVAILABLE";
 
 async function handle(
   req: IncomingMessage,
@@ -381,40 +383,90 @@ async function handle(
     const requestErrors = validateRefineRequest(body);
     if (requestErrors.length > 0) throw new HttpError(400, requestErrors.join(" / "));
     const record = getStoredProposal(body.proposalId);
-    const key = `refine:${refineRequestKey(record, body, cfg)}`;
-    const response = await runHeavyJob("propose", key, async () => {
+    const additionalInstruction = body.instruction?.trim() || undefined;
+    const nextInstruction = refinedInstruction(record.instruction, additionalInstruction);
+    const key = `refine:${refineRequestKey(record, body)}`;
+    if (proxyBuilding) await proxyBuilding;
+    const next = await runHeavyJob("propose", key, async () => {
       const currentHash = hashEditableDocsState(currentEditableDocs(dir));
       if (currentHash !== record.baseDocsHash) {
         expireStoredProposal(record.proposalId);
         throw new HttpError(409, "proposal の基準状態が変化しました。再提案してください", PROPOSAL_STALE_CODE);
       }
-      if (!record.lastReview?.secondary) {
-        throw new HttpError(422, "secondary observation がありません", "SECONDARY_OBSERVATION_UNAVAILABLE");
+      if (body.vlm === true) ensureRefineVlmAvailable(cfg);
+      const candidate = buildAiReviewCandidateFromStoredProposal(dir, record, body.acceptedHunkLabels);
+      const priorDiff = proposalDiff(record.baseDocs, record.proposal.proposedDocs);
+      const acceptedHunkLabels = [...new Set(body.acceptedHunkLabels)].sort();
+      const acceptedLabelSet = new Set(acceptedHunkLabels);
+      const rejectedHunkLabels = priorDiff.hunks
+        .map((hunk) => hunk.address.label)
+        .filter((label) => !acceptedLabelSet.has(label))
+        .sort();
+      const applyWarnings = record.proposal.applyPlan.warnings.map((warning) =>
+        `${warning.file} ${warning.where}: ${warning.message}`
+      );
+      const bundle = await reviewEdit(
+        dir,
+        cfg,
+        snapshotOfReviewDocs(record.baseDocs),
+        snapshotOfReviewDocs(candidate),
+        record.normalizedReviewSpec,
+        {
+          shortName: record.activeShortName ?? undefined,
+          secondaryObservation: body.vlm === true ? "vlm" : "none",
+        },
+      );
+      if (body.vlm === true && !bundle.secondaryObservation) {
+        throw new HttpError(
+          422,
+          "画像を使った再提案を実行できませんでした。vision provider の設定を確認してください",
+          SECONDARY_OBSERVATION_UNAVAILABLE_CODE,
+        );
       }
-      if (
-        record.lastReview.key.candidateHash !== body.reviewKey.candidateHash ||
-        record.lastReview.key.specHash !== body.reviewKey.specHash ||
-        record.lastReview.key.acceptedLabelsHash !== body.reviewKey.acceptedLabelsHash
-      ) {
-        throw new HttpError(409, "review の基準状態が変化しました", "REVIEW_STALE");
-      }
-      if (record.refinementIteration >= ((cfg.editor?.aiReview as { maxRefinements?: number } | undefined)?.maxRefinements ?? 2)) {
-        throw new HttpError(422, "refinement 上限に達しました", "REFINEMENT_LIMIT_REACHED");
+      const finalHash = hashEditableDocsState(currentEditableDocs(dir));
+      if (finalHash !== record.baseDocsHash) {
+        rmSync(join(dir, "review.probe"), { recursive: true, force: true });
+        expireStoredProposal(record.proposalId);
+        throw new HttpError(409, "proposal の基準状態が変化しました。再提案してください", PROPOSAL_STALE_CODE);
       }
       const proposal = await refineEditorAi(dir, cfg, {
+        mode: body.mode ?? "normal",
         originalInstruction: record.instruction,
-        base: record.baseDocs,
-        previousProposal: record.proposal.proposedDocs,
-        acceptedHunkLabels: [...new Set(body.acceptedHunkLabels)].sort(),
-        primaryObservation: record.lastReview.primary,
-        secondaryObservation: record.lastReview.secondary,
-        refinementIteration: record.refinementIteration + 1,
+        additionalInstruction,
+        baseDocs: deepClone(record.baseDocs),
+        candidateDocs: snapshotOfReviewDocs(candidate),
+        applyWarnings,
+        acceptedHunkLabels,
+        rejectedHunkLabels,
+        priorProposalDiff: priorDiff.hunks.map((hunk) => ({
+          label: hunk.address.label,
+          kind: hunk.kind,
+          current: hunk.mine,
+          proposed: hunk.theirs,
+        })),
+        priorProposal: cloneProposal(record.proposal),
+        reviewBundle: {
+          observation: deepClone(bundle.observation),
+          ...(bundle.secondaryObservation
+            ? {
+                vlm: {
+                  summary: deepClone(bundle.secondaryObservation.summary),
+                  observations: deepClone(bundle.secondaryObservation.items),
+                  confidence: bundle.secondaryObservation.confidence,
+                },
+              }
+            : {}),
+        },
       });
       const spec = reviewSpecOfProposalReview(proposal.review);
-      if (!spec) throw new HttpError(422, "NO_REFINEMENT", "NO_REFINEMENT");
-      const child = storeProposal(
+      if (!spec) throw new HttpError(400, "比較対象の review.frames がありません");
+      const specProblems = validateReviewSpec(spec);
+      if (specProblems.length > 0) {
+        throw new HttpError(400, specProblems.map((problem) => `${problem.where}: ${problem.message}`).join(" / "));
+      }
+      return storeProposal(
         proposal,
-        record.instruction,
+        nextInstruction,
         record.baseDocs,
         spec,
         record.baseDocsHash,
@@ -423,16 +475,8 @@ async function handle(
         record.refinementIteration + 1,
         record.lineageExpiresAtMs,
       );
-      return {
-        proposalId: child.proposalId,
-        proposal: child.proposal,
-        refinement: {
-          iteration: child.refinementIteration,
-          parentProposalId: record.proposalId,
-        },
-      };
     });
-    sendJson(res, 200, response);
+    sendJson(res, 200, { proposalId: next.proposalId, proposal: next.proposal });
     return;
   }
   if (req.method === "POST" && path === "/api/ai/frames") {
@@ -750,6 +794,13 @@ function acceptedLabelsHash(labels: string[]): string {
   return sha256Hex(JSON.stringify([...new Set(labels)].sort()));
 }
 
+function refinedInstruction(originalInstruction: string, additionalInstruction: string | undefined): string {
+  if (!additionalInstruction) return originalInstruction;
+  const base = originalInstruction.trim();
+  const refinement = `Refinement instruction:\n${additionalInstruction}`;
+  return base ? `${base}\n\n${refinement}` : refinement;
+}
+
 function reviewRequestKey(record: StoredProposal, acceptedHunkLabels: string[], cfg: Config, secondaryObservation: "none" | "vlm" = "none"): string {
   const runtime = resolveAiRuntimeConfig(cfg);
   const visionProfile = runtime.routes.vision ? profileForRoute(runtime, "vision") : null;
@@ -759,20 +810,6 @@ function reviewRequestKey(record: StoredProposal, acceptedHunkLabels: string[], 
     secondaryObservation,
     visionProfile: visionProfile?.name ?? null,
     visionModel: visionProfile?.model ?? null,
-  });
-}
-
-function refineRequestKey(record: StoredProposal, body: AiRefineRequest, cfg: Config): string {
-  const runtime = resolveAiRuntimeConfig(cfg);
-  const structuredProfile = profileForRoute(runtime, "structured");
-  return JSON.stringify({
-    parentProposalId: record.proposalId,
-    acceptedLabelsHash: acceptedLabelsHash(body.acceptedHunkLabels),
-    reviewKey: body.reviewKey,
-    secondaryInputDigest: record.lastReview?.secondary?.provenance.inputDigest ?? null,
-    refinementIteration: record.refinementIteration + 1,
-    structuredProfile: structuredProfile.name,
-    structuredModel: structuredProfile.model,
   });
 }
 
@@ -811,24 +848,68 @@ export function validateReviewRequest(body: AiReviewRequest): string[] {
   return errors;
 }
 
-function validateRefineRequest(body: AiRefineRequest): string[] {
+export function validateRefineRequest(body: AiRefineRequest): string[] {
   const errors: string[] = [];
-  if (!body || typeof body !== "object") return ["request body が不正です"];
+  if (!body || typeof body !== "object") {
+    return ["request body が不正です"];
+  }
   const keys = Object.keys(body).sort();
-  const allowedKeys = new Set(["acceptedHunkLabels", "proposalId", "reviewKey"]);
+  const allowedKeys = new Set(["acceptedHunkLabels", "instruction", "mode", "proposalId", "vlm"]);
   if (keys.some((key) => !allowedKeys.has(key))) {
-    errors.push("request body は proposalId / acceptedHunkLabels / reviewKey だけを指定してください");
+    errors.push("request body は proposalId / acceptedHunkLabels / instruction / vlm / mode だけを指定してください");
   }
   if (typeof body.proposalId !== "string" || body.proposalId.trim() === "") {
     errors.push("proposalId は空でない文字列で指定してください");
   }
   if (!Array.isArray(body.acceptedHunkLabels)) {
     errors.push("acceptedHunkLabels は配列で指定してください");
+    return errors;
   }
-  if (!body.reviewKey || typeof body.reviewKey !== "object") {
-    errors.push("reviewKey は object で指定してください");
+  const labels = body.acceptedHunkLabels.filter((label): label is string => typeof label === "string");
+  if (labels.length !== body.acceptedHunkLabels.length) {
+    errors.push("acceptedHunkLabels は文字列配列で指定してください");
   }
-  return errors;
+  if (new Set(labels).size !== labels.length) {
+    errors.push("acceptedHunkLabels に重複があります");
+  }
+  if ("instruction" in body && body.instruction !== undefined && typeof body.instruction !== "string") {
+    errors.push("instruction は文字列で指定してください");
+  }
+  if ("vlm" in body && body.vlm !== undefined && typeof body.vlm !== "boolean") {
+    errors.push("vlm は true / false で指定してください");
+  }
+  if ("mode" in body && body.mode !== undefined && body.mode !== "normal" && body.mode !== "warning-fix") {
+    errors.push("mode は normal / warning-fix で指定してください");
+  }
+  return errors.filter((error, index, all) => all.indexOf(error) === index);
+}
+
+export function refineRequestKey(record: StoredProposal, body: AiRefineRequest): string {
+  return JSON.stringify({
+    proposalId: record.proposalId,
+    acceptedLabelsHash: acceptedLabelsHash(body.acceptedHunkLabels),
+    instruction: body.instruction?.trim() ?? "",
+    vlm: body.vlm === true,
+    mode: body.mode ?? "normal",
+  });
+}
+
+function ensureRefineVlmAvailable(cfg: Config): void {
+  const aiReview = resolveAiReviewCfg(cfg);
+  if (!aiReview.vlm) {
+    throw new HttpError(
+      422,
+      "画像を使った再提案は config editor.aiReview.vlm=false のため実行できません",
+      SECONDARY_OBSERVATION_UNAVAILABLE_CODE,
+    );
+  }
+  if (!supportsImageReview(cfg)) {
+    throw new HttpError(
+      422,
+      "現在の AI provider は画像を使った再提案に対応していません",
+      SECONDARY_OBSERVATION_UNAVAILABLE_CODE,
+    );
+  }
 }
 
 function validateReviewCandidate(dir: string, candidate: ReturnType<typeof currentReviewDocs>): string[] {

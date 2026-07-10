@@ -36,19 +36,19 @@ export interface AiReviewResponse {
   bundle: ReviewBundle;
 }
 
+export type AiRefineMode = "normal" | "warning-fix";
+
 export interface AiRefineRequest {
   proposalId: string;
   acceptedHunkLabels: string[];
-  reviewKey: Pick<ReviewKey, "candidateHash" | "specHash" | "acceptedLabelsHash">;
+  instruction?: string;
+  vlm?: boolean;
+  mode?: AiRefineMode;
 }
 
 export interface AiRefineResponse {
   proposalId: string;
   proposal: EditorAiProposeResponse;
-  refinement: {
-    iteration: number;
-    parentProposalId: string;
-  };
 }
 
 export interface AiDoctorCheck {

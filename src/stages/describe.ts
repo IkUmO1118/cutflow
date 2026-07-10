@@ -25,6 +25,7 @@ import type { TimelineEntry } from "../lib/timeline.ts";
 import { captionTrack, hasCamera, manifestLayout, overlayTrack } from "../types.ts";
 import type {
   AutoCuts,
+  Annotation,
   Bgm,
   BlurType,
   CaptionPos,
@@ -785,6 +786,7 @@ function buildProjection(inp: DescribeInputs, cfg?: Config): DescribeProjection 
 
   const annotations: AnnotationEntry[] = (overlays.annotations ?? []).map((a): AnnotationEntry => {
     const base = {
+      ...(a.id !== undefined ? { id: a.id } : {}),
       start: a.start,
       end: a.end,
       out: remapInterval(a.start, a.end, timeline),
