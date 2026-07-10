@@ -401,6 +401,70 @@ test("planEditorAiPatch: tasks が不正でも併記 patch が有効なら patch
   });
 });
 
+test("planEditorAiPatch: AI の素材配置 rect を出力範囲へクランプする", () => {
+  withTmpProject((dir) => {
+    const parsed = parseAiPatchResponse(JSON.stringify({
+      title: "material place",
+      edit: {
+        mode: "tasks",
+        tasks: [{
+          type: "place-material",
+          file: "materials/shot.png",
+          range: { startSec: 1, endSec: 4 },
+          placement: {
+            mode: "overlay",
+            rect: { x: 3000, y: -50, w: 2000, h: 900 },
+            fit: "contain",
+          },
+        }],
+      },
+      review: { frames: [], notes: [] },
+    }));
+    mkdirSync(join(dir, "materials"), { recursive: true });
+    writeFileSync(join(dir, "materials/shot.png"), "fake", "utf8");
+    const res = planEditorAiPatch(dir, parsed);
+    assert.deepEqual(res.proposedDocs.overlays.overlays?.[0]?.rect, { x: 0, y: 0, w: 1280, h: 720 });
+    assert.deepEqual((res.patch.replace?.overlays?.overlays?.[0] as { rect?: unknown })?.rect, { x: 0, y: 0, w: 1280, h: 720 });
+  });
+});
+
+test("planEditorAiPatch: AI の注釈と字幕位置を出力範囲へクランプする", () => {
+  withTmpProject((dir) => {
+    const parsed = parseAiPatchResponse(JSON.stringify({
+      patch: {
+        replace: {
+          transcript: {
+            language: "ja",
+            model: "test",
+            segments: [{ id: "cap_aaaaaa", start: 1, end: 3, text: "こんにちは", pos: { x: 5000, y: -200 } }],
+          },
+          overlays: {
+            annotations: [{
+              id: "ann_aaaaaa",
+              type: "arrow",
+              start: 1,
+              end: 2,
+              from: { x: -30, y: 9999 },
+              to: { x: 3000, y: -40 },
+            }],
+          },
+        },
+      },
+      review: { frames: [], notes: [] },
+    }));
+    const res = planEditorAiPatch(dir, parsed);
+    assert.deepEqual(res.proposedDocs.transcript.segments[0].pos, { x: 1280, y: 0 });
+    assert.deepEqual(res.proposedDocs.overlays.annotations?.[0], {
+      id: "ann_aaaaaa",
+      type: "arrow",
+      start: 1,
+      end: 2,
+      from: { x: 0, y: 720 },
+      to: { x: 1280, y: 0 },
+    });
+  });
+});
+
 test("buildEditorAiPrompt: 指示と選択文脈と project projection を含める", () => {
   withTmpProject((dir) => {
     writeFileSync(
@@ -433,6 +497,8 @@ test("buildEditorAiPrompt: 指示と選択文脈と project projection を含め
     assert.match(prompt, /Current project projection/);
     assert.match(prompt, /"required": \[\s*"title",\s*"summary",\s*"edit",\s*"review"\s*\]/s);
     assert.match(prompt, /"op": \{\s*"const": "set"\s*\}/s);
+    assert.match(prompt, /All on-screen coordinates must stay inside the visible output frame/);
+    assert.match(prompt, /x \+ w <= width/);
   });
 });
 

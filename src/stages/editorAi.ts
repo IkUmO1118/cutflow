@@ -11,7 +11,7 @@ import { sliceReviewContext, type ReviewFrameRequest, type ReviewRange } from ".
 import type { EditorAiReviewPlan } from "../lib/editorAiReview.ts";
 import { describeJson } from "./describe.ts";
 import type { DescribeProjection, CaptionEntry, MappedInterval } from "./describe.ts";
-import type { ApplyPatch, Bgm, CutPlan, Overlays, Shorts, Transcript } from "../types.ts";
+import type { ApplyBody, ApplyPatch, Bgm, CutPlan, Manifest, Overlays, Region, Shorts, Transcript } from "../types.ts";
 import { planIntentEdits, type EditIntent } from "../lib/editIntent.ts";
 import { retrievalSearch } from "./retrievalSearch.ts";
 
@@ -196,6 +196,193 @@ function normalizeApplyPatchValue(patch: ApplyPatch): ApplyPatch {
       }
       return op;
     }),
+  };
+}
+
+function readManifest(dir: string): Manifest {
+  return JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")) as Manifest;
+}
+
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.min(Math.max(v, lo), hi);
+}
+
+function isFiniteNumber(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v);
+}
+
+function normalizePoint(value: unknown, bounds: Region): unknown {
+  if (!isObj(value) || !isFiniteNumber(value.x) || !isFiniteNumber(value.y)) return value;
+  return {
+    ...value,
+    x: clamp(Math.round(value.x), 0, bounds.w),
+    y: clamp(Math.round(value.y), 0, bounds.h),
+  };
+}
+
+function normalizeRect(value: unknown, bounds: Region): unknown {
+  if (!isObj(value) || !isFiniteNumber(value.x) || !isFiniteNumber(value.y) || !isFiniteNumber(value.w) || !isFiniteNumber(value.h)) {
+    return value;
+  }
+  const w = clamp(Math.round(value.w), 1, bounds.w);
+  const h = clamp(Math.round(value.h), 1, bounds.h);
+  const maxX = Math.max(0, bounds.w - w);
+  const maxY = Math.max(0, bounds.h - h);
+  return {
+    ...value,
+    x: clamp(Math.round(value.x), 0, maxX),
+    y: clamp(Math.round(value.y), 0, maxY),
+    w,
+    h,
+  };
+}
+
+function normalizeMaterialKeyframes(value: unknown, bounds: Region): unknown {
+  if (!Array.isArray(value)) return value;
+  return value.map((item) => {
+    if (!isObj(item) || !isObj(item.values)) return item;
+    const rect = normalizeRect({
+      x: item.values.x,
+      y: item.values.y,
+      w: item.values.w,
+      h: item.values.h,
+    }, bounds);
+    if (!isObj(rect)) return item;
+    return {
+      ...item,
+      values: {
+        ...item.values,
+        ...(isFiniteNumber(item.values.x) ? { x: rect.x } : {}),
+        ...(isFiniteNumber(item.values.y) ? { y: rect.y } : {}),
+        ...(isFiniteNumber(item.values.w) ? { w: rect.w } : {}),
+        ...(isFiniteNumber(item.values.h) ? { h: rect.h } : {}),
+      },
+    };
+  });
+}
+
+function normalizeArrowKeyframes(value: unknown, bounds: Region): unknown {
+  if (!Array.isArray(value)) return value;
+  return value.map((item) => {
+    if (!isObj(item) || !isObj(item.values)) return item;
+    const from = normalizePoint({ x: item.values.fromX, y: item.values.fromY }, bounds);
+    const to = normalizePoint({ x: item.values.toX, y: item.values.toY }, bounds);
+    if (!isObj(from) || !isObj(to)) return item;
+    return {
+      ...item,
+      values: {
+        ...item.values,
+        ...(isFiniteNumber(item.values.fromX) ? { fromX: from.x } : {}),
+        ...(isFiniteNumber(item.values.fromY) ? { fromY: from.y } : {}),
+        ...(isFiniteNumber(item.values.toX) ? { toX: to.x } : {}),
+        ...(isFiniteNumber(item.values.toY) ? { toY: to.y } : {}),
+      },
+    };
+  });
+}
+
+function normalizeRectKeyframes(value: unknown, bounds: Region): unknown {
+  if (!Array.isArray(value)) return value;
+  return value.map((item) => {
+    if (!isObj(item) || !isObj(item.values)) return item;
+    const rect = normalizeRect({
+      x: item.values.x,
+      y: item.values.y,
+      w: item.values.w,
+      h: item.values.h,
+    }, bounds);
+    if (!isObj(rect)) return item;
+    return {
+      ...item,
+      values: {
+        ...item.values,
+        ...(isFiniteNumber(item.values.x) ? { x: rect.x } : {}),
+        ...(isFiniteNumber(item.values.y) ? { y: rect.y } : {}),
+        ...(isFiniteNumber(item.values.w) ? { w: rect.w } : {}),
+        ...(isFiniteNumber(item.values.h) ? { h: rect.h } : {}),
+      },
+    };
+  });
+}
+
+function normalizeTranscriptDoc(value: Transcript | undefined, bounds: Region): Transcript | undefined {
+  if (!value) return value;
+  return {
+    ...value,
+    segments: value.segments.map((segment) => (
+      segment.pos ? { ...segment, pos: normalizePoint(segment.pos, bounds) as typeof segment.pos } : segment
+    )),
+  };
+}
+
+function normalizeCaptionTracks<T extends { captionTracks?: { x?: number; y?: number }[] }>(value: T | null | undefined, bounds: Region): T | null | undefined {
+  if (!value?.captionTracks) return value;
+  return {
+    ...value,
+    captionTracks: value.captionTracks.map((track) => {
+      const point = normalizePoint({ x: track.x, y: track.y }, bounds);
+      return isObj(point)
+        ? {
+            ...track,
+            ...(isFiniteNumber(track.x) ? { x: point.x } : {}),
+            ...(isFiniteNumber(track.y) ? { y: point.y } : {}),
+          }
+        : track;
+    }),
+  };
+}
+
+function normalizeOverlaysDoc(value: Overlays | undefined, bounds: Region): Overlays | undefined {
+  if (!value) return value;
+  return {
+    ...value,
+    overlays: value.overlays?.map((overlay) => ({
+      ...overlay,
+      ...(overlay.rect ? { rect: normalizeRect(overlay.rect, bounds) as Region } : {}),
+      ...(overlay.keyframes ? { keyframes: normalizeMaterialKeyframes(overlay.keyframes, bounds) as typeof overlay.keyframes } : {}),
+    })),
+    captionTracks: normalizeCaptionTracks({ captionTracks: value.captionTracks }, bounds)?.captionTracks,
+    zooms: value.zooms?.map((zoom) => ({
+      ...zoom,
+      rect: normalizeRect(zoom.rect, bounds) as Region,
+    })),
+    blurs: value.blurs?.map((blur) => ({
+      ...blur,
+      rect: normalizeRect(blur.rect, bounds) as Region,
+      ...(blur.keyframes ? { keyframes: normalizeRectKeyframes(blur.keyframes, bounds) as typeof blur.keyframes } : {}),
+    })),
+    annotations: value.annotations?.map((annotation) => {
+      if (annotation.type === "arrow") {
+        return {
+          ...annotation,
+          from: normalizePoint(annotation.from, bounds) as typeof annotation.from,
+          to: normalizePoint(annotation.to, bounds) as typeof annotation.to,
+          ...(annotation.keyframes ? { keyframes: normalizeArrowKeyframes(annotation.keyframes, bounds) as typeof annotation.keyframes } : {}),
+        };
+      }
+      return {
+        ...annotation,
+        rect: normalizeRect(annotation.rect, bounds) as Region,
+        ...(annotation.keyframes ? { keyframes: normalizeRectKeyframes(annotation.keyframes, bounds) as typeof annotation.keyframes } : {}),
+      };
+    }),
+  };
+}
+
+function normalizeShortsDoc(value: Shorts | null | undefined, bounds: Region): Shorts | null | undefined {
+  if (!value) return value;
+  return {
+    ...value,
+    shorts: value.shorts.map((short) => normalizeCaptionTracks(short, bounds) as typeof short),
+  };
+}
+
+function normalizeAiApplyBody(body: ApplyBody, bounds: Region): ApplyBody {
+  return {
+    ...body,
+    ...(body.transcript ? { transcript: normalizeTranscriptDoc(body.transcript, bounds) } : {}),
+    ...(body.overlays ? { overlays: normalizeOverlaysDoc(body.overlays, bounds) } : {}),
+    ...(body.shorts !== undefined ? { shorts: normalizeShortsDoc(body.shorts, bounds) } : {}),
   };
 }
 
@@ -844,32 +1031,37 @@ export function planEditorAiPatch(
   dir: string,
   parsed: ParsedAiPatchResponse,
 ): AiProposeResponse {
+  const outputBounds = readManifest(dir).video.screenRegion;
   const intentPlan = parsed.tasks ? planIntentEdits(dir, parsed.tasks) : null;
   if (intentPlan && intentPlan.errors.length > 0 && hasPatchEdits(parsed.patch)) {
     const patchApplyPlan = planApply(dir, parsed.patch);
     if (patchApplyPlan.errors.length === 0) {
-      const unsupported = patchApplyPlan.changedFiles.filter((f) => f === "chapters.json" || f === "thumbnail.json");
+      const normalizedBody = normalizeAiApplyBody(patchApplyPlan.body, outputBounds);
+      const normalizedApplyPlan = { ...patchApplyPlan, body: normalizedBody };
+      const unsupported = normalizedApplyPlan.changedFiles.filter((f) => f === "chapters.json" || f === "thumbnail.json");
       if (unsupported.length > 0) {
         throw new EditorAiError(400, `GUI 提案では編集できないファイルです: ${unsupported.join(", ")}`);
       }
-      const proposedDocs = reviewDocsOf(mergeBodyOverDisk(dir, patchApplyPlan.body));
+      const proposedDocs = reviewDocsOf(mergeBodyOverDisk(dir, normalizedApplyPlan.body));
       return {
         title: parsed.title,
         summary: parsed.summary,
-        patch: parsed.patch,
+        patch: { replace: normalizedBody },
         ...(parsed.tasks ? { tasks: parsed.tasks } : {}),
-        applyPlan: patchApplyPlan,
+        applyPlan: normalizedApplyPlan,
         proposedDocs,
         review: parsed.review,
       };
     }
   }
   const compiledPatch = intentPlan?.intentPlan.patch ?? parsed.patch;
-  const applyPlan = intentPlan ?? planApply(dir, compiledPatch);
-  if (applyPlan.errors.length > 0) {
-    const detail = applyPlan.errors.map((e) => `${e.file} ${e.where}: ${e.message}`).join(" / ");
+  const rawApplyPlan = intentPlan ?? planApply(dir, compiledPatch);
+  if (rawApplyPlan.errors.length > 0) {
+    const detail = rawApplyPlan.errors.map((e) => `${e.file} ${e.where}: ${e.message}`).join(" / ");
     throw new EditorAiError(400, `AI 提案を適用できません: ${detail}`);
   }
+  const normalizedBody = normalizeAiApplyBody(rawApplyPlan.body, outputBounds);
+  const applyPlan = { ...rawApplyPlan, body: normalizedBody };
   const unsupported = applyPlan.changedFiles.filter((f) => f === "chapters.json" || f === "thumbnail.json");
   if (unsupported.length > 0) {
     throw new EditorAiError(400, `GUI 提案では編集できないファイルです: ${unsupported.join(", ")}`);
@@ -878,7 +1070,7 @@ export function planEditorAiPatch(
   return {
     title: parsed.title,
     summary: parsed.summary,
-    patch: compiledPatch,
+    patch: { replace: normalizedBody },
     ...(parsed.tasks ? { tasks: parsed.tasks } : {}),
     applyPlan,
     proposedDocs,

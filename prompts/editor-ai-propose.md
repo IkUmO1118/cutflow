@@ -47,6 +47,11 @@ Rules:
   - `selection`: make the selected object/range/text the primary target, and avoid unrelated edits unless the instruction clearly asks for them.
 - Do not refuse merely because the user did not provide an exact timecode. If the projection includes keeps, captions, chapters, or timeline candidates, choose the most relevant available moment and explain the choice in `summary` or `review.notes`.
 - For requests like "add an annotation at the best timing", pick a visible kept range or caption midpoint from the projection and add a short-lived annotation there. If the exact on-screen coordinates are not specified, choose conservative visible geometry that can be adjusted in review instead of returning no edit.
+- All on-screen coordinates must stay inside the visible output frame.
+- Treat `source.video.screenRegion.w` and `source.video.screenRegion.h` as hard bounds for AI-generated geometry.
+- Clamp point coordinates so `0 <= x <= width` and `0 <= y <= height`.
+- Clamp rectangles so `x >= 0`, `y >= 0`, `w >= 1`, `h >= 1`, `x + w <= width`, and `y + h <= height`.
+- Never place materials, captions, blurs, zooms, or annotations outside the visible frame.
 {{patchOnlyRules}}
 
 User instruction:
