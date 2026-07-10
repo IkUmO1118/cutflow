@@ -165,7 +165,7 @@ editor:
   # 無いときの既定レンジ長(秒)
   defaultShortRangeSec: 10
   aiReview:
-    vlm: true
+    vlm: false
     maxImages: 4
     maxRefinements: 3
 
@@ -184,20 +184,20 @@ plan:
     ocr: true # 画面OCRテキスト(macOS/Apple Vision 必要・区間数ぶん重い)
     ocrMaxSegments: 40
     ocrMaxLines: 6
-    systemSpeech: false  # システム音声の発話を plan に添える(要 whisper.systemAudio)
+    systemSpeech: false # システム音声の発話を plan に添える(要 whisper.systemAudio)
   # plan --cuts-only の観測→再調整ループ。省略/0/1 は従来の1ショット。
   # loop:
   #   maxIterations: 0
   #   targetOutDurationSec: null
   #   stopWhenAssertionsPass: true
 
-# describe の任意露出(既定オフ=散文/--json ともバイト等価)
-# describe:
-#   pauses: false      # keep 内の間の位置と長さを出す
-#   pauseMax: 3
-#   pauseMinSec: 0.6
+  # describe の任意露出(既定オフ=散文/--json ともバイト等価)
+  # describe:
+  #   pauses: false      # keep 内の間の位置と長さを出す
+  #   pauseMax: 3
+  #   pauseMinSec: 0.6
 
-# AI(意味カット・章立て・タイトル案・AI提案)
+  # AI(意味カット・章立て・タイトル案・AI提案)
 ai:
   # claude-code: Claude Code の `claude` CLI を使う(APIキー不要)
   # codex:       Codex CLI の `codex exec` を使う(実験的)
