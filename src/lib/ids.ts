@@ -14,6 +14,7 @@ export const ID_PREFIX = {
   caption: "cap",
   material: "mat",
   insert: "ins",
+  annotation: "ann",
   zoom: "zm",
   blur: "bl",
   wipeFull: "wf",
@@ -128,6 +129,7 @@ function collectExistingIds(docs: EditableDocs, used: Set<string>): void {
   addAll(docs.overlays?.hideCaption);
   addAll(docs.overlays?.zooms);
   addAll(docs.overlays?.blurs);
+  addAll(docs.overlays?.annotations);
   addAll(docs.overlays?.captionTracks);
   addAll(docs.chapters?.chapters);
   addAll(docs.bgm?.tracks);
@@ -192,6 +194,9 @@ export function stampDocs(docs: EditableDocs): EditableDocs {
         blurs: docs.overlays.blurs
           ? ensureIds(docs.overlays.blurs, ID_PREFIX.blur, used)
           : docs.overlays.blurs,
+        annotations: docs.overlays.annotations
+          ? ensureIds(docs.overlays.annotations, ID_PREFIX.annotation, used)
+          : docs.overlays.annotations,
         captionTracks: docs.overlays.captionTracks
           ? ensureIds(docs.overlays.captionTracks, ID_PREFIX.captionTrack, used)
           : docs.overlays.captionTracks,

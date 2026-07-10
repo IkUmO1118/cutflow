@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { compileEditIntents } from "../src/lib/editIntent.ts";
+import type { EditIntent } from "../src/lib/editIntent.ts";
 import type { LoadedDocs } from "../src/stages/validate.ts";
 
 const docs = (): LoadedDocs => ({
@@ -40,4 +41,70 @@ test("compileEditIntents: caption textだけを変更する", () => {
   assert.equal(result.errors.length, 0);
   assert.equal(result.patch.replace?.transcript?.segments[0].text, "new");
   assert.equal(result.patch.replace?.transcript?.segments[0].start, 1);
+});
+
+test("compileEditIntents: range 欠落 task は TypeError でなく validation error にする", () => {
+  const result = compileEditIntents(docs(), [{
+    type: "set-range-action",
+    action: "cut",
+    reason: "pause",
+  } as unknown as EditIntent], { recordingDir: "/tmp" });
+  assert.deepEqual(result.patch, {});
+  assert.equal(result.errors.length, 1);
+  assert.match(result.errors[0].message, /range\/action\/reason が不正です/);
+});
+
+test("compileEditIntents: reason 欠落 task は TypeError でなく validation error にする", () => {
+  const result = compileEditIntents(docs(), [{
+    type: "set-range-action",
+    range: { startSec: 2, endSec: 4 },
+    action: "cut",
+  } as unknown as EditIntent], { recordingDir: "/tmp" });
+  assert.deepEqual(result.patch, {});
+  assert.equal(result.errors.length, 1);
+  assert.match(result.errors[0].message, /range\/action\/reason が不正です/);
+});
+
+test("compileEditIntents: add-blur の rect 欠落は TypeError でなく validation error にする", () => {
+  const result = compileEditIntents(docs(), [{
+    type: "add-blur",
+    range: { startSec: 2, endSec: 4 },
+  } as unknown as EditIntent], { recordingDir: "/tmp" });
+  assert.deepEqual(result.patch, {});
+  assert.equal(result.errors.length, 1);
+  assert.match(result.errors[0].message, /blur のrange\/rect\/strengthが不正です/);
+});
+
+test("compileEditIntents: place-material の placement 欠落は TypeError でなく validation error にする", () => {
+  const result = compileEditIntents(docs(), [{
+    type: "place-material",
+    range: { startSec: 2, endSec: 4 },
+    file: "missing.png",
+  } as unknown as EditIntent], { recordingDir: "/tmp" });
+  assert.deepEqual(result.patch, {});
+  assert.equal(result.errors.length, 1);
+  assert.match(result.errors[0].message, /material のrangeまたはfileが不正です|material placement が不正です/);
+});
+
+test("compileEditIntents: add-annotation は id mode で annotation id を採番する", () => {
+  const result = compileEditIntents(docs(), [{
+    type: "add-annotation",
+    range: { startSec: 2, endSec: 4 },
+    annotation: { type: "box", rect: { x: 5, y: 6, w: 20, h: 30 } },
+  }], { recordingDir: "/tmp" });
+  assert.equal(result.errors.length, 0);
+  assert.match(result.patch.replace?.overlays?.annotations?.[0].id ?? "", /^ann_[0-9a-z]{6}$/);
+  assert.equal(result.patch.replace?.overlays?.annotations?.[0].start, 2);
+  assert.equal(result.patch.replace?.overlays?.annotations?.[0].end, 4);
+});
+
+test("compileEditIntents: add-annotation の body 不正は overlays validate 前に validation error にする", () => {
+  const result = compileEditIntents(docs(), [{
+    type: "add-annotation",
+    range: { startSec: 2, endSec: 4 },
+    annotation: { rect: { x: 5, y: 6, w: 20, h: 30 } } as unknown as EditIntent["annotation"],
+  }], { recordingDir: "/tmp" });
+  assert.deepEqual(result.patch, {});
+  assert.equal(result.errors.length, 1);
+  assert.match(result.errors[0].message, /annotation のrange\/bodyが不正です/);
 });

@@ -78,13 +78,47 @@ function problem(index: number, message: string): Problem {
   return { file: "(intent)", where: `tasks[${index}]`, message };
 }
 
-function validRange(range: { startSec: number; endSec: number }): boolean {
-  return Number.isFinite(range.startSec) && Number.isFinite(range.endSec)
-    && range.startSec >= 0 && range.endSec > range.startSec;
+function validRange(range: unknown): range is { startSec: number; endSec: number } {
+  if (!range || typeof range !== "object") return false;
+  const candidate = range as { startSec?: unknown; endSec?: unknown };
+  return typeof candidate.startSec === "number" && Number.isFinite(candidate.startSec)
+    && typeof candidate.endSec === "number" && Number.isFinite(candidate.endSec)
+    && candidate.startSec >= 0 && candidate.endSec > candidate.startSec;
 }
 
-function validRect(rect: Region): boolean {
-  return [rect.x, rect.y, rect.w, rect.h].every(Number.isFinite) && rect.w > 0 && rect.h > 0;
+function validRect(rect: unknown): rect is Region {
+  if (!rect || typeof rect !== "object") return false;
+  const candidate = rect as Partial<Region>;
+  return [candidate.x, candidate.y, candidate.w, candidate.h].every((v) => typeof v === "number" && Number.isFinite(v))
+    && (candidate.w ?? 0) > 0 && (candidate.h ?? 0) > 0;
+}
+
+function validReason(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function validAction(value: unknown): value is "keep" | "cut" {
+  return value === "keep" || value === "cut";
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function validPoint(point: unknown): point is { x: number; y: number } {
+  if (!point || typeof point !== "object") return false;
+  const candidate = point as { x?: unknown; y?: unknown };
+  return typeof candidate.x === "number" && Number.isFinite(candidate.x)
+    && typeof candidate.y === "number" && Number.isFinite(candidate.y);
+}
+
+function validAnnotationPayload(annotation: unknown): annotation is Annotation {
+  if (!annotation || typeof annotation !== "object") return false;
+  const candidate = annotation as Partial<Annotation> & { type?: unknown; from?: unknown; to?: unknown; rect?: unknown };
+  if (candidate.type === "arrow") return validPoint(candidate.from) && validPoint(candidate.to);
+  if (candidate.type === "box") return !!candidate.rect && validRect(candidate.rect);
+  if (candidate.type === "spotlight") return !!candidate.rect && validRect(candidate.rect);
+  return false;
 }
 
 function rebuildSegments(
@@ -171,7 +205,7 @@ export function compileEditIntents(
       return;
     }
     if (intent.type === "set-range-action") {
-      if (!validRange(intent.range) || !["keep", "cut"].includes(intent.action) || !intent.reason.trim()) {
+      if (!validRange(intent.range) || !validAction(intent.action) || !validReason(intent.reason)) {
         errors.push(problem(index, "range/action/reason が不正です"));
         return;
       }
@@ -184,7 +218,7 @@ export function compileEditIntents(
       if (!Number.isFinite(intent.minPauseSec) || intent.minPauseSec < 0
         || !Number.isFinite(intent.keepHeadSec) || intent.keepHeadSec < 0
         || !Number.isFinite(intent.keepTailSec) || intent.keepTailSec < 0
-        || (intent.range !== undefined && !validRange(intent.range)) || !intent.reason.trim()) {
+        || (intent.range !== undefined && !validRange(intent.range)) || !validReason(intent.reason)) {
         errors.push(problem(index, "trim-pauses のパラメータが不正です"));
         return;
       }
@@ -205,7 +239,8 @@ export function compileEditIntents(
       return;
     }
     if (intent.type === "set-caption-text") {
-      if (!intent.target.startsWith("@cap_") || !intent.text.trim()) {
+      if (typeof intent.target !== "string" || !intent.target.startsWith("@cap_")
+        || typeof intent.text !== "string" || !intent.text.trim()) {
         errors.push(problem(index, "target または text が不正です"));
         return;
       }
@@ -239,11 +274,16 @@ export function compileEditIntents(
       return;
     }
     if (intent.type === "add-annotation") {
-      if (!validRange(intent.range)) {
-        errors.push(problem(index, "annotation のrangeが不正です"));
+      if (!validRange(intent.range) || !validAnnotationPayload(intent.annotation)) {
+        errors.push(problem(index, "annotation のrange/bodyが不正です"));
         return;
       }
-      const annotation = { start: intent.range.startSec, end: intent.range.endSec, ...intent.annotation } as Annotation;
+      const annotation = {
+        ...intent.annotation,
+        ...(idMode ? { id: allocateId("ann") } : {}),
+        start: intent.range.startSec,
+        end: intent.range.endSec,
+      } as Annotation;
       overlays.annotations ??= [];
       overlays.annotations.push(annotation);
       overlaysChanged = true;
@@ -251,13 +291,17 @@ export function compileEditIntents(
       return;
     }
     if (intent.type === "place-material") {
-      if (!validRange(intent.range) || !safeExistingPath(context.recordingDir, intent.file)) {
+      if (!validRange(intent.range) || typeof intent.file !== "string" || !safeExistingPath(context.recordingDir, intent.file)) {
         errors.push(problem(index, "material のrangeまたはfileが不正です"));
         return;
       }
       const volume = intent.audio?.volume;
       if (volume !== undefined && (!Number.isFinite(volume) || volume < 0 || volume > 2)) {
         errors.push(problem(index, "material volume は0-2です"));
+        return;
+      }
+      if (!isObject(intent.placement)) {
+        errors.push(problem(index, "material placement が不正です"));
         return;
       }
       if (intent.placement.mode === "overlay") {
@@ -272,7 +316,7 @@ export function compileEditIntents(
           ...(intent.placement.track ? { track: intent.placement.track } : {}),
           ...(volume !== undefined ? { volume } : {}),
         });
-      } else {
+      } else if (intent.placement.mode === "insert") {
         if (!Number.isFinite(intent.placement.durationSec) || intent.placement.durationSec <= 0) {
           errors.push(problem(index, "insert durationSec は正数です"));
           return;
@@ -287,6 +331,9 @@ export function compileEditIntents(
           ...(intent.placement.fit ? { fit: intent.placement.fit } : {}),
           ...(volume !== undefined ? { volume } : {}),
         });
+      } else {
+        errors.push(problem(index, "material placement が不正です"));
+        return;
       }
       overlaysChanged = true;
       summary.push(`${intent.file} を配置`);
