@@ -1,7 +1,7 @@
 // エディタのサーバー(editor/server.ts)とクライアントで共有する API の型。
 // 編集対象のドキュメント自体はパイプラインの型(src/types.ts)をそのまま使う。
 
-import type { Config } from "../../src/lib/config.ts";
+import type { AiAdapterKind, AiCapabilities, AiProfileStatus, Config } from "../../src/lib/config.ts";
 import type { PerceptionStatus } from "../../src/lib/config.ts";
 import type {
   Bgm,
@@ -13,7 +13,7 @@ import type {
   Transcript,
 } from "../../src/types.ts";
 import type { FrameShot } from "../../src/stages/frames.ts";
-import type { ReviewBundle } from "../../src/stages/review.ts";
+import type { ReviewBundle, ReviewKey } from "../../src/stages/review.ts";
 export type {
   AiProposeRequest,
   AiScope,
@@ -29,11 +29,45 @@ export interface AiProposeResponse {
 export interface AiReviewRequest {
   proposalId: string;
   acceptedHunkLabels: string[];
-  vlm?: boolean;
+  secondaryObservation?: "none" | "vlm";
 }
 
 export interface AiReviewResponse {
   bundle: ReviewBundle;
+}
+
+export interface AiRefineRequest {
+  proposalId: string;
+  acceptedHunkLabels: string[];
+  reviewKey: Pick<ReviewKey, "candidateHash" | "specHash" | "acceptedLabelsHash">;
+}
+
+export interface AiRefineResponse {
+  proposalId: string;
+  proposal: EditorAiProposeResponse;
+  refinement: {
+    iteration: number;
+    parentProposalId: string;
+  };
+}
+
+export interface AiDoctorCheck {
+  status: "ok" | "warn" | "error" | "skip";
+  message: string;
+}
+
+export interface AiDoctorResult {
+  profile: string;
+  adapter: AiAdapterKind;
+  model: string;
+  origin: string | null;
+  checks: {
+    config: AiDoctorCheck;
+    credential: AiDoctorCheck;
+    text: AiDoctorCheck;
+    structured: AiDoctorCheck;
+    image: AiDoctorCheck;
+  };
 }
 
 /** GET /api/project のレスポンス。収録フォルダの編集に必要な全データ
@@ -65,7 +99,7 @@ export interface ProjectData {
   proxyStale: boolean;
   renderCfg: Config["render"];
   /** カット確認用プレビュー動画・プロキシの横幅(config の preview.width) */
-  previewCfg: { width: number };
+  previewCfg: { width: number; videoEncoder?: "libx264" | "videotoolbox" };
   /** エディタ設定(サーバー側で省略時の既定値まで解決した実値) */
   editorCfg: EditorCfg;
   /** 最終レンダーの出力解像度(manifest の screenRegion) */
@@ -78,6 +112,9 @@ export interface ProjectData {
   draft: DraftData | null;
   /** plan/remeta に渡る知覚設定の解決結果。header の短い状態表示用 */
   planPerception: PlanPerceptionStatus;
+  aiProfiles: AiProfileStatus[];
+  aiRoutes: { text: string; structured: string; vision?: string };
+  aiReviewCfg: { vlm: boolean; maxImages: number; maxRefinements: number };
 }
 
 export type PlanPerceptionStatus = PerceptionStatus;
@@ -99,9 +136,14 @@ export interface EditorCfg {
 export interface ConfigSaveResult {
   ok: true;
   renderCfg: Config["render"];
-  previewCfg: { width: number };
+  previewCfg: { width: number; videoEncoder?: "libx264" | "videotoolbox" };
   editorCfg: EditorCfg;
+  aiProfiles: AiProfileStatus[];
+  aiRoutes: { text: string; structured: string; vision?: string };
+  aiReviewCfg: { vlm: boolean; maxImages: number; maxRefinements: number };
 }
+
+export type { AiCapabilities, AiProfileStatus };
 
 export interface AiFrameRequest {
   times: number[];

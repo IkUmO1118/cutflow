@@ -35,6 +35,7 @@ export function resolveAnnotation(
         color: a.color ?? DEFAULT_ANNOTATION_COLOR,
         widthPx: a.widthPx ?? DEFAULT_ARROW_WIDTH_PX,
         headPx: a.headPx ?? DEFAULT_ARROW_HEAD_PX,
+        ...(a.keyframes ? { keyframes: [] } : {}),
       };
     case "box":
       return {
@@ -46,6 +47,7 @@ export function resolveAnnotation(
         widthPx: a.widthPx ?? DEFAULT_BOX_WIDTH_PX,
         radiusPx: a.radiusPx ?? DEFAULT_BOX_RADIUS_PX,
         ...(a.fill !== undefined ? { fill: a.fill } : {}),
+        ...(a.keyframes ? { keyframes: [] } : {}),
       };
     case "spotlight":
       return {
@@ -57,6 +59,7 @@ export function resolveAnnotation(
         dim: a.dim ?? DEFAULT_SPOTLIGHT_DIM,
         featherPx: a.featherPx ?? DEFAULT_SPOTLIGHT_FEATHER_PX,
         radiusPx: a.radiusPx ?? 0,
+        ...(a.keyframes ? { keyframes: [] } : {}),
       };
   }
 }

@@ -196,6 +196,23 @@
     margin: 14px 0 6px; font-size: 12px; color: var(--dim);
     border-bottom: 1px solid var(--border); padding-bottom: 4px;
   }
+  .settingsTabs {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 6px; margin: 12px 0 10px;
+    padding: 4px; border: 1px solid var(--border); border-radius: 8px;
+    background: rgba(0, 0, 0, 0.16);
+  }
+  .settingsTabs button {
+    justify-content: center;
+    border-color: transparent;
+    background: transparent;
+    color: var(--dim);
+  }
+  .settingsTabs button.active {
+    color: var(--text);
+    border-color: rgba(37, 99, 235, 0.55);
+    background: rgba(37, 99, 235, 0.16);
+  }
   .settingsModal .field { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
   .settingsModal .field.statusField { align-items: flex-start; }
   .settingsModal .field > label {
@@ -215,6 +232,71 @@
     color: #93c5fd;
     border-color: rgba(37, 99, 235, 0.55);
     background: rgba(37, 99, 235, 0.12);
+  }
+  .settingsCardGrid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 10px; margin-top: 12px;
+  }
+  .settingsCard {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.12);
+    padding: 10px;
+    min-width: 0;
+  }
+  .settingsCardHead {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; margin-bottom: 8px;
+    font-size: 12px; font-weight: 700;
+  }
+  .settingsKv {
+    display: grid; gap: 6px;
+  }
+  .settingsKv div {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    font-size: 11px; color: var(--dim);
+  }
+  .settingsKv strong { color: var(--text); font-weight: 600; text-align: right; }
+  .providerList { display: grid; gap: 8px; }
+  .providerRow {
+    display: grid; gap: 5px;
+    padding: 8px; border-radius: 6px;
+    background: rgba(255, 255, 255, 0.03);
+  }
+  .providerRow > div:first-child {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+    min-width: 0;
+  }
+  .providerRow strong { font-size: 12px; }
+  .providerRow span { color: var(--dim); font-size: 11px; }
+  .providerCaps {
+    display: flex; gap: 6px; flex-wrap: wrap;
+  }
+  .providerCaps span, .doctorRow span {
+    padding: 1px 6px; border-radius: 999px;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--dim); font-size: 10px;
+  }
+  .settingsActions {
+    display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px;
+  }
+  .doctorGrid {
+    display: grid; gap: 6px; margin-top: 8px;
+  }
+  .doctorRow {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    padding: 6px 8px; border-radius: 6px;
+    border: 1px solid var(--border);
+  }
+  .doctorRow.ok { border-color: rgba(34, 197, 94, 0.35); background: rgba(34, 197, 94, 0.08); }
+  .doctorRow.warn { border-color: rgba(245, 158, 11, 0.35); background: rgba(245, 158, 11, 0.08); }
+  .doctorRow.error { border-color: rgba(248, 113, 113, 0.35); background: rgba(248, 113, 113, 0.08); }
+  .doctorRow strong { margin-right: auto; font-size: 11px; }
+  @media (max-width: 720px) {
+    .settingsTabs { grid-template-columns: repeat(2, 1fr); }
+    .settingsCardGrid { grid-template-columns: 1fr; }
+    .settingsModal .field { align-items: flex-start; flex-wrap: wrap; }
+    .settingsModal .field > label { width: 100%; }
   }
   .settingsModal .foot {
     display: flex; justify-content: flex-end; align-items: center;

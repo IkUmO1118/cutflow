@@ -5,7 +5,7 @@
 // 生成する全ショートは approved: false 固定(承認は人間の仕事)。
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { complete } from "../lib/llm.ts";
+import { completeWithJsonSchema } from "../lib/llm.ts";
 import { planShortsMaxSec } from "../lib/config.ts";
 import { defaultShortProfileName } from "../lib/profile.ts";
 import { mergeIntervals } from "../lib/timeline.ts";
@@ -201,7 +201,30 @@ export async function planShorts(dir: string, cfg: Config): Promise<Shorts> {
     numbered,
     auto.originalDurationSec,
   );
-  const raw = await complete(prompt, cfg);
+  const raw = await completeWithJsonSchema(prompt, cfg, {
+    name: "cutflow_plan_shorts",
+    strict: true,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["shorts"],
+      properties: {
+        shorts: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["name", "ids", "reason"],
+            properties: {
+              name: { type: "string" },
+              ids: { type: "array", items: { type: "integer" } },
+              reason: { type: "string" },
+            },
+          },
+        },
+      },
+    },
+  }, "plan-shorts");
   // LLM の生応答は必ず残す(パース失敗時の調査と、選定過程の記録のため)
   writeFileSync(join(dir, "plan-shorts.raw.txt"), raw);
 

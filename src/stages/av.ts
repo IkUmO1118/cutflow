@@ -525,12 +525,13 @@ function sliceKeepsByOutputRange(
   range: { startSec: number; endSec: number },
 ): Interval[] {
   return timeline.flatMap((entry) => {
-    const outStart = entry.start + entry.offset;
-    const outEnd = entry.end + entry.offset;
-    const start = Math.max(outStart, range.startSec);
-    const end = Math.min(outEnd, range.endSec);
+    const start = Math.max(entry.outputStart, range.startSec);
+    const end = Math.min(entry.outputEnd, range.endSec);
     if (end <= start) return [];
-    return [{ start: round2(start - entry.offset), end: round2(end - entry.offset) }];
+    return [{
+      start: round2(entry.sourceStart + (start - entry.outputStart) * entry.speed),
+      end: round2(entry.sourceStart + (end - entry.outputStart) * entry.speed),
+    }];
   });
 }
 

@@ -1,7 +1,11 @@
 import { isCollection, parse, parseDocument, YAMLMap } from "yaml";
 import type { Document } from "yaml";
-import { DEFAULT_IMAGE_DURATION_SEC, DEFAULT_SHORT_RANGE_SEC } from "./config.ts";
-import type { Config } from "./config.ts";
+import {
+  DEFAULT_IMAGE_DURATION_SEC,
+  DEFAULT_SHORT_RANGE_SEC,
+  validateAiConfig,
+} from "./config.ts";
+import type { AiConfig, Config } from "./config.ts";
 
 /**
  * エディタの設定画面(POST /api/config)が config.yaml を書き換えるための
@@ -30,14 +34,27 @@ export interface ConfigPatch {
       fadeOutSec?: number;
       ducking?: { duckDb: number; fadeSec: number };
     };
+    cutTransition?: {
+      type?: "none" | "dip-to-black";
+      sec?: number;
+    };
     hardwareAcceleration?: "if-possible" | "disable" | null;
+    zoom?: {
+      easeSec?: number;
+    };
   };
-  preview?: { width?: number };
+  preview?: { width?: number; videoEncoder?: "libx264" | "videotoolbox" };
   editor?: {
     maxUploadMb?: number;
     defaultImageDurationSec?: number | null;
     defaultShortRangeSec?: number | null;
+    aiReview?: {
+      vlm?: boolean;
+      maxImages?: number;
+      maxRefinements?: number;
+    };
   };
+  ai?: AiConfig;
 }
 
 /** 数値キーの検査仕様。int は整数必須、even は偶数必須(ffmpeg の yuv420p) */
@@ -62,10 +79,14 @@ const NUM_RULES: Record<string, NumRule> = {
   "render.bgm.fadeOutSec": { min: 0, max: 30 },
   "render.bgm.ducking.duckDb": { min: -60, max: 0 },
   "render.bgm.ducking.fadeSec": { min: 0, max: 5 },
+  "render.cutTransition.sec": { min: 0, max: 3 },
+  "render.zoom.easeSec": { min: 0, max: 3 },
   "preview.width": { min: 320, max: 3840, int: true, even: true },
   "editor.maxUploadMb": { min: 1, max: 100000, int: true },
   "editor.defaultImageDurationSec": { min: 0.5, max: 120 },
   "editor.defaultShortRangeSec": { min: 0.5, max: 180 },
+  "editor.aiReview.maxImages": { min: 1, max: 4, int: true },
+  "editor.aiReview.maxRefinements": { min: 1, max: 3, int: true },
 };
 
 /** null で「削除して既定に戻す」を受け付けるキー(省略可キーのみ) */
@@ -111,6 +132,22 @@ export function validateConfigPatch(patch: unknown): string[] {
       }
       return;
     }
+    if (path === "render.cutTransition.type") {
+      if (value !== "none" && value !== "dip-to-black") {
+        errors.push(`${path}: "none" か "dip-to-black" で指定してください`);
+      }
+      return;
+    }
+    if (path === "preview.videoEncoder") {
+      if (value !== "libx264" && value !== "videotoolbox") {
+        errors.push(`${path}: "libx264" か "videotoolbox" で指定してください`);
+      }
+      return;
+    }
+    if (path === "editor.aiReview.vlm") {
+      if (typeof value !== "boolean") errors.push(`${path}: true/false で指定してください`);
+      return;
+    }
     if (path in STR_MAX) {
       if (typeof value !== "string" || value.length === 0 || value.length > STR_MAX[path]) {
         errors.push(`${path}: 1〜${STR_MAX[path]}文字の文字列で指定してください`);
@@ -152,9 +189,12 @@ export function validateConfigPatch(patch: unknown): string[] {
 
   const p = patch as ConfigPatch;
   for (const key of Object.keys(p)) {
-    if (!["render", "preview", "editor"].includes(key)) {
+    if (!["render", "preview", "editor", "ai"].includes(key)) {
       errors.push(`${key}: 不明なキーです`);
     }
+  }
+  if (p.ai !== undefined) {
+    errors.push(...validateAiConfig(p.ai).map((e) => `ai: ${e}`));
   }
   if (p.render !== undefined) {
     walk(
@@ -163,9 +203,10 @@ export function validateConfigPatch(patch: unknown): string[] {
       [
         "wipeWidthPx", "wipeMarginPx", "wipeTransitionSec", "captionFontSizePx",
         "captionColor", "captionOutlineColor", "captionFontFamily", "captionFontWeight",
-        "chapterCardSec", "targetLufs", "systemAudio", "denoise", "bgm", "hardwareAcceleration",
+        "chapterCardSec", "targetLufs", "systemAudio", "denoise", "bgm", "cutTransition",
+        "hardwareAcceleration", "zoom",
       ],
-      ["systemAudio", "denoise", "bgm"],
+      ["systemAudio", "denoise", "bgm", "cutTransition", "zoom"],
     );
     if (p.render.systemAudio !== undefined) {
       const sa = p.render.systemAudio as unknown;
@@ -214,15 +255,39 @@ export function validateConfigPatch(patch: unknown): string[] {
         }
       }
     }
+    if (p.render.cutTransition !== undefined) {
+      const ct = p.render.cutTransition as unknown;
+      if (typeof ct !== "object" || ct === null) {
+        errors.push("render.cutTransition: オブジェクトで指定してください");
+      } else {
+        walk("render.cutTransition", ct, ["type", "sec"], []);
+      }
+    }
+    if (p.render.zoom !== undefined) {
+      const zoom = p.render.zoom as unknown;
+      if (typeof zoom !== "object" || zoom === null) {
+        errors.push("render.zoom: オブジェクトで指定してください");
+      } else {
+        walk("render.zoom", zoom, ["easeSec"], []);
+      }
+    }
   }
-  if (p.preview !== undefined) walk("preview", p.preview, ["width"], []);
+  if (p.preview !== undefined) walk("preview", p.preview, ["width", "videoEncoder"], []);
   if (p.editor !== undefined) {
     walk(
       "editor",
       p.editor,
-      ["maxUploadMb", "defaultImageDurationSec", "defaultShortRangeSec"],
-      [],
+      ["maxUploadMb", "defaultImageDurationSec", "defaultShortRangeSec", "aiReview"],
+      ["aiReview"],
     );
+    if (p.editor.aiReview !== undefined) {
+      const review = p.editor.aiReview as unknown;
+      if (typeof review !== "object" || review === null) {
+        errors.push("editor.aiReview: オブジェクトで指定してください");
+      } else {
+        walk("editor.aiReview", review, ["vlm", "maxImages", "maxRefinements"], []);
+      }
+    }
   }
   return errors;
 }
@@ -270,7 +335,11 @@ function ensureParentMaps(doc: Document, path: string[]): void {
  */
 export function applyConfigEdits(rawYaml: string, patch: ConfigPatch): string {
   const doc = parseDocument(rawYaml);
+  if (patch.ai !== undefined) {
+    doc.set("ai", patch.ai);
+  }
   for (const [path, value] of leavesOf(patch)) {
+    if (path[0] === "ai") continue;
     if (value === null) {
       // 無いキー(親ブロックがコメントアウト・欠落を含む)への削除は no-op。
       // deleteIn は親が非コレクションだと投げるので、存在確認してから消す
@@ -300,6 +369,8 @@ export function syncEditorCfgFromYaml(cfg: Config, rawYaml: string): void {
   if (parsed.render) cfg.render = parsed.render;
   if (parsed.preview) cfg.preview = parsed.preview;
   cfg.editor = parsed.editor; // 省略可。undefined でも resolvedEditorCfg が既定で補う
+  cfg.ai = parsed.ai;
+  cfg.plan = parsed.plan;
 }
 
 /** エディタ・サーバーがクライアントへ渡す解決済みのエディタ設定 */

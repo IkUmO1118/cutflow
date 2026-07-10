@@ -264,7 +264,13 @@ export interface PlanSegment {
   /** keep: 残す / cut: 切る(確認用に候補も残しておく) */
   action: "keep" | "cut";
   reason: string;
+  /** keep 区間の再生倍率。省略時1。cut segment には指定不可 */
+  speed?: number;
 }
+
+export const MIN_PLAYBACK_SPEED = 0.25;
+export const MAX_PLAYBACK_SPEED = 4;
+export const DEFAULT_PLAYBACK_SPEED = 1;
 
 /** 承認レコード(approvals.json)。承認は cutplan/short の keep 集合の
  * ハッシュに束縛され、内容が変われば hash 不一致で自動失効する。
@@ -407,6 +413,66 @@ export interface CaptionTrackDef {
   style?: CaptionStyle;
 }
 
+export type KeyframeEasing =
+  | "linear"
+  | "ease-in"
+  | "ease-out"
+  | "ease-in-out"
+  | "hold";
+
+export interface Keyframe<TValues> {
+  /** 元収録の秒。親要素の [start,end] 内 */
+  at: number;
+  /** このキーから次の同プロパティのキーへ向かう区間の easing。省略時 linear */
+  easing?: KeyframeEasing;
+  /** この時刻で値を固定するプロパティ。最低1つ必要 */
+  values: TValues;
+}
+
+export interface MaterialKeyframeValues {
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+  opacity?: number;
+}
+
+export interface BlurKeyframeValues {
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+  strength?: number;
+}
+
+export interface ArrowKeyframeValues {
+  fromX?: number;
+  fromY?: number;
+  toX?: number;
+  toY?: number;
+  widthPx?: number;
+  headPx?: number;
+}
+
+export interface BoxKeyframeValues {
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+  widthPx?: number;
+  radiusPx?: number;
+}
+
+export interface SpotlightKeyframeValues {
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+  dim?: number;
+  featherPx?: number;
+  radiusPx?: number;
+}
+
 /** 人間が書く演出指定(overlays.json)。ファイルが無ければ全部なし。
  * 時刻は他の編集ファイルと同じく元動画(収録ファイル)の秒。
  * JSON Schema: schemas/overlays.schema.json(§5点セット) */
@@ -447,6 +513,8 @@ export interface Overlays {
     /** 表示領域(出力px の {x, y, w, h})。省略時は全画面。
      *  fit はこの領域内での素材の収め方になる */
     rect?: Region;
+    /** 位置/サイズ/opacity の時間変化。時刻は元収録の秒 */
+    keyframes?: Keyframe<MaterialKeyframeValues>[];
   }[];
   /** ベース映像トラックへの挿入クリップ(Premiere のインサート編集相当)。
    * カット後タイムラインの at(元収録の秒)の位置に file を durationSec ぶん
@@ -577,6 +645,8 @@ export interface BlurRegion {
   /** 強度(0〜1)。省略時 0.5。type ごとに px へ写像する
    * (blur=ぼかし半径 / mosaic=ブロック辺長。src/lib/blur.ts) */
   strength?: number;
+  /** 矩形/strength の時間変化。時刻は元収録の秒 */
+  keyframes?: Keyframe<BlurKeyframeValues>[];
 }
 
 /** BlurRegion.strength / type 未指定時の既定。renderProps と描画・検査で共有 */
@@ -615,6 +685,8 @@ export interface ArrowAnnotation extends AnnotationBase {
   widthPx?: number;
   /** 矢尻の大きさ(px)。省略時 DEFAULT_ARROW_HEAD_PX */
   headPx?: number;
+  /** 位置/サイズの時間変化。時刻は元収録の秒 */
+  keyframes?: Keyframe<ArrowKeyframeValues>[];
 }
 
 /** 囲み。rect の枠線。任意で塗り(fill)も置ける */
@@ -630,6 +702,8 @@ export interface BoxAnnotation extends AnnotationBase {
   radiusPx?: number;
   /** 塗り色(CSS カラー。半透明の rgba() 推奨)。省略時は塗りなし(枠線だけ) */
   fill?: string;
+  /** 矩形/線幅の時間変化。時刻は元収録の秒 */
+  keyframes?: Keyframe<BoxKeyframeValues>[];
 }
 
 /** スポットライト。rect 以外を暗くして注目を集める */
@@ -645,6 +719,8 @@ export interface SpotlightAnnotation extends AnnotationBase {
   featherPx?: number;
   /** shape:"rect" の角丸半径(px)。省略時 0(角丸なし)。ellipse では無視 */
   radiusPx?: number;
+  /** 矩形/暗さの時間変化。時刻は元収録の秒 */
+  keyframes?: Keyframe<SpotlightKeyframeValues>[];
 }
 
 /** 注釈グラフィックの色・太さ・大きさの既定(renderProps が解決に使う) */
@@ -791,11 +867,11 @@ export interface ApplyBody {
  * 論点1)。`target` は set/remove では既存要素を指す `@id`(Feature 2 の
  * resolveMention が解決)、add では許可済みのコレクション選択子
  * (例 "cutplan.segments"。src/lib/applyEdits.ts の allow-list を参照)。
- * `field` はドット区切りパス(例 "style.fontSizePx")で、パス末端の置換のみ
- * (中間の欠落・配列添字はエラー)。`field`(または add の value)に
- * "approved" を指定するのはエラー(apply では承認を変更できない)。*/
+ * `field` / `path` はドット区切りパス(例 "style.fontSizePx")で、パス末端の
+ * 置換のみ(中間の欠落・配列添字はエラー)。`field`/`path`(または add の
+ * value)に "approved" を指定するのはエラー(apply では承認を変更できない)。*/
 export type EditOp =
-  | { op: "set"; target: string; field: string; value: unknown }
+  | { op: "set"; target: string; field?: string; path?: string; value: unknown }
   | { op: "remove"; target: string }
   | { op: "add"; target: string; value: Record<string, unknown>; at?: number };
 

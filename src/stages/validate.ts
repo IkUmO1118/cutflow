@@ -13,9 +13,17 @@ import { framesFreshness } from "../lib/framesIndex.ts";
 import { ID_PREFIX, ID_RE } from "../lib/ids.ts";
 import { collectIdOccurrences } from "../lib/mention.ts";
 import { defaultShortProfileName, PROFILES, profileSupportsPlain } from "../lib/profile.ts";
-import { buildTimeline, remapInterval } from "../lib/timeline.ts";
+import { buildTimeline, playbackSegmentsOf, remapInterval } from "../lib/timeline.ts";
 import type { TimelineEntry } from "../lib/timeline.ts";
-import { capNum, captionTrack, hasCamera, ovNum } from "../types.ts";
+import {
+  capNum,
+  captionTrack,
+  DEFAULT_PLAYBACK_SPEED,
+  hasCamera,
+  MAX_PLAYBACK_SPEED,
+  MIN_PLAYBACK_SPEED,
+  ovNum,
+} from "../types.ts";
 import type { CutPlan, Interval, Manifest, Short } from "../types.ts";
 
 export interface Problem {
@@ -204,6 +212,7 @@ export function validateDocs(
 
   const counts = { keep: 0, cut: 0, captions: 0, overlays: 0, bgm: 0 };
   let keeps: Interval[] = [];
+  let playbackKeeps: { start: number; end: number; speed: number }[] = [];
   if (isObj(cutplan)) {
     const f = "cutplan.json";
     if (typeof cutplan.approved !== "boolean") {
@@ -219,15 +228,40 @@ export function validateDocs(
         if (s.action !== "keep" && s.action !== "cut") {
           err(f, w, `action は "keep" か "cut" です(現在: ${JSON.stringify(s.action)})`);
         }
+        if (s.speed !== undefined) {
+          if (!isNum(s.speed) || !Number.isFinite(s.speed)) {
+            err(f, `${w}.speed`, `speed は ${MIN_PLAYBACK_SPEED}〜${MAX_PLAYBACK_SPEED} の数値です`);
+          } else if (s.speed < MIN_PLAYBACK_SPEED || s.speed > MAX_PLAYBACK_SPEED) {
+            err(f, `${w}.speed`, `speed は ${MIN_PLAYBACK_SPEED}〜${MAX_PLAYBACK_SPEED} にしてください`);
+          } else if (s.action === "cut") {
+            err(f, `${w}.speed`, "cut segment に speed は指定できません");
+          } else {
+            if (s.speed < 0.5) warn(f, `${w}.speed`, "speed < 0.5 は補間なしのためカクつく可能性があります");
+            if (s.speed > 2) warn(f, `${w}.speed`, "speed > 2 は声が聞き取りづらくなる可能性があります");
+            if (isNum(s.start) && isNum(s.end) && (s.end - s.start) / s.speed < 0.1) {
+              warn(f, `${w}.speed`, "速度変更後の出力区間が 0.1 秒未満です");
+            }
+          }
+        }
         if (typeof s.reason !== "string") {
           warn(f, w, "reason(人間が確認するための説明)がありません");
         }
       });
       const segs = cutplan.segments.filter(
-        (s: unknown): s is { start: number; end: number; action: string } =>
-          isObj(s) && isNum(s.start) && isNum(s.end) && s.start < s.end,
+        (s: unknown): s is { start: number; end: number; action: "keep" | "cut"; reason?: string; speed?: number; id?: string } =>
+          isObj(s) &&
+          isNum(s.start) &&
+          isNum(s.end) &&
+          s.start < s.end &&
+          (s.action === "keep" || s.action === "cut"),
       );
       keeps = segs.filter((s) => s.action === "keep");
+      playbackKeeps = errors.length === 0
+        ? playbackSegmentsOf({
+            approved: cutplan.approved === true,
+            segments: segs.map((s) => ({ ...s, reason: s.reason ?? "" })),
+          })
+        : [];
       counts.keep = keeps.length;
       counts.cut = segs.length - keeps.length;
       if (keeps.length === 0) {
@@ -250,7 +284,7 @@ export function validateDocs(
 
   // テロップ・演出の「カット内で表示されない」警告に使う時刻写像
   const timeline: TimelineEntry[] | null =
-    errors.length === 0 && keeps.length > 0 ? buildTimeline(keeps) : null;
+    errors.length === 0 && playbackKeeps.length > 0 ? buildTimeline(playbackKeeps) : null;
   /** 区間がカット後の動画に一瞬でも現れるか(写像が作れないときは true 扱い) */
   const visible = (start: number, end: number): boolean =>
     !timeline || remapInterval(start, end, timeline).length > 0;

@@ -2,6 +2,8 @@ import type { Config } from "./config.ts";
 import type { AssertOutcome } from "../stages/assert.ts";
 import type { DescribeProjection } from "../stages/describe.ts";
 import type { AssertionsDoc } from "../types.ts";
+import { summarizeSecondaryObservation } from "./vlmObservation.ts";
+import type { SecondaryObservation } from "./vlmObservation.ts";
 
 export interface PlanLoopCfg {
   maxIterations: number;
@@ -17,7 +19,8 @@ export interface LoopCut {
 export interface ObservationInput {
   proj: DescribeProjection;
   outcomes: AssertOutcome[];
-  av?: unknown;
+  secondary?: SecondaryObservation;
+  warnings: string[];
 }
 
 export interface ObservationProvider {
@@ -31,6 +34,12 @@ export interface StopState {
   outcomes: readonly AssertOutcome[];
   prevCuts: readonly LoopCut[] | null;
   cuts: readonly LoopCut[];
+}
+
+export interface PlanSecondaryObservationCfg {
+  enabled: boolean;
+  maxCalls: number;
+  maxImages: number;
 }
 
 /** assertions.json と config 由来の目標尺を1つの AssertionsDoc に合成する */
@@ -76,6 +85,7 @@ export function summarizeObservation(
   outcomes: readonly AssertOutcome[],
   currentCuts: readonly LoopCut[],
   loopCfg: Pick<PlanLoopCfg, "targetOutDurationSec">,
+  secondary?: SecondaryObservation,
 ): string {
   const lines: string[] = [];
   lines.push("## 直前の編集の観測結果(この編集が狙いを満たしているかの機械計測)");
@@ -98,7 +108,47 @@ export function summarizeObservation(
   } else {
     for (const c of currentCuts) lines.push(`  - #${c.id} ${c.reason}`);
   }
+  if (secondary) {
+    lines.push("");
+    lines.push(summarizeSecondaryObservation(secondary));
+  }
   return lines.join("\n");
+}
+
+export function selectPlanLoopReviewTimes(args: {
+  projection: DescribeProjection;
+  previousProjection: DescribeProjection | null;
+  limit: number;
+}): number[] {
+  const duration =
+    args.projection.source?.durationSec ??
+    args.projection.summary.outDurationSec;
+  const clamp = (sec: number) => Math.min(Math.max(sec, 0), Math.max(0, duration));
+  const current = new Set<number>();
+  const prev = new Set<number>();
+  for (const cut of args.projection.cuts) {
+    current.add(Number(cut.start.toFixed(2)));
+    current.add(Number(cut.end.toFixed(2)));
+  }
+  if (args.previousProjection) {
+    for (const cut of args.previousProjection.cuts) {
+      prev.add(Number(cut.start.toFixed(2)));
+      prev.add(Number(cut.end.toFixed(2)));
+    }
+  }
+  const seeds =
+    args.previousProjection
+      ? [...current].filter((value) => !prev.has(value)).concat([...prev].filter((value) => !current.has(value)))
+      : [...current];
+  if (seeds.length === 0) return [];
+  const times = seeds.flatMap((boundary) => [clamp(boundary + 0.1), clamp(boundary - 0.1)]);
+  const deduped: number[] = [];
+  for (const time of times) {
+    if (deduped.some((existing) => Math.abs(existing - time) < 0.2)) continue;
+    deduped.push(Number(time.toFixed(2)));
+    if (deduped.length >= args.limit) break;
+  }
+  return deduped;
 }
 
 export function shouldStop(state: StopState): { stop: boolean; reason: string | null } {

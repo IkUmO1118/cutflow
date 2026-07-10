@@ -450,10 +450,18 @@ export interface OverlaysProjection {
   wipeFull: MappedInterval[];
   zooms: ZoomEntry[];
   blurs: BlurEntry[];
+  annotations: AnnotationEntry[];
   hideCaption: MappedInterval[];
   colorFilter: ColorFilter | null;
   layerOrder: LayerId[] | null;
   captionTracks: CaptionTrackDef[];
+}
+
+export interface KeyframeEntry {
+  sourceAt: number;
+  outputTimes: number[];
+  easing?: string;
+  values: Record<string, number>;
 }
 
 /** 元秒区間 + その出力秒射影。演出の元秒 interval に一律で付ける。
@@ -478,6 +486,8 @@ export interface MaterialEntry {
   fadeInSec?: number;
   fadeOutSec?: number;
   rect?: Region;
+  keyframeCount?: number;
+  keyframes?: KeyframeEntry[];
   exists: boolean;
   out: Interval[];
 }
@@ -505,7 +515,41 @@ export interface BlurEntry extends MappedInterval {
   rect: Region;
   type?: BlurType;
   strength?: number;
+  keyframeCount?: number;
+  keyframes?: KeyframeEntry[];
 }
+
+export type AnnotationEntry =
+  | ({
+      type: "arrow";
+      from: CaptionPos;
+      to: CaptionPos;
+      color?: string;
+      widthPx?: number;
+      headPx?: number;
+      keyframeCount?: number;
+      keyframes?: KeyframeEntry[];
+    } & MappedInterval)
+  | ({
+      type: "box";
+      rect: Region;
+      color?: string;
+      widthPx?: number;
+      radiusPx?: number;
+      fill?: string;
+      keyframeCount?: number;
+      keyframes?: KeyframeEntry[];
+    } & MappedInterval)
+  | ({
+      type: "spotlight";
+      rect: Region;
+      shape?: "rect" | "ellipse";
+      dim?: number;
+      featherPx?: number;
+      radiusPx?: number;
+      keyframeCount?: number;
+      keyframes?: KeyframeEntry[];
+    } & MappedInterval);
 
 export interface ChapterEntry {
   id?: string;
@@ -556,6 +600,10 @@ function buildKeepEntries(keeps: Interval[], timeline: TimelineEntry[]): KeepEnt
 
 function buildProjection(inp: DescribeInputs, cfg?: Config): DescribeProjection {
   const { dir, manifest, cutplan, transcript, overlays, chapters, meta, timeline, keeps } = inp;
+  const outputTimesForSourceAt = (at: number): number[] =>
+    timeline
+      .filter((e) => at >= e.sourceStart && at <= e.sourceEnd)
+      .map((e) => round2(e.outputStart + (at - e.sourceStart) / e.speed));
 
   const source: SourceInfo = {
     file: manifest.source,
@@ -647,6 +695,20 @@ function buildProjection(inp: DescribeInputs, cfg?: Config): DescribeProjection 
   });
 
   /* ---- overlays(演出の全フィールド) ---- */
+  const projectKeyframes = (
+    keyframes: { at: number; easing?: string; values: Record<string, number> }[] | undefined,
+  ): { keyframeCount?: number; keyframes?: KeyframeEntry[] } =>
+    keyframes && keyframes.length > 0
+      ? {
+          keyframeCount: keyframes.length,
+          keyframes: keyframes.map((k) => ({
+            sourceAt: k.at,
+            outputTimes: outputTimesForSourceAt(k.at),
+            ...(k.easing !== undefined ? { easing: k.easing } : {}),
+            values: k.values,
+          })),
+        }
+      : {};
   const materials: MaterialEntry[] = (overlays.overlays ?? []).map((o): MaterialEntry => ({
     ...(o.id !== undefined ? { id: o.id } : {}),
     start: o.start,
@@ -660,6 +722,7 @@ function buildProjection(inp: DescribeInputs, cfg?: Config): DescribeProjection 
     ...(o.fadeInSec !== undefined ? { fadeInSec: o.fadeInSec } : {}),
     ...(o.fadeOutSec !== undefined ? { fadeOutSec: o.fadeOutSec } : {}),
     ...(o.rect !== undefined ? { rect: o.rect } : {}),
+    ...projectKeyframes(o.keyframes as { at: number; easing?: string; values: Record<string, number> }[] | undefined),
     exists: existsSync(join(dir, o.file)),
     out: remapInterval(o.start, o.end, timeline),
   }));
@@ -717,7 +780,49 @@ function buildProjection(inp: DescribeInputs, cfg?: Config): DescribeProjection 
     rect: b.rect,
     ...(b.type !== undefined ? { type: b.type } : {}),
     ...(b.strength !== undefined ? { strength: b.strength } : {}),
+    ...projectKeyframes(b.keyframes as { at: number; easing?: string; values: Record<string, number> }[] | undefined),
   }));
+
+  const annotations: AnnotationEntry[] = (overlays.annotations ?? []).map((a): AnnotationEntry => {
+    const base = {
+      start: a.start,
+      end: a.end,
+      out: remapInterval(a.start, a.end, timeline),
+      ...projectKeyframes(a.keyframes as { at: number; easing?: string; values: Record<string, number> }[] | undefined),
+    };
+    switch (a.type) {
+      case "arrow":
+        return {
+          ...base,
+          type: "arrow",
+          from: a.from,
+          to: a.to,
+          ...(a.color !== undefined ? { color: a.color } : {}),
+          ...(a.widthPx !== undefined ? { widthPx: a.widthPx } : {}),
+          ...(a.headPx !== undefined ? { headPx: a.headPx } : {}),
+        };
+      case "box":
+        return {
+          ...base,
+          type: "box",
+          rect: a.rect,
+          ...(a.color !== undefined ? { color: a.color } : {}),
+          ...(a.widthPx !== undefined ? { widthPx: a.widthPx } : {}),
+          ...(a.radiusPx !== undefined ? { radiusPx: a.radiusPx } : {}),
+          ...(a.fill !== undefined ? { fill: a.fill } : {}),
+        };
+      case "spotlight":
+        return {
+          ...base,
+          type: "spotlight",
+          rect: a.rect,
+          ...(a.shape !== undefined ? { shape: a.shape } : {}),
+          ...(a.dim !== undefined ? { dim: a.dim } : {}),
+          ...(a.featherPx !== undefined ? { featherPx: a.featherPx } : {}),
+          ...(a.radiusPx !== undefined ? { radiusPx: a.radiusPx } : {}),
+        };
+    }
+  });
 
   const hideCaption: MappedInterval[] = (overlays.hideCaption ?? []).map((h) => ({
     ...(h.id !== undefined ? { id: h.id } : {}),
@@ -732,6 +837,7 @@ function buildProjection(inp: DescribeInputs, cfg?: Config): DescribeProjection 
     wipeFull,
     zooms,
     blurs,
+    annotations,
     hideCaption,
     colorFilter: overlays.colorFilter ?? null,
     layerOrder: overlays.layerOrder ?? null,

@@ -1,13 +1,21 @@
-import type { Interval } from "../types.ts";
+import {
+  DEFAULT_PLAYBACK_SPEED,
+  type CutPlan,
+  type Interval,
+} from "../types.ts";
 
-/**
- * カット編集による時刻の対応表。
- * keep 区間を前から詰めて並べたとき、元動画の時刻 t は t + offset に移る。
- */
-export interface TimelineEntry {
+export interface PlaybackSegment {
   start: number;
   end: number;
-  offset: number;
+  speed: number;
+}
+
+export interface TimelineEntry {
+  sourceStart: number;
+  sourceEnd: number;
+  outputStart: number;
+  outputEnd: number;
+  speed: number;
 }
 
 /** ベース映像への挿入(インサート編集)。at はアンカー(元収録の秒) */
@@ -16,38 +24,72 @@ export interface InsertSpan {
   durationSec: number;
 }
 
-/**
- * keep 区間(+挿入)からカット後タイムラインへの写像を作る。
- * 挿入はアンカー時刻の手前に尺を差し込むので、アンカー以降の keep の
- * offset が挿入の尺ぶん増える(= 元収録の秒で書かれた全要素が自動で
- * 後ろへずれる)。keep の途中に挿入されるとその keep のエントリは割れる
- */
+export interface RemappedPiece {
+  sourceStart: number;
+  sourceEnd: number;
+  outputStart: number;
+  outputEnd: number;
+  speed: number;
+}
+
+export interface BuiltTimeline {
+  entries: TimelineEntry[];
+  inserts: { start: number; end: number; index: number }[];
+  durationSec: number;
+}
+
+export function playbackSegmentsOf(cutplan: CutPlan): PlaybackSegment[] {
+  const keeps = cutplan.segments
+    .filter((s) => s.action === "keep")
+    .map((s) => ({
+      start: s.start,
+      end: s.end,
+      speed: s.speed ?? DEFAULT_PLAYBACK_SPEED,
+    }))
+    .sort((a, b) => a.start - b.start);
+  const result: PlaybackSegment[] = [];
+  for (const keep of keeps) {
+    const last = result[result.length - 1];
+    if (
+      last &&
+      Math.abs(last.end - keep.start) < 0.005 &&
+      Math.abs(last.speed - keep.speed) < 1e-9
+    ) {
+      last.end = keep.end;
+    } else {
+      result.push({ ...keep });
+    }
+  }
+  return result;
+}
+
 export function buildTimeline(
-  keeps: Interval[],
+  keeps: PlaybackSegment[] | Interval[],
   inserts: InsertSpan[] = [],
 ): TimelineEntry[] {
-  return walk(keeps, inserts).entries;
+  return buildTimelineModel(keeps, inserts).entries;
 }
 
 /** 挿入クリップのカット後の区間。index は inserts 配列の添字 */
 export function insertSpans(
-  keeps: Interval[],
+  keeps: PlaybackSegment[] | Interval[],
   inserts: InsertSpan[],
 ): { start: number; end: number; index: number }[] {
-  return walk(keeps, inserts).spans;
+  return buildTimelineModel(keeps, inserts).inserts;
 }
 
-function walk(
-  keeps: Interval[],
-  inserts: InsertSpan[],
-): {
-  entries: TimelineEntry[];
-  spans: { start: number; end: number; index: number }[];
-} {
-  // 同じアンカーの挿入は配列順を保つ(安定ソート)
+export function timelineDuration(timeline: TimelineEntry[]): number {
+  return timeline.length === 0 ? 0 : timeline[timeline.length - 1].outputEnd;
+}
+
+export function buildTimelineModel(
+  keeps: PlaybackSegment[] | Interval[],
+  inserts: InsertSpan[] = [],
+): BuiltTimeline {
   const pending = inserts
     .map((ins, index) => ({ ...ins, index }))
     .sort((a, b) => a.at - b.at);
+  const segments = normalizePlaybackSegments(keeps);
   const entries: TimelineEntry[] = [];
   const spans: { start: number; end: number; index: number }[] = [];
   let outCursor = 0;
@@ -59,26 +101,49 @@ function walk(
     });
     outCursor += p.durationSec;
   };
-  for (const k of keeps) {
-    // この keep より手前(カット領域や境界)にアンカーされた挿入
-    while (pending.length > 0 && pending[0].at <= k.start) place(pending.shift()!);
-    let segStart = k.start;
-    // keep の途中にアンカーされた挿入は keep を割って差し込む
-    while (pending.length > 0 && pending[0].at < k.end) {
+  for (const keep of segments) {
+    while (pending.length > 0 && pending[0].at <= keep.start) place(pending.shift()!);
+    let segStart = keep.start;
+    while (pending.length > 0 && pending[0].at < keep.end) {
       const p = pending.shift()!;
       if (p.at > segStart) {
-        entries.push({ start: segStart, end: p.at, offset: outCursor - segStart });
-        outCursor += p.at - segStart;
+        const duration = (p.at - segStart) / keep.speed;
+        entries.push({
+          sourceStart: segStart,
+          sourceEnd: p.at,
+          outputStart: round2(outCursor),
+          outputEnd: round2(outCursor + duration),
+          speed: keep.speed,
+        });
+        outCursor += duration;
         segStart = p.at;
       }
       place(p);
     }
-    entries.push({ start: segStart, end: k.end, offset: outCursor - segStart });
-    outCursor += k.end - segStart;
+    const duration = (keep.end - segStart) / keep.speed;
+    entries.push({
+      sourceStart: segStart,
+      sourceEnd: keep.end,
+      outputStart: round2(outCursor),
+      outputEnd: round2(outCursor + duration),
+      speed: keep.speed,
+    });
+    outCursor += duration;
   }
-  // 最後の keep より後ろにアンカーされた挿入(エンディング等)
   while (pending.length > 0) place(pending.shift()!);
-  return { entries, spans };
+  return { entries, inserts: spans, durationSec: round2(outCursor) };
+}
+
+function normalizePlaybackSegments(
+  keeps: PlaybackSegment[] | Interval[],
+): PlaybackSegment[] {
+  return keeps.map((keep) => ({
+    start: keep.start,
+    end: keep.end,
+    speed: "speed" in keep && typeof keep.speed === "number"
+      ? keep.speed
+      : DEFAULT_PLAYBACK_SPEED,
+  }));
 }
 
 /**
@@ -99,11 +164,7 @@ export function mergeIntervals(list: Interval[]): Interval[] {
   return result;
 }
 
-/** pred が false→true に切り替わる最初の添字(単調前提の二分探索)。
- * 全て false なら n。timeline のエントリは重なりなく時系列順なので、
- * 元収録の秒でも出力の秒でも start / end が単調増加 = 二分探索できる。
- * 長尺(エントリ数百〜)ではエディタがクリップ再構築のたびに全テロップ分
- * 呼ぶため、線形走査だとドラッグ中のフレーム落ちに直結する */
+/** pred が false→true に切り替わる最初の添字(単調前提の二分探索) */
 export function lowerBound(n: number, pred: (i: number) => boolean): number {
   let lo = 0;
   let hi = n;
@@ -120,9 +181,11 @@ export function toOutputTime(
   t: number,
   timeline: TimelineEntry[],
 ): number | null {
-  const i = lowerBound(timeline.length, (j) => timeline[j].end > t);
+  const i = lowerBound(timeline.length, (j) => timeline[j].sourceEnd > t);
   const e = timeline[i];
-  return e !== undefined && t >= e.start ? round2(t + e.offset) : null;
+  return e !== undefined && t >= e.sourceStart
+    ? round2(e.outputStart + (t - e.sourceStart) / e.speed)
+    : null;
 }
 
 /**
@@ -137,15 +200,17 @@ export function remapInterval(
   timeline: TimelineEntry[],
 ): Interval[] {
   const result: Interval[] = [];
-  // [start, end) と重なりうる最初のエントリから、start が end を越えるまで
-  const i0 = lowerBound(timeline.length, (j) => timeline[j].end > start);
+  const i0 = lowerBound(timeline.length, (j) => timeline[j].sourceEnd > start);
   for (let i = i0; i < timeline.length; i++) {
     const e = timeline[i];
-    if (e.start >= end) break;
-    const s = Math.max(start, e.start);
-    const en = Math.min(end, e.end);
+    if (e.sourceStart >= end) break;
+    const s = Math.max(start, e.sourceStart);
+    const en = Math.min(end, e.sourceEnd);
     if (en > s) {
-      const iv = { start: round2(s + e.offset), end: round2(en + e.offset) };
+      const iv = {
+        start: round2(e.outputStart + (s - e.sourceStart) / e.speed),
+        end: round2(e.outputStart + (en - e.sourceStart) / e.speed),
+      };
       const last = result[result.length - 1];
       if (last && Math.abs(last.end - iv.start) < 0.005) last.end = iv.end;
       else result.push(iv);
@@ -154,35 +219,57 @@ export function remapInterval(
   return result;
 }
 
-/** カット後の時刻を元動画の時刻へ(toOutputTime の逆変換。エディタが
- * 再生ヘッドの元収録秒を表示するために使う)。範囲外なら null */
+export function remapIntervalPieces(
+  start: number,
+  end: number,
+  timeline: TimelineEntry[],
+): RemappedPiece[] {
+  const result: RemappedPiece[] = [];
+  const i0 = lowerBound(timeline.length, (j) => timeline[j].sourceEnd > start);
+  for (let i = i0; i < timeline.length; i++) {
+    const e = timeline[i];
+    if (e.sourceStart >= end) break;
+    const sourceStart = Math.max(start, e.sourceStart);
+    const sourceEnd = Math.min(end, e.sourceEnd);
+    if (sourceEnd > sourceStart) {
+      result.push({
+        sourceStart,
+        sourceEnd,
+        outputStart: round2(
+          e.outputStart + (sourceStart - e.sourceStart) / e.speed,
+        ),
+        outputEnd: round2(
+          e.outputStart + (sourceEnd - e.sourceStart) / e.speed,
+        ),
+        speed: e.speed,
+      });
+    }
+  }
+  return result;
+}
+
+/** カット後の時刻を元動画の時刻へ(toOutputTime の逆変換) */
 export function toSourceTime(
   outT: number,
   timeline: TimelineEntry[],
 ): number | null {
-  const i = lowerBound(
-    timeline.length,
-    (j) => timeline[j].end + timeline[j].offset > outT,
-  );
+  const i = lowerBound(timeline.length, (j) => timeline[j].outputEnd > outT);
   const e = timeline[i];
-  return e !== undefined && outT >= e.start + e.offset
-    ? round2(outT - e.offset)
+  return e !== undefined && outT >= e.outputStart
+    ? round2(e.sourceStart + (outT - e.outputStart) * e.speed)
     : null;
 }
 
-/**
- * 時刻をカット後のタイムラインへスナップする(章の開始時刻用)。
- * カットされた時刻なら直後の keep 区間の先頭へ。それも無ければ null
- */
+/** 時刻をカット後のタイムラインへスナップする(章の開始時刻用) */
 export function snapToOutput(
   t: number,
   timeline: TimelineEntry[],
 ): number | null {
   const direct = toOutputTime(t, timeline);
   if (direct !== null) return direct;
-  const i = lowerBound(timeline.length, (j) => timeline[j].start >= t);
+  const i = lowerBound(timeline.length, (j) => timeline[j].sourceStart >= t);
   const e = timeline[i];
-  return e !== undefined ? round2(e.start + e.offset) : null;
+  return e !== undefined ? e.outputStart : null;
 }
 
 function round2(n: number): number {

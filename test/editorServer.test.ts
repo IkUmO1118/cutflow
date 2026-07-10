@@ -231,13 +231,20 @@ test("buildAiReviewCandidateFromStoredProposal: acceptedHunkLabels から candid
   }
 });
 
-test("validateReviewRequest: proposalId と acceptedHunkLabels 以外を拒否し、重複も弾く", () => {
+test("validateReviewRequest: proposalId / acceptedHunkLabels / secondaryObservation 以外を拒否し、重複も弾く", () => {
   const extra = validateReviewRequest({
     proposalId: "p1",
     acceptedHunkLabels: [],
     extra: true,
   } as unknown as AiReviewRequest);
-  assert.match(extra.join(" / "), /proposalId \/ acceptedHunkLabels \/ vlm だけ/);
+  assert.match(extra.join(" / "), /proposalId \/ acceptedHunkLabels \/ secondaryObservation だけ/);
+
+  const badSecondary = validateReviewRequest({
+    proposalId: "p1",
+    acceptedHunkLabels: [],
+    secondaryObservation: "yes",
+  } as unknown as AiReviewRequest);
+  assert.match(badSecondary.join(" / "), /secondaryObservation は none \/ vlm/);
 
   const dup = validateReviewRequest({
     proposalId: "p1",
