@@ -106,6 +106,7 @@
     "ArrowAnnotation": {
       "type": "object",
       "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/id" },
         "type": { "const": "arrow" },
         "start": { "type": "number" },
         "end": { "type": "number" },
@@ -123,6 +124,7 @@
     "BoxAnnotation": {
       "type": "object",
       "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/id" },
         "type": { "const": "box" },
         "start": { "type": "number" },
         "end": { "type": "number" },
@@ -140,6 +142,7 @@
     "SpotlightAnnotation": {
       "type": "object",
       "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/id" },
         "type": { "const": "spotlight" },
         "start": { "type": "number" },
         "end": { "type": "number" },

@@ -133,8 +133,64 @@ test("セグメント個別のテロップ pos/style/words のみ verbatim(ト�
   });
 });
 
-test("演出の全フィールドが verbatim(overlays/inserts/zooms/blurs/colorFilter)", () => {
-  withTmpDir(buildRichFixture, (dir) => {
+test("演出の全フィールドが verbatim(overlays/inserts/zooms/blurs/annotations/colorFilter)", () => {
+  withTmpDir((dir) => {
+    buildRichFixture(dir);
+    writeFileSync(join(dir, "overlays.json"), JSON.stringify({
+      overlays: [
+        {
+          start: 5,
+          end: 9,
+          file: "materials/slide.png",
+          track: 2,
+          fit: "contain",
+          opacity: 0.9,
+          fadeInSec: 0.5,
+        },
+        { start: 60, end: 65, file: "materials/missing.png" },
+      ],
+      inserts: [
+        {
+          at: 100,
+          file: "materials/insert.mp4",
+          durationSec: 5,
+          volume: 1,
+          fadeInSec: 0.2,
+        },
+      ],
+      wipeFull: [{ start: 20, end: 25 }],
+      zooms: [
+        { start: 70, end: 75, rect: { x: 0, y: 0, w: 960, h: 1080 }, easeSec: 0.3 },
+      ],
+      blurs: [
+        {
+          start: 80,
+          end: 85,
+          rect: { x: 100, y: 100, w: 200, h: 100 },
+          type: "mosaic",
+          strength: 0.7,
+        },
+      ],
+      annotations: [
+        {
+          id: "ann_abc123",
+          type: "box",
+          start: 86,
+          end: 88,
+          rect: { x: 120, y: 140, w: 220, h: 110 },
+          color: "#ff0000",
+          fill: "rgba(255,0,0,0.2)",
+        },
+      ],
+      hideCaption: [{ start: 90, end: 92 }],
+      colorFilter: { brightness: 1.1, contrast: 1.05, saturate: 0.95 },
+      layerOrder: ["ov1", "wipe", "caption"],
+      captionTracks: [
+        { track: 1, name: "本文" },
+        { track: 2, name: "補足", x: 960, y: 900, anchor: "center" },
+      ],
+    }, null, 2), "utf8");
+  }, (dir) => {
     const proj = describeJson(dir);
     const missing = proj.overlays.materials.find((m) => m.file === "materials/missing.png");
     assert.ok(missing);
@@ -152,7 +208,9 @@ test("演出の全フィールドが verbatim(overlays/inserts/zooms/blurs/color
     assert.equal(proj.overlays.zooms[0].easeSec, 0.3);
     assert.equal(proj.overlays.blurs[0].type, "mosaic");
     assert.equal(proj.overlays.blurs[0].strength, 0.7);
-    assert.deepEqual(proj.overlays.annotations, []);
+    assert.equal(proj.overlays.annotations[0].id, "ann_abc123");
+    assert.equal(proj.overlays.annotations[0].type, "box");
+    assert.deepEqual(proj.overlays.annotations[0].out, [{ start: 76, end: 78 }]);
     assert.deepEqual(proj.overlays.colorFilter, {
       brightness: 1.1,
       contrast: 1.05,

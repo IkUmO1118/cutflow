@@ -667,6 +667,13 @@ export type SpotlightShape = "rect" | "ellipse";
 export type Annotation = ArrowAnnotation | BoxAnnotation | SpotlightAnnotation;
 
 interface AnnotationBase {
+  /** 編集をまたいで安定な永続 id(例 "ann_a1b2c3")。`@id` で人間/AI がこの要素を
+   * 指す共通アドレス。文法は `<prefix>_<base36 6桁>`(src/lib/ids.ts が単一の出所)。
+   * **一度振ったら内容・位置が変わっても不変**(採番は id が無い要素にだけ行う)。
+   * 省略可=id 未採番。id が1つも無いプロジェクトは全コマンドが本機能導入前と
+   * バイト等価(opt-in・sticky。採番は `id-stamp` / 生成 / GUI 保存が行う)。
+   * **render / 承認 hash には一切影響しない**(アドレッシング専用) */
+  id?: string;
   /** 元収録の秒。start < end。挿入・カットの時刻写像はツールが行う */
   start: number;
   end: number;

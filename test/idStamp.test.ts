@@ -26,6 +26,7 @@ function withTmpProject(fn: (dir: string) => void): void {
     write("overlays.json", {
       overlays: [{ start: 0, end: 1, file: "a.png" }],
       zooms: [{ start: 0, end: 1, rect: { x: 0, y: 0, w: 10, h: 10 } }],
+      annotations: [{ type: "box", start: 1, end: 2, rect: { x: 0, y: 0, w: 10, h: 10 } }],
     });
     write("chapters.json", { chapters: [{ start: 0, title: "導入" }] });
     write("shorts.json", {
@@ -55,6 +56,7 @@ test("id-stamp: 全要素に ID_RE の id が付く", () => {
     assert.match(docs.transcript!.segments[0].id as string, ID_RE);
     assert.match(docs.overlays!.overlays![0].id as string, ID_RE);
     assert.match(docs.overlays!.zooms![0].id as string, ID_RE);
+    assert.match(docs.overlays!.annotations![0].id as string, ID_RE);
     assert.match(docs.chapters!.chapters[0].id as string, ID_RE);
     assert.match(docs.shorts!.shorts[0].ranges[0].id as string, ID_RE);
   });
