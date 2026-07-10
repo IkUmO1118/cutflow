@@ -41,6 +41,7 @@ function baseDocs(): LoadedDocs {
     },
     overlays: {
       overlays: [{ id: "mat_d4d4d4", start: 0, end: 1, file: "a.png" }],
+      annotations: [{ id: "ann_f6f6f6", type: "box", start: 2, end: 3, rect: { x: 0, y: 0, w: 10, h: 10 } }],
     },
     shorts: {
       shorts: [
@@ -86,6 +87,22 @@ test("compileOps: remove が所属配列から抜く", () => {
   assert.deepEqual(errors, []);
   assert.equal(body.cutplan!.segments.length, 1);
   assert.equal(body.cutplan!.segments[0].id, "seg_a1a1a1");
+});
+
+test("compileOps: remove が annotation を @id で削除できる", () => {
+  const docs = baseDocs();
+  const ops: EditOp[] = [{ op: "remove", target: "@ann_f6f6f6" }];
+  const { body, errors } = compileOps(docs, ops);
+  assert.deepEqual(errors, []);
+  assert.equal(body.overlays!.annotations!.length, 0);
+});
+
+test("compileOps: remove がコレクション選択子なら配列全体を空にできる", () => {
+  const docs = baseDocs();
+  const ops: EditOp[] = [{ op: "remove", target: "overlays.annotations" }];
+  const { body, errors } = compileOps(docs, ops);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(body.overlays!.annotations, []);
 });
 
 test("compileOps: add が allow-list 選択子へ append する(id 未採番のまま)", () => {

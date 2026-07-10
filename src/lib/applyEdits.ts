@@ -66,6 +66,7 @@ const KIND_ARRAY: Partial<Record<string, { bodyKey: ApplyFileKey; arrayKey: stri
   hideCaption: { bodyKey: "overlays", arrayKey: "hideCaption" },
   zoom: { bodyKey: "overlays", arrayKey: "zooms" },
   blur: { bodyKey: "overlays", arrayKey: "blurs" },
+  annotation: { bodyKey: "overlays", arrayKey: "annotations" },
   chapter: { bodyKey: "chapters", arrayKey: "chapters" },
   bgmTrack: { bodyKey: "bgm", arrayKey: "tracks" },
   thumbnailText: { bodyKey: "thumbnail", arrayKey: "texts" },
@@ -102,6 +103,7 @@ const ADD_SELECTORS: Record<string, { bodyKey: ApplyFileKey; arrayKey: string }>
   "overlays.inserts": { bodyKey: "overlays", arrayKey: "inserts" },
   "overlays.zooms": { bodyKey: "overlays", arrayKey: "zooms" },
   "overlays.blurs": { bodyKey: "overlays", arrayKey: "blurs" },
+  "overlays.annotations": { bodyKey: "overlays", arrayKey: "annotations" },
   "overlays.wipeFull": { bodyKey: "overlays", arrayKey: "wipeFull" },
   "overlays.hideCaption": { bodyKey: "overlays", arrayKey: "hideCaption" },
   "overlays.captionTracks": { bodyKey: "overlays", arrayKey: "captionTracks" },
@@ -109,6 +111,9 @@ const ADD_SELECTORS: Record<string, { bodyKey: ApplyFileKey; arrayKey: string }>
   "bgm.tracks": { bodyKey: "bgm", arrayKey: "tracks" },
   "thumbnail.texts": { bodyKey: "thumbnail", arrayKey: "texts" },
 };
+
+/** remove の target にコレクション選択子が来たときは、その配列を空にする。 */
+const REMOVE_SELECTORS = ADD_SELECTORS;
 
 function deepClone<T>(v: T): T {
   return v === null || v === undefined ? v : (JSON.parse(JSON.stringify(v)) as T);
@@ -251,6 +256,23 @@ export function compileOps(docs: LoadedDocs, ops: EditOp[]): CompileOpsResult {
       const { target } = op as { op: "remove"; target: unknown };
       if (typeof target !== "string" || target === "") {
         errors.push({ file: "(patch)", where: `${where}.target`, message: "target がありません" });
+        return;
+      }
+      if (target in REMOVE_SELECTORS) {
+        const sel = REMOVE_SELECTORS[target];
+        const fileDoc = ensureDraft(sel.bodyKey);
+        if (!isObj(fileDoc)) {
+          errors.push({
+            file: APPLY_FILE_NAME[sel.bodyKey],
+            where: `${where}.target`,
+            message: `${APPLY_FILE_NAME[sel.bodyKey]} がまだ存在しません。先に replace で作成してください`,
+          });
+          return;
+        }
+        const arr = fileDoc[sel.arrayKey];
+        const before = Array.isArray(arr) ? deepClone(arr) : [];
+        fileDoc[sel.arrayKey] = [];
+        diff.push({ ref: target, file: APPLY_FILE_NAME[sel.bodyKey], before, after: [] });
         return;
       }
       const resolved = resolveMention(target, index);

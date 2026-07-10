@@ -146,6 +146,7 @@ Prefix per element kind:
 | caption (transcript segment) | `cap` |
 | overlay material | `mat` |
 | insert | `ins` |
+| annotation | `ann` |
 | zoom | `zm` |
 | blur region | `bl` |
 | wipe-full span | `wf` |

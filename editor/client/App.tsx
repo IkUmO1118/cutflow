@@ -61,17 +61,25 @@ import type {
   Shorts,
   Transcript,
 } from "../../src/types.ts";
-import type { AiProposeResponse, AiScope, AiSelectionContext, DraftData, ProjectData } from "./apiTypes.ts";
+import type {
+  AiProposeResponse,
+  AiRefineMode,
+  AiScope,
+  AiSelectionContext,
+  DraftData,
+  ProjectData,
+} from "./apiTypes.ts";
 import type { ReviewBundle } from "../../src/stages/review.ts";
 import type { ReviewFrameRequest } from "../../src/lib/review.ts";
 import { reviewSpecOfProposalReview } from "../../src/lib/editorAiReview.ts";
+import { buildReviewEvents, warningSummary } from "../../src/lib/reviewEvents.ts";
 import { AiCommand } from "./AiCommand.tsx";
+import { AiVisualReview } from "./AiVisualReview.tsx";
 import { ArrowOverlay } from "./ArrowOverlay.tsx";
 import type { OverlayArrow } from "./ArrowOverlay.tsx";
 import { CaptionOverlay } from "./CaptionOverlay.tsx";
 import type { OverlayCaption } from "./CaptionOverlay.tsx";
 import { DiffReview } from "./DiffReview.tsx";
-import type { DiffAction, DiffWarningGroup } from "./DiffReview.tsx";
 import { MaterialOverlay } from "./MaterialOverlay.tsx";
 import type { OverlayRect } from "./MaterialOverlay.tsx";
 import { Inspector } from "./Inspector.tsx";
@@ -109,9 +117,9 @@ import {
   getProject,
   postAiDoctor,
   postConfig,
-  postAiRefine,
   postDraft,
   postAiPropose,
+  postAiRefine,
   postAiReview,
   postPreview,
   postProxy,
@@ -130,6 +138,7 @@ type AiWorkflowPhase =
   | "idle"
   | "proposing"
   | "reviewing"
+  | "refining"
   | "applying"
   | "saving"
   | "verifying"
@@ -140,6 +149,7 @@ interface AiWorkflowState {
   phase: AiWorkflowPhase;
   instruction: string;
   scope: AiScope;
+  refineMode?: AiRefineMode;
   response?: AiProposeResponse;
   diff?: ProposalDiffResult;
   resolution?: ProposalResolution;
@@ -147,11 +157,12 @@ interface AiWorkflowState {
   reviewBundle?: ReviewBundle;
   reviewCandidateKey?: string;
   reviewStale?: boolean;
+  autoReviewRequested?: boolean;
   error?: string;
 }
 
 interface AiWorkflowReviewState extends AiWorkflowState {
-  phase: "reviewing" | "verifying";
+  phase: "reviewing" | "verifying" | "refining";
   response: AiProposeResponse;
   diff: ProposalDiffResult;
   resolution: ProposalResolution;
@@ -194,6 +205,7 @@ const aiWorkflowPhaseLabel = (workflow: AiWorkflowState | null): string => {
   if (!workflow) return "待機";
   if (workflow.phase === "proposing") return "提案中";
   if (workflow.phase === "reviewing") return "確認中";
+  if (workflow.phase === "refining") return "再提案中";
   if (workflow.phase === "applying") return "適用済み(未保存)";
   if (workflow.phase === "saving") return "保存中";
   if (workflow.phase === "verifying") return "比較を生成中";
@@ -207,7 +219,7 @@ const aiWorkflowPhaseLabel = (workflow: AiWorkflowState | null): string => {
 const aiWorkflowTone = (workflow: AiWorkflowState | null): "warn" | "ok" | "error" | "" => {
   if (!workflow) return "";
   if (workflow.phase === "failed") return "error";
-  if (workflow.phase === "reviewing" || workflow.phase === "proposing") return "warn";
+  if (workflow.phase === "reviewing" || workflow.phase === "proposing" || workflow.phase === "refining") return "warn";
   if (workflow.phase === "complete") return workflow.saved ? "ok" : "warn";
   if (workflow.phase === "idle") return "";
   return "warn";
@@ -216,10 +228,17 @@ const aiWorkflowTone = (workflow: AiWorkflowState | null): "warn" | "ok" | "erro
 const isAiWorkflowReviewState = (
   workflow: AiWorkflowState | null,
 ): workflow is AiWorkflowReviewState =>
-  (workflow?.phase === "reviewing" || workflow?.phase === "verifying") &&
+  (workflow?.phase === "reviewing" || workflow?.phase === "verifying" || workflow?.phase === "refining") &&
   workflow.response !== undefined &&
   workflow.diff !== undefined &&
   workflow.resolution !== undefined;
+
+const acceptedAiHunkLabels = (workflow: AiWorkflowReviewState): string[] =>
+  workflow.diff.hunks.flatMap((hunk) =>
+    (workflow.resolution.get(hunk) ?? "theirs") === "theirs"
+      ? [hunk.address.label]
+      : [],
+  );
 
 /** BGM に使えるファイル(音声、または音を持つ動画)の拡張子 */
 const BGM_EXT_RE = /\.(mp3|m4a|wav|aac|ogg|flac|mp4|mov|webm|mkv)$/i;
@@ -452,7 +471,6 @@ export const App = () => {
   const [diffResolution, setDiffResolution] = useState<Resolution>(() => new Map());
   const [diffPanelOpen, setDiffPanelOpen] = useState(false);
   const [aiWorkflow, setAiWorkflow] = useState<AiWorkflowState | null>(null);
-  const [aiVlmReview, setAiVlmReview] = useState(false);
   const [aiCommandOpen, setAiCommandOpen] = useState(false);
   const [aiCommandScope, setAiCommandScope] = useState<AiScope>("global");
   /** 前回のセッションの未保存編集(自動退避)。復元するか人間が選ぶまで保持 */
@@ -1106,7 +1124,7 @@ export const App = () => {
   const aiBusy = aiWorkflow?.phase === "proposing";
   const aiWorkflowLocked =
     aiWorkflow !== null &&
-    ["proposing", "reviewing", "applying", "saving", "verifying"].includes(aiWorkflow.phase);
+    ["proposing", "reviewing", "refining", "applying", "saving", "verifying"].includes(aiWorkflow.phase);
   const aiWorkflowReview = isAiWorkflowReviewState(aiWorkflow) ? aiWorkflow : null;
   // SSE ハンドラ(マウント時に固定)から最新の dirty 状態を見るための控え
   dirtyRef.current = anyDirty;
@@ -3087,6 +3105,7 @@ export const App = () => {
         response,
         diff,
         resolution: new Map(diff.hunks.map((h) => [h, "theirs"] as const)),
+        autoReviewRequested: false,
       });
     } catch (e) {
       const message = (e as Error).message;
@@ -3120,8 +3139,11 @@ export const App = () => {
     setSelectionState((sel) => (selectionValid(sel, merged) ? sel : null));
   };
 
-  const generateAiReview = async (): Promise<ReviewBundle | null> => {
+  const generateAiReview = async (
+    options?: { withVlm?: boolean },
+  ): Promise<ReviewBundle | null> => {
     if (!aiWorkflowReview) return null;
+    const withVlm = options?.withVlm ?? false;
     const spec = reviewSpecOfProposalReview(aiWorkflowReview.response.proposal.review);
     if (!spec) {
       setError("比較対象の review.frames がありません");
@@ -3134,12 +3156,8 @@ export const App = () => {
     try {
       const res = await postAiReview({
         proposalId: aiWorkflowReview.response.proposalId,
-        acceptedHunkLabels: aiWorkflowReview.diff.hunks.flatMap((hunk) =>
-          (aiWorkflowReview.resolution.get(hunk) ?? "theirs") === "theirs"
-            ? [hunk.address.label]
-            : [],
-        ),
-        secondaryObservation: aiVlmReview ? "vlm" : "none",
+        acceptedHunkLabels: acceptedAiHunkLabels(aiWorkflowReview),
+        secondaryObservation: withVlm ? "vlm" : "none",
       });
       setAiWorkflow((prev) =>
         prev && isAiWorkflowReviewState(prev)
@@ -3149,6 +3167,7 @@ export const App = () => {
               reviewBundle: res.bundle,
               reviewCandidateKey: JSON.stringify(merged),
               reviewStale: false,
+              autoReviewRequested: true,
             }
           : prev,
       );
@@ -3165,6 +3184,7 @@ export const App = () => {
               ...prev,
               phase: "reviewing",
               error: message,
+              autoReviewRequested: true,
               reviewStale: apiError?.code === "proposal_expired" || apiError?.code === "proposal_stale"
                 ? true
                 : prev.reviewStale,
@@ -3176,38 +3196,48 @@ export const App = () => {
     }
   };
 
-  const refineAiWorkflow = async () => {
-    if (!aiWorkflowReview?.reviewBundle?.secondaryObservation) return;
-    setAiWorkflow({ ...aiWorkflowReview, phase: "proposing" });
+  const refineAiWorkflow = async (
+    options: { mode?: AiRefineMode; withVlm: boolean; instruction?: string },
+  ): Promise<void> => {
+    if (!aiWorkflowReview || !proj) return;
+    const current = aiWorkflowReview;
+    const mode = options.mode ?? "normal";
+    setAiWorkflow({ ...current, phase: "refining", refineMode: mode });
     setError(null);
     try {
-      const res = await postAiRefine({
-        proposalId: aiWorkflowReview.response.proposalId,
-        acceptedHunkLabels: aiWorkflowReview.diff.hunks.flatMap((hunk) =>
-          (aiWorkflowReview.resolution.get(hunk) ?? "theirs") === "theirs"
-            ? [hunk.address.label]
-            : []),
-        reviewKey: {
-          candidateHash: aiWorkflowReview.reviewBundle.key.candidateHash,
-          specHash: aiWorkflowReview.reviewBundle.key.specHash,
-          acceptedLabelsHash: aiWorkflowReview.reviewBundle.key.acceptedLabelsHash ?? "",
-        },
+      const response = await postAiRefine({
+        proposalId: current.response.proposalId,
+        acceptedHunkLabels: acceptedAiHunkLabels(current),
+        instruction: options.instruction?.trim() || undefined,
+        vlm: options.withVlm,
+        mode,
       });
-      const diff = proposalDiff(reviewDocsOf(proj!), res.proposal.proposedDocs);
+      const diff = proposalDiff(reviewDocsOf(proj), response.proposal.proposedDocs);
+      if (diff.hunks.length === 0) {
+        setAiWorkflow({
+          phase: "complete",
+          instruction: current.instruction,
+          scope: current.scope,
+          response,
+          diff,
+          resolution: new Map(),
+          saved: false,
+        });
+        addToast({ kind: "info", message: "再提案に差分はありませんでした", ttlMs: 4000 });
+        return;
+      }
       setAiWorkflow({
         phase: "reviewing",
-        instruction: aiWorkflowReview.instruction,
-        scope: aiWorkflowReview.scope,
-        response: { proposalId: res.proposalId, proposal: res.proposal },
+        instruction: current.instruction,
+        scope: current.scope,
+        response,
         diff,
         resolution: new Map(diff.hunks.map((h) => [h, "theirs"] as const)),
-        reviewBundle: undefined,
-        reviewCandidateKey: undefined,
-        reviewStale: false,
+        refineMode: undefined,
       });
     } catch (e) {
-      const message = `再調整に失敗しました: ${(e as Error).message}`;
-      setAiWorkflow((prev) => prev ? { ...prev, phase: "reviewing", error: message } : prev);
+      const message = `再提案に失敗しました: ${(e as Error).message}`;
+      setAiWorkflow({ ...current, phase: "reviewing", refineMode: undefined, error: message });
       setError(message);
     }
   };
@@ -3680,6 +3710,18 @@ export const App = () => {
     return () => window.removeEventListener("keydown", onKey);
   });
 
+  useEffect(() => {
+    if (!aiWorkflow || aiWorkflow.phase !== "reviewing") return;
+    if (aiWorkflow.reviewBundle || aiWorkflow.reviewStale) return;
+    if (aiWorkflow.autoReviewRequested) return;
+    setAiWorkflow((prev) =>
+      prev && prev.phase === "reviewing"
+        ? { ...prev, autoReviewRequested: true }
+        : prev,
+    );
+    void generateAiReview({ withVlm: false });
+  }, [aiWorkflow]);
+
   /* ---------------- 描画 ---------------- */
 
   if (error && !proj) return <div className="fatal">エラー: {error}</div>;
@@ -3703,50 +3745,25 @@ export const App = () => {
   const aiFrameParse = aiWorkflowReview
     ? aiWorkflowReview.response.proposal.review.frames.map(formatReviewFrame)
     : [];
-  const visionProfile = proj.aiRoutes.vision
-    ? proj.aiProfiles.find((profile) => profile.name === proj.aiRoutes.vision)
-    : undefined;
-  const aiVlmDisabledReason =
-    !proj.aiRoutes.vision
-      ? "vision route が未設定です"
-      : !visionProfile
-        ? "vision profile が見つかりません"
-        : !proj.aiReviewCfg.vlm
-          ? "config editor.aiReview.vlm=false です"
-          : !visionProfile.capabilities.imageInput
-            ? `AI profile "${visionProfile.name}" は imageInput=false です`
-            : visionProfile.credential === "missing"
-              ? "vision profile の認証情報が見つかりません"
-              : null;
-  const aiWorkflowActions: DiffAction[] | undefined = aiWorkflowReview
-    ? [
-        ...(reviewSpecOfProposalReview(aiWorkflowReview.response.proposal.review)
-          ? [{
-              label: aiWorkflowReview.phase === "verifying" ? "比較を生成中…" : "比較を生成",
-              disabled: aiWorkflowReview.phase === "verifying",
-              onClick: () => void generateAiReview(),
-            } satisfies DiffAction]
-          : []),
-        {
-          label: "適用のみ",
-          disabled: aiWorkflowReview.phase === "verifying",
-          onClick: () => void applyAiWorkflow({ save: false, reviewFirst: false }),
-        },
-        {
-          label: "適用して保存",
-          kind: "primary",
-          disabled: aiWorkflowReview.phase === "verifying",
-          onClick: () => void applyAiWorkflow({ save: true, reviewFirst: false }),
-        },
-        ...(reviewSpecOfProposalReview(aiWorkflowReview.response.proposal.review)
-          ? [{
-              label: "適用して確認",
-              disabled: aiWorkflowReview.phase === "verifying",
-              onClick: () => void applyAiWorkflow({ save: true, reviewFirst: true }),
-            } satisfies DiffAction]
-          : []),
-      ]
-    : undefined;
+  const aiReviewEvents = aiWorkflowReview
+    ? buildReviewEvents({
+        hunks: aiWorkflowReview.diff.hunks,
+        reviewBundle: aiWorkflowReview.reviewBundle,
+        aiNotes: aiWorkflowReview.response.proposal.review.notes,
+        applyWarnings: aiWorkflowReview.response.proposal.applyPlan.warnings.map(
+          (warning) => `${warning.file} ${warning.where}: ${warning.message}`,
+        ),
+      })
+    : [];
+  const aiWarningSummary = warningSummary(aiReviewEvents);
+  const setAiWorkflowHunks = (hunks: ProposalDiffResult["hunks"], side: "theirs" | "mine") => {
+    setAiWorkflow((prev) => {
+      if (!prev?.resolution) return prev;
+      const next = new Map(prev.resolution);
+      for (const hunk of hunks) next.set(hunk, side);
+      return { ...prev, resolution: next, reviewStale: prev.reviewBundle ? true : prev.reviewStale };
+    });
+  };
 
   // 開閉はコンポーネントを外さず CSS で隠す(タイムラインのズーム等の状態を保つ)
   const appClass =
@@ -4012,20 +4029,21 @@ export const App = () => {
       )}
 
       {aiWorkflowReview && (
-        <DiffReview
-          kind="ai-proposal"
+        <AiVisualReview
+          proposalId={aiWorkflowReview.response.proposalId}
           title="AI 一発編集を確認"
           description={
             aiWorkflowReview.response.proposal.summary.length > 0
               ? aiWorkflowReview.response.proposal.summary.join(" / ")
               : "適用する変更だけを選んでください。保存と確認はこの画面から続けて行えます。"
           }
+          events={aiReviewEvents}
           hunks={aiWorkflowReview.diff.hunks}
           resolution={aiWorkflowReview.resolution}
-          warningGroups={[
+          globalWarnings={[
             ...(
               aiWorkflowReview.error
-                ? [{ label: "比較エラー", items: [aiWorkflowReview.error] } satisfies DiffWarningGroup]
+                ? [{ label: "比較エラー", items: [aiWorkflowReview.error] }]
                 : []
             ),
             ...(
@@ -4033,58 +4051,32 @@ export const App = () => {
                 ? [{
                     label: "検証警告",
                     items: aiWorkflowReview.response.proposal.applyPlan.warnings.map((w) => `${w.file} ${w.where}: ${w.message}`),
-                  } satisfies DiffWarningGroup]
+                  }]
                 : []
             ),
             ...(
               aiWorkflowReview.response.proposal.review.notes.length > 0
-                ? [{ label: "AIメモ", items: aiWorkflowReview.response.proposal.review.notes } satisfies DiffWarningGroup]
+                ? [{ label: "AIメモ", items: aiWorkflowReview.response.proposal.review.notes }]
                 : []
             ),
           ]}
           frameChecks={aiFrameParse}
           reviewBundle={aiWorkflowReview.reviewBundle}
           reviewStale={aiReviewStale}
-          extraControls={
-            <>
-              <label className="aiVlmToggle">
-                <input
-                  type="checkbox"
-                  checked={aiVlmReview}
-                  disabled={aiVlmDisabledReason !== null}
-                  onChange={(event) => setAiVlmReview(event.currentTarget.checked)}
-                />
-                {aiVlmDisabledReason === null
-                  ? `画像もAIに確認させる（最大${proj.aiReviewCfg.maxImages}枚の縮小stillを ${visionProfile?.name}${visionProfile?.origin ? ` (${visionProfile.origin})` : ""} へ送信）`
-                  : `画像もAIに確認させる（${aiVlmDisabledReason}）`}
-              </label>
-              <button
-                disabled={
-                  aiWorkflowReview.phase === "verifying" ||
-                  !aiWorkflowReview.reviewBundle?.secondaryObservation
-                }
-                onClick={() => void refineAiWorkflow()}
-              >
-                AI に観測を渡して再調整
-              </button>
-            </>
-          }
-          onSet={(hunk, side) => {
-            setAiWorkflow((prev) => {
-              if (!prev?.resolution) return prev;
-              const next = new Map(prev.resolution);
-              next.set(hunk, side);
-              return { ...prev, resolution: next };
-            });
-          }}
+          warningSummary={aiWarningSummary}
+          checkingFrames={aiWorkflowReview.phase === "verifying"}
+          refining={aiWorkflowReview.phase === "refining"}
+          refiningMode={aiWorkflowReview.refineMode}
+          onSetHunks={setAiWorkflowHunks}
           onBulk={(side) => {
-            setAiWorkflow((prev) =>
-              prev?.diff ? { ...prev, resolution: new Map(prev.diff.hunks.map((h) => [h, side] as const)) } : prev,
-            );
+            if (!aiWorkflowReview) return;
+            setAiWorkflowHunks(aiWorkflowReview.diff.hunks, side);
           }}
+          onGenerateReview={({ withVlm }) => void generateAiReview({ withVlm })}
+          onRefine={(options) => void refineAiWorkflow(options)}
+          onFixWarnings={({ withVlm }) => void refineAiWorkflow({ mode: "warning-fix", withVlm })}
           onApply={() => void applyAiWorkflow({ save: true, reviewFirst: false })}
           onCancel={() => setAiWorkflow(null)}
-          actions={aiWorkflowActions}
         />
       )}
 
