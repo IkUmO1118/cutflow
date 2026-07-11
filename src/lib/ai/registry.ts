@@ -1,4 +1,11 @@
-import type { AiAdapter, AiImagePart, AiRequest, AiResponse, JsonSchemaTextFormat } from "./types.ts";
+import type {
+  AiAdapter,
+  AiAgenticToolResult,
+  AiImagePart,
+  AiRequest,
+  AiResponse,
+  JsonSchemaTextFormat,
+} from "./types.ts";
 import { fetchJsonWithPolicy, normalizeBaseUrl, resolveCredential } from "./http.ts";
 import { openAiCompatibleSchema, promptJsonSchemaSuffix } from "./structured.ts";
 
@@ -51,6 +58,59 @@ function toDataUrl(image: AiImagePart, readFile: (path: string) => Buffer): stri
 
 function imageLabelPart(image: AiImagePart): { type: "text"; text: string } {
   return { type: "text", text: `[${image.label}]` };
+}
+
+/* ------------------------ agentic(tool-use)ループ用の最小限の型 ------------------------
+ * anthropic /v1/messages の content block を必要な分だけ緩く型付けする
+ * (完全な公式型を持ち込まない。既存 complete() の extractAnthropicOutput と同じ姿勢) */
+interface AnthropicContentBlock {
+  type: string;
+  text?: string;
+  id?: string;
+  name?: string;
+  input?: unknown;
+  source?: { type: "base64"; media_type: string; data: string };
+}
+
+interface AnthropicToolResultBlock {
+  type: "tool_result";
+  tool_use_id: string;
+  content: string | { type: "text"; text: string }[] | (
+    | { type: "text"; text: string }
+    | { type: "image"; source: { type: "base64"; media_type: string; data: string } }
+  )[];
+  is_error?: boolean;
+}
+
+interface AnthropicMessage {
+  role: "user" | "assistant";
+  content: AnthropicContentBlock[] | AnthropicToolResultBlock[];
+}
+
+function toAnthropicToolResult(
+  toolUseId: string,
+  result: AiAgenticToolResult,
+  context: { readFile: (path: string) => Buffer },
+): AnthropicToolResultBlock {
+  const blocks: (
+    | { type: "text"; text: string }
+    | { type: "image"; source: { type: "base64"; media_type: string; data: string } }
+  )[] = [];
+  if (result.text) blocks.push({ type: "text", text: result.text });
+  for (const image of result.images ?? []) {
+    blocks.push({ type: "text", text: `[${image.label}]` });
+    blocks.push({
+      type: "image",
+      source: { type: "base64", media_type: image.mediaType, data: context.readFile(image.file).toString("base64") },
+    });
+  }
+  if (blocks.length === 0) blocks.push({ type: "text", text: "(no output)" });
+  return {
+    type: "tool_result",
+    tool_use_id: toolUseId,
+    content: blocks,
+    ...(result.isError ? { is_error: true } : {}),
+  };
 }
 
 export const claudeCodeAdapter: AiAdapter = {
@@ -207,6 +267,107 @@ export const anthropicAdapter: AiAdapter = {
       ...((data.id ?? requestId) ? { requestId: data.id ?? requestId } : {}),
       ...(data.usage ? { usage: { inputTokens: data.usage.input_tokens, outputTokens: data.usage.output_tokens } } : {}),
     };
+  },
+  async completeAgentic(request, profile, context, handleTool) {
+    if (profile.auth.type !== "x-api-key") throw new Error(`AI profile "${profile.name}" の auth.type が不正です`);
+    const token = resolveCredential(profile.auth, process.env);
+    if (!token) throw new Error(`${profile.auth.apiKeyEnv} が必要です`);
+    const model = requireExplicitModel("anthropic", profile.model);
+    const maxTokens = request.maxOutputTokens ?? profile.maxOutputTokens;
+    const structuredTool = {
+      name: "structured_output",
+      description: "Return the final answer as structured JSON.",
+      input_schema: request.output.format.schema,
+    };
+    const toolDefs = request.tools.map((t) => ({
+      name: t.name,
+      description: t.description,
+      input_schema: t.inputSchema,
+    }));
+    const messages: AnthropicMessage[] = [{
+      role: "user",
+      content: [
+        ...textPartsOf(request).map((part) => ({ type: "text" as const, text: part })),
+        ...imagePartsOf(request).flatMap((image) => [
+          imageLabelPart(image),
+          {
+            type: "image" as const,
+            source: { type: "base64" as const, media_type: image.mediaType, data: context.readFile(image.file).toString("base64") },
+          },
+        ]),
+      ],
+    }];
+
+    let toolCalls = 0;
+    // 有界: request.maxToolCalls を使い切ったら次ラウンドは structured_output
+    // だけを渡し tool_choice で強制する(必ず最終回答で終わる。§H1H2design §1-5)
+    const maxRounds = request.maxToolCalls + 4;
+    for (let round = 0; round < maxRounds; round++) {
+      const budgetLeft = toolCalls < request.maxToolCalls;
+      const body = {
+        model,
+        max_tokens: maxTokens,
+        messages,
+        tools: budgetLeft ? [...toolDefs, structuredTool] : [structuredTool],
+        tool_choice: budgetLeft ? { type: "auto" as const } : { type: "tool" as const, name: "structured_output" },
+      };
+      const { data } = await fetchJsonWithPolicy<{
+        content?: AnthropicContentBlock[];
+        id?: string;
+        usage?: { input_tokens?: number; output_tokens?: number };
+      }>(profile, context.fetch, "https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": token,
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(body),
+        signal: context.signal,
+      });
+      const content = data.content ?? [];
+      const structuredUse = content.find((c) => c.type === "tool_use" && c.name === "structured_output");
+      if (structuredUse) {
+        return {
+          text: JSON.stringify(structuredUse.input ?? {}),
+          toolCalls,
+          profile: profile.name,
+          adapter: profile.adapter,
+          model: profile.model,
+        };
+      }
+      const toolUses = content.filter((c) => c.type === "tool_use" && c.name !== "structured_output");
+      if (toolUses.length === 0) {
+        // tool も structured_output も無い応答(モデルがテキストだけ返した)。
+        // ループを続けても進展しない可能性が高いので、そのテキストを最終応答
+        // として扱う(呼び出し側が JSON パースに失敗すればフォールバックする)
+        return {
+          text: content.filter((c) => c.type === "text").map((c) => c.text ?? "").join(""),
+          toolCalls,
+          profile: profile.name,
+          adapter: profile.adapter,
+          model: profile.model,
+        };
+      }
+      messages.push({ role: "assistant", content });
+      const resultBlocks: AnthropicToolResultBlock[] = [];
+      for (const use of toolUses) {
+        if (!budgetLeft) {
+          resultBlocks.push({
+            type: "tool_result",
+            tool_use_id: use.id!,
+            content: "tool 呼び出し上限(maxToolCalls)に達しました。ここまでの set_cuts の結果で最終回答してください。",
+            is_error: true,
+          });
+          continue;
+        }
+        toolCalls += 1;
+        const result = await handleTool(use.name!, use.input);
+        resultBlocks.push(toAnthropicToolResult(use.id!, result, context));
+      }
+      messages.push({ role: "user", content: resultBlocks });
+    }
+    throw new Error("agentic loop exceeded max rounds without a final structured_output");
   },
 };
 

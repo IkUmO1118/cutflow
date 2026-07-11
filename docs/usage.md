@@ -927,6 +927,48 @@ plan:
 - 停止条件は `maxIterations` 到達、期待値の fail/error が0、直前と同じ cut 集合の
   3つ。どれも決定論的に判定される
 
+## plan のエージェント化(config.yaml の plan.harness。既定オフ・H1/H2)
+
+`plan --cuts-only` だけは opt-in で、カット判断を「事前計算した知覚をプロンプトへ
+焼き込む push 型・単発 completion」から、判断 LLM が read-only の tool を自分で
+引きながら生成する「pull 型知覚 + 検証ループ主体」のエージェントに切り替えられる。
+
+```yaml
+plan:
+  harness:
+    agentic: true      # 既定 false。要 ai の structured route が anthropic 等
+                        # completeAgentic 対応アダプタ(非対応なら警告のうえ
+                        # 従来の単発/pushループ経路へ自動フォールバック)
+    maxToolCalls: 16    # 1生成ターンあたりの tool 呼び出し上限(コスト/レイテンシの天井)
+    tools:
+      frames: true      # 迷った候補だけ最終合成の実画像を見る(get_frames)
+      av: true          # 出力レンジの motion/sound を読む(probe_av)
+      materials: true   # 素材(B-roll)のメタを読む(probe_materials)
+      ocr: true         # 候補の画面テキストを OCR で読む(ocr_screen)
+```
+
+- 対象は `plan --cuts-only` のみ。通常の `plan`、`remeta`、`plan-shorts` は従来どおり
+  1ショット(触らない)
+- LLM が握れるのは read-only の知覚 tool(`describe_timeline` / `get_frames` /
+  `probe_av` / `probe_materials` / `ocr_screen`)と検証 tool(`set_cuts` /
+  `run_assert`)の7種のみ。`describe_timeline`/`set_cuts`/`run_assert` は常時
+  有効で、`plan.harness.tools` で個別に切れるのは `frames`/`av`/`materials`/
+  `ocr` の4つだけ
+- **最終出力は今までと同じ番号選択(`cuts:[{id,reason}]`)**。`set_cuts` は
+  候補 id 配列しか受理せず、存在しない id は拒否されて書込みが起きない
+  (ハルシネーション耐性・R0(候補内部を割らない)は不変)
+- `plan.harness.agentic: true` でも `plan.loop.maxIterations` が2未満なら、
+  agentic の検証往復が最低1回の再調整を持てるよう内部で2へ昇格する
+  (プロンプト・cutplan は harness off のときと無関係に決まる)
+- tool-use 非対応のアダプタ(anthropic 以外)や実行中の回復不能なエラーは、
+  警告のうえ tool 無しの単発経路へ自動フォールバックする(例外で `plan` 全体を
+  落とさない・`cutplan.json` は必ず生成される)
+- 各反復の tool 往復(引数・結果は生値ではなく短いダイジェストのみ)は
+  `plan.loop.json` の該当 iteration に `agenticTrace` として残る(中間生成物・
+  手編集対象外)
+- `plan.harness` を省略、または `agentic: false`(既定)のときは、生成
+  プロンプト・`cutplan.json` は導入前と**バイト等価**
+
 ## plan の編集モード(config.yaml の plan.editMode。既定 balanced)
 
 `plan` / `plan --cuts-only`(生成・再調整の両方)は、プロンプトの

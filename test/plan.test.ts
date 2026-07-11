@@ -18,6 +18,7 @@ import { ID_RE } from "../src/lib/ids.ts";
 import type { Config } from "../src/lib/config.ts";
 import type { AssertOutcome } from "../src/stages/assert.ts";
 import type { DescribeProjection } from "../src/stages/describe.ts";
+import type { AiAdapter } from "../src/lib/ai/types.ts";
 
 test("正常な cuts 応答をパースできる", () => {
   const raw = JSON.stringify({
@@ -213,6 +214,105 @@ test("plan --cuts-only: deps.complete を使い、ループ無効時は plan.loo
     );
     assert.equal(existsSync(join(dir, "plan.loop.json")), false);
     assert.equal(readFileSync(join(dir, "plan.raw.txt"), "utf8"), JSON.stringify({ cuts: [{ id: 3, reason: "脱線" }] }));
+  });
+});
+
+test("plan --cuts-only: plan.harness.agentic=false は harness 追加前と完全にバイト等価(§SD4design 1-1)", async () => {
+  await withPlanDir(async (dir) => {
+    const cfg = { plan: { loop: { maxIterations: 0 }, harness: { agentic: false } } } as Config;
+    const result = await plan(dir, cfg, { cutsOnly: true }, {
+      complete: async () => JSON.stringify({ cuts: [{ id: 3, reason: "脱線" }] }),
+    });
+    assert.deepEqual(
+      result.segments.map((s) => [s.start, s.end, s.action, s.reason]),
+      [
+        [0, 10, "keep", ""],
+        [10, 20, "keep", ""],
+        [20, 30, "cut", "脱線"],
+      ],
+    );
+    assert.equal(existsSync(join(dir, "plan.loop.json")), false);
+  });
+});
+
+test("plan --cuts-only: harness.agentic=true でも structured route アダプタが completeAgentic 非対応(既定 claude-code)なら警告のうえ単発/pushループ経路へフォールバックする", async () => {
+  await withPlanDir(async (dir) => {
+    // loop も設定しないので、harness が有効(≒maxIterations>=2 に昇格)扱いに
+    // ならなければ従来の generateCutsOnce(1ショット)のまま plan.loop.json は書かれない
+    const cfg = { plan: { harness: { agentic: true } } } as Config;
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (msg: string) => warnings.push(String(msg));
+    try {
+      const result = await plan(dir, cfg, { cutsOnly: true }, {
+        complete: async () => JSON.stringify({ cuts: [{ id: 3, reason: "脱線" }] }),
+      });
+      assert.equal(result.segments[2]!.action, "cut");
+    } finally {
+      console.warn = originalWarn;
+    }
+    assert.ok(warnings.some((w) => /フォールバック/.test(w)), warnings.join("\n"));
+  });
+});
+
+test("plan --cuts-only: harness.agentic=true(anthropic + fake completeAgentic)で agenticTrace 付き plan.loop.json を書く", async () => {
+  await withPlanDir(async (dir) => {
+    // describe_timeline/set_cuts tool は describeJson 経由で manifest.json を
+    // 要求するので、この収録固有で用意する(withPlanDir の共通 fixture には無い)
+    writeFileSync(
+      join(dir, "manifest.json"),
+      JSON.stringify({
+        dir,
+        source: "source.mp4",
+        durationSec: 30,
+        video: { width: 1920, height: 1080, fps: 30, screenRegion: { x: 0, y: 0, w: 1920, h: 1080 } },
+        audio: { micStream: 0, systemStream: null, micWav: "mic.wav" },
+        createdAt: "2026-07-11T00:00:00.000Z",
+      }),
+    );
+    const cfg = {
+      ai: { provider: "anthropic", model: "claude-x" },
+      plan: { harness: { agentic: true } },
+    } as Config;
+    const fakeAdapter: AiAdapter = {
+      kind: "anthropic",
+      async complete() {
+        throw new Error("not used in this test");
+      },
+      async completeAgentic(_req, _profile, _context, handleTool) {
+        const described = await handleTool("describe_timeline", {});
+        assert.match(described.text ?? "", /出力尺/);
+        const setResult = await handleTool("set_cuts", { cuts: [{ id: 3, reason: "脱線" }] });
+        assert.equal(setResult.isError, undefined);
+        return {
+          text: JSON.stringify({ cuts: [{ id: 3, reason: "脱線" }] }),
+          toolCalls: 2,
+          profile: "p",
+          adapter: "anthropic",
+          model: "claude-x",
+        };
+      },
+    };
+    const result = await plan(dir, cfg, { cutsOnly: true }, {
+      agenticAdapterOverride: fakeAdapter,
+      observe: {
+        async observe() {
+          return {
+            proj: fakeProjection(10),
+            outcomes: [{ index: 0, type: "outDuration", status: "pass", message: "ok" }],
+          };
+        },
+      },
+    });
+    assert.equal(result.segments[2]!.action, "cut");
+    assert.equal(result.segments[2]!.reason, "脱線");
+
+    const log = JSON.parse(readFileSync(join(dir, "plan.loop.json"), "utf8")) as {
+      iterations: { agenticTrace?: { tool: string }[]; agenticDegraded?: string }[];
+    };
+    assert.equal(log.iterations.length, 1);
+    assert.deepEqual(log.iterations[0]!.agenticTrace?.map((t) => t.tool), ["describe_timeline", "set_cuts"]);
+    assert.equal(log.iterations[0]!.agenticDegraded, undefined);
   });
 });
 

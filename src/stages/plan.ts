@@ -5,13 +5,23 @@ import { completeWithJsonSchema } from "../lib/llm.ts";
 import { mergeIntervals } from "../lib/timeline.ts";
 import { carryIds, ensureIds, hasAnyId, ID_PREFIX, usedIdsOf } from "../lib/ids.ts";
 import { readEditableDocs } from "./idStamp.ts";
+import { extractJsonObject, parseCutsResponse, CUTS_RESPONSE_SCHEMA } from "../lib/cutsResponse.ts";
+export { parseCutsResponse } from "../lib/cutsResponse.ts";
+import { buildCutplan, toCutplanIdContext } from "../lib/buildCutplan.ts";
+export { buildCutplan } from "../lib/buildCutplan.ts";
+export type { CutplanIdContext } from "../lib/buildCutplan.ts";
 import {
+  planHarnessEnabled,
   planLoopEnabled,
   resolveCandidatesCfg,
   resolvePerceptionCfg,
+  resolvePlanHarnessCfg,
   resolvePlanLoopCfg,
   resolvePlanLoopSecondaryObservationCfg,
 } from "../lib/config.ts";
+import { agenticCutTurn } from "../lib/ai/agenticCut.ts";
+import type { AgenticCtx, AgenticTraceEntry } from "../lib/ai/agenticCut.ts";
+import type { AiAdapter } from "../lib/ai/types.ts";
 import { resolveEditMode, renderEditModeBlock } from "../lib/editMode.ts";
 import { candidateText, collectWords, subdivideCandidates } from "../lib/candidates.ts";
 import {
@@ -134,46 +144,10 @@ export interface PlanDeps {
   complete?: CompleteFn;
   observe?: ObservationProvider;
   secondaryProvider?: SecondaryObservationProvider;
-}
-
-/** buildCutplan の id 引き継ぎ用コンテキスト(§buildIdContext 参照)。
- * 省略時(undefined)は id に一切触れない(=導入前とバイト等価) */
-export interface CutplanIdContext {
-  /** 直前の cutplan.json の segments(span 一致で id を運ぶ元) */
-  existingSegments: PlanSegment[];
-  /** project 全体で衝突しない used 集合(呼び出しごとに変異する) */
-  used: Set<string>;
-}
-
-/** LLM 応答からカット判断を反映した cutplan を組み立てる(存在しない id は無視)。
- * idCtx があれば、span(start:end)一致で旧 segments.id を運び(carryIds)、
- * 残りを採番する(ensureIds)。span が変わった segment は新 id になる(要件どおり) */
-export function buildCutplan(
-  numbered: NumberedSegment[],
-  cuts: { id: number; reason: string }[],
-  idCtx?: CutplanIdContext,
-): CutPlan {
-  const cutIds = new Map(cuts.map((c) => [c.id, c.reason]));
-  for (const c of cuts) {
-    if (!numbered.some((n) => n.id === c.id)) {
-      console.warn(`警告: LLM が存在しない区間 id=${c.id} を指定(無視します)`);
-      cutIds.delete(c.id);
-    }
-  }
-
-  let segments: PlanSegment[] = numbered.map((n) => ({
-    start: n.start,
-    end: n.end,
-    action: cutIds.has(n.id) ? "cut" : "keep",
-    reason: cutIds.get(n.id) ?? "",
-  }));
-
-  if (idCtx) {
-    segments = carryIds(idCtx.existingSegments, segments, (s) => `${s.start}:${s.end}`);
-    segments = ensureIds(segments, ID_PREFIX.cutSegment, idCtx.used);
-  }
-
-  return { approved: false, segments };
+  /** テスト専用の注入点: plan.harness.agentic 経路で使う AI アダプタを差し替える
+   * (fake アダプタでループを実際の network なしに駆動する)。省略時は
+   * cfg から通常どおり解決する(本番経路は常に省略) */
+  agenticAdapterOverride?: AiAdapter;
 }
 
 export class StructuralObservationProvider implements ObservationProvider {
@@ -352,7 +326,16 @@ export async function plan(
   const completeFn = deps.complete ?? completeStructuredPlan;
 
   if (opts.cutsOnly) {
-    if (planLoopEnabled(cfg)) {
+    // H1/H2(plan.harness。既定 off): agentic 有効時だけ per-iteration complete()
+    // を tool+検証ループ(agenticCutTurn)へ差し替える。off の間はこの分岐に
+    // 一切入らず、既存の単発/push ループ経路とバイト等価(§SD4design 1-1)
+    const harnessOn = planHarnessEnabled(cfg);
+    if (cfg.plan?.harness?.agentic && !harnessOn) {
+      console.warn(
+        "警告: plan.harness.agentic が有効ですが、AI アダプタが tool-use(completeAgentic) に対応していません。従来の単発/pushループ経路にフォールバックします",
+      );
+    }
+    if (planLoopEnabled(cfg) || harnessOn) {
       return runCutsLoop({
         dir,
         cfg,
@@ -360,6 +343,8 @@ export async function plan(
         durationSec: auto.originalDurationSec,
         perception,
         idCtx,
+        harness: harnessOn,
+        agenticAdapterOverride: deps.agenticAdapterOverride,
         complete: deps.complete ?? completeStructuredCuts,
         observe:
           deps.observe ??
@@ -408,11 +393,7 @@ export async function plan(
   return cutplan;
 }
 
-function cutplanIdCtx(
-  idCtx: { used: Set<string>; existingCutplanSegments: PlanSegment[] } | undefined,
-): CutplanIdContext | undefined {
-  return idCtx && { existingSegments: idCtx.existingCutplanSegments, used: idCtx.used };
-}
+const cutplanIdCtx = toCutplanIdContext;
 
 async function generateCutsOnce(
   dir: string,
@@ -449,6 +430,12 @@ interface RunCutsLoopArgs {
   idCtx?: { used: Set<string>; existingCutplanSegments: PlanSegment[] };
   complete: CompleteFn;
   observe?: ObservationProvider;
+  /** true のとき per-iteration の complete() を agenticCutTurn(tool+検証
+   * ループ)へ差し替える(H1/H2)。false(既定)は従来どおり args.complete を
+   * 呼ぶだけで、生成プロンプト・cutplan は導入前とバイト等価(§SD4design 1-1) */
+  harness?: boolean;
+  /** テスト専用。agenticCutTurn へそのまま渡す(§PlanDeps.agenticAdapterOverride) */
+  agenticAdapterOverride?: AiAdapter;
 }
 
 interface PlanLoopLogEntry {
@@ -467,11 +454,24 @@ interface PlanLoopLogEntry {
     model: string;
   };
   secondaryWarnings?: string[];
+  /** agentic ループ(plan.harness.agentic)の tool 往復トレース(中間生成物)。
+   * harness off のときは常に undefined(キー自体を書かない=バイト等価) */
+  agenticTrace?: AgenticTraceEntry[];
+  /** agentic がフォールバックした理由(あれば)。null/undefined=完走 */
+  agenticDegraded?: string;
 }
 
 async function runCutsLoop(args: RunCutsLoopArgs): Promise<CutPlan> {
-  const loopCfg = resolvePlanLoopCfg(args.cfg);
+  const baseLoopCfg = resolvePlanLoopCfg(args.cfg);
+  // harness on だが loop 未設定(maxIterations<2)のときは、agentic の
+  // 検証往復が最低1回の再調整を持てるよう maxIterations を 2 へ昇格させる
+  // (§SD4design D「harness on だが loop 未設定のとき」)。harness off なら
+  // baseLoopCfg のまま(バイト等価)
+  const loopCfg: PlanLoopCfg = args.harness
+    ? { ...baseLoopCfg, maxIterations: Math.max(2, baseLoopCfg.maxIterations) }
+    : baseLoopCfg;
   const observer = args.observe ?? new StructuralObservationProvider(loopCfg);
+  const harnessCfg = resolvePlanHarnessCfg(args.cfg);
   const iterations: PlanLoopLogEntry[] = [];
   let prevCuts: LoopCut[] | null = null;
   let prevObservation = "";
@@ -499,9 +499,34 @@ async function runCutsLoop(args: RunCutsLoopArgs): Promise<CutPlan> {
           prevCuts ?? [],
           editModeCfg,
         );
-    raw = await args.complete(prompt, args.cfg);
-    const parsed = parseCutsResponse(raw);
-    const cuts = parsed.cuts;
+
+    let cuts: LoopCut[];
+    let agenticTrace: AgenticTraceEntry[] | undefined;
+    let agenticDegraded: string | undefined;
+    if (args.harness) {
+      const ctx: AgenticCtx = {
+        dir: args.dir,
+        cfg: args.cfg,
+        numbered: args.numbered,
+        idCtx: args.idCtx,
+        budget: { maxToolCalls: harnessCfg.maxToolCalls, used: 0 },
+        warn: (msg) => console.warn(`警告: ${msg}`),
+        trace: [],
+        toolsEnabled: harnessCfg.tools,
+      };
+      const result = await agenticCutTurn({
+        firstPrompt: prompt,
+        ctx,
+        adapterOverride: args.agenticAdapterOverride,
+      });
+      raw = result.raw;
+      cuts = result.cuts;
+      agenticTrace = result.trace;
+      agenticDegraded = result.degraded ?? undefined;
+    } else {
+      raw = await args.complete(prompt, args.cfg);
+      cuts = parseCutsResponse(raw).cuts;
+    }
     lastCutplan = buildCutplan(args.numbered, cuts, cutplanIdCtx(args.idCtx));
     writeFileSync(join(args.dir, "cutplan.json"), JSON.stringify(lastCutplan, null, 2));
 
@@ -526,6 +551,8 @@ async function runCutsLoop(args: RunCutsLoopArgs): Promise<CutPlan> {
       cuts,
       observation,
       stop: decision.reason,
+      ...(agenticTrace ? { agenticTrace } : {}),
+      ...(agenticDegraded ? { agenticDegraded } : {}),
       ...(obs.secondary
         ? {
             secondaryObservation: {
@@ -892,29 +919,6 @@ function renderCurrentCutsBlock(currentCuts: readonly LoopCut[]): string {
   return currentCuts.map((c) => `#${c.id} ${c.reason}`).join("\n");
 }
 
-/** cuts-only 応答の期待スキーマ(prompts/plan-cuts.md の出力形式と対応) */
-interface CutsResponse {
-  cuts: { id: number; reason: string }[];
-}
-
-/** 応答からJSONオブジェクトを取り出す。コードフェンスや前後の説明文が混ざっても拾う */
-function extractJsonObject(raw: string): Record<string, unknown> {
-  const start = raw.indexOf("{");
-  const end = raw.lastIndexOf("}");
-  if (start === -1 || end <= start) {
-    throw new Error(
-      "LLM 応答に JSON が見つかりません(plan.raw.txt を確認してください)",
-    );
-  }
-  try {
-    return JSON.parse(raw.slice(start, end + 1)) as Record<string, unknown>;
-  } catch {
-    throw new Error(
-      "LLM 応答の JSON パースに失敗しました(plan.raw.txt を確認してください)",
-    );
-  }
-}
-
 function parseResponse(raw: string): PlanResponse {
   const parsed = extractJsonObject(raw) as Partial<PlanResponse>;
   return {
@@ -923,12 +927,6 @@ function parseResponse(raw: string): PlanResponse {
     titles: parsed.titles ?? [],
     description: parsed.description ?? "",
   };
-}
-
-/** cuts-only 応答のパース(plan --cuts-only 用。cuts だけが必須) */
-export function parseCutsResponse(raw: string): CutsResponse {
-  const parsed = extractJsonObject(raw) as Partial<CutsResponse>;
-  return { cuts: parsed.cuts ?? [] };
 }
 
 function readStageJson<T>(path: string, requiredStage: string): T {
@@ -980,30 +978,6 @@ const PLAN_RESPONSE_SCHEMA = {
       },
       titles: { type: "array", items: { type: "string" } },
       description: { type: "string" },
-    },
-  },
-} as const;
-
-const CUTS_RESPONSE_SCHEMA = {
-  name: "cutflow_plan_cuts",
-  strict: true,
-  schema: {
-    type: "object",
-    additionalProperties: false,
-    required: ["cuts"],
-    properties: {
-      cuts: {
-        type: "array",
-        items: {
-          type: "object",
-          additionalProperties: false,
-          required: ["id", "reason"],
-          properties: {
-            id: { type: "integer" },
-            reason: { type: "string" },
-          },
-        },
-      },
     },
   },
 } as const;
