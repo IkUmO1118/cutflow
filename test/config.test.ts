@@ -25,12 +25,14 @@ import {
   DEFAULT_AI_MAX_OUTPUT_TOKENS,
   DEFAULT_PERCEPTION_OCR_MAX_LINES,
   DEFAULT_PERCEPTION_OCR_MAX_SEGMENTS,
+  DEFAULT_PLAN_HARNESS_MAX_TOOL_CALLS,
   DEFAULT_PLAN_LOOP_MAX_ITERATIONS,
   DEFAULT_PLAN_LOOP_SECONDARY_MAX_CALLS,
   DEFAULT_PLAN_LOOP_SECONDARY_MAX_IMAGES,
   DEFAULT_PLAN_SHORTS_MAX_DURATION_SEC,
   loadConfig,
   MAX_AI_IMAGES,
+  planHarnessEnabled,
   planLoopEnabled,
   planShortsMaxSec,
   formatPerceptionStatusLines,
@@ -41,6 +43,7 @@ import {
   resolveDescribePausesCfg,
   resolvePerceptionCfg,
   resolvePerceptionStatus,
+  resolvePlanHarnessCfg,
   resolvePlanLoopCfg,
   resolvePlanLoopSecondaryObservationCfg,
 } from "../src/lib/config.ts";
@@ -610,6 +613,46 @@ test("resolvePlanLoopSecondaryObservationCfg: 省略時は無効+既定値、指
     maxCalls: 2,
     maxImages: 1,
   });
+});
+
+test("resolvePlanHarnessCfg: plan.harness 省略時はオフ+既定値(SD4 H1/H2)", () => {
+  assert.deepEqual(resolvePlanHarnessCfg({} as Config), {
+    agentic: false,
+    maxToolCalls: DEFAULT_PLAN_HARNESS_MAX_TOOL_CALLS,
+    tools: { frames: true, av: true, materials: true, ocr: true },
+  });
+  assert.equal(DEFAULT_PLAN_HARNESS_MAX_TOOL_CALLS, 16);
+  assert.equal(planHarnessEnabled({} as Config), false);
+});
+
+test("resolvePlanHarnessCfg: 明示値を解決し個別 tool の on/off を保つ", () => {
+  const cfg = {
+    plan: {
+      harness: {
+        agentic: true,
+        maxToolCalls: 8,
+        tools: { frames: false, av: true, materials: false, ocr: true },
+      },
+    },
+  } as Config;
+  assert.deepEqual(resolvePlanHarnessCfg(cfg), {
+    agentic: true,
+    maxToolCalls: 8,
+    tools: { frames: false, av: true, materials: false, ocr: true },
+  });
+});
+
+test("planHarnessEnabled: agentic=true でも既定アダプタ(claude-code)は completeAgentic 非対応なので false", () => {
+  const cfg = { plan: { harness: { agentic: true } } } as Config;
+  assert.equal(planHarnessEnabled(cfg), false);
+});
+
+test("planHarnessEnabled: anthropic ルートで agentic=true なら true(completeAgentic 実装済み)", () => {
+  const cfg = {
+    ai: { provider: "anthropic", model: "claude-x" },
+    plan: { harness: { agentic: true } },
+  } as Config;
+  assert.equal(planHarnessEnabled(cfg), true);
 });
 
 test("resolveDescribePausesCfg: describe 省略時は無効+既定値", () => {

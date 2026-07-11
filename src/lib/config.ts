@@ -6,6 +6,7 @@ import { parse } from "yaml";
 import { DEFAULT_OCR_LANGUAGES } from "./ocr.ts";
 import type { Region } from "../types.ts";
 import { normalizeBaseUrl, originOfProfile, resolveCredential } from "./ai/http.ts";
+import { adapterFor } from "./ai/registry.ts";
 
 export type AiProvider = "claude-code" | "codex" | "anthropic" | "openai";
 export type LegacyLlmBackend = "claude-cli" | "api";
@@ -204,6 +205,27 @@ export interface Config {
         enabled?: boolean;
         maxCalls?: number;
         maxImages?: number;
+      };
+    };
+    /** cut 判断を tool + 検証ループのエージェントにする(H1=pull型知覚 /
+     * H2=検証の主経路化)。opt-in・省略/agentic=false のとき plan --cuts-only の
+     * 経路・生成プロンプト・cutplan.json は従来の単発/pushループとバイト等価
+     * (§docs/plans/2026-07-11-h1-h2-agentic-perception-loop-design.md)。
+     * 対象プロファイルのアダプタが tool-use(completeAgentic)非対応のときは
+     * 警告のうえ既存経路へ自動フォールバックする */
+    harness?: {
+      /** 既定 false。true でも要 ai の structured route が anthropic 等
+       * completeAgentic 対応アダプタであること(非対応なら実質 off) */
+      agentic?: boolean;
+      /** 1生成ターンあたりの tool 呼び出し上限。既定 16(コスト/レイテンシの天井) */
+      maxToolCalls?: number;
+      /** 個別 tool の on/off。省略時は全 on。describe_timeline/set_cuts/
+       * run_assert は常時有効(this では止められない) */
+      tools?: {
+        frames?: boolean;
+        av?: boolean;
+        materials?: boolean;
+        ocr?: boolean;
       };
     };
   };
@@ -516,6 +538,41 @@ export function planLoopEnabled(cfg: Config): boolean {
   return resolvePlanLoopCfg(cfg).maxIterations >= 2;
 }
 
+/** plan.harness.maxToolCalls 未指定時の既定(1生成ターンあたりの tool 呼び出し上限) */
+export const DEFAULT_PLAN_HARNESS_MAX_TOOL_CALLS = 16;
+
+/** plan.harness を既定値で解決する純関数(省略時は全オフ+既定値)。
+ *  loadConfig は cfg.plan.harness を書き換えない(省略=オフ=バイト等価を守る) */
+export function resolvePlanHarnessCfg(cfg: Config): {
+  agentic: boolean;
+  maxToolCalls: number;
+  tools: { frames: boolean; av: boolean; materials: boolean; ocr: boolean };
+} {
+  const h = cfg.plan?.harness ?? {};
+  const t = h.tools ?? {};
+  return {
+    agentic: h.agentic ?? false,
+    maxToolCalls: h.maxToolCalls ?? DEFAULT_PLAN_HARNESS_MAX_TOOL_CALLS,
+    tools: {
+      frames: t.frames ?? true,
+      av: t.av ?? true,
+      materials: t.materials ?? true,
+      ocr: t.ocr ?? true,
+    },
+  };
+}
+
+/** plan.harness.agentic かつ、対象(structured route)プロファイルのアダプタが
+ * tool-use(completeAgentic)対応のときだけ true。非対応アダプタでは false=
+ * 既存の単発/pushループ経路へ自動フォールバックする(§H1H2design §1-4) */
+export function planHarnessEnabled(cfg: Config): boolean {
+  if (!resolvePlanHarnessCfg(cfg).agentic) return false;
+  const runtime = resolveAiRuntimeConfig(cfg);
+  const profile = profileForRoute(runtime, "structured");
+  const adapter = adapterFor(profile.adapter);
+  return typeof adapter.completeAgentic === "function";
+}
+
 function validateWorkflowConfig(cfg: Config): string[] {
   const errors: string[] = [];
   const editorAiReview = cfg.editor?.aiReview as Record<string, unknown> | undefined;
@@ -556,6 +613,28 @@ function validateWorkflowConfig(cfg: Config): string[] {
         const value = secondary.maxImages;
         if (!Number.isInteger(value) || Number(value) < 1 || Number(value) > 2) {
           errors.push("plan.loop.secondaryObservation.maxImages は 1..2 の整数で指定してください");
+        }
+      }
+    }
+  }
+  const planHarness = cfg.plan?.harness as Record<string, unknown> | undefined;
+  if (planHarness) {
+    errors.push(...unknownKeys(planHarness, ["agentic", "maxToolCalls", "tools"]).map((key) => `plan.harness.${key} は未対応です`));
+    if ("agentic" in planHarness && typeof planHarness.agentic !== "boolean") {
+      errors.push("plan.harness.agentic は boolean で指定してください");
+    }
+    if ("maxToolCalls" in planHarness) {
+      const value = planHarness.maxToolCalls;
+      if (!Number.isInteger(value) || Number(value) < 1 || Number(value) > 64) {
+        errors.push("plan.harness.maxToolCalls は 1..64 の整数で指定してください");
+      }
+    }
+    const tools = planHarness.tools as Record<string, unknown> | undefined;
+    if (tools) {
+      errors.push(...unknownKeys(tools, ["frames", "av", "materials", "ocr"]).map((key) => `plan.harness.tools.${key} は未対応です`));
+      for (const key of ["frames", "av", "materials", "ocr"]) {
+        if (key in tools && typeof tools[key] !== "boolean") {
+          errors.push(`plan.harness.tools.${key} は boolean で指定してください`);
         }
       }
     }
