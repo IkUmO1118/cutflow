@@ -9,3 +9,7 @@ public/
 # swiftc が事前ビルドする OCR バイナリ(ソースは bin/ocr/vision-ocr.swift を追跡。
 # 初回実行時に src/lib/ocr.ts が自動ビルドする)
 bin/ocr/.build/
+
+# 回帰基準線(D7)のスナップショット。実収録の発話・タイトルを含むため
+# 収録フォルダ本体と同じ理由(サイズ・秘匿)でリポジトリに入れない
+docs/plans/regression/snapshots/*.json

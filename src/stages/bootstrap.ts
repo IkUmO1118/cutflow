@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { findSource } from "../lib/findSource.ts";
 import { ingest } from "./ingest.ts";
 import type { Config } from "../lib/config.ts";
-import type { CutPlan, Manifest, Transcript } from "../types.ts";
+import { manifestLayout, type CutPlan, type Manifest, type Transcript } from "../types.ts";
 
 /** transcript.json が無いときに書く初期値。何も文字起こししていない状態 */
 export function emptyTranscript(): Transcript {
@@ -27,15 +27,32 @@ export function initialCutplan(durationSec: number): CutPlan {
  * (transcribe / plan は明示的な CLI 実行に任せる)。
  */
 export async function bootstrapProject(dir: string, cfg: Config): Promise<void> {
+  return bootstrapProjectWithLayout(dir, cfg, undefined);
+}
+
+export async function bootstrapProjectWithLayout(
+  dir: string,
+  cfg: Config,
+  layout: "obs-canvas" | "plain" | "auto" | undefined,
+): Promise<void> {
   const manifestPath = join(dir, "manifest.json");
   let manifest: Manifest;
   if (existsSync(manifestPath)) {
     manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Manifest;
+    if (layout === "plain" || layout === "obs-canvas") {
+      const current = manifestLayout(manifest);
+      if (current !== layout) {
+        throw new Error(
+          `manifest.json は既に ${current} として作成済みです。` +
+            `指定された --layout ${layout} では開けません。\n` +
+            "レイアウトを変える場合は、意図を確認してから ingest を明示的に再実行してください: " +
+            `node src/cli.ts ingest <dir> --layout ${layout}`,
+        );
+      }
+    }
   } else {
     console.log("manifest.json が無いため ingest を実行します(動画を解析)...");
-    // editor 起動時のブートストラップは「動画だけのフォルダを開く」= 通常動画の
-    // ユースケースなので plain を明示する(config の既定が obs-canvas でも上書き)
-    manifest = await ingest(dir, findSource(dir), cfg, "plain");
+    manifest = await ingest(dir, findSource(dir), cfg, layout);
   }
 
   const transcriptPath = join(dir, "transcript.json");

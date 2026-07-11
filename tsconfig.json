@@ -16,6 +16,7 @@
     "remotion/**/*.ts",
     "remotion/**/*.tsx",
     "editor/**/*.ts",
-    "editor/**/*.tsx"
+    "editor/**/*.tsx",
+    "scripts/**/*.ts"
   ]
 }

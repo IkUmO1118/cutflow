@@ -313,7 +313,7 @@ test("syncEditorCfgFromYaml: null 削除で省略時の既定へ戻る", () => {
   assert.equal(cfg.render.captionColor, undefined);
 });
 
-test("loadConfig: whisper.wordTimestamps 未指定時は false(既存挙動と完全一致)", () => {
+test("loadConfig: whisper.wordTimestamps 未指定時は true(語タイムスタンプ既定資産化=W0)", () => {
   const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
   try {
     const path = join(dir, "config.yaml");
@@ -327,7 +327,7 @@ whisper:
 `,
     );
     const cfg = loadConfig(path);
-    assert.equal(cfg.whisper.wordTimestamps, false);
+    assert.equal(cfg.whisper.wordTimestamps, true);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -349,6 +349,27 @@ whisper:
     );
     const cfg = loadConfig(path);
     assert.equal(cfg.whisper.wordTimestamps, true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig: whisper.wordTimestamps: false を明示すればそのまま false(逃げ道)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = join(dir, "config.yaml");
+    writeFileSync(
+      path,
+      `recordingsDir: ~/Movies/cutflow
+whisper:
+  bin: whisper-cli
+  model: ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin
+  language: ja
+  wordTimestamps: false
+`,
+    );
+    const cfg = loadConfig(path);
+    assert.equal(cfg.whisper.wordTimestamps, false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
