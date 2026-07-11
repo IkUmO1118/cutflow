@@ -3,7 +3,7 @@
 // §docs/plans/2026-07-11-b2-b4-bgm-audio-aware-design.md
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildBgmFitPatch, detectBgmFit, detectMonotone } from "../src/lib/bgmFit.ts";
+import { buildBgmFitPatch, detectBgmFit, detectMonotone, idlessTracksNeedIdStamp } from "../src/lib/bgmFit.ts";
 import type { BgmFitCfg, BgmFitFinding } from "../src/lib/bgmFit.ts";
 import type { SoundReport } from "../src/stages/av.ts";
 import type { Bgm } from "../src/types.ts";
@@ -235,7 +235,7 @@ test("detectBgmFit: 同一トラックでspeech-overlapとsilence-floatが両方
 test("detectMonotone: fallbackActiveかつ章が十分あれば単調と警告", () => {
   const result = detectMonotone({
     fallbackActive: true,
-    bgm: null,
+    bgmSpans: [],
     totalOutSec: 120,
     chapterCount: 3,
     cfg: DEFAULT_CFG,
@@ -245,12 +245,9 @@ test("detectMonotone: fallbackActiveかつ章が十分あれば単調と警告",
 });
 
 test("detectMonotone: 単一fileが総尺のmonotoneCoverRatio超を覆っていれば単調", () => {
-  const bgm = makeBgm([
-    { id: "bg_hhhhhh", start: 0, end: 100, file: "one.mp3" },
-  ]);
   const result = detectMonotone({
     fallbackActive: false,
-    bgm,
+    bgmSpans: [{ startOutSec: 0, endOutSec: 100, volumeDb: -22, file: "one.mp3" }],
     totalOutSec: 100,
     chapterCount: 3,
     cfg: DEFAULT_CFG,
@@ -259,13 +256,12 @@ test("detectMonotone: 単一fileが総尺のmonotoneCoverRatio超を覆ってい
 });
 
 test("detectMonotone: 複数fileで区切られていれば単調にしない", () => {
-  const bgm = makeBgm([
-    { id: "bg_iiiiii", start: 0, end: 40, file: "a.mp3" },
-    { id: "bg_jjjjjj", start: 40, end: 100, file: "b.mp3" },
-  ]);
   const result = detectMonotone({
     fallbackActive: false,
-    bgm,
+    bgmSpans: [
+      { startOutSec: 0, endOutSec: 40, volumeDb: -22, file: "a.mp3" },
+      { startOutSec: 40, endOutSec: 100, volumeDb: -22, file: "b.mp3" },
+    ],
     totalOutSec: 100,
     chapterCount: 3,
     cfg: DEFAULT_CFG,
@@ -273,10 +269,46 @@ test("detectMonotone: 複数fileで区切られていれば単調にしない", 
   assert.equal(result.monotone, false);
 });
 
+// FIX 1(単位バグの回帰テスト): カット多用の A/B/A 収録では bgm.json の
+// tracks[].start/end(SOURCE 秒)は cut で縮み、sound.bgm.spans(OUTPUT 秒)と
+// 大きく食い違う。detectMonotone は OUTPUT カバレッジで判定しなければならない。
+// source 秒(0-400 の一トラック)で割ると 400/250=1.6 で誤って monotone に
+// なるが、OUTPUT の spans では複数 file が均等に割れていて monotone ではない。
+test("detectMonotone: カットで縮む収録では出力カバレッジで判定する(source秒ではない)", () => {
+  // source では一見 a.mp3 が広い(0-400)が、cut 後の出力では a/b が均等。
+  // detectMonotone は sound.bgm.spans(出力秒)だけを見るので monotone にしない
+  const result = detectMonotone({
+    fallbackActive: false,
+    bgmSpans: [
+      { startOutSec: 0, endOutSec: 120, volumeDb: -22, file: "a.mp3" },
+      { startOutSec: 120, endOutSec: 250, volumeDb: -22, file: "b.mp3" },
+    ],
+    totalOutSec: 250,
+    chapterCount: 3,
+    cfg: DEFAULT_CFG,
+  });
+  assert.equal(result.monotone, false);
+});
+
+test("detectMonotone: 出力カバレッジが閾値超なら単調(source尺に依らず)", () => {
+  // 出力秒で単一 file が 95% を覆う → monotone。source 尺は使わない
+  const result = detectMonotone({
+    fallbackActive: false,
+    bgmSpans: [
+      { startOutSec: 0, endOutSec: 95, volumeDb: -22, file: "one.mp3" },
+      { startOutSec: 95, endOutSec: 100, volumeDb: -22, file: "sting.mp3" },
+    ],
+    totalOutSec: 100,
+    chapterCount: 3,
+    cfg: DEFAULT_CFG,
+  });
+  assert.equal(result.monotone, true);
+});
+
 test("detectMonotone: 章が少なければ単調と判定しない(fallbackActiveでも)", () => {
   const result = detectMonotone({
     fallbackActive: true,
-    bgm: null,
+    bgmSpans: [],
     totalOutSec: 120,
     chapterCount: 1,
     cfg: DEFAULT_CFG,
@@ -285,10 +317,10 @@ test("detectMonotone: 章が少なければ単調と判定しない(fallbackActi
   assert.equal(result.message, "");
 });
 
-test("detectMonotone: bgm.jsonが無くfallbackActiveでもなければ単調にしない", () => {
+test("detectMonotone: spansが無くfallbackActiveでもなければ単調にしない", () => {
   const result = detectMonotone({
     fallbackActive: false,
-    bgm: null,
+    bgmSpans: [],
     totalOutSec: 100,
     chapterCount: 5,
     cfg: DEFAULT_CFG,
@@ -336,4 +368,33 @@ test("buildBgmFitPatch: suggestionを持つfindingだけをopsへ束ねる", () 
 test("buildBgmFitPatch: findingsが空ならopsも空", () => {
   const patch = buildBgmFitPatch([]);
   assert.deepEqual(patch.ops, []);
+});
+
+/* ---------------- idlessTracksNeedIdStamp(FIX 2 のゲート判定) ---------------- */
+
+test("idlessTracksNeedIdStamp: id無しトラックにB2補正が出るならtrue(exit1相当)", () => {
+  const sound = makeSound({
+    bgm: { spans: [{ startOutSec: 0, endOutSec: 20, volumeDb: -22, file: "bgm.mp3" }], duckSpans: [] },
+    // 動画終端まで続く+fadeOutSec無し → no-fade の補正が出る
+  });
+  const bgm = makeBgm([{ start: 0, end: 20, file: "bgm.mp3" }]);
+  assert.equal(idlessTracksNeedIdStamp(sound, bgm, DEFAULT_CFG), true);
+});
+
+test("idlessTracksNeedIdStamp: id無しでもB2補正が出ないならfalse(B4だけ/検出なしは通す)", () => {
+  const sound = makeSound({
+    // spans 無し=補正の起点が無い。mix も目標以下
+    bgm: { spans: [], duckSpans: [] },
+    mix: { integratedLufs: -20, loudnessRangeLu: 5, truePeakDbtp: -3, clipping: { peakDbfs: -3, clippedSamples: 0 }, envelope: [] },
+  });
+  const bgm = makeBgm([{ start: 0, end: 20, file: "bgm.mp3" }]);
+  assert.equal(idlessTracksNeedIdStamp(sound, bgm, DEFAULT_CFG), false);
+});
+
+test("idlessTracksNeedIdStamp: 全トラックにidがあればfalse(判定不要)", () => {
+  const sound = makeSound({
+    bgm: { spans: [{ startOutSec: 0, endOutSec: 20, volumeDb: -22, file: "bgm.mp3" }], duckSpans: [] },
+  });
+  const bgm = makeBgm([{ id: "bg_zzzzzz", start: 0, end: 20, file: "bgm.mp3" }]);
+  assert.equal(idlessTracksNeedIdStamp(sound, bgm, DEFAULT_CFG), false);
 });
