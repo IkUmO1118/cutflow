@@ -203,6 +203,26 @@ export interface Config {
       };
     };
   };
+  /** plan の候補格子を語タイムスタンプ(transcript.words)由来の語境界でも
+   *  分割する(C1)+ 候補テキストを実際に残る語だけにする(C8)。省略可
+   *  (古い config.yaml との互換。省略時 enabled=false=バイト等価)。
+   *  §docs/plans/2026-07-11-c1-word-candidate-grid-design.md */
+  candidates?: {
+    /** 細分化+語ベーステキストの有効化。省略時 false */
+    enabled?: boolean;
+    /** これ以上長い keep だけを分割対象にする(秒)。省略時
+     *  DEFAULT_CANDIDATES_SPLIT_ONLY_LONGER_THAN_SEC(6) */
+    splitOnlyLongerThanSec?: number;
+    /** 語間ギャップがこの秒以上なら分割点候補にする。省略時
+     *  DEFAULT_CANDIDATES_MIN_SPLIT_GAP_SEC(0.3) */
+    minSplitGapSec?: number;
+    /** 分割後の各 sub-candidate の最小尺(秒)。省略時
+     *  DEFAULT_CANDIDATES_MIN_CANDIDATE_SEC(0.5) */
+    minCandidateSec?: number;
+    /** フィラー語(単独の候補として切り出せるようにする)。省略時
+     *  DEFAULT_CANDIDATES_FILLERS */
+    fillers?: string[];
+  };
   /** describe(操作エージェント向け)の任意露出。省略可・全オフが既定。
    *  無いときは散文・--json ともに導入前とバイト等価 */
   describe?: {
@@ -367,6 +387,39 @@ export const DEFAULT_PERCEPTION_OCR_MAX_SEGMENTS = 40;
 
 /** plan.perception.ocrMaxLines 未指定時の既定(行数) */
 export const DEFAULT_PERCEPTION_OCR_MAX_LINES = 6;
+
+/** candidates.* 未指定時の既定値。§docs/plans/2026-07-11-c1-word-candidate-grid-design.md */
+export const DEFAULT_CANDIDATES_SPLIT_ONLY_LONGER_THAN_SEC = 6;
+export const DEFAULT_CANDIDATES_MIN_SPLIT_GAP_SEC = 0.3;
+export const DEFAULT_CANDIDATES_MIN_CANDIDATE_SEC = 0.5;
+export const DEFAULT_CANDIDATES_FILLERS = [
+  "えー",
+  "えっと",
+  "あの",
+  "あのー",
+  "まあ",
+  "その",
+  "なんか",
+];
+
+/** candidates を既定値で解決する純関数(省略時 enabled=false=バイト等価)。
+ *  loadConfig は cfg.candidates を書き換えない */
+export function resolveCandidatesCfg(cfg: Config): {
+  enabled: boolean;
+  splitOnlyLongerThanSec: number;
+  minSplitGapSec: number;
+  minCandidateSec: number;
+  fillers: string[];
+} {
+  const c = cfg.candidates ?? {};
+  return {
+    enabled: c.enabled ?? false,
+    splitOnlyLongerThanSec: c.splitOnlyLongerThanSec ?? DEFAULT_CANDIDATES_SPLIT_ONLY_LONGER_THAN_SEC,
+    minSplitGapSec: c.minSplitGapSec ?? DEFAULT_CANDIDATES_MIN_SPLIT_GAP_SEC,
+    minCandidateSec: c.minCandidateSec ?? DEFAULT_CANDIDATES_MIN_CANDIDATE_SEC,
+    fillers: c.fillers ?? [...DEFAULT_CANDIDATES_FILLERS],
+  };
+}
 
 /** plan.loop.maxIterations 未指定時の既定。0 は従来1ショットと同義 */
 export const DEFAULT_PLAN_LOOP_MAX_ITERATIONS = 0;

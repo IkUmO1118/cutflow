@@ -7,10 +7,12 @@ import { carryIds, ensureIds, hasAnyId, ID_PREFIX, usedIdsOf } from "../lib/ids.
 import { readEditableDocs } from "./idStamp.ts";
 import {
   planLoopEnabled,
+  resolveCandidatesCfg,
   resolvePerceptionCfg,
   resolvePlanLoopCfg,
   resolvePlanLoopSecondaryObservationCfg,
 } from "../lib/config.ts";
+import { candidateText, collectWords, subdivideCandidates } from "../lib/candidates.ts";
 import {
   deriveLoopAssertions,
   selectPlanLoopReviewTimes,
@@ -92,6 +94,26 @@ export function numberSegments(
       .map((s) => s.text.trim())
       .filter((t) => t.length > 0);
     return { id: i + 1, start: k.start, end: k.end, text: texts.join(" ") };
+  });
+}
+
+/** candidates.enabled 時専用: 細分化済み候補に、実際に残る語だけの
+ * テキスト(C8)で番号を振る。words が無い候補は numberSegments と同じ
+ * overlap 全文にフォールバックする(§src/lib/candidates.ts candidateText) */
+export function numberSegmentsWords(
+  segments: Interval[],
+  transcript: Transcript,
+): NumberedSegment[] {
+  const words = collectWords(transcript);
+  return segments.map((k, i) => {
+    const text =
+      candidateText(k, words) ??
+      transcript.segments
+        .filter((s) => s.start < k.end && s.end > k.start)
+        .map((s) => s.text.trim())
+        .filter((t) => t.length > 0)
+        .join(" ");
+    return { id: i + 1, start: k.start, end: k.end, text };
   });
 }
 
@@ -293,8 +315,13 @@ export async function plan(
   );
   const auto = readStageJson<AutoCuts>(join(dir, "cuts.auto.json"), "detect");
 
-  // 残す候補区間ごとに、重なる文字起こしテキストをまとめて番号を振る
-  const numbered = numberSegments(auto.keepSegments, transcript);
+  // 残す候補区間ごとに、重なる文字起こしテキストをまとめて番号を振る。
+  // candidates.enabled 時は語境界で細分化した格子+語ベーステキストに
+  // 差し替える(C1/C7/C8。§docs/plans/2026-07-11-c1-word-candidate-grid-design.md)
+  const cc = resolveCandidatesCfg(cfg);
+  const numbered = cc.enabled
+    ? numberSegmentsWords(subdivideCandidates(auto.keepSegments, transcript, cc), transcript)
+    : numberSegments(auto.keepSegments, transcript);
   if (numbered.length === 0) {
     throw new Error("残す候補区間が0件です(detect の結果を確認してください)");
   }
