@@ -11,7 +11,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolveBgmFitCfg } from "../lib/config.ts";
 import type { Config } from "../lib/config.ts";
-import { buildBgmFitPatch, detectBgmFit, detectMonotone } from "../lib/bgmFit.ts";
+import { buildBgmFitPatch, detectBgmFit, detectMonotone, idlessTracksNeedIdStamp } from "../lib/bgmFit.ts";
 import type { BgmFitFinding } from "../lib/bgmFit.ts";
 import { AV_DIR, SOUND_FILE } from "./av.ts";
 import type { SoundReport } from "./av.ts";
@@ -33,17 +33,19 @@ export interface BgmFitResult {
   patchPath: string | null;
 }
 
-function hasAnyBgmTrackId(bgm: Bgm): boolean {
-  return bgm.tracks.length === 0 || bgm.tracks.some((t) => typeof t.id === "string" && t.id !== "");
-}
-
 /**
  * av.probe/sound.json(前提。無ければ告知して例外。§不変条件4)と
  * bgm.json(無ければ B4 の fallback 判定へ。B2 の編集対象トラックは無い)から、
  * 無音/被り/大音量/no-fade の補正候補(B2)と単調 fallback(B4)を検出し、
- * apply パッチ下書きを書く。bgm.json に tracks があるのに @id が1つも無い
- * プロジェクトは「先に id-stamp」を告げて例外を投げる(ops の宛先に @id が
- * 要るため。materialFit の id-stamp 前提チェックと同じ扱い)。
+ * apply パッチ下書きを書く。
+ *
+ * id-stamp ゲートは「B2 補正が出る見込みのときだけ」発火する(SD-B2 §B-2)。
+ * 具体的には、id を持たないトラックのうち id さえあれば volumeDb/fadeOutSec の
+ * set が出るものがある場合のみ「先に id-stamp」で例外。B4 の monotone だけ・
+ * または検出なしのときは id が要らないので通し、レポートを書いて exit 0 で
+ * 返す(plan-bgm の出力は id 無しなので、この緩和が無いと通常鎖
+ * plan-bgm → av → bgm-fit が常に exit 1 になる)。detectBgmFit は id 無し
+ * トラックを安全に飛ばすため、id 無しで通しても壊れない。
  */
 export function bgmFit(dir: string, cfg: Config): BgmFitResult {
   const soundPath = join(dir, AV_DIR, SOUND_FILE);
@@ -56,13 +58,16 @@ export function bgmFit(dir: string, cfg: Config): BgmFitResult {
   const bgmExists = existsSync(bgmPath);
   const bgm: Bgm | null = bgmExists ? (JSON.parse(readFileSync(bgmPath, "utf8")) as Bgm) : null;
 
-  if (bgm && !hasAnyBgmTrackId(bgm)) {
+  const fitCfg = resolveBgmFitCfg(cfg);
+
+  // 検出を先に走らせ、「id 無しトラックに B2 補正が出る」ときだけ id-stamp を
+  // 要求する(B4 だけ・検出なしは id 不要で通す)
+  if (bgm && idlessTracksNeedIdStamp(sound, bgm, fitCfg)) {
     throw new Error(
       `bgm.json の tracks に @id がありません。先に \`node src/cli.ts id-stamp ${dir}\` を実行してください`,
     );
   }
 
-  const fitCfg = resolveBgmFitCfg(cfg);
   const findings = bgm ? detectBgmFit(sound, bgm, fitCfg) : [];
 
   const chaptersPath = join(dir, "chapters.json");
@@ -71,7 +76,13 @@ export function bgmFit(dir: string, cfg: Config): BgmFitResult {
     : 0;
   const fallbackActive = !bgmExists && findBgm(dir) !== null;
   const totalOutSec = Math.max(0, sound.range.endSec - sound.range.startSec);
-  const monotone = detectMonotone({ fallbackActive, bgm, totalOutSec, chapterCount, cfg: fitCfg });
+  const monotone = detectMonotone({
+    fallbackActive,
+    bgmSpans: sound.bgm.spans,
+    totalOutSec,
+    chapterCount,
+    cfg: fitCfg,
+  });
 
   const patch = buildBgmFitPatch(findings);
   let patchPath: string | null = null;
