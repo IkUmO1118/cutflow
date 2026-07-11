@@ -29,6 +29,7 @@ import { plan, remeta } from "./stages/plan.ts";
 import { planShorts } from "./stages/planShorts.ts";
 import { planMaterials } from "./stages/planMaterials.ts";
 import { planEffects } from "./stages/planEffects.ts";
+import { planBgm } from "./stages/planBgm.ts";
 import { learn } from "./stages/learn.ts";
 import { preview } from "./stages/preview.ts";
 import { render, renderShort, renderShorts } from "./stages/render.ts";
@@ -460,6 +461,35 @@ program
     }
     console.log(
       "\n次のステップ: preview か frames <dir> --t <区間の秒> で見え方を確認し、要らなければ overlays.json から削除してください。",
+    );
+  });
+
+program
+  .command("plan-bgm <dir>")
+  .description(
+    "LLM で BGM の配置候補(区間×曲)を選ばせ bgm.json の下書きを生成" +
+      "(区間境界は章/大カット境界から決定論、曲は番号選択のみ。cut/承認には触れない)",
+  )
+  .option(
+    "--force",
+    "既存の bgm.json を上書きして再実行(実行前に backups/ へ退避)",
+  )
+  .action(async (dir: string, opts: { force?: boolean }) => {
+    const cfg = loadConfig(program.opts().config);
+    const abs = resolveDir(dir);
+    guardRerun(abs, ["bgm.json"], opts.force === true, "plan-bgm");
+    console.log("plan-bgm 実行中(LLM で BGM 配置候補を選定)...");
+    const result = await planBgm(abs, cfg);
+    console.log(
+      `plan-bgm 完了: スロット${result.slotCount}件 / 曲${result.choiceCount}件から` +
+        `${result.tracks.length}トラックを bgm.json へ下書き` +
+        (result.hasChapters ? "" : "(chapters.json 無し。大カット境界のみで区間割り)"),
+    );
+    for (const t of result.tracks) {
+      console.log(`  [${t.start.toFixed(2)}-${t.end.toFixed(2)}] ${t.file}`);
+    }
+    console.log(
+      "\n次のステップ: preview か GUI エディタで確認し、要らなければ bgm.json から削除してください。",
     );
   });
 

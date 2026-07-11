@@ -257,6 +257,13 @@ planEffects:
   minZoomRect: { w: 480, h: 270 }  # zoom rect の最小サイズ(拡大しすぎ防止)
   defaultBlurStrength: 0.5
 
+# BGM 配置候補の自動生成(plan-bgm)。曲は人間が materials/ or bgm.* に置いたものだけ。
+# 生成物は下書き(bgm.json)で、採否は人間。cut/承認に触れない。音量/duck は SD-B2。
+planBgm:
+  bigCutSec: 3.0     # 「大カット境界」とみなす cut 尺の下限(切替アンカー)
+  minSlotSec: 8.0    # BGM スロットの最小尺(これ未満は前後へ吸収)
+  maxSlots: 12       # スロット上限(区切りすぎ防止)
+
 # 演出の検品(effect-check)。決定論チェックは常時、VLM は route があるときだけ。
 effectCheck:
   densityWindowSec: 5.0     # 密度判定の窓(秒)
