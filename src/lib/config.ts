@@ -257,6 +257,24 @@ export interface Config {
      *  DEFAULT_CANDIDATES_FILLERS */
     fillers?: string[];
   };
+  /** 素材(B-roll)配置候補の自動生成(plan-materials)。番号選択方式で
+   *  overlays[] の下書きを生成する(§docs/plans/2026-07-11-m1-material-placement-candidates-design.md)。
+   *  省略時は全て既定値(DEFAULT_PLAN_MATERIALS_*) */
+  planMaterials?: {
+    /** 素材を置けるアンカーにする keep span の最小尺(秒)。省略時
+     *  DEFAULT_PLAN_MATERIALS_MIN_SPAN_SEC(3.0) */
+    minSpanSec?: number;
+    /** 1回の生成で作る overlay の上限(出しすぎ防止)。省略時
+     *  DEFAULT_PLAN_MATERIALS_MAX_PLACEMENTS(8) */
+    maxPlacements?: number;
+    /** 生成する overlay の既定音量(0〜2)。省略時
+     *  DEFAULT_PLAN_MATERIALS_DEFAULT_VOLUME(0=無音) */
+    defaultVolume?: number;
+    /** 生成する overlay の既定 fit。省略時 "contain" */
+    defaultFit?: "contain" | "cover";
+    /** 生成する overlay の既定 rect(出力px)。省略=全画面。指定で PIP(ワイプ) */
+    defaultRect?: { x: number; y: number; w: number; h: number };
+  };
   /** describe(操作エージェント向け)の任意露出。省略可・全オフが既定。
    *  無いときは散文・--json ともに導入前とバイト等価 */
   describe?: {
@@ -452,6 +470,31 @@ export function resolveCandidatesCfg(cfg: Config): {
     minSplitGapSec: c.minSplitGapSec ?? DEFAULT_CANDIDATES_MIN_SPLIT_GAP_SEC,
     minCandidateSec: c.minCandidateSec ?? DEFAULT_CANDIDATES_MIN_CANDIDATE_SEC,
     fillers: c.fillers ?? [...DEFAULT_CANDIDATES_FILLERS],
+  };
+}
+
+/** planMaterials.* 未指定時の既定値。§docs/plans/2026-07-11-m1-material-placement-candidates-design.md */
+export const DEFAULT_PLAN_MATERIALS_MIN_SPAN_SEC = 3.0;
+export const DEFAULT_PLAN_MATERIALS_MAX_PLACEMENTS = 8;
+export const DEFAULT_PLAN_MATERIALS_DEFAULT_VOLUME = 0;
+export const DEFAULT_PLAN_MATERIALS_DEFAULT_FIT = "contain" as const;
+
+/** planMaterials を既定値で解決する純関数。loadConfig は cfg.planMaterials を
+ *  書き換えない */
+export function resolveMaterialPlacementCfg(cfg: Config): {
+  minSpanSec: number;
+  maxPlacements: number;
+  defaultVolume: number;
+  defaultFit: "contain" | "cover";
+  defaultRect?: { x: number; y: number; w: number; h: number };
+} {
+  const p = cfg.planMaterials ?? {};
+  return {
+    minSpanSec: p.minSpanSec ?? DEFAULT_PLAN_MATERIALS_MIN_SPAN_SEC,
+    maxPlacements: p.maxPlacements ?? DEFAULT_PLAN_MATERIALS_MAX_PLACEMENTS,
+    defaultVolume: p.defaultVolume ?? DEFAULT_PLAN_MATERIALS_DEFAULT_VOLUME,
+    defaultFit: p.defaultFit ?? DEFAULT_PLAN_MATERIALS_DEFAULT_FIT,
+    ...(p.defaultRect ? { defaultRect: p.defaultRect } : {}),
   };
 }
 

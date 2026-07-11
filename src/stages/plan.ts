@@ -856,8 +856,9 @@ export function renderRulesBlock(
 }
 
 /** channel(=収録フォルダの親)と収録固有の rules.md を読んで連結する
- * (非純粋な薄いラッパ。純関数本体は renderRulesBlock) */
-function readRules(dir: string): string {
+ * (非純粋な薄いラッパ。純関数本体は renderRulesBlock)。
+ * planMaterials.ts の renderMaterialsPrompt が rules 注入で再利用する */
+export function readRules(dir: string): string {
   const channelPath = join(dirname(dir), "rules.md");
   const recordingPath = join(dir, "rules.md");
   const channel = existsSync(channelPath) ? readFileSync(channelPath, "utf8").trim() : null;
