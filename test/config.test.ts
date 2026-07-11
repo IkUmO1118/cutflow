@@ -14,6 +14,10 @@ import {
 } from "../src/lib/configEdit.ts";
 import {
   aiCapabilities,
+  DEFAULT_CANDIDATES_FILLERS,
+  DEFAULT_CANDIDATES_MIN_CANDIDATE_SEC,
+  DEFAULT_CANDIDATES_MIN_SPLIT_GAP_SEC,
+  DEFAULT_CANDIDATES_SPLIT_ONLY_LONGER_THAN_SEC,
   DEFAULT_DESCRIBE_PAUSE_MAX,
   DEFAULT_DESCRIBE_PAUSE_MIN_SEC,
   DEFAULT_AV_COLS,
@@ -33,6 +37,7 @@ import {
   resolveAiCfg,
   resolveAiRuntimeConfig,
   resolveAvCfg,
+  resolveCandidatesCfg,
   resolveDescribePausesCfg,
   resolvePerceptionCfg,
   resolvePerceptionStatus,
@@ -465,6 +470,50 @@ test("resolvePerceptionCfg: systemSpeech 省略時は false", () => {
   assert.equal(
     resolvePerceptionCfg({ plan: { perception: { audio: true } } } as Config).systemSpeech,
     false,
+  );
+});
+
+test("resolveCandidatesCfg: candidates 省略時は enabled=false+既定値(バイト等価の要)", () => {
+  assert.deepEqual(resolveCandidatesCfg({} as Config), {
+    enabled: false,
+    splitOnlyLongerThanSec: DEFAULT_CANDIDATES_SPLIT_ONLY_LONGER_THAN_SEC,
+    minSplitGapSec: DEFAULT_CANDIDATES_MIN_SPLIT_GAP_SEC,
+    minCandidateSec: DEFAULT_CANDIDATES_MIN_CANDIDATE_SEC,
+    fillers: DEFAULT_CANDIDATES_FILLERS,
+  });
+});
+
+test("resolveCandidatesCfg: enabled だけ指定すれば他は既定のまま", () => {
+  assert.deepEqual(
+    resolveCandidatesCfg({ candidates: { enabled: true } } as Config),
+    {
+      enabled: true,
+      splitOnlyLongerThanSec: DEFAULT_CANDIDATES_SPLIT_ONLY_LONGER_THAN_SEC,
+      minSplitGapSec: DEFAULT_CANDIDATES_MIN_SPLIT_GAP_SEC,
+      minCandidateSec: DEFAULT_CANDIDATES_MIN_CANDIDATE_SEC,
+      fillers: DEFAULT_CANDIDATES_FILLERS,
+    },
+  );
+});
+
+test("resolveCandidatesCfg: 全項目を明示指定すればそのまま通る", () => {
+  assert.deepEqual(
+    resolveCandidatesCfg({
+      candidates: {
+        enabled: true,
+        splitOnlyLongerThanSec: 4,
+        minSplitGapSec: 0.2,
+        minCandidateSec: 0.3,
+        fillers: ["えー"],
+      },
+    } as Config),
+    {
+      enabled: true,
+      splitOnlyLongerThanSec: 4,
+      minSplitGapSec: 0.2,
+      minCandidateSec: 0.3,
+      fillers: ["えー"],
+    },
   );
 });
 

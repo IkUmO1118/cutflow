@@ -199,6 +199,16 @@ plan:
   #   pauseMax: 3
   #   pauseMinSec: 0.6
 
+# plan の候補格子を語タイムスタンプ(要 whisper.wordTimestamps)由来の語境界で
+# 細分化する(C1)+ 候補テキストを実際に残る語だけにする(C8)。
+# 既定 false=無音境界のみ(従来とバイト等価)。回帰基準線で on 比較してから既定化を検討
+candidates:
+  enabled: false
+  splitOnlyLongerThanSec: 6 # これより長い候補だけを分割
+  minSplitGapSec: 0.3       # 語間ギャップがこの秒以上なら分割点(無音検出が拾わない微小ポーズ)
+  minCandidateSec: 0.5      # 分割後の最小尺(これ未満の断片は作らない)
+  fillers: ["えー", "えっと", "あの", "あのー", "まあ", "その", "なんか"]
+
   # AI(意味カット・章立て・タイトル案・AI提案)
 ai:
   # claude-code: Claude Code の `claude` CLI を使う(APIキー不要)

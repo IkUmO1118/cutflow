@@ -872,6 +872,37 @@ plan:
   `whisper.systemAudio: true`(下記)で `transcript.system.json` を先に作っておく
   必要があり、無ければ自動で省略(劣化)する
 
+## plan の候補格子を語境界で細分化する(config.yaml の candidates。既定オフ)
+
+`plan` / `plan --cuts-only` は、`detect` が無音から作った「残す候補区間」に
+番号を振って LLM に渡し、LLM は番号単位で cut/keep を選ぶ(番号選択方式。
+ハルシネーション対策は `docs/decisions.md` 2026-07-02 参照)。`config.yaml` の
+`candidates.enabled: true`(既定 false)にすると、この候補格子を **語タイムスタンプ
+(`transcript.json` の `words[]`。要 `whisper.wordTimestamps: true`、既定オン)由来の
+語境界でも細分化**し、無音検出だけでは拾えない微小ポーズ・フィラーの境界を
+候補に足す。**番号選択方式そのものは変わらない**(LLM は今までどおり
+`cuts: [{id, reason}]` を返すだけで、時刻を書いたり apply したりはしない)。
+
+- `splitOnlyLongerThanSec`(既定 6): これより長い keep だけを分割対象にする
+- `minSplitGapSec`(既定 0.3): 語間ギャップがこの秒以上なら分割点候補にする
+  (通常 `detect.minSilenceSec` 未満の間を拾う)
+- `minCandidateSec`(既定 0.5): 分割後の各断片の最小尺。これ未満になる分割は
+  間引かれる(隣へ併合)
+- `fillers`(既定 `["えー","えっと","あの","あのー","まあ","その","なんか"]`):
+  フィラー語の前後を分割点にし、フィラー単体を候補として切り出せるようにする
+- 分割点は必ず語間ギャップの中点に置かれる(カット境界が語の途中に落ちない)
+- 候補のテキストは、その候補内に**実際に残る語**(語の中点が候補区間に入るもの)
+  だけを連結する。既存の「重なる whisper チャンクの全文」方式(境界をまたぐと
+  実際には残らない語が混ざる)より正確
+- **すべての sub-candidate を keep したままなら最終出力は分割前と完全に同一**
+  (分割はタイル状=隙間なく元 keep を覆うだけで、隣接する同速 keep は
+  describe/render 側で自動的に繋がる)。`enabled` が出力を変えるのは LLM が
+  実際に sub-candidate を cut したときだけ
+- words を持たない収録(`whisper.wordTimestamps` 無効時に撮った素材等)では
+  分割点が作れず候補は分割されない(例外を投げず、実質 disabled 相当に劣化)
+- `enabled: false`(既定)のときは候補格子・LLM 入力とも導入前とバイト等価
+- `remeta` / `plan-shorts` は対象外(触らない)
+
 ## plan --cuts-only の観測ループ(config.yaml の plan.loop。既定オフ)
 
 `plan --cuts-only` だけは opt-in で、カット判断を「生成 → describe/assert による
