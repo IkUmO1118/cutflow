@@ -292,18 +292,26 @@ export function detectBgmFit(sound: SoundReport, bgm: Bgm, cfg: BgmFitCfg): BgmF
 }
 
 /** B4: 単調 fallback 判定。fallbackActive(bgm.json 無し・収録直下 bgm.* の
- * 全編1曲)か、bgm.tracks が単一 file で総尺の cfg.monotoneCoverRatio 超を
- * 覆っているかを見て、chapterCount >= cfg.minChaptersForVariety のときだけ
- * 「章が複数なのに BGM 単調」と警告する。区間割り・選曲はしない(SD-B1 の
- * 責務。ここは検出して plan-bgm へ誘導するだけ) */
+ * 全編1曲)か、単一 file が総尺の cfg.monotoneCoverRatio 超を覆っているかを
+ * 見て、chapterCount >= cfg.minChaptersForVariety のときだけ「章が複数なのに
+ * BGM 単調」と警告する。区間割り・選曲はしない(SD-B1 の責務。ここは検出して
+ * plan-bgm へ誘導するだけ)。
+ *
+ * **カバレッジは `sound.bgm.spans`(出力=カット後秒)から数える**。bgm.json の
+ * `tracks[].start/end` は SOURCE(元収録)秒で、cut がかかると縮む(validate は
+ * `visibleSec` で写像する)。source 秒を出力秒 totalOutSec で割ると、A/B/A の
+ * ように大きくカットする収録で比率が壊れ(例: source 0-400 のうち 350s カット
+ * で 400/250=1.6)、多様な BGM を誤って「単調」と誤検出する。sound.bgm.spans は
+ * renderProps 経由で既に出力秒へ写像済みなので、cutplan.json を読まずに
+ * (契約: cut/承認非干渉)正しい出力カバレッジが得られる。 */
 export function detectMonotone(args: {
   fallbackActive: boolean;
-  bgm: Bgm | null;
+  bgmSpans: SoundReport["bgm"]["spans"];
   totalOutSec: number;
   chapterCount: number;
   cfg: BgmFitCfg;
 }): { monotone: boolean; message: string } {
-  const { fallbackActive, bgm, totalOutSec, chapterCount, cfg } = args;
+  const { fallbackActive, bgmSpans, totalOutSec, chapterCount, cfg } = args;
   if (chapterCount < cfg.minChaptersForVariety) return { monotone: false, message: "" };
 
   if (fallbackActive) {
@@ -315,12 +323,13 @@ export function detectMonotone(args: {
     };
   }
 
-  if (!bgm || bgm.tracks.length === 0 || totalOutSec <= 0) return { monotone: false, message: "" };
+  if (bgmSpans.length === 0 || totalOutSec <= 0) return { monotone: false, message: "" };
 
+  // 出力(カット後)秒でのファイル別カバレッジ(sound.bgm.spans は出力秒)
   const coverByFile = new Map<string, number>();
-  for (const t of bgm.tracks) {
-    const dur = Math.max(0, t.end - t.start);
-    coverByFile.set(t.file, (coverByFile.get(t.file) ?? 0) + dur);
+  for (const span of bgmSpans) {
+    const dur = Math.max(0, span.endOutSec - span.startOutSec);
+    coverByFile.set(span.file, (coverByFile.get(span.file) ?? 0) + dur);
   }
   for (const [file, coveredSec] of coverByFile) {
     if (coveredSec / totalOutSec > cfg.monotoneCoverRatio) {
@@ -342,4 +351,27 @@ export function buildBgmFitPatch(findings: BgmFitFinding[]): { ops: EditOp[] } {
   const ops: EditOp[] = [];
   for (const f of findings) if (f.suggestion) ops.push(f.suggestion);
   return { ops };
+}
+
+/** id-stamp ゲート判定: id を持たないトラックのうち「id さえあれば B2 補正
+ * (volumeDb/fadeOutSec の set)が出る」ものが1本でもあるか。detectBgmFit は
+ * id 無しトラックを黙って飛ばすので、ここでは一時 id を振って検出し、元々
+ * id 無しだったトラックに suggestion が付くかを見る。true のときだけ stage は
+ * 「先に id-stamp」で停止する。B4 の monotone だけ・または検出なしのときは
+ * id が要らないので停止しない(SD-B2 §B-2: ゲートは「B2 補正が出る見込みの
+ * とき」だけ。plan-bgm の出力は id 無しなので、この緩和が無いと通常鎖
+ * plan-bgm → av → bgm-fit が常に exit 1 になってしまう)。 */
+export function idlessTracksNeedIdStamp(sound: SoundReport, bgm: Bgm, cfg: BgmFitCfg): boolean {
+  const idlessTemp = new Set<string>();
+  const stamped: Bgm = {
+    tracks: bgm.tracks.map((t, i) => {
+      if (typeof t.id === "string" && t.id !== "") return t;
+      const tempId = `__bgmfit_idless__${i}`;
+      idlessTemp.add(tempId);
+      return { ...t, id: tempId };
+    }),
+  };
+  if (idlessTemp.size === 0) return false;
+  const findings = detectBgmFit(sound, stamped, cfg);
+  return findings.some((f) => f.suggestion !== undefined && idlessTemp.has(f.refId));
 }
