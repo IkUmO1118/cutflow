@@ -20,10 +20,12 @@ import {
   resolvePlanLoopSecondaryObservationCfg,
 } from "../lib/config.ts";
 import { agenticCutTurn } from "../lib/ai/agenticCut.ts";
-import type { AgenticCtx, AgenticTraceEntry } from "../lib/ai/agenticCut.ts";
+import type { AgenticCtx, AgenticTraceEntry, SplitOp, SplitTraceEntry } from "../lib/ai/agenticCut.ts";
 import type { AiAdapter } from "../lib/ai/types.ts";
 import { resolveEditMode, renderEditModeBlock } from "../lib/editMode.ts";
 import { candidateText, collectWords, subdivideCandidates } from "../lib/candidates.ts";
+import { applyCandidateSplits } from "../lib/candidateSplit.ts";
+import type { CandidateSplitCfg } from "../lib/candidateSplit.ts";
 import {
   deriveLoopAssertions,
   selectPlanLoopReviewTimes,
@@ -65,6 +67,7 @@ import type {
   PlanSegment,
   Transcript,
   TranscriptSegment,
+  WordTiming,
 } from "../types.ts";
 import type { AssertionsDoc } from "../types.ts";
 import { evaluateStructural } from "./assert.ts";
@@ -345,6 +348,7 @@ export async function plan(
         idCtx,
         harness: harnessOn,
         agenticAdapterOverride: deps.agenticAdapterOverride,
+        words: collectWords(transcript),
         complete: deps.complete ?? completeStructuredCuts,
         observe:
           deps.observe ??
@@ -436,6 +440,10 @@ interface RunCutsLoopArgs {
   harness?: boolean;
   /** テスト専用。agenticCutTurn へそのまま渡す(§PlanDeps.agenticAdapterOverride) */
   agenticAdapterOverride?: AiAdapter;
+  /** transcript 全体の語タイムスタンプ(collectWords 済み)。H6(applySplit)の
+   * list_words/split_candidate と、ターン確定時の applyCandidateSplits で使う。
+   * applySplit off のときは常に空配列で渡されるため実質未使用 */
+  words: WordTiming[];
 }
 
 interface PlanLoopLogEntry {
@@ -459,6 +467,10 @@ interface PlanLoopLogEntry {
   agenticTrace?: AgenticTraceEntry[];
   /** agentic がフォールバックした理由(あれば)。null/undefined=完走 */
   agenticDegraded?: string;
+  /** H6(plan.harness.applySplit)の split_candidate 試行ログ(中間生成物・
+   * ダイジェストのみ)。applySplit off、またはこの反復で split_candidate が
+   * 一度も呼ばれなければ undefined(キーを書かない=バイト等価) */
+  splitOps?: SplitTraceEntry[];
 }
 
 async function runCutsLoop(args: RunCutsLoopArgs): Promise<CutPlan> {
@@ -472,11 +484,17 @@ async function runCutsLoop(args: RunCutsLoopArgs): Promise<CutPlan> {
     : baseLoopCfg;
   const observer = args.observe ?? new StructuralObservationProvider(loopCfg);
   const harnessCfg = resolvePlanHarnessCfg(args.cfg);
+  // H6(applySplit)の minCandidateSec は既存 candidates.minCandidateSec を再利用
+  // (新しい設定キーは足さない・§SD5design §3 の change table どおり)
+  const splitCfg: CandidateSplitCfg = { minCandidateSec: resolveCandidatesCfg(args.cfg).minCandidateSec };
   const iterations: PlanLoopLogEntry[] = [];
   let prevCuts: LoopCut[] | null = null;
   let prevObservation = "";
   let raw = "";
   let lastCutplan: CutPlan | null = null;
+  // 確定済み分割(SplitOp[])はターンを跨いで蓄積する(§SD5design §2.4「ターンを
+  // 跨ぐ」)。harness off のときは常に空のまま=applyCandidateSplits は恒等(§1-1)
+  let splits: SplitOp[] = [];
 
   for (let iter = 0; iter < loopCfg.maxIterations; iter++) {
     const kind = iter === 0 ? "generate" : "critique";
@@ -503,6 +521,7 @@ async function runCutsLoop(args: RunCutsLoopArgs): Promise<CutPlan> {
     let cuts: LoopCut[];
     let agenticTrace: AgenticTraceEntry[] | undefined;
     let agenticDegraded: string | undefined;
+    let splitOpsThisIter: SplitTraceEntry[] | undefined;
     if (args.harness) {
       const ctx: AgenticCtx = {
         dir: args.dir,
@@ -513,6 +532,11 @@ async function runCutsLoop(args: RunCutsLoopArgs): Promise<CutPlan> {
         warn: (msg) => console.warn(`警告: ${msg}`),
         trace: [],
         toolsEnabled: harnessCfg.tools,
+        applySplit: harnessCfg.applySplit,
+        maxSplits: harnessCfg.maxSplits,
+        splits,
+        splitTrace: [],
+        words: args.words,
       };
       const result = await agenticCutTurn({
         firstPrompt: prompt,
@@ -523,11 +547,16 @@ async function runCutsLoop(args: RunCutsLoopArgs): Promise<CutPlan> {
       cuts = result.cuts;
       agenticTrace = result.trace;
       agenticDegraded = result.degraded ?? undefined;
+      splits = result.splits;
+      splitOpsThisIter = result.splitTrace;
     } else {
       raw = await args.complete(prompt, args.cfg);
       cuts = parseCutsResponse(raw).cuts;
     }
-    lastCutplan = buildCutplan(args.numbered, cuts, cutplanIdCtx(args.idCtx));
+    // §2.4「ターン確定時の最終 cutplan も同じ式」: splits が空(applySplit off)
+    // なら applyCandidateSplits は base をそのまま返す恒等関数(§1-1 バイト等価の要)
+    const base = buildCutplan(args.numbered, cuts, cutplanIdCtx(args.idCtx));
+    lastCutplan = applyCandidateSplits(base, splits, args.words, splitCfg, args.idCtx && { used: args.idCtx.used });
     writeFileSync(join(args.dir, "cutplan.json"), JSON.stringify(lastCutplan, null, 2));
 
     const observed = await observer.observe(args.dir, args.cfg);
@@ -553,6 +582,7 @@ async function runCutsLoop(args: RunCutsLoopArgs): Promise<CutPlan> {
       stop: decision.reason,
       ...(agenticTrace ? { agenticTrace } : {}),
       ...(agenticDegraded ? { agenticDegraded } : {}),
+      ...(splitOpsThisIter && splitOpsThisIter.length > 0 ? { splitOps: splitOpsThisIter } : {}),
       ...(obs.secondary
         ? {
             secondaryObservation: {

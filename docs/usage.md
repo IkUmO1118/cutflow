@@ -969,6 +969,43 @@ plan:
 - `plan.harness` を省略、または `agentic: false`(既定)のときは、生成
   プロンプト・`cutplan.json` は導入前と**バイト等価**
 
+### 候補内部の語境界分割(config.yaml の plan.harness.applySplit。既定オフ・H6)
+
+`plan.harness.agentic: true` の**内側**でさらに opt-in すると、判断 LLM は候補丸ごとの
+keep/cut(番号選択)に加えて、**1つの候補の内部を語境界で割って一部だけを cut** にできる
+(SD1〜SD4 が保存してきた「候補は分割しない」という壁=R0 を初めて直接崩す施策)。
+
+```yaml
+plan:
+  harness:
+    agentic: true
+    applySplit: true   # 既定 false。要 agentic:true + whisper.wordTimestamps:true
+    maxSplits: 4        # 1ターンの分割上限(確信区間のみ=全面移行はしない)
+```
+
+- **LLM は時刻を一切生成しない。** 新しい read tool `list_words {id}` が候補内の語を
+  1始まり index 付きで返し、write tool `split_candidate {id, cutWordRanges:[{i,j,reason}], ...}`
+  で「語 i〜j(両端含む)の sub-span を cut にする」と指す。境界時刻は必ず
+  `transcript.words` の語境界(gap 中点。SD2/C1 と同じ規約)へスナップされる。
+  存在しない語 index・逆順・語タイムスタンプの無い候補は機械的に**拒否**される
+  (番号選択と同型のハルシネーション耐性を語粒度で維持)
+- **書込みゲートは `validate`+`assert`。** `split_candidate` は分割後の試作 cutplan を
+  一度 `cutplan.json` へ書き、`validate(dir)` と `assert(dir)` を走らせる。どちらかに
+  error があれば**直前の内容へロールバック**し(部分書き込みは残らない)、LLM へ却下理由を
+  返す。番号選択が担っていた「候補格子=安全網」を `apply`+検査へ置き換える(母艦 D1)
+- **確信区間だけ・有界。** `maxSplits`(既定4)で1ターンの分割数を上限し、各
+  sub-segment は `candidates.minCandidateSec`(既定 0.5 秒)未満になる分割は拒否される
+- `set_cuts`(候補id単位)は引き続き残り、置き換えられない。最終 cutplan は
+  「候補選択(`buildCutplan`)→確定済み分割の適用(`applyCandidateSplits`)」の2段で
+  組み立てられ、候補を後から `set_cuts` で丸ごと cut にすると、その候補に対する
+  分割は自然に無意味化する
+- **候補内部分割は keep 集合を変えるので、既存の承認(`approvals.json`)は
+  hash 不一致で自動失効する**(正しい挙動。人間の再承認待ちになる)
+- 分割の試行(候補id・語 range・採否・検査結果ダイジェスト。生の args は含まない)は
+  `plan.loop.json` の該当 iteration に `splitOps` として残る(中間生成物)
+- `plan.harness.applySplit` を省略、または `false`(既定)のときは、tool セット・
+  cutplan は `applySplit` 導入前(SD4)と**バイト等価**
+
 ## plan の編集モード(config.yaml の plan.editMode。既定 balanced)
 
 `plan` / `plan --cuts-only`(生成・再調整の両方)は、プロンプトの
