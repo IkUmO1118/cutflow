@@ -23,6 +23,7 @@ const EXPECTED_GENERATED_FILES = [
   "plan-shorts.raw.txt",
   "plan-materials.raw.txt",
   "plan-effects.raw.txt",
+  "plan-bgm.raw.txt",
   "render.props.json",
   "whisper-out.json",
   "whisper-out.srt",
