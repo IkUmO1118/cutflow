@@ -42,6 +42,9 @@ export interface MaterialRef {
   end?: number;
   at?: number;
   durationSec?: number;
+  /** 頭出し(overlay/insert の startFrom)。省略時 0(頭から)。
+   * material-fit(尺整合検出)が実尺との突き合わせに使う */
+  startFrom?: number;
 }
 
 /** overlays.json(overlays[]/inserts[])・bgm.json(tracks[])から参照集合を
@@ -60,6 +63,7 @@ export function buildReferences(
         ...(o.id !== undefined ? { id: o.id } : {}),
         start: o.start,
         end: o.end,
+        ...(o.startFrom !== undefined ? { startFrom: o.startFrom } : {}),
       },
     });
   }
@@ -71,6 +75,7 @@ export function buildReferences(
         ...(i.id !== undefined ? { id: i.id } : {}),
         at: i.at,
         durationSec: i.durationSec,
+        ...(i.startFrom !== undefined ? { startFrom: i.startFrom } : {}),
       },
     });
   }
