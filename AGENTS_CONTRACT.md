@@ -76,7 +76,8 @@ invalidated by re-running commands, and writing to them yourself creates
 false staleness signals or gets silently discarded:
 
 - Fixed-name generated files: `manifest.json`, `cuts.auto.json`,
-  `plan.raw.txt`, `plan.loop.json`, `plan-shorts.raw.txt`, `render.props.json`,
+  `plan.raw.txt`, `plan.loop.json`, `plan-shorts.raw.txt`,
+  `plan-materials.raw.txt`, `render.props.json`,
   `whisper-out.json`, `whisper-out.srt`, `transcript.system.json`,
   `whisper-system-out.json`, `cut.mp4`, `cut.keeps.json`,
   `render.key.json`, `preview.mp4`, `proxy.mp4`, `proxy.key.json`
@@ -218,6 +219,7 @@ without `--force`; with `--force`, hand-edited files are moved to
 | `plan <dir>` | Generate cut decisions, chapters, and title drafts with an LLM (§9: do not re-run casually) |
 | `remeta <dir>` | Regenerate chapters/titles/description only, leaving `cutplan.json` untouched |
 | `plan-shorts <dir>` | Draft short-form video picks into `shorts.json` (all `approved: false`) |
+| `plan-materials <dir>` | Draft material (B-roll) placements into `overlays.json`'s `overlays[]` (number-selection only; requires `materials <dir> --all` first) |
 | `learn <dir>` | Draft channel-rule suggestions from the latest edit into `rules.suggested.md` |
 | `ai` | Parent command for AI diagnostics (`ai doctor`) |
 | `doctor` | Nested under `ai`; probes configured AI profiles/routes for text, structured output, and image connectivity |
@@ -259,7 +261,7 @@ JSON-RPC 2.0 loop over stdin/stdout (`initialize` / `notifications/initialized`
 **The server exposes only "read" (`describe` / `validate` / `frames` /
 `materials` / `assert`) and "safe edits outside the approval scope"
 (`apply` / `id-stamp`).** `approve`, `unapprove`, `render`, `plan`, `remeta`,
-`plan-shorts`, `run`, `ingest`, `transcribe`, `detect`, `preview`,
+`plan-shorts`, `plan-materials`, `run`, `ingest`, `transcribe`, `detect`, `preview`,
 `thumbnail`, `editor`, and `frames-serve` are **never** exposed as tools —
 there is no generic "run a CLI command" tool either, so there is no way to
 reach them through this server. Approval is a human-only action; its actual

@@ -28,6 +28,7 @@ export const GENERATED_FILES = [
   "plan.raw.txt",
   "plan.loop.json",
   "plan-shorts.raw.txt",
+  "plan-materials.raw.txt",
   "render.props.json",
   "whisper-out.json",
   "whisper-out.srt",
