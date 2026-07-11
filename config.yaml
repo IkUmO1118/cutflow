@@ -199,6 +199,18 @@ plan:
   #   targetOutDurationSec: null
   #   stopWhenAssertionsPass: true
 
+  # cut 判断を tool+検証ループのエージェントにする(H1/H2)。既定 false=
+  # 従来の単発/pushループ経路とバイト等価。要 ai の structured route が
+  # anthropic 等 completeAgentic 対応アダプタ(非対応なら警告のうえ自動フォールバック)
+  # harness:
+  #   agentic: false
+  #   maxToolCalls: 16   # 1生成ターンあたりの tool 呼び出し上限
+  #   tools:
+  #     frames: true
+  #     av: true
+  #     materials: true
+  #     ocr: true
+
   # describe の任意露出(既定オフ=散文/--json ともバイト等価)
   # describe:
   #   pauses: false      # keep 内の間の位置と長さを出す
