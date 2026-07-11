@@ -29,9 +29,9 @@ import { buildProxy, isProxyStale } from "./proxy.ts";
 import { findBgm } from "./render.ts";
 import type { Bgm, CutPlan, Interval, Manifest, Overlays, Transcript } from "../types.ts";
 
-const AV_DIR = "av.probe";
+export const AV_DIR = "av.probe";
 const MOTION_FILE = "motion.json";
-const SOUND_FILE = "sound.json";
+export const SOUND_FILE = "sound.json";
 const STRIP_FILE = "motion.strip.png";
 const SCHEMA_VERSION = 1;
 

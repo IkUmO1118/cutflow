@@ -49,6 +49,7 @@ import { formatMaterialsSummary, materials } from "./stages/materials.ts";
 import { formatMaterialFitReport, materialFit } from "./stages/materialFit.ts";
 import { effectCheck, formatEffectCheckReport } from "./stages/effectCheck.ts";
 import { av, formatAvSummary } from "./stages/av.ts";
+import { bgmFit, formatBgmFitReport } from "./stages/bgmFit.ts";
 import { reviewEdit } from "./stages/review.ts";
 import { aiDoctor } from "./stages/aiDoctor.ts";
 import { readEditSnapshot } from "./lib/renderSnapshot.ts";
@@ -907,6 +908,20 @@ program
       soundOnly: opts.soundOnly === true,
     }, cfg);
     for (const line of formatAvSummary(result)) console.log(line);
+  });
+
+program
+  .command("bgm-fit <dir>")
+  .description(
+    "BGM の無音浮き/発話被り/大音量/フェード無しを検出し、volumeDb/fadeOutSec の" +
+      "apply パッチ下書き(bgm-fit.suggested.json)を書く。章が多いのに BGM が単調/" +
+      "fallback のままなら plan-bgm へ誘導する。要 av <dir> の事前実行。決定論のみ(LLM 不使用)",
+  )
+  .action((dir: string) => {
+    const cfg = loadConfig(program.opts().config);
+    const abs = resolveDir(dir);
+    const result = bgmFit(abs, cfg);
+    for (const line of formatBgmFitReport(abs, result)) console.log(line);
   });
 
 program
