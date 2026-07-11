@@ -28,10 +28,11 @@ whisper:
   model: ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin
   language: ja
   # 語/トークン単位のタイミング(transcript.json の segment.words[])を付けるか。
-  # 省略時 false(既存挙動と完全一致。words を一切書かない)。
-  # true にすると whisper 実行が -ojf に切り替わり transcript.json が増える
-  # (今フェーズでは words[] を消費する機能が無いので既定は false のまま推奨)
-  wordTimestamps: false
+  # 既定 true(語タイムスタンプは karaoke/語境界カットの前提資産=W0)。
+  # true だと whisper 実行が -ojf に切り替わり transcript.json が増える。
+  # 既存収録(words 無し)は再 transcribe が要る(validate が警告する)。
+  # 明示的に false を書けば従来どおり words を一切書かない挙動に戻せる
+  wordTimestamps: true
   # システム音声(systemTrack)も第2トラックとして文字起こしする(知覚専用・
   # 描画しない)。既定 false。true で transcript.system.json を書く
   systemAudio: false
