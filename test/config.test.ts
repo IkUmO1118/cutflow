@@ -26,6 +26,7 @@ import {
   DEFAULT_PERCEPTION_OCR_MAX_LINES,
   DEFAULT_PERCEPTION_OCR_MAX_SEGMENTS,
   DEFAULT_PLAN_HARNESS_MAX_TOOL_CALLS,
+  DEFAULT_PLAN_HARNESS_MAX_SPLITS,
   DEFAULT_PLAN_LOOP_MAX_ITERATIONS,
   DEFAULT_PLAN_LOOP_SECONDARY_MAX_CALLS,
   DEFAULT_PLAN_LOOP_SECONDARY_MAX_IMAGES,
@@ -619,9 +620,12 @@ test("resolvePlanHarnessCfg: plan.harness 省略時はオフ+既定値(SD4 H1/H2
   assert.deepEqual(resolvePlanHarnessCfg({} as Config), {
     agentic: false,
     maxToolCalls: DEFAULT_PLAN_HARNESS_MAX_TOOL_CALLS,
+    applySplit: false,
+    maxSplits: DEFAULT_PLAN_HARNESS_MAX_SPLITS,
     tools: { frames: true, av: true, materials: true, ocr: true },
   });
   assert.equal(DEFAULT_PLAN_HARNESS_MAX_TOOL_CALLS, 16);
+  assert.equal(DEFAULT_PLAN_HARNESS_MAX_SPLITS, 4);
   assert.equal(planHarnessEnabled({} as Config), false);
 });
 
@@ -631,6 +635,8 @@ test("resolvePlanHarnessCfg: 明示値を解決し個別 tool の on/off を保�
       harness: {
         agentic: true,
         maxToolCalls: 8,
+        applySplit: true,
+        maxSplits: 2,
         tools: { frames: false, av: true, materials: false, ocr: true },
       },
     },
@@ -638,6 +644,8 @@ test("resolvePlanHarnessCfg: 明示値を解決し個別 tool の on/off を保�
   assert.deepEqual(resolvePlanHarnessCfg(cfg), {
     agentic: true,
     maxToolCalls: 8,
+    applySplit: true,
+    maxSplits: 2,
     tools: { frames: false, av: true, materials: false, ocr: true },
   });
 });
