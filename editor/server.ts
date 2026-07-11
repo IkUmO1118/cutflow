@@ -267,6 +267,11 @@ async function handle(
     res.end(assets.bundleJs);
     return;
   }
+  if (req.method === "GET" && path === "/particle_loop_icon.svg") {
+    res.writeHead(200, { "Content-Type": "image/svg+xml; charset=utf-8" });
+    res.end(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "client/particle_loop_icon.svg"), "utf8"));
+    return;
+  }
   if (req.method === "GET" && path === "/api/project") {
     sendJson(res, 200, loadProject(dir, cfg));
     return;

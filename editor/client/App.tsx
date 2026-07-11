@@ -3801,30 +3801,17 @@ export const App = () => {
         >
           {busy === "save" ? "保存中…" : anyDirty ? "● 未保存 (⌘S)" : "保存済み"}
         </span>
-        {aiWorkflow && (
-          <span
-            className={`saveStatus aiWorkflow ${aiWorkflowTone(aiWorkflow)}`.trim()}
-            title={aiWorkflowTitle}
-          >
-            AI編集: {aiWorkflowPhaseLabel(aiWorkflow)}
-          </span>
-        )}
         <button
           className="aiCommandLauncher"
           disabled={aiWorkflowLocked}
-          title={
-            aiWorkflowLocked
-              ? "AI 一発編集を確認中"
-              : anyDirty
-                ? "保存してから AI 一発編集"
-                : "AI 一発編集を開く"
-          }
+          title={aiWorkflowLocked ? aiWorkflowTitle : anyDirty ? "保存してから AI 一発編集" : "AI 一発編集を開く"}
           onClick={() => {
             setAiCommandScope("global");
             setAiCommandOpen(true);
           }}
         >
-          AI編集
+          {aiWorkflowLocked && <img className="aiCommandLauncherIcon" src="/particle_loop_icon.svg" alt="" />}
+          {aiWorkflowLocked ? "編集中" : "AI編集"}
         </button>
         {/* レイアウト切替(VSCode 風)。アイコンの塗られた面 = 表示中のパネル。
             閉じてもデータ・編集状態には影響しない(表示だけの切替) */}
@@ -3981,6 +3968,8 @@ export const App = () => {
             <AiCommand
               disabled={anyDirty || aiWorkflowLocked}
               busy={aiBusy}
+              multiline
+              modalStyle
               disabledReason={
                 anyDirty
                   ? "保存してから AI 一発編集"
