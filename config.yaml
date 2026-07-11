@@ -230,6 +230,15 @@ candidates:
   minCandidateSec: 0.5      # 分割後の最小尺(これ未満の断片は作らない)
   fillers: ["えー", "えっと", "あの", "あのー", "まあ", "その", "なんか"]
 
+# 素材(B-roll)配置候補の自動生成(plan-materials)。要 materials <dir> --all の事前実行。
+# 生成物は下書き(overlays[])で、採否は人間。cut/承認には触れない。
+planMaterials:
+  minSpanSec: 3.0        # 素材を置けるアンカーにする keep span の最小尺
+  maxPlacements: 8       # 1回で作る overlay の上限(出しすぎ防止)
+  defaultVolume: 0       # 素材音は既定で被せない(0=無音)
+  defaultFit: contain
+  # defaultRect: { x: 640, y: 40, w: 600, h: 338 }  # 省略=全画面。指定で PIP(ワイプ)
+
   # AI(意味カット・章立て・タイトル案・AI提案)
 ai:
   # claude-code: Claude Code の `claude` CLI を使う(APIキー不要)
