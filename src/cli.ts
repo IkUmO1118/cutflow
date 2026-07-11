@@ -28,6 +28,7 @@ import { detect } from "./stages/detect.ts";
 import { plan, remeta } from "./stages/plan.ts";
 import { planShorts } from "./stages/planShorts.ts";
 import { planMaterials } from "./stages/planMaterials.ts";
+import { planEffects } from "./stages/planEffects.ts";
 import { learn } from "./stages/learn.ts";
 import { preview } from "./stages/preview.ts";
 import { render, renderShort, renderShorts } from "./stages/render.ts";
@@ -50,7 +51,7 @@ import { reviewEdit } from "./stages/review.ts";
 import { aiDoctor } from "./stages/aiDoctor.ts";
 import { readEditSnapshot } from "./lib/renderSnapshot.ts";
 import { fmtT, parseT } from "./lib/fmt.ts";
-import type { ApplyPatch, CutPlan } from "./types.ts";
+import type { ApplyPatch, CutPlan, Overlays } from "./types.ts";
 import type { EditSnapshot, ReviewSpec } from "./lib/review.ts";
 import { buildRetrievalIndex } from "./stages/retrievalIndex.ts";
 import { retrievalSearch } from "./stages/retrievalSearch.ts";
@@ -154,6 +155,39 @@ function guardRerun(
   // (plan-shorts の shorts.json は EDITABLE_FILES に無いので、これが無いと
   // 手編集した shorts.json を退避せず上書きしてしまう)
   const backupList = [...new Set([...EDITABLE_FILES, ...outputs])];
+  const dest = backupEditableFiles(dir, backupList);
+  if (dest) {
+    console.log(
+      `上書き前に手編集ファイルを退避しました: ${dest}\n` +
+        "(戻すには退避先のファイルを収録フォルダ直下へコピーし直す)",
+    );
+  }
+}
+
+/**
+ * plan-effects の再実行ガード。guardRerun と違い overlays.json 自体の存在では
+ * なく、既存の zooms/blurs/annotations が非空かどうかで判定する(overlays.json
+ * には plan-materials 等が書いた overlays[] や inserts 等の他フィールドが
+ * 単独で存在しうるため、それだけで --force を要求するのは過剰)。
+ */
+function guardEffectsRerun(dir: string, force: boolean): void {
+  const overlaysPath = join(dir, "overlays.json");
+  if (!existsSync(overlaysPath)) return;
+  const existing = JSON.parse(readFileSync(overlaysPath, "utf8")) as Overlays;
+  const hasEffects =
+    (existing.zooms?.length ?? 0) > 0 ||
+    (existing.blurs?.length ?? 0) > 0 ||
+    (existing.annotations?.length ?? 0) > 0;
+  if (!hasEffects) return;
+  if (!force) {
+    throw new Error(
+      "overlays.json に既存の zooms/blurs/annotations があります。plan-effects の " +
+        "再実行はこれらを LLM の生成物で上書きし、手編集が消えます。\n" +
+        "やり直す場合は --force を付けてください(実行前に手編集ファイルを " +
+        "backups/ へ退避します)",
+    );
+  }
+  const backupList = [...new Set([...EDITABLE_FILES, "overlays.json"])];
   const dest = backupEditableFiles(dir, backupList);
   if (dest) {
     console.log(
@@ -386,6 +420,40 @@ program
     }
     console.log(
       "\n次のステップ: preview か GUI エディタで確認し、要らなければ overlays.json から削除してください。",
+    );
+  });
+
+program
+  .command("plan-effects <dir>")
+  .description(
+    "LLM で演出(zoom/blur/annotation)の種別を番号選択させ overlays.json の下書きを生成" +
+      "(要 frames --ocr / av のいずれかの事前実行。座標は知覚由来。cut/承認には触れない)",
+  )
+  .option(
+    "--force",
+    "既存の zooms/blurs/annotations を上書きして再実行(実行前に backups/ へ退避)",
+  )
+  .action(async (dir: string, opts: { force?: boolean }) => {
+    const cfg = loadConfig(program.opts().config);
+    const abs = resolveDir(dir);
+    guardEffectsRerun(abs, opts.force === true);
+    console.log("plan-effects 実行中(LLM で演出候補を選定)...");
+    const result = await planEffects(abs, cfg);
+    console.log(
+      `plan-effects 完了: アンカー${result.anchorCount}件から ` +
+        `zoom${result.zooms.length}件 / blur${result.blurs.length}件 / annotation${result.annotations.length}件を下書き`,
+    );
+    for (const z of result.zooms) {
+      console.log(`  zoom [${z.start.toFixed(2)}-${z.end.toFixed(2)}]`);
+    }
+    for (const b of result.blurs) {
+      console.log(`  blur [${b.start.toFixed(2)}-${b.end.toFixed(2)}]`);
+    }
+    for (const a of result.annotations) {
+      console.log(`  annotation [${a.start.toFixed(2)}-${a.end.toFixed(2)}]`);
+    }
+    console.log(
+      "\n次のステップ: preview か frames <dir> --t <区間の秒> で見え方を確認し、要らなければ overlays.json から削除してください。",
     );
   });
 

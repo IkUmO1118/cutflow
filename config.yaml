@@ -247,6 +247,16 @@ materialFit:
   suggestUnderrunExtend: false  # 尺不足で延長 set を出すか(既定は reason のみ)
   maxReplacements: 3        # dangling 貼り替え候補の上限
 
+# 演出(zoom/blur/annotation)候補の自動生成(plan-effects)。
+# 要 frames --ocr / av の事前実行。生成物は下書きで、採否は人間。cut/承認に触れない。
+planEffects:
+  maxDecisions: 6          # 1回で作る演出の上限
+  anchorWindowSec: 3.0     # アンカー時刻の前後に張る表示窓
+  minSceneScore: 0.4       # motion アンカーにする sceneScore 下限
+  minOcrBoxAreaPx: 8000    # OCR box をアンカーにする最小面積(小さい文字を除外)
+  minZoomRect: { w: 480, h: 270 }  # zoom rect の最小サイズ(拡大しすぎ防止)
+  defaultBlurStrength: 0.5
+
   # AI(意味カット・章立て・タイトル案・AI提案)
 ai:
   # claude-code: Claude Code の `claude` CLI を使う(APIキー不要)

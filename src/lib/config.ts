@@ -290,6 +290,30 @@ export interface Config {
     /** dangling 貼り替え候補の上限。省略時 DEFAULT_MATERIAL_FIT_MAX_REPLACEMENTS(3) */
     maxReplacements?: number;
   };
+  /** 演出(zoom/blur/annotation)候補の自動生成(plan-effects)。番号+種別選択
+   *  方式で overlays.json の zooms/blurs/annotations を下書き生成する
+   *  (§docs/plans/2026-07-11-e1-e2-effect-anchor-candidates-design.md)。
+   *  要 frames --ocr / av の事前実行。省略時は全て既定値(DEFAULT_PLAN_EFFECTS_*) */
+  planEffects?: {
+    /** 1回で作る演出の上限(出しすぎ防止)。省略時
+     *  DEFAULT_PLAN_EFFECTS_MAX_DECISIONS(6) */
+    maxDecisions?: number;
+    /** アンカー時刻の前後に張る表示窓(秒)。省略時
+     *  DEFAULT_PLAN_EFFECTS_ANCHOR_WINDOW_SEC(3.0) */
+    anchorWindowSec?: number;
+    /** motion アンカーにする sceneScore 下限。省略時
+     *  DEFAULT_PLAN_EFFECTS_MIN_SCENE_SCORE(0.4) */
+    minSceneScore?: number;
+    /** OCR box をアンカーにする最小面積(px^2。小さい文字を除外)。省略時
+     *  DEFAULT_PLAN_EFFECTS_MIN_OCR_BOX_AREA_PX(8000) */
+    minOcrBoxAreaPx?: number;
+    /** zoom rect の最小サイズ(拡大しすぎ防止)。省略時
+     *  DEFAULT_PLAN_EFFECTS_MIN_ZOOM_RECT */
+    minZoomRect?: { w: number; h: number };
+    /** blur の既定強度(0..1)。省略時
+     *  DEFAULT_PLAN_EFFECTS_DEFAULT_BLUR_STRENGTH(0.5) */
+    defaultBlurStrength?: number;
+  };
   /** describe(操作エージェント向け)の任意露出。省略可・全オフが既定。
    *  無いときは散文・--json ともに導入前とバイト等価 */
   describe?: {
@@ -533,6 +557,35 @@ export function resolveMaterialFitCfg(cfg: Config): {
     underrunRatio: m.underrunRatio ?? DEFAULT_MATERIAL_FIT_UNDERRUN_RATIO,
     suggestUnderrunExtend: m.suggestUnderrunExtend ?? DEFAULT_MATERIAL_FIT_SUGGEST_UNDERRUN_EXTEND,
     maxReplacements: m.maxReplacements ?? DEFAULT_MATERIAL_FIT_MAX_REPLACEMENTS,
+  };
+}
+
+/** planEffects.* 未指定時の既定値。§docs/plans/2026-07-11-e1-e2-effect-anchor-candidates-design.md */
+export const DEFAULT_PLAN_EFFECTS_MAX_DECISIONS = 6;
+export const DEFAULT_PLAN_EFFECTS_ANCHOR_WINDOW_SEC = 3.0;
+export const DEFAULT_PLAN_EFFECTS_MIN_SCENE_SCORE = 0.4;
+export const DEFAULT_PLAN_EFFECTS_MIN_OCR_BOX_AREA_PX = 8000;
+export const DEFAULT_PLAN_EFFECTS_MIN_ZOOM_RECT = { w: 480, h: 270 };
+export const DEFAULT_PLAN_EFFECTS_DEFAULT_BLUR_STRENGTH = 0.5;
+
+/** planEffects を既定値で解決する純関数。loadConfig は cfg.planEffects を
+ *  書き換えない */
+export function resolveEffectPlacementCfg(cfg: Config): {
+  maxDecisions: number;
+  anchorWindowSec: number;
+  minSceneScore: number;
+  minOcrBoxAreaPx: number;
+  minZoomRect: { w: number; h: number };
+  defaultBlurStrength: number;
+} {
+  const p = cfg.planEffects ?? {};
+  return {
+    maxDecisions: p.maxDecisions ?? DEFAULT_PLAN_EFFECTS_MAX_DECISIONS,
+    anchorWindowSec: p.anchorWindowSec ?? DEFAULT_PLAN_EFFECTS_ANCHOR_WINDOW_SEC,
+    minSceneScore: p.minSceneScore ?? DEFAULT_PLAN_EFFECTS_MIN_SCENE_SCORE,
+    minOcrBoxAreaPx: p.minOcrBoxAreaPx ?? DEFAULT_PLAN_EFFECTS_MIN_OCR_BOX_AREA_PX,
+    minZoomRect: p.minZoomRect ?? { ...DEFAULT_PLAN_EFFECTS_MIN_ZOOM_RECT },
+    defaultBlurStrength: p.defaultBlurStrength ?? DEFAULT_PLAN_EFFECTS_DEFAULT_BLUR_STRENGTH,
   };
 }
 
