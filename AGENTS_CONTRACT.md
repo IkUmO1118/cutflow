@@ -98,7 +98,10 @@ false staleness signals or gets silently discarded:
   (a disposable draft written by `bgm-fit`; an `apply`-compatible patch of
   deterministic `set` ops correcting BGM track `volumeDb`/`fadeOutSec` —
   apply it yourself with `apply --patch`, never write to `bgm.json`
-  directly from it)
+  directly from it), `style-check.json` (the machine-readable report written
+  by `style-check`: cut/caption/audio deviation findings against a
+  `style.probe/<name>.json` profile, each with observed/expected/band/confidence/severity;
+  warn/info only, never fail)
 - Short-name-variable generated files: `cut.<name>.mp4`,
   `cut.<name>.keeps.json`, `render.<name>.props.json`,
   `render.<name>.key.json` (one set per `shorts.json` entry)
@@ -264,6 +267,7 @@ without `--force`; with `--force`, hand-edited files are moved to
 | `av <dir>` | Probe kept motion/sound feedback and write `av.probe/` reports |
 | `bgm-fit <dir>` | Detect BGM speech-overlap/silence-float/loud/no-fade issues from `av.probe/sound.json` and propose `volumeDb`/`fadeOutSec` corrections as an `apply`-ready patch draft (`bgm-fit.suggested.json`); also detects a monotone single-track/root-`bgm.*` fallback when multiple chapters exist and points to `plan-bgm`. Requires `av <dir>` first; deterministic only (no LLM). Never writes editable files |
 | `style-profile` | Extract a deterministic style profile (cut pace, caption density/position, loudness, structure, and — for `own-project` inputs with `plan.raw.txt` — an AI-proposal-vs-human-final correction delta) from one or more `--from <path>` inputs (a recording folder with `manifest.json`+`cutplan.json`, or a bare video file/folder), and write it to `style.probe/<name>.json` under the channel directory (the parent of the first `--from` path). Takes no `<dir>` positional argument. Never writes editable files |
+| `style-check <dir>` | Measure how far the recording's current edit (candidate) deviates from a learned style profile's variance bands (cut pace via the profile's shot-length [p10,p90] band, caption coverage/density/position, loudness/silence), and report deviations as warn/info — always exit 0. Requires `style-profile --from <dir>` first; a two-tier band widened by each section's confidence keeps a cold-start (N=1) profile from over-warning. Scoped to cut/caption/audio (profile v1). Writes `style-check.json`; never writes editable files |
 | `review <dir>` | Generate a deterministic before/after review bundle and write `review.probe/index.json` |
 | `index` | Build the local cross-recording retrieval index |
 | `search <query>` | Search recording/material metadata, OCR, and transcripts locally |

@@ -1057,6 +1057,55 @@ node src/cli.ts style-profile --from <dir1> --from <dir2> --name multi  # 複数
 node src/cli.ts style-profile --from <動画ファイル> --name bare-test    # bare-video
 ```
 
+## profile からの逸脱検出(style-check)
+
+`node src/cli.ts style-check <dir> [--profile <名前>]` は、この収録の**現在の編集
+(候補)**の観測統計が `style-profile` で抽出した**学習分散帯からどれだけ逸脱
+しているか**を決定論で測り、warn/info(**常に exit 0**)で報告するコマンド
+(§docs/plans/2026-07-12-sd-t1-style-check-design.md)。母艦の言う「J(主観)次元が
+プロファイル導入で D(決定論)へ落ちる」の測定面そのもの(SD-T1)で、`style-profile`
+(プロファイルを**作る**側)に対し、こちらは既存の編集をそこへ**照らす**側。
+
+- **要 `style-profile --from <dir>` の事前実行**: channel(`<dir>` の親)の
+  `style.probe/<名前>.json`(省略時 `default`)を reference として読む。無ければ
+  「先に `style-profile --from <dir>`」と告げて exit 1(前提エラーのみ exit 1。
+  逸脱報告自体は常に exit 0)
+- **候補は `style-profile` と同じ集約経路で畳む**: `describeJson` の射影を
+  `observeOwnProject` → `mergeObservations(["_candidate"])` に通し、reference と
+  同じ形の `StyleProfile` にしてから距離を測る(統計・ラベル写像の二重実装ゼロ)。
+  `av.probe/sound.json` があれば音の統計も混じる(無くても動く。audio section が
+  丸ごと skipped/info に優雅に劣化する=「先に `av <dir>`」を促す)
+- **v1 は cut/caption/audio に閉じる**(profile v1 scope。演出密度・BGM 切替
+  cadence・構成は profile が値を持たない/v1 名指しスコープ外のため defer。
+  effect-check の密度ガード(config 固定閾値)とは別物 — 学習値化は profile v2 待ち)
+- **二層帯(inner/outer)モデル**: 各 metric の学習帯を「広げる前(inner)」と
+  「参照 section の `confidence` で広げた後(outer)」の二重で持つ。inner 内側=
+  finding なし、inner の外・outer の内=`borderline`(info、confidence の不確実性
+  マージンとして許容)、outer の外=`deviation`(warn、不確実性マージンを超えた
+  実逸脱)。confidence が低い(cold-start・N=1 など)ほど outer が広がり、cold-start
+  特有の過剰 warn を防ぐ。ペースの学習帯は full 分布ではなく `style-profile` が
+  持つ `shotSecP10`/`shotSecP90` の帯を使う(KS 距離は profile v2 の拡張点)
+  - relative モードの metric(`sceneChangesPerMin`/`avgDisplaySec` 等)は、
+    参照値がほぼ0だと相対トレランス(±30%)が幅0の点に縮退してしまうため、
+    その場合は帯を作らず `skipped`(info)に落ちる(0 基準では相対距離を
+    測れないという能力境界の明示。偽の deviation/warn を防ぐ)
+- **カテゴリ/boolean metric**(`cutAggressiveness`/`density`/`positionHint`/
+  `bgmLikely`)はラベル一致で判定。どちらかが `"mixed"` なら吸収(finding なし)、
+  不一致は参照 confidence が閾値以上なら `mismatch`/warn、未満なら `mismatch`/info
+- **収録フォルダの編集ファイルは1バイトも書かない**。書くのは
+  `<dir>/style-check.json`(機械可読。findings 一覧+counts)だけ
+- **能力境界を偽らない**: プロファイルが測れるのは *rate/placement 統計*
+  (ペースが速すぎる/遅すぎる・caption が薄い/位置が違う・ラウドネスがずれる)
+  までで、「この重複テイクの綺麗な方を選べたか」のような *instance semantics*
+  は測れない(残る真の J)
+
+```sh
+node src/cli.ts av <dir>                       # 先に音の統計を用意(任意。無くても audio は skipped で優雅に劣化)
+node src/cli.ts style-profile --from <dir>      # style.probe/default.json を用意
+node src/cli.ts style-check <dir>               # 候補を profile に照らして距離を測る
+node src/cli.ts style-check <dir> --profile multi  # 別名の profile に照らす
+```
+
 ## 承認(approve/unapprove)
 
 **承認の実体は `approved` という boolean ではなく `approvals.json`**
