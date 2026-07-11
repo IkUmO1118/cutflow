@@ -275,6 +275,21 @@ export interface Config {
     /** 生成する overlay の既定 rect(出力px)。省略=全画面。指定で PIP(ワイプ) */
     defaultRect?: { x: number; y: number; w: number; h: number };
   };
+  /** 素材の尺整合・dangling 検出(material-fit)。要 materials <dir> の事前実行。
+   *  出力は apply パッチ下書き(material-fit.suggested.json)で、適用は人間が
+   *  apply で行う。省略時は全て既定値(DEFAULT_MATERIAL_FIT_*)
+   *  (§docs/plans/2026-07-11-m2-m3-material-fit-dangling-design.md) */
+  materialFit?: {
+    /** 尺超過判定の許容誤差(秒)。省略時 DEFAULT_MATERIAL_FIT_OVERRUN_EPS_SEC(0.1) */
+    overrunEpsSec?: number;
+    /** 実尺が宣言尺の何倍で「大半未使用」とみなすか。省略時
+     *  DEFAULT_MATERIAL_FIT_UNDERRUN_RATIO(2.0) */
+    underrunRatio?: number;
+    /** 尺不足で延長 set を出すか。省略時 false(reason のみ) */
+    suggestUnderrunExtend?: boolean;
+    /** dangling 貼り替え候補の上限。省略時 DEFAULT_MATERIAL_FIT_MAX_REPLACEMENTS(3) */
+    maxReplacements?: number;
+  };
   /** describe(操作エージェント向け)の任意露出。省略可・全オフが既定。
    *  無いときは散文・--json ともに導入前とバイト等価 */
   describe?: {
@@ -495,6 +510,29 @@ export function resolveMaterialPlacementCfg(cfg: Config): {
     defaultVolume: p.defaultVolume ?? DEFAULT_PLAN_MATERIALS_DEFAULT_VOLUME,
     defaultFit: p.defaultFit ?? DEFAULT_PLAN_MATERIALS_DEFAULT_FIT,
     ...(p.defaultRect ? { defaultRect: p.defaultRect } : {}),
+  };
+}
+
+/** materialFit.* 未指定時の既定値。§docs/plans/2026-07-11-m2-m3-material-fit-dangling-design.md */
+export const DEFAULT_MATERIAL_FIT_OVERRUN_EPS_SEC = 0.1;
+export const DEFAULT_MATERIAL_FIT_UNDERRUN_RATIO = 2.0;
+export const DEFAULT_MATERIAL_FIT_SUGGEST_UNDERRUN_EXTEND = false;
+export const DEFAULT_MATERIAL_FIT_MAX_REPLACEMENTS = 3;
+
+/** materialFit を既定値で解決する純関数。loadConfig は cfg.materialFit を
+ *  書き換えない */
+export function resolveMaterialFitCfg(cfg: Config): {
+  overrunEpsSec: number;
+  underrunRatio: number;
+  suggestUnderrunExtend: boolean;
+  maxReplacements: number;
+} {
+  const m = cfg.materialFit ?? {};
+  return {
+    overrunEpsSec: m.overrunEpsSec ?? DEFAULT_MATERIAL_FIT_OVERRUN_EPS_SEC,
+    underrunRatio: m.underrunRatio ?? DEFAULT_MATERIAL_FIT_UNDERRUN_RATIO,
+    suggestUnderrunExtend: m.suggestUnderrunExtend ?? DEFAULT_MATERIAL_FIT_SUGGEST_UNDERRUN_EXTEND,
+    maxReplacements: m.maxReplacements ?? DEFAULT_MATERIAL_FIT_MAX_REPLACEMENTS,
   };
 }
 

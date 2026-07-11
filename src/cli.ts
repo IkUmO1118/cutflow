@@ -44,6 +44,7 @@ import { formatOcrPreview } from "./lib/ocr.ts";
 import type { OcrResult } from "./lib/ocr.ts";
 import { thumbnail } from "./stages/thumbnail.ts";
 import { formatMaterialsSummary, materials } from "./stages/materials.ts";
+import { formatMaterialFitReport, materialFit } from "./stages/materialFit.ts";
 import { av, formatAvSummary } from "./stages/av.ts";
 import { reviewEdit } from "./stages/review.ts";
 import { aiDoctor } from "./stages/aiDoctor.ts";
@@ -735,6 +736,19 @@ program
       }
     }
     console.log(`${index.materials.length}件を ${indexPath} に書きました`);
+  });
+
+program
+  .command("material-fit <dir>")
+  .description(
+    "素材の尺整合(overrun/underrun)と dangling/unused を検出し、apply パッチ下書き" +
+      "(material-fit.suggested.json)を書く。要 materials <dir> の事前実行・overlays の @id",
+  )
+  .action((dir: string) => {
+    const cfg = loadConfig(program.opts().config);
+    const abs = resolveDir(dir);
+    const result = materialFit(abs, cfg);
+    for (const line of formatMaterialFitReport(abs, result)) console.log(line);
   });
 
 program
