@@ -6,6 +6,7 @@ import {
   selectPlanLoopReviewTimes,
   shouldStop,
   summarizeObservation,
+  withEffectObservation,
 } from "../src/lib/planLoop.ts";
 import type { AssertOutcome } from "../src/stages/assert.ts";
 import type { DescribeProjection } from "../src/stages/describe.ts";
@@ -114,4 +115,24 @@ test("shouldStop: max-iterations / assertions-pass / fixpoint を判定する", 
     }),
     { stop: true, reason: "fixpoint" },
   );
+});
+
+// --- E7: withEffectObservation(opt-in フック) ---
+
+test("withEffectObservation: observe=false は元の配列そのまま(バイト等価)", () => {
+  const warnings = ["既存の観測"];
+  assert.equal(withEffectObservation(warnings, "前回の演出警告が3件", false), warnings);
+});
+
+test("withEffectObservation: observation が空文字は observe=true でも追加しない", () => {
+  const warnings = ["既存の観測"];
+  assert.equal(withEffectObservation(warnings, "", true), warnings);
+});
+
+test("withEffectObservation: observe=true かつ observation 非空なら1行追加する", () => {
+  const warnings = ["既存の観測"];
+  const result = withEffectObservation(warnings, "前回の演出警告が3件", true);
+  assert.deepEqual(result, ["既存の観測", "前回の演出警告が3件"]);
+  assert.notEqual(result, warnings); // 元配列は変更しない
+  assert.deepEqual(warnings, ["既存の観測"]);
 });

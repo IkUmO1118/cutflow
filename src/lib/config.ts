@@ -331,6 +331,16 @@ export interface Config {
      *  vision route 不在なら実行時に自動で無効になる */
     useVlm?: boolean;
   };
+  /** E7: 演出検品(effect-check)の警告を plan-effects の再生成へ観測として
+   *  戻す opt-in フラグ(§docs/plans/2026-07-11-e6-e7-effect-review-loop-design.md)。
+   *  省略時 observe=false(バイト等価。plan-effects の出力は導入前と不変)。
+   *  observe=true でも `plan-effects --observe`(明示フラグ)か、こちらの
+   *  config どちらかが true であれば有効(フラグと config は OR) */
+  effectReview?: {
+    /** 前回 effect-check.json の警告を次の plan-effects の観測として渡すか。
+     *  省略時 false。命令ではなく参考情報(過補正回避のため強制はしない) */
+    observe?: boolean;
+  };
   /** describe(操作エージェント向け)の任意露出。省略可・全オフが既定。
    *  無いときは散文・--json ともに導入前とバイト等価 */
   describe?: {
@@ -630,6 +640,16 @@ export function resolveEffectCheckCfg(cfg: Config): {
     minRectOverlapRatio: e.minRectOverlapRatio ?? DEFAULT_EFFECT_CHECK_MIN_RECT_OVERLAP_RATIO,
     useVlm: e.useVlm ?? DEFAULT_EFFECT_CHECK_USE_VLM,
   };
+}
+
+/** effectReview.observe 未指定時の既定(E7)。false=バイト等価
+ *  (§docs/plans/2026-07-11-e6-e7-effect-review-loop-design.md) */
+export const DEFAULT_EFFECT_REVIEW_OBSERVE = false;
+
+/** effectReview を既定値で解決する純関数。loadConfig は cfg.effectReview を
+ *  書き換えない */
+export function resolveEffectReviewCfg(cfg: Config): { observe: boolean } {
+  return { observe: cfg.effectReview?.observe ?? DEFAULT_EFFECT_REVIEW_OBSERVE };
 }
 
 /** plan.loop.maxIterations 未指定時の既定。0 は従来1ショットと同義 */

@@ -265,6 +265,12 @@ effectCheck:
   minRectOverlapRatio: 0.3  # 「重なり」とみなす rect 交差率
   useVlm: true              # VLM 二次確認(ai.routes.vision 不在なら自動で無効)
 
+# 演出検品の提案ループ戻し(E7)。既定 off=バイト等価。on にすると
+# plan-effects --observe / config どちらか true のときに、前回 effect-check
+# の警告が次の演出生成の観測(参考情報。命令ではない)として渡る
+effectReview:
+  observe: false
+
   # AI(意味カット・章立て・タイトル案・AI提案)
 ai:
   # claude-code: Claude Code の `claude` CLI を使う(APIキー不要)
