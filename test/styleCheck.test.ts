@@ -316,3 +316,115 @@ test("classifyCategorical: 一致/mixed=null・不一致は confidence で warn|
   assert.equal(classifyCategorical("top", "bottom", 0.9), "warn");
   assert.equal(classifyCategorical("top", "bottom", 0.1), "info");
 });
+
+/* ---------------- 回帰: learned-percentile 退化帯(p10===p90)の相対フロア ----------------
+ * レビュー指摘(HIGH): margin=(pctHi-pctLo)*(w-1)*0.5 は帯幅に比例するため、
+ * 参照 shotSecP10===shotSecP90(単一keep・均一尺の収録で cold-start に plausible。
+ * 例: 単一114秒無カットkeep)のとき margin=0 になり、confidence をいくら下げて
+ * w を上げても outer===inner の「点帯」になる。すると候補が学習値からわずかに
+ * 外れただけで deviation/warn になり、borderline/info(二層帯の cold-start
+ * 過剰warn防止・設計§2.3.3/リスク§4.1)が到達不能になる。expected の相対トレランス
+ * 由来のフロアマージンとの max を取ることで退化帯でも confidence 分だけ outer が
+ * 広がることを固定する。 */
+
+test("numericBands: 退化帯(pctLo===pctHi=114)でも confidence(低conf)で outer が inner より広がる(点帯にならない)", () => {
+  const { inner, outer } = numericBands({
+    expected: 114,
+    spec: { section: "cutDensity", metric: "avgShotSec", mode: "learned-percentile", tol: 0.3 },
+    confidence: 0.05,
+    pctLo: 114,
+    pctHi: 114,
+  });
+  assert.ok(inner && outer, "inner/outer が null ではないこと");
+  assert.equal(inner!.lo, 114);
+  assert.equal(inner!.hi, 114);
+  // 修正前は margin=0 で outer===inner の点帯になっていた。修正後は confidence 分だけ広がる
+  assert.ok(outer!.lo < inner!.lo, `outer.lo(${outer!.lo}) が inner.lo(${inner!.lo}) より広がっていない`);
+  assert.ok(outer!.hi > inner!.hi, `outer.hi(${outer!.hi}) が inner.hi(${inner!.hi}) より広がっていない`);
+});
+
+/** baseProfile を複製し、cutDensity だけを「退化帯(p10===p90)・低 confidence」に
+ *  差し替えたヘルパ。cutDensity 以外(captions/audio 等)は baseProfile のまま
+ *  自己一致させ、avgShotSec 以外の finding が紛れ込まないようにする */
+function degenerateBandProfile(avgShotSec: number, confidence = 0.05): StyleProfile {
+  const p = baseProfile();
+  p.cutDensity.meta.confidence = confidence;
+  p.cutDensity.avgShotSec = avgShotSec;
+  p.cutDensity.medianShotSec = avgShotSec;
+  p.cutDensity.shotSecP10 = avgShotSec;
+  p.cutDensity.shotSecP90 = avgShotSec;
+  return p;
+}
+
+test("compareProfiles: 退化帯(参照114===114)+低conf(0.05)・候補がわずかに外れる(120) → borderline/info(点帯にならない)", () => {
+  const ref = degenerateBandProfile(114);
+  const cand = clone(ref);
+  cand.cutDensity.avgShotSec = 120; // 参照からわずかに外れる程度
+
+  const findings = compareProfiles(ref, cand);
+  const f = findingFor(findings, "avgShotSec");
+  assert.equal(f?.kind, "borderline");
+  assert.equal(f?.severity, "info");
+});
+
+test("compareProfiles: 退化帯(参照114===114)+低conf(0.05)・候補が桁違い(300) → deviation/warn", () => {
+  const ref = degenerateBandProfile(114);
+  const cand = clone(ref);
+  cand.cutDensity.avgShotSec = 300; // 桁違いの逸脱
+
+  const findings = compareProfiles(ref, cand);
+  const f = findingFor(findings, "avgShotSec");
+  assert.equal(f?.kind, "deviation");
+  assert.equal(f?.severity, "warn");
+});
+
+test("compareProfiles: 退化帯(参照14===14)+低conf(0.05)・候補が桁違い(200) → deviation/warn", () => {
+  const ref = degenerateBandProfile(14);
+  const cand = clone(ref);
+  cand.cutDensity.avgShotSec = 200; // 桁違いの逸脱
+
+  const findings = compareProfiles(ref, cand);
+  const f = findingFor(findings, "avgShotSec");
+  assert.equal(f?.kind, "deviation");
+  assert.equal(f?.severity, "warn");
+});
+
+/* ---------------- 回帰(MEDIUM): learned-percentile フォールバック(p10/p90 null) ----------------
+ * 設計§2.3.3 line 163: 「p10/p90 が null なら avgShotSec±30% にフォールバック」。
+ * numericBands 直叩きで現状カバレッジ0だった分岐を固定する。 */
+
+test("numericBands: learned-percentile で pctLo/pctHi=null → avgShotSec±30% の相対帯にフォールバック", () => {
+  const { inner, outer } = numericBands({
+    expected: 10,
+    spec: { section: "cutDensity", metric: "avgShotSec", mode: "learned-percentile", tol: 0.3 },
+    confidence: 0.5, // widen(0.5) = 1 + 0.5*2 = 2
+    pctLo: null,
+    pctHi: null,
+  });
+  assert.ok(inner && outer);
+  // hw = |expected| * tol = 10 * 0.3 = 3
+  assert.equal(inner!.lo, 7);
+  assert.equal(inner!.hi, 13);
+  // outer = expected ± hw*w = 10 ± 3*2
+  assert.equal(outer!.lo, 4);
+  assert.equal(outer!.hi, 16);
+});
+
+/* ---------------- LOW: categorical CATEGORICAL_TRUST_CONF ちょうど 0.35 境界 ---------------- */
+
+test("classifyCategorical: confidence がちょうど CATEGORICAL_TRUST_CONF(0.35) → warn(境界は warn 側)", () => {
+  assert.equal(classifyCategorical("top", "bottom", 0.35), "warn");
+});
+
+/* ---------------- LOW: observed===null 側の skipped(候補側の欠測) ---------------- */
+
+test("compareProfiles: 候補側が欠測(cand.audio.integratedLufs=null) → skipped/info", () => {
+  const ref = baseProfile();
+  const cand = clone(baseProfile());
+  cand.audio.integratedLufs = null;
+
+  const findings = compareProfiles(ref, cand);
+  const f = findingFor(findings, "integratedLufs");
+  assert.equal(f?.kind, "skipped");
+  assert.equal(f?.severity, "info");
+});
