@@ -14,8 +14,10 @@ import {
 import {
   aiProfileStatuses,
   formatPerceptionStatusLines,
+  formatStyleProfileStatusLines,
   loadConfig,
   resolvePerceptionStatus,
+  resolveStyleProfileStatus,
   resolveConfigPath,
   resolvePlanLoopSecondaryObservationCfg,
   resolveAiRuntimeConfig,
@@ -208,6 +210,12 @@ function printPerceptionStatus(cfg: Parameters<typeof resolvePerceptionStatus>[0
   }
 }
 
+function printStyleProfileStatus(cfg: Parameters<typeof resolveStyleProfileStatus>[0]): void {
+  for (const line of formatStyleProfileStatusLines(resolveStyleProfileStatus(cfg))) {
+    console.log(line);
+  }
+}
+
 function ensurePlanVlmReady(cfg: Parameters<typeof loadConfig>[0] extends never ? never : ReturnType<typeof loadConfig>): { profile: string; origin: string | null; maxCalls: number; maxImages: number } {
   const secondaryCfg = resolvePlanLoopSecondaryObservationCfg(cfg);
   if (!secondaryCfg.enabled) {
@@ -336,6 +344,7 @@ program
       "plan",
     );
     printPerceptionStatus(cfg);
+    printStyleProfileStatus(cfg);
     if (opts.withVlm === true) {
       const vlm = ensurePlanVlmReady(cfg);
       console.error(
