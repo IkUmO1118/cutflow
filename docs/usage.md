@@ -995,9 +995,12 @@ BGM の区間割り・選曲を**作る**のに対し、こちらは既存の BG
   findings 一覧 + 単調/fallback 判定)+ stdout の人間向けレポート + 補正候補が
   あるときだけの `bgm-fit.suggested.json`(使い捨ての `apply` パッチ下書き)。
   `bgm.json` の編集は必ず人間が `apply --patch` を経由する
-- **bgm トラックに `@id` が必要**: `bgm.json` に tracks があるのに `@id` が
-  1つも無ければ「先に `id-stamp <dir>`」と告げて exit 1(補正 op の宛先に
-  `@id` が要るため)
+- **bgm トラックの `@id` は補正が出るときだけ必要**: id の無いトラックに
+  実際に B2 補正(volumeDb/fadeOutSec の set)が出る場合に限り「先に
+  `id-stamp <dir>`」と告げて exit 1(補正 op の宛先に `@id` が要るため)。
+  B4 の単調誘導だけ・検出なしのときは id 不要で通し exit 0(`plan-bgm` の
+  出力は id 無しなので、この緩和で通常鎖 `plan-bgm` → `av` → `bgm-fit` が
+  止まらない)
 - **av.probe の欠如は優雅に拒否**: `av.probe/sound.json` が無ければ「先に
   `av <dir>`」と告げて exit 1
 - **render の duck 実装は変えない**: `src/lib/duck.ts` は無改修。本コマンドは
