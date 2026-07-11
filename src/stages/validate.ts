@@ -8,6 +8,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, normalize, resolve, sep } from "node:path";
 import { isCutplanApproved, isShortApproved } from "../lib/approval.ts";
+import {
+  DEFAULT_EFFECT_CHECK_DENSITY_WINDOW_SEC,
+  DEFAULT_EFFECT_CHECK_MAX_PER_WINDOW,
+} from "../lib/config.ts";
 import { fmtT } from "../lib/fmt.ts";
 import { framesFreshness } from "../lib/framesIndex.ts";
 import { ID_PREFIX, ID_RE } from "../lib/ids.ts";
@@ -516,6 +520,10 @@ export function validateDocs(
       err(f, "zooms", "配列ではありません");
     }
     const zoomSpans: { start: number; end: number }[] = [];
+    // E5(密度ガード・軽量版)用: zoom/blur/annotation の有効区間をここへ集める。
+    // 見せ場(highlightSpans)による抑制はしない(それは `effect-check` の仕事。
+    // validate は本数だけを見る数ミリ秒の軽量版。§設計書 §3 C)
+    const densitySpans: { start: number; end: number }[] = [];
     (Array.isArray(overlays.zooms) ? overlays.zooms : []).forEach((z: unknown, i: number) => {
       const w = `zooms[${i}]`;
       if (!isObj(z)) return err(f, w, "オブジェクトではありません");
@@ -553,6 +561,7 @@ export function validateDocs(
         }
         if (isNum(z.start) && isNum(z.end) && z.start < z.end) {
           zoomSpans.push({ start: z.start, end: z.end });
+          densitySpans.push({ start: z.start, end: z.end });
         }
       }
       if (z.easeSec !== undefined && (!isNum(z.easeSec) || z.easeSec < 0)) {
@@ -605,6 +614,7 @@ export function validateDocs(
       if (isNum(b.start) && isNum(b.end) && b.start < b.end) {
         const bStart = b.start;
         const bEnd = b.end;
+        densitySpans.push({ start: bStart, end: bEnd });
         if (!visible(bStart, bEnd)) {
           warn(f, w, `全体がカット区間内にあり表示されません(${fmtT(bStart)}–${fmtT(bEnd)})`);
         }
@@ -641,8 +651,23 @@ export function validateDocs(
         // start<end・収録尺内はどちらもエラー(warn を渡さない。blurs/zooms と
         // 同じ厳しさで扱う)
         checkSpan(f, w, a, dur, err);
-        if (isNum(a.start) && isNum(a.end) && a.start < a.end && !visible(a.start, a.end)) {
-          warn(f, w, `全体がカット区間内にあり表示されません(${fmtT(a.start)}–${fmtT(a.end)})`);
+        if (isNum(a.start) && isNum(a.end) && a.start < a.end) {
+          const aStart = a.start;
+          const aEnd = a.end;
+          densitySpans.push({ start: aStart, end: aEnd });
+          if (!visible(aStart, aEnd)) {
+            warn(f, w, `全体がカット区間内にあり表示されません(${fmtT(aStart)}–${fmtT(aEnd)})`);
+          }
+          // zoom と時間が重なると、annotation も blur と同様に zoom に追従しないため
+          // 指したい位置が矩形/座標からずれて見えることがある(E4)
+          if (zoomSpans.some((z) => aStart < z.end && z.start < aEnd)) {
+            warn(
+              f, w,
+              `zoom 区間と時間が重なっています(${fmtT(aStart)}–${fmtT(aEnd)})。` +
+                "annotation は zoom に追従しないため、指す位置が矩形/座標からずれて見える" +
+                "ことがあります(zoom を外すか、zoom の後ろへずらしてください)",
+            );
+          }
         }
         if (a.type !== "arrow" && a.type !== "box" && a.type !== "spotlight") {
           return err(f, w, `type は "arrow" / "box" / "spotlight" のいずれかです(現在: ${JSON.stringify(a.type)})`);
@@ -728,6 +753,27 @@ export function validateDocs(
         }
       },
     );
+    // E5(密度ガード・軽量版): zoom/blur/annotation を合わせた開始時刻が
+    // densityWindowSec の窓に maxPerWindow を超えて詰まっていたら警告する。
+    // 見せ場による抑制・still での確認は `effect-check` に委ねる(§設計書 §3 C)
+    {
+      const sortedDensity = [...densitySpans].sort((a, b) => a.start - b.start);
+      const reportedWindows = new Set<number>();
+      for (const anchor of sortedDensity) {
+        const windowEnd = anchor.start + DEFAULT_EFFECT_CHECK_DENSITY_WINDOW_SEC;
+        const count = sortedDensity.filter((s) => s.start >= anchor.start && s.start < windowEnd).length;
+        if (count <= DEFAULT_EFFECT_CHECK_MAX_PER_WINDOW) continue;
+        const key = Math.round(anchor.start * 100);
+        if (reportedWindows.has(key)) continue;
+        reportedWindows.add(key);
+        warn(
+          f, "overlays",
+          `${DEFAULT_EFFECT_CHECK_DENSITY_WINDOW_SEC}秒の窓(${fmtT(anchor.start)}〜)に演出(zoom/blur/annotation)が` +
+            `${count}件詰まっています(上限${DEFAULT_EFFECT_CHECK_MAX_PER_WINDOW}件)。密度が高いと視聴体験を損ねる` +
+            "ことがあります(詳細な見せ場判定は `effect-check` で確認できます)",
+        );
+      }
+    }
     if (
       Array.isArray(overlays.annotations) && overlays.annotations.length > 0 &&
       isObj(shorts) && Array.isArray(shorts.shorts) && shorts.shorts.length > 0

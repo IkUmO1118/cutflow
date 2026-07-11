@@ -314,6 +314,23 @@ export interface Config {
      *  DEFAULT_PLAN_EFFECTS_DEFAULT_BLUR_STRENGTH(0.5) */
     defaultBlurStrength?: number;
   };
+  /** 演出の検品(effect-check)。E3(座標視覚検証)+ E4(zoom 相互作用)+
+   *  E5(密度ガード)。決定論チェックは常時、VLM は vision route があり
+   *  useVlm=true のときだけ(§docs/plans/2026-07-11-e3-e4-e5-effect-visual-verification-design.md)。
+   *  省略時は全て既定値(DEFAULT_EFFECT_CHECK_*) */
+  effectCheck?: {
+    /** 密度判定の窓(秒)。省略時 DEFAULT_EFFECT_CHECK_DENSITY_WINDOW_SEC(5.0) */
+    densityWindowSec?: number;
+    /** 窓内の演出本数の上限。省略時 DEFAULT_EFFECT_CHECK_MAX_PER_WINDOW(3) */
+    maxPerWindow?: number;
+    /** annotation 表示尺の上限(秒)。省略時 DEFAULT_EFFECT_CHECK_MAX_ANNOTATION_SEC(8.0) */
+    maxAnnotationSec?: number;
+    /** 「重なり」とみなす rect 交差率。省略時 DEFAULT_EFFECT_CHECK_MIN_RECT_OVERLAP_RATIO(0.3) */
+    minRectOverlapRatio?: number;
+    /** VLM 二次確認を使うか。省略時 DEFAULT_EFFECT_CHECK_USE_VLM(true)。
+     *  vision route 不在なら実行時に自動で無効になる */
+    useVlm?: boolean;
+  };
   /** describe(操作エージェント向け)の任意露出。省略可・全オフが既定。
    *  無いときは散文・--json ともに導入前とバイト等価 */
   describe?: {
@@ -586,6 +603,32 @@ export function resolveEffectPlacementCfg(cfg: Config): {
     minOcrBoxAreaPx: p.minOcrBoxAreaPx ?? DEFAULT_PLAN_EFFECTS_MIN_OCR_BOX_AREA_PX,
     minZoomRect: p.minZoomRect ?? { ...DEFAULT_PLAN_EFFECTS_MIN_ZOOM_RECT },
     defaultBlurStrength: p.defaultBlurStrength ?? DEFAULT_PLAN_EFFECTS_DEFAULT_BLUR_STRENGTH,
+  };
+}
+
+/** effectCheck.* 未指定時の既定値。§docs/plans/2026-07-11-e3-e4-e5-effect-visual-verification-design.md */
+export const DEFAULT_EFFECT_CHECK_DENSITY_WINDOW_SEC = 5.0;
+export const DEFAULT_EFFECT_CHECK_MAX_PER_WINDOW = 3;
+export const DEFAULT_EFFECT_CHECK_MAX_ANNOTATION_SEC = 8.0;
+export const DEFAULT_EFFECT_CHECK_MIN_RECT_OVERLAP_RATIO = 0.3;
+export const DEFAULT_EFFECT_CHECK_USE_VLM = true;
+
+/** effectCheck を既定値で解決する純関数。loadConfig は cfg.effectCheck を
+ *  書き換えない */
+export function resolveEffectCheckCfg(cfg: Config): {
+  densityWindowSec: number;
+  maxPerWindow: number;
+  maxAnnotationSec: number;
+  minRectOverlapRatio: number;
+  useVlm: boolean;
+} {
+  const e = cfg.effectCheck ?? {};
+  return {
+    densityWindowSec: e.densityWindowSec ?? DEFAULT_EFFECT_CHECK_DENSITY_WINDOW_SEC,
+    maxPerWindow: e.maxPerWindow ?? DEFAULT_EFFECT_CHECK_MAX_PER_WINDOW,
+    maxAnnotationSec: e.maxAnnotationSec ?? DEFAULT_EFFECT_CHECK_MAX_ANNOTATION_SEC,
+    minRectOverlapRatio: e.minRectOverlapRatio ?? DEFAULT_EFFECT_CHECK_MIN_RECT_OVERLAP_RATIO,
+    useVlm: e.useVlm ?? DEFAULT_EFFECT_CHECK_USE_VLM,
   };
 }
 
