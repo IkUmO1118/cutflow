@@ -205,6 +205,9 @@ plan:
   # harness:
   #   agentic: false
   #   maxToolCalls: 16   # 1生成ターンあたりの tool 呼び出し上限
+  #   applySplit: false  # SD5(H6): 確信区間だけ候補内部を語境界で分割(R0 突破)。要 agentic:true + wordTimestamps。
+  #                      # 既定 false=候補単位(SD4)とバイト等価。分割は apply+validate/assert が安全網
+  #   maxSplits: 4       # 1ターンの分割上限(確信区間のみ=全面 apply 移行はしない)
   #   tools:
   #     frames: true
   #     av: true
