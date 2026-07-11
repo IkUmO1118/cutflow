@@ -59,7 +59,7 @@ export interface CaptionsProfile {
   avgDisplaySec: number | null;
   /** coverageRatio → 閾値ラベル */
   density: "low" | "medium" | "high" | null;
-  /** pos.y ヒストグラムの多数決ラベル */
+  /** caption 位置バケットの多数決ラベル */
   positionHint: "top" | "center" | "bottom" | "mixed" | null;
   /** 位置の内訳(件数)。SD-T1 の位置距離の素地。値が無ければ null */
   positionHistogram: { top: number; center: number; bottom: number } | null;
@@ -156,10 +156,13 @@ export interface ProjectObservation {
   // --- captions ---
   captionOutIntervals: { start: number; end: number }[]; // 全 caption の出力秒区間(coverage union 用)
   captionDisplaySecs: number[]; // 各 caption の出力表示秒(avgDisplaySec 用)
-  captionYs: number[]; // 位置判定に使う y(明示 pos.y 優先・無ければ track 既定 y)
+  /** この観測自身の canvasHeight で分類済みの位置バケット数。observeOwnProject が
+   *  captionBucketOf で数え上げる(明示 pos も track 既定も無ければ bottom 既定。
+   *  レンダラー既定フォールバック=remotion/Main.tsx:326-329 と一致させるため)。
+   *  merge はフィールドごとに合算するだけ(異解像度混在でも分母がズレない) */
+  positionHistogram: { top: number; center: number; bottom: number };
   captionCount: number; // 全 caption 数(pos 有無問わず)
   styleFlags: string[]; // 決定論 styleNotes(重複可・merge で頻度集約)
-  canvasHeight: number | null; // y→top/center/bottom の分母(screenRegion.h 等)
   // --- audio ---
   integratedLufs: number | null;
   truePeakDbtp: number | null;
@@ -169,6 +172,9 @@ export interface ProjectObservation {
   hasAv: boolean;
   // --- structure ---
   chapters: { name: string; startOutSec: number; endOutSec: number }[] | null;
+  /** 真の章数(out===null の章=丸ごとカットされた章も含む。structureFrom の chapterCount)。
+   *  own-project のみ。bare-video は null */
+  chapterCount: number | null;
   hookSec: number | null;
   ctaLikely: boolean | null;
   // --- correction delta(own-project + plan.raw のみ) ---
@@ -502,11 +508,22 @@ function computeSceneChangesPerMin(args: {
   return null;
 }
 
-/** caption の描画 y(明示 pos.y 優先・無ければ track 既定 y。どちらも無ければ null) */
-function captionYOf(cap: CaptionEntry, tracks: CaptionTrackDef[]): number | null {
-  if (cap.pos?.y !== undefined) return cap.pos.y;
-  const track = tracks.find((t) => t.track === cap.track);
-  return track?.y ?? null;
+/** caption の描画位置バケット。明示 pos.y → track 既定 y → どちらも無ければ
+ *  レンダラー既定(本編は下部中央)= "bottom"(remotion/Main.tsx:326-329 の
+ *  captionDefaultPos 不在フォールバックと一致させる。無ければ positionHistogram
+ *  から実質除外され、実データで多数派の bottom が top に化けるバグになる)。
+ *  canvasHeight で top/center/bottom に分ける(観測自身の canvasHeight を使う=
+ *  異解像度 merge でも分母がズレない) */
+function captionBucketOf(
+  cap: CaptionEntry,
+  tracks: CaptionTrackDef[],
+  canvasHeight: number,
+): "top" | "center" | "bottom" {
+  const y = cap.pos?.y ?? tracks.find((t) => t.track === cap.track)?.y ?? null;
+  if (y === null) return "bottom";
+  if (y < canvasHeight / 3) return "top";
+  if (y < (2 * canvasHeight) / 3) return "center";
+  return "bottom";
 }
 
 /** own-project 1本 → 観測。av は optional(null 可)。plan.raw は parsePlanRaw 済みを渡す */
@@ -531,7 +548,8 @@ export function observeOwnProject(args: {
 
   const captionOutIntervals: { start: number; end: number }[] = [];
   const captionDisplaySecs: number[] = [];
-  const captionYs: number[] = [];
+  const positionHistogram = { top: 0, center: 0, bottom: 0 };
+  const canvasHeight = proj.source.video.screenRegion.h;
   for (const cap of proj.captions) {
     let displaySec = 0;
     for (const o of cap.out) {
@@ -539,8 +557,7 @@ export function observeOwnProject(args: {
       displaySec += o.end - o.start;
     }
     captionDisplaySecs.push(round2(displaySec));
-    const y = captionYOf(cap, proj.overlays.captionTracks);
-    if (y !== null) captionYs.push(y);
+    positionHistogram[captionBucketOf(cap, proj.overlays.captionTracks, canvasHeight)]++;
   }
 
   const silences = sound?.silences ?? null;
@@ -558,10 +575,9 @@ export function observeOwnProject(args: {
     sceneChangesPerMin,
     captionOutIntervals,
     captionDisplaySecs,
-    captionYs,
+    positionHistogram,
     captionCount: proj.captions.length,
     styleFlags: styleFlagsFrom(proj),
-    canvasHeight: proj.source.video.screenRegion.h,
     integratedLufs: sound?.mix?.integratedLufs ?? null,
     truePeakDbtp: sound?.mix?.truePeakDbtp ?? null,
     silenceCount,
@@ -569,6 +585,7 @@ export function observeOwnProject(args: {
     bgmLikely: bgmPresent || (sound?.bgm.spans.length ?? 0) > 0,
     hasAv: sound !== null,
     chapters: structure.segments,
+    chapterCount: structure.chapterCount,
     hookSec: structure.hookSec,
     ctaLikely: structure.ctaLikely,
     delta: planRaw ? computeCorrectionDelta(planRaw, proj) : null,
@@ -606,10 +623,9 @@ export function observeBareVideo(args: {
     sceneChangesPerMin,
     captionOutIntervals: [],
     captionDisplaySecs: [],
-    captionYs: [],
+    positionHistogram: { top: 0, center: 0, bottom: 0 },
     captionCount: 0,
     styleFlags: [],
-    canvasHeight: probe.height,
     integratedLufs: sound?.mix?.integratedLufs ?? null,
     truePeakDbtp: sound?.mix?.truePeakDbtp ?? null,
     silenceCount,
@@ -617,6 +633,7 @@ export function observeBareVideo(args: {
     bgmLikely,
     hasAv: sound !== null,
     chapters: null,
+    chapterCount: null,
     hookSec: null,
     ctaLikely: null,
     delta: null,
@@ -649,16 +666,6 @@ function weightedMean(items: { value: number | null; weight: number | null }[]):
     any = true;
   }
   return any && sumWeight > 0 ? sumWeightedValue / sumWeight : null;
-}
-
-function bucketYs(ys: number[], canvasHeight: number): { top: number; center: number; bottom: number } {
-  const hist = { top: 0, center: 0, bottom: 0 };
-  for (const y of ys) {
-    if (y < canvasHeight / 3) hist.top++;
-    else if (y < (2 * canvasHeight) / 3) hist.center++;
-    else hist.bottom++;
-  }
-  return hist;
 }
 
 /** N 個の観測を 1 StyleProfile へ。分布統計は配列プーリング(平均の平均にしない)、
@@ -722,24 +729,24 @@ export function mergeObservations(name: string, obs: ProjectObservation[]): Styl
   /* ---------------- captions(own-only。bare は集約に寄与しない) ---------------- */
   const captionOutIntervalsAll: { start: number; end: number }[] = [];
   const captionDisplaySecsAll: number[] = [];
-  const captionYsAll: number[] = [];
+  const positionHistogramTotal = { top: 0, center: 0, bottom: 0 };
   let captionCountSum = 0;
   let coverageSecSum = 0;
   let coverageOutDurSum = 0;
-  let canvasHeightForBucketing: number | null = null;
   const styleFlagSet = new Set<string>();
   for (const o of ownObs) {
     captionOutIntervalsAll.push(...o.captionOutIntervals);
     captionDisplaySecsAll.push(...o.captionDisplaySecs);
-    captionYsAll.push(...o.captionYs);
     captionCountSum += o.captionCount;
     if (o.outDurationSec !== null && o.outDurationSec > 0) {
       coverageSecSum += unionCoverageSec(o.captionOutIntervals);
       coverageOutDurSum += o.outDurationSec;
     }
-    if (canvasHeightForBucketing === null && o.canvasHeight !== null) {
-      canvasHeightForBucketing = o.canvasHeight;
-    }
+    // 観測ごとに自身の canvasHeight で分類済みの histogram をフィールドごとに合算する
+    // だけ(異解像度混在でも「1つの canvasHeight で全 y をバケット化」しないので分母がズレない)
+    positionHistogramTotal.top += o.positionHistogram.top;
+    positionHistogramTotal.center += o.positionHistogram.center;
+    positionHistogramTotal.bottom += o.positionHistogram.bottom;
     for (const f of o.styleFlags) styleFlagSet.add(f);
   }
   const coverageRatio =
@@ -749,10 +756,9 @@ export function mergeObservations(name: string, obs: ProjectObservation[]): Styl
     captionDisplaySecsAll.length > 0 && avgDisplaySec !== null && avgDisplaySec !== 0
       ? (stddev(captionDisplaySecsAll) ?? 0) / avgDisplaySec
       : null;
-  const positionHistogram =
-    canvasHeightForBucketing !== null && captionYsAll.length > 0
-      ? bucketYs(captionYsAll, canvasHeightForBucketing)
-      : null;
+  const positionHistogramSum =
+    positionHistogramTotal.top + positionHistogramTotal.center + positionHistogramTotal.bottom;
+  const positionHistogram = positionHistogramSum > 0 ? positionHistogramTotal : null;
   const captionsKinds = new Set<Kind>(ownObs.length > 0 ? (["own-project"] as const) : []);
 
   const captions: CaptionsProfile = {
@@ -820,7 +826,13 @@ export function mergeObservations(name: string, obs: ProjectObservation[]): Styl
   /* ---------------- structure(own-only) ---------------- */
   const chapterCounts = ownObs.map((o) => o.chapters?.length ?? 0);
   const totalChapters = chapterCounts.reduce((a, b) => a + b, 0);
-  const chapterCount = ownObs.length > 0 ? round2(mean(chapterCounts) ?? 0) : null;
+  // chapterCount の平均は真の章数(out===null=丸ごとカットされた章も含む)を使う。
+  // o.chapters?.length(segments。out!==null でフィルタ後)で代用すると、丸ごと
+  // カットされた章が静かに欠落する
+  const trueChapterCounts = ownObs
+    .map((o) => o.chapterCount)
+    .filter((v): v is number => v !== null);
+  const chapterCount = trueChapterCounts.length > 0 ? round2(mean(trueChapterCounts) ?? 0) : null;
   const hookVals = ownObs.map((o) => o.hookSec).filter((v): v is number => v !== null);
   const hookSec = hookVals.length > 0 ? round2(mean(hookVals) ?? 0) : null;
   const ctaVals = ownObs.map((o) => o.ctaLikely).filter((v): v is boolean => v !== null);

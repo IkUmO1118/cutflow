@@ -114,6 +114,12 @@ export async function styleProfile(
         warnings.push(`${abs}: av.probe/sound.json 未生成 → audio 統計は欠落(先に \`av ${abs}\`)`);
       }
       const planText = readTextOpt(join(abs, "plan.raw.txt"));
+      const planRaw = planText ? parsePlanRaw(planText) : null;
+      if (planText !== null && planRaw === null) {
+        warnings.push(
+          `${abs}: plan.raw.txt を解析できず補正デルタは欠落(cuts-only の plan.raw か形式不正)`,
+        );
+      }
       const bgmPresent =
         existsSync(join(abs, "bgm.json")) ||
         ["bgm.mp3", "bgm.m4a", "bgm.wav"].some((f) => existsSync(join(abs, f)));
@@ -123,7 +129,7 @@ export async function styleProfile(
           proj,
           sound,
           motion,
-          planRaw: planText ? parsePlanRaw(planText) : null,
+          planRaw,
           bgmPresent,
         }),
       );
