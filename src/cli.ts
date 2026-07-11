@@ -51,6 +51,7 @@ import { effectCheck, formatEffectCheckReport } from "./stages/effectCheck.ts";
 import { av, formatAvSummary } from "./stages/av.ts";
 import { bgmFit, formatBgmFitReport } from "./stages/bgmFit.ts";
 import { styleProfile, formatStyleProfileReport } from "./stages/styleProfile.ts";
+import { styleCheck, formatStyleCheckReport } from "./stages/styleCheck.ts";
 import { reviewEdit } from "./stages/review.ts";
 import { aiDoctor } from "./stages/aiDoctor.ts";
 import { readEditSnapshot } from "./lib/renderSnapshot.ts";
@@ -942,6 +943,21 @@ program
     const cfg = loadConfig(program.opts().config);
     const result = await styleProfile({ from: opts.from, name: opts.name }, cfg);
     for (const line of formatStyleProfileReport(result)) console.log(line);
+  });
+
+program
+  .command("style-check <dir>")
+  .description(
+    "収録の現在の編集(候補)の観測統計が style profile の学習分散帯からどれだけ逸脱しているかを" +
+      "決定論で測り、warn/info(常に exit 0)で報告する。要 `style-profile --from <dir>` の事前実行。" +
+      "profile が持つ軸(cut/caption/audio)に閉じる。編集ファイルは1バイトも書かず style-check.json だけを書く",
+  )
+  .option("--profile <name>", "参照する profile 名(style.probe/<name>.json)。省略時 default")
+  .action((dir: string, opts: { profile?: string }) => {
+    const cfg = loadConfig(program.opts().config);
+    const abs = resolveDir(dir);
+    const result = styleCheck(abs, { profile: opts.profile }, cfg);
+    for (const line of formatStyleCheckReport(abs, result)) console.log(line);
   });
 
 program
