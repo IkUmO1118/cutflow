@@ -216,7 +216,14 @@ export function numericBands(args: {
 
   if (spec.mode === "learned-percentile" && pctLo !== null && pctHi !== null) {
     const inner: Band = { lo: pctLo, hi: pctHi };
-    const margin = (pctHi - pctLo) * (w - 1) * 0.5;   // 幅の (w-1) 半分を左右へ
+    // p10===p90(単一keep等の退化帯)では幅由来の margin が 0 に潰れ、confidence を
+    // 広げても outer===inner の点帯になり borderline が到達不能→過剰 warn になる
+    // (実装レビュー指摘・§4.1 追記)。expected の相対トレランス由来のフロアと max を
+    // 取ることで退化帯でも confidence 分だけ outer が広がる(正常帯では従来どおり
+    // 幅由来の margin が支配的なので挙動不変)。
+    const spreadMargin = (pctHi - pctLo) * (w - 1) * 0.5;   // 幅の (w-1) 半分を左右へ
+    const floorMargin = Math.abs(expected) * spec.tol * (w - 1) * 0.5;
+    const margin = Math.max(spreadMargin, floorMargin);
     const outer: Band = { lo: pctLo - margin, hi: pctHi + margin };
     return { inner, outer };
   }

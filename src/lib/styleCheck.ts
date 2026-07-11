@@ -136,7 +136,15 @@ export function numericBands(args: {
 
   if (spec.mode === "learned-percentile" && pctLo !== null && pctHi !== null) {
     const inner: Band = { lo: pctLo, hi: pctHi };
-    const margin = (pctHi - pctLo) * (w - 1) * 0.5; // 幅の (w-1) 半分を左右へ
+    // 学習分散(p90-p10)由来の広げ。ただし p10===p90 の退化帯(単一 keep・均一尺の
+    // 収録で cold-start に plausible)だと 0 に退化し、confidence(w)をいくら上げても
+    // outer===inner の「点帯」になる→ borderline が到達不能で過剰 warn(設計 §4.1)。
+    // expected の相対トレランス由来のフロアマージンと max を取ることで、退化帯でも
+    // confidence で outer が広がるようにする(正常帯では spreadMargin が支配的なので
+    // 挙動は不変。2026-07-02 実測: spreadMargin≈5.70 > floorMargin≈1.18)
+    const spreadMargin = (pctHi - pctLo) * (w - 1) * 0.5; // 幅の (w-1) 半分を左右へ
+    const floorMargin = Math.abs(expected) * spec.tol * (w - 1) * 0.5;
+    const margin = Math.max(spreadMargin, floorMargin);
     const outer: Band = { lo: pctLo - margin, hi: pctHi + margin };
     return { inner, outer };
   }
