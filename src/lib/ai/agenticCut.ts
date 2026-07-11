@@ -14,21 +14,26 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { run } from "../exec.ts";
-import { profileForRoute, resolveAiRuntimeConfig } from "../config.ts";
+import { profileForRoute, resolveAiRuntimeConfig, resolveCandidatesCfg } from "../config.ts";
 import { adapterFor } from "./registry.ts";
 import { completeWithJsonSchema } from "../llm.ts";
 import { buildCutplan, toCutplanIdContext } from "../buildCutplan.ts";
+import { applyCandidateSplits, splitSegmentAtWords, wordsForCandidate } from "../candidateSplit.ts";
+import type { CandidateSplitCfg, SplitOp } from "../candidateSplit.ts";
 import { CUTS_RESPONSE_SCHEMA, parseCutsResponse } from "../cutsResponse.ts";
 import { describeJson } from "../../stages/describe.ts";
 import { frames } from "../../stages/frames.ts";
 import { av, formatAvSummary } from "../../stages/av.ts";
 import { materials } from "../../stages/materials.ts";
 import { assert } from "../../stages/assert.ts";
+import { validate } from "../../stages/validate.ts";
 import { computeSegmentOcr } from "../perception.ts";
 import type { Config } from "../config.ts";
 import type { NumberedSegment } from "../../stages/plan.ts";
-import type { CutPlan, Manifest, PlanSegment } from "../../types.ts";
+import type { CutPlan, Manifest, PlanSegment, WordTiming } from "../../types.ts";
 import type { AiAdapter, AiAgenticToolHandler, AiImagePart } from "./types.ts";
+
+export type { SplitOp } from "../candidateSplit.ts";
 
 /** read-only 知覚 + 検証 tool 1件の定義(§2.1 の7 tool)。handler は既存
  * ステージ関数の薄いラッパで、副作用は set_cuts の cutplan.json 書込だけ */
@@ -49,6 +54,20 @@ export interface AgenticCtx {
   trace: AgenticTraceEntry[];
   /** plan.harness.tools。省略キーは on 扱い(resolvePlanHarnessCfg が既定を埋める) */
   toolsEnabled: { frames: boolean; av: boolean; materials: boolean; ocr: boolean };
+  /** plan.harness.applySplit(H6・既定 false)。true のときだけ list_words/
+   * split_candidate がツールレジストリに現れる(§SD5design §1-1) */
+  applySplit: boolean;
+  /** 1ターンの分割上限(plan.harness.maxSplits) */
+  maxSplits: number;
+  /** 確定済み分割(候補内部の語境界 cut)。ターンを跨いで蓄積される
+   * (呼び出し側=runCutsLoop が反復間で持ち回る) */
+  splits: SplitOp[];
+  /** このターンの split_candidate 呼び出しの試行ログ(採否問わず)。
+   * plan.loop.json の splitOps トレース(中間生成物)の元 */
+  splitTrace: SplitTraceEntry[];
+  /** transcript 全体の語タイムスタンプ(collectWords 済み)。applySplit off の
+   * ときは list_words/split_candidate 自体が登録されないため未使用 */
+  words: WordTiming[];
 }
 
 export interface AgenticTraceEntry {
@@ -57,12 +76,23 @@ export interface AgenticTraceEntry {
   resultDigest: string;
 }
 
+/** split_candidate 1回の試行ログ(§1-8 中間生成物・ダイジェストのみ・生 args 不可) */
+export interface SplitTraceEntry {
+  candidateId: number;
+  wordRanges: string;
+  accepted: boolean;
+  check?: string;
+}
+
 export interface AgenticResult {
   cuts: { id: number; reason: string }[];
   trace: AgenticTraceEntry[];
   raw: string;
   /** フォールバックした理由(あれば)。null=agentic 完走 */
   degraded: string | null;
+  /** このターン終了時点の確定済み分割(§2.4 の最終 cutplan 組み立てに使う) */
+  splits: SplitOp[];
+  splitTrace: SplitTraceEntry[];
 }
 
 /* --------------------------- 補助関数(fs 読み) --------------------------- */
@@ -239,6 +269,135 @@ const ocrScreenTool: CutTool = {
   },
 };
 
+/** plan.harness.applySplit 用の CandidateSplitCfg(既存 candidates.minCandidateSec を
+ * 再利用。新しい設定キーは足さない=§3 の change table どおり) */
+function splitCfgOf(cfg: Config): CandidateSplitCfg {
+  return { minCandidateSec: resolveCandidatesCfg(cfg).minCandidateSec };
+}
+
+/** 現在の cutplan.json(候補id単位の action)から set_cuts 形式の cuts 配列を復元する。
+ * split_candidate が §2.4 の式(applyCandidateSplits(buildCutplan(現在cuts), ...))を
+ * 組み立てる際の「現在の候補選択」の元。cutplan.json が無ければ空(全 keep 扱い) */
+function currentCutsList(dir: string, numbered: NumberedSegment[]): { id: number; reason: string }[] {
+  const actions = currentCutActions(dir, numbered);
+  return numbered
+    .filter((n) => actions.get(n.id)?.action === "cut")
+    .map((n) => ({ id: n.id, reason: actions.get(n.id)!.reason }));
+}
+
+const listWordsTool: CutTool = {
+  name: "list_words",
+  description:
+    "候補 #id 内の語を1始まり index 付きで返す(split_candidate の cutWordRanges で使う index の元)。語タイムスタンプが無い候補は分割不可を返す。",
+  inputSchema: {
+    type: "object",
+    required: ["id"],
+    properties: { id: { type: "integer" } },
+    additionalProperties: false,
+  },
+  async handle(args, ctx) {
+    const { id } = (args ?? {}) as { id?: number };
+    const seg = ctx.numbered.find((n) => n.id === id);
+    if (!seg) return { text: `候補 id=${id} は存在しません`, isError: true };
+    const words = wordsForCandidate({ start: seg.start, end: seg.end }, ctx.words);
+    if (words.length === 0) {
+      return { text: `#${id} は語タイムスタンプがありません(この候補は分割できません)` };
+    }
+    const lines = words.map((w, i) => `${i + 1} "${w.text}" [${w.start.toFixed(2)}-${w.end.toFixed(2)}]`);
+    return { text: `#${id} の語(全${words.length}語):\n${lines.join("\n")}` };
+  },
+};
+
+const splitCandidateTool: CutTool = {
+  name: "split_candidate",
+  description:
+    "候補 #id の中で、list_words の index i〜j(両端含む)の sub-span を cut にする(候補内部を語境界で分割・R0 突破)。境界は既存語境界へ自動スナップし、時刻は書かない。分割は validate+assert 通過時のみ確定し、失敗時は自動ロールバックされる(拒否理由が返る)。1ターンの分割数には上限(maxSplits)がある。",
+  inputSchema: {
+    type: "object",
+    required: ["id", "cutWordRanges"],
+    properties: {
+      id: { type: "integer" },
+      cutWordRanges: {
+        type: "array",
+        minItems: 1,
+        items: {
+          type: "object",
+          required: ["i", "j", "reason"],
+          properties: {
+            i: { type: "integer" },
+            j: { type: "integer" },
+            reason: { type: "string" },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    additionalProperties: false,
+  },
+  async handle(args, ctx) {
+    const { id, cutWordRanges } = (args ?? {}) as {
+      id?: number;
+      cutWordRanges?: { i: number; j: number; reason: string }[];
+    };
+    if (ctx.splits.length >= ctx.maxSplits) {
+      return {
+        text: `分割上限(maxSplits=${ctx.maxSplits})に達しました。これ以上の分割はできません(候補単位の set_cuts は引き続き使えます)。`,
+        isError: true,
+      };
+    }
+    const seg = ctx.numbered.find((n) => n.id === id);
+    if (!seg) {
+      return { text: `拒否: 存在しない候補 id です: ${id}(cutplan.json は更新していません)`, isError: true };
+    }
+    if (!Array.isArray(cutWordRanges) || cutWordRanges.length === 0) {
+      return { text: "拒否: cutWordRanges は1件以上必要です", isError: true };
+    }
+    const wordRangesLabel = cutWordRanges.map((r) => `${r.i}-${r.j}`).join(",");
+
+    const cfg = splitCfgOf(ctx.cfg);
+    const candWords = wordsForCandidate({ start: seg.start, end: seg.end }, ctx.words);
+    const preCheck = splitSegmentAtWords({ start: seg.start, end: seg.end }, candWords, cutWordRanges, cfg);
+    if ("error" in preCheck) {
+      ctx.splitTrace.push({ candidateId: id!, wordRanges: wordRangesLabel, accepted: false, check: preCheck.error });
+      return { text: `分割は却下: ${preCheck.error}(cutplan.json は更新していません)`, isError: true };
+    }
+
+    const op: SplitOp = { candidateId: id!, segStart: seg.start, segEnd: seg.end, cutWordRanges };
+    const trialSplits = [...ctx.splits, op];
+
+    const cutplanPath = join(ctx.dir, "cutplan.json");
+    const before = existsSync(cutplanPath) ? readFileSync(cutplanPath, "utf8") : null;
+
+    const base = buildCutplan(ctx.numbered, currentCutsList(ctx.dir, ctx.numbered), toCutplanIdContext(ctx.idCtx));
+    const trial = applyCandidateSplits(base, trialSplits, ctx.words, cfg, ctx.idCtx && { used: ctx.idCtx.used });
+    writeFileSync(cutplanPath, JSON.stringify(trial, null, 2));
+
+    const validation = validate(ctx.dir);
+    const report = await assert(ctx.dir);
+    const broken = validation.errors.length > 0 || report.outcomes.some((o) => o.status === "error");
+    if (broken) {
+      if (before !== null) writeFileSync(cutplanPath, before);
+      const reasons = [
+        ...validation.errors.map((e) => `[validate] ${e.file} ${e.where}: ${e.message}`),
+        ...report.outcomes.filter((o) => o.status === "error").map((o) => `[assert] ${o.message}`),
+      ];
+      const check = reasons.join(" / ") || "不明なエラー";
+      ctx.splitTrace.push({ candidateId: id!, wordRanges: wordRangesLabel, accepted: false, check });
+      return { text: `分割は却下(検査エラーのためロールバック): ${check}`, isError: true };
+    }
+
+    ctx.splits.push(op);
+    ctx.splitTrace.push({ candidateId: id!, wordRanges: wordRangesLabel, accepted: true });
+    const proj = describeJson(ctx.dir, ctx.cfg);
+    const lines = [
+      `分割OK: 候補#${id} の語 ${wordRangesLabel} を cut`,
+      `出力尺: ${proj.summary.outDurationSec.toFixed(1)}秒 / keep区間: ${proj.summary.keepCount} / cut区間: ${proj.cuts.length}`,
+      formatOutcomes(report.outcomes),
+    ];
+    return { text: lines.join("\n") };
+  },
+};
+
 const setCutsTool: CutTool = {
   name: "set_cuts",
   description:
@@ -268,7 +427,12 @@ const setCutsTool: CutTool = {
         isError: true,
       };
     }
-    const cutplan = buildCutplan(ctx.numbered, list, toCutplanIdContext(ctx.idCtx));
+    // §2.4 の相互作用: set_cuts が後から候補を全 cut にした場合、その候補の
+    // split は無意味になるため、常に applyCandidateSplits(buildCutplan(...), ctx.splits, ...)
+    // で組み直す(単一の権威ある再構築)。ctx.splits が空(applySplit off)なら
+    // applyCandidateSplits は base をそのまま返す恒等関数(§1-1 バイト等価の要)
+    const base = buildCutplan(ctx.numbered, list, toCutplanIdContext(ctx.idCtx));
+    const cutplan = applyCandidateSplits(base, ctx.splits, ctx.words, splitCfgOf(ctx.cfg), ctx.idCtx && { used: ctx.idCtx.used });
     writeFileSync(join(ctx.dir, "cutplan.json"), JSON.stringify(cutplan, null, 2));
     const report = await assert(ctx.dir);
     const proj = describeJson(ctx.dir, ctx.cfg);
@@ -291,13 +455,16 @@ const runAssertTool: CutTool = {
 };
 
 /** ctx.toolsEnabled に従って有効な tool だけを返す。describe_timeline/
- * set_cuts/run_assert は常時有効(個別 off に対応する設定項目が無い) */
+ * set_cuts/run_assert は常時有効(個別 off に対応する設定項目が無い)。
+ * list_words/split_candidate は ctx.applySplit(plan.harness.applySplit)が
+ * true のときだけ現れる(§1-1: off なら SD4 と完全に同じ tool セット) */
 function buildToolRegistry(ctx: AgenticCtx): CutTool[] {
   const tools: CutTool[] = [describeTimelineTool];
   if (ctx.toolsEnabled.frames) tools.push(getFramesTool);
   if (ctx.toolsEnabled.av) tools.push(probeAvTool);
   if (ctx.toolsEnabled.materials) tools.push(probeMaterialsTool);
   if (ctx.toolsEnabled.ocr) tools.push(ocrScreenTool);
+  if (ctx.applySplit) tools.push(listWordsTool, splitCandidateTool);
   tools.push(setCutsTool, runAssertTool);
   return tools;
 }
@@ -337,7 +504,14 @@ export async function agenticCutTurn(args: {
       `AI アダプタ "${profile.adapter}" は tool-use(completeAgentic) に対応していません。単発経路にフォールバックします`,
     );
     const raw = await fallback(firstPrompt, ctx.cfg);
-    return { cuts: parseCutsResponse(raw).cuts, trace: ctx.trace, raw, degraded: "adapter-not-agentic" };
+    return {
+      cuts: parseCutsResponse(raw).cuts,
+      trace: ctx.trace,
+      raw,
+      degraded: "adapter-not-agentic",
+      splits: ctx.splits,
+      splitTrace: ctx.splitTrace,
+    };
   }
 
   ensureInitialCutplan(ctx);
@@ -376,11 +550,25 @@ export async function agenticCutTurn(args: {
       handleTool,
     );
     const parsed = parseCutsResponse(response.text);
-    return { cuts: parsed.cuts, trace: ctx.trace, raw: response.text, degraded: null };
+    return {
+      cuts: parsed.cuts,
+      trace: ctx.trace,
+      raw: response.text,
+      degraded: null,
+      splits: ctx.splits,
+      splitTrace: ctx.splitTrace,
+    };
   } catch (error) {
     ctx.warn(`agentic ループが失敗しました。単発経路にフォールバックします: ${(error as Error).message}`);
     const raw = await fallback(firstPrompt, ctx.cfg);
-    return { cuts: parseCutsResponse(raw).cuts, trace: ctx.trace, raw, degraded: (error as Error).message };
+    return {
+      cuts: parseCutsResponse(raw).cuts,
+      trace: ctx.trace,
+      raw,
+      degraded: (error as Error).message,
+      splits: ctx.splits,
+      splitTrace: ctx.splitTrace,
+    };
   } finally {
     clearTimeout(timeout);
   }

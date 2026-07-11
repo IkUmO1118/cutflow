@@ -219,6 +219,14 @@ export interface Config {
       agentic?: boolean;
       /** 1生成ターンあたりの tool 呼び出し上限。既定 16(コスト/レイテンシの天井) */
       maxToolCalls?: number;
+      /** 既定 false。候補内部を語境界で分割する書込み tool(list_words/
+       * split_candidate)を追加する(H6・R0 突破)。要 agentic:true。
+       * LLM は語 index しか書かず、分割は validate/assert 通過時のみ書かれ
+       * ロールバックされる(§docs/plans/2026-07-11-h6-apply-hybrid-r0-breakthrough-design.md)。
+       * agentic の内側の入れ子 opt-in(既定 off で SD4 とバイト等価) */
+      applySplit?: boolean;
+      /** 1ターンの分割上限(確信区間のみ=全面 apply 移行はしない)。既定 4 */
+      maxSplits?: number;
       /** 個別 tool の on/off。省略時は全 on。describe_timeline/set_cuts/
        * run_assert は常時有効(this では止められない) */
       tools?: {
@@ -541,11 +549,16 @@ export function planLoopEnabled(cfg: Config): boolean {
 /** plan.harness.maxToolCalls 未指定時の既定(1生成ターンあたりの tool 呼び出し上限) */
 export const DEFAULT_PLAN_HARNESS_MAX_TOOL_CALLS = 16;
 
+/** plan.harness.maxSplits 未指定時の既定(1ターンの候補内部分割上限・H6) */
+export const DEFAULT_PLAN_HARNESS_MAX_SPLITS = 4;
+
 /** plan.harness を既定値で解決する純関数(省略時は全オフ+既定値)。
  *  loadConfig は cfg.plan.harness を書き換えない(省略=オフ=バイト等価を守る) */
 export function resolvePlanHarnessCfg(cfg: Config): {
   agentic: boolean;
   maxToolCalls: number;
+  applySplit: boolean;
+  maxSplits: number;
   tools: { frames: boolean; av: boolean; materials: boolean; ocr: boolean };
 } {
   const h = cfg.plan?.harness ?? {};
@@ -553,6 +566,8 @@ export function resolvePlanHarnessCfg(cfg: Config): {
   return {
     agentic: h.agentic ?? false,
     maxToolCalls: h.maxToolCalls ?? DEFAULT_PLAN_HARNESS_MAX_TOOL_CALLS,
+    applySplit: h.applySplit ?? false,
+    maxSplits: h.maxSplits ?? DEFAULT_PLAN_HARNESS_MAX_SPLITS,
     tools: {
       frames: t.frames ?? true,
       av: t.av ?? true,
@@ -619,7 +634,7 @@ function validateWorkflowConfig(cfg: Config): string[] {
   }
   const planHarness = cfg.plan?.harness as Record<string, unknown> | undefined;
   if (planHarness) {
-    errors.push(...unknownKeys(planHarness, ["agentic", "maxToolCalls", "tools"]).map((key) => `plan.harness.${key} は未対応です`));
+    errors.push(...unknownKeys(planHarness, ["agentic", "maxToolCalls", "applySplit", "maxSplits", "tools"]).map((key) => `plan.harness.${key} は未対応です`));
     if ("agentic" in planHarness && typeof planHarness.agentic !== "boolean") {
       errors.push("plan.harness.agentic は boolean で指定してください");
     }
@@ -627,6 +642,15 @@ function validateWorkflowConfig(cfg: Config): string[] {
       const value = planHarness.maxToolCalls;
       if (!Number.isInteger(value) || Number(value) < 1 || Number(value) > 64) {
         errors.push("plan.harness.maxToolCalls は 1..64 の整数で指定してください");
+      }
+    }
+    if ("applySplit" in planHarness && typeof planHarness.applySplit !== "boolean") {
+      errors.push("plan.harness.applySplit は boolean で指定してください");
+    }
+    if ("maxSplits" in planHarness) {
+      const value = planHarness.maxSplits;
+      if (!Number.isInteger(value) || Number(value) < 1 || Number(value) > 16) {
+        errors.push("plan.harness.maxSplits は 1..16 の整数で指定してください");
       }
     }
     const tools = planHarness.tools as Record<string, unknown> | undefined;
