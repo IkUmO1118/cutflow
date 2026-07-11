@@ -41,3 +41,4 @@ node scripts/regression-diff.ts <id> baseline after-w0
 
 | id | 収録フォルダ(絶対パス) | 特徴 |
 |---|---|---|
+| sample-a | /Users/19mo/Movies/cutflow/2026-07-10_2 | 142秒・31セグメント・発話多め・cut系施策(W0/C1/X4)の一巡評価用 |
