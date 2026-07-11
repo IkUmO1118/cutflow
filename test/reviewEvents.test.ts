@@ -7,6 +7,7 @@ import {
 } from "../src/lib/reviewEvents.ts";
 import type { Hunk } from "../src/lib/docDiff.ts";
 import type { ReviewEvent } from "../src/lib/reviewEvents.ts";
+import type { EffectWarning } from "../src/lib/effectCheck.ts";
 
 function hunk(overrides: Partial<Hunk> & { address?: Partial<Hunk["address"]> } = {}): Hunk {
   const { address, ...rest } = overrides;
@@ -194,4 +195,101 @@ test("warningSummary: event warning を kind ごとに集計する", () => {
       { label: "字幕", count: 3 },
     ],
   });
+});
+
+// --- E6: effectWarnings による reviewEvents merge ---
+
+const blurHunk = hunk({
+  address: {
+    file: "overlays",
+    arrayKey: "blurs",
+    elementId: "bl_aaaaaa",
+    field: undefined,
+    label: "overlays blurs bl_aaaaaa",
+  },
+  kind: "element-add",
+  base: undefined,
+  mine: undefined,
+  theirs: { id: "bl_aaaaaa", start: 10, end: 12, rect: { x: 1, y: 2, w: 3, h: 4 } },
+});
+
+test("buildReviewEvents: effectWarnings 未指定は既存挙動とバイト等価", () => {
+  const hunks = [blurHunk];
+  const withoutArg = buildReviewEvents({ hunks });
+  const withUndefined = buildReviewEvents({ hunks, effectWarnings: undefined });
+  const withEmpty = buildReviewEvents({ hunks, effectWarnings: [] });
+  assert.deepEqual(withUndefined, withoutArg);
+  assert.deepEqual(withEmpty, withoutArg);
+  // 中身も cut/caption/insert 等の既存フィールドが不変であることを確認
+  assert.equal(withoutArg.length, 1);
+  assert.equal(withoutArg[0].kind, "blur");
+  assert.deepEqual(withoutArg[0].warnings, []);
+});
+
+test("buildReviewEvents: effectWarnings が既存 blur イベントへ merge される", () => {
+  const warnings: EffectWarning[] = [
+    {
+      kind: "blur-zoom-overlap",
+      refId: "bl_aaaaaa",
+      startSec: 10,
+      endSec: 12,
+      message: "blur(bl_aaaaaa)が zoom(zm_bbbbbb)と時間が重なっています。",
+    },
+  ];
+  const events = buildReviewEvents({ hunks: [blurHunk], effectWarnings: warnings });
+  assert.equal(events.length, 1);
+  assert.equal(events[0].kind, "blur");
+  assert.deepEqual(events[0].hunkIndexes, [0]); // 既存イベントのまま(独立イベントを作らない)
+  assert.deepEqual(events[0].warnings, [warnings[0].message]);
+  assert.ok(events[0].checkPoints.includes("覆えているか"));
+});
+
+test("buildReviewEvents: 一致するイベントが無い effectWarnings は独立イベントを作る", () => {
+  const warnings: EffectWarning[] = [
+    {
+      kind: "annotation-too-long",
+      refId: "ann_zzzzzz",
+      startSec: 100,
+      endSec: 110,
+      message: "annotation(ann_zzzzzz)の表示尺(10.0s)が上限(8s)を超えています",
+    },
+  ];
+  const events = buildReviewEvents({ hunks: [blurHunk], effectWarnings: warnings });
+  assert.equal(events.length, 2);
+  const standalone = events.find((e) => e.kind === "annotation");
+  assert.ok(standalone);
+  assert.deepEqual(standalone!.hunkIndexes, []);
+  assert.deepEqual(standalone!.warnings, [warnings[0].message]);
+  assert.deepEqual(standalone!.timeRange, { axis: "source", startSec: 100, endSec: 110 });
+});
+
+test("buildReviewEvents: fixRef があるとき warnings に補正候補の参照が付く", () => {
+  const warnings: EffectWarning[] = [
+    {
+      kind: "blur-zoom-overlap",
+      refId: "bl_aaaaaa",
+      startSec: 10,
+      endSec: 12,
+      message: "blur(bl_aaaaaa)が zoom(zm_bbbbbb)と時間が重なっています。",
+      suggestions: [{ op: "set", target: "@bl_aaaaaa", field: "rect", value: { x: 0, y: 0, w: 1, h: 1 } }],
+    },
+  ];
+  const events = buildReviewEvents({ hunks: [blurHunk], effectWarnings: warnings });
+  assert.ok(events[0].warnings.some((w) => w.includes("effect-fix.suggested.json#@bl_aaaaaa")));
+});
+
+test("warningSummary: effectWarnings の merge を反映する", () => {
+  const warnings: EffectWarning[] = [
+    {
+      kind: "blur-zoom-overlap",
+      refId: "bl_aaaaaa",
+      startSec: 10,
+      endSec: 12,
+      message: "blur(bl_aaaaaa)が zoom(zm_bbbbbb)と時間が重なっています。",
+    },
+  ];
+  const events = buildReviewEvents({ hunks: [blurHunk], effectWarnings: warnings });
+  const summary = warningSummary(events);
+  assert.equal(summary.total, 1);
+  assert.deepEqual(summary.groups, [{ label: "ぼかし", count: 1 }]);
 });
