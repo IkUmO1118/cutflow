@@ -50,6 +50,7 @@ import { formatMaterialFitReport, materialFit } from "./stages/materialFit.ts";
 import { effectCheck, formatEffectCheckReport } from "./stages/effectCheck.ts";
 import { av, formatAvSummary } from "./stages/av.ts";
 import { bgmFit, formatBgmFitReport } from "./stages/bgmFit.ts";
+import { styleProfile, formatStyleProfileReport } from "./stages/styleProfile.ts";
 import { reviewEdit } from "./stages/review.ts";
 import { aiDoctor } from "./stages/aiDoctor.ts";
 import { readEditSnapshot } from "./lib/renderSnapshot.ts";
@@ -922,6 +923,25 @@ program
     const abs = resolveDir(dir);
     const result = bgmFit(abs, cfg);
     for (const line of formatBgmFitReport(abs, result)) console.log(line);
+  });
+
+function collectFrom(value: string, prev: string[]): string[] {
+  return [...prev, value];
+}
+
+program
+  .command("style-profile")
+  .description(
+    "任意の動画/収録パスからスタイルプロファイルを抽出し、channel(最初の --from の親ディレクトリ)の " +
+      "style.probe/<name>.json に書く。収録(manifest+cutplan あり)= 統計+補正デルタ(own-project)、" +
+      "素の動画/フォルダ = 観測統計のみ(bare-video)。決定論のみ・編集ファイルは1バイトも書かない",
+  )
+  .option("--from <path>", "入力パス(収録フォルダ or 素の動画/フォルダ)。複数指定可", collectFrom, [])
+  .option("--name <name>", "プロファイル名(出力ファイル名 style.probe/<name>.json)。省略時 default")
+  .action(async (opts: { from: string[]; name?: string }) => {
+    const cfg = loadConfig(program.opts().config);
+    const result = await styleProfile({ from: opts.from, name: opts.name }, cfg);
+    for (const line of formatStyleProfileReport(result)) console.log(line);
   });
 
 program

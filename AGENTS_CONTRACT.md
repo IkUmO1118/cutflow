@@ -116,6 +116,11 @@ false staleness signals or gets silently discarded:
 - `review.probe/` — a **replace-on-run** generated directory written by
   `review <dir>` (`index.json`, `before/`, `after/`, `ocr/`). It is wiped and
   rebuilt on each review run
+- `style.probe/` — a generated directory written by `style-profile`
+  (`<name>.json` per `--name`, default `default.json`) under the **channel**
+  directory (the parent of the first `--from` path), not necessarily inside
+  a single recording folder. Always fully recomputed and overwritten on each
+  run (no partial cache)
 - `backups/` (pre-overwrite snapshots) and `.editor-draft.json` (the GUI
   editor's autosaved unsaved draft)
 - `rules.suggested.md` (a disposable draft written by `learn`; a human
@@ -258,6 +263,7 @@ without `--force`; with `--force`, hand-edited files are moved to
 | `effect-check <dir>` | Verify zoom/blur/annotation effects: deterministic zoom-interaction (E4) and density (E5) checks always run; deterministic caption/material overlap checks and optional VLM secondary review (E3) inspect composited stills reused from the `frames` path. Writes `effect-check.json` and, when there are deterministic corrections, an `apply`-ready patch draft (`effect-fix.suggested.json`). `--no-vlm` skips the VLM lane; it also auto-skips gracefully when no vision route is configured. Never writes editable files |
 | `av <dir>` | Probe kept motion/sound feedback and write `av.probe/` reports |
 | `bgm-fit <dir>` | Detect BGM speech-overlap/silence-float/loud/no-fade issues from `av.probe/sound.json` and propose `volumeDb`/`fadeOutSec` corrections as an `apply`-ready patch draft (`bgm-fit.suggested.json`); also detects a monotone single-track/root-`bgm.*` fallback when multiple chapters exist and points to `plan-bgm`. Requires `av <dir>` first; deterministic only (no LLM). Never writes editable files |
+| `style-profile` | Extract a deterministic style profile (cut pace, caption density/position, loudness, structure, and — for `own-project` inputs with `plan.raw.txt` — an AI-proposal-vs-human-final correction delta) from one or more `--from <path>` inputs (a recording folder with `manifest.json`+`cutplan.json`, or a bare video file/folder), and write it to `style.probe/<name>.json` under the channel directory (the parent of the first `--from` path). Takes no `<dir>` positional argument. Never writes editable files |
 | `review <dir>` | Generate a deterministic before/after review bundle and write `review.probe/index.json` |
 | `index` | Build the local cross-recording retrieval index |
 | `search <query>` | Search recording/material metadata, OCR, and transcripts locally |
