@@ -181,6 +181,10 @@ planShorts:
 # 知覚を添える。標準設定では audio/ocr を明示オンにする。
 # 古い config でこの節自体が無い場合は互換のため全オフで動き、CLI が警告する
 plan:
+  # カットの積極度: safe(現状維持=ほぼ切らない、X4導入前とバイト等価) /
+  # balanced(既定・明確な冗長は切る) / aggressive(テンポ最優先)。
+  # rules.md / brief.md に「編集モード: aggressive」等の行があればそちらが優先
+  editMode: balanced
   perception:
     audio: true # 無音・間の注記(決定論・追加依存なし。まずこれから)
     ocr: true # 画面OCRテキスト(macOS/Apple Vision 必要・区間数ぶん重い)
@@ -188,6 +192,8 @@ plan:
     ocrMaxLines: 6
     systemSpeech: false # システム音声の発話を plan に添える(要 whisper.systemAudio)
   # plan --cuts-only の観測→再調整ループ。省略/0/1 は従来の1ショット。
+  # targetOutDurationSec は単発 plan にも surface される(設定するとプロンプトに
+  # 「目標の出力尺」行が1行足される。ループが無効でも読まれる)
   # loop:
   #   maxIterations: 0
   #   targetOutDurationSec: null

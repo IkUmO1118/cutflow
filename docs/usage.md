@@ -927,6 +927,36 @@ plan:
 - 停止条件は `maxIterations` 到達、期待値の fail/error が0、直前と同じ cut 集合の
   3つ。どれも決定論的に判定される
 
+## plan の編集モード(config.yaml の plan.editMode。既定 balanced)
+
+`plan` / `plan --cuts-only`(生成・再調整の両方)は、プロンプトの
+「カットの判断基準」の最後の1行を編集モードで切り替える。3値:
+
+- `safe`: 「迷ったら残す。過剰カットより冗長の方がまし」(X4 導入前の固定文と
+  **バイト等価**。回帰基準線の再現に使う)
+- `balanced`(**既定**): 明確な冗長・言い直し・脱線は積極的に切ってテンポを作る。
+  見せ場と説明の要点は必ず残す。判断がつかない中間区間は残す
+- `aggressive`: 冗長・重複・長い沈黙・脱線はためらわず切る。テンポ最優先。
+  見せ場だけは必ず残し、それ以外は「残す理由があるか」で判断する
+
+```yaml
+plan:
+  editMode: balanced   # safe / balanced(既定) / aggressive
+```
+
+- 優先順位: `brief.md` のマーカー行 > `rules.md` のマーカー行 > `config.yaml`
+  の `plan.editMode` > 既定(balanced)。マーカー行の書式は
+  `編集モード: aggressive` または `edit-mode: safe`(前後空白可・大小文字不問)。
+  同じファイル内に複数あれば最後の一致が勝つ
+- `config.yaml` に未対応の値(`safe`/`balanced`/`aggressive` 以外)が来ても
+  例外は投げず、警告のうえ既定(balanced)にフォールバックする
+- 効くのは「カットの判断基準」の最後の1行だけ。言い直し/脱線/エラーの3行や
+  章立て・タイトル・概要欄の指示、brief/rules 本文は不変
+- `plan.loop.targetOutDurationSec` が設定されていれば(ループが無効でも)、
+  モード行の直後に「目標の出力尺は約 N 秒。冗長を削ってこの尺に近づける」の
+  1行が単発 `plan` のプロンプトにも足される。未設定なら何も足されない
+- `remeta` / `plan-shorts` は対象外(cut 判断ではないので触らない)
+
 ## システム音声の文字起こし・keep 内の間(AI の耳の強化。既定オフ)
 
 マイク音声(あなたの声)は `transcript.json` に描画用テロップとして起こされるが、

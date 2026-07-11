@@ -12,6 +12,7 @@ import {
   resolvePlanLoopCfg,
   resolvePlanLoopSecondaryObservationCfg,
 } from "../lib/config.ts";
+import { resolveEditMode, renderEditModeBlock } from "../lib/editMode.ts";
 import { candidateText, collectWords, subdivideCandidates } from "../lib/candidates.ts";
 import {
   deriveLoopAssertions,
@@ -382,7 +383,14 @@ export async function plan(
     );
   }
 
-  const prompt = renderPrompt(dir, templateFile, numbered, auto.originalDurationSec, perception);
+  const prompt = renderPrompt(
+    dir,
+    templateFile,
+    numbered,
+    auto.originalDurationSec,
+    perception,
+    buildEditModeCfg(cfg),
+  );
   const raw = await completeFn(prompt, cfg);
   // LLM の生応答は必ず残す(パース失敗時の調査と、判断過程の記録のため)
   writeFileSync(join(dir, "plan.raw.txt"), raw);
@@ -415,7 +423,14 @@ async function generateCutsOnce(
   completeFn: CompleteFn,
   idCtx?: { used: Set<string>; existingCutplanSegments: PlanSegment[] },
 ): Promise<CutPlan> {
-  const prompt = renderPrompt(dir, "plan-cuts.md", numbered, durationSec, perception);
+  const prompt = renderPrompt(
+    dir,
+    "plan-cuts.md",
+    numbered,
+    durationSec,
+    perception,
+    buildEditModeCfg(cfg),
+  );
   const raw = await completeFn(prompt, cfg);
   // LLM の生応答は必ず残す(パース失敗時の調査と、判断過程の記録のため)
   writeFileSync(join(dir, "plan.raw.txt"), raw);
@@ -465,8 +480,16 @@ async function runCutsLoop(args: RunCutsLoopArgs): Promise<CutPlan> {
 
   for (let iter = 0; iter < loopCfg.maxIterations; iter++) {
     const kind = iter === 0 ? "generate" : "critique";
+    const editModeCfg = buildEditModeCfg(args.cfg);
     const prompt = iter === 0
-      ? renderPrompt(args.dir, "plan-cuts.md", args.numbered, args.durationSec, args.perception)
+      ? renderPrompt(
+          args.dir,
+          "plan-cuts.md",
+          args.numbered,
+          args.durationSec,
+          args.perception,
+          editModeCfg,
+        )
       : renderCritiquePrompt(
           args.dir,
           args.numbered,
@@ -474,6 +497,7 @@ async function runCutsLoop(args: RunCutsLoopArgs): Promise<CutPlan> {
           args.perception,
           prevObservation,
           prevCuts ?? [],
+          editModeCfg,
         );
     raw = await args.complete(prompt, args.cfg);
     const parsed = parseCutsResponse(raw);
@@ -786,12 +810,31 @@ function readRules(dir: string): string {
   return renderRulesBlock(channel || null, recording || null);
 }
 
+export interface EditModeCfg {
+  configMode?: unknown;
+  targetOutDurationSec: number | null;
+}
+
+/** cfg から実際の editModeCfg を組み立てる(cut 判断を行う経路だけが使う)。
+ *  目標尺は plan.loop 設定(反復オフでも単発 plan に surface する)から読む。 */
+function buildEditModeCfg(cfg: Config): EditModeCfg {
+  return {
+    configMode: cfg.plan?.editMode,
+    targetOutDurationSec: resolvePlanLoopCfg(cfg).targetOutDurationSec,
+  };
+}
+
+/** 既定はバイト等価(safe/目標なし)。renderPrompt を editModeCfg 無しで呼ぶ
+ *  既存箇所・テストがそのままバイト等価になる(§X4設計書1-1)。 */
+const DEFAULT_EDIT_MODE_CFG: EditModeCfg = { configMode: "safe", targetOutDurationSec: null };
+
 export function renderPrompt(
   dir: string,
   templateFile: string,
   numbered: NumberedSegment[],
   durationSec: number,
   perception: string = "",
+  editModeCfg: EditModeCfg = DEFAULT_EDIT_MODE_CFG,
 ): string {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
   const template = readFileSync(join(repoRoot, "prompts", templateFile), "utf8");
@@ -811,6 +854,14 @@ export function renderPrompt(
 
   const rules = readRules(dir);
 
+  const mode = resolveEditMode({
+    configMode: editModeCfg.configMode,
+    rules,
+    brief,
+    warn: (m) => console.error(`[plan] ${m}`),
+  });
+  const editModeBlock = renderEditModeBlock(mode, editModeCfg.targetOutDurationSec);
+
   // replaceAll + 関数形式: 文字列指定の replace は最初の1箇所しか置換されず、
   // また brief に "$&" 等が含まれると置換パターンとして解釈されてしまう
   return template
@@ -818,7 +869,8 @@ export function renderPrompt(
     .replaceAll("{{duration}}", () => durationSec.toFixed(0))
     .replaceAll("{{brief}}", () => brief)
     .replaceAll("{{rules}}", () => rules)
-    .replaceAll("{{perception}}", () => perception);
+    .replaceAll("{{perception}}", () => perception)
+    .replaceAll("{{editMode}}", () => editModeBlock);
 }
 
 export function renderCritiquePrompt(
@@ -828,8 +880,9 @@ export function renderCritiquePrompt(
   perception: string,
   observation: string,
   currentCuts: readonly LoopCut[],
+  editModeCfg: EditModeCfg = DEFAULT_EDIT_MODE_CFG,
 ): string {
-  return renderPrompt(dir, "plan-cuts-critique.md", numbered, durationSec, perception)
+  return renderPrompt(dir, "plan-cuts-critique.md", numbered, durationSec, perception, editModeCfg)
     .replaceAll("{{observation}}", () => observation)
     .replaceAll("{{currentCuts}}", () => renderCurrentCutsBlock(currentCuts));
 }
