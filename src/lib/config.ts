@@ -166,6 +166,10 @@ export interface Config {
    * plan の LLM 入力・plan.raw.txt が現状とバイト等価)。plan-shorts は対象外。
    * §docs/plans/2026-07-07-plan-eyes-ears-design.md */
   plan?: {
+    /** カット判断の積極度。safe=現状とバイト等価 / balanced=既定(明確な冗長は切る) /
+     *  aggressive=テンポ最優先。省略時 balanced(D4)。rules/brief のマーカー行が優先。
+     *  §docs/plans/2026-07-11-x4-editing-aggressiveness-design.md */
+    editMode?: "safe" | "balanced" | "aggressive";
     perception?: {
       /** 無音・間の注記(区間長 / 直前に落ちた素材秒 / 区間内無音秒)を
        *  プロンプトに添える。省略時 false。決定論・追加依存なし(推奨の opt-in) */
