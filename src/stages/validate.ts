@@ -15,6 +15,7 @@ import { collectIdOccurrences } from "../lib/mention.ts";
 import { defaultShortProfileName, PROFILES, profileSupportsPlain } from "../lib/profile.ts";
 import { buildTimeline, playbackSegmentsOf, remapInterval } from "../lib/timeline.ts";
 import type { TimelineEntry } from "../lib/timeline.ts";
+import { transcriptHasWords } from "../lib/words.ts";
 import {
   capNum,
   captionTrack,
@@ -24,7 +25,7 @@ import {
   MIN_PLAYBACK_SPEED,
   ovNum,
 } from "../types.ts";
-import type { CutPlan, Interval, Manifest, Short } from "../types.ts";
+import type { CutPlan, Interval, Manifest, Short, Transcript } from "../types.ts";
 
 export interface Problem {
   /** 対象ファイル(収録フォルダ内の名前) */
@@ -342,6 +343,18 @@ export function validateDocs(
           );
         }
       });
+      if (
+        transcript.segments.length > 0 &&
+        !transcriptHasWords(transcript as unknown as Transcript)
+      ) {
+        warn(
+          f, "-",
+          "transcript.json に語タイムスタンプ(words)がありません。config の " +
+            "whisper.wordTimestamps は既定 true ですが、この収録は words 無しで " +
+            "transcribe されています。語境界カット(C1)・カラオケを使うには " +
+            "transcribe し直してください",
+        );
+      }
     }
   } else if (transcript !== null) {
     err("transcript.json", "-", "オブジェクトではありません");

@@ -6,10 +6,9 @@ import type { Manifest } from "../types.ts";
 
 /**
  * 実効レイアウトを決める。優先順: 明示引数(CLI --layout 等) > config
- * (ingest.layout) > 既定 obs-canvas。auto はキャンバス寸法が
- * config.ingest.screenRegion+cameraRegion と完全一致(W×H とも)すれば
- * obs-canvas、それ以外は plain(auto は既定にしない。呼び出し側が明示した
- * ときだけの opt-in)
+ * (ingest.layout) > 既定 plain。auto はキャンバス寸法が config の
+ * screenRegion+cameraRegion と完全一致、または十分な超横長なら obs-canvas、
+ * それ以外は plain。
  */
 export function resolveLayout(
   explicit: "obs-canvas" | "plain" | "auto" | undefined,
@@ -18,11 +17,13 @@ export function resolveLayout(
   height: number,
   cfg: Config,
 ): "obs-canvas" | "plain" {
-  const chosen = explicit ?? cfgLayout ?? "obs-canvas";
+  const chosen = explicit ?? cfgLayout ?? "plain";
   if (chosen !== "auto") return chosen;
   const expectedW = cfg.ingest.screenRegion.w + cfg.ingest.cameraRegion.w;
   const expectedH = cfg.ingest.screenRegion.h;
-  return width === expectedW && height === expectedH ? "obs-canvas" : "plain";
+  const exactObsCanvas = width === expectedW && height === expectedH;
+  const wideObsLike = width >= 3000 && height >= 900 && width / height >= 3.2;
+  return exactObsCanvas || wideObsLike ? "obs-canvas" : "plain";
 }
 
 /**

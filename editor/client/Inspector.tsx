@@ -432,7 +432,6 @@ export const Inspector = ({
       }
       patchStyle({ karaoke: kr }, key);
     };
-    /** 9点プリセット。テキストの実測寸法で画面端に marginPx を空けて置く */
     const applyPosPreset = (h: "l" | "c" | "r", v: "t" | "m" | "b") => {
       const { w: tw, h: th } = measureCaption(
         s.text,
@@ -464,50 +463,24 @@ export const Inspector = ({
     const bgColor = bg ? splitColor(bg.color) : null;
     return (
       <div className="insp">
-        <InspHead
-          kind={captionTrackName(track, overlays, capTracks)}
-          title={s.text.trim().split("\n")[0] || "(空のテロップ)"}
-          chips={[`長さ ${fmtTime(Math.max(0, s.end - s.start))}`]}
-        />
-        <textarea
-          className="capEdit"
-          rows={3}
-          value={s.text}
-          onChange={(e) =>
-            updateCaption(
-              selection.index,
-              { text: e.target.value },
-              `caption:${selection.index}:text`,
-            )
-          }
-        />
-        <TimingSection
-          start={s.start}
-          end={s.end}
-          timeline={timeline}
-          getPlayheadSrc={getPlayheadSrc}
-          seekToSrc={seekToSrc}
-          onStart={(v) => updateCaption(selection.index, { start: v })}
-          onEnd={(v) => updateCaption(selection.index, { end: v })}
-        />
+        <Section title={captionTrackName(track, overlays, capTracks)} className="captionTextSec">
+          <input
+            className="capTextInput"
+            type="text"
+            value={s.text}
+            onChange={(e) =>
+              updateCaption(
+                selection.index,
+                { text: e.target.value },
+                `caption:${selection.index}:text`,
+              )
+            }
+          />
+        </Section>
         <Section title="配置">
-          <div className="posRow">
-            <div className="posGrid" title="画面9箇所への配置プリセット(テキストの実測幅で余白を確保)">
-              {(
-                [
-                  ["l", "t", "↖"], ["c", "t", "↑"], ["r", "t", "↗"],
-                  ["l", "m", "←"], ["c", "m", "・"], ["r", "m", "→"],
-                  ["l", "b", "↙"], ["c", "b", "↓"], ["r", "b", "↘"],
-                ] as const
-              ).map(([h, v, label]) => (
-                <button key={`${h}${v}`} onClick={() => applyPosPreset(h, v)}>
-                  {label}
-                </button>
-              ))}
-            </div>
-            <div className="posFields">
-              <div className="field">
-                <label>X / Y</label>
+          <div className="capPositionGrid">
+              <div className="capField">
+                <label>X</label>
                 <NumInput
                   value={s.pos?.x}
                   allowEmpty
@@ -519,6 +492,9 @@ export const Inspector = ({
                     })
                   }
                 />
+              </div>
+              <div className="capField">
+                <label>Y</label>
                 <NumInput
                   value={s.pos?.y}
                   allowEmpty
@@ -531,44 +507,10 @@ export const Inspector = ({
                   }
                 />
               </div>
-              <div className="field">
-                <label>座標の基準</label>
-                <select
-                  value={anchor}
-                  title={`トラック T${track} 全体の設定(overlays.json の captionTracks.anchor)。位置指定のあるテロップの座標の解釈が変わる`}
-                  onChange={(e) =>
-                    setCaptionTrackDefault(track, {
-                      anchor: e.target.value === "topLeft" ? "topLeft" : null,
-                    })
-                  }
-                >
-                  <option value="center">テキスト中心</option>
-                  <option value="topLeft">左上(章タイトル向き)</option>
-                </select>
+              <div className="anchorWide">
+                <AnchorPointControl onPick={applyPosPreset} />
               </div>
-              <p className="dim hint" style={{ margin: "0 0 4px" }}>
-                基準は{captionTrackName(track, overlays, capTracks)}トラック全体に
-                効きます(位置指定のあるテロップすべて)
-              </p>
-            </div>
           </div>
-          {s.pos && (
-            <div className="btnRow">
-              <button onClick={() => updateCaption(selection.index, { pos: undefined })}>
-                位置を標準に戻す
-              </button>
-              <button
-                title={`この位置をトラック T${track} の標準位置として overlays.json に保存し、` +
-                  "位置未指定のテロップすべてに適用する"}
-                onClick={() => {
-                  if (s.pos) setCaptionTrackDefault(track, { pos: s.pos });
-                  updateCaption(selection.index, { pos: undefined });
-                }}
-              >
-                トラックの標準位置にする
-              </button>
-            </div>
-          )}
           {trackDef?.x !== undefined && (
             <p className="dim hint">
               トラック T{track} の標準位置: X {trackDef.x} / Y {trackDef.y}{" "}
@@ -581,139 +523,139 @@ export const Inspector = ({
             </p>
           )}
         </Section>
-        <Section title="スタイル">
-          <div className="field">
-            <label>サイズ(px)</label>
-            <NumInput
-              value={s.style?.fontSizePx}
-              allowEmpty
-              placeholder={String(base.fontSizePx)}
-              title="このテロップだけのフォントサイズ。空欄=標準(トラック標準 → config.yaml)"
-              onCommit={(v) =>
-                patchStyle({ fontSizePx: v !== undefined ? Math.round(v) : undefined })
-              }
-            />
+        <Section title="タイポグラフィ">
+          <div className="capControlStack typographyControls">
+            <div className="capField wide noLabel">
+              <select
+                value={effFamily}
+                title="このテロップのフォント種。標準=トラック標準 → config の既定"
+                onChange={(e) =>
+                  patchStyle({
+                    fontFamily:
+                      e.target.value === defaultFamily ? undefined : e.target.value,
+                  })
+                }
+              >
+                {familyOptions.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="capField noLabel">
+              <select
+                value={s.style?.fontWeight ?? 400}
+                title="文字の太さ"
+                onChange={(e) =>
+                  patchStyle({
+                    fontWeight: Number(e.target.value),
+                  })
+                }
+              >
+                <option value={400}>Regular</option>
+                <option value={700}>Bold</option>
+                <option value={900}>Black</option>
+              </select>
+            </div>
+            <div className="capField noLabel">
+              <NumInput
+                value={s.style?.fontSizePx}
+                allowEmpty
+                placeholder={String(base.fontSizePx)}
+                title="このテロップだけのフォントサイズ。空欄=標準(トラック標準 → config.yaml)"
+                onCommit={(v) =>
+                  patchStyle({ fontSizePx: v !== undefined ? Math.round(v) : undefined })
+                }
+              />
+            </div>
           </div>
-          <div className="field">
-            <label>文字色</label>
-            <input
-              type="color"
-              value={s.style?.color ?? base.color}
-              title="文字色。指定すると transcript.json の style に保存"
-              onChange={(e) =>
-                patchStyle({ color: e.target.value }, `caption:${selection.index}:color`)
-              }
-            />
-          </div>
-          <div className="field">
-            <label>縁取り</label>
-            <input
-              type="checkbox"
-              checked={outlineOn}
-              title="文字の縁取りの有無(なし=outlineColor: none)"
-              onChange={(e) =>
-                patchStyle(
-                  e.target.checked
-                    ? {
-                        outlineColor:
-                          base.outlineColor && base.outlineColor !== "none"
-                            ? undefined // 標準の縁色に戻す
-                            : CAPTION_DEFAULT_OUTLINE,
-                      }
-                    : { outlineColor: "none" },
-                )
-              }
-            />
-            {outlineOn && (
+        </Section>
+        <Section title="塗り">
+          <div className="capControlStack paintControls">
+            <div className="capField swatchField">
+              <label>文字</label>
               <input
                 type="color"
-                value={
-                  (s.style?.outlineColor !== "none" ? s.style?.outlineColor : undefined) ??
-                  (base.outlineColor !== "none" ? base.outlineColor : CAPTION_DEFAULT_OUTLINE)
+                value={s.style?.color ?? base.color}
+                title="文字色。指定すると transcript.json の style に保存"
+                onChange={(e) =>
+                  patchStyle({ color: e.target.value }, `caption:${selection.index}:color`)
                 }
-                title="縁取り色。指定すると transcript.json の style に保存"
+              />
+            </div>
+            <div className="capField swatchField">
+              <label>縁</label>
+              <input
+                type="checkbox"
+                checked={outlineOn}
+                title="文字の縁取りの有無(なし=outlineColor: none)"
                 onChange={(e) =>
                   patchStyle(
-                    { outlineColor: e.target.value },
-                    `caption:${selection.index}:outlineColor`,
+                    e.target.checked
+                      ? {
+                          outlineColor:
+                            base.outlineColor && base.outlineColor !== "none"
+                              ? undefined
+                              : CAPTION_DEFAULT_OUTLINE,
+                        }
+                      : { outlineColor: "none" },
                   )
                 }
               />
-            )}
-          </div>
-          <div className="field">
-            <label>フォント</label>
-            <select
-              value={effFamily}
-              style={{ flex: 1, minWidth: 0 }}
-              title="このテロップのフォント種。標準=トラック標準 → config の既定"
-              onChange={(e) =>
-                patchStyle({
-                  fontFamily:
-                    e.target.value === defaultFamily ? undefined : e.target.value,
-                })
-              }
-            >
-              {familyOptions.map((p) => (
-                <option key={p.value} value={p.value}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label>太さ</label>
-            <select
-              value={s.style?.fontWeight ?? ""}
-              title="文字の太さ。標準=トラック標準 → 既定(太字 700)"
-              onChange={(e) =>
-                patchStyle({
-                  fontWeight: e.target.value === "" ? undefined : Number(e.target.value),
-                })
-              }
-            >
-              <option value="">標準</option>
-              <option value={400}>普通 (400)</option>
-              <option value={700}>太字 (700)</option>
-              <option value={900}>極太 (900)</option>
-            </select>
-          </div>
-          <div className="field">
-            <label>座布団(背景帯)</label>
-            <input
-              type="checkbox"
-              checked={!!bg}
-              title="テキストの背後に帯を敷く(YouTube テロップの定番)。縁取りは自動で消える"
-              onChange={(e) =>
-                patchStyle(
-                  e.target.checked
-                    ? { background: { color: "#000000" }, outlineColor: "none" }
-                    : { background: undefined, outlineColor: undefined },
-                )
-              }
-            />
-            {bg && bgColor && (
+              {outlineOn && (
+                <input
+                  type="color"
+                  value={
+                    (s.style?.outlineColor !== "none" ? s.style?.outlineColor : undefined) ??
+                    (base.outlineColor !== "none" ? base.outlineColor : CAPTION_DEFAULT_OUTLINE)
+                  }
+                  title="縁取り色。指定すると transcript.json の style に保存"
+                  onChange={(e) =>
+                    patchStyle(
+                      { outlineColor: e.target.value },
+                      `caption:${selection.index}:outlineColor`,
+                    )
+                  }
+                />
+              )}
+            </div>
+            <div className="capField swatchField">
+              <label>背景帯</label>
               <input
-                type="color"
-                value={bgColor.hex}
-                title="帯の色"
+                type="checkbox"
+                checked={!!bg}
+                title="テキストの背後に帯を敷く(YouTube テロップの定番)。縁取りは自動で消える"
                 onChange={(e) =>
                   patchStyle(
-                    {
-                      background: {
-                        ...bg,
-                        color: joinColor(e.target.value, bgColor.alpha),
+                    e.target.checked
+                      ? { background: { color: "#000000" }, outlineColor: "none" }
+                      : { background: undefined, outlineColor: undefined },
+                  )
+                }
+              />
+              {bg && bgColor && (
+                <input
+                  type="color"
+                  value={bgColor.hex}
+                  title="帯の色"
+                  onChange={(e) =>
+                    patchStyle(
+                      {
+                        background: {
+                          ...bg,
+                          color: joinColor(e.target.value, bgColor.alpha),
+                        },
                       },
-                    },
-                    `caption:${selection.index}:bgColor`,
-                  )
-                }
-              />
-            )}
-          </div>
-          {bg && bgColor && (
-            <>
-              <div className="field">
+                      `caption:${selection.index}:bgColor`,
+                    )
+                  }
+                />
+              )}
+            </div>
+            {bg && bgColor && (
+              <>
+              <div className="capField wide">
                 <label>帯の不透明度</label>
                 <PctSlider
                   pct={Math.round(bgColor.alpha * 100)}
@@ -728,8 +670,8 @@ export const Inspector = ({
                   }
                 />
               </div>
-              <div className="field">
-                <label>帯の余白(px)</label>
+              <div className="capField">
+                <label>余白</label>
                 <NumInput
                   value={bg.paddingPx}
                   allowEmpty
@@ -746,7 +688,9 @@ export const Inspector = ({
                     })
                   }
                 />
-                <label style={{ width: "auto" }}>角丸</label>
+              </div>
+              <div className="capField">
+                <label>角丸</label>
                 <NumInput
                   value={bg.radiusPx}
                   allowEmpty
@@ -762,27 +706,9 @@ export const Inspector = ({
                   }
                 />
               </div>
-            </>
-          )}
-          {s.style && (
-            <div className="btnRow">
-              <button onClick={() => updateCaption(selection.index, { style: undefined })}>
-                スタイルを標準に戻す
-              </button>
-              <button
-                title={`この見た目をトラック T${track} の標準スタイルとして overlays.json に保存し、` +
-                  "個別指定の無いテロップすべてに適用する"}
-                onClick={() => {
-                  setCaptionTrackDefault(track, {
-                    style: { ...trackDef?.style, ...s.style },
-                  });
-                  updateCaption(selection.index, { style: undefined });
-                }}
-              >
-                トラックの標準スタイルにする
-              </button>
-            </div>
-          )}
+              </>
+            )}
+          </div>
           {trackDef?.style && (
             <p className="dim hint">
               トラック T{track} の標準スタイル: {fmtStyle(trackDef.style)}{" "}
@@ -796,64 +722,68 @@ export const Inspector = ({
           )}
         </Section>
         <Section title="アニメーション">
-          <div className="field">
-            <label>登場</label>
-            <select
-              value={s.style?.anim?.in ?? ""}
-              title="表示され始めるときの動き。「なし(標準)」=トラック標準/既定を継承、「アニメ無し」=標準を明示的に打ち消す"
-              onChange={(e) =>
-                patchAnim({
-                  in: e.target.value === "" ? undefined : (e.target.value as CaptionAnimKind),
-                })
-              }
-            >
-              {CAPTION_ANIM_OPTIONS.map((o) => (
-                <option key={o.value === "" ? "__inherit__" : o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label>退場</label>
-            <select
-              value={s.style?.anim?.out ?? ""}
-              title="表示が終わるときの動き"
-              onChange={(e) =>
-                patchAnim({
-                  out: e.target.value === "" ? undefined : (e.target.value as CaptionAnimKind),
-                })
-              }
-            >
-              {CAPTION_ANIM_OPTIONS.map((o) => (
-                <option key={o.value === "" ? "__inherit__" : o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          {((s.style?.anim?.in ?? "") !== "" || (s.style?.anim?.out ?? "") !== "") && (
-            <div className="field">
-              <label>速さ(秒)</label>
-              <NumInput
-                value={s.style?.anim?.durationSec}
-                allowEmpty
-                placeholder={String(DEFAULT_CAPTION_ANIM_SEC)}
-                title="登場/退場それぞれの遷移秒(共通)。空欄=標準"
-                onCommit={(v) =>
-                  patchAnim({ durationSec: v !== undefined && v >= 0 ? round2(v) : undefined })
+          <div className="capControlStack animationControls">
+            <div className="capLabeledField">
+              <span>In</span>
+              <div className="capField noLabel">
+              <select
+                value={s.style?.anim?.in ?? ""}
+                title="表示され始めるときの動き。「なし(標準)」=トラック標準/既定を継承、「アニメ無し」=標準を明示的に打ち消す"
+                onChange={(e) =>
+                  patchAnim({
+                    in: e.target.value === "" ? undefined : (e.target.value as CaptionAnimKind),
+                  })
                 }
-              />
+              >
+                {CAPTION_ANIM_OPTIONS.map((o) => (
+                  <option key={o.value === "" ? "__inherit__" : o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              </div>
             </div>
-          )}
-          <p className="dim hint">
-            登場=表示の頭、退場=表示の終わり際の動きです。空欄=トラック標準/
-            アニメ無しを継承。「アニメ無し」を選ぶとトラック標準を明示的に
-            打ち消します
-          </p>
+            <div className="capLabeledField">
+              <span>Out</span>
+              <div className="capField noLabel">
+              <select
+                value={s.style?.anim?.out ?? ""}
+                title="表示が終わるときの動き"
+                onChange={(e) =>
+                  patchAnim({
+                    out: e.target.value === "" ? undefined : (e.target.value as CaptionAnimKind),
+                  })
+                }
+              >
+                {CAPTION_ANIM_OPTIONS.map((o) => (
+                  <option key={o.value === "" ? "__inherit__" : o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              </div>
+            </div>
+            {((s.style?.anim?.in ?? "") !== "" || (s.style?.anim?.out ?? "") !== "") && (
+              <div className="capLabeledField">
+                <span>速さ</span>
+                <div className="capField noLabel">
+                <NumInput
+                  value={s.style?.anim?.durationSec}
+                  allowEmpty
+                  placeholder={String(DEFAULT_CAPTION_ANIM_SEC)}
+                  title="登場/退場それぞれの遷移秒(共通)。空欄=標準"
+                  onCommit={(v) =>
+                    patchAnim({ durationSec: v !== undefined && v >= 0 ? round2(v) : undefined })
+                  }
+                />
+                </div>
+              </div>
+            )}
+          </div>
         </Section>
         <Section title="カラオケ">
-          <div className="field">
+          <div className="capControlStack karaokeControls">
+          <div className="capField wide">
             <label>カラオケ表示</label>
             <input
               type="checkbox"
@@ -866,8 +796,8 @@ export const Inspector = ({
           </div>
           {s.style?.karaoke && (
             <>
-              <div className="field">
-                <label>発話済みの色</label>
+              <div className="capField swatchField">
+                <label>発話済み</label>
                 <input
                   type="color"
                   value={s.style.karaoke.activeColor ?? KARAOKE_DEFAULT_ACTIVE}
@@ -880,8 +810,8 @@ export const Inspector = ({
                   }
                 />
               </div>
-              <div className="field">
-                <label>未発話の色</label>
+              <div className="capField swatchField">
+                <label>未発話</label>
                 <input
                   type="color"
                   value={s.style.karaoke.inactiveColor ?? effStyle.color ?? CAPTION_DEFAULT_COLOR}
@@ -902,7 +832,7 @@ export const Inspector = ({
                   </button>
                 )}
               </div>
-              <div className="field">
+              <div className="capField wide">
                 <label>未発話の不透明度</label>
                 <PctSlider
                   pct={Math.round((s.style.karaoke.inactiveOpacity ?? 1) * 100)}
@@ -915,7 +845,7 @@ export const Inspector = ({
                   }
                 />
               </div>
-              <div className="field">
+              <div className="capField wide">
                 <label>塗りの進み方</label>
                 <Segmented
                   value={s.style.karaoke.mode ?? "word"}
@@ -936,6 +866,7 @@ export const Inspector = ({
               )}
             </>
           )}
+          </div>
         </Section>
         {capTracks > 1 && (
           <Section title="トラック">
@@ -1140,22 +1071,19 @@ export const Inspector = ({
     const fadeSum = (t.fadeInSec ?? 0) + (t.fadeOutSec ?? 0);
     return (
       <div className="insp">
-        <InspHead kind="BGM 区間" title={name} chips={[`尺 ${fmtTime(t.end - t.start)}`]} />
-        <p className="dim hint" style={{ marginTop: 0 }}>
-          この区間だけ BGM を流します(ループ再生)。覆っていない時間は無音。
-          別ファイルの区間を並べれば曲の切り替え、重ねれば重奏になります。
-          タイムラインの移動・トリムでも位置と長さを変えられます。
-        </p>
-        <Section title="タイミング">
-          <div className="field">
-            <label>出力の時刻</label>
-            <span className="mono">{outStart !== null ? fmtTime(outStart) : "—"}</span>
-            {playedSec < t.end - t.start - 0.05 && (
-              <span className="dim hint">(一部がカット区間)</span>
-            )}
+        <Section title="BGM" className="flushTopSec">
+          <div className="capControlStack">
+          <div className="capField wide">
+            <label>ファイル</label>
+            <span className="truncateText" title={name}>{name}</span>
           </div>
-          <div className="btnRow">
+          <div className="capField">
+            <label>長さ</label>
+            <span className="mono">{fmtTime(t.end - t.start)}</span>
+          </div>
+          <div className="capField">
             <button
+              className="inlineAction"
               disabled={outStart === null}
               title="この区間の頭へ再生ヘッドを移動"
               onClick={() => outStart !== null && seekOut(outStart)}
@@ -1163,8 +1091,9 @@ export const Inspector = ({
               頭から再生
             </button>
           </div>
-          <div className="field">
-            <label>頭出し(秒)</label>
+          <div className="capLabeledField">
+            <span>頭出し</span>
+            <div className="capField noLabel">
             <NumInput
               value={t.startFrom ?? 0}
               title="BGM ファイル内の再生開始位置。0=頭から"
@@ -1173,11 +1102,11 @@ export const Inspector = ({
                 updateBgm(selection.index, { startFrom: Math.max(0, round2(v)) })
               }
             />
+            </div>
           </div>
-          <details className="inspDetails">
-            <summary>詳細(元収録の秒)</summary>
-            <div className="field">
-              <label>開始</label>
+          <div className="capLabeledField">
+            <span>開始</span>
+            <div className="capField noLabel">
               <NumInput
                 value={t.start}
                 title="BGM を流し始める時刻(元収録の秒)。左端ドラッグでも調整できる"
@@ -1189,8 +1118,10 @@ export const Inspector = ({
                 }
               />
             </div>
-            <div className="field">
-              <label>終了</label>
+          </div>
+          <div className="capLabeledField">
+            <span>終了</span>
+            <div className="capField noLabel">
               <NumInput
                 value={t.end}
                 title="BGM を流し終わる時刻(元収録の秒)。右端ドラッグでも調整できる"
@@ -1200,11 +1131,17 @@ export const Inspector = ({
                 }
               />
             </div>
-          </details>
+          </div>
+          {playedSec < t.end - t.start - 0.05 && (
+            <p className="dim hint wideGridItem" style={{ margin: 0 }}>一部がカット区間です</p>
+          )}
+          </div>
         </Section>
         <Section title="音">
-          <div className="field">
-            <label>音量(dB)</label>
+          <div className="capControlStack">
+          <div className="capLabeledField wideGridItem">
+            <span>音量(dB)</span>
+            <div className="capField noLabel">
             <NumInput
               value={t.volumeDb}
               allowEmpty
@@ -1214,9 +1151,13 @@ export const Inspector = ({
                 updateBgm(selection.index, { volumeDb: v }, `bgm:${selection.index}:vol`)
               }
             />
+            </div>
           </div>
-          <div className="field">
-            <label>フェード(秒)</label>
+          <div className="capLabeledField wideGridItem">
+            <span>フェード</span>
+            <div className="capControlStack">
+            <div className="capField">
+              <label>IN</label>
             <NumInput
               value={t.fadeInSec}
               allowEmpty
@@ -1228,6 +1169,9 @@ export const Inspector = ({
                 })
               }
             />
+            </div>
+            <div className="capField">
+              <label>OUT</label>
             <NumInput
               value={t.fadeOutSec}
               allowEmpty
@@ -1239,10 +1183,13 @@ export const Inspector = ({
                 })
               }
             />
+            </div>
+            </div>
           </div>
           {fadeSum > playedSec + 0.005 && (
-            <p className="warnText">フェードが再生時間より長く、途中までしか鳴りません</p>
+            <p className="warnText wideGridItem">フェードが再生時間より長く、途中までしか鳴りません</p>
           )}
+          </div>
         </Section>
         <Section title="">
           <button className="danger" onClick={() => removeBgm(selection.index)}>
@@ -1285,46 +1232,56 @@ export const Inspector = ({
       .filter(({ t }) => t.end > s.start + 0.05 && t.start < s.end - 0.05);
     return (
       <div className="insp">
-        <InspHead
-          kind={isKeep ? "映像クリップ" : "カットされた区間"}
-          title={`${fmtTime(s.start)} 〜 ${fmtTime(s.end)}`}
-          chips={[
-            `長さ ${fmtTime(Math.max(0, s.end - s.start))}`,
-            !isKeep ? "非表示" : null,
-          ]}
-        />
-        {!isKeep && (
-          <p className="dim hint" style={{ marginTop: 0 }}>
-            この区間はいまカットされていて、動画に含まれていません。
-          </p>
-        )}
-        {s.reason && <p className="dim hint">plan の理由: {s.reason}</p>}
-        <TimingSection
-          start={s.start}
-          end={s.end}
-          timeline={timeline}
-          getPlayheadSrc={getPlayheadSrc}
-          seekToSrc={seekToSrc}
-          onStart={(v) =>
-            updateCutSeg(selection.index, {
-              start: round2(Math.min(Math.max(v, lo), s.end - MIN_SPAN)),
-            })
-          }
-          onEnd={(v) =>
-            updateCutSeg(selection.index, {
-              end: round2(Math.max(Math.min(v, hi), s.start + MIN_SPAN)),
-            })
-          }
-          extra={
-            isKeep && (gapBefore > 0.05 || gapAfter > 0.05) ? (
-              <p className="dim hint" style={{ margin: "4px 0 0" }}>
+        <Section title={isKeep ? "映像" : "カット区間"} className="flushTopSec">
+          <div className="capControlStack">
+            <div className="capLabeledField">
+              <span>開始</span>
+              <div className="capField noLabel">
+                <NumInput
+                  value={s.start}
+                  title="開始時刻(元収録の秒)。左端ドラッグでも調整できる"
+                  onCommit={(v) =>
+                    v !== undefined &&
+                    updateCutSeg(selection.index, {
+                      start: round2(Math.min(Math.max(v, lo), s.end - MIN_SPAN)),
+                    })
+                  }
+                />
+              </div>
+            </div>
+            <div className="capLabeledField">
+              <span>終了</span>
+              <div className="capField noLabel">
+                <NumInput
+                  value={s.end}
+                  title="終了時刻(元収録の秒)。右端ドラッグでも調整できる"
+                  onCommit={(v) =>
+                    v !== undefined &&
+                    updateCutSeg(selection.index, {
+                      end: round2(Math.max(Math.min(v, hi), s.start + MIN_SPAN)),
+                    })
+                  }
+                />
+              </div>
+            </div>
+            <div className="capField">
+              <label>長さ</label>
+              <span className="mono">{fmtTime(Math.max(0, s.end - s.start))}</span>
+            </div>
+            <div className="capField">
+              <label>状態</label>
+              <span>{isKeep ? "表示" : "非表示"}</span>
+            </div>
+            {isKeep && (gapBefore > 0.05 || gapAfter > 0.05) && (
+              <p className="dim hint wideGridItem" style={{ margin: 0 }}>
                 {gapBefore > 0.05 ? `直前に ${gapBefore.toFixed(1)}秒カット` : ""}
-                {gapBefore > 0.05 && gapAfter > 0.05 ? " ・ " : ""}
+                {gapBefore > 0.05 && gapAfter > 0.05 ? " / " : ""}
                 {gapAfter > 0.05 ? `直後に ${gapAfter.toFixed(1)}秒カット` : ""}
               </p>
-            ) : null
-          }
-        />
+            )}
+            {s.reason && <p className="dim hint wideGridItem" style={{ margin: 0 }}>plan の理由: {s.reason}</p>}
+          </div>
+        </Section>
         {speech.length > 0 && (
           <Section title="この区間の発言">
             <div className="speechList">
@@ -1393,15 +1350,6 @@ export const Inspector = ({
           materials={materials}
           onReplace={(f) => patch({ file: f })}
         />
-        <TimingSection
-          start={ov.start}
-          end={ov.end}
-          timeline={timeline}
-          getPlayheadSrc={getPlayheadSrc}
-          seekToSrc={seekToSrc}
-          onStart={(v) => patch({ start: v })}
-          onEnd={(v) => patch({ end: v })}
-        />
         <Section title="配置">
           <RectControl
             rect={ov.rect}
@@ -1417,7 +1365,7 @@ export const Inspector = ({
             onChange={(v) => patch({ fit: v })}
           />
           {ovTracks > 1 && (
-            <div className="field">
+            <div className="capField wide">
               <label>トラック</label>
               <select
                 value={overlayTrack(ov)}
@@ -1438,9 +1386,11 @@ export const Inspector = ({
           )}
         </Section>
         <Section title="見た目と音">
+          <div className="capControlStack materialAppearanceControls">
           {isVideo && (
-            <div className="field">
-              <label>頭出し(秒)</label>
+            <div className="capLabeledField">
+              <span>頭出し</span>
+              <div className="capField noLabel">
               <NumInput
                 value={ov.startFrom ?? 0}
                 title="素材ファイル内の再生開始位置。0=頭から"
@@ -1449,9 +1399,11 @@ export const Inspector = ({
                   patch({ startFrom: v > 0 ? Math.max(0, round2(v)) : undefined })
                 }
               />
+              </div>
             </div>
           )}
           {isVideo && (
+            <div className="wideGridItem">
             <SourceRangeBar
               file={ov.file}
               startFrom={ov.startFrom ?? 0}
@@ -1465,9 +1417,10 @@ export const Inspector = ({
                 ),
               )}
             />
+            </div>
           )}
           {isVideo && (
-            <div className="field">
+            <div className="capField">
               <label>音量</label>
               <PctSlider
                 pct={volPct}
@@ -1482,7 +1435,7 @@ export const Inspector = ({
               />
             </div>
           )}
-          <div className="field">
+          <div className="capField wide">
             <label>不透明度</label>
             <PctSlider
               pct={opacityPct}
@@ -1495,33 +1448,42 @@ export const Inspector = ({
               }
             />
           </div>
-          <div className="field">
-            <label>フェード(秒)</label>
-            <NumInput
-              value={ov.fadeInSec}
-              allowEmpty
-              placeholder="0"
-              title="イン(表示区間の頭でふわっと出す。音量も連動)"
-              onCommit={(v) =>
-                patch({ fadeInSec: v !== undefined && v > 0 ? round2(v) : undefined })
-              }
-            />
-            <NumInput
-              value={ov.fadeOutSec}
-              allowEmpty
-              placeholder="0"
-              title="アウト(表示区間の末尾でふわっと消す。音量も連動)"
-              onCommit={(v) =>
-                patch({ fadeOutSec: v !== undefined && v > 0 ? round2(v) : undefined })
-              }
-            />
+          <div className="capLabeledField wideGridItem">
+            <span>フェード</span>
+            <div className="capControlStack">
+              <div className="capField">
+                <label>IN</label>
+                <NumInput
+                  value={ov.fadeInSec}
+                  allowEmpty
+                  placeholder="0"
+                  title="イン(表示区間の頭でふわっと出す。音量も連動)"
+                  onCommit={(v) =>
+                    patch({ fadeInSec: v !== undefined && v > 0 ? round2(v) : undefined })
+                  }
+                />
+              </div>
+              <div className="capField">
+                <label>OUT</label>
+                <NumInput
+                  value={ov.fadeOutSec}
+                  allowEmpty
+                  placeholder="0"
+                  title="アウト(表示区間の末尾でふわっと消す。音量も連動)"
+                  onCommit={(v) =>
+                    patch({ fadeOutSec: v !== undefined && v > 0 ? round2(v) : undefined })
+                  }
+                />
+              </div>
+            </div>
           </div>
           {!isVideo && (
-            <p className="dim hint" style={{ margin: 0 }}>
+            <p className="dim hint wideGridItem" style={{ margin: 0 }}>
               画像素材です(音はありません)。音声込みで全面に出したいときは
               インサート(映像トラックへドロップ)を使います。
             </p>
           )}
+          </div>
         </Section>
         <Section title="">
           <button className="danger" onClick={() => removeSpan("overlays", selection.index)}>
@@ -1573,25 +1535,7 @@ export const Inspector = ({
     if (!z) return null;
     return (
       <div className="insp">
-        <InspHead
-          kind="ズーム"
-          title={`${fmtTime(z.start)} 〜 ${fmtTime(z.end)}`}
-          chips={[`長さ ${fmtTime(Math.max(0, z.end - z.start))}`]}
-        />
-        <p className="dim hint" style={{ marginTop: 0 }}>
-          画面の一部を拡大して見せます。かかるのはベース映像の背景レイヤーだけで、
-          ワイプ・テロップ・素材オーバーレイ・挿入クリップは動きません。
-        </p>
-        <TimingSection
-          start={z.start}
-          end={z.end}
-          timeline={timeline}
-          getPlayheadSrc={getPlayheadSrc}
-          seekToSrc={seekToSrc}
-          onStart={(v) => updateZoom(selection.index, { start: v })}
-          onEnd={(v) => updateZoom(selection.index, { end: v })}
-        />
-        <Section title="拡大範囲">
+        <Section title="拡大範囲" className="flushTopSec">
           <ZoomRectControl
             rect={z.rect}
             output={output}
@@ -1601,15 +1545,16 @@ export const Inspector = ({
           />
         </Section>
         <Section title="遷移">
-          <div className="field">
-            <label>遷移(秒)</label>
-            <NumInput
-              value={z.easeSec}
-              allowEmpty
-              placeholder={String(DEFAULT_ZOOM_EASE_SEC)}
-              title="区間の頭でズームイン・末尾でズームアウトする秒数。空欄=config の既定(render.zoom.easeSec)"
-              onCommit={(v) => updateZoom(selection.index, { easeSec: v })}
-            />
+          <div className="capControlStack">
+            <div className="capField noLabel">
+              <NumInput
+                value={z.easeSec}
+                allowEmpty
+                placeholder={String(DEFAULT_ZOOM_EASE_SEC)}
+                title="区間の頭でズームイン・末尾でズームアウトする秒数。空欄=config の既定(render.zoom.easeSec)"
+                onCommit={(v) => updateZoom(selection.index, { easeSec: v })}
+              />
+            </div>
           </div>
         </Section>
         <Section title="">
@@ -1620,7 +1565,6 @@ export const Inspector = ({
       </div>
     );
   }
-
   /* ---------------- ぼかし ---------------- */
 
   if (selection.kind === "blur") {
@@ -1630,27 +1574,7 @@ export const Inspector = ({
     const strengthPct = Math.round((b.strength ?? DEFAULT_BLUR_STRENGTH) * 100);
     return (
       <div className="insp">
-        <InspHead
-          kind={type === "mosaic" ? "モザイク" : "ぼかし"}
-          title={`${fmtTime(b.start)} 〜 ${fmtTime(b.end)}`}
-          chips={[`長さ ${fmtTime(Math.max(0, b.end - b.start))}`]}
-        />
-        <p className="dim hint" style={{ marginTop: 0 }}>
-          開発画面の API キー・PII・パスワードなど、ベース映像(画面クロップ)の
-          一部を隠します。かかるのはベース映像だけで、素材・挿入・テロップは
-          対象外。zoom には追従せず出力px固定(zoom と時間が重なると露出しうる
-          警告が出ます)。ショートには継承されません。
-        </p>
-        <TimingSection
-          start={b.start}
-          end={b.end}
-          timeline={timeline}
-          getPlayheadSrc={getPlayheadSrc}
-          seekToSrc={seekToSrc}
-          onStart={(v) => updateBlur(selection.index, { start: v })}
-          onEnd={(v) => updateBlur(selection.index, { end: v })}
-        />
-        <Section title="隠す範囲">
+        <Section title="隠す範囲" className="flushTopSec">
           <BlurRectControl
             rect={b.rect}
             onChange={(rect) =>
@@ -1659,20 +1583,20 @@ export const Inspector = ({
           />
         </Section>
         <Section title="効果">
-          <div className="field">
-            <label>種別</label>
-            <Segmented
-              value={type}
-              onChange={(v: BlurType) =>
-                updateBlur(selection.index, { type: v === DEFAULT_BLUR_TYPE ? undefined : v })
-              }
-              options={[
-                { value: "blur", label: "ぼかし", title: "blur: CSS ぼかし(既定)" },
-                { value: "mosaic", label: "モザイク", title: "mosaic: ピクセル化" },
-              ]}
-            />
-          </div>
-          <div className="field">
+          <div className="capControlStack">
+            <div className="capField wide noLabel">
+                <Segmented
+                  value={type}
+                  onChange={(v: BlurType) =>
+                    updateBlur(selection.index, { type: v === DEFAULT_BLUR_TYPE ? undefined : v })
+                  }
+                  options={[
+                    { value: "blur", label: "ぼかし", title: "blur: CSS ぼかし(既定)" },
+                    { value: "mosaic", label: "モザイク", title: "mosaic: ピクセル化" },
+                  ]}
+                />
+            </div>
+          <div className="capField wide">
             <label>強度</label>
             <PctSlider
               pct={strengthPct}
@@ -1685,6 +1609,7 @@ export const Inspector = ({
                 )
               }
             />
+          </div>
           </div>
         </Section>
         <Section title="">
@@ -1702,8 +1627,6 @@ export const Inspector = ({
     const a = (overlays.annotations ?? [])[selection.index];
     if (!a) return null;
     const i = selection.index;
-    const kindLabel = a.type === "arrow" ? "矢印" : a.type === "spotlight" ? "スポットライト" : "囲み";
-
     const changeType = (next: AnnotationType) => {
       if (next === a.type) return;
       if (next === "arrow") {
@@ -1748,34 +1671,20 @@ export const Inspector = ({
 
     return (
       <div className="insp">
-        <InspHead
-          kind={kindLabel}
-          title={`${fmtTime(a.start)} 〜 ${fmtTime(a.end)}`}
-          chips={[`長さ ${fmtTime(Math.max(0, a.end - a.start))}`]}
-        />
-        <p className="dim hint" style={{ marginTop: 0 }}>
-          画面上の一点・矩形を指し示して「ここを見ろ」を作ります。最前面(テロップより上)に
-          描かれ、ズームには追従せず出力px固定。硬い ON/OFF(遷移なし)。ショートには継承されません。
-        </p>
-        <TimingSection
-          start={a.start}
-          end={a.end}
-          timeline={timeline}
-          getPlayheadSrc={getPlayheadSrc}
-          seekToSrc={seekToSrc}
-          onStart={(v) => updateAnnotation(i, { start: v })}
-          onEnd={(v) => updateAnnotation(i, { end: v })}
-        />
-        <Section title="種別">
-          <Segmented
-            value={a.type}
-            onChange={(v: AnnotationType) => changeType(v)}
-            options={[
-              { value: "arrow", label: "矢印", title: "arrow: from→to へ矢印" },
-              { value: "box", label: "囲み", title: "box: 矩形の枠(任意で塗り)" },
-              { value: "spotlight", label: "スポット", title: "spotlight: 矩形以外を暗くする" },
-            ]}
-          />
+        <Section title="種別" className="flushTopSec">
+          <div className="capControlStack">
+            <div className="capField wide noLabel">
+                <Segmented
+                  value={a.type}
+                  onChange={(v: AnnotationType) => changeType(v)}
+                  options={[
+                    { value: "arrow", label: "矢印", title: "arrow: from→to へ矢印" },
+                    { value: "box", label: "囲み", title: "box: 矩形の枠(任意で塗り)" },
+                    { value: "spotlight", label: "スポット", title: "spotlight: 矩形以外を暗くする" },
+                  ]}
+                />
+            </div>
+          </div>
         </Section>
 
         {a.type === "arrow" ? (
@@ -1785,9 +1694,6 @@ export const Inspector = ({
               to={a.to}
               onChange={(patch) => updateAnnotation(i, patch, `annotation:${i}:pt`)}
             />
-            <p className="dim hint">
-              プレビュー上で始点・終点の丸をドラッグして調整できます(この区間が再生ヘッド上にあるとき)。
-            </p>
           </Section>
         ) : (
           <Section title={a.type === "spotlight" ? "明るく残す範囲" : "囲む範囲"}>
@@ -1800,6 +1706,7 @@ export const Inspector = ({
 
         {a.type === "arrow" && (
           <Section title="見た目">
+            <div className="capControlStack">
             <ColorField
               label="色"
               value={a.color ?? DEFAULT_ANNOTATION_COLOR}
@@ -1823,10 +1730,12 @@ export const Inspector = ({
               placeholder={DEFAULT_ARROW_HEAD_PX}
               onCommit={(v) => updateAnnotation(i, { headPx: v })}
             />
+            </div>
           </Section>
         )}
         {a.type === "box" && (
           <Section title="見た目">
+            <div className="capControlStack">
             <ColorField
               label="枠の色"
               value={a.color ?? DEFAULT_ANNOTATION_COLOR}
@@ -1854,12 +1763,15 @@ export const Inspector = ({
               value={a.fill}
               onChange={(fill) => updateAnnotation(i, { fill }, `annotation:${i}:fill`)}
             />
+            </div>
           </Section>
         )}
         {a.type === "spotlight" && (
           <Section title="見た目">
-            <div className="field">
-              <label>形状</label>
+            <div className="capControlStack">
+            <div className="capLabeledField wideGridItem">
+              <span>形状</span>
+              <div className="capField noLabel">
               <Segmented
                 value={a.shape ?? DEFAULT_SPOTLIGHT_SHAPE}
                 onChange={(v: SpotlightShape) =>
@@ -1872,8 +1784,9 @@ export const Inspector = ({
                   { value: "ellipse", label: "楕円", title: "ellipse" },
                 ]}
               />
+              </div>
             </div>
-            <div className="field">
+            <div className="capField wide">
               <label>外側の暗さ</label>
               <PctSlider
                 pct={Math.round((a.dim ?? DEFAULT_SPOTLIGHT_DIM) * 100)}
@@ -1901,6 +1814,7 @@ export const Inspector = ({
                 onCommit={(v) => updateAnnotation(i, { radiusPx: v })}
               />
             )}
+            </div>
           </Section>
         )}
 
@@ -1953,10 +1867,53 @@ const InspHead = ({
 );
 
 /** セクション(小見出し+罫線)。title 空文字は罫線だけ(削除ボタン置き場) */
-const Section = ({ title, children }: { title: string; children: ReactNode }) => (
-  <div className="inspSec">
+const Section = ({
+  title,
+  children,
+  className,
+}: {
+  title: string;
+  children: ReactNode;
+  className?: string;
+}) => (
+  <div className={`inspSec${className ? ` ${className}` : ""}`}>
     {title !== "" && <h4>{title}</h4>}
     {children}
+  </div>
+);
+
+const AnchorPointControl = ({
+  onPick,
+}: {
+  onPick: (h: "l" | "c" | "r", v: "t" | "m" | "b") => void;
+}) => (
+  <div className="anchorPoint" title="配置プリセット">
+    <span className="anchorCorner tl" />
+    <span className="anchorCorner tr" />
+    <span className="anchorCorner bl" />
+    <span className="anchorCorner br" />
+    <span className="anchorRail top" />
+    <span className="anchorRail left" />
+    <span className="anchorRail right" />
+    <span className="anchorRail bottom" />
+    <span className="anchorCenter">
+      <span />
+    </span>
+    {(
+      [
+        ["l", "t", "左上"], ["c", "t", "上"], ["r", "t", "右上"],
+        ["l", "m", "左"], ["c", "m", "中央"], ["r", "m", "右"],
+        ["l", "b", "左下"], ["c", "b", "下"], ["r", "b", "右下"],
+      ] as const
+    ).map(([h, v, label]) => (
+      <button
+        key={`${h}${v}`}
+        type="button"
+        className="anchorHit"
+        onClick={() => onPick(h, v)}
+        aria-label={`${label}に配置`}
+      />
+    ))}
   </div>
 );
 
@@ -2167,8 +2124,9 @@ const FitControl = ({
       : false;
   return (
     <>
-      <div className="field">
-        <label>フィット</label>
+      <div className="capLabeledField wideGridItem fitField">
+        <span>フィット</span>
+        <div className="capField noLabel">
         <Segmented
           value={fit}
           disabled={same}
@@ -2186,6 +2144,7 @@ const FitControl = ({
             },
           ]}
         />
+        </div>
       </div>
       {/* 無効理由はボタンと同じ行に押し込むと文字折れで潰れるので次の行に出す */}
       {same && (
@@ -2217,116 +2176,92 @@ const RectControl = ({
   /** 角配置のサイズ(横 42%、高さは素材の縦横比なり) */
   const cw = Math.round(output.w * 0.42);
   const ch = Math.round(cw / ar);
-  const presets: { label: string; title: string; make: () => Region | undefined }[] = [
-    { label: "全画面", title: "画面いっぱいに表示(rect 指定を解除)", make: () => undefined },
-    {
-      label: "左上",
-      title: "左上に部分配置",
-      make: () => ({ x: m, y: m, w: cw, h: ch }),
-    },
-    {
-      label: "右上",
-      title: "右上に部分配置",
-      make: () => ({ x: output.w - m - cw, y: m, w: cw, h: ch }),
-    },
-    {
-      label: "左下",
-      title: "左下に部分配置",
-      make: () => ({ x: m, y: output.h - m - ch, w: cw, h: ch }),
-    },
-    {
-      label: "右下",
-      title: "右下に部分配置",
-      make: () => ({ x: output.w - m - cw, y: output.h - m - ch, w: cw, h: ch }),
-    },
-    {
-      label: "左半分",
-      title: "画面の左半分",
-      make: () => ({ x: 0, y: 0, w: Math.round(output.w / 2), h: output.h }),
-    },
-    {
-      label: "右半分",
-      title: "画面の右半分",
-      make: () => ({
-        x: Math.round(output.w / 2),
+  const centered = (v: "t" | "m" | "b"): Region => {
+    const w = Math.round(output.w * 0.6);
+    const h = Math.round(w / ar);
+    return {
+      x: Math.round((output.w - w) / 2),
+      y: v === "t" ? m : v === "m" ? Math.round((output.h - h) / 2) : output.h - m - h,
+      w,
+      h,
+    };
+  };
+  const pickAnchor = (h: "l" | "c" | "r", v: "t" | "m" | "b") => {
+    if (h === "c") {
+      onChange(centered(v));
+      return;
+    }
+    if (v === "m") {
+      onChange({
+        x: h === "l" ? 0 : Math.round(output.w / 2),
         y: 0,
         w: Math.round(output.w / 2),
         h: output.h,
-      }),
-    },
-    {
-      label: "中央",
-      title: "中央に大きめに配置",
-      make: () => {
-        const w = Math.round(output.w * 0.6);
-        const h = Math.round(w / ar);
-        return {
-          x: Math.round((output.w - w) / 2),
-          y: Math.round((output.h - h) / 2),
-          w,
-          h,
-        };
-      },
-    },
-  ];
+      });
+      return;
+    }
+    onChange({
+      x: h === "l" ? m : output.w - m - cw,
+      y: v === "t" ? m : output.h - m - ch,
+      w: cw,
+      h: ch,
+    });
+  };
   const patchRect = (p: Partial<Region>) => {
     const cur = rect ?? { x: 0, y: 0, w: output.w, h: output.h };
     onChange({ ...cur, ...p });
   };
   return (
-    <>
-      <div className="field">
-        <label>表示領域</label>
-        <div className="rectPresets">
-          {presets.map((p) => (
-            <button
-              key={p.label}
-              className={
-                (p.label === "全画面" && !rect) ? "on" : undefined
-              }
-              title={p.title}
-              onClick={() => onChange(p.make())}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
+    <div className="capControlStack materialPlacementControls">
+      <div className="anchorControlCell">
+        <AnchorPointControl onPick={pickAnchor} />
+        {rect && (
+          <button className="linkish inlineTiny" onClick={() => onChange(undefined)}>
+            全画面
+          </button>
+        )}
       </div>
       {rect && (
         <>
-          <div className="field">
-            <label>X / Y</label>
+          <div className="capField">
+            <label>X</label>
             <NumInput
               value={rect.x}
               title="表示領域の左上 X(出力px)"
               onCommit={(v) => v !== undefined && patchRect({ x: Math.round(v) })}
             />
+          </div>
+          <div className="capField">
+            <label>Y</label>
             <NumInput
               value={rect.y}
               title="表示領域の左上 Y(出力px)"
               onCommit={(v) => v !== undefined && patchRect({ y: Math.round(v) })}
             />
           </div>
-          <div className="field">
-            <label>幅 / 高さ</label>
+          <div className="capField">
+            <label>W</label>
             <NumInput
               value={rect.w}
               title="表示領域の幅(出力px)"
               onCommit={(v) => v !== undefined && patchRect({ w: Math.max(1, Math.round(v)) })}
             />
+          </div>
+          <div className="capField">
+            <label>H</label>
             <NumInput
               value={rect.h}
               title="表示領域の高さ(出力px)"
               onCommit={(v) => v !== undefined && patchRect({ h: Math.max(1, Math.round(v)) })}
             />
           </div>
-          <p className="dim hint">
+          <p className="dim hint wideGridItem">
             プレビュー上で枠をドラッグして移動、四隅・辺のハンドルでリサイズできます
             (この区間が再生ヘッド上にあるとき)。
           </p>
         </>
       )}
-    </>
+    </div>
   );
 };
 
@@ -2343,74 +2278,50 @@ const ZoomRectControl = ({
   output: { w: number; h: number };
   onChange: (rect: Region) => void;
 }) => {
-  const centeredScale = (scale: number): Region => {
-    const w = Math.round(output.w / scale);
-    const h = Math.round(output.h / scale);
-    return { x: Math.round((output.w - w) / 2), y: Math.round((output.h - h) / 2), w, h };
-  };
-  const halfW = Math.round(output.w / 2);
-  const halfH = Math.round(output.h / 2);
-  const quadPresets: { label: string; title: string; make: () => Region }[] = [
-    { label: "左上", title: "画面左上を2倍に拡大", make: () => ({ x: 0, y: 0, w: halfW, h: halfH }) },
-    { label: "右上", title: "画面右上を2倍に拡大", make: () => ({ x: output.w - halfW, y: 0, w: halfW, h: halfH }) },
-    { label: "左下", title: "画面左下を2倍に拡大", make: () => ({ x: 0, y: output.h - halfH, w: halfW, h: halfH }) },
-    { label: "右下", title: "画面右下を2倍に拡大", make: () => ({ x: output.w - halfW, y: output.h - halfH, w: halfW, h: halfH }) },
-  ];
   const patchRect = (p: Partial<Region>) => onChange({ ...rect, ...p });
-  const scale = output.w / rect.w;
+  const pickAnchor = (h: "l" | "c" | "r", v: "t" | "m" | "b") => {
+    const x = h === "l" ? 0 : h === "c" ? Math.round((output.w - rect.w) / 2) : output.w - rect.w;
+    const y = v === "t" ? 0 : v === "m" ? Math.round((output.h - rect.h) / 2) : output.h - rect.h;
+    onChange({ ...rect, x, y });
+  };
   return (
-    <>
-      <div className="field">
-        <label>拡大率</label>
-        <div className="rectPresets">
-          {[2, 3, 4].map((s) => (
-            <button key={s} title={`画面中央を${s}倍に拡大`} onClick={() => onChange(centeredScale(s))}>
-              中央 {s}倍
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="field">
-        <label>位置</label>
-        <div className="rectPresets">
-          {quadPresets.map((p) => (
-            <button key={p.label} title={p.title} onClick={() => onChange(p.make())}>
-              {p.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="field">
-        <label>X / Y</label>
+    <div className="capControlStack">
+      <div className="capField">
+        <label>X</label>
         <NumInput
           value={rect.x}
           title="拡大する矩形の左上 X(出力px)"
           onCommit={(v) => v !== undefined && patchRect({ x: Math.round(v) })}
         />
+      </div>
+      <div className="capField">
+        <label>Y</label>
         <NumInput
           value={rect.y}
           title="拡大する矩形の左上 Y(出力px)"
           onCommit={(v) => v !== undefined && patchRect({ y: Math.round(v) })}
         />
       </div>
-      <div className="field">
-        <label>幅 / 高さ</label>
+      <div className="capField">
+        <label>W</label>
         <NumInput
           value={rect.w}
           title="拡大する矩形の幅(出力px)。scale = 出力幅 / 幅 が一意に決まる(倍率は書けない)"
           onCommit={(v) => v !== undefined && patchRect({ w: Math.max(1, Math.round(v)) })}
         />
+      </div>
+      <div className="capField">
+        <label>H</label>
         <NumInput
           value={rect.h}
           title="拡大する矩形の高さ(出力px)"
           onCommit={(v) => v !== undefined && patchRect({ h: Math.max(1, Math.round(v)) })}
         />
       </div>
-      <p className="dim hint">
-        現在の拡大率: {scale.toFixed(2)}倍。プレビュー上で枠をドラッグして移動、
-        四隅・辺のハンドルでリサイズできます(この区間が再生ヘッド上にあるとき)。
-      </p>
-    </>
+      <div className="anchorWide">
+        <AnchorPointControl onPick={pickAnchor} />
+      </div>
+    </div>
   );
 };
 
@@ -2426,39 +2337,40 @@ const BlurRectControl = ({
 }) => {
   const patchRect = (p: Partial<Region>) => onChange({ ...rect, ...p });
   return (
-    <>
-      <div className="field">
-        <label>X / Y</label>
+    <div className="capControlStack">
+      <div className="capField">
+        <label>X</label>
         <NumInput
           value={rect.x}
           title="隠す矩形の左上 X(出力px)"
           onCommit={(v) => v !== undefined && patchRect({ x: Math.round(v) })}
         />
+      </div>
+      <div className="capField">
+        <label>Y</label>
         <NumInput
           value={rect.y}
           title="隠す矩形の左上 Y(出力px)"
           onCommit={(v) => v !== undefined && patchRect({ y: Math.round(v) })}
         />
       </div>
-      <div className="field">
-        <label>幅 / 高さ</label>
+      <div className="capField">
+        <label>W</label>
         <NumInput
           value={rect.w}
           title="隠す矩形の幅(出力px)"
           onCommit={(v) => v !== undefined && patchRect({ w: Math.max(1, Math.round(v)) })}
         />
+      </div>
+      <div className="capField">
+        <label>H</label>
         <NumInput
           value={rect.h}
           title="隠す矩形の高さ(出力px)"
           onCommit={(v) => v !== undefined && patchRect({ h: Math.max(1, Math.round(v)) })}
         />
       </div>
-      <p className="dim hint">
-        プレビュー上で枠をドラッグして移動、四隅・辺のハンドルでリサイズできます
-        (この区間が再生ヘッド上にあるとき)。画面外へはみ出すと保存時にエラーに
-        なります。
-      </p>
-    </>
+    </div>
   );
 };
 
@@ -2474,38 +2386,40 @@ const AnnotationRectControl = ({
 }) => {
   const patchRect = (p: Partial<Region>) => onChange({ ...rect, ...p });
   return (
-    <>
-      <div className="field">
-        <label>X / Y</label>
+    <div className="capControlStack">
+      <div className="capField">
+        <label>X</label>
         <NumInput
           value={rect.x}
           title="範囲の左上 X(出力px)"
           onCommit={(v) => v !== undefined && patchRect({ x: Math.round(v) })}
         />
+      </div>
+      <div className="capField">
+        <label>Y</label>
         <NumInput
           value={rect.y}
           title="範囲の左上 Y(出力px)"
           onCommit={(v) => v !== undefined && patchRect({ y: Math.round(v) })}
         />
       </div>
-      <div className="field">
-        <label>幅 / 高さ</label>
+      <div className="capField">
+        <label>W</label>
         <NumInput
           value={rect.w}
           title="範囲の幅(出力px)"
           onCommit={(v) => v !== undefined && patchRect({ w: Math.max(1, Math.round(v)) })}
         />
+      </div>
+      <div className="capField">
+        <label>H</label>
         <NumInput
           value={rect.h}
           title="範囲の高さ(出力px)"
           onCommit={(v) => v !== undefined && patchRect({ h: Math.max(1, Math.round(v)) })}
         />
       </div>
-      <p className="dim hint">
-        プレビュー上で枠をドラッグして移動、四隅・辺のハンドルでリサイズできます
-        (この区間が再生ヘッド上にあるとき)。
-      </p>
-    </>
+    </div>
   );
 };
 
@@ -2520,34 +2434,40 @@ const ArrowPointControl = ({
   to: CaptionPos;
   onChange: (patch: { from?: CaptionPos; to?: CaptionPos }) => void;
 }) => (
-  <>
-    <div className="field">
-      <label>始点 X / Y</label>
+  <div className="capControlStack">
+    <div className="capField">
+      <label>始X</label>
       <NumInput
         value={from.x}
         title="矢印の始点 X(出力px)"
         onCommit={(v) => v !== undefined && onChange({ from: { ...from, x: Math.round(v) } })}
       />
+    </div>
+    <div className="capField">
+      <label>始Y</label>
       <NumInput
         value={from.y}
         title="矢印の始点 Y(出力px)"
         onCommit={(v) => v !== undefined && onChange({ from: { ...from, y: Math.round(v) } })}
       />
     </div>
-    <div className="field">
-      <label>終点 X / Y</label>
+    <div className="capField">
+      <label>終X</label>
       <NumInput
         value={to.x}
         title="矢印の終点(矢尻)X(出力px)"
         onCommit={(v) => v !== undefined && onChange({ to: { ...to, x: Math.round(v) } })}
       />
+    </div>
+    <div className="capField">
+      <label>終Y</label>
       <NumInput
         value={to.y}
         title="矢印の終点(矢尻)Y(出力px)"
         onCommit={(v) => v !== undefined && onChange({ to: { ...to, y: Math.round(v) } })}
       />
     </div>
-  </>
+  </div>
 );
 
 /** 注釈の数値プロパティ1件(太さ・角丸・大きさ等)。既定値と一致する値は
@@ -2563,7 +2483,7 @@ const NumField = ({
   placeholder: number;
   onCommit: (v: number | undefined) => void;
 }) => (
-  <div className="field">
+  <div className="capField">
     <label>{label}</label>
     <NumInput
       value={value}
@@ -2588,7 +2508,7 @@ const ColorField = ({
   value: string;
   onChange: (c: string) => void;
 }) => (
-  <div className="field">
+  <div className="capField swatchField">
     <label>{label}</label>
     <input type="color" value={value} onChange={(e) => onChange(e.target.value)} />
   </div>
@@ -2605,7 +2525,7 @@ const FillField = ({
 }) => {
   const col = value ? splitColor(value) : null;
   return (
-    <div className="field">
+    <div className="capField wide">
       <label>塗り</label>
       <input
         type="checkbox"
@@ -3011,8 +2931,6 @@ const ShortCaptionPanel = ({
     }
     setShortCaptionTrackDefault(track, { style: Object.keys(st).length > 0 ? st : null });
   };
-  /** 9点プリセット。テキストの実測寸法で画面端に marginPx を空けて置く
-   * (本編の applyPosPreset と同じ式) */
   const applyPosPreset = (h: "l" | "c" | "r", v: "t" | "m" | "b") => {
     const { w: tw, h: th } = measureCaption(
       s.text,
@@ -3041,46 +2959,20 @@ const ShortCaptionPanel = ({
   };
   return (
     <div className="insp">
-      <InspHead
-        kind={`${captionTrackName(track, overlays, capTracks)}・ショート用配置`}
-        title={s.text.trim().split("\n")[0] || "(空のテロップ)"}
-        chips={[`長さ ${fmtTime(Math.max(0, s.end - s.start))}`]}
-      />
-      <textarea
-        className="capEdit"
-        rows={3}
-        value={s.text}
-        onChange={(e) =>
-          updateCaption(index, { text: e.target.value }, `caption:${index}:text`)
-        }
-      />
-      <TimingSection
-        start={s.start}
-        end={s.end}
-        timeline={timeline}
-        getPlayheadSrc={getPlayheadSrc}
-        seekToSrc={seekToSrc}
-        onStart={(v) => updateCaption(index, { start: v })}
-        onEnd={(v) => updateCaption(index, { end: v })}
-      />
+      <Section title={captionTrackName(track, overlays, capTracks)} className="captionTextSec">
+        <input
+          className="capTextInput"
+          type="text"
+          value={s.text}
+          onChange={(e) =>
+            updateCaption(index, { text: e.target.value }, `caption:${index}:text`)
+          }
+        />
+      </Section>
       <Section title="配置(このショート専用・トラック単位)">
-        <div className="posRow">
-          <div className="posGrid" title="画面9箇所への配置プリセット(テキストの実測幅で余白を確保)">
-            {(
-              [
-                ["l", "t", "↖"], ["c", "t", "↑"], ["r", "t", "↗"],
-                ["l", "m", "←"], ["c", "m", "・"], ["r", "m", "→"],
-                ["l", "b", "↙"], ["c", "b", "↓"], ["r", "b", "↘"],
-              ] as const
-            ).map(([h, v, label]) => (
-              <button key={`${h}${v}`} onClick={() => applyPosPreset(h, v)}>
-                {label}
-              </button>
-            ))}
-          </div>
-          <div className="posFields">
-            <div className="field">
-              <label>X / Y</label>
+        <div className="capPositionGrid">
+            <div className="capField">
+              <label>X</label>
               <NumInput
                 value={trackDef?.x}
                 allowEmpty
@@ -3092,6 +2984,9 @@ const ShortCaptionPanel = ({
                   })
                 }
               />
+            </div>
+            <div className="capField">
+              <label>Y</label>
               <NumInput
                 value={trackDef?.y}
                 allowEmpty
@@ -3104,38 +2999,14 @@ const ShortCaptionPanel = ({
                 }
               />
             </div>
-            <div className="field">
-              <label>座標の基準</label>
-              <select
-                value={anchor}
-                title="このショートのトラック全体の座標の解釈"
-                onChange={(e) =>
-                  setShortCaptionTrackDefault(track, {
-                    anchor: e.target.value === "topLeft" ? "topLeft" : null,
-                  })
-                }
-              >
-                <option value="center">テキスト中心</option>
-                <option value="topLeft">左上(章タイトル向き)</option>
-              </select>
+            <div className="anchorWide">
+              <AnchorPointControl onPick={applyPosPreset} />
             </div>
-          </div>
         </div>
-        {trackDef?.x !== undefined && (
-          <p className="dim hint">
-            現在位置: X {trackDef.x} / Y {trackDef.y}{" "}
-            <button
-              className="linkish"
-              onClick={() => setShortCaptionTrackDefault(track, { pos: null })}
-            >
-              標準位置に戻す
-            </button>
-          </p>
-        )}
       </Section>
-      <Section title="スタイル(このショート専用・トラック単位)">
-        <div className="field">
-          <label>サイズ(px)</label>
+      <Section title="タイポグラフィ(このショート専用・トラック単位)">
+        <div className="capControlStack typographyControls">
+        <div className="capField noLabel">
           <NumInput
             value={trackDef?.style?.fontSizePx}
             allowEmpty
@@ -3144,7 +3015,33 @@ const ShortCaptionPanel = ({
             onCommit={(v) => patchStyle({ fontSizePx: v !== undefined ? Math.round(v) : undefined })}
           />
         </div>
-        <div className="field">
+        <div className="capField wide noLabel">
+          <select
+            value={base.fontFamily ?? CAPTION_DEFAULT_FONT_FAMILY}
+            onChange={(e) => patchStyle({ fontFamily: e.target.value })}
+          >
+            {FONT_PRESETS.map((p) => (
+              <option key={p.value} value={p.value}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="capField noLabel">
+          <select
+            value={trackDef?.style?.fontWeight ?? 400}
+            onChange={(e) => patchStyle({ fontWeight: Number(e.target.value) })}
+          >
+            <option value={400}>Regular</option>
+            <option value={700}>Bold</option>
+            <option value={900}>Black</option>
+          </select>
+        </div>
+        </div>
+      </Section>
+      <Section title="塗り(このショート専用・トラック単位)">
+        <div className="capControlStack paintControls">
+        <div className="capField swatchField">
           <label>文字色</label>
           <input
             type="color"
@@ -3152,7 +3049,7 @@ const ShortCaptionPanel = ({
             onChange={(e) => patchStyle({ color: e.target.value })}
           />
         </div>
-        <div className="field">
+        <div className="capField swatchField">
           <label>縁取り</label>
           <input
             type="checkbox"
@@ -3173,30 +3070,6 @@ const ShortCaptionPanel = ({
             />
           )}
         </div>
-        <div className="field">
-          <label>フォント</label>
-          <select
-            value={base.fontFamily ?? CAPTION_DEFAULT_FONT_FAMILY}
-            style={{ flex: 1, minWidth: 0 }}
-            onChange={(e) => patchStyle({ fontFamily: e.target.value })}
-          >
-            {FONT_PRESETS.map((p) => (
-              <option key={p.value} value={p.value}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="field">
-          <label>太さ</label>
-          <select
-            value={base.fontWeight ?? CAPTION_DEFAULT_FONT_WEIGHT}
-            onChange={(e) => patchStyle({ fontWeight: Number(e.target.value) })}
-          >
-            <option value={400}>普通 (400)</option>
-            <option value={700}>太字 (700)</option>
-            <option value={900}>極太 (900)</option>
-          </select>
         </div>
         {trackDef?.style && (
           <p className="dim hint">

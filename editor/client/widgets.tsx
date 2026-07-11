@@ -633,6 +633,7 @@ export const LoopIcon = ({ size = 16 }: { size?: number }) => (
   </svg>
 );
 
+
 /** パネル最大化アイコン(対角の矢印)。active のとき内向き(=元に戻す) */
 export const MaximizeIcon = ({
   active,

@@ -4,9 +4,11 @@
 # 収録データの置き場所(リポジトリ外に置く。1収録=1フォルダ、中に raw.mkv)
 recordingsDir: ~/Movies/cutflow
 
-# 収録レイアウト(OBS拡張キャンバス方式)
+# 収録レイアウトの設定。既定は通常動画(plain)。
+# OBS拡張キャンバスを使う場合は各コマンドで --layout obs-canvas を指定するか、
+# この layout を obs-canvas に変える。
 # キャンバス 3840x1080: 左半分=画面キャプチャ、右半分=カメラ
-# 収録設定を変えた場合はここを合わせる(docs/recording-guide.md 参照)
+# 収録設定を変えた場合は screenRegion/cameraRegion を合わせる(docs/recording-guide.md 参照)
 ingest:
   screenRegion: { x: 0, y: 0, w: 1920, h: 1080 }
   cameraRegion: { x: 1920, y: 0, w: 1920, h: 1080 }
@@ -14,12 +16,11 @@ ingest:
   # トラック2は任意。収録ファイルに存在しなければ自動的に無視される
   micTrack: 1
   systemTrack: 2
-  # 収録レイアウトの既定。obs-canvas(拡張キャンバス、上の screenRegion/
-  # cameraRegion を使う) / plain(通常動画。カメラ無し。screenRegion は
-  # 全フレーム) / auto(キャンバス寸法が上の screenRegion+cameraRegion と
-  # 完全一致すれば obs-canvas、それ以外は plain)。省略時 obs-canvas。
-  # ingest / run の --layout フラグで実行時に上書きできる
-  layout: obs-canvas
+  # 収録レイアウトの既定。plain(通常動画。カメラ無し。screenRegion は
+  # 全フレーム) / obs-canvas(拡張キャンバス、上の screenRegion/cameraRegion
+  # を使う) / auto(寸法/縦横比から OBS らしければ obs-canvas、それ以外は plain)。
+  # 省略時 plain。ingest / editor / run の --layout フラグで実行時に上書きできる
+  layout: plain
 
 # 文字起こし(whisper.cpp)
 whisper:
@@ -27,10 +28,11 @@ whisper:
   model: ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin
   language: ja
   # 語/トークン単位のタイミング(transcript.json の segment.words[])を付けるか。
-  # 省略時 false(既存挙動と完全一致。words を一切書かない)。
-  # true にすると whisper 実行が -ojf に切り替わり transcript.json が増える
-  # (今フェーズでは words[] を消費する機能が無いので既定は false のまま推奨)
-  wordTimestamps: false
+  # 既定 true(語タイムスタンプは karaoke/語境界カットの前提資産=W0)。
+  # true だと whisper 実行が -ojf に切り替わり transcript.json が増える。
+  # 既存収録(words 無し)は再 transcribe が要る(validate が警告する)。
+  # 明示的に false を書けば従来どおり words を一切書かない挙動に戻せる
+  wordTimestamps: true
   # システム音声(systemTrack)も第2トラックとして文字起こしする(知覚専用・
   # 描画しない)。既定 false。true で transcript.system.json を書く
   systemAudio: false
