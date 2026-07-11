@@ -314,6 +314,21 @@ export interface Config {
      *  DEFAULT_PLAN_EFFECTS_DEFAULT_BLUR_STRENGTH(0.5) */
     defaultBlurStrength?: number;
   };
+  /** BGM 配置候補の自動生成(plan-bgm)。B1(章×テンションでの区間割り)+
+   *  B3(切替点の意味化)。切替アンカー(章境界/大カット境界)は決定論、
+   *  曲は人間が materials/ or bgm.* に置いたものから番号選択する
+   *  (§docs/plans/2026-07-11-b1-b3-bgm-placement-candidates-design.md)。
+   *  省略時は全て既定値(DEFAULT_PLAN_BGM_*) */
+  planBgm?: {
+    /** 「大カット境界」とみなす cut 尺の下限(秒)。省略時
+     *  DEFAULT_PLAN_BGM_BIG_CUT_SEC(3.0) */
+    bigCutSec?: number;
+    /** BGM スロットの最小尺(秒)。これ未満は前後へ吸収する。省略時
+     *  DEFAULT_PLAN_BGM_MIN_SLOT_SEC(8.0) */
+    minSlotSec?: number;
+    /** スロット上限(区切りすぎ防止)。省略時 DEFAULT_PLAN_BGM_MAX_SLOTS(12) */
+    maxSlots?: number;
+  };
   /** 演出の検品(effect-check)。E3(座標視覚検証)+ E4(zoom 相互作用)+
    *  E5(密度ガード)。決定論チェックは常時、VLM は vision route があり
    *  useVlm=true のときだけ(§docs/plans/2026-07-11-e3-e4-e5-effect-visual-verification-design.md)。
@@ -613,6 +628,26 @@ export function resolveEffectPlacementCfg(cfg: Config): {
     minOcrBoxAreaPx: p.minOcrBoxAreaPx ?? DEFAULT_PLAN_EFFECTS_MIN_OCR_BOX_AREA_PX,
     minZoomRect: p.minZoomRect ?? { ...DEFAULT_PLAN_EFFECTS_MIN_ZOOM_RECT },
     defaultBlurStrength: p.defaultBlurStrength ?? DEFAULT_PLAN_EFFECTS_DEFAULT_BLUR_STRENGTH,
+  };
+}
+
+/** planBgm.* 未指定時の既定値。§docs/plans/2026-07-11-b1-b3-bgm-placement-candidates-design.md */
+export const DEFAULT_PLAN_BGM_BIG_CUT_SEC = 3.0;
+export const DEFAULT_PLAN_BGM_MIN_SLOT_SEC = 8.0;
+export const DEFAULT_PLAN_BGM_MAX_SLOTS = 12;
+
+/** planBgm を既定値で解決する純関数。loadConfig は cfg.planBgm を
+ *  書き換えない */
+export function resolveBgmSlotCfg(cfg: Config): {
+  bigCutSec: number;
+  minSlotSec: number;
+  maxSlots: number;
+} {
+  const p = cfg.planBgm ?? {};
+  return {
+    bigCutSec: p.bigCutSec ?? DEFAULT_PLAN_BGM_BIG_CUT_SEC,
+    minSlotSec: p.minSlotSec ?? DEFAULT_PLAN_BGM_MIN_SLOT_SEC,
+    maxSlots: p.maxSlots ?? DEFAULT_PLAN_BGM_MAX_SLOTS,
   };
 }
 
