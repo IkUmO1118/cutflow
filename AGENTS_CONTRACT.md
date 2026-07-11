@@ -123,7 +123,16 @@ false staleness signals or gets silently discarded:
   (`<name>.json` per `--name`, default `default.json`) under the **channel**
   directory (the parent of the first `--from` path), not necessarily inside
   a single recording folder. Always fully recomputed and overwritten on each
-  run (no partial cache)
+  run (no partial cache). `plan.styleProfile` (config.yaml key, opt-in,
+  default off) lets `plan`/`plan --cuts-only` **read** this profile at plan
+  time and inject a compact style-policy block into the LLM prompt as a soft
+  prior for candidate selection (target avg shot length/aggressiveness,
+  caption density/position, hook/CTA) — never raw JSON, never exact
+  timestamps, and always subordinate to `brief.md`. Off (default) leaves the
+  LLM input byte-identical to before this feature; a missing/unreadable
+  profile degrades gracefully (injection skipped, `plan` still runs). v1
+  scope is the cut-decision prompts only (not `remeta`, not the
+  materials/effects/BGM generators)
 - `backups/` (pre-overwrite snapshots) and `.editor-draft.json` (the GUI
   editor's autosaved unsaved draft)
 - `rules.suggested.md` (a disposable draft written by `learn`; a human

@@ -236,6 +236,20 @@ export interface Config {
         ocr?: boolean;
       };
     };
+    /** SD-T0 が抽出した style profile を compact な soft prior として plan /
+     *  plan --cuts-only のプロンプトへ注入する opt-in 設定。省略/enabled=false の
+     *  とき plan の LLM 入力・plan.raw.txt は導入前とバイト等価(plan.perception と
+     *  同型の不変条件)。番号選択方式は維持=LLM に精密な値は書かせない(§8 不変条件5)。
+     *  brief.md に劣後するソフトな prior として注入される(§6.2)。
+     *  §docs/plans/2026-07-12-sd-t4-style-injection-design.md */
+    styleProfile?: {
+      /** 注入の有効化。省略時 false(バイト等価)。true で channel 直下
+       *  style.probe/<profile>.json を読み compact policy を prompt に添える */
+      enabled?: boolean;
+      /** 読み込む profile 名(style.probe/<profile>.json)。省略時 "default"。
+       *  style-profile --name と対応 */
+      profile?: string;
+    };
   };
   /** plan の候補格子を語タイムスタンプ(transcript.words)由来の語境界でも
    *  分割する(C1)+ 候補テキストを実際に残る語だけにする(C8)。省略可
@@ -877,6 +891,41 @@ export function planHarnessEnabled(cfg: Config): boolean {
   return typeof adapter.completeAgentic === "function";
 }
 
+/** plan.styleProfile.profile 未指定時の既定 profile 名 */
+export const DEFAULT_STYLE_PROFILE_NAME = "default";
+
+/** plan.styleProfile を既定値で解決する純関数(省略時 enabled=false=バイト等価)。
+ *  loadConfig は cfg.plan.styleProfile を書き換えない(省略=off を守る) */
+export function resolveStyleProfileCfg(cfg: Config): { enabled: boolean; profile: string } {
+  const s = cfg.plan?.styleProfile ?? {};
+  const profile = (s.profile ?? DEFAULT_STYLE_PROFILE_NAME).trim() || DEFAULT_STYLE_PROFILE_NAME;
+  return { enabled: s.enabled ?? false, profile };
+}
+
+export interface StyleProfileStatus {
+  explicit: boolean; // cfg.plan?.styleProfile !== undefined
+  enabled: boolean;
+  profile: string;
+  warnings: string[];
+}
+
+export function resolveStyleProfileStatus(cfg: Config): StyleProfileStatus {
+  const sc = resolveStyleProfileCfg(cfg);
+  const explicit = cfg.plan?.styleProfile !== undefined;
+  const warnings: string[] = [];
+  if (!explicit) {
+    warnings.push("plan.styleProfile が config.yaml にありません。スタイル注入はオフです。");
+  }
+  return { explicit, ...sc, warnings };
+}
+
+export function formatStyleProfileStatusLines(status: StyleProfileStatus): string[] {
+  return [
+    ...status.warnings.map((w) => `警告: ${w}`),
+    `plan スタイル注入: ${status.enabled ? `on(profile=${status.profile})` : "off"}`,
+  ];
+}
+
 function validateWorkflowConfig(cfg: Config): string[] {
   const errors: string[] = [];
   const editorAiReview = cfg.editor?.aiReview as Record<string, unknown> | undefined;
@@ -950,6 +999,16 @@ function validateWorkflowConfig(cfg: Config): string[] {
           errors.push(`plan.harness.tools.${key} は boolean で指定してください`);
         }
       }
+    }
+  }
+  const planStyleProfile = cfg.plan?.styleProfile as Record<string, unknown> | undefined;
+  if (planStyleProfile) {
+    errors.push(...unknownKeys(planStyleProfile, ["enabled", "profile"]).map((key) => `plan.styleProfile.${key} は未対応です`));
+    if ("enabled" in planStyleProfile && typeof planStyleProfile.enabled !== "boolean") {
+      errors.push("plan.styleProfile.enabled は boolean で指定してください");
+    }
+    if ("profile" in planStyleProfile && typeof planStyleProfile.profile !== "string") {
+      errors.push("plan.styleProfile.profile は文字列で指定してください");
     }
   }
   return errors;
