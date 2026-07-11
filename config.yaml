@@ -254,15 +254,14 @@ ai:
   # anthropic:   Anthropic API を使う(ANTHROPIC_API_KEY と model が必要)
   # openai:      OpenAI API を使う(OPENAI_API_KEY と model が必要)
   profiles:
-    local:
-      adapter: codex
-      model: gpt-5.4-mini
+    claude-code:
+      adapter: claude-code
     cloud-vision:
       adapter: openai
       model: gpt-5.4-mini
   routes:
-    text: local
-    structured: local
+    text: claude-code
+    structured: claude-code
     vision: cloud-vision
   # 旧形式(後方互換):
   # provider: codex
