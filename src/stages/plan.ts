@@ -18,6 +18,7 @@ import {
   resolvePlanHarnessCfg,
   resolvePlanLoopCfg,
   resolvePlanLoopSecondaryObservationCfg,
+  resolveStyleProfileCfg,
 } from "../lib/config.ts";
 import { agenticCutTurn } from "../lib/ai/agenticCut.ts";
 import type { AgenticCtx, AgenticTraceEntry, SplitOp, SplitTraceEntry } from "../lib/ai/agenticCut.ts";
@@ -73,6 +74,9 @@ import type { AssertionsDoc } from "../types.ts";
 import { evaluateStructural } from "./assert.ts";
 import { describeJson } from "./describe.ts";
 import type { DescribeProjection } from "./describe.ts";
+import { STYLE_PROBE_DIR } from "./styleProfile.ts";
+import { renderStyleProfileBlock } from "../lib/styleInjection.ts";
+import type { StyleProfile } from "../lib/styleProfile.ts";
 
 /**
  * このプロジェクトで id が有効(§docs/plans/2026-07-07-stable-ids-design.md の
@@ -86,6 +90,30 @@ function buildIdContext(
   const docs = readEditableDocs(dir);
   if (!hasAnyId(docs)) return undefined;
   return { used: usedIdsOf(docs), existingCutplanSegments: docs.cutplan?.segments ?? [] };
+}
+
+/** channel(dir の親)の style.probe/<name>.json を読む。不在・パース失敗は
+ * warn して null(=空注入へ優雅劣化。前提エラーで plan を止めない=§5.3/§SD-T4)。
+ * styleCheck.ts の profile 読込(channel = dirname(resolve(dir)))と同じ規約 */
+function loadStyleProfileForPlan(
+  dir: string,
+  name: string,
+  warn: (msg: string) => void,
+): StyleProfile | null {
+  const channel = dirname(resolve(dir));
+  const path = join(channel, STYLE_PROBE_DIR, `${name}.json`);
+  if (!existsSync(path)) {
+    warn(
+      `style profile が見つかりません: ${path}(先に \`style-profile --from ${dir}\`)。スタイル注入はスキップします`,
+    );
+    return null;
+  }
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as StyleProfile;
+  } catch (e) {
+    warn(`style profile を解析できません: ${path}(${(e as Error).message})。スタイル注入はスキップします`);
+    return null;
+  }
 }
 
 /** 残す候補区間 + 重なる文字起こしテキストに番号を振ったもの(LLM 入力用)。
@@ -328,6 +356,15 @@ export async function plan(
   const perception = renderPerceptionBlock(audio, system, ocr);
   const completeFn = deps.complete ?? completeStructuredPlan;
 
+  // SD-T4(既定 off): enabled のときだけ channel の style profile を読み、
+  // compact policy を prompt へ添える(§2.6.2)。off なら loadStyleProfileForPlan
+  // 自体を呼ばず(fs を触らず)renderStyleProfileBlock(null, false) → ""=バイト等価
+  const spc = resolveStyleProfileCfg(cfg);
+  const styleProf = spc.enabled
+    ? loadStyleProfileForPlan(dir, spc.profile, (m) => console.warn(`警告: ${m}`))
+    : null;
+  const styleProfileBlock = renderStyleProfileBlock(styleProf, spc.enabled);
+
   if (opts.cutsOnly) {
     // H1/H2(plan.harness。既定 off): agentic 有効時だけ per-iteration complete()
     // を tool+検証ループ(agenticCutTurn)へ差し替える。off の間はこの分岐に
@@ -345,6 +382,7 @@ export async function plan(
         numbered,
         durationSec: auto.originalDurationSec,
         perception,
+        styleProfile: styleProfileBlock,
         idCtx,
         harness: harnessOn,
         agenticAdapterOverride: deps.agenticAdapterOverride,
@@ -369,6 +407,7 @@ export async function plan(
       perception,
       deps.complete ?? completeStructuredCuts,
       idCtx,
+      styleProfileBlock,
     );
   }
 
@@ -379,6 +418,7 @@ export async function plan(
     auto.originalDurationSec,
     perception,
     buildEditModeCfg(cfg),
+    styleProfileBlock,
   );
   const raw = await completeFn(prompt, cfg);
   // LLM の生応答は必ず残す(パース失敗時の調査と、判断過程の記録のため)
@@ -407,6 +447,7 @@ async function generateCutsOnce(
   perception: string,
   completeFn: CompleteFn,
   idCtx?: { used: Set<string>; existingCutplanSegments: PlanSegment[] },
+  styleProfile: string = "",
 ): Promise<CutPlan> {
   const prompt = renderPrompt(
     dir,
@@ -415,6 +456,7 @@ async function generateCutsOnce(
     durationSec,
     perception,
     buildEditModeCfg(cfg),
+    styleProfile,
   );
   const raw = await completeFn(prompt, cfg);
   // LLM の生応答は必ず残す(パース失敗時の調査と、判断過程の記録のため)
@@ -431,6 +473,9 @@ interface RunCutsLoopArgs {
   numbered: NumberedSegment[];
   durationSec: number;
   perception: string;
+  /** SD-T4 compact style policy block(§2.5.5)。iter===0(generate)の
+   * renderPrompt にだけ渡す(critique 反復には渡さない。§2.6.3・§1.5 defer) */
+  styleProfile: string;
   idCtx?: { used: Set<string>; existingCutplanSegments: PlanSegment[] };
   complete: CompleteFn;
   observe?: ObservationProvider;
@@ -507,6 +552,7 @@ async function runCutsLoop(args: RunCutsLoopArgs): Promise<CutPlan> {
           args.durationSec,
           args.perception,
           editModeCfg,
+          args.styleProfile,
         )
       : renderCritiquePrompt(
           args.dir,
@@ -893,6 +939,7 @@ export function renderPrompt(
   durationSec: number,
   perception: string = "",
   editModeCfg: EditModeCfg = DEFAULT_EDIT_MODE_CFG,
+  styleProfile: string = "",
 ): string {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
   const template = readFileSync(join(repoRoot, "prompts", templateFile), "utf8");
@@ -928,6 +975,7 @@ export function renderPrompt(
     .replaceAll("{{brief}}", () => brief)
     .replaceAll("{{rules}}", () => rules)
     .replaceAll("{{perception}}", () => perception)
+    .replaceAll("{{styleProfile}}", () => styleProfile)
     .replaceAll("{{editMode}}", () => editModeBlock);
 }
 

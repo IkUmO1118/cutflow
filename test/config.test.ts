@@ -31,12 +31,14 @@ import {
   DEFAULT_PLAN_LOOP_SECONDARY_MAX_CALLS,
   DEFAULT_PLAN_LOOP_SECONDARY_MAX_IMAGES,
   DEFAULT_PLAN_SHORTS_MAX_DURATION_SEC,
+  DEFAULT_STYLE_PROFILE_NAME,
   loadConfig,
   MAX_AI_IMAGES,
   planHarnessEnabled,
   planLoopEnabled,
   planShortsMaxSec,
   formatPerceptionStatusLines,
+  formatStyleProfileStatusLines,
   resolveAiCfg,
   resolveAiRuntimeConfig,
   resolveAvCfg,
@@ -47,6 +49,8 @@ import {
   resolvePlanHarnessCfg,
   resolvePlanLoopCfg,
   resolvePlanLoopSecondaryObservationCfg,
+  resolveStyleProfileCfg,
+  resolveStyleProfileStatus,
 } from "../src/lib/config.ts";
 import type { Config } from "../src/lib/config.ts";
 
@@ -661,6 +665,139 @@ test("planHarnessEnabled: anthropic ルートで agentic=true なら true(comple
     plan: { harness: { agentic: true } },
   } as Config;
   assert.equal(planHarnessEnabled(cfg), true);
+});
+
+test("resolveStyleProfileCfg: plan.styleProfile 省略時は off+既定 profile 名(SD-T4)", () => {
+  assert.deepEqual(resolveStyleProfileCfg({} as Config), {
+    enabled: false,
+    profile: DEFAULT_STYLE_PROFILE_NAME,
+  });
+  assert.equal(DEFAULT_STYLE_PROFILE_NAME, "default");
+});
+
+test("resolveStyleProfileCfg: 明示値を解決し、空白/空文字 profile は既定名へフォールバック", () => {
+  assert.deepEqual(
+    resolveStyleProfileCfg({ plan: { styleProfile: { enabled: true, profile: "punchy" } } } as Config),
+    { enabled: true, profile: "punchy" },
+  );
+  assert.deepEqual(
+    resolveStyleProfileCfg({ plan: { styleProfile: { enabled: true, profile: "   " } } } as Config),
+    { enabled: true, profile: DEFAULT_STYLE_PROFILE_NAME },
+  );
+  assert.deepEqual(
+    resolveStyleProfileCfg({ plan: { styleProfile: { enabled: false } } } as Config),
+    { enabled: false, profile: DEFAULT_STYLE_PROFILE_NAME },
+  );
+});
+
+test("resolveStyleProfileStatus/formatStyleProfileStatusLines: 未設定は警告+off", () => {
+  const status = resolveStyleProfileStatus({} as Config);
+  assert.equal(status.explicit, false);
+  assert.equal(status.enabled, false);
+  assert.equal(status.profile, DEFAULT_STYLE_PROFILE_NAME);
+  assert.deepEqual(formatStyleProfileStatusLines(status), [
+    "警告: plan.styleProfile が config.yaml にありません。スタイル注入はオフです。",
+    "plan スタイル注入: off",
+  ]);
+});
+
+test("resolveStyleProfileStatus/formatStyleProfileStatusLines: enabled=true は on(profile=名) を返し警告なし", () => {
+  const status = resolveStyleProfileStatus({
+    plan: { styleProfile: { enabled: true, profile: "punchy" } },
+  } as Config);
+  assert.equal(status.explicit, true);
+  assert.deepEqual(formatStyleProfileStatusLines(status), [
+    "plan スタイル注入: on(profile=punchy)",
+  ]);
+});
+
+test("resolveStyleProfileStatus/formatStyleProfileStatusLines: explicit だが enabled=false(明示 off)は警告なしで off", () => {
+  const status = resolveStyleProfileStatus({ plan: { styleProfile: { enabled: false } } } as Config);
+  assert.equal(status.explicit, true);
+  assert.deepEqual(formatStyleProfileStatusLines(status), ["plan スタイル注入: off"]);
+});
+
+/** loadConfig 経由で validateWorkflowConfig の plan.styleProfile 検査を固定する
+ * (plan.harness 系と同じく、この検査自体は非 export のため loadConfig 越しに
+ * 確認する。最小限の valid な config.yaml へ plan.styleProfile を足す) */
+function writeMinimalConfigWithPlanStyleProfile(dir: string, styleProfileYaml: string): string {
+  const path = join(dir, "config.yaml");
+  writeFileSync(
+    path,
+    `recordingsDir: ~/Movies/cutflow
+whisper:
+  bin: whisper-cli
+  model: ~/m.bin
+  language: ja
+detect: { silenceDb: -35, minSilenceSec: 0.7, padSec: 0.15, minKeepSec: 0.5 }
+preview: { width: 1280, videoEncoder: videotoolbox }
+render:
+  wipeWidthPx: 480
+  wipeMarginPx: 32
+  wipeTransitionSec: 0.3
+  cutTransition: { type: none, sec: 0.3 }
+  captionFontSizePx: 52
+  captionColor: "#fff"
+  captionOutlineColor: "#000"
+  captionFontFamily: sans-serif
+  captionFontWeight: 700
+  chapterCardSec: 3
+  targetLufs: -14
+  systemAudio: { mix: true, volumeDb: 0 }
+  denoise: { mic: false, noiseFloorDb: -25 }
+  bgm: { volumeDb: -22, fadeOutSec: 2, ducking: { duckDb: -8, fadeSec: 0.4 } }
+  hardwareAcceleration: if-possible
+  chunkSec: 15
+  zoom: { easeSec: 0.4 }
+editor: { maxUploadMb: 2048, defaultImageDurationSec: 4, defaultShortRangeSec: 10 }
+planShorts: { maxDurationSec: 60 }
+llm: { backend: claude-cli, model: x }
+plan:
+  styleProfile: ${styleProfileYaml}
+`,
+  );
+  return path;
+}
+
+test("loadConfig: plan.styleProfile の正常系は素通り(enabled/profile が解決できる)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = writeMinimalConfigWithPlanStyleProfile(dir, "{ enabled: true, profile: punchy }");
+    const cfg = loadConfig(path);
+    assert.deepEqual(resolveStyleProfileCfg(cfg), { enabled: true, profile: "punchy" });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig: plan.styleProfile の未知キーは拒否される(SD-T4)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = writeMinimalConfigWithPlanStyleProfile(dir, "{ enabled: true, foo: 1 }");
+    assert.throws(() => loadConfig(path), /plan\.styleProfile\.foo は未対応です/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig: plan.styleProfile.enabled は boolean 以外を拒否する", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = writeMinimalConfigWithPlanStyleProfile(dir, "{ enabled: yes-please }");
+    assert.throws(() => loadConfig(path), /plan\.styleProfile\.enabled は boolean で指定してください/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig: plan.styleProfile.profile は文字列以外を拒否する", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = writeMinimalConfigWithPlanStyleProfile(dir, "{ profile: 123 }");
+    assert.throws(() => loadConfig(path), /plan\.styleProfile\.profile は文字列で指定してください/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("resolveDescribePausesCfg: describe 省略時は無効+既定値", () => {

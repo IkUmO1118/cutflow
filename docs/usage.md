@@ -1262,6 +1262,50 @@ plan:
   `whisper.systemAudio: true`(下記)で `transcript.system.json` を先に作っておく
   必要があり、無ければ自動で省略(劣化)する
 
+## plan のスタイル注入(config.yaml の plan.styleProfile。既定オフ)
+
+`plan` / `plan --cuts-only` は、`style-profile` が抽出した style profile
+(`style.probe/<name>.json`)を **候補選択のソフトな prior** として LLM の
+プロンプトへ添えられる(§docs/plans/2026-07-12-sd-t4-style-injection-design.md)。
+既定オフで、オフのとき LLM 入力・`plan.raw.txt` は導入前と1バイトも変わらない
+(`plan.perception` と同じ不変条件)。
+
+```yaml
+plan:
+  styleProfile:
+    enabled: true    # 既定 false(バイト等価)
+    profile: default # 読む profile 名(style.probe/<profile>.json)。既定 "default"
+```
+
+- 有効化には先に `node src/cli.ts style-profile --from <dir>` で
+  `style.probe/<name>.json`(このプロジェクトの**親ディレクトリ=channel**直下)を
+  作っておく必要がある。無い/壊れている場合は警告して注入をスキップするだけで
+  `plan` は止まらない(前提エラーにしない。§優雅な劣化)
+- 注入されるのは **cut / caption / structure の3面だけ**(音量・章タイムライン
+  そのものは載せない)。それぞれ「目標平均ショット長・積極度・学習帯」
+  「字幕カバレッジ・密度・位置・強調スタイル」「冒頭フック秒・CTA有無」を
+  日本語の圧縮 summary(raw JSON ではない)として1ブロックにまとめる
+- 各行に `[prior:強め/中程度/弱い(cold-start・参考程度)]` を付け、profile の
+  confidence(観測数が少ないほど低い)をそのまま LLM に伝える。承認済み収録
+  1本だけの cold-start(N=1)では常に「弱い」になり、LLM に「参考程度」と
+  明示する
+- ブロックの先頭に「brief.md(今回の意図)に劣後する参考情報」である旨と
+  「番号選択の重み付けにだけ使い、精密な数値やタイムスタンプは生成しない」旨を
+  明記する。**番号選択方式(`cuts: [{id, reason}]`)は変わらない**。LLM に
+  座標や秒数を新たに書かせることは一切ない
+- プロンプト内の配置順は `brief` → `rules` → `perception` → `styleProfile`
+  で、style prior は最も弱い・最後尾の参考情報として置かれる(brief/rules が
+  常に優先)
+- `plan` 実行時に知覚状態と同様、注入状態を必ず表示する。
+  例: `plan スタイル注入: on(profile=default)` / 未設定時は
+  `警告: plan.styleProfile が config.yaml にありません。スタイル注入はオフです。`
+  に続けて `plan スタイル注入: off`
+- v1 の注入先は **plan / plan --cuts-only の cut 判断プロンプトのみ**。
+  `remeta`(章立て・タイトル・概要欄)・`plan-shorts` / `plan-materials` /
+  `plan-effects` / `plan-bgm` は対象外(v2 拡張点として明示 defer)。
+  `plan --cuts-only` の観測ループ(`plan.loop`)を使う場合も、再調整の
+  critique 反復にはこのブロックを渡さない(生成ターンにだけ渡す)
+
 ## plan の候補格子を語境界で細分化する(config.yaml の candidates。既定オフ)
 
 `plan` / `plan --cuts-only` は、`detect` が無音から作った「残す候補区間」に
