@@ -106,7 +106,7 @@ function readJsonFile<T>(file: string): T {
   }
 }
 
-/** --layout フラグの値を検査する。未指定は undefined(config 既定へ委ねる) */
+/** --layout フラグの値を検査する。未指定は undefined(resolveLayout 既定へ委ねる) */
 function parseLayoutOpt(v: string | undefined): "obs-canvas" | "plain" | "auto" | undefined {
   if (v === undefined) return undefined;
   if (v === "obs-canvas" || v === "plain" || v === "auto") return v;
@@ -227,7 +227,7 @@ program
   .description("収録ファイルを解析し manifest.json とマイク音声を生成")
   .option(
     "--layout <layout>",
-    "収録レイアウト(plain|obs-canvas|auto)。省略時は config.yaml の ingest.layout",
+    "収録レイアウト(plain|obs-canvas|auto)。省略時は plain",
   )
   .action(async (dir: string, opts: { layout?: string }) => {
     const cfg = loadConfig(program.opts().config);
@@ -964,14 +964,19 @@ program
   .description(
     "GUI エディタを起動(overlays / transcript / cutplan をブラウザで編集)",
   )
-  .action(async (dir: string) => {
+  .option(
+    "--layout <layout>",
+    "初回 bootstrap 時の収録レイアウト(plain|obs-canvas|auto)。省略時は plain",
+  )
+  .action(async (dir: string, opts: { layout?: string }) => {
     const explicit = program.opts().config as string | undefined;
     const cfg = loadConfig(explicit);
+    const layout = parseLayoutOpt(opts.layout);
     // 設定画面(POST /api/config)が書き戻す先。読んだ config.yaml と同じパス
     const cfgPath = resolveConfigPath(explicit);
     // esbuild 等のエディタ専用依存を CLI 起動時に読ませないため動的 import
     const { startEditor } = await import("../editor/server.ts");
-    await startEditor(resolveDir(dir), cfg, cfgPath);
+    await startEditor(resolveDir(dir), cfg, cfgPath, layout);
   });
 
 program
@@ -997,7 +1002,7 @@ program
   )
   .option(
     "--layout <layout>",
-    "収録レイアウト(plain|obs-canvas|auto)。省略時は config.yaml の ingest.layout",
+    "収録レイアウト(plain|obs-canvas|auto)。省略時は plain",
   )
   .action(async (dir: string, opts: { force?: boolean; layout?: string }) => {
     const cfg = loadConfig(program.opts().config);

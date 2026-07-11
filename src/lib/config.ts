@@ -123,8 +123,8 @@ export interface Config {
     cameraRegion: Region;
     micTrack: number;
     systemTrack: number;
-    /** 収録レイアウトの既定。省略時 "obs-canvas"(旧 config 互換)。
-     *  auto = キャンバス寸法(W×H)が完全一致なら obs-canvas、それ以外は plain */
+    /** 収録レイアウトの既定。省略時 "plain"。
+     *  auto = 寸法/縦横比から OBS 拡張キャンバスらしければ obs-canvas、それ以外は plain */
     layout?: "obs-canvas" | "plain" | "auto";
   };
   whisper: {
