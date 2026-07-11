@@ -27,6 +27,7 @@ import { transcribe } from "./stages/transcribe.ts";
 import { detect } from "./stages/detect.ts";
 import { plan, remeta } from "./stages/plan.ts";
 import { planShorts } from "./stages/planShorts.ts";
+import { planMaterials } from "./stages/planMaterials.ts";
 import { learn } from "./stages/learn.ts";
 import { preview } from "./stages/preview.ts";
 import { render, renderShort, renderShorts } from "./stages/render.ts";
@@ -356,6 +357,34 @@ program
     console.log(
       "\n次のステップ: preview か GUI エディタ(ショートモード)で確認し、" +
         "各ショートの approved を true にしてから render --short してください。",
+    );
+  });
+
+program
+  .command("plan-materials <dir>")
+  .description(
+    "LLM で素材(B-roll)の配置候補を選ばせ overlays.json の下書きを生成" +
+      "(要 materials <dir> --all の事前実行。cut/承認には触れない)",
+  )
+  .option(
+    "--force",
+    "既存の overlays.json を上書きして再実行(実行前に backups/ へ退避)",
+  )
+  .action(async (dir: string, opts: { force?: boolean }) => {
+    const cfg = loadConfig(program.opts().config);
+    const abs = resolveDir(dir);
+    guardRerun(abs, ["overlays.json"], opts.force === true, "plan-materials");
+    console.log("plan-materials 実行中(LLM で素材配置候補を選定)...");
+    const result = await planMaterials(abs, cfg);
+    console.log(
+      `plan-materials 完了: アンカー${result.anchorCount}件 / 素材${result.choiceCount}件から` +
+        `${result.placed.length}件を overlays[] へ下書き`,
+    );
+    for (const o of result.placed) {
+      console.log(`  [${o.start.toFixed(2)}-${o.end.toFixed(2)}] ${o.file}`);
+    }
+    console.log(
+      "\n次のステップ: preview か GUI エディタで確認し、要らなければ overlays.json から削除してください。",
     );
   });
 
