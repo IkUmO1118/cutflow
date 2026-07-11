@@ -27,6 +27,21 @@ export interface ObservationProvider {
   observe(dir: string, cfg: Config): Promise<ObservationInput>;
 }
 
+/** E7 opt-in フック: 演出検品(effect-check)の観測1行を、既存の観測
+ *  warnings 配列へ追加する。observe=false(既定)/observation が空文字
+ *  (effect-check.json 無し・警告0件)のときは元の配列をそのまま返す
+ *  (バイト等価)。cut の plan ループ本体には自動配線しない(観測ソースが
+ *  演出であって cut ではなくドメインが違うため。呼び出すかは呼び出し側の
+ *  判断に委ねる。§docs/plans/2026-07-11-e6-e7-effect-review-loop-design.md E7) */
+export function withEffectObservation(
+  warnings: string[],
+  observation: string,
+  observe: boolean,
+): string[] {
+  if (!observe || observation === "") return warnings;
+  return [...warnings, observation];
+}
+
 export interface StopState {
   iteration: number;
   maxIterations: number;
