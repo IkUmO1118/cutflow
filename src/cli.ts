@@ -46,6 +46,7 @@ import type { OcrResult } from "./lib/ocr.ts";
 import { thumbnail } from "./stages/thumbnail.ts";
 import { formatMaterialsSummary, materials } from "./stages/materials.ts";
 import { formatMaterialFitReport, materialFit } from "./stages/materialFit.ts";
+import { effectCheck, formatEffectCheckReport } from "./stages/effectCheck.ts";
 import { av, formatAvSummary } from "./stages/av.ts";
 import { reviewEdit } from "./stages/review.ts";
 import { aiDoctor } from "./stages/aiDoctor.ts";
@@ -817,6 +818,21 @@ program
     const abs = resolveDir(dir);
     const result = materialFit(abs, cfg);
     for (const line of formatMaterialFitReport(abs, result)) console.log(line);
+  });
+
+program
+  .command("effect-check <dir>")
+  .description(
+    "演出(zoom/blur/annotation)を検品する。決定論(zoom相互作用・密度・座標重なり)は常時、" +
+      "任意で VLM 二次確認。still 撮影は既存 frames 経路を再利用。編集ファイルは書かず、" +
+      "検品結果(effect-check.json)と補正候補の apply パッチ下書き(effect-fix.suggested.json)だけを書く",
+  )
+  .option("--no-vlm", "VLM 二次確認をスキップし、決定論チェックだけを行う")
+  .action(async (dir: string, opts: { vlm?: boolean }) => {
+    const cfg = loadConfig(program.opts().config);
+    const abs = resolveDir(dir);
+    const result = await effectCheck(abs, cfg, { useVlm: opts.vlm ?? true });
+    for (const line of formatEffectCheckReport(abs, result)) console.log(line);
   });
 
 program

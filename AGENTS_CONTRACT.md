@@ -84,7 +84,14 @@ false staleness signals or gets silently discarded:
   `material-fit.suggested.json` (a disposable draft written by
   `material-fit`; an `apply`-compatible patch of `set`/`remove` ops for
   material duration-fit and dangling-reference fixes — apply it yourself
-  with `apply --patch`, never write to `overlays.json` directly from it)
+  with `apply --patch`, never write to `overlays.json` directly from it),
+  `effect-check.json` (the machine-readable report written by
+  `effect-check`: deterministic E4/E5/E3 warnings, still paths, and whether
+  VLM secondary review ran), `effect-fix.suggested.json` (a disposable draft
+  written by `effect-check`; an `apply`-compatible patch of deterministic
+  `set` ops correcting zoom/blur/annotation interactions — apply it
+  yourself with `apply --patch`, never write to `overlays.json` directly
+  from it)
 - Short-name-variable generated files: `cut.<name>.mp4`,
   `cut.<name>.keeps.json`, `render.<name>.props.json`,
   `render.<name>.key.json` (one set per `shorts.json` entry)
@@ -240,6 +247,7 @@ without `--force`; with `--force`, hand-edited files are moved to
 | `thumbnail <dir>` | Generate the thumbnail still image from `thumbnail.json` |
 | `materials <dir>` | Probe materials (B-roll) for duration/resolution/audio and cross-link references (`materials.probe/index.json`) |
 | `material-fit <dir>` | Detect material duration-fit issues (overrun/underrun) and dangling/unused references; write an `apply`-ready patch draft (`material-fit.suggested.json`); requires `materials <dir>` first and `@id`s on overlays/inserts |
+| `effect-check <dir>` | Verify zoom/blur/annotation effects: deterministic zoom-interaction (E4) and density (E5) checks always run; deterministic caption/material overlap checks and optional VLM secondary review (E3) inspect composited stills reused from the `frames` path. Writes `effect-check.json` and, when there are deterministic corrections, an `apply`-ready patch draft (`effect-fix.suggested.json`). `--no-vlm` skips the VLM lane; it also auto-skips gracefully when no vision route is configured. Never writes editable files |
 | `av <dir>` | Probe kept motion/sound feedback and write `av.probe/` reports |
 | `review <dir>` | Generate a deterministic before/after review bundle and write `review.probe/index.json` |
 | `index` | Build the local cross-recording retrieval index |
