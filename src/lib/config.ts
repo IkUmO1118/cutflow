@@ -921,7 +921,7 @@ export function loadConfig(explicitPath?: string): Config {
   }
   cfg.recordingsDir = expandHome(cfg.recordingsDir);
   cfg.whisper.model = expandHome(cfg.whisper.model);
-  cfg.whisper.wordTimestamps ??= false;
+  cfg.whisper.wordTimestamps ??= true;
   cfg.whisper.systemAudio ??= false;
   cfg.ocr ??= {};
   cfg.ocr.languages ??= [...DEFAULT_OCR_LANGUAGES];
