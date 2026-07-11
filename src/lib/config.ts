@@ -356,6 +356,29 @@ export interface Config {
      *  省略時 false。命令ではなく参考情報(過補正回避のため強制はしない) */
     observe?: boolean;
   };
+  /** BGM の音量/被り/単調の検出と調整提案(bgm-fit)。B2(無音/被り回避の
+   *  音量・duck・切替調整)+ B4(単調 fallback 検出)。要 av <dir> の
+   *  事前実行。出力は apply パッチ下書き(bgm-fit.suggested.json)で、
+   *  適用は人間が apply で行う。省略時は全て既定値(DEFAULT_BGM_FIT_*)
+   *  (§docs/plans/2026-07-11-b2-b4-bgm-audio-aware-design.md) */
+  bgmFit?: {
+    /** 発話 RMS を BGM がこの dB 下回るまで下げる(被り回避)。省略時
+     *  DEFAULT_BGM_FIT_SPEECH_HEADROOM_DB(8) */
+    speechHeadroomDb?: number;
+    /** 無音区間で BGM を下げる量。省略時 DEFAULT_BGM_FIT_SILENCE_DUCK_DB(3) */
+    silenceDuckDb?: number;
+    /** 全体ラウドネス目標(超過で loud 判定)。省略時
+     *  DEFAULT_BGM_FIT_TARGET_LUFS(-14) */
+    targetLufs?: number;
+    /** no-fade 判定で付ける fade 秒。省略時 DEFAULT_BGM_FIT_MIN_FADE_SEC(1.0) */
+    minFadeSec?: number;
+    /** 単一 file が総尺のこの割合超で monotone。省略時
+     *  DEFAULT_BGM_FIT_MONOTONE_COVER_RATIO(0.9) */
+    monotoneCoverRatio?: number;
+    /** 章がこの数以上あると BGM 単調を警告。省略時
+     *  DEFAULT_BGM_FIT_MIN_CHAPTERS_FOR_VARIETY(3) */
+    minChaptersForVariety?: number;
+  };
   /** describe(操作エージェント向け)の任意露出。省略可・全オフが既定。
    *  無いときは散文・--json ともに導入前とバイト等価 */
   describe?: {
@@ -685,6 +708,40 @@ export const DEFAULT_EFFECT_REVIEW_OBSERVE = false;
  *  書き換えない */
 export function resolveEffectReviewCfg(cfg: Config): { observe: boolean } {
   return { observe: cfg.effectReview?.observe ?? DEFAULT_EFFECT_REVIEW_OBSERVE };
+}
+
+/** bgmFit.* 未指定時の既定値。§docs/plans/2026-07-11-b2-b4-bgm-audio-aware-design.md */
+export const DEFAULT_BGM_FIT_SPEECH_HEADROOM_DB = 8;
+export const DEFAULT_BGM_FIT_SILENCE_DUCK_DB = 3;
+export const DEFAULT_BGM_FIT_TARGET_LUFS = -14;
+export const DEFAULT_BGM_FIT_MIN_FADE_SEC = 1.0;
+export const DEFAULT_BGM_FIT_MONOTONE_COVER_RATIO = 0.9;
+export const DEFAULT_BGM_FIT_MIN_CHAPTERS_FOR_VARIETY = 3;
+
+/** bgmFit を既定値で解決する純関数。loadConfig は cfg.bgmFit を書き換えない。
+ *  defaultVolumeDb は bgmFit.* のユーザー設定ではなく、track.volumeDb 省略時の
+ *  実効値を解決するために render.bgm.volumeDb から渡す(BgmFitFinding の
+ *  currentVolumeDb 算出用。sound.bgm.spans にトラックが現れない場合の
+ *  フォールバックにのみ使う) */
+export function resolveBgmFitCfg(cfg: Config): {
+  speechHeadroomDb: number;
+  silenceDuckDb: number;
+  targetLufs: number;
+  minFadeSec: number;
+  monotoneCoverRatio: number;
+  minChaptersForVariety: number;
+  defaultVolumeDb: number;
+} {
+  const b = cfg.bgmFit ?? {};
+  return {
+    speechHeadroomDb: b.speechHeadroomDb ?? DEFAULT_BGM_FIT_SPEECH_HEADROOM_DB,
+    silenceDuckDb: b.silenceDuckDb ?? DEFAULT_BGM_FIT_SILENCE_DUCK_DB,
+    targetLufs: b.targetLufs ?? DEFAULT_BGM_FIT_TARGET_LUFS,
+    minFadeSec: b.minFadeSec ?? DEFAULT_BGM_FIT_MIN_FADE_SEC,
+    monotoneCoverRatio: b.monotoneCoverRatio ?? DEFAULT_BGM_FIT_MONOTONE_COVER_RATIO,
+    minChaptersForVariety: b.minChaptersForVariety ?? DEFAULT_BGM_FIT_MIN_CHAPTERS_FOR_VARIETY,
+    defaultVolumeDb: cfg.render.bgm.volumeDb,
+  };
 }
 
 /** plan.loop.maxIterations 未指定時の既定。0 は従来1ショットと同義 */

@@ -38,6 +38,8 @@ const EXPECTED_GENERATED_FILES = [
   "material-fit.suggested.json",
   "effect-check.json",
   "effect-fix.suggested.json",
+  "bgm-fit.json",
+  "bgm-fit.suggested.json",
 ];
 
 test("GENERATED_FILES: CLAUDE.md の中間生成物一覧(固定名部分)と一致する", () => {

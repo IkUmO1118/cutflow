@@ -562,6 +562,7 @@ JSON-RPC エラーではなく `tools/call` の成功 result に `isError: true`
 | `materials <dir>` | **素材(B-roll)の中身を知りたい**とき(尺・解像度・fps・音声有無・`overlays.json`/`bgm.json` との参照クロスリンク・未使用/dangling 検出)。既定は ffprobe だけ。`--frames`/`--ocr`/`--transcribe`/`--all` で見た目・画面文字・音声発話まで opt-in で取得(下記「素材(B-roll)の中身を知る(materials)」参照) |
 | `material-fit <dir>` | **既存の素材参照(overlay/insert)の尺不整合や dangling/unused を直したい**とき。要 `materials <dir>` の事前実行と overlays の `@id`。修正案は収録フォルダへ直接書かず `apply` パッチ下書き(`material-fit.suggested.json`)として出す(下記「素材参照の不整合検出と修正パッチ(material-fit)」参照) |
 | `av <dir>` | **keep 後タイムラインの動きと音を知りたい**とき。`av.probe/motion.json` / `sound.json` / `motion.strip.png` に、motion(scene score・freeze・フィルムストリップ)と sound(LUFS 包絡・無音・mic/system 被り・BGM/duck 設定)を出す。`--range` / `--every` / `--short` / `--full-res` / `--motion-only` / `--sound-only` を持つ |
+| `bgm-fit <dir>` | **既存の `bgm.json` の音量/duck/フェードが実測と合っているか直したい**とき。要 `av <dir>` の事前実行と bgm トラックの `@id`。修正案は収録フォルダへ直接書かず `apply` パッチ下書き(`bgm-fit.suggested.json`)として出す。章が複数あるのに BGM が単調/fallback のままなら `plan-bgm` へ誘導する(下記「BGM の音量/被り/単調の検出と調整提案(bgm-fit)」参照) |
 | `mcp <dir>` | **任意の MCP 対応エージェントにこの収録フォルダを機械的に開かせたい**とき。stdio 上で `describe`/`validate`/`frames`/`materials`/`assert`/`apply`/`id-stamp` 相当の tool を露出する常駐サーバ(上記「MCP サーバ(mcp)」参照)。承認/render/plan 等は露出しない |
 
 `frames` は撮影のたびに、その絵を決める編集 JSON(本編経路は cutplan/
@@ -955,6 +956,61 @@ node src/cli.ts av <dir> --full-res --motion-only
 
 - `av.probe/` は `materials.probe/` と同じ差分更新型
 - 同じ入力 key なら JSON を再利用し、ffmpeg を再実行しない
+
+## BGM の音量/被り/単調の検出と調整提案(bgm-fit)
+
+`bgm-fit <dir>` は、**既に置かれている** BGM(`bgm.json`)の音量/duck/フェードが
+`av.probe/sound.json`(要 `av <dir>` の事前実行)の実測と合っているかを検品し、
+補正案を `apply` パッチ下書き(`bgm-fit.suggested.json`)として出すコマンド
+(§docs/plans/2026-07-11-b2-b4-bgm-audio-aware-design.md)。`plan-bgm`(SD-B1)が
+BGM の区間割り・選曲を**作る**のに対し、こちらは既存の BGM を**直す**役割で、
+区間割り・選曲は一切行わない。**LLM を一切使わない決定論コマンド**(補正値は
+すべて `av.probe/sound.json` の実測値からの算術)。
+
+- **B2(無音/被り回避の音量・フェード補正。常に成功)**:
+  - **speech-overlap**: `tracks.samples` を BGM の active 区間(`av` の
+    `bgm.spans` から。トラックの `file` で対応付け)へ突き合わせ、`louder`
+    が発話(mic)以外優勢の区間を「BGM が発話に被っている」とみなし、
+    発話 RMS を `bgmFit.speechHeadroomDb` 下回るところまで `volumeDb` を
+    下げる補正を出す
+  - **silence-float**: `silences`(発話の無い区間)に BGM が原音量のまま
+    乗っている箇所を「浮いている」とみなし、`bgmFit.silenceDuckDb` 下げる
+    補正を出す
+  - **loud**: `mix.integratedLufs` が `bgmFit.targetLufs` を超過していれば、
+    BGM が主因という前提で全トラックへ超過分の `volumeDb` 減を出す
+  - **no-fade**: 動画終端まで続くトラックに `fadeOutSec` が無ければ
+    `bgmFit.minFadeSec` の付与を出す
+  - **二重 duck 回避**: `av` の `bgm.duckSpans`(render が既に発話ダッキングを
+    掛けている区間)を過半含む問題区間には補正を出さない(render 側で
+    既に下がっているため)
+  - 1トラックにつき `volumeDb` の補正は高々1本(speech-overlap →
+    silence-float → loud の優先順)。v1 はトラック全体の `volumeDb` を
+    下げる提案に留め、区間限定の減衰(トラック分割)は今後の拡張
+- **B4(単調/fallback 検出。区間割り・選曲はしない)**: `bgm.json` が無く
+  収録直下 `bgm.*` の全編1曲 fallback、または `bgm.json` が単一 file で
+  総尺の `bgmFit.monotoneCoverRatio` 超を覆っているとき、章数が
+  `bgmFit.minChaptersForVariety` 以上あれば「章が複数なのに BGM が単調」と
+  警告し `plan-bgm <dir>` へ誘導する
+- **収録フォルダへ直接書かない**: 出力は検出結果 `bgm-fit.json`(機械可読。
+  findings 一覧 + 単調/fallback 判定)+ stdout の人間向けレポート + 補正候補が
+  あるときだけの `bgm-fit.suggested.json`(使い捨ての `apply` パッチ下書き)。
+  `bgm.json` の編集は必ず人間が `apply --patch` を経由する
+- **bgm トラックに `@id` が必要**: `bgm.json` に tracks があるのに `@id` が
+  1つも無ければ「先に `id-stamp <dir>`」と告げて exit 1(補正 op の宛先に
+  `@id` が要るため)
+- **av.probe の欠如は優雅に拒否**: `av.probe/sound.json` が無ければ「先に
+  `av <dir>`」と告げて exit 1
+- **render の duck 実装は変えない**: `src/lib/duck.ts` は無改修。本コマンドは
+  「配置意図」を `volumeDb`/`fadeOutSec` の補正案として `bgm.json` へ提案する
+  だけで、render 時の動的ダッキングはそのまま効く
+- **cut / 承認不変**: `cutplan.json` / `approvals.json` は読まない・書かない
+
+```sh
+node src/cli.ts bgm-fit <dir>       # 検出し apply パッチ下書きを書く
+node src/cli.ts apply <dir> --patch bgm-fit.suggested.json --dry-run  # 変更内容を確認
+node src/cli.ts apply <dir> --patch bgm-fit.suggested.json           # 適用
+node src/cli.ts validate <dir>      # 適用後、整合性を再確認
+```
 
 ## 承認(approve/unapprove)
 
