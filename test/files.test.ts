@@ -124,3 +124,7 @@ test("fileRole: review.probe/ 配下(review bundle)は generated", () => {
   assert.equal(fileRole("review.probe/after/clip.mp4"), "generated");
   assert.equal(fileRole("review.probe/ocr/after-out12.30s.json"), "generated");
 });
+
+test("fileRole: style.probe/ 配下(style-profile が書くスタイルプロファイル集約)は generated", () => {
+  assert.equal(fileRole("style.probe/default.json"), "generated");
+});

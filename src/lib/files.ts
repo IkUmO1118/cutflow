@@ -67,8 +67,18 @@ const GENERATED_NAME_PATTERNS: readonly RegExp[] = [
  * 「触らない」節で扱っているためここに含める)・materials.probe/(`materials
  * <dir>` が書く素材知覚の集約+キャッシュ。frames/ と違い実行のたびに
  * 全消しはされない差分更新型。`materials/` 自体(人間の素材置き場)とは
- * 別名の生成ディレクトリなので "other" にはならない) */
-const GENERATED_DIRS: readonly string[] = ["frames", "render.chunks", "shorts", "materials.probe", "av.probe", "review.probe"];
+ * 別名の生成ディレクトリなので "other" にはならない)・
+ * style.probe/(`style-profile` が channel 直下に書くスタイルプロファイル
+ * 集約。生成物) */
+const GENERATED_DIRS: readonly string[] = [
+  "frames",
+  "render.chunks",
+  "shorts",
+  "materials.probe",
+  "av.probe",
+  "review.probe",
+  "style.probe",
+];
 
 /** 収録フォルダ直下の承認レコードファイル名(src/lib/approval.ts の再輸出。
  * files.ts をファイル分類の唯一の出所にするため、他コードはここから参照する) */
