@@ -1,5 +1,5 @@
-// stages/ingest.ts — 実効レイアウトの解決(明示 > config > 既定 obs-canvas、
-// auto はキャンバス寸法の完全一致判定)を固定する。
+// stages/ingest.ts — 実効レイアウトの解決(明示 > config > 既定 plain、
+// auto は寸法/縦横比による OBS 判定)を固定する。
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { resolveLayout } from "../src/stages/ingest.ts";
@@ -24,17 +24,21 @@ test("resolveLayout: 明示引数が無ければ config", () => {
   assert.equal(resolveLayout(undefined, "obs-canvas", 1920, 1080, cfg), "obs-canvas");
 });
 
-test("resolveLayout: どちらも無ければ既定 obs-canvas", () => {
-  assert.equal(resolveLayout(undefined, undefined, 1920, 1080, cfg), "obs-canvas");
+test("resolveLayout: どちらも無ければ既定 plain", () => {
+  assert.equal(resolveLayout(undefined, undefined, 1920, 1080, cfg), "plain");
 });
 
 test("resolveLayout: auto はキャンバス寸法の完全一致で obs-canvas", () => {
   assert.equal(resolveLayout("auto", undefined, 3840, 1080, cfg), "obs-canvas");
 });
 
+test("resolveLayout: auto は十分な超横長なら obs-canvas", () => {
+  assert.equal(resolveLayout("auto", undefined, 3440, 1000, cfg), "obs-canvas");
+});
+
 test("resolveLayout: auto は通常動画の解像度で plain", () => {
   assert.equal(resolveLayout("auto", undefined, 1920, 1080, cfg), "plain");
-  // 幅一致でも高さが違えば plain(縦動画・別解像度の誤判定回避)
+  // 4K通常動画は plain(OBS の 3840x1080 と区別する)
   assert.equal(resolveLayout("auto", undefined, 3840, 2160, cfg), "plain");
 });
 

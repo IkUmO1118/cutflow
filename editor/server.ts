@@ -29,7 +29,7 @@ import { APPROVAL_FILE } from "../src/lib/files.ts";
 import { run } from "../src/lib/exec.ts";
 import { ensureIds, hasAnyId, ID_PREFIX, usedIdsOf } from "../src/lib/ids.ts";
 import { mergeBodyOverDisk } from "../src/lib/applyEdits.ts";
-import { bootstrapProject } from "../src/stages/bootstrap.ts";
+import { bootstrapProjectWithLayout } from "../src/stages/bootstrap.ts";
 import { EditorAiError, proposeEditorAi, refineEditorAi } from "../src/stages/editorAi.ts";
 import type { AiProposeResponse as EditorAiStageProposeResponse } from "../src/stages/editorAi.ts";
 import { reviewSpecOfProposalReview } from "../src/lib/editorAiReview.ts";
@@ -94,11 +94,12 @@ export async function startEditor(
   cfg: Config,
   /** 設定画面(POST /api/config)が書き戻す config.yaml のパス */
   cfgPath: string,
+  layout?: "obs-canvas" | "plain" | "auto",
 ): Promise<void> {
   // 動画ファイルだけの収録フォルダでも開けるように、必須3ファイルのうち
   // 無いものだけ決定的に補う(既存ファイルには触れない)。loadProject の
   // 3点チェックは最終防壁として残す
-  await bootstrapProject(dir, cfg);
+  await bootstrapProjectWithLayout(dir, cfg, layout);
 
   const editorDir = dirname(fileURLToPath(import.meta.url));
 
