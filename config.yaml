@@ -239,6 +239,14 @@ planMaterials:
   defaultFit: contain
   # defaultRect: { x: 640, y: 40, w: 600, h: 338 }  # 省略=全画面。指定で PIP(ワイプ)
 
+# 素材の尺整合・dangling 検出(material-fit)。要 materials <dir> の事前実行。
+# 出力は apply パッチ下書き(material-fit.suggested.json)で、適用は人間が apply で行う。
+materialFit:
+  overrunEpsSec: 0.1        # 尺超過判定の許容誤差(秒)
+  underrunRatio: 2.0        # 実尺が宣言尺の何倍で「大半未使用」とみなすか
+  suggestUnderrunExtend: false  # 尺不足で延長 set を出すか(既定は reason のみ)
+  maxReplacements: 3        # dangling 貼り替え候補の上限
+
   # AI(意味カット・章立て・タイトル案・AI提案)
 ai:
   # claude-code: Claude Code の `claude` CLI を使う(APIキー不要)
