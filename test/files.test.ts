@@ -33,6 +33,7 @@ const EXPECTED_GENERATED_FILES = [
   "preview.mp4",
   "proxy.mp4",
   "proxy.key.json",
+  "material-fit.suggested.json",
 ];
 
 test("GENERATED_FILES: CLAUDE.md の中間生成物一覧(固定名部分)と一致する", () => {
@@ -67,6 +68,7 @@ test("fileRole: editable / generated / approval / other を正しく判定する
   assert.equal(fileRole("overlays.json"), "editable");
   assert.equal(fileRole("manifest.json"), "generated");
   assert.equal(fileRole("cut.mp4"), "generated");
+  assert.equal(fileRole("material-fit.suggested.json"), "generated");
   assert.equal(fileRole("approvals.json"), "approval");
   assert.equal(fileRole("final.mp4"), "other");
   assert.equal(fileRole("thumbnail.png"), "other");

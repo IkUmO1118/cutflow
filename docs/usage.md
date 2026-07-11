@@ -556,6 +556,7 @@ JSON-RPC エラーではなく `tools/call` の成功 result に `isError: true`
 | `frames <dir> ... --full-res` | 画面キャプチャ内の文字を絵として鮮明に見たいとき。ベース映像をプロキシ(幅1280px)ではなく元収録のフル解像度にした**合成込み**(テロップ/ワイプ/素材/ズーム/ぼかし込み)still を出す。`--ocr` はテキスト抽出、こちらは見た目そのものの鮮明化(レイアウト込みで確認したいとき)。`--ocr` と併用可。`--full-res` を付けない限り既存の `frames` 挙動は完全に不変 |
 | `frames-serve <dir>` | **JSON 微調整ループ(編集 → `frames --t …` → 確認 → 編集 → …)を何度も回すとき**。bundle(webpack)+headless Chrome を暖めたまま待ち受ける opt-in の常駐デーモン(下記「frames-serve(常駐フレームサーバ)」参照)。起動していなければ `frames` は現状どおりの単発実行(挙動・出力は不変) |
 | `materials <dir>` | **素材(B-roll)の中身を知りたい**とき(尺・解像度・fps・音声有無・`overlays.json`/`bgm.json` との参照クロスリンク・未使用/dangling 検出)。既定は ffprobe だけ。`--frames`/`--ocr`/`--transcribe`/`--all` で見た目・画面文字・音声発話まで opt-in で取得(下記「素材(B-roll)の中身を知る(materials)」参照) |
+| `material-fit <dir>` | **既存の素材参照(overlay/insert)の尺不整合や dangling/unused を直したい**とき。要 `materials <dir>` の事前実行と overlays の `@id`。修正案は収録フォルダへ直接書かず `apply` パッチ下書き(`material-fit.suggested.json`)として出す(下記「素材参照の不整合検出と修正パッチ(material-fit)」参照) |
 | `av <dir>` | **keep 後タイムラインの動きと音を知りたい**とき。`av.probe/motion.json` / `sound.json` / `motion.strip.png` に、motion(scene score・freeze・フィルムストリップ)と sound(LUFS 包絡・無音・mic/system 被り・BGM/duck 設定)を出す。`--range` / `--every` / `--short` / `--full-res` / `--motion-only` / `--sound-only` を持つ |
 | `mcp <dir>` | **任意の MCP 対応エージェントにこの収録フォルダを機械的に開かせたい**とき。stdio 上で `describe`/`validate`/`frames`/`materials`/`assert`/`apply`/`id-stamp` 相当の tool を露出する常駐サーバ(上記「MCP サーバ(mcp)」参照)。承認/render/plan 等は露出しない |
 
@@ -721,6 +722,54 @@ node src/cli.ts materials <dir> --all   # 前提知覚(初回・素材変更時)
 node src/cli.ts plan-materials <dir>    # overlays.json へ配置下書きを生成
 node src/cli.ts validate <dir>          # 尺超過・dangling が無いことを確認
 node src/cli.ts frames <dir> --t <配置区間の秒>  # 実際に見えるか目視
+```
+
+## 素材参照の不整合検出と修正パッチ(material-fit)
+
+`material-fit <dir>` は、**既に置かれている**素材参照(`overlays.json` の
+`overlays[]`/`inserts[]`)の不整合を検出し、修正案を `apply` パッチ下書き
+(`material-fit.suggested.json`)として出すコマンド
+(§docs/plans/2026-07-11-m2-m3-material-fit-dangling-design.md)。素材の
+**新規配置**候補を作る `plan-materials` とは役割が別(重複実装ではない)。
+
+- **前提**: 先に `node src/cli.ts materials <dir>` を実行し
+  `materials.probe/index.json` を作っておく必要がある。無ければ実行方法を
+  告げて exit 1(例外にはしない)。`overlays.json` / `bgm.json` がどちらも
+  無ければ「検出対象なし」で正常終了(exit 0)
+- **`@id` が前提**: 修正案は `apply` の `@id` 宛先 op(`set`/`remove`)として
+  出すため、overlay/insert に `@id` が1つも無ければ「先に `id-stamp <dir>`
+  を実行してください」と告げて exit 1
+- **M2(尺整合)**: `materials.probe/index.json` の実尺(`probe.durationSec`)と、
+  overlay の宣言尺(`end - start`)/ insert の宣言尺(`durationSec`)を突き合わせる
+  - **尺超過(overrun)**: 素材が足りず最後のフレームで停止する状態。
+    insert は `{ set durationSec = 実尺 - startFrom }`、overlay は
+    `{ set end = start + (実尺 - startFrom) }` を提案する
+  - **尺不足(underrun)**: 実尺が宣言尺よりかなり長い(大半が未使用)。
+    既定は情報提示のみ(`set` を出さず reason だけ)。延長 `set` を出したい
+    ときは `config.yaml` の `materialFit.suggestUnderrunExtend: true`
+  - 画像素材(尺の概念が無い)は対象外
+- **M3(dangling の修正提案)**: `used:true, present:false`(参照先ファイルが
+  `materials/` に無い)を検出し、① 参照を消す `remove` op と、② `materials/`
+  に実在する未使用ファイルへの貼り替え候補(ファイル名の類似度で上位数件。
+  `config.yaml` の `materialFit.maxReplacements`)を提示する
+- **M3(unused の橋渡し)**: `used:false, present:true`(一度も参照されない
+  素材)を列挙し、配置候補は作らず `plan-materials <dir>` へ誘導する
+  (重複実装禁止)
+- **収録フォルダへ直接書かない**: 出力は `material-fit.suggested.json`
+  (使い捨ての下書き。再実行のたびに上書き)と stdout レポートだけ。
+  `overlays.json` 等の編集は必ず人間が `apply --patch` を経由する
+- **補正値は実測からの算術のみ・LLM は使わない**: `durationSec`/`end` の
+  提案値は `probe.durationSec` からの計算で一意に決まる。貼り替え候補も
+  実在ファイル名の集合からの選択(存在しないパスを提案しない)
+- **cut / 承認不変**: `cutplan.json` / `approvals.json` は読まない・書かない
+
+```sh
+node src/cli.ts materials <dir>          # 前提知覚(未実行なら先にこれ)
+node src/cli.ts id-stamp <dir>           # overlays/inserts に @id が無ければ
+node src/cli.ts material-fit <dir>       # 不整合を検出しパッチ下書きを書く
+node src/cli.ts apply <dir> --patch material-fit.suggested.json --dry-run  # 変更内容を確認
+node src/cli.ts apply <dir> --patch material-fit.suggested.json           # 適用
+node src/cli.ts validate <dir>           # 適用後、整合性を再確認
 ```
 
 ## A/V フィードバックを知る(av)

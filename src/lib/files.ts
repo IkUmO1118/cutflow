@@ -40,6 +40,7 @@ export const GENERATED_FILES = [
   "preview.mp4",
   "proxy.mp4",
   "proxy.key.json",
+  "material-fit.suggested.json",
 ] as const;
 
 /** 中間生成物のうち、ショート名(shorts.json の name)で可変になる
