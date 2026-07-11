@@ -1,5 +1,8 @@
 import type { Hunk } from "./docDiff.ts";
 import type { ReviewBundle } from "../stages/review.ts";
+import type { EffectWarning } from "./effectCheck.ts";
+import { effectWarningsToReviewPatches } from "./effectReview.ts";
+import type { EffectReviewPatch } from "./effectReview.ts";
 
 export type ReviewEventKind =
   | "cut"
@@ -43,6 +46,11 @@ export function buildReviewEvents(args: {
   reviewBundle?: ReviewBundle;
   aiNotes?: string[];
   applyWarnings?: string[];
+  /** effect-check(SD-E2)の演出警告。E6: 該当する zoom/blur/annotation
+   *  イベントへ merge する(無ければその演出の独立イベントを1つ作る)。
+   *  **未指定(undefined)/空配列のときは既存挙動とバイト等価**
+   *  (§docs/plans/2026-07-11-e6-e7-effect-review-loop-design.md 不変条件1) */
+  effectWarnings?: EffectWarning[];
 }): ReviewEvent[] {
   const groups = new Map<string, { indexes: number[]; hunks: Hunk[] }>();
   args.hunks.forEach((hunk, index) => {
@@ -52,7 +60,64 @@ export function buildReviewEvents(args: {
     group.hunks.push(hunk);
     groups.set(key, group);
   });
-  return [...groups.values()].map((group) => eventOfGroup(group, args)).sort(compareEvents);
+  const events = [...groups.values()].map((group) => eventOfGroup(group, args)).sort(compareEvents);
+  if (!args.effectWarnings || args.effectWarnings.length === 0) return events;
+  return mergeEffectReviewPatches(events, effectWarningsToReviewPatches(args.effectWarnings));
+}
+
+/** E6: effect-check 由来の patch を、時間帯(source axis)+kind が一致する
+ *  既存イベントへ merge する。一致するイベントが無ければ独立イベントを作る。
+ *  既存イベント(hunk 由来)の hunkIndexes/jsonPaths 等は変えず、
+ *  warnings/checkPoints/reviewFrameReasons だけへ追記する */
+function mergeEffectReviewPatches(events: ReviewEvent[], patches: EffectReviewPatch[]): ReviewEvent[] {
+  const merged = events.map((event) => ({
+    ...event,
+    checkPoints: [...event.checkPoints],
+    warnings: [...event.warnings],
+    reviewFrameReasons: [...event.reviewFrameReasons],
+  }));
+  const extra: ReviewEvent[] = [];
+  for (const patch of patches) {
+    const target = merged.find(
+      (event) => event.kind === patch.kind && event.timeRange && timeOverlaps(event.timeRange, patch),
+    );
+    const warningTexts = patch.fixRef ? [...patch.warnings, `補正候補あり: ${patch.fixRef}`] : patch.warnings;
+    if (target) {
+      pushUnique(target.warnings, warningTexts);
+      pushUnique(target.checkPoints, patch.checkPoints);
+      pushUnique(target.reviewFrameReasons, patch.reviewFrameReasons);
+    } else {
+      extra.push(standaloneEffectEvent(patch, warningTexts));
+    }
+  }
+  return [...merged, ...extra].sort(compareEvents);
+}
+
+function timeOverlaps(a: ReviewEventTimeRange, b: { startSec: number; endSec: number }): boolean {
+  return a.axis === "source" && a.startSec < b.endSec && b.startSec < a.endSec;
+}
+
+function pushUnique(target: string[], values: string[]): void {
+  for (const value of values) {
+    if (!target.includes(value)) target.push(value);
+  }
+}
+
+function standaloneEffectEvent(patch: EffectReviewPatch, warningTexts: string[]): ReviewEvent {
+  const timeRange: ReviewEventTimeRange = { axis: "source", startSec: patch.startSec, endSec: patch.endSec };
+  return {
+    id: stableEventId({ kind: patch.kind, source: "effect-check", timeRange }),
+    kind: patch.kind,
+    title: `演出検品: ${warningGroupLabel(patch.kind)}`,
+    subtitle: subtitleOf([], timeRange),
+    timeRange,
+    hunkLabels: [],
+    hunkIndexes: [],
+    jsonPaths: [],
+    checkPoints: [...patch.checkPoints],
+    warnings: warningTexts,
+    reviewFrameReasons: [...patch.reviewFrameReasons],
+  };
 }
 
 export function reviewEventStatus(args: {

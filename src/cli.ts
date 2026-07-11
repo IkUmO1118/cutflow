@@ -434,12 +434,17 @@ program
     "--force",
     "既存の zooms/blurs/annotations を上書きして再実行(実行前に backups/ へ退避)",
   )
-  .action(async (dir: string, opts: { force?: boolean }) => {
+  .option(
+    "--observe",
+    "前回の effect-check.json の警告を観測(参考情報。命令ではない)として" +
+      "プロンプトへ渡す(E7・opt-in。省略時は config.yaml の effectReview.observe に従う)",
+  )
+  .action(async (dir: string, opts: { force?: boolean; observe?: boolean }) => {
     const cfg = loadConfig(program.opts().config);
     const abs = resolveDir(dir);
     guardEffectsRerun(abs, opts.force === true);
     console.log("plan-effects 実行中(LLM で演出候補を選定)...");
-    const result = await planEffects(abs, cfg);
+    const result = await planEffects(abs, cfg, { observe: opts.observe });
     console.log(
       `plan-effects 完了: アンカー${result.anchorCount}件から ` +
         `zoom${result.zooms.length}件 / blur${result.blurs.length}件 / annotation${result.annotations.length}件を下書き`,

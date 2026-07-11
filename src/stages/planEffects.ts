@@ -11,7 +11,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { completeWithJsonSchema } from "../lib/llm.ts";
-import { resolveEffectPlacementCfg } from "../lib/config.ts";
+import { resolveEffectPlacementCfg, resolveEffectReviewCfg } from "../lib/config.ts";
 import {
   buildEffectAnchors,
   decisionsToOverlays,
@@ -23,6 +23,8 @@ import type {
   MotionLike,
   OcrSidecar,
 } from "../lib/effectAnchors.ts";
+import { effectWarningsToObservation } from "../lib/effectReview.ts";
+import type { EffectWarning } from "../lib/effectCheck.ts";
 import { readRules } from "./plan.ts";
 import { validateDocs } from "./validate.ts";
 import type { LoadedDocs } from "./validate.ts";
@@ -84,8 +86,17 @@ export function parseDecisionsResponse(raw: string): DecisionsSelection {
 }
 
 /** アンカー一覧からプロンプトを組む。plan.ts の renderPrompt は numbered
- * (1リスト)専用で、rules/brief 注入は plan.ts / plan-materials と揃える */
-function renderEffectsPrompt(dir: string, anchors: EffectAnchor[]): string {
+ * (1リスト)専用で、rules/brief 注入は plan.ts / plan-materials と揃える。
+ *
+ * `observation`(E7): 前回 effect-check の警告サマリ(参考情報。命令ではない)。
+ * **空文字のときはテンプレートの置換結果のみを返す**(SD-E1 とバイト等価。
+ * §docs/plans/2026-07-11-e6-e7-effect-review-loop-design.md 不変条件3)。
+ * 設計書 §3-A の pseudocode は `{{observation}}` をテンプレート内の固定
+ * プレースホルダーにする案だったが、空文字時に prompts/plan-effects.md へ
+ * 常駐する改行/空行が残ってバイト等価が崩れうるため、ここでは observation
+ * が非空のときだけテンプレート出力の後ろへブロックを追記する形に変えた
+ * (バイト等価をコードで機械的に保証するため。意味的な不変条件は同じ) */
+export function renderEffectsPrompt(dir: string, anchors: EffectAnchor[], observation: string = ""): string {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
   const template = readFileSync(join(repoRoot, "prompts", "plan-effects.md"), "utf8");
 
@@ -100,10 +111,26 @@ function renderEffectsPrompt(dir: string, anchors: EffectAnchor[]): string {
   const briefPath = join(dir, "brief.md");
   const brief = existsSync(briefPath) ? readFileSync(briefPath, "utf8") : "(見せ場リストなし)";
 
-  return template
+  const base = template
     .replaceAll("{{anchors}}", () => lines)
     .replaceAll("{{rules}}", () => rules)
     .replaceAll("{{brief}}", () => brief);
+
+  if (observation === "") return base;
+  return `${base}\n## 前回の演出検品からの観測(E7・参考情報。必ず直せという指示ではありません)\n\n${observation}\n`;
+}
+
+/** effect-check.json(SD-E2)の警告一覧を読む。無い/壊れているときは空配列
+ * (検品未実行でも plan-effects は止めない。優雅な劣化) */
+export function readEffectCheckWarnings(dir: string): EffectWarning[] {
+  const path = join(dir, "effect-check.json");
+  if (!existsSync(path)) return [];
+  try {
+    const raw = JSON.parse(readFileSync(path, "utf8")) as { warnings?: unknown };
+    return Array.isArray(raw.warnings) ? (raw.warnings as EffectWarning[]) : [];
+  } catch {
+    return [];
+  }
 }
 
 function readStageJson<T>(path: string, requiredStage: string): T {
@@ -166,8 +193,18 @@ export interface PlanEffectsResult {
  * から番号付き演出アンカーを組み、LLM に (anchorId, effect) のペアだけを
  * 選ばせて overlays.json の zooms/blurs/annotations を下書き生成する。
  * read/complete/write の殻で、変換の中身は effectAnchors.ts(純関数)に委ねる。
+ *
+ * `opts.observe`(E7・opt-in): true のとき、前回 effect-check.json の警告を
+ * 観測としてプロンプトへ渡す(参考情報。命令ではない)。省略時は
+ * `config.yaml` の `effectReview.observe`(既定 false)に従う。**どちらも
+ * false/未指定なら SD-E1 とバイト等価**(observation="" でテンプレートは
+ * 追記されない)。
  */
-export async function planEffects(dir: string, cfg: Config): Promise<PlanEffectsResult> {
+export async function planEffects(
+  dir: string,
+  cfg: Config,
+  opts: { observe?: boolean } = {},
+): Promise<PlanEffectsResult> {
   const cutplan = readStageJson<CutPlan>(join(dir, "cutplan.json"), "plan");
   const transcript = readStageJson<Transcript>(join(dir, "transcript.json"), "transcribe");
   const manifest = readStageJson<Manifest>(join(dir, "manifest.json"), "ingest");
@@ -190,7 +227,9 @@ export async function planEffects(dir: string, cfg: Config): Promise<PlanEffects
     );
   }
 
-  const prompt = renderEffectsPrompt(dir, anchors);
+  const observe = opts.observe ?? resolveEffectReviewCfg(cfg).observe;
+  const observation = observe ? effectWarningsToObservation(readEffectCheckWarnings(dir)) : "";
+  const prompt = renderEffectsPrompt(dir, anchors, observation);
   const raw = await completeWithJsonSchema(
     prompt,
     cfg,

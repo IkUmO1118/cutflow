@@ -541,7 +541,7 @@ JSON-RPC エラーではなく `tools/call` の成功 result に `isError: true`
 | `remeta <dir>` | **カットは手編集済みだが、章立て・タイトル案・概要欄だけ作り直したい**とき。現在の cutplan の keep 区間(=完成動画)を見て chapters / meta と「章」トラックのテロップだけを再生成する。cutplan は触らないのでカットの手編集は保たれる(実行前に transcript / chapters / meta を backups/ へ退避) |
 | `plan-shorts <dir>` | **長尺1本からショートの下書きを作りたい**とき。detect の候補区間を LLM に番号で選ばせ、`shorts.json`(各ショート `profile`(camera 有り→`vertical`、plain→`vertical-screen`)/ `approved: false` / 時間順の `ranges`。尺は `config.yaml` の `planShorts.maxDurationSec`(既定60秒)以下)を生成する。時刻は LLM に生成させず番号選択のみ。承認は人間(preview / エディタのショートモードで確認して `approve <dir> --short <name>`)。既存 `shorts.json` があるときは `--force` 必須で、実行前に shorts.json ごと backups/ へ退避する |
 | `plan-materials <dir>` | **手持ちの素材(B-roll)をどこに置くか下書きしたい**とき。要 `materials <dir> --all` の事前実行。cutplan の keep span(アンカー)× 実在素材に番号を振り、LLM に (アンカー番号, 素材番号) のペアだけを選ばせて `overlays.json` の `overlays[]` を下書きする。時刻・ファイルパスは LLM に生成させず番号選択のみ。cut / 承認には一切触れない。承認不要(overlays は承認スコープ外)だが下書きなので preview / エディタで見て要らなければ削る。既存 `overlays.json` があるときは `--force` 必須で、実行前に backups/ へ退避する。詳細は下記「素材配置候補の自動生成(plan-materials)」参照 |
-| `plan-effects <dir>` | **画面の一部を拡大/隠す/囲みたい下書きが欲しい**とき。要 `frames <dir> --ocr` と `av <dir>` のいずれか(両方推奨)の事前実行。画面OCR・動き検出・発話から演出アンカーに番号を振り、LLM に (アンカー番号, 種別) のペアだけを選ばせて `overlays.json` の `zooms`/`blurs`/`annotations` を下書きする。座標・時刻・色は LLM に生成させず番号+種別選択のみ(座標は知覚が決めた実在矩形から)。cut / 承認には一切触れない。承認不要だが下書きなので preview / frames で見て要らなければ削る。既存の zooms/blurs/annotations があるときは `--force` 必須で、実行前に backups/ へ退避する。詳細は下記「演出候補の自動生成(plan-effects)」参照 |
+| `plan-effects <dir>` | **画面の一部を拡大/隠す/囲みたい下書きが欲しい**とき。要 `frames <dir> --ocr` と `av <dir>` のいずれか(両方推奨)の事前実行。画面OCR・動き検出・発話から演出アンカーに番号を振り、LLM に (アンカー番号, 種別) のペアだけを選ばせて `overlays.json` の `zooms`/`blurs`/`annotations` を下書きする。座標・時刻・色は LLM に生成させず番号+種別選択のみ(座標は知覚が決めた実在矩形から)。cut / 承認には一切触れない。承認不要だが下書きなので preview / frames で見て要らなければ削る。既存の zooms/blurs/annotations があるときは `--force` 必須で、実行前に backups/ へ退避する。`--observe` を付けると前回の `effect-check.json` の警告を参考情報としてプロンプトへ渡す(E7・opt-in・省略時はバイト等価)。詳細は下記「演出候補の自動生成(plan-effects)」「検品を閉じる(E6/E7)」参照 |
 | `learn <dir>` | **直前の LLM 生成を人間がどう仕上げたかから、次回用のチャンネルルール追記案を作りたい**とき。`plan.raw.txt`(AI の最初の案)と `describe(dir)` + `meta.json`(人間の仕上げ)を LLM に見せ、`rules.suggested.md` に追記案の下書きを書く。**channel の `rules.md` には一切書き込まない**(採用は人間が内容を確認して手で `rules.md` に転記)。`plan.raw.txt` が無ければ先に `plan` か `run` を実行するよう促してエラー終了。詳細は下記「チャンネル rules と learn」参照 |
 | `validate <dir>` | JSON を手編集した後は毎回。整合性エラー(exit 1)と警告を出す。概要欄チャプター(chapters.json)と画面表示の章タイトル(「章」トラックのテロップ)が食い違うと警告するので、片方だけ直した取りこぼしに気づける。GUI の保存も同じ検査を通す(壊れた JSON は保存できない)。`frames/index.json` が現在の JSON より古ければ「frames を撮り直せ」も警告する(下記) |
 | `preview <dir>` | cutplan.json を編集するたび。承認前でも動く |
@@ -874,6 +874,44 @@ node src/cli.ts effect-check <dir> --no-vlm # 決定論チェックのみ(CI・v
 node src/cli.ts apply <dir> --patch effect-fix.suggested.json --dry-run  # 補正候補を確認
 node src/cli.ts apply <dir> --patch effect-fix.suggested.json           # 適用
 node src/cli.ts validate <dir>              # 適用後、整合性を再確認
+```
+
+## 検品を閉じる(E6: レビューイベント化 / E7: 提案ループへ戻す)
+
+`effect-check` の検品結果は、それだけでは人間/AI が読む止まりで終わりうる。
+これを既存のレビュー(GUI エディタの AI 提案レビュー)と次の `plan-effects`
+再実行へ**配線する**のが E6/E7(§docs/plans/2026-07-11-e6-e7-effect-review-loop-design.md)。
+どちらも**新コマンドは無い**(既存の関数/コマンドへの追記・フラグ)。
+
+- **E6(レビューイベント化)**: `src/lib/reviewEvents.ts` の `buildReviewEvents`
+  が `effectWarnings?`(effect-check の `EffectWarning[]`)を受け取れるように
+  なった。渡すと、時間帯(元収録秒)+種別(zoom/blur/annotation)が一致する
+  既存の `ReviewEvent` へ警告・種別ごとの確認観点
+  (zoom=見せたい所が中心か / blur=覆えているか / annotation=指す先が合うか)
+  ・撮影/確認理由を追記する。一致するイベントが無ければ、その演出単独の
+  `ReviewEvent` を1つ作る。補正候補(`suggestions`)がある警告は
+  `effect-fix.suggested.json#@<id>` という参照が `warnings` に載る(**自動
+  適用はしない**。適用は人間が `apply --patch effect-fix.suggested.json`)。
+  `effectWarnings` を渡さない(undefined/空配列)ときは、この変更導入前と
+  バイト等価(cut/caption/insert 等の既存イベントは一切変わらない)
+- **E7(検品観点を提案ループへ戻す・opt-in)**: `plan-effects <dir> --observe`
+  (または `config.yaml` の `effectReview.observe: true`)を付けると、前回の
+  `effect-check.json` があればその警告件数サマリ(例: 「前回の effect-check
+  で演出の警告が3件ありました(ぼかし×ズーム重なり2件・密度過多1件)。
+  これは参考情報であり、必ず直すべき指示ではありません」)をプロンプトへ
+  1ブロック追記し、次の演出候補生成が「前回の失敗」を踏まえられるようにする。
+  **命令ではなく観測**(「必ず直せ」とは書かない・番号選択の枠は変えない)。
+  `--observe` を付けない/`effectReview.observe` が既定(false)のときは、
+  `effect-check.json` の有無に関わらずプロンプトは SD-E1 導入時とバイト等価
+  (観測ブロックは一切追記されない)
+- **`src/lib/planLoop.ts` の `withEffectObservation`**: cut の `plan --cuts-only`
+  ループ(`planLoop.ts`)向けの同型 opt-in フック(観測 `warnings` 配列へ
+  演出観測の1行を足す純関数)。既定では呼び出されない(観測ソースが
+  演出であって cut と別ドメインのため、統合は今後の横展開課題)
+
+```sh
+node src/cli.ts effect-check <dir>                # effect-check.json を更新
+node src/cli.ts plan-effects <dir> --observe --force  # 前回警告を観測して演出候補を作り直す
 ```
 
 ## A/V フィードバックを知る(av)
