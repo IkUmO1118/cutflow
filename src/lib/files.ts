@@ -47,6 +47,7 @@ export const GENERATED_FILES = [
   "effect-fix.suggested.json",
   "bgm-fit.json",
   "bgm-fit.suggested.json",
+  "style-check.json",
 ] as const;
 
 /** 中間生成物のうち、ショート名(shorts.json の name)で可変になる
