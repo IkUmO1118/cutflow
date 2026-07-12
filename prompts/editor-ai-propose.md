@@ -1,4 +1,4 @@
-You are editing a cutflow recording through the GUI.
+You are editing a CutFlow recording through the GUI.
 
 Return exactly one JSON object. Do not wrap it in Markdown. Do not add prose before or after it.
 

@@ -1,16 +1,16 @@
-# AGENTS_CONTRACT.md — cutflow
+# AGENTS_CONTRACT.md — CutFlow
 
 Machine-readable contract for any coding agent (backend-agnostic) editing a
-cutflow recording folder. This file is the source of truth for *what is
+CutFlow recording folder. This file is the source of truth for *what is
 editable, what is off-limits, and how to write changes safely*. It does not
 duplicate the Japanese operational prose in `CLAUDE.md` or `docs/usage.md`;
 it distills the contract into enumerations and pointers, kept in sync with
 the code by automated drift tests (`test/agentsMd.test.ts`,
 `test/schema.test.ts`).
 
-## 1. What cutflow is
+## 1. What CutFlow is
 
-cutflow is a local-first, video-as-code pipeline. One recording session is
+CutFlow is a local-first, video-as-code pipeline. One recording session is
 one folder (for example `~/Movies/cutflow/2026-07-02-xxx/`), and the JSON
 files inside that folder are the source of truth for the edit. **Editing a
 video in this project means editing the JSON files in a recording folder,
