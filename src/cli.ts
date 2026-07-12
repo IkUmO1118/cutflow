@@ -124,6 +124,29 @@ function parseLayoutOpt(v: string | undefined): "obs-canvas" | "plain" | "auto" 
   throw new Error(`--layout の値が不正です: ${v}(plain|obs-canvas|auto のいずれか)`);
 }
 
+/** --mic-track / --system-track を検査して数値へ。未指定は undefined。
+ *  1 始まりの正整数のみ許可(0/負/非数はエラーで即停止) */
+function parseTrackOpts(
+  mic?: string,
+  system?: string,
+): { micTrack?: number; systemTrack?: number } | undefined {
+  const one = (v: string | undefined, label: string): number | undefined => {
+    if (v === undefined) return undefined;
+    const n = Number(v);
+    if (!Number.isInteger(n) || n < 1) {
+      throw new Error(`${label} は 1 以上の整数で指定してください: ${v}`);
+    }
+    return n;
+  };
+  const micTrack = one(mic, "--mic-track");
+  const systemTrack = one(system, "--system-track");
+  if (micTrack === undefined && systemTrack === undefined) return undefined;
+  return {
+    ...(micTrack !== undefined ? { micTrack } : {}),
+    ...(systemTrack !== undefined ? { systemTrack } : {}),
+  };
+}
+
 function parseRangeOpt(v: string | undefined): { startSec: number; endSec: number } | undefined {
   if (v === undefined) return undefined;
   const [startRaw, endRaw] = v.split("-");
@@ -304,11 +327,14 @@ program
     "--layout <layout>",
     "収録レイアウト(plain|obs-canvas|auto)。省略時は plain",
   )
-  .action(async (dir: string, opts: { layout?: string }) => {
+  .option("--mic-track <n>", "マイク音声のトラック番号(1始まり)。config を一時上書き")
+  .option("--system-track <n>", "システム音声のトラック番号(1始まり)。config を一時上書き")
+  .action(async (dir: string, opts: { layout?: string; micTrack?: string; systemTrack?: string }) => {
     const cfg = loadConfig(program.opts().config);
     const abs = resolveDir(dir);
     const layout = parseLayoutOpt(opts.layout);
-    const m = await ingest(abs, findSource(abs), cfg, layout);
+    const tracks = parseTrackOpts(opts.micTrack, opts.systemTrack);
+    const m = await ingest(abs, findSource(abs), cfg, layout, tracks);
     console.log(
       `ingest 完了: ${m.durationSec.toFixed(1)}秒 / ` +
         `${m.video.width}x${m.video.height} ${m.video.fps.toFixed(0)}fps / ` +
@@ -1252,17 +1278,20 @@ program
     "--layout <layout>",
     "収録レイアウト(plain|obs-canvas|auto)。省略時は plain",
   )
-  .action(async (dir: string, opts: { force?: boolean; layout?: string }) => {
+  .option("--mic-track <n>", "マイク音声のトラック番号(1始まり)。config を一時上書き")
+  .option("--system-track <n>", "システム音声のトラック番号(1始まり)。config を一時上書き")
+  .action(async (dir: string, opts: { force?: boolean; layout?: string; micTrack?: string; systemTrack?: string }) => {
     const cfg = loadConfig(program.opts().config);
     const abs = resolveDir(dir);
     const layout = parseLayoutOpt(opts.layout);
+    const tracks = parseTrackOpts(opts.micTrack, opts.systemTrack);
     guardRerun(
       abs,
       ["transcript.json", "cutplan.json", "chapters.json", "meta.json"],
       opts.force === true,
       "run",
     );
-    await ingest(abs, findSource(abs), cfg, layout);
+    await ingest(abs, findSource(abs), cfg, layout, tracks);
     console.log("ingest 完了");
     await transcribe(abs, cfg);
     console.log("transcribe 完了");
