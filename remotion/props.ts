@@ -173,6 +173,10 @@ export type RenderProps = {
   /** 右下ワイプの寸法。transitionSec はワイプ全画面(wipeFull)の出入りの
    * 遷移時間(秒。省略・0 で瞬時) */
   wipe: { widthPx: number; marginPx: number; transitionSec?: number };
+  /** true = ワイプ(カメラ)を cut.mp4 に焼き込み済み。Main.tsx はワイプレイヤーを
+   * 描かない(ベース抽出1回の高速レンダー。docs/plans/perf-render-single-extraction.md)。
+   * 最終レンダーの composite 経路でのみ立つ。エディタ Player / short では未指定 */
+  wipeBurnedIn?: boolean;
   /** 簡易カラー調整(overlays.json の colorFilter)。ベース映像(画面クロップ+
    * カメラ)だけに CSS filter として効く(src/lib/colorFilter.ts が変換)。
    * 素材オーバーレイ・挿入クリップには効かない。省略時は無補正 */
