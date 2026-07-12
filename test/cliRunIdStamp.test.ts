@@ -34,7 +34,9 @@ test("run コマンドのブロック内に idStamp(abs) 呼び出しがある",
 
 test("run コマンド内で idStamp(abs) は plan(abs, cfg) より後ろに呼ばれる(末尾配線)", () => {
   const block = runCommandBlock(cliSrc);
-  const planIdx = block.indexOf("await plan(abs, cfg)");
+  // plan は timed("plan", () => plan(abs, cfg)) でラップされているため
+  // "await" 直後ではなく "plan(abs, cfg)" のリテラルで位置を取る
+  const planIdx = block.indexOf("plan(abs, cfg)");
   const stampIdx = block.indexOf("idStamp(abs)");
   assert.ok(planIdx !== -1, "plan(abs, cfg) 呼び出しが見つからない");
   assert.ok(stampIdx !== -1, "idStamp(abs) 呼び出しが見つからない");
