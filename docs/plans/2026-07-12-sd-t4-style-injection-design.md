@@ -1,7 +1,7 @@
 # SD-T4 設計書 — profile→判断注入(compact style policy を cut 判断 LLM の prompt へ opt-in/sticky で注入)
 
 > Opus 設計 → Sonnet 実装 → コーディネータ実測のリレー([[opus-sonnet-relay-workflow]])。
-> 母艦: `docs/plans/2026-07-11-aesthetic-judgment-and-style-learning.md`
+> 母艦: `docs/programs/aesthetic-judgment-and-style-learning.md`
 > (§5.3 判断向上の基質・§6.2 brief 上書き・§7 compact style policy・§8 不変条件5/6・§10.0/§10.1)。
 > 前提: **SD-T0 完了**(`style-profile` が channel 直下 `style.probe/<name>.json` を書く。型は
 > `src/lib/styleProfile.ts` の `StyleProfile`。`STYLE_PROBE_DIR` は `src/stages/styleProfile.ts` から export)。

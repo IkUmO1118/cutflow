@@ -1,6 +1,6 @@
 # 実装設計書 SD-M2: M2(尺整合)+ M3(dangling→patch)— 素材の不整合検出と修正パッチ橋渡し
 
-> 親ドキュメント: `docs/plans/2026-07-11-edit-precision-program.md`(母艦)§4「素材」/ §7。
+> 親ドキュメント: `docs/programs/edit-precision-program.md`(母艦)§4「素材」/ §7。
 > 前段: **SD-M1**(`2026-07-11-m1-material-placement-candidates-design.md`)= 素材を**新規に置く**候補生成。
 > 本書はその続きで、**既に置かれている素材参照の不整合を検出し、修正案を `apply` パッチとして
 > 差し出す**。実装担当(弱いモデル想定)がそのまま着手できる粒度に落とす。**M2 + M3 だけが対象**。

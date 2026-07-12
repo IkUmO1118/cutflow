@@ -1,6 +1,6 @@
 # 実装設計書 SD3: X4 — 編集の積極度を明示する(safe / balanced / aggressive・balanced 既定)
 
-> 親ドキュメント: `docs/plans/2026-07-11-edit-precision-program.md`(母艦)§7 の SD3。
+> 親ドキュメント: `docs/programs/edit-precision-program.md`(母艦)§7 の SD3。
 > 関連: SD1(`2026-07-11-d7-w0-implementation-design.md`)/ SD2(`2026-07-11-c1-word-candidate-grid-design.md`)。
 > 本書は **X4(母艦 §4「横断」)= 確定方針 D4=balanced 既定** を、実装担当(弱いモデル想定)が
 > そのまま着手できる粒度まで落とした設計書。**X4 だけが対象**。C1・C2・H1/H2・H6 は含めない。

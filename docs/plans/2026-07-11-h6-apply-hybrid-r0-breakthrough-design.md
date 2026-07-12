@@ -1,6 +1,6 @@
 # 実装設計書 SD5: H6 — apply ハイブリッドで候補内部を語境界分割(R0 を直接突破)
 
-> 親ドキュメント: `docs/plans/2026-07-11-edit-precision-program.md`(母艦)§7 の SD5。
+> 親ドキュメント: `docs/programs/edit-precision-program.md`(母艦)§7 の SD5。
 > 前提: SD4(`2026-07-11-h1-h2-agentic-perception-loop-design.md`・**実装済み**)の有界 agentic ループ。
 > 関連: SD2(`2026-07-11-c1-word-candidate-grid-design.md`・実装済み=語境界の**決定論**細分化)。
 > 本書は **H6(確信区間だけ `apply`+validate/assert を安全網に候補内部分割を書く)= 母艦 §4「ハーネス」の

@@ -1,7 +1,7 @@
 # SD-T1 設計書 — `style-check`(profile→距離 assert / J→D 変換)
 
 > Opus 設計 → Sonnet 実装 → コーディネータ実測のリレー([[opus-sonnet-relay-workflow]])。
-> 母艦: `docs/plans/2026-07-11-aesthetic-judgment-and-style-learning.md`
+> 母艦: `docs/programs/aesthetic-judgment-and-style-learning.md`
 > (§5.1 J→D・§2.5 横断 assert・§8 不変条件・§10.0/§10.1 確定判断)。
 > 前提: **SD-T0 完了**(`style-profile` が channel 直下 `style.probe/<name>.json` を書く。
 > 型は `src/lib/styleProfile.ts` の `StyleProfile`)。
@@ -63,7 +63,7 @@ profile は *rate/placement 統計*(どのくらい/どこに)を教えるが *i
 | 変更 | `AGENTS_CONTRACT.md` | コマンド表に `style-check` 行 + 生成物一覧に `style-check.json`(**agentsMd.test.ts が全数照合**) |
 | 変更 | `docs/usage.md` | `style-check` の節を追加 |
 | 変更 | `CLAUDE.md` | コマンド一覧 + 中間生成物一覧 + 知覚節に追記 |
-| 変更 | 母艦 `2026-07-11-aesthetic-judgment-and-style-learning.md` | §2/§5.1 の次元表を「D 化した/残る J」で再分類(§2.9 の追記テキスト)+ §10.1 SD-T1 を「完了」へ |
+| 変更 | 母艦 `docs/programs/aesthetic-judgment-and-style-learning.md` | §2/§5.1 の次元表を「D 化した/残る J」で再分類(§2.9 の追記テキスト)+ §10.1 SD-T1 を「完了」へ |
 
 **触らない**: `src/types.ts`(型は styleCheck.ts に閉じる)/ `src/stages/validate.ts`
 (style-check.json は生成物レポート=検査対象の編集ファイルではない)/ `schemas/*`

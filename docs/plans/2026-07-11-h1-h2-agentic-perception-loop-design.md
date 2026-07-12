@@ -1,6 +1,6 @@
 # 実装設計書 SD4: H1 + H2 — pull 型知覚 + 検証主経路化(単発 completion を脱する)
 
-> 親ドキュメント: `docs/plans/2026-07-11-edit-precision-program.md`(母艦)§7 の SD4。
+> 親ドキュメント: `docs/programs/edit-precision-program.md`(母艦)§7 の SD4。
 > 関連: SD2(`2026-07-11-c1-word-candidate-grid-design.md`・実装済み)/ SD3(`2026-07-11-x4-editing-aggressiveness-design.md`・実装済み)。
 > 本書は **H1(知覚を pull 型に)+ H2(検証を主経路へ)= 母艦 §4「ハーネス」** を、実装担当(弱いモデル想定)が
 > 着手できる粒度まで落とした設計書。**H1+H2 だけが対象**。H6(apply による R0 突破)は **含めない**(=SD5)。

@@ -1,6 +1,6 @@
 # 実装設計書 SD-E2: E3(座標視覚検証)+ E4(zoom 相互作用)+ E5(密度ガード)— 演出の検品
 
-> 親ドキュメント: `docs/plans/2026-07-11-edit-precision-program.md`(母艦)§4「演出トラック」/ §7。
+> 親ドキュメント: `docs/programs/edit-precision-program.md`(母艦)§4「演出トラック」/ §7。
 > 前段: **SD-E1**(`2026-07-11-e1-e2-effect-anchor-candidates-design.md`)= zoom/blur/annotation を**作る**。
 > 本書はその続きで、作られた(または人間が書いた)演出を**検品する**。実装担当(弱いモデル想定)が
 > そのまま着手できる粒度に落とす。**E3(座標の視覚検証)+ E4(zoom 相互作用)+ E5(密度ガード)が対象**。

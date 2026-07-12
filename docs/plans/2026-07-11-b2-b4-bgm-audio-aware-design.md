@@ -1,6 +1,6 @@
 # 実装設計書 SD-B2: B2(無音/被り回避の配置)+ B4(fallback 検出)— av.probe を見た BGM 調整
 
-> 親ドキュメント: `docs/plans/2026-07-11-edit-precision-program.md`(母艦)§4「BGM」/ §7。
+> 親ドキュメント: `docs/programs/edit-precision-program.md`(母艦)§4「BGM」/ §7。
 > 前段: **SD-B1**(`2026-07-11-b1-b3-bgm-placement-candidates-design.md`)= 「どの区間にどの曲」を作る。
 > 本書はその続きで、**音を実測して(av.probe)BGM の音量/duck/切替を調整**し、**全編1曲 fallback が
 > 精度不足に見えるケースを検出**する。実装担当(弱いモデル想定)がそのまま着手できる粒度に落とす。

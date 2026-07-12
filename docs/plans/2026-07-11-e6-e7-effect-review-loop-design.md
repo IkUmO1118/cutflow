@@ -1,6 +1,6 @@
 # 実装設計書 SD-E3: E6(レビューイベント化)+ E7(検品観点を提案ループへ戻す)— 演出の検品を閉じる
 
-> 親ドキュメント: `docs/plans/2026-07-11-edit-precision-program.md`(母艦)§4「演出トラック」/ §7。
+> 親ドキュメント: `docs/programs/edit-precision-program.md`(母艦)§4「演出トラック」/ §7。
 > 前段: **SD-E2**(`2026-07-11-e3-e4-e5-effect-visual-verification-design.md`)= 演出を**検品する**
 > (`effect-check.json` に警告・still を出す)。本書はその続きで、検品結果を**人間 UI と提案ループへ
 > 閉じる**。実装担当(弱いモデル想定)がそのまま着手できる粒度に落とす。**E6 + E7 が対象**。

@@ -1,6 +1,6 @@
 # SD-T0 設計書 — `style-profile`(任意パス→スタイルプロファイル抽出)
 
-> 母艦: `docs/plans/2026-07-11-aesthetic-judgment-and-style-learning.md`(§4.0 供給源・
+> 母艦: `docs/programs/aesthetic-judgment-and-style-learning.md`(§4.0 供給源・
 > §5 profile が測定の穴を3つ塞ぐ・§7 統一 schema・§8 不変条件・§10.0/§10.1 確定判断)。
 > 本書は **SD-T0 の実装設計書**(Opus 設計 → Sonnet 実装 → コーディネータ実測のリレー)。
 > 4部形式(背景 / 変更 / 検証 / リスク)。**コードは書かない。この設計に従って実装するのは Sonnet。**

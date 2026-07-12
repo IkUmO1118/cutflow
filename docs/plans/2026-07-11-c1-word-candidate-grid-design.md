@@ -1,6 +1,6 @@
 # 実装設計書 SD2: C1(+C7/C8)— words で候補格子を細分化(番号選択のまま)
 
-> 親ドキュメント: `docs/plans/2026-07-11-edit-precision-program.md`(母艦)§7 の SD2。
+> 親ドキュメント: `docs/programs/edit-precision-program.md`(母艦)§7 の SD2。
 > 前提設計書: `docs/plans/2026-07-11-d7-w0-implementation-design.md`(SD1=D7+W0)。
 > 本書はその **C1 + C7 + C8** を、実装担当(弱いモデル想定)がそのまま着手できる
 > 粒度まで落とした設計書。**この3施策だけが対象**。C2・H1/H2・H6 は含めない。
