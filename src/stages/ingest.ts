@@ -26,6 +26,147 @@ export function resolveLayout(
   return exactObsCanvas || wideObsLike ? "obs-canvas" : "plain";
 }
 
+/** 音声ストリーム 1 本ぶんの推定用記述子(全ストリーム中ではなく
+ *  「音声のみ」で 0 始まりの index)。codec/channels/title/language は
+ *  ffprobe が出せば埋め、無ければ省く(メタデータ無し環境でも動く) */
+export interface AudioTrackDescriptor {
+  index: number;
+  codec?: string;
+  channels?: number;
+  title?: string;
+  language?: string;
+}
+
+export interface AudioTrackResolution {
+  micIndex: number;
+  systemIndex: number | null;
+  /** どう決めたか(診断用)。config=設定を尊重 / single=1本しか無い /
+   *  inferred=範囲外設定をメタデータから推定 */
+  source: "config" | "single" | "inferred";
+  /** stderr に出す助言(空なら無し)。抽出結果は変えない参考情報 */
+  warnings: string[];
+}
+
+export type AudioTrackOutcome =
+  | { ok: true; resolution: AudioTrackResolution }
+  | { ok: false; message: string };
+
+const MIC_RE = /mic|マイク|voice|ボイス|音声入力|host/i;
+const SYS_RE = /system|desktop|speaker|スピーカ|アプリ|デスクトップ|bgm|output/i;
+
+function looksLikeMic(s: AudioTrackDescriptor): boolean {
+  return s.title != null && MIC_RE.test(s.title);
+}
+function looksLikeSystem(s: AudioTrackDescriptor): boolean {
+  return s.title != null && SYS_RE.test(s.title);
+}
+function describeTrack(s: AudioTrackDescriptor): string {
+  const parts = [s.codec ?? "?"];
+  if (s.channels != null) parts.push(`${s.channels}ch`);
+  if (s.title != null) parts.push(`"${s.title}"`);
+  if (s.language != null) parts.push(`[${s.language}]`);
+  return parts.join(" ");
+}
+
+function trackGuidance(streams: AudioTrackDescriptor[], micTrack: number): string {
+  const list = streams
+    .map((s) => `  トラック ${s.index + 1}: ${describeTrack(s)}`)
+    .join("\n");
+  return (
+    `マイクトラック(micTrack: ${micTrack})が見つかりません。` +
+    `この収録には ${streams.length} 本の音声トラックがあります:\n${list}\n` +
+    `どれがマイク音声かを config.yaml の ingest.micTrack で指定するか、` +
+    `ingest / run に --mic-track <番号> を付けて再実行してください` +
+    `(システム音声は --system-track <番号> または ingest.systemTrack)。`
+  );
+}
+
+/**
+ * mic/system の音声トラックを解決する。優先順:
+ *  1) 設定(micTrack)が範囲内 → その設定を尊重(既定 1/2 とバイト等価)。
+ *     メタデータが食い違うときだけ stderr 助言を足す(抽出は変えない)。
+ *  2) 範囲外で音声が 1 本 → それを mic とみなす(single)。
+ *  3) 範囲外だがメタデータで mic が一意に決まる → 推定(inferred)。
+ *  4) それ以外(判別不能)→ ok:false で N トラックを提示する誘導文言を返す。
+ */
+export function resolveAudioTracks(
+  streams: AudioTrackDescriptor[],
+  micTrack: number, // 1 始まり(cfg.ingest.micTrack か --mic-track)
+  systemTrack: number, // 1 始まり(cfg.ingest.systemTrack か --system-track)
+): AudioTrackOutcome {
+  const n = streams.length;
+  const configMic = micTrack - 1;
+  const configSys = systemTrack - 1;
+
+  // Case A: 設定が範囲内 → 尊重(既定 1/2 の後方互換をここで担保)
+  if (configMic >= 0 && configMic < n) {
+    const micIndex = configMic;
+    const systemIndex =
+      configSys >= 0 && configSys < n && configSys !== configMic ? configSys : null;
+    const warnings: string[] = [];
+    if (looksLikeSystem(streams[micIndex])) {
+      warnings.push(
+        `マイクに設定したトラック ${micTrack}(${describeTrack(streams[micIndex])})は` +
+          `システム音声の可能性があります。`,
+      );
+      const micCand = streams.find(looksLikeMic);
+      if (micCand) {
+        warnings.push(
+          `トラック ${micCand.index + 1}(${describeTrack(micCand)})が` +
+            `マイクの可能性があります。--mic-track ${micCand.index + 1} で上書きできます。`,
+        );
+      }
+    }
+    return {
+      ok: true,
+      resolution: { micIndex, systemIndex, source: n === 1 ? "single" : "config", warnings },
+    };
+  }
+
+  // Case B: 設定が範囲外
+  // B1: 音声が 1 本 → それが mic
+  if (n === 1) {
+    return {
+      ok: true,
+      resolution: {
+        micIndex: 0,
+        systemIndex: null,
+        source: "single",
+        warnings: [
+          `config の micTrack=${micTrack} は範囲外(音声トラックは1本)。` +
+            `トラック1をマイクとして使います。`,
+        ],
+      },
+    };
+  }
+  // B2: メタデータで mic が一意
+  const micCandidates = streams.filter(looksLikeMic);
+  if (micCandidates.length === 1) {
+    const micIndex = micCandidates[0].index;
+    const sysByMeta = streams.filter((s) => s.index !== micIndex && looksLikeSystem(s));
+    const systemIndex =
+      sysByMeta.length === 1
+        ? sysByMeta[0].index
+        : n === 2
+          ? streams.find((s) => s.index !== micIndex)!.index
+          : null;
+    return {
+      ok: true,
+      resolution: {
+        micIndex,
+        systemIndex,
+        source: "inferred",
+        warnings: [
+          `config の micTrack=${micTrack} は範囲外。` +
+            `メタデータからトラック ${micIndex + 1} をマイクと推定しました。`,
+        ],
+      },
+    };
+  }
+  // B3: 判別不能 → 誘導文言(黙って停止しない)
+  return { ok: false, message: trackGuidance(streams, micTrack) };
+}
+
 /**
  * 収録フォルダの raw ファイルを解析し、manifest.json とマイク音声
  * (16kHz mono wav)を生成する。
@@ -40,6 +181,7 @@ export async function ingest(
   sourceFile: string,
   cfg: Config,
   layout?: "obs-canvas" | "plain" | "auto",
+  tracks?: { micTrack?: number; systemTrack?: number },
 ): Promise<Manifest> {
   const sourcePath = join(dir, sourceFile);
   const info = await probe(sourcePath);
@@ -52,15 +194,20 @@ export async function ingest(
     throw new Error(`${sourceFile} に音声ストリームがありません`);
   }
   // OBS のトラック N は N 番目の音声ストリームとして記録される(1始まり)
-  const micIndex = cfg.ingest.micTrack - 1;
-  if (micIndex >= audioStreams.length) {
-    throw new Error(
-      `マイクトラック(micTrack: ${cfg.ingest.micTrack})が見つかりません。` +
-        `音声ストリームは ${audioStreams.length} 本です。config.yaml を確認してください。`,
-    );
-  }
-  const systemIndex = cfg.ingest.systemTrack - 1;
-  const hasSystem = systemIndex < audioStreams.length && systemIndex !== micIndex;
+  const micTrack = tracks?.micTrack ?? cfg.ingest.micTrack;
+  const systemTrack = tracks?.systemTrack ?? cfg.ingest.systemTrack;
+  const descriptors: AudioTrackDescriptor[] = audioStreams.map((s, i) => ({
+    index: i,
+    ...(s.codec_name != null ? { codec: s.codec_name } : {}),
+    ...(s.channels != null ? { channels: s.channels } : {}),
+    ...(s.tags?.title != null ? { title: s.tags.title } : {}),
+    ...(s.tags?.language != null ? { language: s.tags.language } : {}),
+  }));
+  const outcome = resolveAudioTracks(descriptors, micTrack, systemTrack);
+  if (!outcome.ok) throw new Error(outcome.message);
+  const { micIndex, systemIndex, warnings } = outcome.resolution;
+  for (const w of warnings) console.warn(`警告: ${w}`);
+  const hasSystem = systemIndex !== null;
 
   const audioDir = join(dir, "audio");
   mkdirSync(audioDir, { recursive: true });
@@ -74,7 +221,7 @@ export async function ingest(
   let systemWav: string | undefined;
   if (hasSystem && cfg.whisper.systemAudio) {
     systemWav = join("audio", "system.wav");
-    await extractAudio(sourcePath, systemIndex, join(dir, systemWav));
+    await extractAudio(sourcePath, systemIndex!, join(dir, systemWav));
   }
 
   const width = video.width ?? 0;
