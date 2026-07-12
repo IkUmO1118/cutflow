@@ -15,6 +15,51 @@ export interface CutplanIdContext {
   used: Set<string>;
 }
 
+/** cutplan.segments を元収録の全時間 [0, duration] で連続被覆させるための
+ * 穴埋め設定。省略時(undefined)は穴を埋めない(=導入前とバイト等価)。
+ * detect が発話候補(auto.keepSegments)しか候補にしないため、無音区間は
+ * どのセグメントにも属さない「穴」になっていた。この穴を action:"cut" として
+ * 記録することで、エディタのタイムラインに「カットされた区間」の印が出て
+ * 復元(この区間を動画に戻す)できるようになる(全ての映像を戻せる状態)。 */
+export interface CutplanFill {
+  /** 元収録の全長(秒)。manifest.durationSec / auto.originalDurationSec */
+  duration: number;
+  /** 穴(無音区間)を cut にするときの reason。省略時 DEFAULT_SILENCE_CUT_REASON */
+  reason?: string;
+}
+
+/** config.detect.silenceCutReason 未設定時のフォールバック文言 */
+export const DEFAULT_SILENCE_CUT_REASON = "無音";
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/** 発話候補だけの segments(時系列・重なり無し前提)の隙間・先頭・末尾を
+ * action:"cut" で埋め、[0, duration] を連続被覆する新しい配列を返す。
+ * 0.01 秒未満の隙間は round2 の端数とみなして埋めない。入力は破壊しない。 */
+export function fillSilenceGaps(
+  segments: PlanSegment[],
+  duration: number,
+  reason: string = DEFAULT_SILENCE_CUT_REASON,
+): PlanSegment[] {
+  const EPS = 0.01;
+  const sorted = [...segments].sort((a, b) => a.start - b.start);
+  const filled: PlanSegment[] = [];
+  let cursor = 0;
+  for (const s of sorted) {
+    if (s.start - cursor > EPS) {
+      filled.push({ start: round2(cursor), end: round2(s.start), action: "cut", reason });
+    }
+    filled.push(s);
+    cursor = Math.max(cursor, s.end);
+  }
+  if (duration - cursor > EPS) {
+    filled.push({ start: round2(cursor), end: round2(duration), action: "cut", reason });
+  }
+  return filled;
+}
+
 /** LLM 応答からカット判断を反映した cutplan を組み立てる(存在しない id は無視)。
  * idCtx があれば、span(start:end)一致で旧 segments.id を運び(carryIds)、
  * 残りを採番する(ensureIds)。span が変わった segment は新 id になる(要件どおり) */
@@ -22,6 +67,7 @@ export function buildCutplan(
   numbered: NumberedSegment[],
   cuts: { id: number; reason: string }[],
   idCtx?: CutplanIdContext,
+  fill?: CutplanFill,
 ): CutPlan {
   const cutIds = new Map(cuts.map((c) => [c.id, c.reason]));
   for (const c of cuts) {
@@ -37,6 +83,13 @@ export function buildCutplan(
     action: cutIds.has(n.id) ? "cut" : "keep",
     reason: cutIds.get(n.id) ?? "",
   }));
+
+  // 発話候補の隙間(無音)を cut として明示記録し、元収録の全時間を連続被覆
+  // させる(穴を無くして全ての映像を戻せる状態にする)。id 採番より前に埋める
+  // ことで、穴埋めした cut にも carryIds/ensureIds が id を運ぶ・採番する。
+  if (fill) {
+    segments = fillSilenceGaps(segments, fill.duration, fill.reason);
+  }
 
   if (idCtx) {
     segments = carryIds(idCtx.existingSegments, segments, (s) => `${s.start}:${s.end}`);

@@ -1306,6 +1306,28 @@ plan:
   `plan --cuts-only` の観測ループ(`plan.loop`)を使う場合も、再調整の
   critique 反復にはこのブロックを渡さない(生成ターンにだけ渡す)
 
+## cutplan は元収録の全時間を keep/cut で連続被覆する(無音も戻せる)
+
+`cutplan.segments` は元収録 `[0, 全長]` を **keep と cut で隙間なく覆う**。
+`detect` が無音から作る「残す候補区間」は keep か(LLM がカットと判断すれば)
+cut になり、**候補にすらならなかった無音区間も `action:"cut"` として記録される**
+(reason は `config.yaml` の `detect.silenceCutReason`、既定「無音」)。
+
+そのため切られた区間は**すべて**エディタのタイムライン(映像トラック)に
+「カットされた区間」の印として現れ、選択して**「この区間を動画に戻す」**で
+復元できる(隣の keep と重なる分だけ縮めて戻り、戻した区間は前後の keep と
+連続再生される)。発話の語尾が無音判定で切れていても、その部分は無音 cut として
+残っているので取り戻せる。**印が出るのは `action:"cut"` の区間だけ**なので、
+無音を cut として明示記録することが「全ての映像を戻せる状態」の前提になる。
+
+- 無音 cut を足しても **keep の start/end は変わらない**ので、承認レコード
+  (`approvals.json` の keep 集合ハッシュ)は失効しない(承認スコープは cut 決定
+  =keep 集合のみ)。無音 cut にも `@id`(`seg_*`)が採番され、他の segment と
+  同じく apply の宛先にできる
+- この挙動は `detect` → `plan`(単発 / `--cuts-only` / 観測ループ / harness)の
+  全経路で自動。旧来の穴あき cutplan(本機能の導入前に生成したもの)を全被覆へ
+  移すには `plan --cuts-only` で作り直す(cut 判断が変わりうる点に注意)
+
 ## plan の候補格子を語境界で細分化する(config.yaml の candidates。既定オフ)
 
 `plan` / `plan --cuts-only` は、`detect` が無音から作った「残す候補区間」に

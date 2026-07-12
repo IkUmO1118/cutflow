@@ -48,6 +48,8 @@ export interface AgenticCtx {
   dir: string;
   cfg: Config;
   numbered: NumberedSegment[];
+  /** 元収録の全長(秒)。cutplan の穴(無音)を cut で埋め全時間を連続被覆する */
+  durationSec: number;
   idCtx?: { used: Set<string>; existingCutplanSegments: PlanSegment[] };
   budget: { maxToolCalls: number; used: number };
   warn: (msg: string) => void;
@@ -120,7 +122,10 @@ function currentCutActions(
 function ensureInitialCutplan(ctx: AgenticCtx): void {
   const path = join(ctx.dir, "cutplan.json");
   if (existsSync(path)) return;
-  const cutplan = buildCutplan(ctx.numbered, [], toCutplanIdContext(ctx.idCtx));
+  const cutplan = buildCutplan(ctx.numbered, [], toCutplanIdContext(ctx.idCtx), {
+    duration: ctx.durationSec,
+    reason: ctx.cfg.detect?.silenceCutReason,
+  });
   writeFileSync(path, JSON.stringify(cutplan, null, 2));
 }
 
@@ -368,7 +373,10 @@ const splitCandidateTool: CutTool = {
     const cutplanPath = join(ctx.dir, "cutplan.json");
     const before = existsSync(cutplanPath) ? readFileSync(cutplanPath, "utf8") : null;
 
-    const base = buildCutplan(ctx.numbered, currentCutsList(ctx.dir, ctx.numbered), toCutplanIdContext(ctx.idCtx));
+    const base = buildCutplan(ctx.numbered, currentCutsList(ctx.dir, ctx.numbered), toCutplanIdContext(ctx.idCtx), {
+      duration: ctx.durationSec,
+      reason: ctx.cfg.detect?.silenceCutReason,
+    });
     const trial = applyCandidateSplits(base, trialSplits, ctx.words, cfg, ctx.idCtx && { used: ctx.idCtx.used });
     writeFileSync(cutplanPath, JSON.stringify(trial, null, 2));
 
@@ -431,7 +439,10 @@ const setCutsTool: CutTool = {
     // split は無意味になるため、常に applyCandidateSplits(buildCutplan(...), ctx.splits, ...)
     // で組み直す(単一の権威ある再構築)。ctx.splits が空(applySplit off)なら
     // applyCandidateSplits は base をそのまま返す恒等関数(§1-1 バイト等価の要)
-    const base = buildCutplan(ctx.numbered, list, toCutplanIdContext(ctx.idCtx));
+    const base = buildCutplan(ctx.numbered, list, toCutplanIdContext(ctx.idCtx), {
+      duration: ctx.durationSec,
+      reason: ctx.cfg.detect?.silenceCutReason,
+    });
     const cutplan = applyCandidateSplits(base, ctx.splits, ctx.words, splitCfgOf(ctx.cfg), ctx.idCtx && { used: ctx.idCtx.used });
     writeFileSync(join(ctx.dir, "cutplan.json"), JSON.stringify(cutplan, null, 2));
     const report = await assert(ctx.dir);

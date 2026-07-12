@@ -9,6 +9,9 @@
 - `aesthetic-judgment-and-style-learning.md`(審美眼プログラム) —
   スタイルを学び、判断品質を測って上げる取り組み。精度母艦から引き継いだ
   現行の母艦
+- `adoption-and-onboarding.md`(導入母艦) — クローンから稼働・定着までの
+  activation 摩擦を潰す取り組み。上2つが上げた「編集の質」に、そもそも
+  ユーザーが到達できるようにする層(質・審美と直交)
 
 個別の設計書(`docs/plans/`)からは「親ドキュメント: `docs/programs/....md`
 (母艦)」の形で参照される。

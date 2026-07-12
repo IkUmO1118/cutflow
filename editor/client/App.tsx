@@ -183,8 +183,9 @@ const isImageFile = (f: string) => /\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(f);
 const keepsOf = (plan: CutPlan) => plan.segments.filter((s) => s.action === "keep");
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
-/** ドラッグで区間がゼロ幅・逆転しないための最小幅(秒) */
-const MIN_SPAN = 0.1;
+/** ドラッグで区間がゼロ幅・逆転しないための最小幅(秒)。round2 の量子(0.01)
+ * まで刻めるように最小幅もそこに合わせる(手動カットの粒度) */
+const MIN_SPAN = 0.01;
 
 /** ショートの profile 名 → Profile。src/lib/profile.ts の resolveProfile と
  * 同じ規則(省略時 defaultShortProfileName(hasCamera)。render.ts / frames.ts と
