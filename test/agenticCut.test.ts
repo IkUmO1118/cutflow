@@ -74,6 +74,9 @@ function makeCtx(dir: string, overrides: Partial<AgenticCtx> = {}): AgenticCtx {
     dir,
     cfg: baseCfg(),
     numbered,
+    // fixture は 0-30 を連続被覆(隙間なし)なので穴埋め(fillSilenceGaps)は
+    // 何も足さない=既存アサーションは不変。
+    durationSec: numbered[numbered.length - 1]!.end,
     budget: { maxToolCalls: 16, used: 0 },
     warn: () => {},
     trace: [],
