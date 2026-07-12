@@ -319,7 +319,7 @@ const TIMELINE_MIN = 140;
 const STAGE_MIN = 200;
 
 /**
- * cutflow エディタ本体。動画編集ソフトの標準レイアウト:
+ * CutFlow エディタ本体。動画編集ソフトの標準レイアウト:
  * 上=タブパネル(左: 素材/テロップ)+プレビュー(中央)+インスペクタ(右)、
  * 中=トランスポート、下=タイムライン。上部の左右比は分割バーで変えられる。
  * プレビューは最終レンダーと同じコンポジション(remotion/Main.tsx)を
@@ -3786,7 +3786,7 @@ export const App = () => {
       />
       <header>
         <div className="brand">
-          <strong>cutflow</strong>
+          <strong>CutFlow</strong>
           <span className="sep" aria-hidden>
             /
           </span>
