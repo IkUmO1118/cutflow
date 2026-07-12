@@ -82,7 +82,7 @@ export async function completeAi(req: AiRequest, cfg: Config): Promise<AiRespons
   const profile = profileForRoute(runtime, req.route);
   assertRouteCapabilities(profile, req);
   validateRequest(req, profile);
-  console.log(aiRequestSummary(req, profile));
+  console.error(aiRequestSummary(req, profile));
   const adapter = adapterFor(profile.adapter);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), profile.timeoutMs);
