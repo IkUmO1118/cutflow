@@ -25,6 +25,7 @@ import {
 } from "./lib/config.ts";
 import { setLogLevel } from "./lib/obs.ts";
 import type { LogLevel } from "./lib/obs.ts";
+import { timed } from "./lib/timing.ts";
 import { findSource } from "./lib/findSource.ts";
 import { loadShort, loadShorts } from "./lib/shorts.ts";
 import { ingest } from "./stages/ingest.ts";
@@ -1338,17 +1339,17 @@ program
       opts.force === true,
       "run",
     );
-    await ingest(abs, findSource(abs), cfg, layout, tracks);
-    console.log("ingest 完了");
-    await transcribe(abs, cfg);
-    console.log("transcribe 完了");
-    const c = await detect(abs, cfg);
-    console.log(
-      `detect 完了: ${c.originalDurationSec}秒 → ${c.keptDurationSec}秒`,
-    );
+    // パイプラインの背骨(ingest→transcribe→detect→plan)は timed() 経由で
+    // ▸ stage 行(stderr・レベルゲート・所要時間付き)として出す。進捗は obs
+    // チャネルへ、結果要約(尺の縮み・カット案)は stdout に残す(--quiet でも
+    // 成果は出るが、工程の進捗は静かになる)。plan の LLM 実行中は AI クライアントが
+    // ✦ AI 行を heartbeat として出すので、事前ヒントの console.log は不要
+    await timed("ingest", () => ingest(abs, findSource(abs), cfg, layout, tracks));
+    await timed("transcribe", () => transcribe(abs, cfg));
+    const c = await timed("detect", () => detect(abs, cfg));
+    console.log(`detect: ${c.originalDurationSec}秒 → ${c.keptDurationSec}秒`);
     printPerceptionStatus(cfg);
-    console.log("plan 実行中(LLM でカット判断・章立てを生成)...");
-    const p = await plan(abs, cfg);
+    const p = await timed("plan", () => plan(abs, cfg));
     printPlanSummary(p.segments);
 
     // 新規収録を初回から id 有効(@-mention 可能)にする。id-stamp は冪等・
