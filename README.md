@@ -30,6 +30,12 @@ OBS収録 (raw.mkv)
 
 ## セットアップ
 
+> **セットアップを AI エージェントに任せる場合**: このリポジトリを Claude Code などの
+> AI コーディングエージェントに渡しているなら、[SETUP_WITH_AI.md](SETUP_WITH_AI.md) を
+> 読ませるだけで、環境チェック(`doctor`)が緑になるまで自動でセットアップさせられます
+> (エージェントは環境構築だけを行い、承認・render・収録データには触れません)。
+> 手で進める場合は以下。
+
 必要なもの: macOS / Node.js 23.6+ / Homebrew
 
 ```sh
@@ -39,6 +45,17 @@ curl -L -o ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin \
   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin
 npm install
 ```
+
+インストール後、環境が揃っているかは1コマンドで確認できます:
+
+```sh
+node src/cli.ts doctor
+```
+
+必須(Node / ffmpeg / ffprobe / config)が欠けていれば exit 1、収録・AI 系(whisper・
+モデル・エンコーダ・AI provider)の不足は warn(exit 0)で一覧表示されます。`--json` を
+付けると機械可読な `DoctorReport` を標準出力に出せます(エージェント委任時のループに使う)。
+詳細は [docs/usage.md の「環境プリフライト(doctor)」](docs/usage.md) を参照。
 
 > **既定の AI provider `claude-code` は `claude` CLI(Claude Code)の
 > インストールと認証(ログイン)が前提です。** 未導入だと `plan` 段で
