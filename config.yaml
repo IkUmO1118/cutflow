@@ -75,7 +75,7 @@ render:
     type: none
     sec: 0.3
   # 字幕のフォントサイズ(px)。初学者の見やすさ優先で大きめ
-  captionFontSizePx: 52
+  captionFontSizePx: 58
   # テロップ既定の見た目(GUI エディタの設定画面 ⌘, からも変更できる)。
   # 個別のテロップ・トラック標準スタイルで指定の無い項目に効く
   captionColor: "#ffffff"
@@ -109,7 +109,7 @@ render:
   bgm:
     # BGMの音量(dB)。0で原音量。声より20dB前後小さくするのが目安。
     # bgm.json の各区間で volumeDb を省いたときの既定にもなる
-    volumeDb: -22
+    volumeDb: -14
     # 全編1曲(後方互換)のときの動画終端フェードアウト秒数。
     # bgm.json では各区間の fadeOutSec で終端フェードを付ける
     fadeOutSec: 2
@@ -224,57 +224,57 @@ plan:
   #   pauseMax: 3
   #   pauseMinSec: 0.6
 
-# plan の候補格子を語タイムスタンプ(要 whisper.wordTimestamps)由来の語境界で
-# 細分化する(C1)+ 候補テキストを実際に残る語だけにする(C8)。
-# 既定 false=無音境界のみ(従来とバイト等価)。回帰基準線で on 比較してから既定化を検討
+  # plan の候補格子を語タイムスタンプ(要 whisper.wordTimestamps)由来の語境界で
+  # 細分化する(C1)+ 候補テキストを実際に残る語だけにする(C8)。
+  # 既定 false=無音境界のみ(従来とバイト等価)。回帰基準線で on 比較してから既定化を検討
 candidates:
   enabled: false
   splitOnlyLongerThanSec: 6 # これより長い候補だけを分割
-  minSplitGapSec: 0.3       # 語間ギャップがこの秒以上なら分割点(無音検出が拾わない微小ポーズ)
-  minCandidateSec: 0.5      # 分割後の最小尺(これ未満の断片は作らない)
-  fillers: ["えー", "えっと", "あの", "あのー", "まあ", "その", "なんか"]
+  minSplitGapSec: 0.3 # 語間ギャップがこの秒以上なら分割点(無音検出が拾わない微小ポーズ)
+  minCandidateSec: 0.5 # 分割後の最小尺(これ未満の断片は作らない)
+  fillers: [ "えー", "えっと", "あの", "あのー", "まあ", "その", "なんか" ]
 
 # 素材(B-roll)配置候補の自動生成(plan-materials)。要 materials <dir> --all の事前実行。
 # 生成物は下書き(overlays[])で、採否は人間。cut/承認には触れない。
 planMaterials:
-  minSpanSec: 3.0        # 素材を置けるアンカーにする keep span の最小尺
-  maxPlacements: 8       # 1回で作る overlay の上限(出しすぎ防止)
-  defaultVolume: 0       # 素材音は既定で被せない(0=無音)
+  minSpanSec: 3.0 # 素材を置けるアンカーにする keep span の最小尺
+  maxPlacements: 8 # 1回で作る overlay の上限(出しすぎ防止)
+  defaultVolume: 0 # 素材音は既定で被せない(0=無音)
   defaultFit: contain
   # defaultRect: { x: 640, y: 40, w: 600, h: 338 }  # 省略=全画面。指定で PIP(ワイプ)
 
-# 素材の尺整合・dangling 検出(material-fit)。要 materials <dir> の事前実行。
-# 出力は apply パッチ下書き(material-fit.suggested.json)で、適用は人間が apply で行う。
+  # 素材の尺整合・dangling 検出(material-fit)。要 materials <dir> の事前実行。
+  # 出力は apply パッチ下書き(material-fit.suggested.json)で、適用は人間が apply で行う。
 materialFit:
-  overrunEpsSec: 0.1        # 尺超過判定の許容誤差(秒)
-  underrunRatio: 2.0        # 実尺が宣言尺の何倍で「大半未使用」とみなすか
-  suggestUnderrunExtend: false  # 尺不足で延長 set を出すか(既定は reason のみ)
-  maxReplacements: 3        # dangling 貼り替え候補の上限
+  overrunEpsSec: 0.1 # 尺超過判定の許容誤差(秒)
+  underrunRatio: 2.0 # 実尺が宣言尺の何倍で「大半未使用」とみなすか
+  suggestUnderrunExtend: false # 尺不足で延長 set を出すか(既定は reason のみ)
+  maxReplacements: 3 # dangling 貼り替え候補の上限
 
 # 演出(zoom/blur/annotation)候補の自動生成(plan-effects)。
 # 要 frames --ocr / av の事前実行。生成物は下書きで、採否は人間。cut/承認に触れない。
 planEffects:
-  maxDecisions: 6          # 1回で作る演出の上限
-  anchorWindowSec: 3.0     # アンカー時刻の前後に張る表示窓
-  minSceneScore: 0.4       # motion アンカーにする sceneScore 下限
-  minOcrBoxAreaPx: 8000    # OCR box をアンカーにする最小面積(小さい文字を除外)
-  minZoomRect: { w: 480, h: 270 }  # zoom rect の最小サイズ(拡大しすぎ防止)
+  maxDecisions: 6 # 1回で作る演出の上限
+  anchorWindowSec: 3.0 # アンカー時刻の前後に張る表示窓
+  minSceneScore: 0.4 # motion アンカーにする sceneScore 下限
+  minOcrBoxAreaPx: 8000 # OCR box をアンカーにする最小面積(小さい文字を除外)
+  minZoomRect: { w: 480, h: 270 } # zoom rect の最小サイズ(拡大しすぎ防止)
   defaultBlurStrength: 0.5
 
 # BGM 配置候補の自動生成(plan-bgm)。曲は人間が materials/ or bgm.* に置いたものだけ。
 # 生成物は下書き(bgm.json)で、採否は人間。cut/承認に触れない。音量/duck は SD-B2。
 planBgm:
-  bigCutSec: 3.0     # 「大カット境界」とみなす cut 尺の下限(切替アンカー)
-  minSlotSec: 8.0    # BGM スロットの最小尺(これ未満は前後へ吸収)
-  maxSlots: 12       # スロット上限(区切りすぎ防止)
+  bigCutSec: 3.0 # 「大カット境界」とみなす cut 尺の下限(切替アンカー)
+  minSlotSec: 8.0 # BGM スロットの最小尺(これ未満は前後へ吸収)
+  maxSlots: 12 # スロット上限(区切りすぎ防止)
 
 # 演出の検品(effect-check)。決定論チェックは常時、VLM は route があるときだけ。
 effectCheck:
-  densityWindowSec: 5.0     # 密度判定の窓(秒)
-  maxPerWindow: 3           # 窓内の演出上限
-  maxAnnotationSec: 8.0     # annotation 表示尺の上限
-  minRectOverlapRatio: 0.3  # 「重なり」とみなす rect 交差率
-  useVlm: true              # VLM 二次確認(ai.routes.vision 不在なら自動で無効)
+  densityWindowSec: 5.0 # 密度判定の窓(秒)
+  maxPerWindow: 3 # 窓内の演出上限
+  maxAnnotationSec: 8.0 # annotation 表示尺の上限
+  minRectOverlapRatio: 0.3 # 「重なり」とみなす rect 交差率
+  useVlm: true # VLM 二次確認(ai.routes.vision 不在なら自動で無効)
 
 # 演出検品の提案ループ戻し(E7)。既定 off=バイト等価。on にすると
 # plan-effects --observe / config どちらか true のときに、前回 effect-check
@@ -285,13 +285,12 @@ effectReview:
 # BGM の音量/被り/単調の検出と調整提案(bgm-fit)。要 av <dir> の事前実行。
 # 出力は apply パッチ下書き(bgm-fit.suggested.json)で、適用は人間が apply で行う。
 bgmFit:
-  speechHeadroomDb: 8      # 発話 RMS を BGM がこの dB 下回るまで下げる(被り回避)
-  silenceDuckDb: 3         # 無音区間で BGM を下げる量
-  targetLufs: -14          # 全体ラウドネス目標(超過で loud 判定)
-  minFadeSec: 1.0          # no-fade 判定で付ける fade 秒
-  monotoneCoverRatio: 0.9  # 単一 file が総尺のこの割合超で monotone
+  speechHeadroomDb: 8 # 発話 RMS を BGM がこの dB 下回るまで下げる(被り回避)
+  silenceDuckDb: 3 # 無音区間で BGM を下げる量
+  targetLufs: -14 # 全体ラウドネス目標(超過で loud 判定)
+  minFadeSec: 1.0 # no-fade 判定で付ける fade 秒
+  monotoneCoverRatio: 0.9 # 単一 file が総尺のこの割合超で monotone
   minChaptersForVariety: 3 # 章がこの数以上あると BGM 単調を警告
-
   # AI(意味カット・章立て・タイトル案・AI提案)
 ai:
   # claude-code: Claude Code の `claude` CLI を使う(APIキー不要)
