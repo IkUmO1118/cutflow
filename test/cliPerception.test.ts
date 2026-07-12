@@ -19,5 +19,6 @@ function commandBlock(name: string): string {
 test("cli: plan/remeta/run は知覚 status を実行前に表示する", () => {
   assert.match(commandBlock("plan <dir>"), /printPerceptionStatus\(cfg\);[\s\S]*await plan\(abs, cfg/);
   assert.match(commandBlock("remeta <dir>"), /printPerceptionStatus\(cfg\);[\s\S]*await remeta\(abs, cfg/);
-  assert.match(commandBlock("run <dir>"), /printPerceptionStatus\(cfg\);[\s\S]*await plan\(abs, cfg/);
+  // run は plan を timed("plan", () => plan(abs, cfg)) でラップするため await 直後ではない
+  assert.match(commandBlock("run <dir>"), /printPerceptionStatus\(cfg\);[\s\S]*plan\(abs, cfg/);
 });
