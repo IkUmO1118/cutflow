@@ -586,6 +586,7 @@ JSON-RPC エラーではなく `tools/call` の成功 result に `isError: true`
 | `unapprove <dir>` / `unapprove <dir> --short <name>` | 承認を取り消したいとき。`approvals.json` のレコードを消し、boolean を false に戻す(安全側の操作なので確認プロンプトは無い) |
 | `render <dir>` | `approve` 済み(= `approvals.json` に現内容のハッシュと一致するレコードがある状態)のときだけ実行できる。cutplan.json の `approved: true` を書くだけでは通らない(下記「承認(approve/unapprove)」参照)。transcript.json 修正後の再実行も速い(再文字起こし不要) |
 | `render <dir> --short <name>` / `--shorts` | `shorts.json` のショートを書き出すとき(下記「ショート動画」参照)。承認はショート単位(本編の承認とは別のレコード) |
+| `clean <dir>` | **収録フォルダのディスクを空けたい**とき。中間生成物/キャッシュを安全削除(分類は `src/lib/files.ts` の `GENERATED_FILES`/`fileRole` 由来。編集ファイル・`approvals.json`・`materials/`・元収録・成果物(`final.mp4`/`thumbnail.png`)には触れない)。`--dry-run`(消さず一覧)/ `--cache-only`(proxy/cut/render.chunks/frames/shorts/*.probe 等の重いキャッシュだけ消し、`manifest.json`/`whisper-out.*` 等は残す)/ `--json` |
 | `describe <dir>` | AI/人間が JSON 群を全部読まずに編集状態(keep/カットの並び・各区間の発言・カット理由・演出・章・ショート)を把握したいとき。人間可読の散文で出す(発言は36字で切り捨て、タイトル案は先頭3件のみ)。元秒⇔出力秒を併記する。末尾に frames の現況(何の絵が `frames/` に入っているか)か、古ければ撮り直し勧告を添える(下記) |
 | `describe <dir> --json` | **散文では切り捨てられる情報まで含めて機械的に処理したい**とき。発言・タイトルを一切切り捨てない機械可読な完全射影を stdout に純 JSON で出す(`schemaVersion` / `source` / `summary` / `keeps` / `cuts`(消える発言も全文) / `captions`(全文・`pos`/`style`/`words`・元秒⇔出力秒) / `overlays`(素材・挿入・ワイプ・ズーム・ぼかし・色調整の全フィールド) / `chapters` / `meta`(タイトル全件・概要欄全文) / `bgm` / `shorts`)。パイプ/`JSON.parse` 可能(所要時間の診断行は stderr に出る)。`--json` を付けない限り `describe` の散文出力は完全に不変。**id-stamp 済みのプロジェクトでは各要素に `id` が載る(散文には出ない。@-mention の発見手段はここ)**(下記「安定 id / @-mention」参照) |
 | `id-stamp <dir>` | **既存プロジェクトの各要素に `@id` を一括採番したい**とき(冪等。既存 id は保持し、無い要素にだけ振る)。詳細は下記「安定 id / @-mention」参照 |
@@ -2013,3 +2014,32 @@ node src/cli.ts search "ログイン画面" --kind material --json
 MCPでは`cutflow_review`、`cutflow_edit`、`cutflow_search`を利用できる。
 `cutflow_edit`は`dryRun`が必須で、書き込み時も既存の`planApply`検査を通る。
 検索はread-onlyで、結果に絶対pathを含めず、他recordingの素材をコピーしない。
+
+## 掃除とディスク(clean)
+
+`node src/cli.ts clean <dir>` は収録フォルダに溜まった中間生成物・キャッシュを安全に消す。
+削除対象の分類は `src/lib/files.ts` の `fileRole`(単一の真実)由来で、**role が
+`generated` のトップレベル子エントリだけ**を消す。`cutplan.json` 等の編集ファイル・
+`approvals.json`(承認レコード)・`materials/`(人間の素材)・元収録(raw)・成果物
+(`final.mp4` / `thumbnail.png` / `bgm.*`)には1バイトも触れない。非 generated ディレクトリ
+(`materials/` / `backups/`)には降りないので、その配下は常に安全。
+
+- 既定: すべての中間生成物(`manifest.json` / `cuts.auto.json` / `proxy.mp4` /
+  `cut*.mp4` / `render.chunks/` / `frames/` / `shorts/` / 各 `*.probe/` / `whisper-out.*` /
+  `*.suggested.json` 等)を削除。
+- `--cache-only`: 再生成の重いキャッシュ(`proxy.mp4` / `cut*.mp4` / `render.chunks/` /
+  `frames/` / `shorts/` / `materials.probe/` / `av.probe/` / `review.probe/` /
+  `preview.mp4` / `*.key.json` / `render.props.json`)だけを消す。再文字起こしが数分かかる
+  `whisper-out.*` や `manifest.json` / `cuts.auto.json` 等の**軽くて再生成が高価**な
+  中間生成物は残す。
+- `--dry-run`: 何も消さず、削除対象の一覧と解放バイトだけを表示。
+- `--json`: `CleanPlan`(targets / fileCount / dirCount / bytes / dryRun)を純 JSON で
+  stdout に出す(`--dry-run` と併用で機械可読なプレビュー)。
+- 冪等: 2回目以降は対象なしで exit 0。存在しないファイルは無視する。
+
+```sh
+node src/cli.ts clean <dir> --dry-run           # 何が消えるか確認するだけ
+node src/cli.ts clean <dir> --cache-only        # 重いキャッシュだけ掃除(whisper-out等は残す)
+node src/cli.ts clean <dir>                     # 全中間生成物を掃除
+node src/cli.ts clean <dir> --dry-run --json    # 機械可読な削除計画(パイプ可)
+```

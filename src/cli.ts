@@ -64,6 +64,7 @@ import { buildRetrievalIndex } from "./stages/retrievalIndex.ts";
 import { retrievalSearch } from "./stages/retrievalSearch.ts";
 import type { AiRoute, Config } from "./lib/config.ts";
 import { envDoctor, formatDoctorReport } from "./stages/doctor.ts";
+import { planClean, executeClean, formatCleanReport } from "./stages/clean.ts";
 
 const program = new Command();
 program
@@ -87,7 +88,7 @@ program.hook("postAction", (_thisCommand, actionCommand) => {
   // mcp は stdout が JSON-RPC 専用チャネルなので同様に stderr へ逃がす(サーバは
   // 通常 SIGINT まで返らないため多くの場合発火しないが、安全のため明示的に対応)。
   // 他コマンド・散文 describe/assert の stdout は従来どおり console.log(=不変)
-  const jsonCommands = new Set(["describe", "assert", "doctor"]);
+  const jsonCommands = new Set(["describe", "assert", "doctor", "clean"]);
   const isMcp = actionCommand.name() === "mcp";
   if (isMcp || (jsonCommands.has(actionCommand.name()) && actionCommand.opts().json === true)) {
     console.error(line);
@@ -1231,6 +1232,30 @@ program
     console.log("render 実行中(初回は headless Chrome の取得で数分かかります)...");
     const out = await render(abs, cfg);
     console.log(`render 完了: ${out}`);
+  });
+
+program
+  .command("clean <dir>")
+  .description(
+    "収録フォルダの中間生成物・キャッシュを安全に削除(分類は files.ts の GENERATED_FILES/fileRole 由来。" +
+      "編集ファイル・approvals.json・素材(materials/)・元収録には絶対に触れない)",
+  )
+  .option("--dry-run", "削除せず、削除対象の一覧と解放バイトだけを表示する")
+  .option(
+    "--cache-only",
+    "再生成の重いキャッシュ(proxy/cut/render.chunks/frames/shorts/*.probe 等)だけを消し、" +
+      "manifest.json / cuts.auto.json / whisper-out.* 等の軽い中間生成物は残す",
+  )
+  .option("--json", "CleanPlan を JSON で標準出力に出す(パイプ可。--dry-run と併用で機械可読な削除計画)")
+  .action((dir: string, opts: { dryRun?: boolean; cacheOnly?: boolean; json?: boolean }) => {
+    const abs = resolveDir(dir);
+    const plan = planClean(abs, { cacheOnly: opts.cacheOnly === true });
+    if (opts.dryRun !== true) executeClean(abs, plan);
+    if (opts.json === true) {
+      console.log(JSON.stringify({ ...plan, dryRun: opts.dryRun === true }, null, 2));
+    } else {
+      for (const line of formatCleanReport(plan, opts.dryRun === true)) console.log(line);
+    }
   });
 
 program
