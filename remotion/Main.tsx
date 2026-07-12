@@ -865,10 +865,14 @@ const OutlinedText = ({
   const strokeW = Math.round(fontSizePx * 0.25);
   const hasStroke = outlineColor !== "none" && outlineColor !== "transparent";
   // 縁取り層(下)は語ごとに色分けしない=常に1塊 {text} のまま(カラオケでも触らない)。
-  // 本文層(上)だけ、words があれば語 span 列に割る。無ければ従来の1塊 {text}(不変)
+  // 本文層(上)だけ、karaoke が明示的に有効(style.karaoke 指定)で words があるとき
+  // だけ語 span 列に割る。karaokeStyle 省略時は words があっても従来の1塊 {text}(不変)。
+  // words は whisper.wordTimestamps で全テロップに付きうる描画専用データなので、
+  // karaoke の発動条件を words の有無にすると既定で全テロップが色付いてしまう=
+  // 「省略時はカラオケ無し」という契約(types.ts の CaptionKaraoke)に反する
   const km = useMemo(
-    () => (words && words.length > 0 ? alignKaraoke(text, words) : null),
-    [text, words],
+    () => (karaokeStyle && words && words.length > 0 ? alignKaraoke(text, words) : null),
+    [karaokeStyle, text, words],
   );
   const body = km
     ? (
