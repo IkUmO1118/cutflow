@@ -9,6 +9,8 @@ import {
   APPROVAL_FILE,
   EDITABLE_FILES,
   GENERATED_FILES,
+  GENERATED_CACHE_FILES,
+  isGeneratedCache,
   fileRole,
 } from "../src/lib/files.ts";
 
@@ -128,4 +130,29 @@ test("fileRole: review.probe/ 配下(review bundle)は generated", () => {
 
 test("fileRole: style.probe/ 配下(style-profile が書くスタイルプロファイル集約)は generated", () => {
   assert.equal(fileRole("style.probe/default.json"), "generated");
+});
+
+test("isGeneratedCache: 重いキャッシュだけ true、軽い中間生成物は false", () => {
+  // cache = true
+  for (const c of ["proxy.mp4", "proxy.key.json", "cut.mp4", "cut.keeps.json",
+    "preview.mp4", "render.props.json", "render.key.json",
+    "cut.highlight-1.mp4", "render.highlight-1.key.json",
+    "frames/out10s.png", "render.chunks/v001.mp4", "shorts/a.mp4",
+    "materials.probe/index.json", "av.probe/motion.json", "review.probe/index.json"]) {
+    assert.equal(isGeneratedCache(c), true, `${c} は cache のはず`);
+  }
+  // generated だが cache ではない(軽い/再生成が高価)
+  for (const g of ["manifest.json", "cuts.auto.json", "plan.raw.txt", "whisper-out.json",
+    "whisper-out.srt", "effect-check.json", "style-check.json", "material-fit.suggested.json"]) {
+    assert.equal(isGeneratedCache(g), false, `${g} は cache ではないはず`);
+  }
+  // generated 以外は常に false(belt)
+  for (const o of ["cutplan.json", "approvals.json", "final.mp4", "materials/broll.mp4"]) {
+    assert.equal(isGeneratedCache(o), false, `${o} は generated ではないので false`);
+  }
+});
+
+test("GENERATED_CACHE_FILES は GENERATED_FILES の部分集合", () => {
+  const gen = new Set(GENERATED_FILES as readonly string[]);
+  for (const f of GENERATED_CACHE_FILES) assert.ok(gen.has(f), `${f} が GENERATED_FILES に無い`);
 });

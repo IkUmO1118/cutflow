@@ -101,3 +101,31 @@ export function fileRole(relPath: string): FileRole {
   if (GENERATED_DIRS.includes(top)) return "generated";
   return "other";
 }
+
+/** 中間生成物のうち「再生成が重い/容量を食うキャッシュ」の固定名。--cache-only が
+ * 消す対象の固定ファイル部分(GENERATED_DIRS 配下と cut.<name>.mp4 等のパターンは
+ * isGeneratedCache が別途 true 判定する)。ここに載らない generated 固定名
+ * (manifest.json / cuts.auto.json / whisper-out.* / *.raw.txt / *.suggested.json 等)は
+ * 軽い/再生成が高価なので --cache-only では残す。GENERATED_FILES の部分集合であること。 */
+export const GENERATED_CACHE_FILES = [
+  "cut.mp4",
+  "cut.keeps.json",
+  "preview.mp4",
+  "proxy.mp4",
+  "proxy.key.json",
+  "render.key.json",
+  "render.props.json",
+] as const;
+
+/** relPath が「再生成が重いキャッシュ」かどうか(--cache-only の対象判定)。
+ * 前提として generated であること(generated 以外は常に false=belt)。判定:
+ * 1) generated ディレクトリ配下(frames/ render.chunks/ shorts/ *.probe/)は全て cache
+ * 2) ショート名可変の描画キャッシュ(cut.<name>.mp4 / .keeps.json / render.<name>.{props,key}.json)は cache
+ * 3) 固定名は GENERATED_CACHE_FILES に載るものだけ cache */
+export function isGeneratedCache(relPath: string): boolean {
+  if (fileRole(relPath) !== "generated") return false;
+  const top = relPath.split("/")[0];
+  if (GENERATED_DIRS.includes(top)) return true;
+  if (GENERATED_NAME_PATTERNS.some((re) => re.test(relPath))) return true;
+  return (GENERATED_CACHE_FILES as readonly string[]).includes(relPath);
+}
