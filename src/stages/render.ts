@@ -276,7 +276,7 @@ export async function render(dir: string, cfg: Config): Promise<string> {
         "--codec", "h264",
         "--hardware-acceleration", hardwareAcceleration,
       ],
-      { cwd: repoRoot },
+      { cwd: repoRoot, label: "remotion" },
     ),
   );
   writeFileSync(renderKeyPath, JSON.stringify(renderKey, null, 2));
@@ -461,7 +461,7 @@ async function renderOneShort(
         "--codec", "h264",
         "--hardware-acceleration", hardwareAcceleration,
       ],
-      { cwd: repoRoot },
+      { cwd: repoRoot, label: "remotion" },
     ),
   );
   writeFileSync(renderKeyPath, JSON.stringify(renderKey, null, 2));
@@ -556,7 +556,7 @@ async function tryChunkRender(args: {
           `--frames=${from}-${to - 1}`,
           "--muted",
         ],
-        { cwd: repoRoot },
+        { cwd: repoRoot, label: "remotion" },
       ),
     );
   }
