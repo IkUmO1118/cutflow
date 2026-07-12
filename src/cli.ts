@@ -19,9 +19,12 @@ import {
   resolvePerceptionStatus,
   resolveStyleProfileStatus,
   resolveConfigPath,
+  resolveLogCfg,
   resolvePlanLoopSecondaryObservationCfg,
   resolveAiRuntimeConfig,
 } from "./lib/config.ts";
+import { setLogLevel } from "./lib/obs.ts";
+import type { LogLevel } from "./lib/obs.ts";
 import { findSource } from "./lib/findSource.ts";
 import { loadShort, loadShorts } from "./lib/shorts.ts";
 import { ingest } from "./stages/ingest.ts";
@@ -72,7 +75,25 @@ program
   .description(
     "撮影後の編集を自動化するパイプライン(文字起こし→カット案→人間承認→レンダー)",
   )
-  .option("--config <path>", "config.yaml のパス");
+  .option("--config <path>", "config.yaml のパス")
+  .option("-v, --verbose", "外部ツール(ffmpeg/whisper/remotion)まで stderr に出す")
+  .option("-q, --quiet", "workflow ログを抑止する(エラーは除く)");
+
+/** グローバル --verbose/--quiet・環境変数 CUTFLOW_LOG・config.yaml の log.level から
+ *  ログレベルを解決する(優先順位: flag > env > config > 既定 normal)。
+ *  config 読み込み失敗はここでは無視する(コマンド本体の loadConfig が本エラーを出す) */
+function resolveCliLogLevel(): LogLevel {
+  const opts = program.opts();
+  if (opts.quiet === true) return "quiet";
+  if (opts.verbose === true) return "verbose";
+  const env = process.env.CUTFLOW_LOG;
+  if (env === "quiet" || env === "normal" || env === "verbose") return env;
+  try {
+    return resolveLogCfg(loadConfig(opts.config)).level;
+  } catch {
+    return "normal";
+  }
+}
 
 // 全コマンド共通の所要時間表示(フェーズ0: docs/perf.md のベースライン計測用)。
 // render 等の内訳(loudnorm実測/ffmpeg cut/Remotion)は各ステージ側で
@@ -80,6 +101,7 @@ program
 let commandStartedAt = 0;
 program.hook("preAction", () => {
   commandStartedAt = Date.now();
+  setLogLevel(resolveCliLogLevel());
 });
 program.hook("postAction", (_thisCommand, actionCommand) => {
   const sec = ((Date.now() - commandStartedAt) / 1000).toFixed(1);

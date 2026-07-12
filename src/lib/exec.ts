@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { emitToolEvent } from "./obs.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -11,12 +12,15 @@ export interface ExecResult {
 /**
  * 外部コマンドを実行する。非ゼロ終了時は stderr を含めて例外を投げる。
  * ffmpeg のログ等で出力が大きくなるため maxBuffer は 64MB。
+ * `label` を渡すと workflow ログ(verbose 時のみ stderr)の表示名に使う
+ * (省略時は basename(cmd)。`npx` のような無意味な basename のときに使う)。
  */
 export async function run(
   cmd: string,
   args: string[],
-  opts: { allowFailure?: boolean; input?: string; cwd?: string } = {},
+  opts: { allowFailure?: boolean; input?: string; cwd?: string; label?: string } = {},
 ): Promise<ExecResult> {
+  const started = Date.now();
   try {
     const promise = execFileAsync(cmd, args, {
       maxBuffer: 64 * 1024 * 1024,
@@ -29,6 +33,7 @@ export async function run(
       promise.child.stdin.end();
     }
     const { stdout, stderr } = await promise;
+    emitToolEvent(cmd, args, opts.label, Date.now() - started);
     return { stdout, stderr };
   } catch (err) {
     const e = err as NodeJS.ErrnoException & ExecResult;
@@ -38,6 +43,7 @@ export async function run(
       );
     }
     if (opts.allowFailure) {
+      emitToolEvent(cmd, args, opts.label, Date.now() - started);
       return { stdout: e.stdout ?? "", stderr: e.stderr ?? "" };
     }
     throw new Error(

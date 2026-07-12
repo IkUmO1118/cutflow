@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 import { DEFAULT_OCR_LANGUAGES } from "./ocr.ts";
+import type { LogLevel } from "./obs.ts";
 import type { Region } from "../types.ts";
 import { normalizeBaseUrl, originOfProfile, resolveCredential } from "./ai/http.ts";
 import { adapterFor } from "./ai/registry.ts";
@@ -526,6 +527,12 @@ export interface Config {
     };
     stripWidthPx?: number;
   };
+  /** ログ/可観測性。workflow(AI 呼び出し・ステージ・外部ツール)を stderr に
+   *  どれだけ出すか。省略時 normal(既定挙動=AI 行+ステージが出る)。
+   *  quiet で AI 行も抑止、verbose で ffmpeg/whisper/remotion まで1行ずつ。
+   *  CUTFLOW_LOG 環境変数・グローバル --verbose/--quiet が config より優先。
+   *  stdout(JSON 射影)は level に関わらず不変 */
+  log?: { level?: LogLevel };
 }
 
 /** editor.defaultImageDurationSec 未指定時の既定(秒) */
@@ -1015,6 +1022,13 @@ function validateWorkflowConfig(cfg: Config): string[] {
       errors.push("plan.styleProfile.profile は文字列で指定してください");
     }
   }
+  const log = cfg.log as Record<string, unknown> | undefined;
+  if (log) {
+    errors.push(...unknownKeys(log, ["level"]).map((key) => `log.${key} は未対応です`));
+    if ("level" in log && !["quiet", "normal", "verbose"].includes(log.level as string)) {
+      errors.push('log.level は "quiet" | "normal" | "verbose" で指定してください');
+    }
+  }
   return errors;
 }
 
@@ -1067,6 +1081,16 @@ export function resolveAvCfg(cfg: Config): {
     },
     stripWidthPx: av.stripWidthPx ?? DEFAULT_AV_STRIP_WIDTH_PX,
   };
+}
+
+/** log.level 未指定時の既定(既存挙動=AI 行+ステージ行が出る) */
+export const DEFAULT_LOG_LEVEL: LogLevel = "normal";
+
+/** log.level を既定値で解決する純関数。不正値は既定へフォールバック。
+ *  loadConfig は cfg.log を書き換えない */
+export function resolveLogCfg(cfg: Config): { level: LogLevel } {
+  const l = cfg.log?.level;
+  return { level: l === "quiet" || l === "normal" || l === "verbose" ? l : DEFAULT_LOG_LEVEL };
 }
 
 function isLegacyAiConfig(value: AiConfig | undefined): value is LegacyAiConfig {
