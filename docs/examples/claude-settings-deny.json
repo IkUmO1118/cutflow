@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "deny": [
+      "Write(**/approvals.json)",
+      "Edit(**/approvals.json)",
+      "Bash(node src/cli.ts approve*)",
+      "Write(**/manifest.json)",
+      "Write(**/cuts.auto.json)",
+      "Write(**/*.raw.txt)",
+      "Write(**/render.props.json)",
+      "Write(**/render.*.props.json)",
+      "Write(**/*.key.json)",
+      "Write(**/cut.keeps.json)",
+      "Write(**/cut.*.keeps.json)",
+      "Write(**/whisper-out.json)",
+      "Write(**/whisper-out.srt)",
+      "Write(**/whisper-system-out.json)",
+      "Write(**/transcript.system.json)",
+      "Write(**/*.suggested.json)",
+      "Write(**/effect-check.json)",
+      "Write(**/bgm-fit.json)",
+      "Write(**/style-check.json)",
+      "Write(**/cut.mp4)",
+      "Write(**/cut.*.mp4)",
+      "Write(**/preview.mp4)",
+      "Write(**/proxy.mp4)",
+      "Write(**/frames/**)",
+      "Write(**/render.chunks/**)",
+      "Write(**/shorts/**)",
+      "Write(**/materials.probe/**)",
+      "Write(**/av.probe/**)",
+      "Write(**/review.probe/**)",
+      "Write(**/style.probe/**)"
+    ]
+  }
+}
