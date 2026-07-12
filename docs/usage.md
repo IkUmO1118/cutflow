@@ -116,6 +116,21 @@ frames 確認` を 1 つの workflow として扱い、レビュー画面から
 `適用のみ` / `適用して保存` / `適用して確認` を選ぶ。`適用して確認` は
 隠れた保存ではなく、保存してから確認フレームを生成する明示的な経路。
 
+## 環境プリフライト(doctor)
+
+`node src/cli.ts doctor` は収録に入る前の環境チェック(読み取り専用)。
+node(>=23.6)/ffmpeg/ffprobe/有効エンコーダの整合/whisper バイナリ・モデル/
+AI route 到達性を 1 コマンドで検査する。収録フォルダは不要で、config.yaml だけを使う。
+
+    node src/cli.ts doctor
+    node src/cli.ts doctor --json     # DoctorReport を JSON で(パイプ可)
+    node src/cli.ts doctor --no-ai    # AI 到達性のネットワークプローブを省く
+
+- 必須(node/ffmpeg/ffprobe)が欠けていれば exit 1。収録/AI 系(whisper・model・
+  encoder・AI route)は warn で exit 0(editor までは到達できる)。
+- 非 mac で preview.videoEncoder 未設定なら有効エンコーダは自動で libx264(A2)。
+- doctor は編集ファイル・approvals.json を一切書かない。
+
 ## AI provider 設定
 
 AI は未設定でも deterministic な CLI / editor / render は動く。AI を使うときは
