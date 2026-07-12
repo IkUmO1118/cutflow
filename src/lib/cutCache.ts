@@ -15,6 +15,11 @@ export interface CutCacheKey {
   micStream: number;
   systemStream: number | null;
   source: { file: string; mtimeMs: number; size: number };
+  /** ワイプ焼き込み(composite)経路で作った cut.mp4 か。焼き込みの有無・ワイプ幅が
+   * 変わると cut.mp4 を作り直す必要があるため。false のときはキーに出さない
+   * (既存 cut.keeps.json を無駄に失効させない=非 composite は従来とキー byte 等価) */
+  baseComposite?: boolean;
+  wipeWidthPx?: number;
 }
 
 export function buildCutCacheKey(args: {
@@ -23,8 +28,9 @@ export function buildCutCacheKey(args: {
   cfg: Config;
   sourceMtimeMs: number;
   sourceSize: number;
+  composite?: boolean;
 }): CutCacheKey {
-  const { keeps, manifest, cfg, sourceMtimeMs, sourceSize } = args;
+  const { keeps, manifest, cfg, sourceMtimeMs, sourceSize, composite } = args;
   return {
     keeps: keeps.map((k) => ({
       start: k.start,
@@ -47,6 +53,7 @@ export function buildCutCacheKey(args: {
       mtimeMs: sourceMtimeMs,
       size: sourceSize,
     },
+    ...(composite ? { baseComposite: true, wipeWidthPx: cfg.render.wipeWidthPx } : {}),
   };
 }
 

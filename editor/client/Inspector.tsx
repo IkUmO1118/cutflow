@@ -65,7 +65,7 @@ type BgmTrack = Bgm["tracks"][number];
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 /** 区間がゼロ幅・逆転しないための最小幅(秒)。App の MIN_SPAN と同じ */
-const MIN_SPAN = 0.1;
+const MIN_SPAN = 0.01;
 
 /**
  * 右サイドの常設インスペクタ。タイムラインで選択したクリップの詳細を編集する。

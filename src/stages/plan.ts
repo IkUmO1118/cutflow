@@ -8,8 +8,8 @@ import { readEditableDocs } from "./idStamp.ts";
 import { extractJsonObject, parseCutsResponse, CUTS_RESPONSE_SCHEMA } from "../lib/cutsResponse.ts";
 export { parseCutsResponse } from "../lib/cutsResponse.ts";
 import { buildCutplan, toCutplanIdContext } from "../lib/buildCutplan.ts";
-export { buildCutplan } from "../lib/buildCutplan.ts";
-export type { CutplanIdContext } from "../lib/buildCutplan.ts";
+export { buildCutplan, fillSilenceGaps, DEFAULT_SILENCE_CUT_REASON } from "../lib/buildCutplan.ts";
+export type { CutplanIdContext, CutplanFill } from "../lib/buildCutplan.ts";
 import {
   planHarnessEnabled,
   planLoopEnabled,
@@ -429,6 +429,7 @@ export async function plan(
     numbered,
     parsed.cuts,
     idCtx && { existingSegments: idCtx.existingCutplanSegments, used: idCtx.used },
+    { duration: auto.originalDurationSec, reason: cfg.detect?.silenceCutReason },
   );
   writeFileSync(join(dir, "cutplan.json"), JSON.stringify(cutplan, null, 2));
 
@@ -462,7 +463,10 @@ async function generateCutsOnce(
   // LLM の生応答は必ず残す(パース失敗時の調査と、判断過程の記録のため)
   writeFileSync(join(dir, "plan.raw.txt"), raw);
   const parsed = parseCutsResponse(raw);
-  const cutplan = buildCutplan(numbered, parsed.cuts, cutplanIdCtx(idCtx));
+  const cutplan = buildCutplan(numbered, parsed.cuts, cutplanIdCtx(idCtx), {
+    duration: durationSec,
+    reason: cfg.detect?.silenceCutReason,
+  });
   writeFileSync(join(dir, "cutplan.json"), JSON.stringify(cutplan, null, 2));
   return cutplan;
 }
@@ -573,6 +577,7 @@ async function runCutsLoop(args: RunCutsLoopArgs): Promise<CutPlan> {
         dir: args.dir,
         cfg: args.cfg,
         numbered: args.numbered,
+        durationSec: args.durationSec,
         idCtx: args.idCtx,
         budget: { maxToolCalls: harnessCfg.maxToolCalls, used: 0 },
         warn: (msg) => console.warn(`警告: ${msg}`),
@@ -601,7 +606,10 @@ async function runCutsLoop(args: RunCutsLoopArgs): Promise<CutPlan> {
     }
     // §2.4「ターン確定時の最終 cutplan も同じ式」: splits が空(applySplit off)
     // なら applyCandidateSplits は base をそのまま返す恒等関数(§1-1 バイト等価の要)
-    const base = buildCutplan(args.numbered, cuts, cutplanIdCtx(args.idCtx));
+    const base = buildCutplan(args.numbered, cuts, cutplanIdCtx(args.idCtx), {
+      duration: args.durationSec,
+      reason: args.cfg.detect?.silenceCutReason,
+    });
     lastCutplan = applyCandidateSplits(base, splits, args.words, splitCfg, args.idCtx && { used: args.idCtx.used });
     writeFileSync(join(args.dir, "cutplan.json"), JSON.stringify(lastCutplan, null, 2));
 

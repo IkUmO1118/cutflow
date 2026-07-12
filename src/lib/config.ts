@@ -149,6 +149,10 @@ export interface Config {
     minSilenceSec: number;
     padSec: number;
     minKeepSec: number;
+    /** 発話候補の隙間(無音)を cutplan に action:"cut" として埋めるときの
+     *  reason 文言。省略時 DEFAULT_SILENCE_CUT_REASON("無音")。この cut は
+     *  エディタで「この区間を動画に戻す」で復元できる(全ての映像を戻せる状態) */
+    silenceCutReason?: string;
   };
   /** AI 設定の新しい入口。省略時は llm(旧設定)から解決し、両方無ければ claude-code */
   ai?: AiConfig;
