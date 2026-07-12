@@ -3,8 +3,10 @@ node_modules/
 *.log
 .DS_Store
 
-# 「触って分かる」サンプル(scripts/make-sample.sh が生成する使い捨て収録)
-examples/
+# 「触って分かる」サンプル(scripts/make-sample.sh が生成する使い捨て収録)。
+# 先頭 / でリポジトリ直下の examples/ だけに限定する(docs/examples/ や
+# schemas/examples/ の追跡対象を巻き込まないため)
+/examples/
 
 # Remotion Studio 用の一時ファイル置き場(動画は収録フォルダに置く)
 public/

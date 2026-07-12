@@ -502,20 +502,52 @@ node src/cli.ts mcp <dir>
 
 ### ホストへの登録例
 
-MCP 対応ホストの設定(例: Claude Desktop の `claude_desktop_config.json` 相当)
-に、収録フォルダごとに1エントリを追加する形が想定される(dir 束縛の設計上、
-複数の収録を1サーバで扱うことはしない):
+**収録フォルダごとに1エントリ**を追加する(dir 束縛の設計上、複数の収録を
+1サーバで扱うことはしない)。3つのホストで **`command`/`args` は完全に同じ**で、
+置き場所(設定ファイル)だけが違う。
+
+- `<REPO>` = CutFlow を clone した**絶対パス**(例: `/Users/you/dev/cutflow`)。
+- `<REC>` = 対象の収録フォルダの**絶対パス**(例: `/Users/you/Movies/cutflow/2026-07-02-xxx`)。
+  **相対パスは不可**(ホストの作業ディレクトリ次第で解決に失敗する)。
+
+**Claude Desktop** — `claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "cutflow-2026-07-02-xxx": {
       "command": "node",
-      "args": ["/path/to/cutflow/src/cli.ts", "mcp", "/path/to/2026-07-02-xxx"]
+      "args": ["<REPO>/src/cli.ts", "mcp", "<REC>"]
     }
   }
 }
 ```
+
+**Claude Code** — プロジェクト直下の `.mcp.json`(上と同じ `mcpServers` 形式)、
+または CLI 一発:
+
+```sh
+claude mcp add cutflow -- node <REPO>/src/cli.ts mcp <REC>
+```
+
+**Cursor** — `.cursor/mcp.json`(同じ `mcpServers` 形式):
+
+```json
+{
+  "mcpServers": {
+    "cutflow": {
+      "command": "node",
+      "args": ["<REPO>/src/cli.ts", "mcp", "<REC>"]
+    }
+  }
+}
+```
+
+> **Node のバージョンに注意**: CutFlow はビルド無しで TS を直接実行する
+> (Node **23.6 以上**の type-stripping)。ホストが PATH 上の古い node を拾うと
+> TS 構文エラーで即死する。`node --version` が 23.6 未満なら、`command` に
+> 23.6+ の node バイナリの**絶対パス**(例: nvm の `~/.nvmrc` 相当)を書く。
+> `cwd` 設定は不要(スキーマ等は実行ファイル位置から解決する)。
 
 ### 露出する tool
 
@@ -547,6 +579,51 @@ JSON-RPC エラーではなく `tools/call` の成功 result に `isError: true`
 構造化 JSON として返る(呼び出し側のエージェントが読んで自己修正できる
 ように)。不正な JSON-RPC・未知メソッド・未知 tool 名・引数の型違反は
 標準の JSON-RPC エラーコード(`-32700`〜`-32603`)で返る。
+
+### 承認境界を deny テンプレで固める(`.claude/settings.json`)
+
+MCP 経由なら承認は **safe by construction** で守られる(上表の露出 tool に
+`approve`/`render`/`plan` は無く、`AGENTS_CONTRACT.md` §11 の信頼モデルが正)。
+一方で、Claude Code 等が **MCP を介さず収録フォルダの JSON を直接 Write/Bash**
+できる場合は、`承認レコード(approvals.json)を自分で書く`・`approve --yes を
+強行する` といった意図的バイパスをコードだけでは塞げない。これを塞ぐ層が
+Claude Code の権限設定(deny ルール)で、SD-A5 はそれを**ターンキーの実ファイル**
+として同梱する:
+
+```sh
+cp docs/examples/claude-settings-deny.json <あなたのプロジェクト>/.claude/settings.json
+```
+
+`<あなたのプロジェクト>` は Claude Code が project ルートとみなす場所(CutFlow
+リポジトリ直下、または収録フォルダ直下のどちらでもよい。deny グロブは `**/` 前置
+なので階層を問わず収録フォルダ内の `approvals.json` に一致する)。テンプレの中身:
+
+```json
+{
+  "permissions": {
+    "deny": [
+      "Write(**/approvals.json)",
+      "Edit(**/approvals.json)",
+      "Bash(node src/cli.ts approve*)"
+    ]
+  }
+}
+```
+
+- **load-bearing(本質)は上の3行**。`Write/Edit(**/approvals.json)` が承認
+  レコードの物理的な書き込みを止める(母艦 §2 原則4・CLAUDE.md「権限設定」)。
+  `Bash(node src/cli.ts approve*)` は `approve --yes` の反射実行を止める
+  best-effort(コマンドの綴り替えで回避され得るので belt 扱い)。
+- 同梱ファイル(`docs/examples/claude-settings-deny.json`)には、これに加えて
+  **中間生成物/キャッシュへの誤書き込み**を防ぐ belt グロブ(`manifest.json` /
+  `*.key.json` / `*.raw.txt` / `frames/**` / `render.chunks/**` / `*.probe/**`
+  ほか)も入っている。これらは `src/lib/files.ts` の `GENERATED_FILES` /
+  `GENERATED_NAME_PATTERNS` / `GENERATED_DIRS` から派生した一覧で、`files.ts` が
+  分類の**単一の出所**(母艦 §2 原則5)。`files.ts` を変えたらこのテンプレも追随
+  させる。belt が未網羅でも承認境界(load-bearing)は変わらない。
+- deny グロブは**編集ファイル**(`cutplan.json` / `chapters.json` / `meta.json` /
+  `transcript.json` / `overlays.json`)には一切当たらない(`transcript.system.json`
+  は別名の生成物)。= 「cut は編集させるが承認は書かせない」を表現する。
 
 ## ⚠️ 最重要の注意: plan の再実行は手編集を消す
 
