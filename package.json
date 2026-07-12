@@ -13,6 +13,7 @@
   "scripts": {
     "cutflow": "node src/cli.ts",
     "editor": "node src/cli.ts editor",
+    "sample": "bash scripts/make-sample.sh",
     "test": "node --test",
     "typecheck": "tsc --noEmit"
   },
