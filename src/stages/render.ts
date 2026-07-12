@@ -42,6 +42,7 @@ import { buildRenderProps } from "../lib/renderProps.ts";
 import { loadShort, loadShorts } from "../lib/shorts.ts";
 import { mergeIntervals, playbackSegmentsOf } from "../lib/timeline.ts";
 import { timed } from "../lib/timing.ts";
+import { resolveVideoEncoder } from "../lib/videoEncode.ts";
 import { hasCamera } from "../types.ts";
 import type { ChunksCacheKey, FileStat } from "../lib/chunkPlan.ts";
 import type { CutCacheKey } from "../lib/cutCache.ts";
@@ -702,13 +703,17 @@ async function cutFullRes(
   // 中間ファイルなので世代劣化を抑えるため高ビットレートで出す
   // (M5 のハードウェアエンコーダなら高速。loudnorm は内部で
   // 192kHz にアップサンプルするため 48kHz に戻す)
+  const cutCodecArgs =
+    resolveVideoEncoder(cfg) === "libx264"
+      ? ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18"] // 高品質中間
+      : ["-c:v", "h264_videotoolbox", "-b:v", "20000k"];
   await timed("ffmpeg cut", () =>
     run("ffmpeg", [
       "-y", "-v", "error",
       "-i", input,
       "-filter_complex", parts.join(";"),
       "-map", videoOut, "-map", "[aout]",
-      "-c:v", "h264_videotoolbox", "-b:v", "20000k",
+      ...cutCodecArgs,
       "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
       output,
     ]),

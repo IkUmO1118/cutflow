@@ -1,4 +1,5 @@
 import type { Config } from "./config.ts";
+import { resolveVideoEncoder } from "./videoEncode.ts";
 
 /**
  * proxy.mp4 の陳腐化を決めるキャッシュキー(proxy.key.json の内容)。
@@ -33,7 +34,7 @@ export function buildProxyCacheKey(args: {
       noiseFloorDb: cfg.render.denoise?.noiseFloorDb ?? -25,
     },
     previewWidth: cfg.preview.width,
-    videoEncoder: cfg.preview.videoEncoder ?? "videotoolbox",
+    videoEncoder: resolveVideoEncoder(cfg),
     source: { file: sourceFile, mtimeMs: sourceMtimeMs, size: sourceSize },
   };
 }
