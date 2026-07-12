@@ -21,6 +21,7 @@ export const MaterialsPanel = ({
   materials,
   busy,
   onUploadClick,
+  onUploadFiles,
   onPlace,
   onDelete,
   onDragBegin,
@@ -31,6 +32,8 @@ export const MaterialsPanel = ({
   busy: boolean;
   /** 「素材を読み込む…」(App のファイル選択を開く) */
   onUploadClick: () => void;
+  /** OS ファイルをパネルへドロップ = プールへアップロード(配置しない・複数可) */
+  onUploadFiles: (files: File[]) => void;
   /** 再生ヘッド位置・一番手前の素材トラックへ配置 */
   onPlace: (file: string) => void;
   /** ファイルの削除(使用中チェック・確認ダイアログは App 側) */
@@ -41,6 +44,35 @@ export const MaterialsPanel = ({
 }) => {
   /** 右クリックメニュー(対象ファイルと表示位置)。null = 非表示 */
   const [menu, setMenu] = useState<{ file: string; x: number; y: number } | null>(null);
+  /** OS ファイルのドラッグがパネル上にあるか(ドロップ受け口の枠を光らせる) */
+  const [dragOver, setDragOver] = useState(false);
+  const dragDepth = useRef(0); // dragenter/leave が子要素で何度も届くのを相殺
+
+  const onZoneDragOver = (e: ReactDragEvent) => {
+    // OS ファイルのドラッグだけ受ける(カード内ドラッグは MATERIAL_MIME なので無視)
+    if (!e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  };
+  const onZoneDragEnter = (e: ReactDragEvent) => {
+    if (!e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    dragDepth.current++;
+    setDragOver(true);
+  };
+  const onZoneDragLeave = (e: ReactDragEvent) => {
+    if (!e.dataTransfer.types.includes("Files")) return;
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDragOver(false);
+  };
+  const onZoneDrop = (e: ReactDragEvent) => {
+    if (!e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDragOver(false);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) onUploadFiles(files);
+  };
   const openMenu = (e: ReactMouseEvent, file: string) => {
     e.preventDefault();
     // 画面端ではみ出さないように少し内側へ寄せる
@@ -64,7 +96,18 @@ export const MaterialsPanel = ({
     onDragBegin(file);
   };
   return (
-    <div className="matPanel">
+    <div
+      className={`matPanel${dragOver ? " dragOver" : ""}`}
+      onDragEnter={onZoneDragEnter}
+      onDragOver={onZoneDragOver}
+      onDragLeave={onZoneDragLeave}
+      onDrop={onZoneDrop}
+    >
+      {dragOver && (
+        <div className="matDropOverlay" aria-hidden>
+          ここにドロップして素材を追加
+        </div>
+      )}
       <div className="panelHead">
         <span className="dim">素材 {materials.length} 件</span>
         <span className="spacer" />
@@ -76,6 +119,7 @@ export const MaterialsPanel = ({
         <p className="dim hint" style={{ padding: "0 14px" }}>
           素材がまだありません。「素材を読み込む…」でアップロードするか、
           収録フォルダの materials/ に画像・動画・音声(BGM 用)を置いてください。
+          ここへドラッグ&ドロップでも追加できます。
         </p>
       ) : (
         <div className="matGrid">

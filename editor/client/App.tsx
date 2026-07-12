@@ -2605,6 +2605,61 @@ export const App = () => {
     }
   };
 
+  /** アップロードのみ(配置しない)。ボタン・素材パネルのドロップゾーン用。
+   * 複数ファイルを順次(直列)アップロードする — サーバは衝突時に stem-2/-3 を
+   * 採番するので、並列だと同名採番が競合しうる。dirFiles(プール)だけ更新し、
+   * addOverlaySpan/placeInsert/addBgmSpan は一切呼ばない=決して配置しない。
+   * 1件の失敗で残りを止めず、失敗はまとめて報告する。 */
+  const uploadOnly = async (files: File[]) => {
+    if (files.length === 0) return;
+    setBusy("upload");
+    const toastId = addToast({
+      kind: "progress",
+      message: `0/${files.length} 件アップロード中…`,
+    });
+    const errors: string[] = [];
+    let done = 0;
+    for (const f of files) {
+      try {
+        const res = await uploadMaterial(f);
+        setProj(
+          (p) =>
+            p && {
+              ...p,
+              dirFiles: p.dirFiles.includes(res.file)
+                ? p.dirFiles
+                : [...p.dirFiles, res.file].sort(),
+            },
+        );
+      } catch (e) {
+        errors.push(`${f.name}: ${(e as Error).message}`);
+      } finally {
+        done++;
+        updateToast(toastId, { message: `${done}/${files.length} 件アップロード中…` });
+      }
+    }
+    setBusy(null);
+    if (errors.length === 0) {
+      updateToast(toastId, {
+        kind: "success",
+        message: `${files.length} 件の素材を追加しました`,
+        ttlMs: 4000,
+      });
+    } else if (errors.length < files.length) {
+      updateToast(toastId, {
+        kind: "error",
+        message: `${files.length - errors.length} 件成功 / ${errors.length} 件失敗: ${errors.join(" / ")}`,
+        ttlMs: 8000,
+      });
+    } else {
+      updateToast(toastId, {
+        kind: "error",
+        message: `アップロード失敗: ${errors.join(" / ")}`,
+        ttlMs: 8000,
+      });
+    }
+  };
+
   const onUploadClick = () => {
     fileInputRef.current?.click();
   };
@@ -2624,9 +2679,7 @@ export const App = () => {
     }
   };
   const onFileChosen = (files: FileList | null) => {
-    const f = files?.[0];
-    // 音声ファイルは素材配置にできない → 再生ヘッド位置に BGM として置く
-    if (f) void uploadAndPlace(f, null, AUDIO_ONLY_RE.test(f.name) ? "bgm" : "overlay");
+    if (files && files.length > 0) void uploadOnly(Array.from(files));
   };
 
   const updateCutSeg = (i: number, patch: Partial<CutPlan["segments"][number]>) => {
@@ -3778,6 +3831,7 @@ export const App = () => {
       <input
         ref={fileInputRef}
         type="file"
+        multiple
         accept="image/*,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/mp4,audio/wav,audio/aac,audio/ogg,audio/flac,.mp3,.m4a,.wav"
         style={{ display: "none" }}
         onChange={(e) => {
@@ -4115,6 +4169,7 @@ export const App = () => {
                 materials={materials}
                 busy={busy !== null}
                 onUploadClick={onUploadClick}
+                onUploadFiles={(files) => void uploadOnly(files)}
                 onPlace={(f) =>
                   void placeMaterial(f, null, AUDIO_ONLY_RE.test(f) ? "bgm" : "overlay")
                 }
