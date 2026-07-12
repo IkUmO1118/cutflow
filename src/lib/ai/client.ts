@@ -3,6 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { profileForRoute, resolveAiRuntimeConfig } from "../config.ts";
 import { run } from "../exec.ts";
+import { logAi } from "../obs.ts";
 import { AiProviderError, aiRequestSummary } from "./http.ts";
 import { adapterFor } from "./registry.ts";
 import { normalizeJsonText } from "./structured.ts";
@@ -82,7 +83,7 @@ export async function completeAi(req: AiRequest, cfg: Config): Promise<AiRespons
   const profile = profileForRoute(runtime, req.route);
   assertRouteCapabilities(profile, req);
   validateRequest(req, profile);
-  console.error(aiRequestSummary(req, profile));
+  logAi(aiRequestSummary(req, profile));
   const adapter = adapterFor(profile.adapter);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), profile.timeoutMs);

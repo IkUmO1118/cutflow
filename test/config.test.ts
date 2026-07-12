@@ -39,11 +39,13 @@ import {
   planShortsMaxSec,
   formatPerceptionStatusLines,
   formatStyleProfileStatusLines,
+  DEFAULT_LOG_LEVEL,
   resolveAiCfg,
   resolveAiRuntimeConfig,
   resolveAvCfg,
   resolveCandidatesCfg,
   resolveDescribePausesCfg,
+  resolveLogCfg,
   resolvePerceptionCfg,
   resolvePerceptionStatus,
   resolvePlanHarnessCfg,
@@ -994,6 +996,23 @@ test("resolveAvCfg: 省略時は既定、指定時は上書き", () => {
       freeze: { noiseDb: -40, durationSec: 1 },
       stripWidthPx: 320,
     },
+  );
+});
+
+test("resolveLogCfg: log 省略時は既定 normal", () => {
+  assert.deepEqual(resolveLogCfg({} as Config), { level: DEFAULT_LOG_LEVEL });
+  assert.equal(DEFAULT_LOG_LEVEL, "normal");
+});
+
+test("resolveLogCfg: 指定値を尊重する", () => {
+  assert.deepEqual(resolveLogCfg({ log: { level: "verbose" } } as Config), { level: "verbose" });
+  assert.deepEqual(resolveLogCfg({ log: { level: "quiet" } } as Config), { level: "quiet" });
+});
+
+test("resolveLogCfg: 不正値は既定 normal へフォールバック", () => {
+  assert.deepEqual(
+    resolveLogCfg({ log: { level: "bogus" as unknown as "normal" } } as Config),
+    { level: "normal" },
   );
 });
 
