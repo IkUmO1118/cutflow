@@ -140,9 +140,9 @@
 | A13 | **収録トラック頑健化** — `ingest` が mic/system トラックを自動推定し、不一致時は「見つかった N トラックのどれが mic か」を提示して誘導(黙って停止しない) | 3.3 | ★★ | S/M | todo |
 | A14 | **whisper モデル階層ガイド** — `base/small` で即試す→`large-v3-turbo` で本番、の2段導線。DL 進捗/検証 | 3.2 | ★ | S | todo |
 | A15 | **更新・マイグレーション** — `cutflow --version`・config スキーマ版・古い config の自動追随/警告の一元化 | 3.7 | ★ | M | todo |
-| A16 | **i18n 基盤** — エラー/README/docs の英語化。グローバル dev-YouTuber へ広げるなら P0、日本語圏特化なら park(§6 D-A1 で確定) | 3.6 | ★★(global) | L | parked |
-| A17 | **非 CLI 起動** — editor の double-click / 最小アプリ化(macOS `.app` / `open` ラッパ) | 3.5 | ★ | L | parked |
-| A18 | **配布** — `npm publish`(postinstall で doctor 案内)/ Docker(Linux+libx264+whisper の再現環境) | 3.2 | ★ | L | parked |
+| A16 | **i18n 基盤** — エラー/README/docs の英語化。グローバル dev-YouTuber へ広げるなら P0、日本語圏特化なら park(§6 D-A1=日本語圏特化で確定 2026-07-13) | 3.6 | ★★(global) | L | parked |
+| A17 | **非 CLI 起動** — editor の double-click / 最小アプリ化(macOS `.app` / `open` ラッパ)。D-A1=日本語圏特化・L コストのため park 継続(§6 2026-07-13) | 3.5 | ★ | L | parked |
+| A18 | **配布** — Docker(Linux+libx264 の再現環境)= SD-A6 で着手(`Dockerfile`/`.dockerignore`。doctor 緑 + preview/render 可)。`npm publish`(postinstall で doctor 案内)は後続 | 3.2 | ★ | L | in-progress |
 
 **最大の非対称性**: A1・A2 は **severity=blocker なのにコスト=S**。ここが最大レバレッジ。
 
@@ -182,6 +182,17 @@
 - **2026-07-12(未確定の分岐)**: **D-A1 = 対象母集団**(日本語圏特化 vs グローバル)が
   **i18n(A16)を park↔P0 に分ける唯一の未決事項**。他の施策(A1–A15)は D-A1 に依存しないため、
   ロードマップは D-A1 未決のまま着手可能。D-A1 が「グローバル」なら A16 を SD-A6 から前倒しする。
+- **2026-07-13(D-A1 確定 + A18 Docker 着手)**: **D-A1 = 日本語圏特化を継続(既定)**
+  と確定。理由: docs / エラー / config コメント / LLM プロンプト / CLAUDE.md /
+  AGENTS_CONTRACT が全て日本語運用で、著者・初期ユーザーは国内 dev-YouTuber。
+  → **A16(i18n)は park 継続**(L コスト・A1–A5 より弱いレバー)、**A17(非 CLI 起動)も
+  park 継続**(L コスト)。一方 **A18 の Docker スライスは D-A1 非依存で unblock**:
+  SD-A2 が非 mac の `libx264` を既定化(`src/lib/videoEncode.ts`)したため Linux
+  コンテナが実際に動くようになり、§5「mac と Linux の両方で fresh-clone 受け入れ」を
+  直接支える。→ **SD-A6 の今回の具体スライス = 動く `Dockerfile`(+`.dockerignore`)**
+  を実装(npm publish 半分は後続)。受け入れ: `docker build -t cutflow .` 成功 →
+  `docker run --rm cutflow doctor --no-ai` が必須 4 件 ok・exit 0(whisper 系は
+  同梱せず warn=想定内)。
 
 ---
 
@@ -201,7 +212,7 @@
 | **SD-A3** | **掃除とディスク** | A9 `cutflow clean`(`files.ts` 由来・非破壊) | SD-A0 | todo | 収録あたりキャッシュ削除・編集/`approvals.json` 不可侵を実測 |
 | **SD-A4** | **触って分かる入口** | A11 README plain 先頭 + A12 同梱サンプル→即render + A14 モデル階層 | SD-A0 | todo | OBS/大DL 無しで clone→render を体験できる |
 | **SD-A5** | **エージェント編集の結線** | A10 MCP ホスト設定 copy-paste + 承認 deny テンプレ | SD-A0 | todo | Claude Desktop/Code から `mcp <dir>` を copy-paste で接続できる |
-| **SD-A6** | **配布・i18n(母集団次第)** | A16 i18n / A17 非CLI起動 / A18 npm・Docker | D-A1 確定 | **parked** | D-A1=グローバルなら A16 前倒し |
+| **SD-A6** | **配布(Docker)/ i18n は park** | A18 Docker(着手)/ A16 i18n・A17 非CLI は park 継続 | D-A1 確定(2026-07-13=日本語圏特化) | **in-progress**(Docker) | `docker build` 成功 + `docker run cutflow doctor --no-ai` が必須 ok・exit 0(mac 非依存の Linux fresh-clone を §5 で満たす) |
 
 **着手順の理由**: SD-A0 が severity 最大 × コスト最小で、他の全 SD の土台(doctor が受け入れ
 測定の基盤)。以降 A1(委任)→A2/A3/A4(並行可)→A5(差別化の導線)。SD-A6 は D-A1

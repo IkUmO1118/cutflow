@@ -62,6 +62,13 @@ node src/cli.ts doctor
 付けると機械可読な `DoctorReport` を標準出力に出せます(エージェント委任時のループに使う)。
 詳細は [docs/usage.md の「環境プリフライト(doctor)」](docs/usage.md) を参照。
 
+> **Linux で試す / mac が無い場合は Docker で再現環境を作れます。** リポジトリ直下で
+> `docker build -t cutflow .` → `docker run --rm cutflow doctor --no-ai` を叩くと、
+> 必須チェック(Node / ffmpeg / ffprobe / config)が緑になった Linux 環境をそのまま
+> 確認できます(whisper は同梱しないので warn=想定内)。収録フォルダは
+> `-v ~/Movies/cutflow:/recordings` でマウントして編集します。初回 `render` 時のみ
+> Remotion が headless Chrome を自動取得します(数分)。
+
 > **既定の AI provider `claude-code` は `claude` CLI(Claude Code)の
 > インストールと認証(ログイン)が前提です。** 未導入だと `plan` 段で
 > `コマンド 'claude' が見つかりません` で止まります。Claude Code を入れて
