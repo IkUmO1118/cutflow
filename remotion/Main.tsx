@@ -366,7 +366,9 @@ export const Main = (props: RenderProps) => {
     // 縦プリセット等(props.layout あり)ではワイプという概念が無いので
     // レイヤーとしても描画しない(D3)。カメラが無い(plain)場合も同様。
     // wipeFull もこのレイヤーが無ければ見た目に影響しない
-    return id === "wipe" ? (props.layout || !props.cameraRegion ? null : wipeLayer) : null;
+    return id === "wipe"
+      ? (props.layout || !props.cameraRegion || props.wipeBurnedIn ? null : wipeLayer)
+      : null;
   };
 
   return (
