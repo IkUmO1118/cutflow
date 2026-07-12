@@ -1,0 +1,57 @@
+# CutFlow 最小スターター設定
+# ── まず触るのはここだけ(3点)──────────────────────────
+#   1. recordingsDir … 収録データの置き場所(1収録=1フォルダ)
+#   2. ai.provider   … 生成 AI の入口(claude-code は APIキー不要の既定)
+#   3. ingest.layout … 収録レイアウト(plain=通常動画 / obs-canvas=画面+カメラ)
+# 上の3つを埋めれば ingest → plan → render まで動く。細かな調整は
+# リポジトリ直下の config.yaml(全項目版)を使う。
+# 使い方: このファイルを config.yaml にコピーするか、各コマンドに
+#         --config config.minimal.yaml を付けて指定する。
+# ─────────────────────────────────────────────────────
+
+# 1. 収録データの置き場所(リポジトリ外。~ はホームに展開)
+recordingsDir: ~/Movies/cutflow
+
+# 3. 収録レイアウトと領域・音声トラック
+ingest:
+  # plain=通常動画(カメラ無し) / obs-canvas=拡張キャンバス(画面+カメラ横並び) / auto
+  layout: plain
+  screenRegion: { x: 0, y: 0, w: 1920, h: 1080 }
+  cameraRegion: { x: 1920, y: 0, w: 1920, h: 1080 }
+  # OBS の音声トラック番号(1始まり)。1=マイク・2=システム音声(任意)。
+  # 割当が違うと ingest が見つかったトラックを提示する。--mic-track で一時上書き可
+  micTrack: 1
+  systemTrack: 2
+
+# 文字起こし(whisper.cpp)。model のパスだけ環境に合わせる
+whisper:
+  bin: whisper-cli
+  model: ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin
+  language: ja
+
+# 無音検出(カット候補づくり)。既定のままで実用的
+detect:
+  silenceDb: -35
+  minSilenceSec: 0.7
+  padSec: 0.15
+  minKeepSec: 0.5
+
+# カット確認用プレビュー
+preview:
+  width: 1280
+
+# 最終レンダー(必須項目のみ。詳細な演出設定は config.yaml を参照)
+render:
+  wipeWidthPx: 480
+  wipeMarginPx: 32
+  captionFontSizePx: 58
+  chapterCardSec: 3
+  targetLufs: -14
+  bgm:
+    volumeDb: -14
+    fadeOutSec: 2
+
+# 2. 生成 AI の入口。claude-code は Claude Code CLI を使い APIキー不要。
+#    API(anthropic/openai)や route 分割は config.yaml の profiles+routes 形式を参照
+ai:
+  provider: claude-code

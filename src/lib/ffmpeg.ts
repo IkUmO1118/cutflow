@@ -13,6 +13,10 @@ export interface ProbeStream {
   /** ストリーム単位の尺(秒。文字列)。省略時が既存挙動(コンテナ尺
    * format.duration を使う呼び出し元には影響しない追加フィールド) */
   duration?: string;
+  /** 音声チャンネル数(ffprobe -show_streams が出力)。mic/system 推定の補助 */
+  channels?: number;
+  /** ストリームのメタタグ(title/language 等)。OBS が書けば mic/system 推定に使う */
+  tags?: Record<string, string>;
 }
 
 export interface ProbeResult {
