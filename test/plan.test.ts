@@ -9,6 +9,8 @@ import { join } from "node:path";
 import {
   parseCutsResponse,
   buildCutplan,
+  fillSilenceGaps,
+  DEFAULT_SILENCE_CUT_REASON,
   buildChapterEntries,
   buildChapterTelopEntries,
   plan,
@@ -107,6 +109,73 @@ test("buildCutplan: span が変わった segment は新 id になる", () => {
   const cutplan = buildCutplan(numbered, [], { existingSegments, used });
   assert.notEqual(cutplan.segments[0].id, "seg_aaaaaa");
   assert.match(cutplan.segments[0].id as string, ID_RE);
+});
+
+test("fillSilenceGaps: 中間の隙間・先頭・末尾の穴を cut で埋め全時間を連続被覆する", () => {
+  const segs = [
+    { start: 5, end: 10, action: "keep" as const, reason: "" },
+    { start: 15, end: 20, action: "keep" as const, reason: "" },
+  ];
+  const filled = fillSilenceGaps(segs, 25, "無音");
+  assert.deepEqual(
+    filled.map((s) => [s.start, s.end, s.action, s.reason]),
+    [
+      [0, 5, "cut", "無音"], // 冒頭の無音
+      [5, 10, "keep", ""],
+      [10, 15, "cut", "無音"], // keep 間の無音(=これまで穴だった箇所)
+      [15, 20, "keep", ""],
+      [20, 25, "cut", "無音"], // 末尾の無音
+    ],
+  );
+});
+
+test("fillSilenceGaps: 連続被覆(隙間なし・0始まり・duration ちょうど)は何も足さない", () => {
+  const segs = [
+    { start: 0, end: 10, action: "keep" as const, reason: "" },
+    { start: 10, end: 20, action: "cut" as const, reason: "脱線" },
+  ];
+  assert.deepEqual(fillSilenceGaps(segs, 20, "無音"), segs);
+});
+
+test("fillSilenceGaps: 0.01秒未満の隙間は round2 の端数とみなして埋めない", () => {
+  const segs = [
+    { start: 0, end: 10, action: "keep" as const, reason: "" },
+    { start: 10.005, end: 20, action: "keep" as const, reason: "" },
+  ];
+  assert.equal(fillSilenceGaps(segs, 20, "無音").length, 2);
+});
+
+test("fillSilenceGaps: reason 省略時は DEFAULT_SILENCE_CUT_REASON", () => {
+  const filled = fillSilenceGaps(
+    [{ start: 5, end: 10, action: "keep" as const, reason: "" }],
+    10,
+  );
+  assert.equal(filled[0]!.action, "cut");
+  assert.equal(filled[0]!.reason, DEFAULT_SILENCE_CUT_REASON);
+});
+
+test("buildCutplan: fill 指定で末尾の穴を cut として記録する(numbered は 0-30)", () => {
+  const cutplan = buildCutplan(numbered, [], undefined, { duration: 40 });
+  const last = cutplan.segments[cutplan.segments.length - 1]!;
+  assert.equal(last.action, "cut");
+  assert.equal(last.reason, DEFAULT_SILENCE_CUT_REASON);
+  assert.deepEqual([last.start, last.end], [30, 40]);
+});
+
+test("buildCutplan: fill + idCtx で穴埋め cut にも id が採番される", () => {
+  const used = new Set<string>();
+  const cutplan = buildCutplan(
+    numbered,
+    [],
+    { existingSegments: [], used },
+    { duration: 40, reason: "無音" },
+  );
+  for (const s of cutplan.segments) assert.match(s.id as string, ID_RE);
+});
+
+test("buildCutplan: fill 省略時は穴を埋めない(導入前とバイト等価)", () => {
+  const cutplan = buildCutplan(numbered, [{ id: 3, reason: "余談カット" }]);
+  assert.deepEqual(cutplan.segments.map((s) => s.action), ["keep", "keep", "cut"]);
 });
 
 test("buildChapterEntries: idCtx 省略時は id に一切触れない", () => {
