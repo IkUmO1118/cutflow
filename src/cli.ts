@@ -62,7 +62,8 @@ import type { ApplyPatch, CutPlan, Overlays } from "./types.ts";
 import type { EditSnapshot, ReviewSpec } from "./lib/review.ts";
 import { buildRetrievalIndex } from "./stages/retrievalIndex.ts";
 import { retrievalSearch } from "./stages/retrievalSearch.ts";
-import type { AiRoute } from "./lib/config.ts";
+import type { AiRoute, Config } from "./lib/config.ts";
+import { envDoctor, formatDoctorReport } from "./stages/doctor.ts";
 
 const program = new Command();
 program
@@ -86,7 +87,7 @@ program.hook("postAction", (_thisCommand, actionCommand) => {
   // mcp は stdout が JSON-RPC 専用チャネルなので同様に stderr へ逃がす(サーバは
   // 通常 SIGINT まで返らないため多くの場合発火しないが、安全のため明示的に対応)。
   // 他コマンド・散文 describe/assert の stdout は従来どおり console.log(=不変)
-  const jsonCommands = new Set(["describe", "assert"]);
+  const jsonCommands = new Set(["describe", "assert", "doctor"]);
   const isMcp = actionCommand.name() === "mcp";
   if (isMcp || (jsonCommands.has(actionCommand.name()) && actionCommand.opts().json === true)) {
     console.error(line);
@@ -242,6 +243,31 @@ function ensurePlanVlmReady(cfg: Parameters<typeof loadConfig>[0] extends never 
     maxImages: secondaryCfg.maxImages,
   };
 }
+
+program
+  .command("doctor")
+  .description(
+    "環境プリフライト(read-only): node/ffmpeg/ffprobe/エンコーダ整合/whisper/model/AI 到達性を1コマンドで検査。" +
+      "必須(node/ffmpeg/ffprobe)欠落は exit 1、収録/AI 系の欠落は warn(exit 0)。収録フォルダには書かない",
+  )
+  .option("--json", "DoctorReport を JSON で標準出力に出す(パイプ可)")
+  .option("--no-ai", "AI provider 到達性プローブ(ネットワーク)をスキップする")
+  .action(async (opts: { json?: boolean; ai?: boolean }) => {
+    let cfg: Config | undefined;
+    let cfgError: string | undefined;
+    try {
+      cfg = loadConfig(program.opts().config);
+    } catch (e) {
+      cfgError = (e as Error).message;
+    }
+    const report = await envDoctor({ cfg, cfgError, ai: opts.ai !== false });
+    if (opts.json === true) {
+      console.log(JSON.stringify(report, null, 2));
+    } else {
+      for (const line of formatDoctorReport(report)) console.log(line);
+    }
+    if (report.exitCode === 1) process.exit(1);
+  });
 
 program
   .command("ai")
