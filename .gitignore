@@ -3,6 +3,9 @@ node_modules/
 *.log
 .DS_Store
 
+# 「触って分かる」サンプル(scripts/make-sample.sh が生成する使い捨て収録)
+examples/
+
 # Remotion Studio 用の一時ファイル置き場(動画は収録フォルダに置く)
 public/
 
