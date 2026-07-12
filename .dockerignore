@@ -1,0 +1,28 @@
+# 依存とバージョン管理(イメージ内で npm ci が入れ直す)
+node_modules
+.git
+.gitignore
+
+# .gitignore と同趣旨の除外
+.env
+*.log
+.DS_Store
+examples/
+public/
+bin/ocr/.build/
+docs/plans/regression/snapshots/*.json
+
+# メディア(収録・成果物はマウントで渡す。イメージに焼かない)
+*.mp4
+*.mkv
+*.mov
+*.wav
+*.m4a
+*.png
+
+# Docker 自身 / エディタ・ツール雑多
+Dockerfile
+.dockerignore
+.claude/
+.vscode/
+.idea/
