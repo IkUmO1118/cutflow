@@ -504,6 +504,18 @@ export interface Config {
      * 省略・0 で機能オフ(常にフルレンダー。従来どおり render.chunks/ には
      * 一切触れない)。詳細は docs/render-chunk-cache.md */
     chunkSec?: number;
+    /** Remotion 合成段(OffthreadVideo)のフレームキャッシュ上限(MB)。
+     * Remotion の既定は「利用可能メモリの半分」で、16GB 機では compositor が
+     * render 中に数GBまで成長し、マシン全体のメモリプレッシャー(スワップ・
+     * 他アプリの鈍化)を招く(実測は docs/perf.md フェーズ9)。省略時
+     * DEFAULT_OFFTHREAD_VIDEO_CACHE_MB(512)。0 で Remotion 既定(無制限=
+     * 利用可能メモリの半分)に戻す。出力の画・音には影響しない(renderKey
+     * にも含めない=変更しても final.mp4 の再生成は誘発しない) */
+    offthreadVideoCacheMb?: number;
+    /** Remotion 合成段の並列レンダータブ数。省略時は Remotion 既定
+     * (CPU コア数の半分)。メモリの節約(1タブ ≈ 350〜400MB)を優先したい
+     * ときに下げる。出力には影響しない(renderKey にも含めない) */
+    concurrency?: number;
     /** ズーム演出(overlays.json の zooms)の既定設定。省略可 */
     zoom?: {
       /** ズームイン/アウトの遷移秒数。省略時 DEFAULT_ZOOM_EASE_SEC(0.4)。
