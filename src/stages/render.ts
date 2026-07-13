@@ -69,6 +69,34 @@ function wipeGeom(manifest: Manifest, cfg: Config): { ww: number; wh: number } |
   return { ww, wh: Math.round((ww * cam.h) / cam.w) };
 }
 
+/** OffthreadVideo フレームキャッシュ上限の既定(MB)。config.yaml の
+ * render.offthreadVideoCacheMb で上書きできる(0 で Remotion 既定に戻す) */
+const DEFAULT_OFFTHREAD_VIDEO_CACHE_MB = 512;
+
+/** delayRender の猶予(ms)。Remotion 既定の30秒は、メモリ逼迫時にフォント等の
+ * アセット取得が OffthreadVideo のフレーム抽出と同じ bundle サーバの待ち行列に
+ * 詰まって「Loading Noto Sans JP ... not cleared after 28000ms」で落ちる実例が
+ * あった(docs/perf.md フェーズ9)ため延長する。正常時の挙動・速度には無関係
+ * (タイムアウトの発火条件だけが変わる) */
+const DELAY_RENDER_TIMEOUT_MS = 120_000;
+
+/** Remotion CLI 呼び出しに共通で付けるリソース系フラグ(本編・チャンク・
+ * ショートの全 render 経路で同じものを使う)。いずれも出力の画・音には
+ * 影響しないため renderKey には含めない(変更が final.mp4 再生成を誘発しない)。
+ * - キャッシュ上限: Remotion 既定(利用可能メモリの半分)は 16GB 機で
+ *   compositor が数GBまで成長しマシン全体を重くする。512MB でも速度は不変
+ *   (実測は docs/perf.md フェーズ7・9)
+ * - concurrency: 省略時は Remotion 既定(コア数の半分)のまま */
+export function remotionResourceArgs(cfg: Config): string[] {
+  const cacheMb = cfg.render.offthreadVideoCacheMb ?? DEFAULT_OFFTHREAD_VIDEO_CACHE_MB;
+  const args = [`--timeout=${DELAY_RENDER_TIMEOUT_MS}`];
+  if (cacheMb > 0) {
+    args.push(`--offthreadvideo-cache-size-in-bytes=${Math.round(cacheMb * 1024 * 1024)}`);
+  }
+  if (cfg.render.concurrency) args.push(`--concurrency=${cfg.render.concurrency}`);
+  return args;
+}
+
 /** 出力px矩形の交差判定 */
 function rectsIntersect(a: Region, b: Region): boolean {
   return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
@@ -258,6 +286,7 @@ export async function render(dir: string, cfg: Config): Promise<string> {
     const chunked = await tryChunkRender({
       dir, props, propsPath, cutStat: { mtimeMs: cutStat.mtimeMs, size: cutStat.size },
       hardwareAcceleration, repoRoot, outPath,
+      resourceArgs: remotionResourceArgs(cfg),
     });
     if (chunked) {
       writeFileSync(renderKeyPath, JSON.stringify(renderKey, null, 2));
@@ -275,6 +304,7 @@ export async function render(dir: string, cfg: Config): Promise<string> {
         "--public-dir", dir,
         "--codec", "h264",
         "--hardware-acceleration", hardwareAcceleration,
+        ...remotionResourceArgs(cfg),
       ],
       { cwd: repoRoot, label: "remotion" },
     ),
@@ -460,6 +490,7 @@ async function renderOneShort(
         "--public-dir", dir,
         "--codec", "h264",
         "--hardware-acceleration", hardwareAcceleration,
+        ...remotionResourceArgs(cfg),
       ],
       { cwd: repoRoot, label: "remotion" },
     ),
@@ -505,8 +536,11 @@ async function tryChunkRender(args: {
   hardwareAcceleration: string;
   repoRoot: string;
   outPath: string;
+  /** remotionResourceArgs(cfg) の結果(キャッシュ上限・timeout 等)。
+   * フルレンダーと同じ上限をチャンク再レンダーにも適用する */
+  resourceArgs: string[];
 }): Promise<boolean> {
-  const { dir, props, propsPath, cutStat, hardwareAcceleration, repoRoot, outPath } = args;
+  const { dir, props, propsPath, cutStat, hardwareAcceleration, repoRoot, outPath, resourceArgs } = args;
   const { chunksDir, keyPath, audioPath } = chunkPaths(dir);
   if (!existsSync(outPath) || !existsSync(keyPath) || !existsSync(audioPath)) return false;
 
@@ -553,6 +587,7 @@ async function tryChunkRender(args: {
           "--public-dir", dir,
           "--codec", "h264",
           "--hardware-acceleration", hardwareAcceleration,
+          ...resourceArgs,
           `--frames=${from}-${to - 1}`,
           "--muted",
         ],
