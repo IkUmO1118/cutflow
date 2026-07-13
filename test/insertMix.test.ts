@@ -7,7 +7,7 @@
 // 手計算できる小さな値に override する)。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildInsertBedPcm, buildPcmEncodeArgs } from "../src/lib/insertMix.ts";
+import { buildInsertBedPcm, buildPcmEncodeArgs, insertHasNoAudio } from "../src/lib/insertMix.ts";
 import { baseLayoutOf } from "../src/lib/fastBase.ts";
 import { bgmMixSampleCount } from "../src/lib/bgmMix.ts";
 import { fadeFactor } from "../src/lib/overlayFade.ts";
@@ -124,6 +124,33 @@ for (const label of ["volume:0", "画像素材", "音声ストリーム無し(pc
     assert.deepEqual(Array.from(bed.slice(8, 16)), [100, 200, 101, 201, 102, 202, 103, 203]);
   });
 }
+
+// ---- insertHasNoAudio: デコード省略の判定(純関数。ffprobe は叩かない) ----
+// 音声ストリーム無しの素材(例: materials/insert-silent.mp4)を扱えることを
+// ここで固定する。mixInsertAudio は decodeAudioToPcm を呼ぶ**前**に
+// ffprobe(probe()+summarizeProbe())で hasAudioStream を判定し、この関数に
+// 渡す。decodeAudioToPcm 自体は「音声ストリームが無いと ffmpeg がエラー
+// 終了する」ため、デコード後に pcm.length で判定するのでは間に合わない。
+
+test("insertHasNoAudio: 音声ストリーム無し(hasAudioStream:false)→ デコード省略", () => {
+  assert.equal(insertHasNoAudio({ file: "materials/insert-silent.mp4" }, false), true);
+});
+
+test("insertHasNoAudio: 音声ストリームあり(hasAudioStream:true)→ デコードする", () => {
+  assert.equal(insertHasNoAudio({ file: "materials/insert-a.mp4" }, true), false);
+});
+
+test("insertHasNoAudio: 画像素材 → hasAudioStream に関わらずデコード省略", () => {
+  assert.equal(insertHasNoAudio({ file: "materials/photo.png" }, true), true);
+});
+
+test("insertHasNoAudio: volume:0 → hasAudioStream に関わらずデコード省略", () => {
+  assert.equal(insertHasNoAudio({ file: "materials/insert-a.mp4", volume: 0 }, true), true);
+});
+
+test("insertHasNoAudio: volume 省略(既定1)・音声あり → デコードする", () => {
+  assert.equal(insertHasNoAudio({ file: "materials/insert-a.mp4" }, true), false);
+});
 
 // ---- I-4: startFrom → 挿入区間の先頭サンプルが素材の round(startFrom*fps) frame 相当から始まる ----
 
