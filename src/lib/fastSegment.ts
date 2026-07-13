@@ -121,7 +121,15 @@ export function resolveFastCaptions(props: RenderProps, span: FastSpan): FastCap
 // ---- 純関数: filtergraph / argv 組み立て ----
 
 export function buildFastSegmentFilter(spec: FastSegmentSpec): string {
-  const base = `[0:v]trim=start_frame=${spec.fromFrame}:end_frame=${spec.toFrame},setpts=PTS-STARTPTS,${BASE_COLOR_FILTER}`;
+  // setpts=N/fps/TB は「フレーム番号 N で CFR に再スタンプ」する(PTS-STARTPTS
+  // では cut.mp4 の可変フレームレート=実測 avg 29.94fps がそのまま残り、
+  // frame 数は正しいのに container duration が伸びて concat 後に Remotion
+  // セグメント(厳密 30fps CFR)と食い違い verifyAssembled の duration 判定で
+  // 落ちる)。N は frame 序数なので trim 済みフレームの内容・順序・overlay の
+  // n ベース enable 窓は不変=描画は完全に同じで、タイムスタンプだけを厳密
+  // 30fps に揃える。これで各セグメントが frames/fps ちょうどの尺になり、
+  // FAST(ffmpeg)+SLOW(Remotion)の混在 concat でも duration が一致する。
+  const base = `[0:v]trim=start_frame=${spec.fromFrame}:end_frame=${spec.toFrame},setpts=N/${spec.fps}/TB,${BASE_COLOR_FILTER}`;
   if (spec.captions.length === 0) return `${base}[vout]`;
   const parts = [`${base}[b0]`];
   let prev = "b0";
