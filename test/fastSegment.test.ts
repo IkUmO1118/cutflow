@@ -19,7 +19,7 @@ import {
 } from "../src/lib/fastSegment.ts";
 import { fadeFactor } from "../src/lib/overlayFade.ts";
 import type { FastSpan } from "../src/lib/fastPlan.ts";
-import type { Caption, OverlayItem, RenderProps } from "../remotion/props.ts";
+import type { Caption, OverlayItem, RenderProps, ResolvedAnnotation } from "../remotion/props.ts";
 import type { FastLayerItem, FastSegmentSpec } from "../src/lib/fastSegment.ts";
 
 function mkProps(partial: Partial<RenderProps> = {}): RenderProps {
@@ -48,6 +48,17 @@ function mkCap(track: number, start: number, end: number, extra: Partial<Caption
 
 function mkOverlay(partial: Partial<OverlayItem> & { start: number; end: number }): OverlayItem {
   return { file: "m.png", track: 1, fit: "contain", ...partial };
+}
+
+function mkAnnotation(partial: Partial<ResolvedAnnotation> & { start: number; end: number }): ResolvedAnnotation {
+  return {
+    type: "box",
+    rect: { x: 0, y: 0, w: 100, h: 100 },
+    color: "#fff",
+    widthPx: 4,
+    radiusPx: 0,
+    ...partial,
+  } as ResolvedAnnotation;
 }
 
 function span(fromFrame: number, toFrame: number): FastSpan {
@@ -253,6 +264,131 @@ test("fastLayerMergeKey: overlay は file|fit|rect で決まる(opacity/fade は
   const a: FastLayerItem = { kind: "overlay", item: mkOverlay({ start: 0, end: 1, file: "a.png", opacity: 0.3 }), startFrame: 0, durFrames: 30, enableWindows: [[0, 29]] };
   const b: FastLayerItem = { kind: "overlay", item: mkOverlay({ start: 5, end: 6, file: "a.png", opacity: 0.9 }), startFrame: 150, durFrames: 30, enableWindows: [[150, 179]] };
   assert.equal(fastLayerMergeKey(props, a), fastLayerMergeKey(props, b));
+});
+
+// ---- G2: resolveFastLayers / annotation 経路(P5-2。design-T2.md §6) ----
+
+function annotationsOf(items: FastLayerItem[]): Extract<FastLayerItem, { kind: "annotation" }>[] {
+  return items.filter((it): it is Extract<FastLayerItem, { kind: "annotation" }> => it.kind === "annotation");
+}
+
+test("G2-1: resolveFastLayers: annotation は layerOrder の全レイヤーより後に並ぶ", () => {
+  const ov = mkOverlay({ start: 1, end: 4 }); // abs frame [30,120)
+  const cap = mkCap(1, 1, 4); // abs frame [30,120)
+  const cap2 = mkCap(2, 1, 4);
+  const ann = mkAnnotation({ start: 1, end: 4 }); // abs frame [30,120)
+  const props = mkProps({
+    overlays: [ov],
+    captions: [cap, cap2],
+    annotations: [ann],
+    layerOrder: ["wipe", "ov1", "caption", "cap2"],
+  });
+  const result = resolveFastLayers(props, span(0, 300));
+  assert.equal(result.at(-1)!.kind, "annotation");
+  assert.ok(result.slice(0, -1).every((it) => it.kind !== "annotation"));
+});
+
+test("G2-2: enable 窓は Main の start<=t<end と一致する(fps=30, start=1.0/end=2.0 → local [[30,59]]、境界フレーム60は含まない)", () => {
+  const ann = mkAnnotation({ start: 1.0, end: 2.0 });
+  const props = mkProps({ annotations: [ann] });
+  const result = annotationsOf(resolveFastLayers(props, span(0, 90)));
+  assert.equal(result.length, 1);
+  assert.deepEqual(result[0].enableWindows, [[30, 59]]);
+});
+
+test("G2-3: span をまたぐ annotation の窓は span 内へクリップされる(throw しない)", () => {
+  // abs frame [0,180): span[0,90) を完全に覆い、span[90,180) も完全に覆う
+  // (両方とも throw せずクリップされた [0,89] になることを確認する)
+  const ann = mkAnnotation({ start: 0.0, end: 6.0 });
+  const props = mkProps({ annotations: [ann] });
+  const first = annotationsOf(resolveFastLayers(props, span(0, 90)));
+  const second = annotationsOf(resolveFastLayers(props, span(90, 180)));
+  assert.equal(first.length, 1);
+  assert.deepEqual(first[0].enableWindows, [[0, 89]]);
+  assert.equal(second.length, 1);
+  assert.deepEqual(second[0].enableWindows, [[0, 89]]);
+});
+
+test("G2-4: annotation は simple レイヤー: buildFastSegmentArgs の入力が -i <png> のみ(-loop/-framerate/-t が付かない)", () => {
+  const spec = mkSpec({
+    layers: [{ pngPath: "/rec/render.fast/annotations/aaa.png", enableWindows: [[30, 119]] }],
+  });
+  const args = buildFastSegmentArgs(spec);
+  assert.ok(!args.includes("-loop"));
+  assert.ok(!args.includes("-framerate"));
+  assert.ok(!args.includes("-t"));
+  const iIndices = args.reduce<number[]>((acc, a, i) => {
+    if (a === "-i") acc.push(i);
+    return acc;
+  }, []);
+  assert.equal(iIndices.length, 2); // cut + 1 png
+  assert.equal(args[iIndices[1] + 1], "/rec/render.fast/annotations/aaa.png");
+});
+
+test("G2-5: 同一内容の annotation 2件(離れた時刻・間に重なる操作なし)は mergeFastLayers で1入力に畳まれ、enable 窓が2つになる", () => {
+  const items: FastLayerItem[] = [
+    { kind: "annotation", annotation: mkAnnotation({ start: 0, end: 1 }), enableWindows: [[0, 29]] },
+    { kind: "annotation", annotation: mkAnnotation({ start: 5, end: 6 }), enableWindows: [[150, 179]] },
+  ];
+  const props = mkProps();
+  const merged = mergeFastLayers(props, items);
+  assert.equal(merged.length, 1);
+  assert.deepEqual(merged[0].enableWindows, [
+    [0, 29],
+    [150, 179],
+  ]);
+});
+
+test("G2-6: z-order: annotation 配列順で後のものが後ろ(上)に並ぶ", () => {
+  const first = mkAnnotation({ start: 1, end: 4, color: "#111" });
+  const second = mkAnnotation({ start: 1, end: 4, color: "#222" });
+  const props = mkProps({ annotations: [first, second] });
+  const result = annotationsOf(resolveFastLayers(props, span(0, 300)));
+  assert.equal(result.length, 2);
+  assert.equal(result[0].annotation, first);
+  assert.equal(result[1].annotation, second);
+});
+
+test("G2-7: keyframes 付き annotation が FAST span に混入 → throw(安全弁)", () => {
+  const ann = mkAnnotation({
+    start: 1,
+    end: 4,
+    keyframes: [{ at: 1, easing: "linear", values: { x: 0 } }],
+  });
+  const props = mkProps({ annotations: [ann] });
+  assert.throws(() => resolveFastLayers(props, span(0, 300)));
+});
+
+test("G2-8: buildFastSegmentFilter の snapshot: caption 1 + annotation 1 で§5.2(f) の順序(annotation が最後に overlay される)になる", () => {
+  const spec: FastSegmentSpec = {
+    cutPath: "/rec/cut.mp4",
+    outPath: "/rec/seg000.mp4",
+    fromFrame: 0,
+    toFrame: 300,
+    fps: 30,
+    layers: [
+      { pngPath: "/rec/render.fast/captions/cap.png", enableWindows: [[30, 119]] },
+      { pngPath: "/rec/render.fast/annotations/ann.png", enableWindows: [[12, 71]] },
+    ],
+  };
+  const filter = buildFastSegmentFilter(spec);
+  assert.equal(
+    filter,
+    `[0:v]setpts=PTS-STARTPTS,fps=fps=30:round=${FAST_FPS_ROUND}:start_time=0,trim=start_frame=0:end_frame=300,setpts=N/30/TB,scale=in_range=limited:out_range=full,colorspace=all=smpte170m:iall=bt709:range=pc,format=yuvj420p[b0];` +
+      "[b0][1:v]overlay=x=0:y=0:format=auto:enable='between(n,30,119)'[o0];" +
+      "[o0][2:v]overlay=x=0:y=0:format=auto:enable='between(n,12,71)'[vout]",
+  );
+});
+
+test("G2-9: fastLayerMergeKey: annotation のキーは ann: 前置で caption/overlay のキーと衝突しない", () => {
+  const props = mkProps();
+  const annItem: FastLayerItem = { kind: "annotation", annotation: mkAnnotation({ start: 0, end: 1 }), enableWindows: [[0, 29]] };
+  const key = fastLayerMergeKey(props, annItem);
+  assert.ok(key.startsWith("ann:"));
+  const capItem: FastLayerItem = { kind: "caption", caption: mkCap(1, 0, 1), enableWindows: [[0, 29]] };
+  const ovItem: FastLayerItem = { kind: "overlay", item: mkOverlay({ start: 0, end: 1 }), startFrame: 0, durFrames: 30, enableWindows: [[0, 29]] };
+  assert.notEqual(key, fastLayerMergeKey(props, capItem));
+  assert.notEqual(key, fastLayerMergeKey(props, ovItem));
 });
 
 // ---- buildFastSegmentFilter / buildFastSegmentArgs ----
