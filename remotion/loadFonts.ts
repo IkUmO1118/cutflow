@@ -11,7 +11,15 @@ import notoSansJp from "./fonts/NotoSansJP.woff2";
 // あって初めて 300/500/600/800 等の指定が font-synthesis ではなく実グリフの
 // 太さとして反映される。delayRender で読み込み完了までフレーム捕捉を待たせ、
 // フォールバック(Hiragino 等)で焼き込まれるのを防ぐ。
-const handle = delayRender("Loading Noto Sans JP");
+// timeoutInMilliseconds/retries: chrome-headless-shell はまれに1タブだけ
+// FontFace.load() が永久に解決しないことがある(data URL 焼き込みでも発生=
+// フェッチではなくフォントサブシステムのフレーク。docs/perf.md フェーズ9)。
+// 正常時は数十ms で終わる処理なので、20秒で見切ってページ再読込でやり直す。
+// フォント読込が完了するまでフレームは1枚も撮られないため出力は不変
+const handle = delayRender("Loading Noto Sans JP", {
+  timeoutInMilliseconds: 20_000,
+  retries: 2,
+});
 
 const face = new FontFace(
   "Noto Sans JP",

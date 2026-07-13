@@ -134,6 +134,16 @@ render:
   # (macOS は VideoToolbox。使えない環境はソフトウェアへ自動フォールバック)。
   # disable: 常にソフトウェアエンコード(従来動作)。実測は docs/perf.md 参照
   hardwareAcceleration: if-possible
+  # Remotion 合成段(OffthreadVideo)のフレームキャッシュ上限(MB)。
+  # Remotion の既定は「利用可能メモリの半分」で、16GB 機では render 中に
+  # compositor が数GBまで成長しマシン全体が重くなる(スワップ・他アプリの
+  # 鈍化。実測は docs/perf.md フェーズ9)。512MB でも render 速度は不変。
+  # 0 で Remotion 既定(無制限)に戻す。出力の画・音には影響しない
+  offthreadVideoCacheMb: 512
+  # Remotion 合成段の並列レンダータブ数。省略時は Remotion 既定(CPU コア数の
+  # 半分。M5 なら 5)。1タブ ≈ 350〜400MB なので、render 中のメモリをさらに
+  # 絞りたいときだけ下げる(速度と引き換え)。出力には影響しない
+  # concurrency: 4
   # チャンク単位の差分レンダー(render chunk cache)。直前フルレンダー以降、
   # 映像に効く要素(テロップ・位置・ワイプ等)だけを変えた再実行で、変わった
   # チャンクだけを再レンダーして連結する。音声・keeps・全域設定を変えたときは

@@ -12,6 +12,9 @@
 - `adoption-and-onboarding.md`(導入母艦) — クローンから稼働・定着までの
   activation 摩擦を潰す取り組み。上2つが上げた「編集の質」に、そもそも
   ユーザーが到達できるようにする層(質・審美と直交)
+- `render-fastpath-program.md`(render 高速パス母艦) — cold render の速度の床
+  (headless Chrome の per-frame 描画)を、テロップ静止区間の ffmpeg 直合成で
+  破る取り組み。編集の質(上3つ)と直交する「書き出しの速さ」の層
 
 個別の設計書(`docs/plans/`)からは「親ドキュメント: `docs/programs/....md`
 (母艦)」の形で参照される。
