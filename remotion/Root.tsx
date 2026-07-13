@@ -1,5 +1,7 @@
 import { Composition } from "remotion";
 import { Main } from "./Main.tsx";
+import { AnnotationStill, annotationStillDefaultProps } from "./AnnotationStill.tsx";
+import type { AnnotationStillProps } from "./AnnotationStill.tsx";
 import { CaptionStill, captionStillDefaultProps } from "./CaptionStill.tsx";
 import type { CaptionStillProps } from "./CaptionStill.tsx";
 import { OverlayStill, overlayStillDefaultProps } from "./OverlayStill.tsx";
@@ -49,6 +51,21 @@ export const RemotionRoot = () => (
       height={1080}
       defaultProps={overlayStillDefaultProps}
       calculateMetadata={({ props }: { props: OverlayStillProps }) => ({
+        durationInFrames: 1,
+        fps: 30,
+        width: props.width,
+        height: props.height,
+      })}
+    />
+    <Composition
+      id="AnnotationStill"
+      component={AnnotationStill}
+      durationInFrames={1}
+      fps={30}
+      width={1920}
+      height={1080}
+      defaultProps={annotationStillDefaultProps}
+      calculateMetadata={({ props }: { props: AnnotationStillProps }) => ({
         durationInFrames: 1,
         fps: 30,
         width: props.width,
