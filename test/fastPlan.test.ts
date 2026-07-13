@@ -92,16 +92,43 @@ test("inserts があれば全編フォールバック(SLOW 一本・coverage 0)"
   assert.equal(plan.coverageRatio, 0);
 });
 
-test("colorFilter があれば全編フォールバック(SLOW 一本・coverage 0)", () => {
-  const props = mkProps({
+test("colorFilter(表現可能)は FAST 適格(P5-3。時間軸に影響しない)", () => {
+  const withCf = mkProps({
     durationSec: 20,
     colorFilter: { brightness: 1.1 },
   });
+  const without = mkProps({ durationSec: 20 });
+  const plan = fastPlan(withCf);
+  const planWithout = fastPlan(without);
+  assert.equal(plan.eligible, true);
+  assert.deepEqual(plan.wholeFallback, []);
+  // colorFilter は全編一律(時間軸に関与しない)。span/coverage は
+  // colorFilter 無しの同一 props と完全一致する
+  assert.deepEqual(plan.spans, planWithout.spans);
+  assert.equal(plan.coverageRatio, planWithout.coverageRatio);
+});
+
+test("colorFilter(表現不能: saturate>2.0776)は全編フォールバック(SLOW 一本・coverage 0)", () => {
+  const props = mkProps({
+    durationSec: 20,
+    colorFilter: { saturate: 2.5 },
+  });
   const plan = fastPlan(props);
   assert.equal(plan.eligible, false);
-  assert.ok(plan.wholeFallback.includes("colorFilter"));
+  assert.equal(plan.wholeFallback.length, 1);
+  assert.ok(plan.wholeFallback[0].startsWith("colorFilter("));
   assert.deepEqual(plan.spans, [{ kind: "slow", fromFrame: 0, toFrame: plan.totalFrames }]);
   assert.equal(plan.coverageRatio, 0);
+});
+
+test("colorFilter 全キー 1.0(無補正)は wholeFallback に影響しない", () => {
+  const props = mkProps({
+    durationSec: 20,
+    colorFilter: { brightness: 1, contrast: 1, saturate: 1 },
+  });
+  const plan = fastPlan(props);
+  assert.equal(plan.eligible, true);
+  assert.deepEqual(plan.wholeFallback, []);
 });
 
 test("zoom 区間は SLOW(前後は FAST)", () => {

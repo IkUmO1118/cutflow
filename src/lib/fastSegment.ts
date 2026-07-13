@@ -10,6 +10,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { run } from "./exec.ts";
+import { ffmpegColorFilterOf } from "./colorFilter.ts";
 import { renderCaptionStill, captionStillKey } from "./captionStill.ts";
 import { renderOverlayStill } from "./overlayStill.ts";
 import { annotationFastReason } from "./annotation.ts";
@@ -69,6 +70,10 @@ export interface FastSegmentSpec {
   fpsRound?: FastFpsRound;
   /** z-order 下→上 */
   layers: FastLayerSpec[];
+  /** ベース映像に掛ける colorFilter の ffmpeg フィルタ列(適用順)。
+   * 省略/空 = 無補正(既存挙動とバイト等価)。BASE_COLOR_FILTER の直後に
+   * RGB 段として挿入される(design-T3.md §3) */
+  colorFilters?: string[];
 }
 
 // ---- レイヤー解決 ----
@@ -311,6 +316,19 @@ function isAlphaLayer(L: FastLayerSpec): boolean {
   return !!L.fade;
 }
 
+/** colorFilter 段(RGB 往復込み)。空/省略なら空文字列 = 既存とバイト等価。
+ * BASE_COLOR_FILTER の直後(= 601-full の YUV/RGB 境界)に挿入する
+ * (design-T3.md §3。BASE_COLOR_FILTER の内部・末尾の format=yuvj420p は
+ * 変更しない)。lutrgb の式はカンマを含むため単引用符で括る
+ * (クォーティング注意(直さないこと): run は execFile(シェル非経由)なので、
+ * この単引用符は shell ではなく ffmpeg の filtergraph パーサがカンマを
+ * フィルタ区切りと誤認しないための保護。既存の enable='between(...)' と同じ
+ * 理由) */
+function colorFilterStage(filters?: string[]): string {
+  if (!filters || filters.length === 0) return "";
+  return `,format=rgb24,${filters.join(",")},format=yuvj420p`;
+}
+
 export function buildFastSegmentFilter(spec: FastSegmentSpec): string {
   // fps は cut.mp4 の timestamp から CFR 格子を作る。そこで frame trim する
   // ことで、Remotion OffthreadVideo の時刻ベース選択と同じソースを選ぶ。
@@ -318,7 +336,10 @@ export function buildFastSegmentFilter(spec: FastSegmentSpec): string {
   // SLOW の混在 concat を frames/fps ちょうどの尺に揃えるためのもの。
   // overlay の n は fps+trim 後のローカル出力フレーム番号なので変わらない。
   const round = spec.fpsRound ?? FAST_FPS_ROUND;
-  const base = `[0:v]setpts=PTS-STARTPTS,fps=fps=${spec.fps}:round=${round}:start_time=0,trim=start_frame=${spec.fromFrame}:end_frame=${spec.toFrame},setpts=N/${spec.fps}/TB,${BASE_COLOR_FILTER}`;
+  const base =
+    `[0:v]setpts=PTS-STARTPTS,fps=fps=${spec.fps}:round=${round}:start_time=0,` +
+    `trim=start_frame=${spec.fromFrame}:end_frame=${spec.toFrame},setpts=N/${spec.fps}/TB,` +
+    `${BASE_COLOR_FILTER}${colorFilterStage(spec.colorFilters)}`;
   if (spec.layers.length === 0) return `${base}[vout]`;
   const parts = [`${base}[b0]`];
   let prev = "b0";
@@ -453,6 +474,11 @@ export async function renderFastSegment(args: {
   }
   const outPath = fastSegmentPath(dir, index);
   mkdirSync(dirname(outPath), { recursive: true });
+  const colorPlan = ffmpegColorFilterOf(props.colorFilter);
+  if (colorPlan.kind === "unsupported") {
+    // fastPlan がここへ来る前に全編フォールバックしているはず。破れたら実装バグ
+    throw new Error(`FAST span に表現不能な colorFilter(${colorPlan.reason})`);
+  }
   await run(
     "ffmpeg",
     buildFastSegmentArgs({
@@ -462,6 +488,7 @@ export async function renderFastSegment(args: {
       toFrame: span.toFrame,
       fps: props.fps,
       layers,
+      ...(colorPlan.kind === "chain" ? { colorFilters: colorPlan.filters } : {}),
     }),
   );
   return outPath;
