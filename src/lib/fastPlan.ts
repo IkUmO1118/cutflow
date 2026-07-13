@@ -3,6 +3,7 @@
 // ベース映像+静的テロップ PNG だけで合成できる区間、SLOW = Remotion を
 // 通す必要がある区間(§4 適格表)。P1 はこのプランナーとその出力の型だけを
 // 定義する(CLI・render.ts への配線は P3)。
+import { compositionDurationInFrames } from "./renderFrameMath.ts";
 import type { RenderProps } from "../../remotion/props.ts";
 
 /** frame-integer・半開区間 [fromFrame, toFrame) の分類済みスパン */
@@ -81,7 +82,7 @@ function mergeFrameIntervals(intervals: FrameInterval[]): FrameInterval[] {
 
 export function fastPlan(props: RenderProps): FastPlan {
   const fps = props.fps;
-  const totalFrames = Math.max(1, Math.round(props.durationSec * fps));
+  const totalFrames = compositionDurationInFrames(props.durationSec, fps);
 
   // ---- 全編ビデオフォールバック(inserts / colorFilter) ----
   const wholeFallback: string[] = [];
