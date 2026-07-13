@@ -75,13 +75,12 @@ render:
     type: none
     sec: 0.3
   # 字幕のフォントサイズ(px)。初学者の見やすさ優先で大きめ
-  captionFontSizePx: 58
+  captionFontSizePx: 64
   # テロップ既定の見た目(GUI エディタの設定画面 ⌘, からも変更できる)。
   # 個別のテロップ・トラック標準スタイルで指定の無い項目に効く
   captionColor: "#ffffff"
-  captionOutlineColor: "#2563eb" # "none" で縁取りなし
+  captionOutlineColor: "#000000" # "none" で縁取りなし
   captionFontFamily: '"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif'
-  captionFontWeight: 700 # 100〜900
   # plan が章タイトルのテロップ(「章」トラック)を作るときの表示秒数
   chapterCardSec: 3
   # 音声ラウドネス正規化の目標値(LUFS)。YouTube の基準は -14
@@ -133,6 +132,7 @@ render:
   zoom:
     # ズームイン/アウトの遷移秒数
     easeSec: 0.4
+  captionFontWeight: 400
 
 # 画面 OCR(frames --ocr)。AI が画面内テキスト(コード/ターミナル/エラー)を
 # テキストとして読むための Apple Vision OCR 設定。macOS 専用・オフライン。
@@ -335,9 +335,9 @@ ai:
   #   node src/cli.ts ai doctor
   #   node src/cli.ts ai doctor --route vision
 
-# ログ/可観測性。workflow(AI 呼び出し・ステージ・外部ツール)を stderr にどれだけ
-# 出すか。quiet=AI 行も抑止 / normal=AI+ステージ(既定) / verbose=ffmpeg・whisper・
-# remotion まで1行ずつ。環境変数 CUTFLOW_LOG とグローバル --verbose/--quiet が
-# この設定より優先。stdout(describe --json 等の JSON 射影)は level に関わらず不変。
+  # ログ/可観測性。workflow(AI 呼び出し・ステージ・外部ツール)を stderr にどれだけ
+  # 出すか。quiet=AI 行も抑止 / normal=AI+ステージ(既定) / verbose=ffmpeg・whisper・
+  # remotion まで1行ずつ。環境変数 CUTFLOW_LOG とグローバル --verbose/--quiet が
+  # この設定より優先。stdout(describe --json 等の JSON 射影)は level に関わらず不変。
 log:
   level: normal
