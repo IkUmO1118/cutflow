@@ -133,6 +133,24 @@ import {
 import type { Peaks } from "./widgets.tsx";
 
 type OverlayEntry = NonNullable<Overlays["overlays"]>[number];
+type ZoomEntry = NonNullable<Overlays["zooms"]>[number];
+type BlurEntry = NonNullable<Overlays["blurs"]>[number];
+type BgmEntry = NonNullable<Bgm["tracks"]>[number];
+type CaptionEntry = Transcript["segments"][number];
+
+/** クリップのコピー&ペースト(標準 NLE の a: クリップ複製)で持ち回る
+ * スナップショット。中身ごと複製できるよう entry を丸ごと控える(元収録の
+ * start/end を保持し、ペースト時に再生ヘッドの元秒へ平行移動する)。
+ * 対象はカット後タイムライン上で中身を複製できるクリップだけ:
+ * caption / overlays(素材)/ zoom / blur / annotation / bgm。
+ * insert(タイムライン再構成を伴う)・wipe・cut(ベース映像)・short は対象外 */
+type Clipboard =
+  | { kind: "caption"; entry: CaptionEntry }
+  | { kind: "overlays"; entry: OverlayEntry }
+  | { kind: "zoom"; entry: ZoomEntry }
+  | { kind: "blur"; entry: BlurEntry }
+  | { kind: "annotation"; entry: Annotation }
+  | { kind: "bgm"; entry: BgmEntry };
 
 type AiWorkflowPhase =
   | "idle"
@@ -790,6 +808,10 @@ export const App = () => {
   const docsRef = useRef<HistoryDocs | null>(null);
   docsRef.current =
     cutplan && overlays && transcript ? { cutplan, overlays, transcript, bgm, shorts } : null;
+
+  /** クリップのコピー&ペースト用のアプリ内クリップボード(OS のクリップボードは
+   * 経由しない)。⌘C で選択中クリップの中身を控え、⌘V で再生ヘッド位置へ複製する */
+  const clipboardRef = useRef<Clipboard | null>(null);
 
   /** 変更を加える直前に呼び、現在の状態を undo 履歴へ積む(redo は捨てる)。
    * key を渡すと、同じ key が短い間隔で続く間は積み直さない(テロップの
@@ -2980,6 +3002,129 @@ export const App = () => {
     }
   };
 
+  /* ---------------- クリップのコピー&ペースト(標準 NLE の a) ---------------- */
+
+  /** 選択中クリップの中身をクリップボードへ控える(⌘C)。複製できる中身を
+   * 持たない選択(insert / wipe / 映像 keep / ショート範囲)は対象外 */
+  const copySelected = () => {
+    if (!selection) return;
+    const { kind, index } = selection;
+    let clip: Clipboard | null = null;
+    if (kind === "caption") {
+      const s = transcript?.segments[index];
+      if (s) clip = { kind, entry: structuredClone(s) };
+    } else if (kind === "overlays") {
+      const s = overlays?.overlays?.[index];
+      if (s) clip = { kind, entry: structuredClone(s) };
+    } else if (kind === "zoom") {
+      const s = overlays?.zooms?.[index];
+      if (s) clip = { kind, entry: structuredClone(s) };
+    } else if (kind === "blur") {
+      const s = overlays?.blurs?.[index];
+      if (s) clip = { kind, entry: structuredClone(s) };
+    } else if (kind === "annotation") {
+      const s = overlays?.annotations?.[index];
+      if (s) clip = { kind, entry: structuredClone(s) };
+    } else if (kind === "bgm") {
+      const s = bgm?.tracks?.[index];
+      if (s) clip = { kind, entry: structuredClone(s) };
+    }
+    // 複製できる中身が無い選択(insert / wipe / 映像 keep / ショート範囲)は無反応
+    if (!clip) return;
+    clipboardRef.current = clip;
+  };
+
+  /** クリップボードの中身を再生ヘッド位置へ複製する(⌘V)。ペースト起点は
+   * 標準 NLE と同じく再生ヘッド(出力秒 → 元収録の秒へ変換)。控えた start から
+   * の平行移動で start/end と入れ子の時刻(caption の words・blur の keyframes)を
+   * ずらし、トラックは保ったまま、複製先で id/内部 layer は剥がす(@id は
+   * 一意なので splitAtPlayhead と同じ流儀) */
+  const pasteClipboard = () => {
+    const clip = clipboardRef.current;
+    if (!clip) return;
+    // ショートモードは本編クリップの座標系と別なので今は貼らせない(範囲だけ扱う)
+    if (shortMode) return;
+    // 再生ヘッドが keep 区間の外(カット/挿入クリップ上)なら貼り付け先が無い
+    const base = srcAt(playhead.get());
+    if (base === null) return;
+    if (clip.kind === "caption") {
+      if (!transcript) return;
+      const src = clip.entry;
+      const delta = round2(base - src.start);
+      const dur = src.end - src.start;
+      const { id: _id, ...rest } = src;
+      const entry: CaptionEntry = {
+        ...rest,
+        start: round2(base),
+        end: round2(base + dur),
+        ...(src.words
+          ? { words: src.words.map((w) => ({ ...w, start: round2(w.start + delta), end: round2(w.end + delta) })) }
+          : {}),
+      };
+      pushHistory();
+      const segs = [...transcript.segments];
+      let at = segs.findIndex((s) => s.start > entry.start);
+      if (at === -1) at = segs.length;
+      segs.splice(at, 0, entry);
+      setTranscript({ ...transcript, segments: segs });
+      setSelection({ kind: "caption", index: at });
+    } else if (clip.kind === "bgm") {
+      const src = clip.entry;
+      const dur = src.end - src.start;
+      const entry: BgmEntry = { ...src, start: round2(base), end: round2(base + dur) };
+      pushHistory();
+      const tracks = [...(bgm?.tracks ?? []), entry];
+      setBgm({ tracks });
+      setSelection({ kind: "bgm", index: tracks.length - 1 });
+    } else {
+      // overlays / zoom / blur / annotation は overlays.json の各配列へ追加。
+      // shifted/delta は各 entry 共通の start/end から算出(clip.entry を各分岐で
+      // narrow して使う=union のまま keyframes 等へ触らない)
+      if (!overlays) return;
+      const delta = round2(base - clip.entry.start);
+      const dur = clip.entry.end - clip.entry.start;
+      const shifted = { start: round2(base), end: round2(base + dur) };
+      pushHistory();
+      if (clip.kind === "overlays") {
+        const { id: _id, layer: _layer, ...rest } = clip.entry;
+        const entry: OverlayEntry = {
+          ...rest,
+          ...shifted,
+          // 素材の keyframes(位置/サイズ/opacity の時間変化)も元収録の秒なので平行移動
+          ...(clip.entry.keyframes
+            ? { keyframes: clip.entry.keyframes.map((k) => ({ ...k, at: round2(k.at + delta) })) }
+            : {}),
+        };
+        const list = [...(overlays.overlays ?? []), entry];
+        setOverlays({ ...overlays, overlays: list });
+        setSelection({ kind: "overlays", index: list.length - 1 });
+      } else if (clip.kind === "zoom") {
+        const { id: _id, ...rest } = clip.entry;
+        const list = [...(overlays.zooms ?? []), { ...rest, ...shifted }];
+        setOverlays({ ...overlays, zooms: list });
+        setSelection({ kind: "zoom", index: list.length - 1 });
+      } else if (clip.kind === "blur") {
+        const { id: _id, ...rest } = clip.entry;
+        const entry: BlurEntry = {
+          ...rest,
+          ...shifted,
+          ...(clip.entry.keyframes
+            ? { keyframes: clip.entry.keyframes.map((k) => ({ ...k, at: round2(k.at + delta) })) }
+            : {}),
+        };
+        const list = [...(overlays.blurs ?? []), entry];
+        setOverlays({ ...overlays, blurs: list });
+        setSelection({ kind: "blur", index: list.length - 1 });
+      } else {
+        // annotation(from/to・rect は座標なので平行移動しない)
+        const { id: _id, ...rest } = clip.entry;
+        const list = [...(overlays.annotations ?? []), { ...rest, ...shifted } as Annotation];
+        setOverlays({ ...overlays, annotations: list });
+        setSelection({ kind: "annotation", index: list.length - 1 });
+      }
+    }
+  };
+
   /* ---------------- 保存・下書き退避・プロキシ生成 ---------------- */
 
   const save = async () => {
@@ -3737,6 +3882,22 @@ export const App = () => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         splitAtPlayhead();
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c") {
+        // 選択中クリップの中身をコピー(標準 NLE の a)。選択が無ければ
+        // 素通し(ブラウザの通常コピーに任せる)
+        if (selection) {
+          e.preventDefault();
+          copySelected();
+        }
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "v") {
+        if (clipboardRef.current) {
+          e.preventDefault();
+          pasteClipboard();
+        }
         return;
       }
       if (!e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === "f") {
