@@ -132,13 +132,19 @@ test("fileRole: style.probe/ 配下(style-profile が書くスタイルプロフ
   assert.equal(fileRole("style.probe/default.json"), "generated");
 });
 
+test("fileRole: render.fast/ 配下(高速パスのテロップPNG・キー)は generated", () => {
+  assert.equal(fileRole("render.fast/captions/ab12cd34.png"), "generated");
+  assert.equal(fileRole("render.fast/segments/v000.mp4"), "generated");
+});
+
 test("isGeneratedCache: 重いキャッシュだけ true、軽い中間生成物は false", () => {
   // cache = true
   for (const c of ["proxy.mp4", "proxy.key.json", "cut.mp4", "cut.keeps.json",
     "preview.mp4", "render.props.json", "render.key.json",
     "cut.highlight-1.mp4", "render.highlight-1.key.json",
     "frames/out10s.png", "render.chunks/v001.mp4", "shorts/a.mp4",
-    "materials.probe/index.json", "av.probe/motion.json", "review.probe/index.json"]) {
+    "materials.probe/index.json", "av.probe/motion.json", "review.probe/index.json",
+    "render.fast/captions/ab12cd34.png"]) {
     assert.equal(isGeneratedCache(c), true, `${c} は cache のはず`);
   }
   // generated だが cache ではない(軽い/再生成が高価)
