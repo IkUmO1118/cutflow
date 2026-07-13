@@ -518,7 +518,7 @@ export interface Config {
     concurrency?: number;
     /** render 高速パス(FAST/SLOW ハイブリッド ffmpeg 合成)。省略時 false=
      * 既存挙動とバイト等価(このコード経路に入らない)。true でも収録が v1 適格
-     * (inserts/colorFilter/BGM/素材音声なし)かつ FAST 被覆 >= fastPathMinCoverage
+     * (inserts/素材音声なし)かつ FAST 被覆 >= fastPathMinCoverage
      * かつ composite 経路のときだけ発動し、欠ければ1行ログでフルレンダーへ落ちる */
     fastPath?: boolean;
     /** FAST 被覆率がこの値以上のときだけ高速パスを発動。省略時 0.5 */
