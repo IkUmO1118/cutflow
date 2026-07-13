@@ -5,6 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { RenderProps } from "../remotion/props.ts";
 import {
+  bgmMixEncodedAudioDurationSec,
   bgmMixSampleCount,
   buildBgmAmixArgs,
   frameSampleRange,
@@ -44,6 +45,10 @@ test("bgmMixSampleCount は composition のフレーム尺に一致する", () =
   const totalFrames = compositionDurationInFrames(1.04, fps);
   assert.equal(totalFrames, 31);
   assert.equal(bgmMixSampleCount(totalFrames, sampleRate, fps), 49600);
+});
+
+test("bgmMixEncodedAudioDurationSec は AAC 床丸め対策で2フレーム余分に作る", () => {
+  assert.equal(bgmMixEncodedAudioDurationSec(6301, 30), 6303 / 30);
 });
 
 test("frameSampleRange は各 video frame の丸め済み sample 窓を返す", () => {
