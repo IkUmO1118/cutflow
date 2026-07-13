@@ -35,6 +35,7 @@ function makeFixture(): string {
   put("render.chunks/v001.mp4"); put("render.chunks/chunks.key.json");
   put("shorts/highlight-1.mp4");
   put("materials.probe/index.json"); put("av.probe/motion.json"); put("review.probe/index.json");
+  put("render.fast/captions/ab12cd34.png");
   return dir;
 }
 
@@ -49,7 +50,7 @@ test("planClean: 選ぶのは全て generated、editable/approval/other は1件�
     const picked = new Set(plan.targets.map((t) => t.relPath));
     // 消えるべき代表が入っている
     for (const g of ["manifest.json", "cuts.auto.json", "proxy.mp4", "cut.mp4",
-      "cut.highlight-1.mp4", "frames", "render.chunks", "shorts", "materials.probe",
+      "cut.highlight-1.mp4", "frames", "render.chunks", "render.fast", "shorts", "materials.probe",
       "av.probe", "review.probe", "whisper-out.json", "preview.mp4"]) {
       assert.ok(picked.has(g), `${g} が削除対象に無い`);
     }
@@ -79,7 +80,7 @@ test("executeClean: generated だけ消え、editable/approval/other/素材は�
     }
     // 消えるべき
     for (const gone of ["manifest.json", "proxy.mp4", "cut.mp4", "cut.highlight-1.mp4",
-      "frames", "render.chunks", "shorts", "materials.probe", "av.probe", "review.probe",
+      "frames", "render.chunks", "render.fast", "shorts", "materials.probe", "av.probe", "review.probe",
       "whisper-out.json", "preview.mp4", "effect-check.json"]) {
       assert.ok(!existsSync(join(dir, gone)), `${gone} が残っている`);
     }
@@ -94,7 +95,7 @@ test("planClean --cache-only: 重いキャッシュだけ選び、軽い中間�
     const picked = new Set(planClean(dir, { cacheOnly: true }).targets.map((t) => t.relPath));
     for (const cache of ["proxy.mp4", "proxy.key.json", "cut.mp4", "cut.keeps.json",
       "preview.mp4", "render.props.json", "render.key.json", "cut.highlight-1.mp4",
-      "render.highlight-1.props.json", "frames", "render.chunks", "shorts",
+      "render.highlight-1.props.json", "frames", "render.chunks", "render.fast", "shorts",
       "materials.probe", "av.probe", "review.probe"]) {
       assert.ok(picked.has(cache), `${cache} が cache-only 対象に無い`);
     }
