@@ -16,12 +16,14 @@ import {
   countFastPngInputs,
   fastLayerMergeKey,
   mergeFastLayers,
+  renderFastSegment,
   resolveFastLayers,
 } from "../src/lib/fastSegment.ts";
 import { fadeFactor } from "../src/lib/overlayFade.ts";
 import type { FastSpan } from "../src/lib/fastPlan.ts";
 import type { Caption, OverlayItem, RenderProps, ResolvedAnnotation } from "../remotion/props.ts";
 import type { FastLayerItem, FastSegmentSpec } from "../src/lib/fastSegment.ts";
+import type { WarmAssets } from "../src/stages/frames.ts";
 
 function mkProps(partial: Partial<RenderProps> = {}): RenderProps {
   return {
@@ -657,6 +659,68 @@ test("B13: colorFilters:[](空配列)は未指定と同じ扱い(段を挿入し
   const withEmpty = buildFastSegmentFilter(mkSpec({ colorFilters: [] }));
   const withoutField = buildFastSegmentFilter(mkSpec());
   assert.equal(withEmpty, withoutField);
+});
+
+// ---- videoFromFrame(P5-4: baseSegment 由来の trim 写像。design-T4.md §2-C) ----
+
+test("G4-1: videoFromFrame 省略 → 現行の filtergraph 文字列と1文字も変わらない(既存 snapshot を維持=バイト等価の証明)", () => {
+  const spec = mkSpec({
+    layers: [{ pngPath: "/rec/aaa.png", enableWindows: [[30, 119]] }],
+  });
+  const filterWithout = buildFastSegmentFilter(spec);
+  const filterExplicitEqual = buildFastSegmentFilter({ ...spec, videoFromFrame: spec.fromFrame });
+  assert.equal(filterWithout, filterExplicitEqual);
+  assert.ok(filterWithout.includes(`trim=start_frame=${spec.fromFrame}:end_frame=${spec.toFrame}`));
+});
+
+test("G4-2: videoFromFrame:900・fromFrame:1200・toFrame:1500 → trim=start_frame=900:end_frame=1200(長さ300が保たれる)", () => {
+  const spec = mkSpec({ fromFrame: 1200, toFrame: 1500, videoFromFrame: 900 });
+  const filter = buildFastSegmentFilter(spec);
+  assert.ok(filter.includes("trim=start_frame=900:end_frame=1200"));
+  assert.ok(!filter.includes("trim=start_frame=1200"));
+});
+
+test("G4-3: -frames:v はセグメント長(toFrame-fromFrame)のまま(videoFromFrame の影響を受けない)", () => {
+  const spec = mkSpec({ fromFrame: 1200, toFrame: 1500, videoFromFrame: 900 });
+  const args = buildFastSegmentArgs(spec);
+  const idx = args.indexOf("-frames:v");
+  assert.equal(args[idx + 1], "300");
+});
+
+test("G4-4: overlay の enable='between(n,...)'(セグメントローカル出力frame)は videoFromFrame の影響を受けない", () => {
+  const spec = mkSpec({
+    fromFrame: 1200,
+    toFrame: 1500,
+    videoFromFrame: 900,
+    layers: [{ pngPath: "/rec/a.png", enableWindows: [[30, 119]] }],
+  });
+  const filter = buildFastSegmentFilter(spec);
+  assert.ok(filter.includes("enable='between(n,30,119)'"));
+});
+
+test("G4-5: renderFastSegment に base をまたぐ span を渡す → throw(baseSegOf の null を先に見る。ffmpeg は起動しない)", async () => {
+  const props = mkProps({
+    durationSec: 30,
+    baseSegments: [
+      { start: 0, videoStart: 0, durationSec: 20 },
+      { start: 25, videoStart: 20, durationSec: 5 },
+    ],
+    inserts: [{ start: 20, end: 25, file: "i.mp4", fit: "cover" }],
+  });
+  // span[0,750) は base[0](フレーム0-600)を超えて挿入区間(600-750)にまで
+  // またがる。fastPlan(clampFastSpansToBase)が本来これを許さないが、
+  // 不変条件が破れたときの安全弁を直接検証する
+  await assert.rejects(
+    () =>
+      renderFastSegment({
+        dir: "/tmp/does-not-matter",
+        props,
+        span: { kind: "fast", fromFrame: 0, toFrame: 750 },
+        index: 0,
+        warm: {} as WarmAssets,
+      }),
+    /baseSegment/,
+  );
 });
 
 // ---- S-9: fade 式が Remotion(fadeFactor)と全フレームで一致する(補遺4) ----
