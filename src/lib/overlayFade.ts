@@ -44,6 +44,27 @@ export function overlaySeqRange(
   return { fromFrame, durFrames, toFrame: fromFrame + durFrames };
 }
 
+/** 静止画 overlay の FAST 適格性。null = 適格、文字列 = 不適格の理由(SLOW 送り)。
+ * fastPlan.ts(SLOW 収集)と fastSegment.ts(resolveFastLayers の安全弁)の
+ * 両方が使うので、node 依存の無いこのファイルに置く(fastPlan.ts に置くと
+ * fastSegment.ts → fastPlan.ts の実行時 import が要り、fastPlan.ts →
+ * fastSegment.ts(countFastPngInputs)と合わせて循環 import になる) */
+export function overlayFastReason(o: OverlayItem, fps: number): string | null {
+  if (!isImageFile(o.file)) return "動画素材"; // P5 後続で扱う
+  if ((o.keyframes?.length ?? 0) > 0) return "keyframes"; // 時間変化する rect/opacity
+  if ((o.volume ?? 0) > 0) return "音声"; // 画像に音は無いが保守的に
+  const opacity = o.opacity ?? 1;
+  if (!(opacity >= 0 && opacity <= 1)) return "opacity 範囲外";
+  const { durFrames } = overlaySeqRange(o, fps);
+  const fin = fadeFrames(o.fadeInSec, fps);
+  const fout = fadeFrames(o.fadeOutSec, fps);
+  if (fin < 0 || fout < 0) return "負のフェード";
+  // Remotion は min(g_in, g_out)、ffmpeg の fade 連鎖は g_in × g_out。
+  // フェード窓が重ならない(fin + fout <= durFrames)ときだけ両者は厳密一致する
+  if (fin + fout > durFrames) return "フェード窓の重なり";
+  return null;
+}
+
 /** 時間変化する要素を剥がした「レイヤー画」用の素材(render 高速パスの
  * OverlayStill が焼く1枚)。fade / opacity / keyframes は ffmpeg 側が alpha として
  * 掛けるのでここでは 1 に固定。startFrom は画像では Remotion も無視するので落とす
