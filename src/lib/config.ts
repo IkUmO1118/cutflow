@@ -137,6 +137,20 @@ export interface Config {
      * 省略時 false(既存挙動と完全一致・words を一切書かない)。true で
      * whisper 実行を -ojf に切り替え、各 segment に words[] を付加する */
     wordTimestamps?: boolean;
+    /** テロップ(transcript.json の 1 segment)を「約 maxChars 文字」の粒度へ
+     *  割り直す設定。省略時は分割しない(whisper のチャンク幅そのまま=導入前と
+     *  バイト等価)。日本語の文節末(助詞・句末表現)+ 無音ギャップ + 文字数上限で
+     *  折る決定論処理で、LLM も再文字起こしも使わない。words[] があれば分割後の
+     *  時刻は語境界そのもの。§src/lib/captionSplit.ts */
+    captionSplit?: {
+      /** これ(code point 数)を超える segment だけを分割する。0 以下で無効 */
+      maxChars: number;
+      /** 分割後の断片がこれ未満にならないよう soft-break を選ぶ下限。
+       *  省略時 floor(maxChars * 0.4) */
+      minChars?: number;
+      /** 語間ギャップ(秒)がこれ以上なら「間」= 分割候補。省略時 0.3 */
+      gapSec?: number;
+    };
     /** システム音声(ingest.systemTrack)も第2トラックとして文字起こしし、
      *  知覚専用の transcript.system.json を書くか。省略時 false(既存挙動と
      *  完全一致=system.wav も transcript.system.json も作らず manifest も不変)。
