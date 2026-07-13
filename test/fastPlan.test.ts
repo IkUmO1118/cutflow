@@ -155,7 +155,7 @@ test("karaoke テロップは SLOW", () => {
   );
 });
 
-test("blur と annotation はそれぞれ SLOW(非重複なら2本)", () => {
+test("blur は SLOW・静的 annotation(keyframes 無し)は SLOW を作らない(P5-2 回帰。旧: 2本 → 新: 1本)", () => {
   const props = mkProps({
     durationSec: 60,
     blurs: [
@@ -175,9 +175,171 @@ test("blur と annotation はそれぞれ SLOW(非重複なら2本)", () => {
   });
   const plan = fastPlan(props);
   const slow = plan.spans.filter((s) => s.kind === "slow");
+  assert.equal(slow.length, 1);
+  assert.deepEqual(slow[0], { kind: "slow", fromFrame: 150, toFrame: 240 }); // blur ぶんのみ(annotation は寄与しない)
+});
+
+// ---- P5-2: 静的 annotation の FAST 化(design-T2.md §6) ----
+
+test("P2-1: 静的 annotation(arrow/box/spotlight 各1件)だけ → SLOW スパン無し・全編 FAST", () => {
+  const props = mkProps({
+    durationSec: 30,
+    annotations: [
+      {
+        type: "arrow", start: 2, end: 4,
+        from: { x: 0, y: 0 }, to: { x: 100, y: 0 },
+        color: "#ff3b30", widthPx: 8, headPx: 28,
+      },
+      {
+        type: "box", start: 10, end: 12,
+        rect: { x: 0, y: 0, w: 100, h: 100 },
+        color: "#fff", widthPx: 4, radiusPx: 0,
+      },
+      {
+        type: "spotlight", start: 20, end: 22,
+        rect: { x: 0, y: 0, w: 100, h: 100 },
+        shape: "rect", dim: 0.6, featherPx: 24, radiusPx: 0,
+      },
+    ],
+  });
+  const plan = fastPlan(props);
+  assert.deepEqual(plan.spans, [{ kind: "fast", fromFrame: 0, toFrame: plan.totalFrames }]);
+  assert.equal(plan.coverageRatio, 1);
+  assert.equal(plan.eligible, true);
+});
+
+test("P2-2: keyframes 付き annotation 1件 → その区間だけ SLOW", () => {
+  const props = mkProps({
+    durationSec: 30,
+    annotations: [
+      {
+        type: "box", start: 10, end: 12,
+        rect: { x: 0, y: 0, w: 100, h: 100 },
+        color: "#fff", widthPx: 4, radiusPx: 0,
+        keyframes: [{ at: 10, easing: "linear", values: { x: 0 } }],
+      },
+    ],
+  });
+  const plan = fastPlan(props);
+  const slow = plan.spans.filter((s) => s.kind === "slow");
+  assert.equal(slow.length, 1);
+  // floor(10*30)=300, ceil(12*30)=360
+  assert.deepEqual(slow[0], { kind: "slow", fromFrame: 300, toFrame: 360 });
+  assert.ok(plan.notes.some((n) => n.includes("keyframes") && n.includes("box")));
+});
+
+test("P2-3: keyframes: [] の annotation は FAST のまま(A-2 のプランナー側回帰)", () => {
+  const props = mkProps({
+    durationSec: 30,
+    annotations: [
+      {
+        type: "box", start: 10, end: 12,
+        rect: { x: 0, y: 0, w: 100, h: 100 },
+        color: "#fff", widthPx: 4, radiusPx: 0,
+        keyframes: [],
+      },
+    ],
+  });
+  const plan = fastPlan(props);
+  assert.deepEqual(plan.spans, [{ kind: "fast", fromFrame: 0, toFrame: plan.totalFrames }]);
+  assert.equal(plan.coverageRatio, 1);
+});
+
+test("P2-4: blur は依然 SLOW(type: blur / mosaic の両方。判断Bの回帰)", () => {
+  const props = mkProps({
+    durationSec: 30,
+    blurs: [
+      { start: 5, end: 7, rect: { x: 0, y: 0, w: 100, h: 100 }, type: "blur", strength: 0.5 },
+      { start: 15, end: 17, rect: { x: 0, y: 0, w: 100, h: 100 }, type: "mosaic", strength: 0.5 },
+    ],
+  });
+  const plan = fastPlan(props);
+  const slow = plan.spans.filter((s) => s.kind === "slow");
   assert.equal(slow.length, 2);
-  assert.deepEqual(slow[0], { kind: "slow", fromFrame: 150, toFrame: 240 });
-  assert.deepEqual(slow[1], { kind: "slow", fromFrame: 900, toFrame: 990 });
+  assert.deepEqual(slow[0], { kind: "slow", fromFrame: 150, toFrame: 210 });
+  assert.deepEqual(slow[1], { kind: "slow", fromFrame: 450, toFrame: 510 });
+});
+
+test("P2-5: 静的 annotation は SLOW 境界(blur 由来)をまたいでも降格しない", () => {
+  const withoutAnnotation = mkProps({
+    durationSec: 30,
+    blurs: [{ start: 10, end: 12, rect: { x: 0, y: 0, w: 100, h: 100 }, type: "blur", strength: 0.5 }],
+  });
+  const withAnnotation = mkProps({
+    durationSec: 30,
+    blurs: [{ start: 10, end: 12, rect: { x: 0, y: 0, w: 100, h: 100 }, type: "blur", strength: 0.5 }],
+    annotations: [
+      {
+        // 11.0-13.0 は blur の SLOW 窓 [10,12) をまたぐ
+        type: "box", start: 11, end: 13,
+        rect: { x: 0, y: 0, w: 100, h: 100 },
+        color: "#fff", widthPx: 4, radiusPx: 0,
+      },
+    ],
+  });
+  const planWithout = fastPlan(withoutAnnotation);
+  const planWith = fastPlan(withAnnotation);
+  // spans(SLOW 区間)は annotation の有無で変わらない = 追加の SLOW が発生しない
+  assert.deepEqual(planWith.spans, planWithout.spans);
+});
+
+test("P2-6: 静的 annotation は countFastPngInputs を +1 する(同一内容2件は畳み込まれ+1・異なる内容2件は+2)", () => {
+  const base = mkProps({ durationSec: 30 });
+  const baseline = countFastPngInputs(base, { kind: "fast", fromFrame: 0, toFrame: 900 });
+
+  const sameTwice = mkProps({
+    durationSec: 30,
+    annotations: [
+      { type: "box", start: 2, end: 3, rect: { x: 0, y: 0, w: 100, h: 100 }, color: "#fff", widthPx: 4, radiusPx: 0 },
+      { type: "box", start: 20, end: 21, rect: { x: 0, y: 0, w: 100, h: 100 }, color: "#fff", widthPx: 4, radiusPx: 0 },
+    ],
+  });
+  assert.equal(
+    countFastPngInputs(sameTwice, { kind: "fast", fromFrame: 0, toFrame: 900 }),
+    baseline + 1,
+  );
+
+  const differentTwice = mkProps({
+    durationSec: 30,
+    annotations: [
+      { type: "box", start: 2, end: 3, rect: { x: 0, y: 0, w: 100, h: 100 }, color: "#fff", widthPx: 4, radiusPx: 0 },
+      { type: "box", start: 20, end: 21, rect: { x: 0, y: 0, w: 100, h: 100 }, color: "#000", widthPx: 4, radiusPx: 0 },
+    ],
+  });
+  assert.equal(
+    countFastPngInputs(differentTwice, { kind: "fast", fromFrame: 0, toFrame: 900 }),
+    baseline + 2,
+  );
+});
+
+test("P2-7: props.layout があると eligible: false / wholeFallback に layout(ショート経路)が含まれる", () => {
+  const props = mkProps({
+    durationSec: 20,
+    layout: { panels: [{ source: "screen", fit: "cover" }] },
+  });
+  const plan = fastPlan(props);
+  assert.equal(plan.eligible, false);
+  assert.deepEqual(plan.wholeFallback, ["layout(ショート経路)"]);
+  assert.deepEqual(plan.spans, [{ kind: "slow", fromFrame: 0, toFrame: plan.totalFrames }]);
+});
+
+test("P2-8: 静的 annotation が MAX_FAST_PNG_INPUTS 超過に寄与するとき splitOversizedFastSpans が働く(落ちない)", () => {
+  const annotations = Array.from({ length: 130 }, (_, i) => ({
+    type: "box" as const,
+    start: 1 + i * 2,
+    end: 1.5 + i * 2,
+    rect: { x: 0, y: 0, w: 10, h: 10 },
+    color: `#${(i % 999).toString().padStart(3, "0")}`, // 全件異なる内容(畳み込み不可)
+    widthPx: 4,
+    radiusPx: 0,
+  }));
+  const props = mkProps({ durationSec: 320, annotations });
+  const plan = fastPlan(props);
+  for (const s of plan.spans) {
+    if (s.kind === "fast") {
+      assert.ok(countFastPngInputs(props, s) <= MAX_FAST_PNG_INPUTS);
+    }
+  }
 });
 
 test("dip-to-black のカット境界窓は SLOW", () => {
