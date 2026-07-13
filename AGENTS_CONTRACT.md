@@ -120,7 +120,10 @@ false staleness signals or gets silently discarded:
   fast path: `captions/<key>.png` (per-caption transparent PNGs, content-hashed
   by text + resolved style + position + output resolution); `overlays/<key>.png`
   (per-overlay transparent layer PNGs with fade/opacity stripped, content-hashed
-  by file path + mtime/size + fit + rect + output resolution). Differential cache
+  by file path + mtime/size + fit + rect + output resolution);
+  `annotations/<key>.png` (per-annotation transparent layer PNGs for
+  static annotations, content-hashed by the resolved annotation fields +
+  output resolution). Differential cache
   (not wiped each run); deleting the whole directory forces full regeneration.
 - `review.probe/` — a **replace-on-run** generated directory written by
   `review <dir>` (`index.json`, `before/`, `after/`, `ocr/`). It is wiped and
