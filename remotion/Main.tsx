@@ -7,7 +7,6 @@ import {
   OffthreadVideo,
   Sequence,
   getRemotionEnvironment,
-  interpolate,
   staticFile,
   useCurrentFrame,
   useVideoConfig,
@@ -22,9 +21,9 @@ import type { LayerId } from "../src/types.ts";
 import { frameSpans } from "../src/lib/renderProps.ts";
 import { buildCaptionIndex, lookupCaption } from "../src/lib/captionIndex.ts";
 import { arrowHeadPoints } from "../src/lib/annotation.ts";
+import { bgmTrackTiming, bgmVolumeAtFrame } from "../src/lib/bgmEnvelope.ts";
 import { blurRadiusPx, mosaicBlockPx, outputRectToCanvasRegion } from "../src/lib/blur.ts";
 import { cssFilterOf } from "../src/lib/colorFilter.ts";
-import { duckFactorAt } from "../src/lib/duck.ts";
 import { valuesAt } from "../src/lib/keyframes.ts";
 import { cropFitStyle } from "../src/lib/panelStyle.ts";
 import { zoomTransformAt } from "../src/lib/zoom.ts";
@@ -571,20 +570,9 @@ const BgmTrack = ({
   track: RenderProps["bgm"][number];
   fps: number;
 }) => {
-  const from = Math.round(track.start * fps);
-  const durationInFrames = Math.max(1, Math.round((track.end - track.start) * fps));
-  const gain = Math.pow(10, track.volumeDb / 20);
-  const fadeInFrames = (track.fadeInSec ?? 0) * fps;
-  const fadeOutFrames = (track.fadeOutSec ?? 0) * fps;
-  const duck = track.duck;
-  const duckGain = duck ? Math.pow(10, duck.duckDb / 20) : 1;
-  // 発話ダッキングの係数(1=通常、duckGain=下げ切り)を区間の手前 fadeSec 秒で
-  // 下げ、後ろ fadeSec 秒で戻す。duck.spans は非重複・隙間 > fadeSec×2 が
-  // 保証されているので lib/duck.ts の二分探索に落とせる(毎フレーム
-  // duck.spans 全件を線形走査していたのを解消)
-  const duckFade = duck ? Math.max(duck.fadeSec, 1 / fps) : 0;
+  const { fromFrame, durationInFrames, startFromFrame } = bgmTrackTiming(track, fps);
   return (
-    <Sequence from={from} durationInFrames={durationInFrames}>
+    <Sequence from={fromFrame} durationInFrames={durationInFrames}>
       <Audio
         loop
         // BGM が区間より短くループするとき、volume コールバックの f を
@@ -592,26 +580,8 @@ const BgmTrack = ({
         // (既定の "repeat" だと2周目以降ダッキングとフェードがずれる)
         loopVolumeCurveBehavior="extend"
         src={staticFile(track.file)}
-        {...(track.startFrom ? { startFrom: Math.round(track.startFrom * fps) } : {})}
-        volume={(f) => {
-          const sec = (from + f) / fps;
-          const fadeIn =
-            fadeInFrames > 0
-              ? interpolate(f, [0, fadeInFrames], [0, 1], {
-                  extrapolateLeft: "clamp",
-                  extrapolateRight: "clamp",
-                })
-              : 1;
-          const fadeOut =
-            fadeOutFrames > 0
-              ? interpolate(f, [durationInFrames - fadeOutFrames, durationInFrames], [1, 0], {
-                  extrapolateLeft: "clamp",
-                  extrapolateRight: "clamp",
-                })
-              : 1;
-          const duckFactor = duck ? duckFactorAt(duck.spans, sec, duckFade, duckGain) : 1;
-          return gain * duckFactor * fadeIn * fadeOut;
-        }}
+        startFrom={startFromFrame}
+        volume={(f) => bgmVolumeAtFrame(track, f, fps)}
       />
     </Sequence>
   );
