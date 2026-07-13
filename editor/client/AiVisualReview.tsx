@@ -18,7 +18,7 @@ export interface AiVisualReviewProps {
   reviewBundle?: ReviewBundle;
   reviewStale?: boolean;
   frameChecks: string[];
-  globalWarnings: { label: string; items: string[] }[];
+  globalWarnings: { label: string; tone?: "warn" | "muted"; items: string[] }[];
   warningSummary: { total: number; groups: { label: string; count: number }[] };
   checkingFrames: boolean;
   refining: boolean;
@@ -62,6 +62,7 @@ export const AiVisualReview = ({
   const [showAllJsonDiffs, setShowAllJsonDiffs] = useState(false);
   const [refineOpen, setRefineOpen] = useState(false);
   const [refineInstruction, setRefineInstruction] = useState("");
+  const [descExpanded, setDescExpanded] = useState(false);
   const beforeVideoRef = useRef<HTMLVideoElement | null>(null);
   const afterVideoRef = useRef<HTMLVideoElement | null>(null);
 
@@ -103,6 +104,14 @@ export const AiVisualReview = ({
   );
   const timelineRange = useMemo(() => timelineRangeOf(events), [events]);
   const actionsDisabled = refining;
+  // 候補が1件だけのとき(=一発編集の常態)は左リストが右インスペクタの
+  // 複製になるので畳み、2カラムにする。バルク採否も複数候補のときだけ出す。
+  const showEventList = events.length >= 2;
+  const selectedStatus = useMemo(
+    () => (selectedEvent ? reviewEventStatus({ event: selectedEvent, hunks, resolution }) : "unreviewed"),
+    [selectedEvent, hunks, resolution],
+  );
+  const descIsLong = description.length > 90;
 
   const syncAfterToBefore = (force = false) => {
     const before = beforeVideoRef.current;
@@ -161,14 +170,23 @@ export const AiVisualReview = ({
           <div className="aiReviewHeadCopy">
             <div className="diffCount">{events.length} 件の変更候補</div>
             <h3>{title}</h3>
-            <p>{description}</p>
+            {description && (
+              <p className={descIsLong && !descExpanded ? "clamp" : ""}>{description}</p>
+            )}
+            {descIsLong && (
+              <button className="aiReviewDescToggle" onClick={() => setDescExpanded((prev) => !prev)}>
+                {descExpanded ? "たたむ" : "続きを読む"}
+              </button>
+            )}
           </div>
           <div className="aiReviewHeadActions">
             <button disabled={actionsDisabled} onClick={() => onGenerateReview({ withVlm: false })}>比較を更新</button>
-            <div className="aiReviewBulkActions" role="group" aria-label="一括採否">
-              <button disabled={actionsDisabled} onClick={() => onBulk("mine")}>すべて使わない</button>
-              <button disabled={actionsDisabled} className="primary" onClick={() => onBulk("theirs")}>すべて使う</button>
-            </div>
+            {showEventList && (
+              <div className="aiReviewBulkActions" role="group" aria-label="一括採否">
+                <button disabled={actionsDisabled} onClick={() => onBulk("mine")}>すべて使わない</button>
+                <button disabled={actionsDisabled} onClick={() => onBulk("theirs")}>すべて使う</button>
+              </div>
+            )}
           </div>
         </div>
         {warningSummary.total > 0 && (
@@ -185,7 +203,8 @@ export const AiVisualReview = ({
           </div>
         )}
 
-        <div className="aiReviewGrid">
+        <div className={showEventList ? "aiReviewGrid" : "aiReviewGrid noList"}>
+          {showEventList && (
           <aside className="aiReviewEventList">
             {events.map((event) => {
               const visited = visitedEventIds.has(event.id);
@@ -212,11 +231,12 @@ export const AiVisualReview = ({
               );
             })}
           </aside>
+          )}
 
           <main className="aiReviewPreview">
             <div className="aiReviewPreviewCard">
               <div className="aiReviewPreviewTop">
-                <div className="aiReviewPreviewLabel">AI編集後プレビュー</div>
+                <div className="aiReviewPreviewLabel">プレビュー</div>
                 <div className="aiReviewModeSwitch" role="group" aria-label="比較表示">
                   <button
                     disabled={actionsDisabled}
@@ -224,7 +244,7 @@ export const AiVisualReview = ({
                     aria-pressed={previewMode === "after"}
                     onClick={() => setPreviewMode("after")}
                   >
-                    AI編集後
+                    編集後
                   </button>
                   <button
                     disabled={actionsDisabled}
@@ -232,7 +252,7 @@ export const AiVisualReview = ({
                     aria-pressed={previewMode === "before"}
                     onClick={() => setPreviewMode("before")}
                   >
-                    Beforeを見る
+                    編集前
                   </button>
                   <button
                     disabled={actionsDisabled}
@@ -240,7 +260,7 @@ export const AiVisualReview = ({
                     aria-pressed={previewMode === "side-by-side"}
                     onClick={() => setPreviewMode("side-by-side")}
                   >
-                    左右比較
+                    左右で比較
                   </button>
                   <button
                     disabled={actionsDisabled}
@@ -268,7 +288,7 @@ export const AiVisualReview = ({
                           aria-label={previewMedia.side === "before" ? "before clip" : "after clip"}
                           onLoadedMetadata={() => seekPreviewVideos()}
                         />
-                        <figcaption>{previewMedia.side === "before" ? "Before clip" : "After clip"}</figcaption>
+                        <figcaption>{previewMedia.side === "before" ? "編集前" : "編集後"}</figcaption>
                       </figure>
                     </div>
                   )}
@@ -292,7 +312,7 @@ export const AiVisualReview = ({
                           onSeeked={() => syncAfterToBefore(true)}
                           onTimeUpdate={() => syncAfterToBefore(false)}
                         />
-                        <figcaption>Before clip</figcaption>
+                        <figcaption>編集前</figcaption>
                       </figure>
                       <figure className="aiReviewStillPane after">
                         <video
@@ -305,7 +325,7 @@ export const AiVisualReview = ({
                           aria-label="after clip"
                           onLoadedMetadata={() => seekPreviewVideos()}
                         />
-                        <figcaption>After clip</figcaption>
+                        <figcaption>編集後</figcaption>
                       </figure>
                     </div>
                   )}
@@ -314,8 +334,8 @@ export const AiVisualReview = ({
                       <div className={`aiReviewStillStage mode-${previewMode}`}>
                         {(previewMode === "before" || previewMode === "side-by-side" || previewMode === "overlay") && (
                           <figure className={`aiReviewStillPane before ${previewMode === "overlay" ? "overlayBase" : ""}`}>
-                            <img src={mediaUrl(previewMedia.still.before.file)} alt="before still" />
-                            <figcaption>Before</figcaption>
+                            <img src={mediaUrl(previewMedia.still.before.file)} alt="編集前" />
+                            <figcaption>編集前</figcaption>
                           </figure>
                         )}
                         {(previewMode === "after" || previewMode === "side-by-side" || previewMode === "overlay") && (
@@ -323,8 +343,8 @@ export const AiVisualReview = ({
                             className={`aiReviewStillPane after ${previewMode === "overlay" ? "overlayTop" : ""}`}
                             style={previewMode === "overlay" ? { opacity: overlayOpacity } : undefined}
                           >
-                            <img src={mediaUrl(previewMedia.still.after.file)} alt="after still" />
-                            <figcaption>After</figcaption>
+                            <img src={mediaUrl(previewMedia.still.after.file)} alt="編集後" />
+                            <figcaption>編集後</figcaption>
                           </figure>
                         )}
                       </div>
@@ -358,7 +378,7 @@ export const AiVisualReview = ({
                 </div>
               )}
 
-              {timelineRange && (
+              {showEventList && timelineRange && (
                 <div className="aiReviewMiniTimeline" aria-label="変更タイムライン">
                   {events.flatMap((event) => {
                     if (!event.timeRange) return [];
@@ -400,7 +420,7 @@ export const AiVisualReview = ({
               {globalWarnings.length > 0 && (
                 <div className="aiReviewWarnings">
                   {globalWarnings.map((group) => (
-                    <details key={group.label} className="aiReviewWarningGroup">
+                    <details key={group.label} className={`aiReviewWarningGroup tone-${group.tone ?? "warn"}`}>
                       <summary>
                         <span className="aiReviewWarningGroupTitle">{group.label} {group.items.length}件</span>
                         <span className="aiReviewWarningGroupPreview">{summarizeWarning(group.items[0] ?? "")}</span>
@@ -434,9 +454,6 @@ export const AiVisualReview = ({
                 <div className="aiReviewInspectorHead">
                   <h4>{selectedEvent.title}</h4>
                   <div className="aiReviewInspectorSub">{selectedEvent.subtitle}</div>
-                  {selectedEvent.timeRange && (
-                    <div className="aiReviewInspectorMeta">{formatTimeRange(selectedEvent.timeRange)}</div>
-                  )}
                 </div>
 
                 {selectedEvent.warnings.length > 0 && (
@@ -470,9 +487,26 @@ export const AiVisualReview = ({
                   </section>
                 )}
 
-                <div className="aiReviewInspectorActions">
-                  <button disabled={actionsDisabled} onClick={() => setSelectedSide("mine")}>使わない</button>
-                  <button disabled={actionsDisabled} className="primary" onClick={() => setSelectedSide("theirs")}>使う</button>
+                <div className="aiReviewDecision" role="group" aria-label="この変更の採否">
+                  <span className="aiReviewDecisionLabel">この変更を</span>
+                  <div className="aiReviewDecisionToggle">
+                    <button
+                      disabled={actionsDisabled}
+                      className={selectedStatus === "skip" ? "on skip" : ""}
+                      aria-pressed={selectedStatus === "skip"}
+                      onClick={() => setSelectedSide("mine")}
+                    >
+                      使わない
+                    </button>
+                    <button
+                      disabled={actionsDisabled}
+                      className={selectedStatus === "use" ? "on use" : ""}
+                      aria-pressed={selectedStatus === "use"}
+                      onClick={() => setSelectedSide("theirs")}
+                    >
+                      使う
+                    </button>
+                  </div>
                 </div>
 
                 <section className="aiReviewInspectorSection">
@@ -482,7 +516,7 @@ export const AiVisualReview = ({
                     結果は自動採用されず、新しい提案としてもう一度レビューします。
                   </p>
                   {!refineOpen ? (
-                    <button disabled={actionsDisabled} onClick={() => setRefineOpen(true)}>この変更をAIに直させる</button>
+                    <button disabled={actionsDisabled} onClick={() => setRefineOpen(true)}>直し方を指示する</button>
                   ) : (
                     <div className="aiReviewRefinePanel">
                       <textarea
@@ -501,7 +535,6 @@ export const AiVisualReview = ({
                         </button>
                         <button
                           disabled={actionsDisabled}
-                          className="primary"
                           onClick={() => onRefine({ withVlm: true, instruction: refineInstruction })}
                         >
                           画像を見せて再提案

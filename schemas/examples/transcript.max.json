@@ -14,6 +14,7 @@
         "fontSizePx": 40,
         "color": "#ffff00",
         "outlineColor": "none",
+        "outlineWidthPx": 6,
         "fontFamily": "sans-serif",
         "fontWeight": 700,
         "background": { "color": "rgba(0,0,0,0.6)", "paddingPx": 12, "radiusPx": 8 },

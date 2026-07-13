@@ -39,6 +39,8 @@ import { valuesAt } from "../src/lib/keyframes.ts";
 import { cropFitStyle } from "../src/lib/panelStyle.ts";
 import { zoomTransformAt } from "../src/lib/zoom.ts";
 import type { OverlayItem, Region, RenderProps, Span } from "./props.ts";
+// 副作用 import: テロップ既定フォント(Noto Sans JP 可変)を登録する。
+import "./loadFonts.ts";
 
 const JP_FONT = CAPTION_DEFAULT_FONT_FAMILY;
 
@@ -295,6 +297,7 @@ export const Main = (props: RenderProps) => {
           fontSizePx={fontSizePx}
           color={caption.style?.color ?? props.caption.color}
           outlineColor={caption.style?.outlineColor ?? props.caption.outlineColor}
+          outlineWidthPx={caption.style?.outlineWidthPx}
           fontFamily={caption.style?.fontFamily ?? props.caption.fontFamily}
           fontWeight={caption.style?.fontWeight ?? props.caption.fontWeight}
           background={caption.style?.background}
@@ -842,6 +845,7 @@ const OutlinedText = ({
   fontSizePx,
   color = CAPTION_DEFAULT_COLOR,
   outlineColor = CAPTION_DEFAULT_OUTLINE,
+  outlineWidthPx,
   fontFamily = JP_FONT,
   fontWeight = CAPTION_DEFAULT_FONT_WEIGHT,
   background,
@@ -854,6 +858,8 @@ const OutlinedText = ({
   fontSizePx: number;
   color?: string;
   outlineColor?: string;
+  /** 縁取りの太さ(出力px)。省略時はフォントサイズの 0.25 倍(従来の既定) */
+  outlineWidthPx?: number;
   fontFamily?: string;
   fontWeight?: number;
   background?: CaptionBackground;
@@ -864,7 +870,9 @@ const OutlinedText = ({
   /** 現在時刻(カット後秒)。words 指定時のみ使う */
   t?: number;
 }) => {
-  const strokeW = Math.round(fontSizePx * 0.25);
+  // 縁取り幅は明示指定(出力px)を優先し、無ければ従来どおりフォントサイズの
+  // 0.25 倍。指定 0 は「縁を消す」ではなく hasStroke(outlineColor)で判定する
+  const strokeW = outlineWidthPx !== undefined ? outlineWidthPx : Math.round(fontSizePx * 0.25);
   const hasStroke = outlineColor !== "none" && outlineColor !== "transparent";
   // 縁取り層(下)は語ごとに色分けしない=常に1塊 {text} のまま(カラオケでも触らない)。
   // 本文層(上)だけ、karaoke が明示的に有効(style.karaoke 指定)で words があるとき

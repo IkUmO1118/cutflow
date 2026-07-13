@@ -1198,8 +1198,8 @@ function checkCaptionTracks(
 /** アニメ種別(CaptionAnimKind)の許可リスト。src/types.ts の型定義と揃える */
 const CAPTION_ANIM_KINDS = ["fade", "slide-up", "slide-down", "slide-left", "slide-right", "pop", "none"];
 
-/** テロップの style({fontSizePx, color, outlineColor, fontFamily,
- * fontWeight, background, anim, karaoke})の検査 */
+/** テロップの style({fontSizePx, color, outlineColor, outlineWidthPx,
+ * fontFamily, fontWeight, background, anim, karaoke})の検査 */
 function checkStyle(
   file: string,
   where: string,
@@ -1217,6 +1217,9 @@ function checkStyle(
     if (style[k] !== undefined && (typeof style[k] !== "string" || style[k] === "")) {
       err(file, w, `${k} は CSS カラー文字列です(現在: ${JSON.stringify(style[k])})`);
     }
+  }
+  if (style.outlineWidthPx !== undefined && (!isNum(style.outlineWidthPx) || style.outlineWidthPx < 0)) {
+    err(file, w, `outlineWidthPx は 0 以上の数値です(現在: ${JSON.stringify(style.outlineWidthPx)})`);
   }
   if (style.fontFamily !== undefined && (typeof style.fontFamily !== "string" || style.fontFamily === "")) {
     err(file, w, `fontFamily は CSS フォント指定の文字列です(現在: ${JSON.stringify(style.fontFamily)})`);
