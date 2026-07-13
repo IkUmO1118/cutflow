@@ -135,6 +135,7 @@ test("fileRole: style.probe/ 配下(style-profile が書くスタイルプロフ
 test("fileRole: render.fast/ 配下(高速パスのテロップPNG・キー)は generated", () => {
   assert.equal(fileRole("render.fast/captions/ab12cd34.png"), "generated");
   assert.equal(fileRole("render.fast/segments/v000.mp4"), "generated");
+  assert.equal(fileRole("render.fast/overlays/ab12cd34.png"), "generated");
 });
 
 test("isGeneratedCache: 重いキャッシュだけ true、軽い中間生成物は false", () => {

@@ -2,6 +2,8 @@ import { Composition } from "remotion";
 import { Main } from "./Main.tsx";
 import { CaptionStill, captionStillDefaultProps } from "./CaptionStill.tsx";
 import type { CaptionStillProps } from "./CaptionStill.tsx";
+import { OverlayStill, overlayStillDefaultProps } from "./OverlayStill.tsx";
+import type { OverlayStillProps } from "./OverlayStill.tsx";
 import { defaultProps } from "./props.ts";
 import type { RenderProps } from "./props.ts";
 import { compositionDurationInFrames } from "../src/lib/renderFrameMath.ts";
@@ -32,6 +34,21 @@ export const RemotionRoot = () => (
       height={1080}
       defaultProps={captionStillDefaultProps}
       calculateMetadata={({ props }: { props: CaptionStillProps }) => ({
+        durationInFrames: 1,
+        fps: 30,
+        width: props.width,
+        height: props.height,
+      })}
+    />
+    <Composition
+      id="OverlayStill"
+      component={OverlayStill}
+      durationInFrames={1}
+      fps={30}
+      width={1920}
+      height={1080}
+      defaultProps={overlayStillDefaultProps}
+      calculateMetadata={({ props }: { props: OverlayStillProps }) => ({
         durationInFrames: 1,
         fps: 30,
         width: props.width,
