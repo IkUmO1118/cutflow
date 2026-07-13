@@ -6,6 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  FAST_FPS_ROUND,
   buildFastSegmentArgs,
   buildFastSegmentFilter,
   resolveFastCaptions,
@@ -128,6 +129,18 @@ test("R9: フレーム境界(start=1.0,end=3.0,fps30) → [[30,89]]", () => {
   assert.deepEqual(result[0].enableWindows, [[30, 89]]);
 });
 
+test("R10: 同一trackのoverlapは配列順先勝ちで後続は重なり後から表示", () => {
+  const first = mkCap(1, 1, 4, { text: "first" }); // abs [30,120)
+  const second = mkCap(1, 3, 5, { text: "second" }); // abs [90,150)
+  const props = mkProps({ captions: [first, second] });
+  const result = resolveFastCaptions(props, span(0, 180));
+  assert.equal(result.length, 2);
+  assert.equal(result[0].caption, first);
+  assert.deepEqual(result[0].enableWindows, [[30, 119]]);
+  assert.equal(result[1].caption, second);
+  assert.deepEqual(result[1].enableWindows, [[120, 149]]);
+});
+
 // ---- buildFastSegmentFilter / buildFastSegmentArgs ----
 
 function mkSpec(overrides: Partial<FastSegmentSpec> = {}): FastSegmentSpec {
@@ -171,6 +184,17 @@ test("B2: trim はフレーム指定(秒指定でない)", () => {
   const filter = buildFastSegmentFilter(spec);
   assert.ok(filter.includes("trim=start_frame=0:end_frame=300"));
   assert.ok(!filter.includes("trim=start="));
+  const fpsIndex = filter.indexOf(`fps=fps=30:round=${FAST_FPS_ROUND}:start_time=0`);
+  const trimIndex = filter.indexOf("trim=start_frame=0:end_frame=300");
+  const localPtsIndex = filter.indexOf("setpts=N/30/TB");
+  assert.ok(fpsIndex >= 0);
+  assert.ok(fpsIndex < trimIndex);
+  assert.ok(trimIndex < localPtsIndex);
+});
+
+test("B2b: fpsRound を指定すると fps filter の round を上書きする", () => {
+  const filter = buildFastSegmentFilter(mkSpec({ fpsRound: "down" }));
+  assert.ok(filter.includes("fps=fps=30:round=down:start_time=0"));
 });
 
 test("B3: caption 1件", () => {
@@ -186,7 +210,11 @@ test("B3: caption 1件", () => {
   assert.equal(args[iIndices[1] + 1], "/rec/render.fast/captions/aaa.png");
 
   const filter = buildFastSegmentFilter(spec);
-  assert.ok(filter.includes("[0:v]trim=start_frame=0:end_frame=300,setpts=N/30/TB,"));
+  assert.ok(
+    filter.includes(
+      `[0:v]setpts=PTS-STARTPTS,fps=fps=30:round=${FAST_FPS_ROUND}:start_time=0,trim=start_frame=0:end_frame=300,setpts=N/30/TB,`,
+    ),
+  );
   assert.ok(filter.endsWith("[b0];[b0][1:v]overlay=x=0:y=0:format=auto:enable='between(n,30,119)'[vout]"));
 });
 
@@ -238,7 +266,7 @@ test("B6: 2-caption worked example の全argv・filter を固定", () => {
   const filter = buildFastSegmentFilter(spec);
   assert.equal(
     filter,
-    "[0:v]trim=start_frame=0:end_frame=300,setpts=N/30/TB,scale=in_range=limited:out_range=full,colorspace=all=smpte170m:iall=bt709:range=pc,format=yuvj420p[b0];" +
+    `[0:v]setpts=PTS-STARTPTS,fps=fps=30:round=${FAST_FPS_ROUND}:start_time=0,trim=start_frame=0:end_frame=300,setpts=N/30/TB,scale=in_range=limited:out_range=full,colorspace=all=smpte170m:iall=bt709:range=pc,format=yuvj420p[b0];` +
       "[b0][1:v]overlay=x=0:y=0:format=auto:enable='between(n,30,119)'[o0];" +
       "[o0][2:v]overlay=x=0:y=0:format=auto:enable='between(n,60,149)'[vout]",
   );
