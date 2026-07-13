@@ -102,7 +102,12 @@ function readF32lePcm(path: string): Float32Array {
   return pcm;
 }
 
-export async function decodeBgmToPcm(inputPath: string, outPath: string): Promise<Float32Array> {
+/** 任意の入力(BGM 素材・cut.mp4・挿入素材のいずれでも)を 48kHz/stereo/f32le
+ * PCM へデコードする汎用デコーダ。insertMix.ts と共有する(design-T4.md §3-C。
+ * 旧 decodeBgmToPcm から改名。入力を選ばないので実装追加ゼロで共有できる)。
+ * 音声ストリームの無い入力(無音動画素材)は ffmpeg がエラーにならず
+ * 長さ0の PCM を返す。呼び出し側で pcm.length===0 → null に正規化すること */
+export async function decodeAudioToPcm(inputPath: string, outPath: string): Promise<Float32Array> {
   mkdirSync(dirname(outPath), { recursive: true });
   await run("ffmpeg", [
     "-y", "-v", "error",
@@ -184,7 +189,7 @@ export async function mixFastAudio(args: {
       decodedPaths.push(decodedPath);
       decodedTracks.push({
         track,
-        pcm: await decodeBgmToPcm(join(dir, track.file), decodedPath),
+        pcm: await decodeAudioToPcm(join(dir, track.file), decodedPath),
       });
     }
 
