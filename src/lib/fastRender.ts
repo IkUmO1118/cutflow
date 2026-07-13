@@ -2,7 +2,8 @@
 import { mkdirSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { run } from "./exec.ts";
-import { concatChunks, extractAudio, muxVideoAudio, verifyAssembled } from "./chunkCache.ts";
+import { concatChunks, muxVideoAudio, verifyAssembled } from "./chunkCache.ts";
+import { mixFastAudio } from "./bgmMix.ts";
 import { fastPlan } from "./fastPlan.ts";
 import { renderFastSegment, fastSegmentPath, FAST_SEGMENT_DIR } from "./fastSegment.ts";
 import { withCaptionStillAssets } from "./captionStill.ts";
@@ -74,7 +75,7 @@ export async function runFastRender(args: {
       }
     });
     await concatChunks(jobs.map((j) => j.outPath), assembledVideo);
-    await extractAudio(cutPath, audioM4a);
+    await mixFastAudio({ dir, props, cutPath, outM4a: audioM4a });
     await muxVideoAudio(assembledVideo, audioM4a, tempFinal);
     const verify = await verifyAssembled(
       tempFinal,
@@ -89,7 +90,7 @@ export async function runFastRender(args: {
     }
     renameSync(tempFinal, outPath);
     const slowCount = jobs.filter((j) => j.span.kind === "slow").length;
-    console.log(`render 高速パス: FAST ${jobs.length - slowCount} / SLOW ${slowCount} セグメント(被覆 ${(plan.coverageRatio * 100).toFixed(1)}%)`);
+    console.log(`render 高速パス: FAST ${jobs.length - slowCount} / SLOW ${slowCount} セグメント(被覆 ${(plan.coverageRatio * 100).toFixed(1)}%, 音声 ${plan.audioMode})`);
     return true;
   } catch (err) {
     console.warn(`render 高速パス: 失敗したためフルレンダーへ: ${(err as Error).message}`);

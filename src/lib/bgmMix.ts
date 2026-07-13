@@ -19,6 +19,10 @@ export function bgmMixSampleCount(totalFrames: number, sampleRate: number, fps: 
   return Math.round((totalFrames * sampleRate) / fps);
 }
 
+export function bgmMixEncodedAudioDurationSec(totalFrames: number, fps: number): number {
+  return (totalFrames + 2) / fps;
+}
+
 export function frameSampleRange(
   frame: number,
   sampleRate: number,
@@ -186,11 +190,18 @@ export async function mixFastAudio(args: {
 
     writeF32lePcm(bgmPcmPath, mixBgmPcm({ props, decodedTracks }));
     const totalFrames = compositionDurationInFrames(props.durationSec, props.fps);
+    // AAC packets are quantized to 1024-sample frames. Encoding exactly the
+    // video duration can floor the audio stream slightly short, and the final
+    // `muxVideoAudio -shortest` would then drop tail video frames. One video
+    // Two video frames of padding keep the encoded audio at or just above
+    // video length while staying inside verifyAssembled's 1-frame tolerance
+    // after AAC packetization.
+    const audioDurationSec = bgmMixEncodedAudioDurationSec(totalFrames, props.fps);
     await run("ffmpeg", buildBgmAmixArgs({
       cutPath,
       bgmPcmPath,
       outM4a,
-      durationSec: totalFrames / props.fps,
+      durationSec: audioDurationSec,
     }));
   } finally {
     for (const decodedPath of decodedPaths) rmSync(decodedPath, { force: true });
