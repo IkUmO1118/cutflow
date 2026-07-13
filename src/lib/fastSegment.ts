@@ -1,20 +1,23 @@
 // lib/fastSegment.ts — render 高速パスの FAST スパン1本を ffmpeg だけで
-// レンダーする(Remotion を起動しない・映像のみ・音声は別経路)。P2 は
-// このライブラリだけを定義する(render.ts への配線は P3)。
+// レンダーする(Remotion を起動しない・映像のみ・音声は別経路)。
 //
-// FAST スパンは「ベース映像 + 静的テロップ PNG だけで合成できる区間」
-// (fastPlan.ts §4 適格表)。cut.mp4 から該当フレーム範囲を trim し、
-// テロップ静止画(captionStill.ts が作る透過 PNG)を enable 窓付きで
-// overlay するだけの単純な filtergraph で完結させる。
+// FAST スパンは「ベース映像 + 静的テロップ PNG + 適格な静止画 overlay PNG
+// だけで合成できる区間」(fastPlan.ts の適格表)。cut.mp4 から該当フレーム
+// 範囲を trim し、レイヤー画(テロップ/overlay の透過 PNG)を z-order
+// (layerOrder)順に enable 窓付きで overlay するだけの filtergraph で完結
+// させる(P5-1: 静止画 overlay の FAST 化。resolveFastCaptions を
+// resolveFastLayers へ一般化)。
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { run } from "./exec.ts";
-import { renderCaptionStill } from "./captionStill.ts";
+import { renderCaptionStill, captionStillKey } from "./captionStill.ts";
+import { renderOverlayStill } from "./overlayStill.ts";
+import { fadeFrames, overlayFastReason, overlaySeqRange } from "./overlayFade.ts";
 import { buildCaptionIndex, lookupCaption } from "./captionIndex.ts";
-import { capNum, DEFAULT_LAYER_ORDER } from "../types.ts";
+import { capNum, DEFAULT_LAYER_ORDER, ovNum } from "../types.ts";
 import type { FastSpan } from "./fastPlan.ts";
 import type { WarmAssets } from "../stages/frames.ts";
-import type { Caption, RenderProps } from "../../remotion/props.ts";
+import type { Caption, OverlayItem, RenderProps } from "../../remotion/props.ts";
 import type { CaptionStillProps } from "../../remotion/CaptionStill.tsx";
 
 export const FAST_SEGMENT_DIR = "render.fast/segments";
@@ -34,8 +37,24 @@ export const BASE_COLOR_FILTER =
  * (ffmpeg between(n,from,to) にそのまま渡せる形) */
 export type EnableWindow = [number, number];
 
-export interface FastCaptionPlacement {
-  caption: Caption;
+/** 1つの PNG 入力 + 1段の overlay フィルタ = 1レイヤー操作。
+ * fade/opacity<1 の alpha レイヤーは「必要窓だけループ + PTS シフト」
+ * (補遺1)。simple レイヤー(fade 無し・opacity=1)は単一フレーム入力
+ * (現行のテロップと同じ)。fade を持つのは overlay 由来のレイヤーだけ
+ * (caption は常に simple) */
+export interface FastLayerSpec {
+  pngPath: string;
+  /** 定数不透明度(0〜1)。省略 = 1 */
+  opacity?: number;
+  /** alpha レイヤーのときだけ存在する。startFrame はセグメントローカル
+   * (overlay の Sequence 開始 A)、durFrames はその Sequence の長さ(d)。
+   * fade の start_frame はストリーム先頭基準(補遺1: 0 と d-fout) */
+  fade?: {
+    startFrame: number;
+    durFrames: number;
+    fadeInFrames: number; // 0 可
+    fadeOutFrames: number; // 0 可
+  };
   enableWindows: EnableWindow[];
 }
 
@@ -46,22 +65,79 @@ export interface FastSegmentSpec {
   toFrame: number;
   fps: number;
   fpsRound?: FastFpsRound;
-  captions: { pngPath: string; enableWindows: EnableWindow[] }[];
+  /** z-order 下→上 */
+  layers: FastLayerSpec[];
 }
 
-/** span 内で表示されるテロップと、その enable 窓(セグメント内ローカル・
- * フレーム番号)を解決する。Main.tsx の z-order(layerOrder)+可視性判定
- * (lookupCaption: 重複時は旧 .find 互換の配列順先勝ち)を frame scan で
- * 再現し、連続する同一 caption を1つの enable 窓にまとめる。 */
-export function resolveFastCaptions(props: RenderProps, span: FastSpan): FastCaptionPlacement[] {
+// ---- レイヤー解決 ----
+
+export type FastLayerItem =
+  | { kind: "caption"; caption: Caption; enableWindows: EnableWindow[] }
+  | {
+      kind: "overlay";
+      item: OverlayItem;
+      /** セグメントローカル。overlay の Sequence 開始(overlaySeqRange 由来) */
+      startFrame: number;
+      /** overlay の Sequence 長(overlaySeqRange 由来) */
+      durFrames: number;
+      enableWindows: EnableWindow[];
+    };
+
+/** caption 1件から CaptionStill 用の props を組み立てる(renderFastSegment /
+ * fastLayerMergeKey で共有) */
+export function captionStillPropsOf(props: RenderProps, caption: Caption): CaptionStillProps {
+  return {
+    width: props.width,
+    height: props.height,
+    caption,
+    defaults: props.caption,
+    captionDefaultPos: props.captionDefaultPos,
+    cameraRegion: props.cameraRegion,
+    wipe: props.wipe,
+  };
+}
+
+/** span 内で描かれるレイヤーを layerOrder(下→上)に解決する。
+ * - ov<N>: そのトラックの overlays を配列順(= Main.tsx の Sequence 順 =
+ *   後勝ちで上に載る)。fastPlan の不動点が保証する不変条件(span に完全
+ *   収容されるか、一切現れないかのどちらか)が破れていたら例外を投げる
+ *   (fastRender の try/catch がフルレンダーへフォールバックする)
+ * - cap<N>: 現行の frame scan(lookupCaption・hideCaption 減算・anim/karaoke
+ *   ガード)そのまま */
+export function resolveFastLayers(props: RenderProps, span: FastSpan): FastLayerItem[] {
   const fps = props.fps;
   const order = props.layerOrder ?? DEFAULT_LAYER_ORDER;
   const index = buildCaptionIndex(props.captions);
-  const out: FastCaptionPlacement[] = [];
+  const out: FastLayerItem[] = [];
   for (const id of order) {
+    const ov = ovNum(id);
+    if (ov !== null) {
+      for (const o of props.overlays) {
+        if (o.track !== ov) continue;
+        const r = overlaySeqRange(o, fps);
+        if (r.toFrame <= span.fromFrame || r.fromFrame >= span.toFrame) continue; // このスパンに映らない
+        const reason = overlayFastReason(o, fps);
+        if (reason !== null) {
+          throw new Error(`FAST span[${span.fromFrame},${span.toFrame}) に不適格 overlay が混入(${reason}: ${o.file})`);
+        }
+        if (r.fromFrame < span.fromFrame || r.toFrame > span.toFrame) {
+          // fastPlan の不動点が保証する不変条件。破れたら実装バグ
+          throw new Error(`FAST span[${span.fromFrame},${span.toFrame}) を overlay がまたいでいる(${o.file})`);
+        }
+        const local = r.fromFrame - span.fromFrame;
+        out.push({
+          kind: "overlay",
+          item: o,
+          startFrame: local,
+          durFrames: r.durFrames,
+          enableWindows: [[local, local + r.durFrames - 1]],
+        });
+      }
+      continue;
+    }
     const track = capNum(id);
-    if (track === null) continue;
-    const placements = new Map<Caption, FastCaptionPlacement>();
+    if (track === null) continue; // "wipe" は cut.mp4 に焼き込み済み(wipeBurnedIn)= 無視
+    const placements = new Map<Caption, Extract<FastLayerItem, { kind: "caption" }>>();
     for (let frame = span.fromFrame; frame < span.toFrame; frame++) {
       const t = frame / fps;
       if ((props.hideCaption ?? []).some((h) => t >= h.start && t < h.end)) continue;
@@ -74,7 +150,7 @@ export function resolveFastCaptions(props: RenderProps, span: FastSpan): FastCap
       }
       let placement = placements.get(caption);
       if (!placement) {
-        placement = { caption, enableWindows: [] };
+        placement = { kind: "caption", caption, enableWindows: [] };
         placements.set(caption, placement);
       }
       const localFrame = frame - span.fromFrame;
@@ -87,7 +163,111 @@ export function resolveFastCaptions(props: RenderProps, span: FastSpan): FastCap
   return out;
 }
 
+/** overlay 側が alpha 入力(fade あり or 定数 opacity<1)かどうか */
+function overlayIsAlpha(o: OverlayItem, fps: number): boolean {
+  const fin = fadeFrames(o.fadeInSec, fps);
+  const fout = fadeFrames(o.fadeOutSec, fps);
+  const opacity = o.opacity ?? 1;
+  return fin > 0 || fout > 0 || opacity !== 1;
+}
+
+/** FastLayerItem が畳み込み対象になりえない(alpha)操作かどうか。
+ * caption は常に simple(fade/opacity を持たない) */
+function isAlphaOp(it: FastLayerItem, fps: number): boolean {
+  return it.kind === "overlay" && overlayIsAlpha(it.item, fps);
+}
+
+/** 畳み込み用の純粋キー。同じキー = 同じ PNG(内容アドレスキーと 1:1) */
+export function fastLayerMergeKey(props: RenderProps, it: FastLayerItem): string {
+  if (it.kind === "caption") return `cap:${captionStillKey(captionStillPropsOf(props, it.caption))}`;
+  const o = it.item;
+  return `ov:${o.file}|${o.fit}|${o.rect ? `${o.rect.x},${o.rect.y},${o.rect.w},${o.rect.h}` : "-"}`;
+}
+
+function windowsOverlap(a: EnableWindow[], b: EnableWindow[]): boolean {
+  for (const [a0, a1] of a) {
+    for (const [b0, b1] of b) {
+      if (a0 <= b1 && b0 <= a1) return true;
+    }
+  }
+  return false;
+}
+
+function coalesceWindows(windows: EnableWindow[]): EnableWindow[] {
+  const sorted = [...windows].sort((a, b) => a[0] - b[0]);
+  const out: EnableWindow[] = [];
+  for (const w of sorted) {
+    const last = out.at(-1);
+    if (last && w[0] <= last[1] + 1) last[1] = Math.max(last[1], w[1]);
+    else out.push([w[0], w[1]]);
+  }
+  return out;
+}
+
+/** z-order 下→上の FastLayerItem 列を畳み込む。fade/opacity<1 の alpha
+ * 操作は絶対に畳まない。同一キー(同じ PNG になる操作)の simple 操作は、
+ * 間に時間的に重なる別操作が無ければ enable 窓をマージして1入力にする。
+ *
+ * 正当性: overlay フィルタは enable=0 のフレームでは恒等写像なので、
+ * enable 窓が互いに素な2つの overlay 操作は可換。it を候補 cand の直後
+ * (元の位置)まで下げるとき、間の全操作が it と時間的に重ならないなら
+ * 出力は1ピクセルも変わらない */
+export function mergeFastLayers(props: RenderProps, items: FastLayerItem[]): FastLayerItem[] {
+  const fps = props.fps;
+  interface Entry {
+    item: FastLayerItem;
+    origIndex: number;
+  }
+  const merged: Entry[] = [];
+  for (let j = 0; j < items.length; j++) {
+    const it = items[j];
+    if (isAlphaOp(it, fps)) {
+      merged.push({ item: it, origIndex: j });
+      continue;
+    }
+    const key = fastLayerMergeKey(props, it);
+    let candIdx = -1;
+    for (let m = merged.length - 1; m >= 0; m--) {
+      if (!isAlphaOp(merged[m].item, fps) && fastLayerMergeKey(props, merged[m].item) === key) {
+        candIdx = m;
+        break;
+      }
+    }
+    if (candIdx === -1) {
+      merged.push({ item: it, origIndex: j });
+      continue;
+    }
+    const cand = merged[candIdx];
+    let disjoint = true;
+    for (let k = cand.origIndex + 1; k < j; k++) {
+      if (windowsOverlap(items[k].enableWindows, it.enableWindows)) {
+        disjoint = false;
+        break;
+      }
+    }
+    if (disjoint) {
+      cand.item = {
+        ...cand.item,
+        enableWindows: coalesceWindows([...cand.item.enableWindows, ...it.enableWindows]),
+      } as FastLayerItem;
+    } else {
+      merged.push({ item: it, origIndex: j });
+    }
+  }
+  return merged.map((e) => e.item);
+}
+
+/** この FAST スパンが必要とする PNG 入力の本数(畳み込み後)。純関数。
+ * fastPlan の分割ガードが使う。ffmpeg も PNG も触らない */
+export function countFastPngInputs(props: RenderProps, span: FastSpan): number {
+  return mergeFastLayers(props, resolveFastLayers(props, span)).length;
+}
+
 // ---- 純関数: filtergraph / argv 組み立て ----
+
+function isAlphaLayer(L: FastLayerSpec): boolean {
+  return !!L.fade;
+}
 
 export function buildFastSegmentFilter(spec: FastSegmentSpec): string {
   // fps は cut.mp4 の timestamp から CFR 格子を作る。そこで frame trim する
@@ -97,14 +277,30 @@ export function buildFastSegmentFilter(spec: FastSegmentSpec): string {
   // overlay の n は fps+trim 後のローカル出力フレーム番号なので変わらない。
   const round = spec.fpsRound ?? FAST_FPS_ROUND;
   const base = `[0:v]setpts=PTS-STARTPTS,fps=fps=${spec.fps}:round=${round}:start_time=0,trim=start_frame=${spec.fromFrame}:end_frame=${spec.toFrame},setpts=N/${spec.fps}/TB,${BASE_COLOR_FILTER}`;
-  if (spec.captions.length === 0) return `${base}[vout]`;
+  if (spec.layers.length === 0) return `${base}[vout]`;
   const parts = [`${base}[b0]`];
   let prev = "b0";
-  spec.captions.forEach((c, i) => {
-    const inputIdx = i + 1;
-    const outLabel = i === spec.captions.length - 1 ? "vout" : `o${i}`;
-    const enable = c.enableWindows.map(([a, b]) => `between(n,${a},${b})`).join("+");
-    parts.push(`[${prev}][${inputIdx}:v]overlay=x=0:y=0:format=auto:enable='${enable}'[${outLabel}]`);
+  spec.layers.forEach((L, i) => {
+    const inputIdx = i + 1; // 0 は cut.mp4
+    const outLabel = i === spec.layers.length - 1 ? "vout" : `o${i}`;
+    const enable = L.enableWindows.map(([a, b]) => `between(n,${a},${b})`).join("+");
+    let src = `${inputIdx}:v`;
+    if (isAlphaLayer(L)) {
+      // 補遺1: 入力ストリームは overlay 自身の先頭(ストリーム frame 0)から
+      // 始まる短いループなので、fade の start_frame はストリーム先頭基準
+      // (0 と d-fout)。最後の setpts で n → セグメントローカル frame A+n
+      // の PTS へ載せ、base 側(setpts=N/fps/TB)と同じ格子に揃える。
+      const { startFrame: A, durFrames: d, fadeInFrames: fin, fadeOutFrames: fout } = L.fade!;
+      const pre: string[] = ["format=rgba"];
+      const op = L.opacity ?? 1;
+      if (op !== 1) pre.push(`colorchannelmixer=aa=${op}`);
+      if (fin > 0) pre.push(`fade=t=in:alpha=1:start_frame=0:nb_frames=${fin}`);
+      if (fout > 0) pre.push(`fade=t=out:alpha=1:start_frame=${d - fout}:nb_frames=${fout}`);
+      pre.push(`setpts=N/${spec.fps}/TB+${A}/${spec.fps}/TB`);
+      parts.push(`[${inputIdx}:v]${pre.join(",")}[a${i}]`);
+      src = `a${i}`;
+    }
+    parts.push(`[${prev}][${src}]overlay=x=0:y=0:format=auto:enable='${enable}'[${outLabel}]`);
     prev = outLabel;
   });
   return parts.join(";");
@@ -112,14 +308,27 @@ export function buildFastSegmentFilter(spec: FastSegmentSpec): string {
 
 export function buildFastSegmentArgs(spec: FastSegmentSpec): string[] {
   const gop = Math.max(1, Math.round(spec.fps * 2));
+  const segFrames = spec.toFrame - spec.fromFrame;
   const args = ["-y", "-v", "error", "-i", spec.cutPath];
-  for (const c of spec.captions) args.push("-i", c.pngPath);
+  for (const L of spec.layers) {
+    if (isAlphaLayer(L)) {
+      // 補遺1(必須): セグメント全長ではなく overlay 自身の尺(d)ぶんだけ
+      // ループする(+1 フレームの余裕)。全長ループは実測で 2.7 倍遅い
+      const d = L.fade!.durFrames;
+      const loopSec = ((d + 1) / spec.fps).toFixed(3);
+      args.push("-loop", "1", "-framerate", String(spec.fps), "-t", loopSec, "-i", L.pngPath);
+    } else {
+      args.push("-i", L.pngPath); // 現行と同じ(単一フレーム入力)
+    }
+  }
   args.push(
     "-filter_complex",
     buildFastSegmentFilter(spec),
     "-map",
     "[vout]",
     "-an",
+    "-frames:v",
+    String(segFrames), // base 長を絶対にする(-shortest は使わない)
     "-c:v",
     "h264_videotoolbox",
     "-profile:v",
@@ -164,20 +373,34 @@ export async function renderFastSegment(args: {
 }): Promise<string> {
   const { dir, props, span, index, warm } = args;
   if (span.kind !== "fast") throw new Error("renderFastSegment は fast span 専用です");
-  const placements = resolveFastCaptions(props, span);
-  const withPng: FastSegmentSpec["captions"] = [];
-  for (const p of placements) {
-    const stillProps: CaptionStillProps = {
+  const items = mergeFastLayers(props, resolveFastLayers(props, span));
+  const layers: FastLayerSpec[] = [];
+  for (const it of items) {
+    if (it.kind === "caption") {
+      const pngPath = await renderCaptionStill({ dir, caption: captionStillPropsOf(props, it.caption), warm });
+      layers.push({ pngPath, enableWindows: it.enableWindows });
+      continue;
+    }
+    const pngPath = await renderOverlayStill({
+      dir,
+      item: it.item,
       width: props.width,
       height: props.height,
-      caption: p.caption,
-      defaults: props.caption,
-      captionDefaultPos: props.captionDefaultPos,
-      cameraRegion: props.cameraRegion,
-      wipe: props.wipe,
-    };
-    const pngPath = await renderCaptionStill({ dir, caption: stillProps, warm });
-    withPng.push({ pngPath, enableWindows: p.enableWindows });
+      fps: props.fps,
+      warm,
+    });
+    const opacity = it.item.opacity ?? 1;
+    const fin = fadeFrames(it.item.fadeInSec, props.fps);
+    const fout = fadeFrames(it.item.fadeOutSec, props.fps);
+    const alpha = opacity !== 1 || fin > 0 || fout > 0;
+    layers.push({
+      pngPath,
+      ...(opacity !== 1 ? { opacity } : {}),
+      ...(alpha
+        ? { fade: { startFrame: it.startFrame, durFrames: it.durFrames, fadeInFrames: fin, fadeOutFrames: fout } }
+        : {}),
+      enableWindows: it.enableWindows,
+    });
   }
   const outPath = fastSegmentPath(dir, index);
   mkdirSync(dirname(outPath), { recursive: true });
@@ -189,7 +412,7 @@ export async function renderFastSegment(args: {
       fromFrame: span.fromFrame,
       toFrame: span.toFrame,
       fps: props.fps,
-      captions: withPng,
+      layers,
     }),
   );
   return outPath;

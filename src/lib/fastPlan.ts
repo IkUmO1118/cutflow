@@ -1,10 +1,19 @@
 // lib/fastPlan.ts — render 高速パスの適格性プランナー(純関数)。
 // RenderProps を frame-integer の FAST/SLOW スパン列へ分類する。FAST =
-// ベース映像+静的テロップ PNG だけで合成できる区間、SLOW = Remotion を
-// 通す必要がある区間(§4 適格表)。P1 はこのプランナーとその出力の型だけを
-// 定義する(CLI・render.ts への配線は P3)。
+// ベース映像+静的テロップ PNG+適格な静止画 overlay だけで合成できる区間、
+// SLOW = Remotion を通す必要がある区間(§4 適格表)。
+//
+// P5-1(静止画 overlay の FAST 化): 従来は props.overlays を無条件に SLOW へ
+// 送っていたが、静止画(画像ファイル)・keyframes 無し・音声無し・フェード
+// 窓が重ならないものは FAST 化できる(overlayFastReason)。適格 overlay が
+// SLOW 境界をまたぐ場合だけ、その overlay 区間ごと SLOW へ降格する(fade の
+// frame 写像=ffmpeg fade フィルタの start_frame>=0 前提を壊さないため)。
+// min-FAST-span 吸収が新たなまたぎを生みうるので不動点反復で解く(§3.3)。
 import { compositionDurationInFrames } from "./renderFrameMath.ts";
-import type { RenderProps } from "../../remotion/props.ts";
+import { overlayFastReason, overlaySeqRange } from "./overlayFade.ts";
+import { countFastPngInputs } from "./fastSegment.ts";
+import { DEFAULT_LAYER_ORDER, ovId } from "../types.ts";
+import type { OverlayItem, RenderProps } from "../../remotion/props.ts";
 
 /** frame-integer・半開区間 [fromFrame, toFrame) の分類済みスパン */
 export interface FastSpan {
@@ -25,11 +34,25 @@ export interface FastPlan {
   coverageRatio: number;
   totalFrames: number;
   fps: number;
+  /** 降格・分割などの診断メモ(発動可否には影響しない。空配列可) */
+  notes: string[];
 }
 
 /** これより短い FAST の隙間は SLOW へ吸収する(Remotion 起動コストが
  * ペイしない短い FAST 区間を作らないため) */
 export const MIN_FAST_SPAN_SEC = 3;
+
+/** 1 FAST セグメントに渡す PNG 入力の上限(畳み込み後)。simple 入力は
+ * デコード後 RGBA 1フレーム(1920x1080 で約 8.3MB)を ffmpeg が抱え、
+ * alpha 入力(fade あり/opacity<1)は overlay 自身の尺ぶんの短いループ
+ * (補遺1 の「必要窓だけループ」)なのでさらに軽い。120 本で概ね 1GB 前後が
+ * 目安。超える FAST スパンは安全な境界で複数の FAST セグメントへ分割する
+ * (splitOversizedFastSpans)。 */
+export const MAX_FAST_PNG_INPUTS = 120;
+
+/** 不動点反復の上限(理論上は「適格 overlay 数 + 1」で必ず収束する。
+ * 超えたら全編フォールバック=バグの安全弁) */
+export const FIXPOINT_MAX_ITER_MARGIN = 2;
 
 interface SecInterval {
   start: number;
@@ -87,9 +110,123 @@ function mergeFrameIntervals(intervals: FrameInterval[]): FrameInterval[] {
   return out;
 }
 
+/** min-FAST-span(3秒)未満の FAST 隙間を隣接 SLOW へ吸収する。
+ * slowFrames が空(SLOW 区間なし)なら何もしない */
+function absorbMinFastGaps(slowFrames: FrameInterval[], totalFrames: number, fps: number): FrameInterval[] {
+  if (slowFrames.length === 0) return slowFrames;
+  const MIN_FAST_FRAMES = Math.round(MIN_FAST_SPAN_SEC * fps);
+  const absorbed: FrameInterval[] = [...slowFrames];
+  if (absorbed[0].fromFrame > 0 && absorbed[0].fromFrame < MIN_FAST_FRAMES) {
+    absorbed[0] = { fromFrame: 0, toFrame: absorbed[0].toFrame };
+  }
+  for (let i = 1; i < absorbed.length; i++) {
+    const gap = absorbed[i].fromFrame - absorbed[i - 1].toFrame;
+    if (gap > 0 && gap < MIN_FAST_FRAMES) {
+      absorbed[i] = { fromFrame: absorbed[i - 1].toFrame, toFrame: absorbed[i].toFrame };
+    }
+  }
+  const lastIdx = absorbed.length - 1;
+  const tailGap = totalFrames - absorbed[lastIdx].toFrame;
+  if (tailGap > 0 && tailGap < MIN_FAST_FRAMES) {
+    absorbed[lastIdx] = { fromFrame: absorbed[lastIdx].fromFrame, toFrame: totalFrames };
+  }
+  return mergeFrameIntervals(absorbed);
+}
+
+/** [a,b) が slow のいずれかの区間と交差するか(半開区間) */
+function intersects(r: FrameInterval, slow: FrameInterval[]): boolean {
+  return slow.some((s) => r.fromFrame < s.toFrame && s.fromFrame < r.toFrame);
+}
+
+/** r が slow の単一区間に完全に収まるか(slow はマージ済み前提) */
+function containedIn(r: FrameInterval, slow: FrameInterval[]): boolean {
+  return slow.some((s) => s.fromFrame <= r.fromFrame && r.toFrame <= s.toFrame);
+}
+
+/** span 内で有効な(layerOrder に載っている)適格 overlay の frame 区間一覧。
+ * splitOversizedFastSpans の安全な分割境界の計算に使う */
+function eligibleOverlayRangesInSpan(props: RenderProps, span: FrameInterval): FrameInterval[] {
+  const fps = props.fps;
+  const order = props.layerOrder ?? DEFAULT_LAYER_ORDER;
+  const out: FrameInterval[] = [];
+  for (const o of props.overlays) {
+    if (!order.includes(ovId(o.track))) continue;
+    if (overlayFastReason(o, fps) !== null) continue;
+    const r = overlaySeqRange(o, fps);
+    if (r.toFrame <= span.fromFrame || r.fromFrame >= span.toFrame) continue;
+    out.push({ fromFrame: r.fromFrame, toFrame: r.toFrame });
+  }
+  return out;
+}
+
+/** 1つの巨大すぎる FAST スパンを、適格 overlay の内部を切らない安全な境界
+ * (caption の from/to ∪ 適格 overlay の from/to)で貪欲に分割する。
+ * どの候補でも上限を満たせなければスパン丸ごと SLOW へ落とす */
+function splitFastSpan(props: RenderProps, span: FastSpan, notes: string[]): FastSpan[] {
+  const fps = props.fps;
+  const overlayRanges = eligibleOverlayRangesInSpan(props, span);
+
+  const candidateSet = new Set<number>();
+  for (const c of props.captions) {
+    const f0 = Math.round(c.start * fps);
+    const f1 = Math.round(c.end * fps);
+    if (f0 > span.fromFrame && f0 < span.toFrame) candidateSet.add(f0);
+    if (f1 > span.fromFrame && f1 < span.toFrame) candidateSet.add(f1);
+  }
+  for (const r of overlayRanges) {
+    if (r.fromFrame > span.fromFrame && r.fromFrame < span.toFrame) candidateSet.add(r.fromFrame);
+    if (r.toFrame > span.fromFrame && r.toFrame < span.toFrame) candidateSet.add(r.toFrame);
+  }
+  const safe = [...candidateSet]
+    .filter((f) => overlayRanges.every((r) => !(r.fromFrame < f && f < r.toFrame)))
+    .sort((a, b) => a - b);
+
+  const result: FastSpan[] = [];
+  let cur = span.fromFrame;
+  for (;;) {
+    const remaining = countFastPngInputs(props, { kind: "fast", fromFrame: cur, toFrame: span.toFrame });
+    if (remaining <= MAX_FAST_PNG_INPUTS) {
+      result.push({ kind: "fast", fromFrame: cur, toFrame: span.toFrame });
+      break;
+    }
+    let best: number | null = null;
+    for (const c of safe) {
+      if (c <= cur) continue;
+      const cnt = countFastPngInputs(props, { kind: "fast", fromFrame: cur, toFrame: c });
+      if (cnt <= MAX_FAST_PNG_INPUTS) best = c;
+      else break; // 入力数は c の増加に対して単調非減少
+    }
+    if (best === null) {
+      notes.push(`FAST スパン[${span.fromFrame},${span.toFrame}) の PNG 入力が上限超過のため SLOW へ`);
+      return [{ kind: "slow", fromFrame: span.fromFrame, toFrame: span.toFrame }];
+    }
+    result.push({ kind: "fast", fromFrame: cur, toFrame: best });
+    cur = best;
+  }
+  return result;
+}
+
+function splitOversizedFastSpans(props: RenderProps, spans: FastSpan[], notes: string[]): FastSpan[] {
+  const out: FastSpan[] = [];
+  for (const s of spans) {
+    if (s.kind !== "fast") {
+      out.push(s);
+      continue;
+    }
+    const count = countFastPngInputs(props, s);
+    if (count <= MAX_FAST_PNG_INPUTS) {
+      out.push(s);
+      continue;
+    }
+    out.push(...splitFastSpan(props, s, notes));
+  }
+  return out;
+}
+
 export function fastPlan(props: RenderProps): FastPlan {
   const fps = props.fps;
   const totalFrames = compositionDurationInFrames(props.durationSec, fps);
+  const notes: string[] = [];
 
   // ---- 全編ビデオフォールバック(inserts / colorFilter) ----
   const wholeFallback: string[] = [];
@@ -104,14 +241,21 @@ export function fastPlan(props: RenderProps): FastPlan {
       coverageRatio: 0,
       totalFrames,
       fps,
+      notes,
     };
   }
 
-  // ---- SLOW 区間の収集(秒) ----
+  // ---- SLOW 区間の収集(秒。不適格 overlay だけ含む) ----
   const slowSec: SecInterval[] = [];
   for (const z of props.zooms ?? []) slowSec.push({ start: z.start, end: z.end });
   for (const w of props.wipeFull) slowSec.push({ start: w.start, end: w.end });
-  for (const o of props.overlays) slowSec.push({ start: o.start, end: o.end });
+  const order = props.layerOrder ?? DEFAULT_LAYER_ORDER;
+  const eligibleOv: OverlayItem[] = [];
+  for (const o of props.overlays) {
+    const reason = order.includes(ovId(o.track)) ? overlayFastReason(o, fps) : "layerOrder 外";
+    if (reason === null) eligibleOv.push(o);
+    else slowSec.push({ start: o.start, end: o.end }); // 不適格 overlay だけ SLOW
+  }
   for (const b of props.blurs ?? []) slowSec.push({ start: b.start, end: b.end });
   for (const a of props.annotations ?? []) slowSec.push({ start: a.start, end: a.end });
   for (const c of props.captions) {
@@ -127,40 +271,52 @@ export function fastPlan(props: RenderProps): FastPlan {
     }
   }
 
-  // ---- frame-integer へ変換・マージ ----
-  const rawFrameIntervals = slowSec
-    .map((iv) => toFrameInterval(iv, fps, totalFrames))
-    .filter((iv): iv is FrameInterval => iv !== null);
-  let slowFrames = mergeFrameIntervals(rawFrameIntervals);
+  const baseSlow = mergeFrameIntervals(
+    slowSec.map((iv) => toFrameInterval(iv, fps, totalFrames)).filter((iv): iv is FrameInterval => iv !== null),
+  );
 
-  // ---- min-FAST-span 吸収 ----
-  // slowSec が空(=SLOW 区間なし)のときは全編1本の FAST スパンのまま
-  // (吸収するものが無い)。
-  if (slowFrames.length > 0) {
-    const MIN_FAST_FRAMES = Math.round(MIN_FAST_SPAN_SEC * fps);
-    const absorbed: FrameInterval[] = [...slowFrames];
-    // 先頭 FAST gap(0 〜 最初の SLOW)
-    if (absorbed[0].fromFrame > 0 && absorbed[0].fromFrame < MIN_FAST_FRAMES) {
-      absorbed[0] = { fromFrame: 0, toFrame: absorbed[0].toFrame };
+  const eligibleRanges: FrameInterval[] = eligibleOv.map((o) => {
+    const r = overlaySeqRange(o, fps);
+    return { fromFrame: r.fromFrame, toFrame: Math.min(totalFrames, r.toFrame) };
+  });
+
+  // ---- 不動点反復(吸収 ⇄ またぎ降格) ----
+  const demoted = new Set<number>();
+  const maxIter = eligibleOv.length + FIXPOINT_MAX_ITER_MARGIN;
+  let slowFrames: FrameInterval[] = absorbMinFastGaps(mergeFrameIntervals(baseSlow), totalFrames, fps);
+  let converged = false;
+  for (let iter = 0; iter < maxIter; iter++) {
+    const newly: number[] = [];
+    eligibleRanges.forEach((r, i) => {
+      if (demoted.has(i)) return;
+      if (intersects(r, slowFrames) && !containedIn(r, slowFrames)) newly.push(i);
+    });
+    if (newly.length === 0) {
+      converged = true;
+      break;
     }
-    // SLOW 同士の間の FAST gap
-    for (let i = 1; i < absorbed.length; i++) {
-      const gap = absorbed[i].fromFrame - absorbed[i - 1].toFrame;
-      if (gap > 0 && gap < MIN_FAST_FRAMES) {
-        absorbed[i] = { fromFrame: absorbed[i - 1].toFrame, toFrame: absorbed[i].toFrame };
-      }
-    }
-    // 末尾 FAST gap(最後の SLOW 〜 totalFrames)
-    const lastIdx = absorbed.length - 1;
-    const tailGap = totalFrames - absorbed[lastIdx].toFrame;
-    if (tailGap > 0 && tailGap < MIN_FAST_FRAMES) {
-      absorbed[lastIdx] = { fromFrame: absorbed[lastIdx].fromFrame, toFrame: totalFrames };
-    }
-    slowFrames = mergeFrameIntervals(absorbed);
+    for (const i of newly) demoted.add(i);
+    const demotedIntervals = [...demoted].map((i) => eligibleRanges[i]);
+    slowFrames = absorbMinFastGaps(mergeFrameIntervals([...baseSlow, ...demotedIntervals]), totalFrames, fps);
+  }
+  if (!converged) {
+    return {
+      eligible: false,
+      wholeFallback: ["fastPlan 不動点非収束"],
+      ...audioGate(props),
+      spans: [{ kind: "slow", fromFrame: 0, toFrame: totalFrames }],
+      coverageRatio: 0,
+      totalFrames,
+      fps,
+      notes: ["fastPlan 不動点非収束(バグの可能性)"],
+    };
+  }
+  for (const i of demoted) {
+    notes.push(`overlay#${i}(${eligibleOv[i].file})が SLOW 境界をまたぐため SLOW へ降格`);
   }
 
   // ---- 連続する交互スパン列を [0, totalFrames) 全体に対して出力 ----
-  const spans: FastSpan[] = [];
+  let spans: FastSpan[] = [];
   let cursor = 0;
   for (const s of slowFrames) {
     if (s.fromFrame > cursor) {
@@ -176,6 +332,9 @@ export function fastPlan(props: RenderProps): FastPlan {
     spans.push({ kind: "fast", fromFrame: 0, toFrame: totalFrames });
   }
 
+  // ---- 入力数ガード: 巨大すぎる FAST スパンを安全な境界で分割する ----
+  spans = splitOversizedFastSpans(props, spans, notes);
+
   const fastFrames = spans
     .filter((s) => s.kind === "fast")
     .reduce((sum, s) => sum + (s.toFrame - s.fromFrame), 0);
@@ -189,5 +348,6 @@ export function fastPlan(props: RenderProps): FastPlan {
     coverageRatio,
     totalFrames,
     fps,
+    notes,
   };
 }

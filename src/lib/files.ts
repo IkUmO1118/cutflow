@@ -65,7 +65,8 @@ const GENERATED_NAME_PATTERNS: readonly RegExp[] = [
  * props.json・OCR サイドカー。frames 実行のたびに全消しされる)・
  * render.chunks/(チャンク差分レンダーのキャッシュ)・
  * render.fast/(render 高速パスのキャッシュ。captions/<key>.png=テロップ
- * 透過 PNG。差分更新型でディレクトリごと削除すればフル再生成に戻る)・
+ * 透過 PNG、overlays/<key>.png=素材オーバーレイのレイヤー画。差分更新型で
+ * ディレクトリごと削除すればフル再生成に戻る)・
  * shorts/(render --short /
  * --shorts の出力先。final.mp4 相当の成果物だが CLAUDE.md は同じ
  * 「触らない」節で扱っているためここに含める)・materials.probe/(`materials

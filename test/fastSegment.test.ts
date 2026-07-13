@@ -1,19 +1,26 @@
 // lib/fastSegment.ts の純関数テスト(node --test)。ffmpeg は一切実行しない。
-// resolveFastCaptions(フレーム換算・z-order・hideCaption 分割・anim/karaoke
-// ガード)と buildFastSegmentFilter/buildFastSegmentArgs(filtergraph 文字列・
-// argv。B6 は 2-caption の worked example を全argv deepStrictEqual で固定)を
-// 検証する。
+// resolveFastLayers(フレーム換算・z-order・hideCaption 分割・anim/karaoke
+// ガード・overlay の Sequence 区間・不変条件の throw)、mergeFastLayers
+// (畳み込み)、countFastPngInputs、buildFastSegmentFilter/buildFastSegmentArgs
+// (filtergraph 文字列・argv。B6 は 2-caption の worked example を全argv
+// deepStrictEqual で固定)を検証する。P5-1(静止画 overlay の FAST 化)で
+// resolveFastCaptions → resolveFastLayers へ一般化された(design-T1.md §6・
+// 補遺4: fade 一致テストはストリーム先頭基準の式で書く)。
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   FAST_FPS_ROUND,
   buildFastSegmentArgs,
   buildFastSegmentFilter,
-  resolveFastCaptions,
+  countFastPngInputs,
+  fastLayerMergeKey,
+  mergeFastLayers,
+  resolveFastLayers,
 } from "../src/lib/fastSegment.ts";
+import { fadeFactor } from "../src/lib/overlayFade.ts";
 import type { FastSpan } from "../src/lib/fastPlan.ts";
-import type { Caption, RenderProps } from "../remotion/props.ts";
-import type { FastSegmentSpec } from "../src/lib/fastSegment.ts";
+import type { Caption, OverlayItem, RenderProps } from "../remotion/props.ts";
+import type { FastLayerItem, FastSegmentSpec } from "../src/lib/fastSegment.ts";
 
 function mkProps(partial: Partial<RenderProps> = {}): RenderProps {
   return {
@@ -39,30 +46,38 @@ function mkCap(track: number, start: number, end: number, extra: Partial<Caption
   return { start, end, text: `t${track}-${start}`, track, ...extra };
 }
 
+function mkOverlay(partial: Partial<OverlayItem> & { start: number; end: number }): OverlayItem {
+  return { file: "m.png", track: 1, fit: "contain", ...partial };
+}
+
 function span(fromFrame: number, toFrame: number): FastSpan {
   return { kind: "fast", fromFrame, toFrame };
 }
 
-// ---- resolveFastCaptions ----
+function captionsOf(items: FastLayerItem[]): Extract<FastLayerItem, { kind: "caption" }>[] {
+  return items.filter((it): it is Extract<FastLayerItem, { kind: "caption" }> => it.kind === "caption");
+}
 
-test("R1: 空captions → []", () => {
+// ---- resolveFastLayers: caption 経路(旧 resolveFastCaptions と同じ挙動) ----
+
+test("R1: 空captions/overlays → []", () => {
   const props = mkProps({ captions: [] });
-  assert.deepEqual(resolveFastCaptions(props, span(0, 300)), []);
+  assert.deepEqual(resolveFastLayers(props, span(0, 300)), []);
 });
 
 test("R2: caption abs[30,120) span[0,300) → enableWindows [[30,119]]", () => {
   const cap = mkCap(1, 1, 4);
   const props = mkProps({ captions: [cap] });
-  const result = resolveFastCaptions(props, span(0, 300));
+  const result = captionsOf(resolveFastLayers(props, span(0, 300)));
   assert.equal(result.length, 1);
   assert.equal(result[0].caption, cap);
   assert.deepEqual(result[0].enableWindows, [[30, 119]]);
 });
 
 test("R3: 左クランプ caption abs[10,120) span[30,300) → local [[0,89]]", () => {
-  const cap = mkCap(1, 10 / 30, 120 / 30); // start frame 10, end frame 120
+  const cap = mkCap(1, 10 / 30, 120 / 30);
   const props = mkProps({ captions: [cap] });
-  const result = resolveFastCaptions(props, span(30, 300));
+  const result = captionsOf(resolveFastLayers(props, span(30, 300)));
   assert.equal(result.length, 1);
   assert.deepEqual(result[0].enableWindows, [[0, 89]]);
 });
@@ -70,7 +85,7 @@ test("R3: 左クランプ caption abs[10,120) span[30,300) → local [[0,89]]", 
 test("R4: 右クランプ caption abs[250,400) span[0,300) → local [[250,299]]", () => {
   const cap = mkCap(1, 250 / 30, 400 / 30);
   const props = mkProps({ captions: [cap] });
-  const result = resolveFastCaptions(props, span(0, 300));
+  const result = captionsOf(resolveFastLayers(props, span(0, 300)));
   assert.equal(result.length, 1);
   assert.deepEqual(result[0].enableWindows, [[250, 299]]);
 });
@@ -78,18 +93,18 @@ test("R4: 右クランプ caption abs[250,400) span[0,300) → local [[250,299]]
 test("R5: 範囲外 caption abs[400,500) span[0,300) → []", () => {
   const cap = mkCap(1, 400 / 30, 500 / 30);
   const props = mkProps({ captions: [cap] });
-  assert.deepEqual(resolveFastCaptions(props, span(0, 300)), []);
+  assert.deepEqual(resolveFastLayers(props, span(0, 300)), []);
 });
 
 test("R6: z-order + トラック未登場は捨てる", () => {
-  const capA = mkCap(1, 1, 4); // track 1
-  const capB = mkCap(2, 1, 4); // track 2
+  const capA = mkCap(1, 1, 4);
+  const capB = mkCap(2, 1, 4);
   const capC = mkCap(3, 1, 4); // track 3 (layerOrder に無い)
   const props = mkProps({
     captions: [capA, capB, capC],
     layerOrder: ["ov1", "wipe", "caption", "cap2"],
   });
-  const result = resolveFastCaptions(props, span(0, 300));
+  const result = captionsOf(resolveFastLayers(props, span(0, 300)));
   assert.equal(result.length, 2);
   assert.equal(result[0].caption.track, 1);
   assert.equal(result[1].caption.track, 2);
@@ -101,7 +116,7 @@ test("R7: hideCaption による分割", () => {
     captions: [cap],
     hideCaption: [{ start: 2, end: 3 }], // abs [60,90)
   });
-  const result = resolveFastCaptions(props, span(0, 300));
+  const result = captionsOf(resolveFastLayers(props, span(0, 300)));
   assert.equal(result.length, 1);
   assert.deepEqual(result[0].enableWindows, [
     [30, 59],
@@ -113,32 +128,131 @@ test("R8: anim/karaoke ガード", () => {
   const propsAnim = mkProps({
     captions: [mkCap(1, 1, 4, { style: { anim: { in: "fade" } } })],
   });
-  assert.throws(() => resolveFastCaptions(propsAnim, span(0, 300)));
+  assert.throws(() => resolveFastLayers(propsAnim, span(0, 300)));
 
   const propsKaraoke = mkProps({
     captions: [mkCap(1, 1, 4, { style: { karaoke: {} } })],
   });
-  assert.throws(() => resolveFastCaptions(propsKaraoke, span(0, 300)));
+  assert.throws(() => resolveFastLayers(propsKaraoke, span(0, 300)));
 });
 
 test("R9: フレーム境界(start=1.0,end=3.0,fps30) → [[30,89]]", () => {
   const cap = mkCap(1, 1.0, 3.0);
   const props = mkProps({ captions: [cap] });
-  const result = resolveFastCaptions(props, span(0, 300));
+  const result = captionsOf(resolveFastLayers(props, span(0, 300)));
   assert.equal(result.length, 1);
   assert.deepEqual(result[0].enableWindows, [[30, 89]]);
 });
 
 test("R10: 同一trackのoverlapは配列順先勝ちで後続は重なり後から表示", () => {
-  const first = mkCap(1, 1, 4, { text: "first" }); // abs [30,120)
-  const second = mkCap(1, 3, 5, { text: "second" }); // abs [90,150)
+  const first = mkCap(1, 1, 4, { text: "first" });
+  const second = mkCap(1, 3, 5, { text: "second" });
   const props = mkProps({ captions: [first, second] });
-  const result = resolveFastCaptions(props, span(0, 180));
+  const result = captionsOf(resolveFastLayers(props, span(0, 180)));
   assert.equal(result.length, 2);
   assert.equal(result[0].caption, first);
   assert.deepEqual(result[0].enableWindows, [[30, 119]]);
   assert.equal(result[1].caption, second);
   assert.deepEqual(result[1].enableWindows, [[120, 149]]);
+});
+
+// ---- S: resolveFastLayers / mergeFastLayers(overlay 経路。design §6) ----
+
+test("S-1: layerOrder [wipe, ov1, caption, cap2] で overlay → caption の順に並ぶ", () => {
+  const ov = mkOverlay({ start: 1, end: 4 }); // abs frame [30,120)
+  const cap = mkCap(1, 1, 4); // abs frame [30,120)
+  const props = mkProps({
+    overlays: [ov],
+    captions: [cap],
+    layerOrder: ["wipe", "ov1", "caption", "cap2"],
+  });
+  const result = resolveFastLayers(props, span(0, 300));
+  assert.equal(result.length, 2);
+  assert.equal(result[0].kind, "overlay");
+  assert.equal(result[1].kind, "caption");
+});
+
+test("S-2: 1トラック内の overlay は配列順(後勝ちで上)", () => {
+  const ov1 = mkOverlay({ start: 1, end: 2, file: "a.png" });
+  const ov2 = mkOverlay({ start: 1, end: 2, file: "b.png" });
+  const props = mkProps({ overlays: [ov1, ov2] });
+  const result = resolveFastLayers(props, span(0, 300));
+  assert.equal(result.length, 2);
+  assert.equal(result[0].kind, "overlay");
+  assert.equal((result[0] as Extract<FastLayerItem, { kind: "overlay" }>).item.file, "a.png");
+  assert.equal((result[1] as Extract<FastLayerItem, { kind: "overlay" }>).item.file, "b.png");
+});
+
+test("S-3: overlay の enable 窓は overlaySeqRange(round(end*fps) ではない)", () => {
+  // overlay#21 相当: start 93.57/end 93.65 → from=round(93.57*30)=2807,
+  // dur=max(1,round((93.65-93.57)*30))=max(1,round(2.4))=2 → to=2809
+  const ov = mkOverlay({ start: 93.57, end: 93.65 });
+  const props = mkProps({ overlays: [ov], durationSec: 200 });
+  const result = resolveFastLayers(props, span(2700, 2900));
+  assert.equal(result.length, 1);
+  const item = result[0] as Extract<FastLayerItem, { kind: "overlay" }>;
+  const local0 = 2807 - 2700;
+  assert.deepEqual(item.enableWindows, [[local0, local0 + 1]]); // [2807,2808] local
+  assert.notEqual(Math.round(93.65 * 30), 2809); // round(end*fps)=2810 と一致しないことの確認
+});
+
+test("S-4: 畳み込み: 同一画像・fade 無し・連続3スライス → 1入力・1窓(coalesce)", () => {
+  const items: FastLayerItem[] = [
+    { kind: "overlay", item: mkOverlay({ start: 0, end: 1, file: "a.png" }), startFrame: 0, durFrames: 30, enableWindows: [[0, 29]] },
+    { kind: "overlay", item: mkOverlay({ start: 1, end: 2, file: "a.png" }), startFrame: 30, durFrames: 30, enableWindows: [[30, 59]] },
+    { kind: "overlay", item: mkOverlay({ start: 2, end: 3, file: "a.png" }), startFrame: 60, durFrames: 30, enableWindows: [[60, 89]] },
+  ];
+  const props = mkProps();
+  const merged = mergeFastLayers(props, items);
+  assert.equal(merged.length, 1);
+  assert.deepEqual(merged[0].enableWindows, [[0, 89]]);
+});
+
+test("S-5: 畳み込み: 間に時間の重なる別画像の op があるときは畳まない", () => {
+  const items: FastLayerItem[] = [
+    { kind: "overlay", item: mkOverlay({ start: 0, end: 1, file: "a.png" }), startFrame: 0, durFrames: 30, enableWindows: [[0, 29]] },
+    { kind: "overlay", item: mkOverlay({ start: 0, end: 3, file: "b.png", rect: { x: 0, y: 0, w: 10, h: 10 } }), startFrame: 0, durFrames: 90, enableWindows: [[0, 89]] },
+    { kind: "overlay", item: mkOverlay({ start: 1, end: 2, file: "a.png" }), startFrame: 30, durFrames: 30, enableWindows: [[30, 59]] },
+  ];
+  const props = mkProps();
+  const merged = mergeFastLayers(props, items);
+  assert.equal(merged.length, 3); // a.png の2枚は間の b.png(重なる窓)に阻まれて畳めない
+});
+
+test("S-6: 畳み込み: fade 付き op は絶対に畳まれない", () => {
+  const items: FastLayerItem[] = [
+    { kind: "overlay", item: mkOverlay({ start: 0, end: 1, file: "a.png", fadeInSec: 0.1 }), startFrame: 0, durFrames: 30, enableWindows: [[0, 29]] },
+    { kind: "overlay", item: mkOverlay({ start: 1, end: 2, file: "a.png", fadeInSec: 0.1 }), startFrame: 30, durFrames: 30, enableWindows: [[30, 59]] },
+  ];
+  const props = mkProps();
+  const merged = mergeFastLayers(props, items);
+  assert.equal(merged.length, 2);
+});
+
+test("S-10: 不適格 overlay が FAST span に混入 → throw", () => {
+  const props = mkProps({ overlays: [mkOverlay({ start: 1, end: 4, file: "m.mp4" })] });
+  assert.throws(() => resolveFastLayers(props, span(0, 300)));
+});
+
+test("S-11: 適格 overlay が span をまたぐ → throw", () => {
+  const props = mkProps({ overlays: [mkOverlay({ start: 1, end: 4 })] }); // abs[30,120)
+  assert.throws(() => resolveFastLayers(props, span(0, 90))); // span が [30,120) を包含しない
+});
+
+test("S-12: countFastPngInputs は畳み込み後の入力数を返す", () => {
+  const items: FastLayerItem[] = [
+    { kind: "overlay", item: mkOverlay({ start: 0, end: 1, file: "a.png" }), startFrame: 0, durFrames: 30, enableWindows: [[0, 29]] },
+    { kind: "overlay", item: mkOverlay({ start: 1, end: 2, file: "a.png" }), startFrame: 30, durFrames: 30, enableWindows: [[30, 59]] },
+  ];
+  const props = mkProps({ overlays: items.map((it) => (it as Extract<FastLayerItem, { kind: "overlay" }>).item) });
+  assert.equal(countFastPngInputs(props, span(0, 60)), 1);
+});
+
+test("fastLayerMergeKey: overlay は file|fit|rect で決まる(opacity/fade は含まない)", () => {
+  const props = mkProps();
+  const a: FastLayerItem = { kind: "overlay", item: mkOverlay({ start: 0, end: 1, file: "a.png", opacity: 0.3 }), startFrame: 0, durFrames: 30, enableWindows: [[0, 29]] };
+  const b: FastLayerItem = { kind: "overlay", item: mkOverlay({ start: 5, end: 6, file: "a.png", opacity: 0.9 }), startFrame: 150, durFrames: 30, enableWindows: [[150, 179]] };
+  assert.equal(fastLayerMergeKey(props, a), fastLayerMergeKey(props, b));
 });
 
 // ---- buildFastSegmentFilter / buildFastSegmentArgs ----
@@ -150,12 +264,12 @@ function mkSpec(overrides: Partial<FastSegmentSpec> = {}): FastSegmentSpec {
     fromFrame: 0,
     toFrame: 300,
     fps: 30,
-    captions: [],
+    layers: [],
     ...overrides,
   };
 }
 
-test("B1: captionsゼロ件の filter/args", () => {
+test("B1: layersゼロ件の filter/args", () => {
   const spec = mkSpec();
   const filter = buildFastSegmentFilter(spec);
   assert.ok(filter.endsWith("format=yuvj420p[vout]"));
@@ -174,6 +288,7 @@ test("B1: captionsゼロ件の filter/args", () => {
   assert.ok(has("-colorspace", "smpte170m"));
   assert.ok(has("-forced-idr", "1"));
   assert.ok(has("-force_key_frames", "expr:eq(n,0)"));
+  assert.ok(has("-frames:v", "300"));
   assert.ok(args.includes("-g"));
   assert.ok(has("-map", "[vout]"));
   assert.equal(args.at(-1), spec.outPath);
@@ -197,9 +312,9 @@ test("B2b: fpsRound を指定すると fps filter の round を上書きする",
   assert.ok(filter.includes("fps=fps=30:round=down:start_time=0"));
 });
 
-test("B3: caption 1件", () => {
+test("B3: simple layer 1件(単一フレーム入力)", () => {
   const spec = mkSpec({
-    captions: [{ pngPath: "/rec/render.fast/captions/aaa.png", enableWindows: [[30, 119]] }],
+    layers: [{ pngPath: "/rec/render.fast/captions/aaa.png", enableWindows: [[30, 119]] }],
   });
   const args = buildFastSegmentArgs(spec);
   const iIndices = args.reduce<number[]>((acc, a, i) => {
@@ -208,6 +323,7 @@ test("B3: caption 1件", () => {
   }, []);
   assert.equal(iIndices.length, 2); // cut + 1 png
   assert.equal(args[iIndices[1] + 1], "/rec/render.fast/captions/aaa.png");
+  assert.ok(!args.includes("-loop")); // simple は単一フレーム入力(ループしない)
 
   const filter = buildFastSegmentFilter(spec);
   assert.ok(
@@ -218,9 +334,9 @@ test("B3: caption 1件", () => {
   assert.ok(filter.endsWith("[b0];[b0][1:v]overlay=x=0:y=0:format=auto:enable='between(n,30,119)'[vout]"));
 });
 
-test("B4: caption 2件のラベル遷移", () => {
+test("B4: layer 2件のラベル遷移", () => {
   const spec = mkSpec({
-    captions: [
+    layers: [
       { pngPath: "/rec/a.png", enableWindows: [[30, 119]] },
       { pngPath: "/rec/b.png", enableWindows: [[60, 149]] },
     ],
@@ -236,7 +352,7 @@ test("B4: caption 2件のラベル遷移", () => {
 
 test("B5: 複合 enable ウィンドウ", () => {
   const spec = mkSpec({
-    captions: [
+    layers: [
       {
         pngPath: "/rec/a.png",
         enableWindows: [
@@ -250,14 +366,14 @@ test("B5: 複合 enable ウィンドウ", () => {
   assert.ok(filter.includes("enable='between(n,30,59)+between(n,90,119)'"));
 });
 
-test("B6: 2-caption worked example の全argv・filter を固定", () => {
+test("B6: 2-layer(caption相当)worked example の全argv・filter を固定", () => {
   const spec: FastSegmentSpec = {
     cutPath: "/rec/cut.mp4",
     outPath: "/rec/seg003.mp4",
     fromFrame: 0,
     toFrame: 300,
     fps: 30,
-    captions: [
+    layers: [
       { pngPath: "/rec/aaa.png", enableWindows: [[30, 119]] },
       { pngPath: "/rec/bbb.png", enableWindows: [[60, 149]] },
     ],
@@ -287,6 +403,8 @@ test("B6: 2-caption worked example の全argv・filter を固定", () => {
     "-map",
     "[vout]",
     "-an",
+    "-frames:v",
+    "300",
     "-c:v",
     "h264_videotoolbox",
     "-profile:v",
@@ -309,19 +427,152 @@ test("B6: 2-caption worked example の全argv・filter を固定", () => {
   ]);
 });
 
-// ---- worked example resolveFastCaptions cross-check ----
+test("B7: alpha layer(fade付き)の入力引数(補遺1: 必要窓だけループ)とfiltergraph", () => {
+  const spec = mkSpec({
+    fromFrame: 1677,
+    toFrame: 3517,
+    layers: [
+      {
+        pngPath: "/rec/render.fast/overlays/k0.png",
+        fade: { startFrame: 0, durFrames: 41, fadeInFrames: 41, fadeOutFrames: 0 },
+        enableWindows: [[0, 40]],
+      },
+    ],
+  });
+  const args = buildFastSegmentArgs(spec);
+  const iArgIdx = args.indexOf("-loop");
+  assert.ok(iArgIdx >= 0);
+  assert.deepEqual(args.slice(iArgIdx, iArgIdx + 8), [
+    "-loop",
+    "1",
+    "-framerate",
+    "30",
+    "-t",
+    "1.400", // (41+1)/30
+    "-i",
+    "/rec/render.fast/overlays/k0.png",
+  ]);
 
-test("worked example: resolveFastCaptions が B6 の入力と一致する", () => {
+  const filter = buildFastSegmentFilter(spec);
+  assert.ok(filter.includes("[1:v]format=rgba,fade=t=in:alpha=1:start_frame=0:nb_frames=41,setpts=N/30/TB+0/30/TB[a0]"));
+  assert.ok(filter.includes("[b0][a0]overlay=x=0:y=0:format=auto:enable='between(n,0,40)'[vout]"));
+});
+
+test("B8: alpha layer(fadeOut・opacity 併用)のfiltergraph(fade の start_frame はストリーム先頭基準)", () => {
+  const spec = mkSpec({
+    layers: [
+      {
+        pngPath: "/rec/render.fast/overlays/k32.png",
+        opacity: 0.8,
+        fade: { startFrame: 100, durFrames: 68, fadeInFrames: 0, fadeOutFrames: 30 },
+        enableWindows: [[100, 167]],
+      },
+    ],
+  });
+  const filter = buildFastSegmentFilter(spec);
+  // start_frame = d - fout = 68 - 30 = 38(ストリーム先頭基準。A=100 は使わない)
+  assert.ok(
+    filter.includes(
+      "[1:v]format=rgba,colorchannelmixer=aa=0.8,fade=t=out:alpha=1:start_frame=38:nb_frames=30,setpts=N/30/TB+100/30/TB[a0]",
+    ),
+  );
+});
+
+test("B9: -frames:v は toFrame - fromFrame", () => {
+  const spec = mkSpec({ fromFrame: 100, toFrame: 250 });
+  const args = buildFastSegmentArgs(spec);
+  const idx = args.indexOf("-frames:v");
+  assert.equal(args[idx + 1], "150");
+});
+
+// ---- S-9: fade 式が Remotion(fadeFactor)と全フレームで一致する(補遺4) ----
+
+/** 補遺1/補遺4: ffmpeg 側の fade はストリーム先頭基準の n(= セグメントローカル
+ * frame m そのもの)。§5.4 の一致証明をそのまま独立実装してテストする */
+function ffmpegFadeAlpha(m: number, spec: { d: number; fin: number; fout: number }): number {
+  const { d, fin, fout } = spec;
+  const factorIn = fin > 0 ? Math.min(1, Math.max(0, m / fin)) : 1;
+  const factorOut = fout > 0 ? Math.min(1, Math.max(0, (d - m) / fout)) : 1;
+  return factorIn * factorOut;
+}
+
+test("S-9: fade 式が全 m で fadeFactor と一致する(fin=15,fout=10,d=90)", () => {
+  const fps = 30;
+  const d = 90;
+  const fin = 15;
+  const fout = 10;
+  for (let m = 0; m <= d; m++) {
+    const expected = fadeFactor(m, d, fps, fin / fps, fout / fps);
+    const actual = ffmpegFadeAlpha(m, { d, fin, fout });
+    assert.ok(Math.abs(expected - actual) < 1e-9, `m=${m}: expected=${expected} actual=${actual}`);
+  }
+});
+
+test("S-9b: fade 式が全 m で fadeFactor と一致する(等号ケース fin+fout=d)", () => {
+  const fps = 30;
+  const d = 41;
+  const fin = 41;
+  const fout = 0;
+  for (let m = 0; m <= d; m++) {
+    const expected = fadeFactor(m, d, fps, fin / fps, fout / fps);
+    const actual = ffmpegFadeAlpha(m, { d, fin, fout });
+    assert.ok(Math.abs(expected - actual) < 1e-9, `m=${m}: expected=${expected} actual=${actual}`);
+  }
+});
+
+// ---- worked example resolveFastLayers cross-check ----
+
+test("worked example: resolveFastLayers(caption経路)が B6 の入力と一致する", () => {
   const capA = mkCap(1, 1, 4); // abs [30,120)
   const capB = mkCap(2, 2, 5); // abs [60,150)
   const props = mkProps({
     captions: [capA, capB],
     layerOrder: ["ov1", "wipe", "caption", "cap2"],
   });
-  const result = resolveFastCaptions(props, span(0, 300));
+  const result = captionsOf(resolveFastLayers(props, span(0, 300)));
   assert.equal(result.length, 2);
   assert.equal(result[0].caption, capA);
   assert.deepEqual(result[0].enableWindows, [[30, 119]]);
   assert.equal(result[1].caption, capB);
   assert.deepEqual(result[1].enableWindows, [[60, 149]]);
+});
+
+// ---- 実収録形状(design-T1.md §7): 1スパンでの入力本数(overlay 13 + caption 94) ----
+
+test("S-12b: 実収録形状の1スパン(0-6301)→ layers.length === 107(caption 94 + overlay 13)", () => {
+  const fps = 30;
+  const overlays: OverlayItem[] = [];
+  // 7クラスタ、各クラスタ: 先頭1件がfade付き(alpha・畳まれない) + 続く4件が
+  // simple(同一ファイル・連続窓 → 1入力に畳み込まれる)= 7 * (1+1) = 14...
+  // 実収録は「fade七つ(単独) + simple塊六つ」の 7+6=13 入力になるよう
+  // 6クラスタ(各1 fade + 続くsimple群)+末尾1件のfadeOnlyクラスタで構成する
+  let t = 10;
+  for (let c = 0; c < 6; c++) {
+    const file = `f${c}.png`;
+    overlays.push(mkOverlay({ start: t, end: t + 1, file, fadeInSec: 0.2 }));
+    t += 1;
+    for (let s = 0; s < 4; s++) {
+      overlays.push(mkOverlay({ start: t, end: t + 1, file }));
+      t += 1;
+    }
+  }
+  // 末尾: fadeOut のみの単独クラスタ
+  overlays.push(mkOverlay({ start: t, end: t + 2, file: "last.png", fadeOutSec: 1 }));
+
+  const captions = Array.from({ length: 94 }, (_, i) => ({
+    start: 60 + i * 1.4,
+    end: 60 + i * 1.4 + 1,
+    text: `字幕${i}`,
+    track: 1,
+  }));
+
+  const props = mkProps({ durationSec: 210.03, overlays, captions, fps });
+  const total = 6301;
+  const items = resolveFastLayers(props, span(0, total));
+  const merged = mergeFastLayers(props, items);
+  const overlayCount = merged.filter((it) => it.kind === "overlay").length;
+  const captionCount = merged.filter((it) => it.kind === "caption").length;
+  assert.equal(overlayCount, 13); // 6 fade + 6 simple塊 + 1 fade = 13
+  assert.equal(captionCount, 94);
+  assert.equal(merged.length, 107);
 });

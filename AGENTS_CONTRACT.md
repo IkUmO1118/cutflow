@@ -118,7 +118,9 @@ false staleness signals or gets silently discarded:
   run; deleting the whole directory forces a full regeneration
 - `render.fast/` — a cache-style generated directory written by the render
   fast path: `captions/<key>.png` (per-caption transparent PNGs, content-hashed
-  by text + resolved style + position + output resolution). Differential cache
+  by text + resolved style + position + output resolution); `overlays/<key>.png`
+  (per-overlay transparent layer PNGs with fade/opacity stripped, content-hashed
+  by file path + mtime/size + fit + rect + output resolution). Differential cache
   (not wiped each run); deleting the whole directory forces full regeneration.
 - `review.probe/` — a **replace-on-run** generated directory written by
   `review <dir>` (`index.json`, `before/`, `after/`, `ocr/`). It is wiped and
