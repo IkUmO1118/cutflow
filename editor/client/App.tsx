@@ -4311,6 +4311,13 @@ export const App = () => {
                     updateCaption(i, { pos }, `caption:${i}:drag`);
                   }
                 }}
+                // 文言(text)は本編・ショートで共有(pos と違いトラック単位で
+                // ないので shortMode でも transcript を直接書く)
+                onCommitText={(i, text) =>
+                  updateCaption(i, { text }, `caption:${i}:text`)
+                }
+                // 編集中はプレビューを止めてボックス(=表示中テロップ)を固定する
+                onEditStart={() => playerRef.current?.pause()}
               />
             </>
           ) : (
@@ -4741,6 +4748,8 @@ const LiveCaptionOverlay = ({
   selection,
   onSelect,
   onMove,
+  onCommitText,
+  onEditStart,
 }: {
   width: number;
   height: number;
@@ -4749,6 +4758,8 @@ const LiveCaptionOverlay = ({
   selection: number | null;
   onSelect: (index: number) => void;
   onMove: (index: number, pos: CaptionPos) => void;
+  onCommitText: (index: number, text: string) => void;
+  onEditStart: () => void;
 }) => {
   const key = usePlayheadSelector(getKey);
   const captions = useMemo(
@@ -4764,6 +4775,8 @@ const LiveCaptionOverlay = ({
       selection={selection}
       onSelect={onSelect}
       onMove={onMove}
+      onCommitText={onCommitText}
+      onEditStart={onEditStart}
     />
   );
 };
