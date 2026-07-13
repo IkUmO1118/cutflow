@@ -20,7 +20,6 @@ import {
 import type { LayerId } from "../src/types.ts";
 import { frameSpans } from "../src/lib/renderProps.ts";
 import { buildCaptionIndex, lookupCaption } from "../src/lib/captionIndex.ts";
-import { arrowHeadPoints } from "../src/lib/annotation.ts";
 import { bgmTrackTiming, bgmVolumeAtFrame } from "../src/lib/bgmEnvelope.ts";
 import { blurRadiusPx, mosaicBlockPx, outputRectToCanvasRegion } from "../src/lib/blur.ts";
 import { cssFilterOf } from "../src/lib/colorFilter.ts";
@@ -28,6 +27,7 @@ import { valuesAt } from "../src/lib/keyframes.ts";
 import { fadeFactor, isImageFile } from "../src/lib/overlayFade.ts";
 import { cropFitStyle } from "../src/lib/panelStyle.ts";
 import { zoomTransformAt } from "../src/lib/zoom.ts";
+import { AnnotationItemView } from "./AnnotationLayer.tsx";
 import { PositionedCaption } from "./CaptionLayer.tsx";
 import { OverlayLayer } from "./OverlayLayer.tsx";
 import { playerFlag, premountFrames } from "./playerFlags.ts";
@@ -396,143 +396,16 @@ export const Main = (props: RenderProps) => {
           外なので出力px固定。本編経路のみ(!props.layout && hasVideo)。
           ショート(props.layout あり)には継承しない(D2 と同じ相乗り) */}
       {hasVideo && !props.layout &&
-        (props.annotations ?? []).map((a, i) => {
-          if (t < a.start || t >= a.end) return null; // 硬い ON/OFF(遷移なし)
-          if (a.type === "arrow") {
-            const now = a.keyframes
-              ? valuesAt(
-                  {
-                    fromX: a.from.x,
-                    fromY: a.from.y,
-                    toX: a.to.x,
-                    toY: a.to.y,
-                    widthPx: a.widthPx,
-                    headPx: a.headPx,
-                  },
-                  a.keyframes,
-                  t,
-                )
-              : null;
-            const from = now ? { x: now.fromX, y: now.fromY } : a.from;
-            const to = now ? { x: now.toX, y: now.toY } : a.to;
-            const widthPx = now?.widthPx ?? a.widthPx;
-            const headPx = now?.headPx ?? a.headPx;
-            const { p1, p2 } = arrowHeadPoints(from, to, headPx);
-            return (
-              <svg
-                key={`ann-${i}`}
-                style={{
-                  position: "absolute", inset: 0,
-                  width: props.width, height: props.height, overflow: "visible",
-                }}
-              >
-                <line
-                  x1={from.x} y1={from.y} x2={to.x} y2={to.y}
-                  stroke={a.color} strokeWidth={widthPx} strokeLinecap="round"
-                />
-                <polygon
-                  points={`${to.x},${to.y} ${p1.x},${p1.y} ${p2.x},${p2.y}`}
-                  fill={a.color}
-                />
-              </svg>
-            );
-          }
-          if (a.type === "box") {
-            const now = a.keyframes
-              ? valuesAt(
-                  {
-                    x: a.rect.x,
-                    y: a.rect.y,
-                    w: a.rect.w,
-                    h: a.rect.h,
-                    widthPx: a.widthPx,
-                    radiusPx: a.radiusPx,
-                  },
-                  a.keyframes,
-                  t,
-                )
-              : null;
-            return (
-              <div
-                key={`ann-${i}`}
-                style={{
-                  position: "absolute",
-                  left: now?.x ?? a.rect.x,
-                  top: now?.y ?? a.rect.y,
-                  width: now?.w ?? a.rect.w,
-                  height: now?.h ?? a.rect.h,
-                  boxSizing: "border-box",
-                  border: `${now?.widthPx ?? a.widthPx}px solid ${a.color}`,
-                  borderRadius: now?.radiusPx ?? a.radiusPx,
-                  ...(a.fill ? { backgroundColor: a.fill } : {}),
-                }}
-              />
-            );
-          }
-          // spotlight: フルスクリーンの黒(fillOpacity=dim)に mask で rect(または
-          // ellipse)の穴を開ける。featherPx は穴形状への feGaussianBlur で表現
-          const maskId = `ann-spotlight-mask-${i}`;
-          const blurId = `ann-spotlight-blur-${i}`;
-          const now = a.keyframes
-            ? valuesAt(
-                {
-                  x: a.rect.x,
-                  y: a.rect.y,
-                  w: a.rect.w,
-                  h: a.rect.h,
-                  dim: a.dim,
-                  featherPx: a.featherPx,
-                  radiusPx: a.radiusPx,
-                },
-                a.keyframes,
-                t,
-              )
-            : null;
-          const rect = now ? { x: now.x, y: now.y, w: now.w, h: now.h } : a.rect;
-          const dim = now?.dim ?? a.dim;
-          const featherPx = now?.featherPx ?? a.featherPx;
-          const radiusPx = now?.radiusPx ?? a.radiusPx;
-          return (
-            <svg
-              key={`ann-${i}`}
-              style={{
-                position: "absolute", inset: 0,
-                width: props.width, height: props.height,
-              }}
-            >
-              <defs>
-                {featherPx > 0 && (
-                  <filter id={blurId}>
-                    <feGaussianBlur stdDeviation={featherPx} />
-                  </filter>
-                )}
-                <mask id={maskId}>
-                  <rect x={0} y={0} width={props.width} height={props.height} fill="white" />
-                  <g filter={featherPx > 0 ? `url(#${blurId})` : undefined}>
-                    {a.shape === "ellipse" ? (
-                      <ellipse
-                        cx={rect.x + rect.w / 2}
-                        cy={rect.y + rect.h / 2}
-                        rx={rect.w / 2}
-                        ry={rect.h / 2}
-                        fill="black"
-                      />
-                    ) : (
-                      <rect
-                        x={rect.x} y={rect.y} width={rect.w} height={rect.h}
-                        rx={radiusPx} fill="black"
-                      />
-                    )}
-                  </g>
-                </mask>
-              </defs>
-              <rect
-                x={0} y={0} width={props.width} height={props.height}
-                fill="black" fillOpacity={dim} mask={`url(#${maskId})`}
-              />
-            </svg>
-          );
-        })}
+        (props.annotations ?? []).map((a, i) => (
+          <AnnotationItemView
+            key={`ann-${i}`}
+            a={a}
+            t={t}
+            width={props.width}
+            height={props.height}
+            index={i}
+          />
+        ))}
 
       {cutOpacity > 0 && (
         <AbsoluteFill style={{ backgroundColor: "black", opacity: cutOpacity }} />
