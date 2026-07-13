@@ -23,6 +23,7 @@ import {
   DEFAULT_AV_COLS,
   DEFAULT_AV_EVERY_SEC,
   DEFAULT_AI_MAX_OUTPUT_TOKENS,
+  DEFAULT_FAST_PATH_MIN_COVERAGE,
   DEFAULT_PERCEPTION_OCR_MAX_LINES,
   DEFAULT_PERCEPTION_OCR_MAX_SEGMENTS,
   DEFAULT_PLAN_HARNESS_MAX_TOOL_CALLS,
@@ -45,6 +46,7 @@ import {
   resolveAvCfg,
   resolveCandidatesCfg,
   resolveDescribePausesCfg,
+  resolveFastPathCfg,
   resolveLogCfg,
   resolvePerceptionCfg,
   resolvePerceptionStatus,
@@ -1014,6 +1016,19 @@ test("resolveLogCfg: 不正値は既定 normal へフォールバック", () => 
     resolveLogCfg({ log: { level: "bogus" as unknown as "normal" } } as Config),
     { level: "normal" },
   );
+});
+
+test("resolveFastPathCfg: render.fastPath/fastPathMinCoverage 省略時は無効+既定被覆率0.5", () => {
+  const cfg = parse(RAW) as Config;
+  assert.deepEqual(resolveFastPathCfg(cfg), { enabled: false, minCoverage: DEFAULT_FAST_PATH_MIN_COVERAGE });
+  assert.equal(DEFAULT_FAST_PATH_MIN_COVERAGE, 0.5);
+});
+
+test("resolveFastPathCfg: 明示値を解決する", () => {
+  const cfg = parse(RAW) as Config;
+  cfg.render.fastPath = true;
+  cfg.render.fastPathMinCoverage = 0.7;
+  assert.deepEqual(resolveFastPathCfg(cfg), { enabled: true, minCoverage: 0.7 });
 });
 
 test("syncEditorCfgFromYaml: 外部編集ぶん(パッチ外のキー)も反映される", () => {

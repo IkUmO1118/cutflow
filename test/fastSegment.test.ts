@@ -186,7 +186,7 @@ test("B3: caption 1件", () => {
   assert.equal(args[iIndices[1] + 1], "/rec/render.fast/captions/aaa.png");
 
   const filter = buildFastSegmentFilter(spec);
-  assert.ok(filter.includes("[0:v]trim=start_frame=0:end_frame=300,setpts=PTS-STARTPTS,"));
+  assert.ok(filter.includes("[0:v]trim=start_frame=0:end_frame=300,setpts=N/30/TB,"));
   assert.ok(filter.endsWith("[b0];[b0][1:v]overlay=x=0:y=0:format=auto:enable='between(n,30,119)'[vout]"));
 });
 
@@ -238,7 +238,7 @@ test("B6: 2-caption worked example の全argv・filter を固定", () => {
   const filter = buildFastSegmentFilter(spec);
   assert.equal(
     filter,
-    "[0:v]trim=start_frame=0:end_frame=300,setpts=PTS-STARTPTS,scale=in_range=limited:out_range=full,colorspace=all=smpte170m:iall=bt709:range=pc,format=yuvj420p[b0];" +
+    "[0:v]trim=start_frame=0:end_frame=300,setpts=N/30/TB,scale=in_range=limited:out_range=full,colorspace=all=smpte170m:iall=bt709:range=pc,format=yuvj420p[b0];" +
       "[b0][1:v]overlay=x=0:y=0:format=auto:enable='between(n,30,119)'[o0];" +
       "[o0][2:v]overlay=x=0:y=0:format=auto:enable='between(n,60,149)'[vout]",
   );

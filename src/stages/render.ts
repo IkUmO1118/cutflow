@@ -27,6 +27,7 @@ import {
 } from "../lib/chunkPlan.ts";
 import { buildCutCacheKey, cutCacheKeyEquals } from "../lib/cutCache.ts";
 import { run } from "../lib/exec.ts";
+import { decideFastPath, runFastRender } from "../lib/fastRender.ts";
 import {
   audioSourceOf,
   keepAudioParts,
@@ -291,6 +292,32 @@ export async function render(dir: string, cfg: Config): Promise<string> {
     if (chunked) {
       writeFileSync(renderKeyPath, JSON.stringify(renderKey, null, 2));
       return outPath;
+    }
+  }
+
+  // render 高速パス(opt-in)。fastPath=false のとき本ブロックには一切入らない
+  // =既存挙動とバイト等価。適格なら FAST/SLOW ハイブリッド合成で final.mp4 を作り、
+  // 成功したら full-skip キーを書き chunk cache を種付けして返す。非適格・失敗は
+  // 1行ログを出して下の通常フルレンダーへ落ちる(誤爆より保守)。
+  if (cfg.render.fastPath) {
+    const decision = decideFastPath({ props, cfg, composite });
+    if (!decision.activate) {
+      console.log(`render 高速パス: 非適用(${decision.reason}) → 通常レンダー`);
+    } else {
+      const ok = await runFastRender({
+        dir, props, plan: decision.plan, cutPath, propsPath, outPath,
+        hardwareAcceleration, repoRoot, resourceArgs: remotionResourceArgs(cfg),
+      });
+      if (ok) {
+        writeFileSync(renderKeyPath, JSON.stringify(renderKey, null, 2));
+        if (chunkSec > 0) {
+          await seedChunkCache({
+            dir, props, cutStat: { mtimeMs: cutStat.mtimeMs, size: cutStat.size },
+            outPath, chunkSec,
+          });
+        }
+        return outPath;
+      }
     }
   }
 
