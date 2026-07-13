@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { run } from "../lib/exec.ts";
+import { splitLongCaptions } from "../lib/captionSplit.ts";
 import { carryIds, ensureIds, hasAnyId, ID_PREFIX, usedIdsOf } from "../lib/ids.ts";
 import { readEditableDocs } from "./idStamp.ts";
 import type { Config } from "../lib/config.ts";
@@ -123,15 +124,22 @@ export async function transcribe(
     }
   }
 
+  // テロップ粒度の割り直し(§captionSplit)。config.yaml の whisper.captionSplit
+  // が無ければ何もせず segments をそのまま返す(=導入前とバイト等価)。id 採番の
+  // 前に行うので、分割後の断片はこの後の id 引き継ぎ/採番の対象になる
+  const shaped = cfg.whisper.captionSplit
+    ? splitLongCaptions(segments, cfg.whisper.captionSplit)
+    : segments;
+
   // id が有効なプロジェクトでのみ、上書き前(=まだ古い内容)の transcript.json
   // から (start,end,text) 一致で id を運ぶ(§applyTranscriptIds)
   const docs = readEditableDocs(dir);
   const finalSegments = hasAnyId(docs)
-    ? applyTranscriptIds(segments, {
+    ? applyTranscriptIds(shaped, {
         existingSegments: docs.transcript?.segments ?? [],
         used: usedIdsOf(docs),
       })
-    : segments;
+    : shaped;
 
   const transcript: Transcript = {
     language: cfg.whisper.language,
