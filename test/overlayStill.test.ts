@@ -8,10 +8,13 @@ import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  overlayStillItem,
+  overlayStillItem as reexportedOverlayStillItem,
   overlayStillKey,
   overlayStillPath,
 } from "../src/lib/overlayStill.ts";
+// overlayStillItem の定義はブラウザ安全な overlayFade.ts 側(remotion/OverlayStill.tsx が
+// import するため。overlayStill.ts は node 専用でブラウザバンドルに入れられない)
+import { overlayStillItem } from "../src/lib/overlayFade.ts";
 import type { OverlayItem } from "../remotion/props.ts";
 
 let dir: string;
@@ -39,6 +42,10 @@ const FULL_ITEM: OverlayItem = {
   rect: { x: 10, y: 20, w: 100, h: 200 },
   keyframes: [{ at: 0, easing: "linear", values: { opacity: 0 } }],
 };
+
+test("overlayStillItem: overlayStill.ts の re-export は overlayFade.ts の定義そのもの(二重定義しない)", () => {
+  assert.equal(reexportedOverlayStillItem, overlayStillItem);
+});
 
 test("overlayStillItem: fade/opacity/keyframes/startFrom を落とし、rect を保つ", () => {
   const stripped = overlayStillItem(FULL_ITEM);
