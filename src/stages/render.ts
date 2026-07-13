@@ -40,6 +40,10 @@ import {
 } from "../lib/renderKey.ts";
 import { defaultShortProfileName, resolveProfile } from "../lib/profile.ts";
 import { buildRenderProps } from "../lib/renderProps.ts";
+import {
+  compositionDurationInFrames,
+  compositionDurationSec,
+} from "../lib/renderFrameMath.ts";
 import { loadShort, loadShorts } from "../lib/shorts.ts";
 import { mergeIntervals, playbackSegmentsOf } from "../lib/timeline.ts";
 import { timed } from "../lib/timing.ts";
@@ -585,7 +589,7 @@ async function tryChunkRender(args: {
   const newGlobalKey = globalVideoKey(props, cutStat);
   if (newGlobalKey !== cached.globalKey) return false;
 
-  const totalFrames = Math.max(1, Math.round(props.durationSec * props.fps));
+  const totalFrames = compositionDurationInFrames(props.durationSec, props.fps);
   if (totalFrames !== cached.totalFrames || props.fps !== cached.fps) return false;
 
   const { boundaries } = cached;
@@ -628,7 +632,12 @@ async function tryChunkRender(args: {
   try {
     await concatChunks(chunkFiles, assembledVideo);
     await muxVideoAudio(assembledVideo, audioPath, tempFinal);
-    const verify = await verifyAssembled(tempFinal, totalFrames, props.durationSec, props.fps);
+    const verify = await verifyAssembled(
+      tempFinal,
+      totalFrames,
+      compositionDurationSec(props.durationSec, props.fps),
+      props.fps,
+    );
     if (!verify.ok) {
       console.warn(`チャンク検証に失敗したためフル再生成します: ${verify.reason}`);
       rmSync(chunksDir, { recursive: true, force: true });
@@ -672,7 +681,7 @@ async function seedChunkCache(args: {
   rmSync(chunksDir, { recursive: true, force: true });
   mkdirSync(chunksDir, { recursive: true });
 
-  const totalFrames = Math.max(1, Math.round(props.durationSec * props.fps));
+  const totalFrames = compositionDurationInFrames(props.durationSec, props.fps);
   const keyframeFrames = await probeKeyframes(outPath);
   const boundaries = carveBoundaries(keyframeFrames, totalFrames, chunkSec, props.fps);
   await carveFinalToChunks(outPath, boundaries, chunksDir);

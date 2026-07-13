@@ -76,7 +76,12 @@ export async function runFastRender(args: {
     await concatChunks(jobs.map((j) => j.outPath), assembledVideo);
     await extractAudio(cutPath, audioM4a);
     await muxVideoAudio(assembledVideo, audioM4a, tempFinal);
-    const verify = await verifyAssembled(tempFinal, plan.totalFrames, props.durationSec, props.fps);
+    const verify = await verifyAssembled(
+      tempFinal,
+      plan.totalFrames,
+      plan.totalFrames / props.fps,
+      props.fps,
+    );
     if (!verify.ok) {
       console.warn(`render 高速パス: 検証に失敗したためフルレンダーへ: ${verify.reason}`);
       rmSync(fastDir, { recursive: true, force: true });
