@@ -530,3 +530,32 @@ chrome-headless-shell 側のフレーク。
 が残っていると**古いバンドルがそのまま再利用され、設定変更が反映されない**
 (override 関数は実行されるのにバンドル内容が変わらない)。バンドラ設定を
 変えたら両方を削除してから検証すること。
+
+---
+
+## フェーズ10: render 高速パス(ハイブリッド ffmpeg 合成)cold Before/After
+
+`docs/programs/render-fastpath-program.md` の P1〜P3。テロップ静止区間を ffmpeg
+直合成(cut.mp4 → trim → テロップ透過 PNG overlay → h264_videotoolbox)に置き、
+演出のある区間だけ Remotion に通す opt-in の高速パス(`render.fastPath`、既定 off)。
+
+**実測(BGM 無し変種の 2026-07-12・6301f/210s・FAST 被覆 70.8%・同一マシン)**:
+
+| 経路 | cold render 総時間 | 備考 |
+|---|---|---|
+| フルレンダー(既定) | **176.0s** | Remotion 段 162.4s(6301f) |
+| 高速パス(fastPath:true) | **122.0s** | FAST 2 + SLOW 1 セグメント。約31%短縮 |
+
+- 出力等価性: verifyAssembled 通過(6301f・30fps・duration 210.033s=frame 厳密)。
+  FAST/SLOW 境界(frame 1676|1677)でテロップ・ワイプ・画面が連続し色/明るさの
+  ステップ無し(目視)。FAST セグメント単体 vs Remotion 同 span は PSNR 平均35.9dB
+  だが差分は画面テキストのクロマ再サンプリングに集中し視覚的に不可視(P0-3a と同種)。
+- **CFR の罠**: cut.mp4 は実測 VFR(avg 29.94fps)。FAST セグメントを
+  `setpts=PTS-STARTPTS` で切ると VFR が残り frames は正しいのに container duration が
+  伸び(1677f=56.07s、正しくは 55.90s)、Remotion(厳密30fps)との混在 concat 後に
+  verifyAssembled の duration 判定で落ちる。`setpts=N/fps/TB`(frame 序数で CFR
+  再スタンプ)で解決。frame 内容・順序・overlay の n ベース enable は不変。
+- 楽観試算(90〜100s)に届かない残差は、SLOW Remotion を別プロセス(bundle 込み)で
+  呼ぶ固定費+ caption still 用 bundle。P6 で bundle 共有の余地。
+- ユーザーの実収録は BGM×3 で v1 音声ゲート(cut.mp4 音声 -c copy)では発動しない
+  =P4(決定論 BGM ミキサ)が実運用の必須フェーズ。

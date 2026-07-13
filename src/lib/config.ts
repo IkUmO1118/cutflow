@@ -516,6 +516,13 @@ export interface Config {
      * (CPU コア数の半分)。メモリの節約(1タブ ≈ 350〜400MB)を優先したい
      * ときに下げる。出力には影響しない(renderKey にも含めない) */
     concurrency?: number;
+    /** render 高速パス(FAST/SLOW ハイブリッド ffmpeg 合成)。省略時 false=
+     * 既存挙動とバイト等価(このコード経路に入らない)。true でも収録が v1 適格
+     * (inserts/colorFilter/BGM/素材音声なし)かつ FAST 被覆 >= fastPathMinCoverage
+     * かつ composite 経路のときだけ発動し、欠ければ1行ログでフルレンダーへ落ちる */
+    fastPath?: boolean;
+    /** FAST 被覆率がこの値以上のときだけ高速パスを発動。省略時 0.5 */
+    fastPathMinCoverage?: number;
     /** ズーム演出(overlays.json の zooms)の既定設定。省略可 */
     zoom?: {
       /** ズームイン/アウトの遷移秒数。省略時 DEFAULT_ZOOM_EASE_SEC(0.4)。
@@ -961,6 +968,17 @@ export function formatStyleProfileStatusLines(status: StyleProfileStatus): strin
     ...status.warnings.map((w) => `警告: ${w}`),
     `plan スタイル注入: ${status.enabled ? `on(profile=${status.profile})` : "off"}`,
   ];
+}
+
+/** render.fastPathMinCoverage 未指定時の既定(FAST 被覆率の発動しきい値) */
+export const DEFAULT_FAST_PATH_MIN_COVERAGE = 0.5;
+
+/** render.fastPath を既定値で解決する純関数。loadConfig は cfg.render.fastPath /
+ *  fastPathMinCoverage を書き換えない(省略時 enabled=false=バイト等価) */
+export function resolveFastPathCfg(cfg: Config): { enabled: boolean; minCoverage: number } {
+  const raw = cfg.render.fastPathMinCoverage;
+  const minCoverage = typeof raw === "number" && Number.isFinite(raw) ? raw : DEFAULT_FAST_PATH_MIN_COVERAGE;
+  return { enabled: cfg.render.fastPath === true, minCoverage };
 }
 
 function validateWorkflowConfig(cfg: Config): string[] {
