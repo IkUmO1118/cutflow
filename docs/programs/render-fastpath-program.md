@@ -476,16 +476,46 @@ PSNR 値との連続性は無い(比較対象は常に「同一収録のフル r
   test/fastPlan.test.ts test/fastRender.test.ts`、`npm test`(1327 pass)、
   `git diff --check`。
 
-### P5: 適格範囲の拡大 — 状態: **進行中(P5-1: 静止画 overlay の FAST 化。実装完了・PR2 まで完了、実収録での render 実測・PSNR/音声ゲートの確認はコーディネータが実施予定。実測値は本節へ追記予定)**
+### P5: 適格範囲の拡大 — 状態: **進行中(P5-1 完了(2026-07-14)。残は下記)**
 
-- **P5-1(完了・実装のみ)**: `overlayFastReason`(適格判定)+ `fastPlan` の不動点反復
-  (SLOW 境界をまたぐ適格 overlay の降格)+ 入力数ガード(FAST スパン分割)+
-  `OverlayStill`(静止画レイヤーの Remotion still 焼き)+ `fastSegment` の
-  レイヤー一般化(`resolveFastLayers`/`mergeFastLayers`。alpha レイヤーは
-  「必要窓だけループ + PTS シフト」)。単体テスト・実収録形状(overlay 33件・
-  caption 94件・BGM×3・durationSec 210.03)での `fastPlan()` 直接呼び出しに
-  よる被覆 100% 確認(`spans=[{fast,0,6301}]`)まで確認済み。**実収録
-  render(冷実行時間・PSNR・LUFS 差の実測)は未実施**
+- **P5-1 静止画 overlay の FAST 化(完了・実測済み)**: `overlayFastReason`(適格判定)+
+  `fastPlan` の不動点反復(SLOW 境界をまたぐ適格 overlay の降格)+ 入力数ガード
+  (FAST スパン分割)+ `OverlayStill`(静止画レイヤーの Remotion still 焼き)+
+  `fastSegment` のレイヤー一般化(`resolveFastLayers`/`mergeFastLayers`。alpha
+  レイヤーは「必要窓だけループ + PTS シフト」)。
+
+  **実測(2026-07-14。実収録 2026-07-12 のコピー・BGM×3 あり・6301f/210.03s)**:
+  - 被覆 **70.8% → 100.0%**。発動ログ `FAST 1 / SLOW 0 セグメント(被覆 100.0%,
+    音声 bgm-mix)`= **Remotion 呼び出し 0 回**。PNG 入力は 107(caption 93 +
+    overlay 14。overlay 33 件がカット境界で割れたスライスを畳み込んで 14 入力)
+  - cold render(cut.mp4 温存・同一マシン状態): **210.5s → 92.8s(約56%短縮・2.3倍速)**。
+    P4 時点の fast(123.3s)からさらに 30s 短縮
+  - 出力は 6301f / 30fps / 210.033333s で full と一致(`verifyAssembled` 通過)
+  - 全編 per-frame PSNR(fast vs full): `psnr_avg < 30dB` は **0 frame**、
+    finite min 33.04dB / avg 42.52dB。**新たに ffmpeg 合成になった overlay 区間
+    (frame 1677-3517)だけを切り出すと avg 44.68 / min 40.76dB で、むしろ他区間より
+    良い**(min 33.04 は P0-3a/P2 から既知の「画面テキストのクロマ再サンプリング」
+    由来で、P4 実測の min 33.09 と同値。overlay 経路は劣化要因ではない)。
+    平均が P4 の 50.06dB から下がったのは、この区間が P4 までは full/fast の
+    **双方とも Remotion** で描かれていた(=ほぼ完全一致で平均を押し上げていた)ため
+  - 目視: fade 中(frame 1690)・クロスフェード中(frame 2003)とも full と区別不能
+  - `npm run typecheck` clean・`npm test` **1365 pass**
+
+  **実装上の確定事項**(再導出不要):
+  - alpha レイヤー(fade あり / opacity<1)の ffmpeg 入力は
+    **`-loop 1 -framerate <fps> -t <(d+1)/fps>`(overlay 自身の尺だけ)+ `setpts=N/fps/TB+A/fps/TB`
+    で PTS をセグメント内位置へシフト**する。`fade` の `start_frame` はストリーム
+    先頭基準(`0` と `d-fout`)。**セグメント全長をループさせる素朴な実装は、実測で
+    2.7倍遅い**(2000f・alpha 7 レイヤーで 26.2s vs 9.8s。出力は 1972/2000 frame が
+    bit 一致・残りも 44dB 以上で実質同一)。fade 係数は ffmpeg の frame ベース fade が
+    `n/nb_frames` ちょうどで、Remotion の `fadeFactor` と厳密一致することを実測確認済み
+  - `fin + fout > durFrames`(フェード窓の重なり)は SLOW へ落とす。Remotion は
+    `min(g_in,g_out)`、ffmpeg の fade 連鎖は積になるため、重ならないときだけ両者が一致する
+  - **`remotion/` 配下のファイルは node 専用モジュール(`node:fs` / `@remotion/renderer` 等)を
+    import してはならない**。Root.tsx からブラウザバンドルへ引き込まれて webpack が壊れ、
+    `frames` / `editor` / `render` が全部死ぬ。この失敗は **typecheck も `npm test` も
+    すり抜ける**(実際にバンドルを張って初めて出る)ので、`remotion/` に import を足したら
+    `frames` を1回実行して確かめること
 - **残(P5 の後続)**: inserts の span 化 / 静的 annotation・blur / colorFilter
   写像 / カラオケ word の区分静的 PNG 列 / anim テロップの窓分割 /
   動画素材 overlay の span 化 / ショート展開
@@ -635,10 +665,26 @@ PSNR 値との連続性は無い(比較対象は常に「同一収録のフル r
     full/fast とも -14.2 LUFS(差0.0 LU)、true peak 差0.2dB、
     short-term LUFS 包絡差は p95 0.2 LU / max 0.6 LU(2071点)。
     `npm run typecheck`、対象テスト、`npm test` 1327 pass。
+- **2026-07-14 P5-1 完了(静止画 overlay の FAST 化)**(Opus 設計→Sonnet 実装→
+  コーディネータ実測)。実収録の SLOW ブロックは**33 件すべてが静止画 PNG の全画面
+  overlay** だったため、これを FAST 化して**被覆 70.8%→100%・Remotion 呼び出し 0 回**に。
+  **cold render 210.5s→92.8s(56%短縮)**。全編 PSNR は 30dB 未満 0 frame
+  (min 33.04 / avg 42.52dB)で、新規に ffmpeg 合成となった overlay 区間だけを見ると
+  avg 44.68 / min 40.76dB と**他区間より良い**(min 側は従来から既知の画面テキストの
+  クロマ再サンプリング)。数値・実装上の確定事項は §5 P5 を正とする。
+  - **設計段階で実測により覆した点**: 設計は alpha レイヤー(fade)の PNG を
+    「セグメント全長でループ」して読む形だったが、実測で 2.7 倍遅い(fade フィルタが
+    全フレーム分のフルHD RGBA を処理する)。「必要窓だけループ + PTS シフト」へ変更し、
+    出力の bit 一致を確認した上で採用。
+  - **実装段階で実測により捕まえたバグ**: `remotion/OverlayStill.tsx` が node 専用の
+    `src/lib/overlayStill.ts` を import し、ブラウザバンドル(webpack)が壊れて
+    `frames`/`editor`/`render` が全滅する回帰。**typecheck も `npm test`(1334 pass)も
+    すり抜けた**(実際にバンドルを張って初めて出る)。純関数を browser-safe な
+    `overlayFade.ts` へ移して解消。→ 教訓は §5 P5 に恒久ルールとして記載。
 
 ---
 
-## 9. 次セッションの着手手順(P0〜P4 は完了済み → **次は P5/P6**)
+## 9. 次セッションの着手手順(P0〜P4・P5-1 は完了済み → **次は P5 の残りと P6**)
 
 **次の着手手順(コールドスタートの設計/実装セッションを想定。次はここから)**:
 
