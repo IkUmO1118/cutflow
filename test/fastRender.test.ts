@@ -64,13 +64,34 @@ test("decideFastPath: fastPath:true, composite:false → 非composite経路", ()
   assert.equal(!decision.activate && decision.reason, "非composite経路(cut.mp4 が出力解像度でない)");
 });
 
-test("decideFastPath: inserts があれば映像・音声ともに適格外", () => {
-  const props = mkProps({ inserts: [{ start: 0, end: 5, file: "i.mp4", fit: "cover" }] });
+test("decideFastPath: 挿入があっても映像・音声ともに適格(P5-4)。insert-mix で activate する", () => {
+  const props = mkProps({
+    baseSegments: [{ start: 5, videoStart: 0, durationSec: 15 }],
+    inserts: [{ start: 0, end: 5, file: "i.mp4", fit: "cover" }],
+  });
   const decision = decideFastPath({ props, cfg: cfgWith({ fastPath: true }), composite: true });
-  assert.deepEqual(decision, { activate: false, reason: "適格外: inserts" });
   const plan = fastPlan(props);
-  assert.equal(plan.audioFastEligible, false);
-  assert.ok(plan.audioFallback.some((reason) => reason.includes("挿入")));
+  assert.equal(plan.eligible, true);
+  assert.deepEqual(plan.wholeFallback, []);
+  assert.equal(plan.audioMode, "insert-mix");
+  assert.equal(plan.audioFastEligible, true);
+  assert.deepEqual(plan.audioFallback, []);
+  assert.equal(decision.activate, true);
+  assert.ok(decision.activate);
+  if (decision.activate) assert.equal(decision.plan.audioMode, "insert-mix");
+});
+
+test("decideFastPath: 挿入 + 素材音声(overlays[].volume>0)は依然として音声適格外(素材音声は据え置き)", () => {
+  const props = mkProps({
+    baseSegments: [{ start: 5, videoStart: 0, durationSec: 15 }],
+    inserts: [{ start: 0, end: 5, file: "i.mp4", fit: "cover" }],
+    overlays: [{ start: 6, end: 8, file: "material.mp4", track: 1, fit: "contain", volume: 1 }],
+  });
+  const decision = decideFastPath({ props, cfg: cfgWith({ fastPath: true }), composite: true });
+  assert.equal(decision.activate, false);
+  const reason = !decision.activate ? decision.reason : "";
+  assert.ok(reason.startsWith("音声適格外:"), reason);
+  assert.ok(reason.includes("素材音声"), reason);
 });
 
 test("decideFastPath: colorFilter(表現可能)は activate する(P5-3)", () => {
