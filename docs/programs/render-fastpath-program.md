@@ -477,7 +477,7 @@ PSNR 値との連続性は無い(比較対象は常に「同一収録のフル r
   test/fastPlan.test.ts test/fastRender.test.ts`、`npm test`(1327 pass)、
   `git diff --check`。
 
-### P5: 適格範囲の拡大 — 状態: **進行中(P5-1 / P5-2 / P5-3 完了・実測済み(2026-07-14)。P5-4 実装完了・実測は次セッション。残は下記)**
+### P5: 適格範囲の拡大 — 状態: **進行中(P5-1〜P5-4 完了・実測済み(2026-07-14)。残は下記)**
 
 - **P5-1 静止画 overlay の FAST 化(完了・実測済み)**: `overlayFastReason`(適格判定)+
   `fastPlan` の不動点反復(SLOW 境界をまたぐ適格 overlay の降格)+ 入力数ガード
@@ -575,7 +575,7 @@ PSNR 値との連続性は無い(比較対象は常に「同一収録のフル r
     colorchannelmixer=...,format=yuvj420p` の形になるが、**ffmpeg のフォーマット交渉が
     `format=yuvj420p,format=rgb24` の連鎖を実変換に落とさない**ため、クロマの往復は発生しない
     (「色空間変換 → RGB → colorFilter → yuvj420p」と **bit 完全一致**することを実測で確認)
-- **P5-4 inserts の span 化(実装完了・実測は次セッションで render 実行時に記録)**:
+- **P5-4 inserts の span 化(完了・実測済み 2026-07-14)**:
   `layout(ショート経路)`を除く最後の全編フォールバックを解除する
   (design-T4.md)。設計方針: **挿入区間そのものは SLOW(Remotion)に据え置き、
   挿入の「前後のベース区間」だけ FAST で正しく描く**。
@@ -598,9 +598,13 @@ PSNR 値との連続性は無い(比較対象は常に「同一収録のフル r
     改名・汎用化)を再利用)。挿入のゲイン曲線は Remotion の `InsertView` と
     同一式(`vol × fadeFactor(f, durFrames, fps, fadeInSec, fadeOutSec)`。
     `durFrames = max(1, round((end-start)*fps))` — `frameSpans` の
-    `durationInFrames` ではない点に注意)。音声ストリームの無い挿入素材は
-    `decodeAudioToPcm` が長さ0の PCM を返すので `null` へ正規化して無音扱いに
-    する。`fastPlan.ts` の `audioGate` から `inserts` を不適格理由から外し、
+    `durationInFrames` ではない点に注意)。**音声ストリームを1本も持たない挿入素材は
+    `decodeAudioToPcm` を呼ぶ前に ffprobe で判定してデコード自体をスキップする**
+    (`insertHasNoAudio`。image / `volume<=0` も同様)。**当初の実装は「デコード結果の
+    PCM が空なら無音扱い」にしていたが、音声ストリームが無いと ffmpeg 自体が
+    エラー終了するのでその分岐に到達せず、fastPath が毎回フォールバックしていた**
+    (実 render でのみ露見。単体テストも `fastPlan()` 直接呼び出しも `validate` も
+    すり抜けた)。`fastPlan.ts` の `audioGate` から `inserts` を不適格理由から外し、
     `audioMode: "insert-mix"` を追加(素材 overlay の音声(`overlays[].volume>0`)
     は引き続き不適格。挿入なし収録は従来の `mixFastAudio` のまま=P4 で
     LUFS 検証済みの経路を触らない意図的な二経路)。`fastRender.ts` が
@@ -609,18 +613,31 @@ PSNR 値との連続性は無い(比較対象は常に「同一収録のフル r
     (エディタ proxy 専用の `videoIsSource` 分岐でしか立たない)が、
     `baseLayoutOf` が保守的に全編フォールバックで塞ぐ(setpts スケーリングは
     実装しない)。
-  - `npx tsc --noEmit` clean・`npm test` **1465 pass**
+  - `npx tsc --noEmit` clean・`npm test` **1470 pass**
     (`test/fastBase.test.ts`(新規 B1〜B8)・`test/insertMix.test.ts`(新規
-    I-1〜I-8)・`test/fastPlan.test.ts`(P4-1〜P4-9)・`test/fastSegment.test.ts`
-    (G4-1〜G4-5)・`test/fastRender.test.ts` を追加/改訂)。
-  - **実測(cold render の Before/After・PSNR・LUFS 包絡・残差・波形)はこの
-    セッションでは行っていない**(実装+単体テストのみ)。合成収録
-    (実収録 2026-07-12 のコピーに動画+音声/無音動画/画像/フェード有無/
-    連続2件の挿入 7 件を追加)で `fastPlan()` を直接呼んだ検証は済み:
-    `eligible: true`・挿入区間だけが SLOW・前後のベース区間が FAST・
-    `audioFastEligible: true`(`audioMode: "insert-mix"`)。次セッションで
-    実際に `render` を通した cold render 時間・映像 PSNR・音声(LUFS 包絡・
-    残差・波形)の実測を記録する。
+    I-1〜I-8 + 音声ストリーム無しの判定)・`test/fastPlan.test.ts`(P4-1〜P4-9)・
+    `test/fastSegment.test.ts`(G4-1〜G4-5)・`test/fastRender.test.ts` を追加/改訂)。
+
+  **実測(2026-07-14。合成収録=実収録 2026-07-12 のコピーに挿入 7 件
+  (動画+音声 / 画像+フェード / `startFrom`+フェード / **音声ストリーム無しの動画** /
+  `volume:0` / 素材尺超過 / 連続2件)を追加。挿入素材は 1kHz トーン入りの
+  合成動画で、音の位置と音量を機械判定できるようにした)**:
+  - **inserts があっても fastPath が発動する**(従来はここで収録まるごと不適格):
+    `FAST 6 / SLOW 5 セグメント(被覆 85.5%, 音声 insert-mix)`
+  - cold render: **219.1s → 147.2s(約33%短縮)**。出力は 7261f で full と一致
+  - 映像 per-frame PSNR: avg **43.81dB**、`psnr_avg < 30dB` は **1 frame のみ**
+    (frame 5079 = 25.44dB)。**この 1 frame は挿入クリップの内部**(= fast/full
+    どちらも Remotion が描く SLOW 区間)で、タイムコードを読むと fast=挿入内28枚目・
+    full=27枚目。挿入開始が出力 frame 5051 なので **Sequence の計算どおりなのは fast**
+    であり、full 側がこの1フレームだけ隣の素材フレームを引いている(OffthreadVideo の
+    抽出境界アーティファクト)。前後フレームは 48dB で一致しており系統的なズレではない
+  - **音声(映像 PSNR では検出できないので別立てで検証)**: 挿入トーン(1kHz)の
+    バンドパス RMS を区間ごとに比較 —
+    `volume=1` の挿入 fast **-24.086** / full **-24.087 dB**、
+    `volume=0.5` の挿入 fast **-30.110** / full **-30.111 dB**(vol=1 比 **-6.02dB
+    = ちょうど 0.5 倍**)、**音声ストリーム無し素材**と `volume:0` はともに **-inf**
+    (正しく無音)、挿入外のベース区間はトーン無しで一致。統合ラウドネスは
+    fast **-14.4** / full **-14.5 LUFS**(差 0.1 LU)
 - **残(P5 の後続)**:
   カラオケ word の区分静的 PNG 列 / anim テロップの窓分割 /
   動画素材 overlay の span 化 / ショート展開
@@ -815,7 +832,7 @@ PSNR 値との連続性は無い(比較対象は常に「同一収録のフル r
     **`saturate > 2.0776` は表現不能**(`validate` は 3 まで許す)。この帯だけ全編フォールバックを残す。
   - **`eq` フィルタは使わない**(YUV 平面で動くので CSS の RGB チャンネル毎演算とは別物)。
 
-- **2026-07-14 P5-4 実装完了(inserts の span 化。実測は次セッション)**(Opus 設計
+- **2026-07-14 P5-4 完了(inserts の span 化=最後の全編フォールバック解除)**(Opus 設計
   (design-T4.md)→ Sonnet 実装。2 コミット: PR1=映像(`fastBase.ts` 新規・
   `fastPlan.ts`/`fastSegment.ts` の trim 写像)、PR2=音声(`insertMix.ts` 新規・
   `bgmMix.ts` の `decodeAudioToPcm` 改名・`fastRender.ts` の audioMode 分岐)。
@@ -840,17 +857,27 @@ PSNR 値との連続性は無い(比較対象は常に「同一収録のフル r
     (`videoIsSource` はエディタ proxy 専用)ことをコードで確認済み
     (`renderProps.ts:359`)。setpts スケーリングは実装せず、保守的に
     `baseLayoutOf` が全編フォールバックで塞ぐだけにした。
-  - `npx tsc --noEmit` clean・`npm test` **1465 pass**。合成収録
-    (実収録 2026-07-12 のコピーに動画+音声/無音動画/画像/フェード有無/
-    連続2件の挿入 7 件を追加)で `fastPlan()` を直接呼んだ検証は完了
-    (`eligible:true`・挿入区間だけ SLOW・`audioMode:"insert-mix"`)。
-    **cold render の Before/After・PSNR・LUFS・残差・波形の実測はこの
-    セッションでは行っていない**(design-T4.md §7 の完了基準は次セッションで
-    実行する)。
+  - **コーディネータの実 render が捕まえたバグ**: 当初の実装は「挿入素材の音声を
+    デコードして PCM が空なら無音扱い」だったが、**音声ストリームを1本も持たない
+    素材では ffmpeg のデコード自体がエラー終了する**ためその分岐に到達せず、
+    fastPath が毎回フォールバックしていた(= 出力は正しいが高速化がゼロ)。
+    **単体テスト 1465 件も `fastPlan()` 直接呼び出しも `validate` も全部すり抜け、
+    実際に render を回して初めて出た**。デコード前に ffprobe で音声ストリームの
+    有無を判定してスキップする形(`insertHasNoAudio`)に修正。
+  - **実測(2026-07-14)**: `FAST 6 / SLOW 5(被覆 85.5%, 音声 insert-mix)`・
+    **cold render 219.1s → 147.2s(33%短縮)**・7261f で full と一致。
+    映像 PSNR は avg 43.81dB で `<30dB` は 1 frame のみ(挿入クリップ内部の
+    OffthreadVideo 抽出境界アーティファクトで、Sequence 計算どおりなのは fast 側)。
+    **音声**は挿入トーンのバンドパス RMS で位置・音量とも full と一致
+    (`volume:0.5` は vol=1 比ちょうど -6.02dB、音声ストリーム無し素材と
+    `volume:0` は -inf)。統合ラウドネス差 0.1 LU。数値は §5 P5 を正とする。
+  - **教訓(恒久)**: **映像の PSNR は音声のズレを一切検出しない**。音声に触る
+    変更は、挿入トーンのような「位置と音量が機械判定できる素材」で別立てに
+    検証すること。
 
 ---
 
-## 9. 次セッションの着手手順(P0〜P4・P5-1・P5-2・P5-3・P5-4(実装) は完了済み → **次は P5-4 の実測と P6**)
+## 9. 次セッションの着手手順(P0〜P4・P5-1〜P5-4 は完了済み → **次は P5 の残りと P6**)
 
 **直近の最優先**: P5-4(inserts の span 化)は実装・単体テストのみ完了し、
 design-T4.md §7 の実測(cold render Before/After・全編 PSNR・LUFS 包絡・
