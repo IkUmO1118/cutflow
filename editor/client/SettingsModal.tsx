@@ -12,7 +12,7 @@ import type { AiAdapterKind, AiConfig, AiProvider, Config } from "../../src/lib/
 import type { ConfigPatch } from "../../src/lib/configEdit.ts";
 import type { AiDoctorResult, AiProfileStatus, EditorCfg, PlanPerceptionStatus } from "./apiTypes.ts";
 import { NumInput } from "./widgets.tsx";
-import { FONT_PRESETS } from "./Inspector.tsx";
+import { CAPTION_WEIGHT_OPTIONS, FONT_PRESETS } from "./Inspector.tsx";
 
 type RenderCfg = Config["render"];
 type PreviewCfg = { width: number; videoEncoder?: "libx264" | "videotoolbox" };
@@ -564,9 +564,11 @@ export const SettingsModal = ({
             });
           }}
         >
-          <option value={400}>普通 (400)</option>
-          <option value={700}>太字 (700)</option>
-          <option value={900}>極太 (900)</option>
+          {CAPTION_WEIGHT_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
         </select>
         {captionDefaultsTouched && (
           <button

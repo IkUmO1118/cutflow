@@ -49,6 +49,7 @@ import type { AnnotationPatch, Selection } from "./model.ts";
 import { usePlayheadSelector } from "./playhead.ts";
 import {
   NumInput,
+  NumStepper,
   PctSlider,
   Segmented,
   VIDEO_EXT_RE,
@@ -553,17 +554,22 @@ export const Inspector = ({
                   })
                 }
               >
-                <option value={400}>Regular</option>
-                <option value={700}>Bold</option>
-                <option value={900}>Black</option>
+                {CAPTION_WEIGHT_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
               </select>
             </div>
             <div className="capField noLabel">
-              <NumInput
+              <NumStepper
                 value={s.style?.fontSizePx}
                 allowEmpty
-                placeholder={String(base.fontSizePx)}
-                title="このテロップだけのフォントサイズ。空欄=標準(トラック標準 → config.yaml)"
+                min={1}
+                unit="px"
+                presets={CAPTION_SIZE_PRESETS}
+                placeholder={base.fontSizePx !== undefined ? String(base.fontSizePx) : undefined}
+                title="このテロップだけのフォントサイズ。↑↓で増減 / ▾でプリセット。空欄=標準(トラック標準 → config.yaml)"
                 onCommit={(v) =>
                   patchStyle({ fontSizePx: v !== undefined ? Math.round(v) : undefined })
                 }
@@ -620,6 +626,29 @@ export const Inspector = ({
                 />
               )}
             </div>
+            {outlineOn && (
+              <div className="capField">
+                <label>縁太さ</label>
+                <NumStepper
+                  value={s.style?.outlineWidthPx}
+                  allowEmpty
+                  min={0}
+                  unit="px"
+                  presets={CAPTION_OUTLINE_PRESETS}
+                  placeholder={(() => {
+                    const fs = s.style?.fontSizePx ?? base.fontSizePx;
+                    return fs !== undefined ? String(Math.round(fs * 0.25)) : "自動";
+                  })()}
+                  title="縁取りの太さ(px)。↑↓で増減 / ▾でプリセット。空欄=自動(フォントサイズの0.25倍)"
+                  onCommit={(v) =>
+                    patchStyle(
+                      { outlineWidthPx: v !== undefined ? Math.max(0, Math.round(v)) : undefined },
+                      `caption:${selection.index}:outlineWidthPx`,
+                    )
+                  }
+                />
+              </div>
+            )}
             <div className="capField swatchField">
               <label>背景帯</label>
               <input
@@ -2726,9 +2755,11 @@ const BatchCaptionPanel = ({
               </option>
             )}
             <option value="">標準</option>
-            <option value={400}>普通 (400)</option>
-            <option value={700}>太字 (700)</option>
-            <option value={900}>極太 (900)</option>
+            {CAPTION_WEIGHT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
           </select>
         </div>
         <div className="field">
@@ -3032,9 +3063,11 @@ const ShortCaptionPanel = ({
             value={trackDef?.style?.fontWeight ?? 400}
             onChange={(e) => patchStyle({ fontWeight: Number(e.target.value) })}
           >
-            <option value={400}>Regular</option>
-            <option value={700}>Bold</option>
-            <option value={900}>Black</option>
+            {CAPTION_WEIGHT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
           </select>
         </div>
         </div>
@@ -3306,12 +3339,36 @@ const ProjectPanel = ({
 /** フォント種のプリセット(macOS 標準の日本語フォント)。
  * 値はそのまま CSS font-family として使う(設定モーダルとも共有) */
 export const FONT_PRESETS: { label: string; value: string }[] = [
-  { label: "ゴシック(標準)", value: CAPTION_DEFAULT_FONT_FAMILY },
+  { label: "Noto Sans JP(標準)", value: CAPTION_DEFAULT_FONT_FAMILY },
+  {
+    label: "ゴシック(Hiragino)",
+    value: '"Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif',
+  },
   {
     label: "丸ゴシック",
     value: '"Hiragino Maru Gothic ProN", "Hiragino Sans", sans-serif',
   },
   { label: "明朝", value: '"Hiragino Mincho ProN", "Yu Mincho", serif' },
+];
+
+/** 文字の太さ(fontWeight)の選択肢。既定フォント Noto Sans JP は可変フォント
+ * なので 300〜900 の中間ウェイトも実グリフとして描き分けられる。値は CSS の
+ * font-weight。共通化して3箇所(個別・一括・トラック標準)の select で使う */
+/** フォントサイズ(px)の ▾ プリセット。Figma 風に代表値を並べる(直接入力・
+ * ↑↓増減も可)。テロップは視認性優先で大きめ中心 */
+export const CAPTION_SIZE_PRESETS = [24, 28, 32, 40, 48, 56, 64, 72, 80, 96, 120, 160];
+
+/** 縁取りの太さ(px)の ▾ プリセット。0=縁なし相当〜太めまで */
+export const CAPTION_OUTLINE_PRESETS = [0, 2, 4, 6, 8, 10, 12, 16, 20, 24];
+
+export const CAPTION_WEIGHT_OPTIONS: { value: number; label: string }[] = [
+  { value: 300, label: "細字 (300)" },
+  { value: 400, label: "標準 (400)" },
+  { value: 500, label: "中字 (500)" },
+  { value: 600, label: "半太 (600)" },
+  { value: 700, label: "太字 (700)" },
+  { value: 800, label: "極太 (800)" },
+  { value: 900, label: "最太 (900)" },
 ];
 
 /** アニメ種別の選択肢(日本語ラベル)。`""`=キー無し(トラック標準/既定を
@@ -3335,6 +3392,7 @@ const fmtStyle = (st: CaptionStyle): string =>
     st.fontSizePx !== undefined ? `${st.fontSizePx}px` : null,
     st.color ? `文字 ${st.color}` : null,
     st.outlineColor ? `縁 ${st.outlineColor}` : null,
+    st.outlineWidthPx !== undefined ? `縁幅 ${st.outlineWidthPx}px` : null,
     st.fontFamily ? "フォント指定" : null,
     st.fontWeight !== undefined ? `太さ ${st.fontWeight}` : null,
     st.background ? `座布団 ${st.background.color}` : null,

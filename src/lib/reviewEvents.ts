@@ -268,6 +268,15 @@ function titleOf(kind: ReviewEventKind, hunks: Hunk[]): string {
     if (isRectField(field)) return "ぼかし範囲を変更";
   }
   if (kind === "zoom" && first.kind === "element-add") return "ズームを追加";
+  if (kind === "overlay") {
+    if (first.kind === "element-add") return "素材を追加";
+    if (first.kind === "element-remove") return "素材を削除";
+  }
+  if (kind === "insert") {
+    if (first.kind === "element-add") return "インサートを追加";
+    if (first.kind === "element-remove") return "インサートを削除";
+  }
+  if (kind === "wipe" && first.kind === "element-add") return "ワイプを追加";
   if (kind === "caption") {
     if (field === "text") return "字幕文言を変更";
     if (field === "start" || field === "end") return "字幕の表示時間を変更";

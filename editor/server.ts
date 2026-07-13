@@ -113,6 +113,10 @@ export async function startEditor(
     define: { "process.env.NODE_ENV": '"production"' },
     sourcemap: "inline",
     target: "es2022",
+    // Main.tsx が同梱フォント(*.woff2)を import する。esbuild には既定の
+    // ローダーが無いので data URI に埋め込む(remotion 側は webpack の
+    // asset/resource が URL 化する)。バンドルはメモリ上のみで数MB増える程度
+    loader: { ".woff2": "dataurl", ".woff": "dataurl" },
   });
   const bundleJs = bundle.outputFiles[0].text;
   const indexHtml = readFileSync(join(editorDir, "client/index.html"), "utf8");

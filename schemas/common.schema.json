@@ -73,6 +73,7 @@
         "fontSizePx": { "type": "number" },
         "color": { "type": "string" },
         "outlineColor": { "type": "string" },
+        "outlineWidthPx": { "type": "number", "minimum": 0 },
         "fontFamily": { "type": "string" },
         "fontWeight": { "type": "number", "minimum": 100, "maximum": 900 },
         "background": { "$ref": "common.schema.json#/$defs/CaptionBackground" },
