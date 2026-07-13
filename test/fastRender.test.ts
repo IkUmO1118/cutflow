@@ -73,10 +73,18 @@ test("decideFastPath: inserts があれば映像・音声ともに適格外", ()
   assert.ok(plan.audioFallback.some((reason) => reason.includes("挿入")));
 });
 
-test("decideFastPath: colorFilter があれば適格外", () => {
+test("decideFastPath: colorFilter(表現可能)は activate する(P5-3)", () => {
   const props = mkProps({ colorFilter: { brightness: 1.1 } });
   const decision = decideFastPath({ props, cfg: cfgWith({ fastPath: true }), composite: true });
-  assert.deepEqual(decision, { activate: false, reason: "適格外: colorFilter" });
+  assert.equal(decision.activate, true);
+});
+
+test("decideFastPath: colorFilter(saturate>2.0776 で表現不能)は適格外", () => {
+  const props = mkProps({ colorFilter: { saturate: 2.5 } });
+  const decision = decideFastPath({ props, cfg: cfgWith({ fastPath: true }), composite: true });
+  assert.equal(decision.activate, false);
+  assert.ok(!decision.activate);
+  if (!decision.activate) assert.ok(decision.reason.startsWith("適格外: colorFilter("));
 });
 
 test("decideFastPath: BGM があっても bgm-mix で activate", () => {
