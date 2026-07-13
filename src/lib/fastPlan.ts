@@ -13,6 +13,7 @@ import { compositionDurationInFrames } from "./renderFrameMath.ts";
 import { annotationFastReason } from "./annotation.ts";
 import { overlayFastReason, overlaySeqRange } from "./overlayFade.ts";
 import { countFastPngInputs } from "./fastSegment.ts";
+import { ffmpegColorFilterOf } from "./colorFilter.ts";
 import { DEFAULT_LAYER_ORDER, ovId } from "../types.ts";
 import type { OverlayItem, RenderProps } from "../../remotion/props.ts";
 
@@ -233,7 +234,12 @@ export function fastPlan(props: RenderProps): FastPlan {
   const wholeFallback: string[] = [];
   if (props.layout) wholeFallback.push("layout(ショート経路)");
   if ((props.inserts?.length ?? 0) > 0) wholeFallback.push("inserts");
-  if (props.colorFilter) wholeFallback.push("colorFilter");
+  // colorFilter は FAST 側で ffmpeg フィルタへ写像できる(P5-3)。表現できない
+  // 値域(colorchannelmixer の係数レンジ超過 = saturate > 2.0776)のときだけ
+  // 全編フォールバックする。全キー 1.0(= cssFilterOf が undefined を返す)は
+  // そもそも描画に関与しないので "none" で通す
+  const cfPlan = ffmpegColorFilterOf(props.colorFilter);
+  if (cfPlan.kind === "unsupported") wholeFallback.push(`colorFilter(${cfPlan.reason})`);
   if (wholeFallback.length > 0) {
     return {
       eligible: false,

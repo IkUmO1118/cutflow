@@ -9,6 +9,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  BASE_COLOR_FILTER,
   FAST_FPS_ROUND,
   buildFastSegmentArgs,
   buildFastSegmentFilter,
@@ -619,6 +620,43 @@ test("B9: -frames:v は toFrame - fromFrame", () => {
   const args = buildFastSegmentArgs(spec);
   const idx = args.indexOf("-frames:v");
   assert.equal(args[idx + 1], "150");
+});
+
+// ---- colorFilters (P5-3) ----
+
+test("B10: colorFilters 未指定は現行と1文字も変わらない(BASE_COLOR_FILTER の直後が [b0])", () => {
+  const spec = mkSpec();
+  const filter = buildFastSegmentFilter(spec);
+  assert.ok(filter.endsWith(`${BASE_COLOR_FILTER}[vout]`));
+  assert.ok(!filter.includes("format=rgb24"));
+  assert.ok(!filter.includes("lutrgb"));
+  assert.ok(!filter.includes("colorchannelmixer"));
+});
+
+test("B11: colorFilters を渡すと BASE_COLOR_FILTER の直後・最初の overlay の前に段が入る", () => {
+  const spec = mkSpec({
+    layers: [{ pngPath: "/rec/a.png", enableWindows: [[30, 119]] }],
+    colorFilters: ["lutrgb=r='f1':g='f1':b='f1'", "colorchannelmixer=rr=1"],
+  });
+  const filter = buildFastSegmentFilter(spec);
+  assert.ok(
+    filter.includes(
+      `${BASE_COLOR_FILTER},format=rgb24,lutrgb=r='f1':g='f1':b='f1',colorchannelmixer=rr=1,format=yuvj420p[b0];`,
+    ),
+  );
+  assert.ok(filter.includes("[b0][1:v]overlay=x=0:y=0:format=auto:enable='between(n,30,119)'[vout]"));
+});
+
+test("B12: layers:[] + colorFilters あり → ,format=yuvj420p[vout] で終わる", () => {
+  const spec = mkSpec({ colorFilters: ["lutrgb=r='f':g='f':b='f'"] });
+  const filter = buildFastSegmentFilter(spec);
+  assert.ok(filter.endsWith(",format=rgb24,lutrgb=r='f':g='f':b='f',format=yuvj420p[vout]"));
+});
+
+test("B13: colorFilters:[](空配列)は未指定と同じ扱い(段を挿入しない)", () => {
+  const withEmpty = buildFastSegmentFilter(mkSpec({ colorFilters: [] }));
+  const withoutField = buildFastSegmentFilter(mkSpec());
+  assert.equal(withEmpty, withoutField);
 });
 
 // ---- S-9: fade 式が Remotion(fadeFactor)と全フレームで一致する(補遺4) ----
