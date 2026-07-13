@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 // ConfigPatch はサーバー側モジュールの型だが import type なのでバンドルには入らない
 import type { ConfigPatch } from "../../src/lib/configEdit.ts";
 import type {
@@ -793,5 +794,200 @@ export const NumInput = ({
         if (e.key === "Escape") setText(null);
       }}
     />
+  );
+};
+
+/**
+ * Figma 風の数値フィールド。1つの部品で3通りの入力ができる:
+ * ①テキストで直接入力(Enter / blur で確定)②↑↓キーで増減(Shift で ×10)
+ * ③右の ▾ でプリセット一覧を開いて選ぶ。unit を渡すと入力欄内に単位を添える。
+ * NumInput と同じく allowEmpty のとき空欄は undefined(placeholder で自動値を示す)。
+ * min を渡すと下限でクランプする(縁の太さの 0 など)。
+ */
+export const NumStepper = ({
+  value,
+  onCommit,
+  allowEmpty = false,
+  placeholder,
+  title,
+  presets,
+  unit,
+  step = 1,
+  min,
+}: {
+  value: number | undefined;
+  onCommit: (v: number | undefined) => void;
+  allowEmpty?: boolean;
+  placeholder?: string;
+  title?: string;
+  /** ▾ で開くプリセット候補。省略時は ▾ を出さない(入力+↑↓のみ) */
+  presets?: number[];
+  /** 入力欄内に添える単位(例 "px") */
+  unit?: string;
+  /** ↑↓の刻み(既定 1)。Shift 併用で ×10 */
+  step?: number;
+  /** 下限(これ未満にはしない)。省略時は下限なし */
+  min?: number;
+}) => {
+  const [text, setText] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  // プリセットは body 直下のポータルへ fixed 配置で出す(インスペクタの
+  // overflow に切られず常に最前面に来る)。開いたときの座標を保持する
+  const [menuPos, setMenuPos] = useState<{
+    left: number;
+    top?: number;
+    bottom?: number;
+    minWidth: number;
+  } | null>(null);
+  const [lastValue, setLastValue] = useState(value);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // フィールドの位置から、下に開くか上に開くかを決めて座標を作る
+  const openMenu = () => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const rows = presets ? presets.length : 0;
+    const estH = Math.min(240, rows * 26 + 8);
+    const below = window.innerHeight - r.bottom;
+    const flipUp = below < estH + 12 && r.top > below;
+    setMenuPos({
+      left: r.left,
+      minWidth: r.width,
+      ...(flipUp ? { bottom: window.innerHeight - r.top + 3 } : { top: r.bottom + 3 }),
+    });
+    setOpen(true);
+  };
+  if (lastValue !== value) {
+    setLastValue(value);
+    setText(null);
+  }
+  const shown = text ?? (value === undefined ? "" : String(value));
+  const parsed = shown.trim() === "" ? (allowEmpty ? undefined : NaN) : Number(shown);
+  const invalid = typeof parsed === "number" && !Number.isFinite(parsed);
+  const clamp = (n: number) => (min !== undefined ? Math.max(min, n) : n);
+
+  const commit = () => {
+    if (!invalid && text !== null) onCommit(parsed);
+    setText(null);
+  };
+  const commitNum = (n: number) => {
+    setText(null);
+    onCommit(clamp(n));
+  };
+  // ↑↓での増減。未確定テキストがあればそれを、無ければ確定値を、
+  // どちらも無ければ placeholder(自動値)を起点にする
+  const bump = (dir: number, mult: number) => {
+    const base =
+      value ??
+      (parsed !== undefined && !invalid ? parsed : undefined) ??
+      (placeholder !== undefined && placeholder.trim() !== "" && Number.isFinite(Number(placeholder))
+        ? Number(placeholder)
+        : 0);
+    commitNum(base + dir * step * mult);
+  };
+
+  // 外側クリックで閉じる(ポータルのメニュー内クリックは閉じない)。
+  // スクロール・リサイズは座標がずれるので閉じる
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (wrapRef.current?.contains(t) || menuRef.current?.contains(t)) return;
+      setOpen(false);
+    };
+    // 外側のスクロールは座標がずれるので閉じるが、メニュー自身の
+    // 内部スクロール(overflow-y)では閉じない(target がメニュー内なら無視)
+    const onScroll = (e: Event) => {
+      const t = e.target as Node | null;
+      if (t && menuRef.current?.contains(t)) return;
+      setOpen(false);
+    };
+    const onResize = () => setOpen(false);
+    document.addEventListener("mousedown", onDoc);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onResize);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [open]);
+
+  return (
+    <div className="numStepper" ref={wrapRef}>
+      <input
+        className={`num${invalid ? " invalid" : ""}`}
+        type="text"
+        inputMode="decimal"
+        value={shown}
+        placeholder={placeholder}
+        title={title}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+          else if (e.key === "Escape") setText(null);
+          else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            bump(1, e.shiftKey ? 10 : 1);
+          } else if (e.key === "ArrowDown") {
+            e.preventDefault();
+            bump(-1, e.shiftKey ? 10 : 1);
+          }
+        }}
+      />
+      {unit && <span className="numStepperUnit">{unit}</span>}
+      {presets && presets.length > 0 && (
+        <button
+          type="button"
+          className="numStepperChevron"
+          title="プリセットから選ぶ"
+          aria-label="プリセットから選ぶ"
+          onClick={() => (open ? setOpen(false) : openMenu())}
+        >
+          ▾
+        </button>
+      )}
+      {open &&
+        menuPos &&
+        presets &&
+        presets.length > 0 &&
+        createPortal(
+          <div
+            ref={menuRef}
+            className="numStepperMenu"
+            role="listbox"
+            style={{
+              left: menuPos.left,
+              minWidth: menuPos.minWidth,
+              ...(menuPos.top !== undefined ? { top: menuPos.top } : {}),
+              ...(menuPos.bottom !== undefined ? { bottom: menuPos.bottom } : {}),
+            }}
+          >
+            {presets.map((p) => (
+              <button
+                type="button"
+                key={p}
+                role="option"
+                aria-selected={value === p}
+                className={`numStepperOpt${value === p ? " active" : ""}`}
+                // onMouseDown で確定(input の blur より先に走らせ、値を確実に反映)
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  commitNum(p);
+                  setOpen(false);
+                }}
+              >
+                <span className="numStepperCheck">{value === p ? "✓" : ""}</span>
+                {p}
+                {unit ?? ""}
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
+    </div>
   );
 };

@@ -131,6 +131,9 @@ export interface CaptionStyle {
   /** 縁取り色(CSS カラー)。既定は青。"none" で縁取りを消す
    * (座布団=background と組み合わせるときの定番) */
   outlineColor?: string;
+  /** 縁取りの太さ(出力px)。0 以上。省略時はフォントサイズの 0.25 倍
+   * (従来の既定)。縁を消したいときは太さ 0 ではなく outlineColor:"none" を使う */
+  outlineWidthPx?: number;
   /** フォント種(CSS の font-family)。既定は日本語ゴシック(CAPTION_DEFAULT_FONT_FAMILY) */
   fontFamily?: string;
   /** 文字の太さ(CSS の font-weight 相当の 100〜900)。既定は 700 */
@@ -203,8 +206,14 @@ export interface CaptionKaraoke {
 /** style 未指定時の文字色・縁取り色・フォント種・太さ */
 export const CAPTION_DEFAULT_COLOR = "#ffffff";
 export const CAPTION_DEFAULT_OUTLINE = "#2563eb";
+// Noto Sans JP を先頭に置く。これはバンドル同梱の可変フォント(remotion/
+// fonts/NotoSansJP.woff2、wght 100〜900)で、fontWeight の 300/500/600/800 等
+// 中間ウェイトを実グリフとして描き分けられる。システムフォント(Hiragino)は
+// 数値ウェイトの中間を丸めてしまい太さ指定がほぼ効かないため、太さ制御を
+// 効かせる目的で既定を Noto に切り替えている。Hiragino は同梱フォントの
+// 読み込み失敗時のフォールバックとして残す(見た目は近いゴシック)。
 export const CAPTION_DEFAULT_FONT_FAMILY =
-  '"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif';
+  '"Noto Sans JP", "Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif';
 export const CAPTION_DEFAULT_FONT_WEIGHT = 700;
 
 /** CaptionAnim.durationSec 未指定時の既定(秒)。in/out 共通。描画側の最終フォールバック */
