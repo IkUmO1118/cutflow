@@ -18,6 +18,7 @@ export interface FastSpan {
 export interface FastPlan {
   eligible: boolean;
   wholeFallback: string[];
+  audioMode: "copy" | "bgm-mix";
   audioFastEligible: boolean;
   audioFallback: string[];
   spans: FastSpan[];
@@ -40,17 +41,23 @@ interface FrameInterval {
   toFrame: number;
 }
 
-/** 音声の高速パス適格性(常に計算する。動画側の eligible とは独立)。
- * BGM・音声付き素材・挿入クリップのいずれかがあれば音声は SLOW(Remotion)
- * 経由が必要 */
-function audioGate(props: RenderProps): { audioFastEligible: boolean; audioFallback: string[] } {
+/** 音声の高速パス適格性と生成方式(常に計算する。動画側の eligible とは独立)。
+ * 音声付き素材・挿入クリップは音声を Remotion 経由にする必要がある。 */
+function audioGate(props: RenderProps): {
+  audioMode: "copy" | "bgm-mix";
+  audioFastEligible: boolean;
+  audioFallback: string[];
+} {
   const reasons: string[] = [];
-  if (props.bgm.length > 0) reasons.push(`BGM ${props.bgm.length} 区間`);
   const audibleMat = props.overlays.filter((o) => (o.volume ?? 0) > 0);
   if (audibleMat.length > 0) reasons.push(`素材音声 ${audibleMat.length} 件`);
   const ins = props.inserts ?? [];
   if (ins.length > 0) reasons.push(`挿入 ${ins.length} 件`);
-  return { audioFastEligible: reasons.length === 0, audioFallback: reasons };
+  return {
+    audioMode: props.bgm.length > 0 ? "bgm-mix" : "copy",
+    audioFastEligible: reasons.length === 0,
+    audioFallback: reasons,
+  };
 }
 
 /** 秒区間を frame-integer の半開区間へ、外側へ広げて変換する

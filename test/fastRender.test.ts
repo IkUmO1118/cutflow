@@ -64,10 +64,13 @@ test("decideFastPath: fastPath:true, composite:false → 非composite経路", ()
   assert.equal(!decision.activate && decision.reason, "非composite経路(cut.mp4 が出力解像度でない)");
 });
 
-test("decideFastPath: inserts があれば適格外", () => {
+test("decideFastPath: inserts があれば映像・音声ともに適格外", () => {
   const props = mkProps({ inserts: [{ start: 0, end: 5, file: "i.mp4", fit: "cover" }] });
   const decision = decideFastPath({ props, cfg: cfgWith({ fastPath: true }), composite: true });
   assert.deepEqual(decision, { activate: false, reason: "適格外: inserts" });
+  const plan = fastPlan(props);
+  assert.equal(plan.audioFastEligible, false);
+  assert.ok(plan.audioFallback.some((reason) => reason.includes("挿入")));
 });
 
 test("decideFastPath: colorFilter があれば適格外", () => {
@@ -76,13 +79,26 @@ test("decideFastPath: colorFilter があれば適格外", () => {
   assert.deepEqual(decision, { activate: false, reason: "適格外: colorFilter" });
 });
 
-test("decideFastPath: BGM があれば音声適格外", () => {
+test("decideFastPath: BGM があっても bgm-mix で activate", () => {
   const props = mkProps({ bgm: [{ file: "a.mp3", volumeDb: -18, start: 0, end: 20 }] });
+  const decision = decideFastPath({ props, cfg: cfgWith({ fastPath: true }), composite: true });
+  assert.equal(decision.activate, true);
+  assert.ok(decision.activate);
+  if (decision.activate) {
+    assert.equal(decision.plan.audioMode, "bgm-mix");
+    assert.equal(decision.plan.audioFastEligible, true);
+  }
+});
+
+test("decideFastPath: 素材音声があれば音声適格外", () => {
+  const props = mkProps({
+    overlays: [{ start: 5, end: 10, file: "material.mp4", track: 1, fit: "contain", volume: 1 }],
+  });
   const decision = decideFastPath({ props, cfg: cfgWith({ fastPath: true }), composite: true });
   assert.equal(decision.activate, false);
   const reason = !decision.activate ? decision.reason : "";
   assert.ok(reason.startsWith("音声適格外:"), reason);
-  assert.ok(reason.includes("BGM"), reason);
+  assert.ok(reason.includes("素材音声"), reason);
 });
 
 test("decideFastPath: 全編 zoom(coverage 0)は被覆率で非適用", () => {
@@ -167,6 +183,7 @@ test("orderedFastJobs: index/kind/outPath を保って3ジョブを返す", () =
   const plan: FastPlan = {
     eligible: true,
     wholeFallback: [],
+    audioMode: "copy",
     audioFastEligible: true,
     audioFallback: [],
     spans: [

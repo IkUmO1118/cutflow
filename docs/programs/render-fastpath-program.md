@@ -435,7 +435,7 @@ PSNR 値との連続性は無い(比較対象は常に「同一収録のフル r
   frame-parity になったため、P3 で観測した映像先行由来の A/V ずれは解消。
   音声 v1 の duration 差や BGM 付き実収録の最終音声は P4 の対象。
 
-### P4: 決定論 BGM ミキサ(音声 v2) — 状態: 未着手
+### P4: 決定論 BGM ミキサ(音声 v2) — 状態: 完了(2026-07-13)
 
 - `duck.ts` のスパン+フェード+`loopVolumeCurveBehavior: extend` 相当を TS で
   ゲインエンベロープ化 → BGM を PCM デコード(ffmpeg)→ エンベロープ適用 →
@@ -445,6 +445,36 @@ PSNR 値との連続性は無い(比較対象は常に「同一収録のフル r
   short-term LUFS 包絡を再利用)± しきい値
 - **完了基準**: bgm.json あり収録(2026-07-12 が該当)でも fastPath が発動し、
   聴感+LUFS 曲線で差が検出されない
+- **実装結果**:
+  - `src/lib/bgmEnvelope.ts` で Remotion と fastPath が BGM envelope
+    (gain × duckFactor × fadeIn × fadeOut、`loopVolumeCurveBehavior:
+    extend` 相当)を共有。`remotion/Main.tsx` はこの helper を使うだけにした。
+  - `src/lib/bgmMix.ts` で BGM を 48kHz stereo f32le に decode し、frame-based
+    envelope を適用してから cut.mp4 音声と `amix=normalize=0` で連続音声へ
+    合成。base 音声は `apad` して video duration を下回らないようにする。
+  - AAC packet 化で「論理尺ちょうど」の m4a が 1〜2 frame 短く probe され、
+    `-shortest` mux 後に動画末尾が落ちるケースを実測したため、BGM mix の
+    encoded audio duration は `totalFrames + 2` frame 相当にした。
+  - `fastPlan` は `audioMode: "copy" | "bgm-mix"` を返す。BGM だけなら
+    fastPath 発動、素材 overlay audio と inserts は引き続き音声 v2 の対象外として
+    フォールバック。
+- **実測(BGM 付き 2026-07-12 実収録、6301f/210.033333s)**:
+  - 検証用 config は `/private/tmp` にコピーし、本環境で
+    `h264_videotoolbox` が compression session を作れなかったため
+    `preview.videoEncoder: libx264` に変更。`validate` は既存 warning のみで
+    error なし。
+  - full render: 183.1s(Remotion 170.9s)。fast render: 123.3s。
+    `FAST 2 / SLOW 1(被覆 70.8%, 音声 bgm-mix)` で発動し、約32.7%短縮。
+  - full/fast video はともに 6301f / 30fps / 210.033333s。
+    全編 PSNR は finite min 33.09dB / avg 50.06dB、`psnr_avg < 30dB` は
+    0 frame。
+  - 音声は video duration で trim して ebur128 比較。integrated loudness は
+    full/fast とも -14.2 LUFS(差 0.0 LU)、true peak 差 0.2dB、
+    short-term LUFS 包絡差は p95 0.2 LU / max 0.6 LU(2071点)。このセッションでは
+    スピーカー再生は行わず、LUFS 包絡と true peak の機械検証で確認。
+- **検証コマンド**: `npm run typecheck`、`node --test test/bgmMix.test.ts
+  test/fastPlan.test.ts test/fastRender.test.ts`、`npm test`(1327 pass)、
+  `git diff --check`。
 
 ### P5: 適格範囲の拡大 — 状態: バックログ(効き順は P0 の被覆データで決める)
 
@@ -464,7 +494,7 @@ PSNR 値との連続性は無い(比較対象は常に「同一収録のフル r
 |---|---|---|
 | R1 | 異種エンコーダ concat 非互換(SPS/PPS/timebase) | P0-2 で最初に潰す。NG なら「全域 FAST のときだけ」へ縮小 |
 | R2 | テロップ PNG のサブピクセル差(alpha ブレンド順) | P0-3 で観測。PSNR しきい値をゲートに |
-| R3 | 音声パリティ(BGM mix) | v1 は BGM 無しゲートで回避、P4 で LUFS 曲線検証 |
+| R3 | 音声パリティ(BGM mix) | P4 で deterministic mixer を実装し、BGM 付き実収録の LUFS 曲線を検証済み |
 | R4 | span 断片化で Remotion 固定費(1.3s/回)が積む | 最小 span 長+吸収規則。P0-1 レポートで事前に見える化 |
 | R5 | 「プレビュー=最終は同じ描画」の物語の弱化 | 描画定義は共有コンポーネントで1つに保つ(原則2)。既定オフ+検証ゲート |
 | R6 | 経路2本のメンテコスト | 適格判定を canBurnWipe と同じく純関数+単体テストで固定。フォールバックが常に生きていることをテストで担保 |
@@ -569,21 +599,47 @@ PSNR 値との連続性は無い(比較対象は常に「同一収録のフル r
     でも代表 still に巻き戻り・スキップ無し。映像は full と frame-parity になり、
     P3 の映像先行由来の A/V ずれは解消。音声 v1 の duration 差と BGM 付き音声は
     P4 の対象。
+- **2026-07-13 P4 完了**(gpt-5.5 設計→gpt-5.6 実装→コーディネータ実測)。
+  - PR1: Remotion BGM envelope を `src/lib/bgmEnvelope.ts` に共有化。
+    `<Audio volume={f}>` と同じ gain × duckFactor × fadeIn × fadeOut を
+    frame-based に計算し、`loopVolumeCurveBehavior: extend` 相当を固定。
+    `npm run typecheck`、対象テスト、`npm test` 1316 pass。
+  - PR2: `src/lib/bgmMix.ts` に deterministic BGM PCM mixer を追加。
+    BGM を 48kHz stereo f32le へ decode し、共有 envelope を適用してから
+    cut.mp4 音声と `amix=normalize=0` で合成する。base 音声は `apad` で
+    video duration 以上に保つ。`npm run typecheck`、対象テスト、
+    `npm test` 1325 pass。
+  - PR3: `fastPlan` に `audioMode: "copy" | "bgm-mix"` を追加し、BGM だけなら
+    fastPath を許可。素材 overlay audio と inserts は引き続きフォールバック。
+    初回の BGM 付き fast render で AAC packet 化後の m4a が期待尺より短く
+    probe され、`-shortest` mux 後に動画が 2 frame 落ちる問題を検出。
+    `totalFrames + 2` frame 相当で BGM mix を encode する修正後、verify 通過。
+  - 実収録検証(BGM 付き `/private/tmp/cutflow-p4/2026-07-12-bgm`)。
+    検証用 config は `/private/tmp` にコピーし、`h264_videotoolbox` が本環境で
+    compression session を作れなかったため検証時だけ `preview.videoEncoder:
+    libx264` に変更。`validate` は既存 warning のみで error なし。
+    full 183.1s(Remotion 170.9s)、fast 123.3s。fastPath は
+    `FAST 2 / SLOW 1(被覆70.8%, 音声 bgm-mix)` で発動し、約32.7%短縮。
+  - full/fast video はともに 6301f / 30fps / 210.033333s。全編 PSNR は
+    `psnr_avg < 30dB` が 0 frame、finite min 33.09dB / avg 50.06dB。
+    音声は video duration で trim して ebur128 比較し、integrated loudness は
+    full/fast とも -14.2 LUFS(差0.0 LU)、true peak 差0.2dB、
+    short-term LUFS 包絡差は p95 0.2 LU / max 0.6 LU(2071点)。
+    `npm run typecheck`、対象テスト、`npm test` 1327 pass。
 
 ---
 
-## 9. 次セッションの着手手順(P0〜P3.5 は完了済み → **次は P4**)
+## 9. 次セッションの着手手順(P0〜P4 は完了済み → **次は P5/P6**)
 
-**P4 の着手手順(コールドスタートの設計/実装セッションを想定。次はここから)**:
+**次の着手手順(コールドスタートの設計/実装セッションを想定。次はここから)**:
 
-1. まず §10(コールドスタート用の前提)→ §5 P4(決定論 BGM ミキサ)→
-   §8 の P3.5 完了ログの順に読む。P3.5 で fastPath の映像時刻写像は
-   full render と frame-parity になっている。
-2. P4 は BGM/素材音声/挿入を含む音声 v2 の deterministic mixer が主対象。
-   P3.5 の最後に残した「音声 v1 の duration 差と BGM 付き音声は P4 対象」
-   を前提に、`duck.ts` 相当の gain envelope と ffmpeg PCM mix から始める。
-3. 完了したら §5 P4 と §8 に、BGM 付き実収録の loudness / A/V / render time
-   検証結果を追記する。
+1. まず §10(コールドスタート用の前提)→ §5 P5/P6→ §8 の P4 完了ログの順に読む。
+   映像時刻写像(P3.5)と BGM 付き連続音声(P4)は full render と実測比較済み。
+2. P5 は適格範囲の拡大。P0 の被覆データを見て、inserts、静的 annotation/blur、
+   colorFilter、カラオケ word、anim テロップ窓分割のどれから広げるかを決める。
+   素材 overlay audio と inserts は P4 時点ではまだフォールバック対象。
+3. P6 は計測・既定化判断。複数収録で cold 時間、PSNR、LUFS 包絡、リソースを
+   perf.md に追記し、`render.fastPath: true` の既定化可否を決める。
 
 ---
 (記録)P1 の実装順(P1 は完了済み。実施記録は §5 P1 と §8):
