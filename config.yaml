@@ -36,6 +36,15 @@ whisper:
   # システム音声(systemTrack)も第2トラックとして文字起こしする(知覚専用・
   # 描画しない)。既定 false。true で transcript.system.json を書く
   systemAudio: false
+  # テロップ粒度の割り直し(§src/lib/captionSplit.ts)。whisper は 1 発話を長い
+  # まま 1 テロップにするので、これを「約 maxChars 文字」の読みやすい 1 行へ
+  # 分割する。日本語の文節末(助詞・句末表現)+ 無音ギャップ + 文字数上限で折る
+  # 決定論処理(LLM も再文字起こしも使わない)。words[] があれば分割後の時刻は
+  # 語境界そのもの。この項目ごと消せば従来どおり分割しない(バイト等価)。
+  captionSplit:
+    maxChars: 20      # これを超える segment だけ分割(2026-07-12 の手編集粒度に対応)
+    minChars: 8       # 分割後の断片がこれ未満にならないよう文節境界を選ぶ(省略時 maxChars*0.4)
+    gapSec: 0.3       # 語間がこの秒以上なら「間」= 分割候補(words[] 依存)
 
 # 無音検出(機械的カットの候補づくり)
 detect:
