@@ -1339,6 +1339,19 @@
   }
   .capBox:hover { border-color: rgba(96, 165, 250, 0.6); }
   .capBox.sel { border-color: var(--accent, #60a5fa); }
+  /* ダブルクリックのインライン編集中だけ、当たり判定枠を実テキスト入力にする
+     (通常時は color:transparent=実体は Player 側の字幕。編集中は打鍵が
+     見えるよう文字色・座布団・キャレットを与える) */
+  .capBox.editing {
+    color: #fff; cursor: text; text-align: inherit;
+    caret-color: var(--accent, #60a5fa);
+    background: rgba(0, 0, 0, 0.55);
+    border-style: solid; border-color: var(--accent, #60a5fa);
+    padding: 0; margin: 0; overflow: hidden; resize: none;
+    box-sizing: content-box; field-sizing: content;
+    -webkit-user-select: text; user-select: text;
+  }
+  .capBox.editing:focus { outline: none; }
   /* 素材(部分配置)の移動・リサイズ枠。テロップ枠と同じ流儀(掴めるのは枠と
      ハンドルだけ、実体は Player 側の素材) */
   .matOverlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }

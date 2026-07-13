@@ -38,6 +38,8 @@ export const CaptionOverlay = ({
   selection,
   onSelect,
   onMove,
+  onCommitText,
+  onEditStart,
 }: {
   /** コンポジションの解像度 */
   width: number;
@@ -47,10 +49,18 @@ export const CaptionOverlay = ({
   selection: number | null;
   onSelect: (index: number) => void;
   onMove: (index: number, pos: CaptionPos) => void;
+  /** ダブルクリックのインライン編集を確定(transcript.json の text に保存)。
+   * 省略時はインライン編集を出さない(移動だけ) */
+  onCommitText?: (index: number, text: string) => void;
+  /** インライン編集に入る直前(プレビュー再生を止めてボックスを固定するため) */
+  onEditStart?: () => void;
 }) => {
   const ref = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [dragging, setDragging] = useState(false);
+  // インライン編集中のテロップ添字と下書き(null=非編集)
+  const [editing, setEditing] = useState<number | null>(null);
+  const [draft, setDraft] = useState("");
 
   useEffect(() => {
     const el = ref.current;
@@ -67,8 +77,22 @@ export const CaptionOverlay = ({
   const dx = (box.w - width * scale) / 2;
   const dy = (box.h - height * scale) / 2;
 
+  const startEdit = (c: OverlayCaption) => {
+    if (!onCommitText) return;
+    onEditStart?.();
+    onSelect(c.index);
+    setDragging(false);
+    setDraft(c.text);
+    setEditing(c.index);
+  };
+  const commitEdit = () => {
+    if (editing !== null) onCommitText?.(editing, draft);
+    setEditing(null);
+  };
+  const cancelEdit = () => setEditing(null);
+
   const onDown = (e: ReactPointerEvent, c: OverlayCaption) => {
-    if (e.button !== 0 || scale === 0) return;
+    if (e.button !== 0 || scale === 0 || editing === c.index) return;
     e.preventDefault();
     e.stopPropagation();
     onSelect(c.index);
@@ -98,29 +122,68 @@ export const CaptionOverlay = ({
   return (
     <div className={`capOverlay${dragging ? " dragging" : ""}`} ref={ref}>
       {scale > 0 &&
-        captions.map((c) => (
-          <div
-            key={c.index}
-            className={`capBox${selection === c.index ? " sel" : ""}`}
-            style={{
-              left: dx + c.pos.x * scale,
-              top: dy + c.pos.y * scale,
-              // CSS(.capBox)は中心基準の translate を持つので左上基準では外す
-              ...(c.anchor === "topLeft" ? { transform: "none" } : {}),
-              // 本編の字幕(OutlinedText)と同じフォント計量で当たり判定を合わせる
-              fontFamily: c.fontFamily ?? CAPTION_DEFAULT_FONT_FAMILY,
-              fontSize: c.fontSizePx * scale,
-              fontWeight: c.fontWeight ?? CAPTION_DEFAULT_FONT_WEIGHT,
-              lineHeight: 1.4,
-              whiteSpace: "pre-line",
-              width: "max-content",
-            }}
-            title="ドラッグでテロップを移動(位置は transcript.json の pos に保存)"
-            onPointerDown={(e) => onDown(e, c)}
-          >
-            {c.text}
-          </div>
-        ))}
+        captions.map((c) => {
+          const common = {
+            left: dx + c.pos.x * scale,
+            top: dy + c.pos.y * scale,
+            // CSS(.capBox)は中心基準の translate を持つので左上基準では外す
+            ...(c.anchor === "topLeft" ? { transform: "none" } : {}),
+            // 本編の字幕(OutlinedText)と同じフォント計量で当たり判定を合わせる
+            fontFamily: c.fontFamily ?? CAPTION_DEFAULT_FONT_FAMILY,
+            fontSize: c.fontSizePx * scale,
+            fontWeight: c.fontWeight ?? CAPTION_DEFAULT_FONT_WEIGHT,
+            lineHeight: 1.4,
+          };
+          if (editing === c.index) {
+            return (
+              <textarea
+                key={c.index}
+                className="capBox editing sel"
+                autoFocus
+                value={draft}
+                style={{ ...common, whiteSpace: "pre-line" }}
+                // 編集中はドラッグ・グローバルショートカットを止める
+                onPointerDown={(e) => e.stopPropagation()}
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={commitEdit}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    commitEdit();
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    cancelEdit();
+                  }
+                }}
+              />
+            );
+          }
+          return (
+            <div
+              key={c.index}
+              className={`capBox${selection === c.index ? " sel" : ""}`}
+              style={{
+                ...common,
+                whiteSpace: "pre-line",
+                width: "max-content",
+              }}
+              title={
+                onCommitText
+                  ? "ドラッグで移動 / ダブルクリックで文言を編集(transcript.json に保存)"
+                  : "ドラッグでテロップを移動(位置は transcript.json の pos に保存)"
+              }
+              onPointerDown={(e) => onDown(e, c)}
+              onDoubleClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                startEdit(c);
+              }}
+            >
+              {c.text}
+            </div>
+          );
+        })}
     </div>
   );
 };
