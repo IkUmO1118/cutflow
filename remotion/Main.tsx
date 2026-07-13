@@ -25,9 +25,12 @@ import { bgmTrackTiming, bgmVolumeAtFrame } from "../src/lib/bgmEnvelope.ts";
 import { blurRadiusPx, mosaicBlockPx, outputRectToCanvasRegion } from "../src/lib/blur.ts";
 import { cssFilterOf } from "../src/lib/colorFilter.ts";
 import { valuesAt } from "../src/lib/keyframes.ts";
+import { fadeFactor, isImageFile } from "../src/lib/overlayFade.ts";
 import { cropFitStyle } from "../src/lib/panelStyle.ts";
 import { zoomTransformAt } from "../src/lib/zoom.ts";
 import { PositionedCaption } from "./CaptionLayer.tsx";
+import { OverlayLayer } from "./OverlayLayer.tsx";
+import { playerFlag, premountFrames } from "./playerFlags.ts";
 import type { OverlayItem, Region, RenderProps, Span } from "./props.ts";
 // 副作用 import: テロップ既定フォント(Noto Sans JP 可変)を登録する。
 import "./loadFonts.ts";
@@ -48,22 +51,6 @@ function groupOverlaysByTrack(overlays: OverlayItem[]): Map<number, OverlayItem[
   }
   return m;
 }
-
-// ---- Player 専用: 再生補助の切り分けフラグ ----
-// エディタの URL にクエリを付けると、再生補助の機構を個別に無効化して
-// ブラウザごとの症状を切り分けられる(例: http://127.0.0.1:4310/?nohold)。
-//   ?nohold     … フレームホールド(ファイル末尾)を無効化
-//   ?nopremount … カット境界・挿入・素材の premount(2秒先読み)を無効化
-// 呼び出し時に評価する(isPlayer を示す window.remotion_isPlayer は
-// モジュール評価の時点ではまだ立っていない)。最終レンダー・frames は
-// isPlayer=false なので常に既定動作(影響なし)
-const playerFlag = (name: string): boolean =>
-  typeof location !== "undefined" &&
-  getRemotionEnvironment().isPlayer &&
-  location.search.includes(name);
-/** Sequence の premountFor 値(?nopremount で切れる。Player 専用の挙動) */
-const premountFrames = (fps: number) =>
-  playerFlag("nopremount") ? undefined : fps * 2;
 
 /**
  * 最終レンダーのレイアウト:
@@ -587,89 +574,6 @@ const BgmTrack = ({
   );
 };
 
-/** 素材オーバーレイの1トラック分。Sequence に載せることで、
- * 動画素材は表示区間の頭から再生される(区間外は存在しない)。
- * 頭出し・挿入で割れた断片は startFrom で素材の続きから再生する */
-const OverlayLayer = ({
-  items,
-  fps,
-}: {
-  items: OverlayItem[];
-  fps: number;
-}) => (
-  <>
-    {items
-      .map((o, i) => (
-        <Sequence
-          key={`${o.file}-${o.start}-${i}`}
-          from={Math.round(o.start * fps)}
-          durationInFrames={Math.max(1, Math.round((o.end - o.start) * fps))}
-          // エディタ(Player)では素材の <video>/<Img> を2秒先読みして
-          // 表示開始時の固まりを防ぐ(最終レンダーには影響しない)
-          premountFor={premountFrames(fps)}
-        >
-          <OverlayItemView item={o} fps={fps} />
-        </Sequence>
-      ))}
-  </>
-);
-
-/** 素材1枚分の描画。フェード(不透明度・音量)は Sequence 内の相対フレームで
- * 計算する。rect 指定は部分配置(ピクチャ・イン・ピクチャ。contain の余白は
- * 透過)、無指定は従来どおり全画面+黒余白 */
-const OverlayItemView = ({ item: o, fps }: { item: OverlayItem; fps: number }) => {
-  const frame = useCurrentFrame();
-  const { fps: configFps } = useVideoConfig();
-  const durFrames = Math.max(1, Math.round((o.end - o.start) * fps));
-  const fade = fadeFactor(frame, durFrames, fps, o.fadeInSec, o.fadeOutSec);
-  const t = o.start + frame / configFps;
-  const base = o.rect
-    ? {
-        x: o.rect.x,
-        y: o.rect.y,
-        w: o.rect.w,
-        h: o.rect.h,
-        opacity: o.opacity ?? 1,
-      }
-    : null;
-  const now = base && o.keyframes ? valuesAt(base, o.keyframes, t) : base;
-  const opacity = (now?.opacity ?? o.opacity ?? 1) * fade;
-  const vol = o.volume ?? 0;
-  const media = isImageFile(o.file) ? (
-    <Img
-      src={staticFile(o.file)}
-      style={{ width: "100%", height: "100%", objectFit: o.fit }}
-    />
-  ) : (
-    <OffthreadVideo
-      muted={vol <= 0}
-      volume={(f) => vol * fadeFactor(f, durFrames, fps, o.fadeInSec, o.fadeOutSec)}
-      src={staticFile(o.file)}
-      startFrom={Math.round((o.startFrom ?? 0) * fps)}
-      // false 明示(既定 true)。理由は CroppedVideo の同プロップのコメント参照
-      pauseWhenBuffering={false}
-      style={{ width: "100%", height: "100%", objectFit: o.fit }}
-    />
-  );
-  return now ? (
-    <div
-      style={{
-        position: "absolute",
-        left: now.x,
-        top: now.y,
-        width: now.w,
-        height: now.h,
-        overflow: "hidden",
-        opacity,
-      }}
-    >
-      {media}
-    </div>
-  ) : (
-    <AbsoluteFill style={{ backgroundColor: "black", opacity }}>{media}</AbsoluteFill>
-  );
-};
-
 /** 挿入クリップ1つ分の描画。フェードは黒からの明転/黒への暗転
  * (挿入中はベース映像が完全に隠れる前提なので、器の黒は不透明のまま
  * 中身だけをフェードする)。音量もフェードに連動する */
@@ -709,25 +613,6 @@ const InsertView = ({
     </AbsoluteFill>
   );
 };
-
-/** フェードイン/アウトの係数(0〜1)。区間の頭 fadeIn 秒で 0→1、
- * 末尾 fadeOut 秒で 1→0。両方が重なる短い区間では小さい方を採る */
-const fadeFactor = (
-  frame: number,
-  durFrames: number,
-  fps: number,
-  fadeInSec?: number,
-  fadeOutSec?: number,
-): number => {
-  let g = 1;
-  const fin = Math.round((fadeInSec ?? 0) * fps);
-  const fout = Math.round((fadeOutSec ?? 0) * fps);
-  if (fin > 0) g = Math.min(g, Math.max(0, Math.min(1, frame / fin)));
-  if (fout > 0) g = Math.min(g, Math.max(0, Math.min(1, (durFrames - frame) / fout)));
-  return g;
-};
-
-const isImageFile = (f: string) => /\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(f);
 
 /** Studio で実データなしにレイアウト確認するためのプレースホルダー */
 const Placeholder = ({ label }: { label: string }) => (
