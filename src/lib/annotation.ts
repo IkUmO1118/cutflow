@@ -64,6 +64,55 @@ export function resolveAnnotation(
   }
 }
 
+/**
+ * 静的 annotation(render 高速パスの FAST 適格性)。null = 適格、
+ * 文字列 = 不適格の理由(SLOW 送り)。overlayFade.ts の overlayFastReason と
+ * 同じ流儀。**ブラウザ側は使わないが、fastPlan(node)と将来のエディタ表示の
+ * 両方から参照しうる純関数なのでここ(browser-safe)に置く**。
+ *
+ * 適格条件は「時間変化しないこと」だけ:
+ * - keyframes が無い(空配列 [] は "無い" と同義。renderProps.ts の
+ *   resolveAnnotation が `a.keyframes ? { keyframes: [] } : {}` を置くため、
+ *   断片によっては keyframes:[] が載る。valuesAt は空配列でベースラインを
+ *   返すので描画上も静的)
+ * 色/太さ/rect/dim/feather は解決済みの定数なので、種別(arrow/box/spotlight)
+ * による区別は不要 = 3種別すべて FAST 適格。
+ */
+export function annotationFastReason(a: ResolvedAnnotation): string | null {
+  if ((a.keyframes?.length ?? 0) > 0) return "keyframes"; // 時間変化する
+  return null;
+}
+
+/**
+ * 時間軸を剥がした「レイヤー画」用の annotation(高速パスの AnnotationStill が
+ * 焼く1枚 / キャッシュキーの正規形)。start/end を [0,1) に正規化し keyframes を
+ * 落とす(同じ絵は同じ PNG。時刻はキャッシュキーを汚さない)。
+ * AnnotationStill は t=0 で描くので、start=0/end=1 は「常に可視」を意味する。
+ * **ブラウザ(AnnotationStill.tsx)と node(annotationStill.ts)の両方から使うので
+ * このファイルに置く**(annotationStill.ts に置くとバンドルが壊れる)。
+ * フィールド順を固定しているのは JSON.stringify のキー安定性のため。
+ */
+export function annotationStillItem(a: ResolvedAnnotation): ResolvedAnnotation {
+  switch (a.type) {
+    case "arrow":
+      return {
+        type: "arrow", start: 0, end: 1, from: a.from, to: a.to,
+        color: a.color, widthPx: a.widthPx, headPx: a.headPx,
+      };
+    case "box":
+      return {
+        type: "box", start: 0, end: 1, rect: a.rect, color: a.color,
+        widthPx: a.widthPx, radiusPx: a.radiusPx,
+        ...(a.fill !== undefined ? { fill: a.fill } : {}),
+      };
+    case "spotlight":
+      return {
+        type: "spotlight", start: 0, end: 1, rect: a.rect, shape: a.shape,
+        dim: a.dim, featherPx: a.featherPx, radiusPx: a.radiusPx,
+      };
+  }
+}
+
 export interface Point {
   x: number;
   y: number;
