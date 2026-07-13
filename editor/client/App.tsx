@@ -4248,20 +4248,21 @@ export const App = () => {
           globalWarnings={[
             ...(
               aiWorkflowReview.error
-                ? [{ label: "比較エラー", items: [aiWorkflowReview.error] }]
+                ? [{ label: "比較エラー", tone: "warn" as const, items: [aiWorkflowReview.error] }]
                 : []
             ),
             ...(
               aiWorkflowReview.response.proposal.applyPlan.warnings.length > 0
                 ? [{
-                    label: "検証警告",
+                    label: "既存の検証警告(この変更由来ではありません)",
+                    tone: "muted" as const,
                     items: aiWorkflowReview.response.proposal.applyPlan.warnings.map((w) => `${w.file} ${w.where}: ${w.message}`),
                   }]
                 : []
             ),
             ...(
               aiWorkflowReview.response.proposal.review.notes.length > 0
-                ? [{ label: "AIメモ", items: aiWorkflowReview.response.proposal.review.notes }]
+                ? [{ label: "AIメモ", tone: "muted" as const, items: aiWorkflowReview.response.proposal.review.notes }]
                 : []
             ),
           ]}

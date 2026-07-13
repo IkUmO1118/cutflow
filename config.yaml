@@ -89,7 +89,10 @@ render:
   # 個別のテロップ・トラック標準スタイルで指定の無い項目に効く
   captionColor: "#ffffff"
   captionOutlineColor: "#000000" # "none" で縁取りなし
-  captionFontFamily: '"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif'
+  # Noto Sans JP を先頭に。同梱の可変フォント(remotion/fonts/NotoSansJP.woff2、
+  # wght 100〜900)なので fontWeight の 300/500/600/800 等の中間ウェイトが実際に
+  # 描き分けられる。Hiragino は同梱フォント読込失敗時のフォールバック
+  captionFontFamily: '"Noto Sans JP", "Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif'
   # plan が章タイトルのテロップ(「章」トラック)を作るときの表示秒数
   chapterCardSec: 3
   # 音声ラウドネス正規化の目標値(LUFS)。YouTube の基準は -14
