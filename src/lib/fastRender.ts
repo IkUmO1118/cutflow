@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { run } from "./exec.ts";
 import { concatChunks, muxVideoAudio, verifyAssembled } from "./chunkCache.ts";
 import { mixFastAudio } from "./bgmMix.ts";
+import { mixInsertAudio } from "./insertMix.ts";
 import { fastPlan } from "./fastPlan.ts";
 import { renderFastSegment, fastSegmentPath, FAST_SEGMENT_DIR } from "./fastSegment.ts";
 import { withCaptionStillAssets } from "./captionStill.ts";
@@ -75,7 +76,12 @@ export async function runFastRender(args: {
       }
     });
     await concatChunks(jobs.map((j) => j.outPath), assembledVideo);
-    await mixFastAudio({ dir, props, cutPath, outM4a: audioM4a });
+    // 挿入があれば PCM 領域でベース・挿入・BGM を1本に組み立てる insert-mix
+    // (design-T4.md §3-D)。挿入が無い収録は従来どおり mixFastAudio のまま
+    // (P4 で LUFS 検証済みの経路を触らないための意図的な二経路)
+    await (plan.audioMode === "insert-mix"
+      ? mixInsertAudio({ dir, props, cutPath, outM4a: audioM4a })
+      : mixFastAudio({ dir, props, cutPath, outM4a: audioM4a }));
     await muxVideoAudio(assembledVideo, audioM4a, tempFinal);
     const verify = await verifyAssembled(
       tempFinal,

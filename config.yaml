@@ -152,7 +152,7 @@ render:
   # render 高速パス(FAST/SLOW ハイブリッド ffmpeg 合成)。テロップ静止区間を
   # ffmpeg 直合成に、演出区間だけ Remotion に通す(cold render 短縮。
   # §docs/programs/render-fastpath-program.md)。既定 false=既存挙動と完全一致。
-  # true でも v1 適格(inserts/素材音声なし)かつ FAST 被覆が
+  # true でも v1 適格(素材音声なし)かつ FAST 被覆が
   # fastPathMinCoverage 以上かつ composite 経路のときだけ発動し、欠ければ1行ログで
   # 通常フルレンダーへフォールバックする(誤爆より保守)。
   fastPath: false

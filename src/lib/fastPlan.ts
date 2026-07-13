@@ -31,7 +31,7 @@ export interface FastSpan {
 export interface FastPlan {
   eligible: boolean;
   wholeFallback: string[];
-  audioMode: "copy" | "bgm-mix";
+  audioMode: "copy" | "bgm-mix" | "insert-mix";
   audioFastEligible: boolean;
   audioFallback: string[];
   spans: FastSpan[];
@@ -69,19 +69,28 @@ interface FrameInterval {
 }
 
 /** 音声の高速パス適格性と生成方式(常に計算する。動画側の eligible とは独立)。
- * 音声付き素材・挿入クリップは音声を Remotion 経由にする必要がある。 */
+ * 音声付き素材オーバーレイ(overlays[].volume>0)は依然として不適格
+ * (「ベース音声の上に重なる」レイヤー合成が別問題。P5 の残タスク)。
+ * inserts はもう不適格の理由ではない: 挿入があれば PCM 領域でベース・挿入・
+ * BGM を1本に組み立てる "insert-mix" を使う(design-T4.md §4-B)。
+ * muteBase/muteBgm はエディタ Player 専用 props(最終レンダーでは常に
+ * 未指定)。念のため定義されていたら不適格にする(防御的) */
 function audioGate(props: RenderProps): {
-  audioMode: "copy" | "bgm-mix";
+  audioMode: "copy" | "bgm-mix" | "insert-mix";
   audioFastEligible: boolean;
   audioFallback: string[];
 } {
   const reasons: string[] = [];
   const audibleMat = props.overlays.filter((o) => (o.volume ?? 0) > 0);
   if (audibleMat.length > 0) reasons.push(`素材音声 ${audibleMat.length} 件`);
+  if (props.muteBase !== undefined || props.muteBgm !== undefined) {
+    reasons.push("muteBase/muteBgm(エディタ専用 props)");
+  }
   const ins = props.inserts ?? [];
-  if (ins.length > 0) reasons.push(`挿入 ${ins.length} 件`);
+  const audioMode: "copy" | "bgm-mix" | "insert-mix" =
+    ins.length > 0 ? "insert-mix" : props.bgm.length > 0 ? "bgm-mix" : "copy";
   return {
-    audioMode: props.bgm.length > 0 ? "bgm-mix" : "copy",
+    audioMode,
     audioFastEligible: reasons.length === 0,
     audioFallback: reasons,
   };
