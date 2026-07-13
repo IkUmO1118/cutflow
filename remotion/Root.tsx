@@ -4,6 +4,7 @@ import { CaptionStill, captionStillDefaultProps } from "./CaptionStill.tsx";
 import type { CaptionStillProps } from "./CaptionStill.tsx";
 import { defaultProps } from "./props.ts";
 import type { RenderProps } from "./props.ts";
+import { compositionDurationInFrames } from "../src/lib/renderFrameMath.ts";
 
 export const RemotionRoot = () => (
   <>
@@ -16,7 +17,7 @@ export const RemotionRoot = () => (
       height={1080}
       defaultProps={defaultProps}
       calculateMetadata={({ props }: { props: RenderProps }) => ({
-        durationInFrames: Math.max(1, Math.round(props.durationSec * props.fps)),
+        durationInFrames: compositionDurationInFrames(props.durationSec, props.fps),
         fps: props.fps,
         width: props.width,
         height: props.height,
