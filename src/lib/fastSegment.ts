@@ -17,6 +17,7 @@ import { annotationFastReason } from "./annotation.ts";
 import { annotationStillKey, renderAnnotationStill } from "./annotationStill.ts";
 import { fadeFrames, overlayFastReason, overlaySeqRange } from "./overlayFade.ts";
 import { buildCaptionIndex, lookupCaption } from "./captionIndex.ts";
+import { baseLayoutOf, baseSegOf, cutFrameOf } from "./fastBase.ts";
 import { capNum, DEFAULT_LAYER_ORDER, ovNum } from "../types.ts";
 import type { FastSpan } from "./fastPlan.ts";
 import type { WarmAssets } from "../stages/frames.ts";
@@ -64,8 +65,12 @@ export interface FastLayerSpec {
 export interface FastSegmentSpec {
   cutPath: string;
   outPath: string;
+  /** 出力(セグメント)フレーム区間。セグメント長 = toFrame - fromFrame */
   fromFrame: number;
   toFrame: number;
+  /** cut.mp4 の CFR 格子上の trim 開始フレーム。**省略時は fromFrame**
+   * (= 挿入なし=恒等写像。既存の argv と1バイトも変わらない。design-T4.md §2-C) */
+  videoFromFrame?: number;
   fps: number;
   fpsRound?: FastFpsRound;
   /** z-order 下→上 */
@@ -336,9 +341,14 @@ export function buildFastSegmentFilter(spec: FastSegmentSpec): string {
   // SLOW の混在 concat を frames/fps ちょうどの尺に揃えるためのもの。
   // overlay の n は fps+trim 後のローカル出力フレーム番号なので変わらない。
   const round = spec.fpsRound ?? FAST_FPS_ROUND;
+  // videoFromFrame(省略時 fromFrame = 恒等写像)は cut.mp4 の CFR 格子上の
+  // trim 開始フレーム(design-T4.md §2-C: baseSegment 由来。挿入で cut.mp4
+  // 内の位置が出力フレーム位置と食い違うケースを吸収する)
+  const v0 = spec.videoFromFrame ?? spec.fromFrame;
+  const v1 = v0 + (spec.toFrame - spec.fromFrame);
   const base =
     `[0:v]setpts=PTS-STARTPTS,fps=fps=${spec.fps}:round=${round}:start_time=0,` +
-    `trim=start_frame=${spec.fromFrame}:end_frame=${spec.toFrame},setpts=N/${spec.fps}/TB,` +
+    `trim=start_frame=${v0}:end_frame=${v1},setpts=N/${spec.fps}/TB,` +
     `${BASE_COLOR_FILTER}${colorFilterStage(spec.colorFilters)}`;
   if (spec.layers.length === 0) return `${base}[vout]`;
   const parts = [`${base}[b0]`];
@@ -436,6 +446,17 @@ export async function renderFastSegment(args: {
 }): Promise<string> {
   const { dir, props, span, index, warm } = args;
   if (span.kind !== "fast") throw new Error("renderFastSegment は fast span 専用です");
+  // trim 開始 frame は baseSegment 由来(design-T4.md §2-C)。fastPlan の
+  // clampFastSpansToBase が保証する不変条件(FAST span は単一 baseSegment に
+  // 収まる)が破れていたら実装バグ。fastRender の try/catch がフルレンダーへ
+  // フォールバックする
+  const layout = baseLayoutOf(props);
+  if (!layout.ok) throw new Error(`FAST セグメントに不正な baseSegments(${layout.reason})`);
+  const baseSeg = baseSegOf(layout, span);
+  if (!baseSeg) {
+    throw new Error(`FAST span[${span.fromFrame},${span.toFrame}) が単一の baseSegment に収まっていない`);
+  }
+  const videoFromFrame = cutFrameOf(baseSeg, span.fromFrame);
   const items = mergeFastLayers(props, resolveFastLayers(props, span));
   const layers: FastLayerSpec[] = [];
   for (const it of items) {
@@ -486,6 +507,7 @@ export async function renderFastSegment(args: {
       outPath,
       fromFrame: span.fromFrame,
       toFrame: span.toFrame,
+      videoFromFrame,
       fps: props.fps,
       layers,
       ...(colorPlan.kind === "chain" ? { colorFilters: colorPlan.filters } : {}),
