@@ -1,6 +1,12 @@
+// remotion/OverlayStill.tsx — render 高速パスが焼く「素材オーバーレイ1件の
+// 時間不変なレイヤー画」。**node 専用モジュールを import しないこと**
+// (このファイルは Root.tsx からブラウザバンドルへ入るので、src/lib/overlayStill.ts
+// のような node:fs / @remotion/renderer を引く側を import すると
+// frames / editor / render のバンドルが丸ごと壊れる)。overlayStillItem は
+// ブラウザ安全な src/lib/overlayFade.ts から取る
 import { AbsoluteFill } from "remotion";
 import { OverlayItemView } from "./OverlayLayer.tsx";
-import { overlayStillItem } from "../src/lib/overlayStill.ts";
+import { overlayStillItem } from "../src/lib/overlayFade.ts";
 import type { OverlayItem } from "./props.ts";
 
 export type OverlayStillProps = {

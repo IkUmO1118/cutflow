@@ -5,21 +5,18 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { renderStill, selectComposition } from "@remotion/renderer";
+import { overlayStillItem } from "./overlayFade.ts";
 import type { WarmAssets } from "../stages/frames.ts";
 import type { OverlayItem } from "../../remotion/props.ts";
 import type { OverlayStillProps } from "../../remotion/OverlayStill.tsx";
 
 export const OVERLAY_STILL_DIR = "render.fast/overlays";
 
-/** 時間変化する要素を剥がした「レイヤー画」用の素材。
- * fade / opacity / keyframes は ffmpeg 側が alpha として掛けるのでここでは 1 に固定。
- * startFrom は画像では Remotion も無視するので落とす(キャッシュキーの汚染防止) */
-export function overlayStillItem(o: OverlayItem): OverlayItem {
-  return {
-    start: o.start, end: o.end, file: o.file, track: o.track, fit: o.fit,
-    ...(o.rect ? { rect: o.rect } : {}),
-  };
-}
+// overlayStillItem(fade/opacity/keyframes/startFrom を剥がす純関数)の定義は
+// ブラウザ安全な overlayFade.ts に置く(remotion/OverlayStill.tsx も使うため。
+// このファイルは node 専用 = ブラウザバンドルへ引き込めない)。既存の import 経路を
+// 保つためここから re-export する(二重定義はしない)
+export { overlayStillItem };
 
 /** 素材レイヤー画の内容アドレスキー。ファイル内容ではなく
  * 「パス + mtime + size + fit + rect + 出力解像度」(captions/ の流儀に合わせる)。
