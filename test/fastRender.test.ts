@@ -64,13 +64,18 @@ test("decideFastPath: fastPath:true, composite:false → 非composite経路", ()
   assert.equal(!decision.activate && decision.reason, "非composite経路(cut.mp4 が出力解像度でない)");
 });
 
-test("decideFastPath: inserts があれば映像・音声ともに適格外", () => {
-  const props = mkProps({ inserts: [{ start: 0, end: 5, file: "i.mp4", fit: "cover" }] });
+test("decideFastPath: 挿入があっても映像は適格(P5-4)。PR1(映像)時点では audioGate がまだ inserts を理由に残しているので音声適格外で non-activate", () => {
+  const props = mkProps({
+    baseSegments: [{ start: 5, videoStart: 0, durationSec: 15 }],
+    inserts: [{ start: 0, end: 5, file: "i.mp4", fit: "cover" }],
+  });
   const decision = decideFastPath({ props, cfg: cfgWith({ fastPath: true }), composite: true });
-  assert.deepEqual(decision, { activate: false, reason: "適格外: inserts" });
   const plan = fastPlan(props);
+  assert.equal(plan.eligible, true);
+  assert.deepEqual(plan.wholeFallback, []);
   assert.equal(plan.audioFastEligible, false);
   assert.ok(plan.audioFallback.some((reason) => reason.includes("挿入")));
+  assert.deepEqual(decision, { activate: false, reason: "音声適格外: 挿入 1 件" });
 });
 
 test("decideFastPath: colorFilter(表現可能)は activate する(P5-3)", () => {

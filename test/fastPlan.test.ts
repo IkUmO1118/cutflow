@@ -9,6 +9,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fastPlan, MAX_FAST_PNG_INPUTS, MIN_FAST_SPAN_SEC } from "../src/lib/fastPlan.ts";
 import { countFastPngInputs } from "../src/lib/fastSegment.ts";
+import { baseLayoutOf, baseSegOf } from "../src/lib/fastBase.ts";
 import type { OverlayItem, RenderProps } from "../remotion/props.ts";
 
 function mkProps(partial: Partial<RenderProps> & { durationSec: number }): RenderProps {
@@ -78,18 +79,117 @@ test("静的テロップだけ・BGM なし → 全編1本の FAST スパン", (
   assert.deepEqual(plan.audioFallback, []);
 });
 
-test("inserts があれば全編フォールバック(SLOW 一本・coverage 0)", () => {
+// ---- P5-4: inserts の span 化(design-T4.md §6)。挿入区間だけ SLOW・
+// 前後のベースは FAST(全編フォールバックしない)。PR1(映像)時点では
+// audioGate はまだ inserts を理由に残しているので、audioFastEligible は
+// 引き続き false(PR2 で "insert-mix" に変わる。P4-7〜P4-9 は fastPlan.ts の
+// audioGate 改修後のテストなのでそちらに置く) ----
+
+test("P4-1: 挿入1件(中間)→ eligible:true・wholeFallback 空・挿入区間だけ SLOW・前後は FAST", () => {
   const props = mkProps({
-    durationSec: 20,
-    inserts: [{ start: 0, end: 5, file: "i.mp4", fit: "cover" }],
+    durationSec: 30,
+    baseSegments: [
+      { start: 0, videoStart: 0, durationSec: 20 },
+      { start: 25, videoStart: 20, durationSec: 5 },
+    ],
+    inserts: [{ start: 20, end: 25, file: "i.mp4", fit: "cover" }],
+  });
+  const plan = fastPlan(props);
+  assert.equal(plan.eligible, true);
+  assert.deepEqual(plan.wholeFallback, []);
+  assert.deepEqual(plan.spans, [
+    { kind: "fast", fromFrame: 0, toFrame: 600 },
+    { kind: "slow", fromFrame: 600, toFrame: 750 },
+    { kind: "fast", fromFrame: 750, toFrame: 900 },
+  ]);
+});
+
+test("P4-2: FAST スパンは必ず単一 baseSegment に収まる(baseSegOf !== null)", () => {
+  const props = mkProps({
+    durationSec: 30,
+    baseSegments: [
+      { start: 0, videoStart: 0, durationSec: 20 },
+      { start: 25, videoStart: 20, durationSec: 5 },
+    ],
+    inserts: [{ start: 20, end: 25, file: "i.mp4", fit: "cover" }],
+  });
+  const plan = fastPlan(props);
+  const layout = baseLayoutOf(props);
+  assert.equal(layout.ok, true);
+  if (layout.ok) {
+    for (const s of plan.spans) {
+      if (s.kind !== "fast") continue;
+      assert.ok(baseSegOf(layout, s) !== null, `FAST span[${s.fromFrame},${s.toFrame}) が baseSegment に収まらない`);
+    }
+  }
+});
+
+test("P4-3: 挿入と挿入の間のベースが3秒未満 → absorbMinFastGaps が SLOW に吸収(SLOW 1本)", () => {
+  const props = mkProps({
+    durationSec: 10, // insert[0,3) + base[3,5)(2秒<3秒) + insert[5,10)
+    baseSegments: [{ start: 3, videoStart: 0, durationSec: 2 }],
+    inserts: [
+      { start: 0, end: 3, file: "a.mp4", fit: "cover" },
+      { start: 5, end: 10, file: "b.mp4", fit: "cover" },
+    ],
+  });
+  const plan = fastPlan(props);
+  const slow = plan.spans.filter((s) => s.kind === "slow");
+  assert.equal(slow.length, 1);
+  assert.deepEqual(slow[0], { kind: "slow", fromFrame: 0, toFrame: plan.totalFrames });
+});
+
+test("P4-4: 冒頭の挿入→先頭 FAST が生まれない・末尾の挿入→末尾 FAST が生まれない", () => {
+  const props = mkProps({
+    durationSec: 13, // insert[0,2) + base[2,10) + insert[10,13)
+    baseSegments: [{ start: 2, videoStart: 0, durationSec: 8 }],
+    inserts: [
+      { start: 0, end: 2, file: "a.mp4", fit: "cover" },
+      { start: 10, end: 13, file: "b.mp4", fit: "cover" },
+    ],
+  });
+  const plan = fastPlan(props);
+  assert.deepEqual(plan.spans, [
+    { kind: "slow", fromFrame: 0, toFrame: 60 },
+    { kind: "fast", fromFrame: 60, toFrame: 300 },
+    { kind: "slow", fromFrame: 300, toFrame: 390 },
+  ]);
+});
+
+test("P4-5: playbackRate:1 でない baseSegment → wholeFallback に baseSegments(playbackRate)", () => {
+  const props = mkProps({
+    durationSec: 10,
+    baseSegments: [{ start: 0, videoStart: 0, durationSec: 10, playbackRate: 2 }],
   });
   const plan = fastPlan(props);
   assert.equal(plan.eligible, false);
-  assert.ok(plan.wholeFallback.includes("inserts"));
-  assert.equal(plan.audioFastEligible, false);
-  assert.ok(plan.audioFallback.some((r) => r.includes("挿入")));
+  assert.deepEqual(plan.wholeFallback, ["baseSegments(playbackRate)"]);
   assert.deepEqual(plan.spans, [{ kind: "slow", fromFrame: 0, toFrame: plan.totalFrames }]);
   assert.equal(plan.coverageRatio, 0);
+});
+
+test("P4-6: 挿入区間に重なる不適格 overlay があっても FAST スパンが base をまたがない", () => {
+  const props = mkProps({
+    durationSec: 30,
+    baseSegments: [
+      { start: 0, videoStart: 0, durationSec: 20 },
+      { start: 25, videoStart: 20, durationSec: 5 },
+    ],
+    inserts: [{ start: 20, end: 25, file: "i.mp4", fit: "cover" }],
+    // 静止画でない overlay(動画素材)は不適格 → SLOW。挿入区間[20,25)と重なる
+    // 区間を指定しても(renderProps は実際には挿入で断片化するので起きないが)
+    // FAST スパンは base の境界内に収まったままであること
+    overlays: [{ start: 18, end: 22, file: "m.mp4", track: 1, fit: "contain" }],
+  });
+  const plan = fastPlan(props);
+  const layout = baseLayoutOf(props);
+  assert.equal(layout.ok, true);
+  if (layout.ok) {
+    for (const s of plan.spans) {
+      if (s.kind !== "fast") continue;
+      assert.ok(baseSegOf(layout, s) !== null);
+    }
+  }
 });
 
 test("colorFilter(表現可能)は FAST 適格(P5-3。時間軸に影響しない)", () => {
