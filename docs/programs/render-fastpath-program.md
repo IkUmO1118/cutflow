@@ -477,7 +477,7 @@ PSNR 値との連続性は無い(比較対象は常に「同一収録のフル r
   test/fastPlan.test.ts test/fastRender.test.ts`、`npm test`(1327 pass)、
   `git diff --check`。
 
-### P5: 適格範囲の拡大 — 状態: **進行中(P5-1 完了(2026-07-14)。P5-2 実装完了・実測はコーディネータが記録。P5-3 実装完了・実測は次セッション。残は下記)**
+### P5: 適格範囲の拡大 — 状態: **進行中(P5-1 / P5-2 / P5-3 完了・実測済み(2026-07-14)。残は下記)**
 
 - **P5-1 静止画 overlay の FAST 化(完了・実測済み)**: `overlayFastReason`(適格判定)+
   `fastPlan` の不動点反復(SLOW 境界をまたぐ適格 overlay の降格)+ 入力数ガード
@@ -547,7 +547,7 @@ PSNR 値との連続性は無い(比較対象は常に「同一収録のフル r
   - **FAST/SLOW 境界またぎ**(判断A の核心): 境界 frame 420 で静的 box が fast/full
     同一位置に連続。全フレームで full と一致しているので境界のジャンプは存在しない
     (= フェード無しの annotation は「クリップが正解」という判断が実証された)
-- **P5-3 colorFilter の全編フォールバック解除(実装完了。実測は次セッションで記録)**:
+- **P5-3 colorFilter の全編フォールバック解除(完了・実測済み 2026-07-14)**:
   `ffmpegColorFilterOf`(`src/lib/colorFilter.ts`。CSS の brightness/contrast/saturate を
   `lutrgb`(brightness+contrast の合成 LUT)+ `colorchannelmixer`(saturate 行列)へ写す
   純関数)+ `fastSegment.ts` の `colorFilterStage`(`BASE_COLOR_FILTER` 末尾
@@ -557,10 +557,24 @@ PSNR 値との連続性は無い(比較対象は常に「同一収録のフル r
   写像の数式・係数・差し込み位置(`BASE_COLOR_FILTER` の**後**)はコーディネータが
   headless Chrome と ffmpeg を直接突き合わせて実測確定したもの(Chrome vs ffmpeg
   写像 PSNR 55.5dB・差し込み位置の案A/案B比較 PSNR 46.0dB。design-T3.md §1)。
-  `npx tsc --noEmit` clean・`npm test` 全 pass(colorFilter/fastPlan/fastSegment/fastRender の
-  既存テストを新挙動に合わせて書き換え+新規追加)。**実収録での full vs fast PSNR
-  実測(design-T3.md §8 の A/B/C 水準)はこのセッションでは未実施**(コーディネータが
-  実 render で検証してから確定させる)。
+  `npx tsc --noEmit` clean・`npm test` **1431 pass**(colorFilter/fastPlan/fastSegment/fastRender の
+  既存テストを新挙動に合わせて書き換え+新規追加)。
+
+  **実測(2026-07-14。合成収録=実収録 2026-07-12 のコピーに
+  `colorFilter: {brightness:1.08, contrast:1.15, saturate:0.85}` を足したもの。
+  比較対象は**同じ colorFilter を当てた full render**)**:
+  - **colorFilter があっても fastPath が発動する**(従来はここで収録まるごと不適格だった):
+    `FAST 1 / SLOW 0 セグメント(被覆 100.0%, 音声 bgm-mix)`
+  - cold render: **213.0s → 106.2s(約50%短縮)**。出力は 6301f で full と一致
+  - 全編 per-frame PSNR: `psnr_avg < 30dB` は **0 frame**、avg **42.62dB**
+    (colorFilter 無しの 42.52dB とほぼ同じ)、min **31.60dB**(同 33.04dB から 1.4dB 低下)。
+    **最悪フレームは colorFilter 無しと同じ frame 593**(既知の画面テキストのクロマ
+    再サンプリング由来)で、コントラスト増幅でわずかに強調されただけ。設計の許容(3dB 以内)に収まる
+  - 目視: 彩度を落としコントラストを上げた色調が fast/full で一致。系統的な色ズレなし
+  - **実装上の注意**: 生成される filtergraph は `...,format=yuvj420p,format=rgb24,lutrgb=...,
+    colorchannelmixer=...,format=yuvj420p` の形になるが、**ffmpeg のフォーマット交渉が
+    `format=yuvj420p,format=rgb24` の連鎖を実変換に落とさない**ため、クロマの往復は発生しない
+    (「色空間変換 → RGB → colorFilter → yuvj420p」と **bit 完全一致**することを実測で確認)
 - **残(P5 の後続)**: inserts の span 化 /
   カラオケ word の区分静的 PNG 列 / anim テロップの窓分割 /
   動画素材 overlay の span 化 / ショート展開
@@ -741,9 +755,23 @@ PSNR 値との連続性は無い(比較対象は常に「同一収録のフル r
     (目隠し)機能なので不一致は「見た目の微差」ではなく秘匿の失敗**という非対称リスク。
     速度のために取るべき賭けではない。
 
+- **2026-07-14 P5-3 完了(colorFilter の全編フォールバック解除)**(Opus 設計→Sonnet 実装→
+  コーディネータ実測)。**colorFilter があっても fastPath が発動する**ようになり、
+  合成収録で **FAST 1 / SLOW 0(被覆 100%)・cold render 213.0s→106.2s(50%短縮)**。
+  全編 PSNR は 30dB 未満 0 frame(avg 42.62 / min 31.60dB)で、colorFilter 無しの実測
+  (42.52 / 33.04dB)とほぼ同水準。数値は §5 P5 を正とする。
+  - **設計に入る前にコーディネータが実測で潰した2つの不確実性**: (a) CSS の
+    brightness/contrast/saturate が **sRGB 値に直接掛かる**こと(headless Chrome と ffmpeg の
+    `lutrgb`+`colorchannelmixer` を直接突き合わせて **PSNR 55.5dB** 一致)、(b) **差し込み位置は
+    46dB の差を生む**こと(色空間変換の前に掛けるか後に掛けるかで変わる。Remotion の合成順序に
+    対応するのは「後」)。**この2つを先に測ったので、設計は推測ではなく実測の上に立っている**。
+  - 設計が追加で潰した制約: ffmpeg の `colorchannelmixer` は係数が `[-2,2]` に制限され、
+    **`saturate > 2.0776` は表現不能**(`validate` は 3 まで許す)。この帯だけ全編フォールバックを残す。
+  - **`eq` フィルタは使わない**(YUV 平面で動くので CSS の RGB チャンネル毎演算とは別物)。
+
 ---
 
-## 9. 次セッションの着手手順(P0〜P4・P5-1・P5-2 は完了済み → **次は P5 の残りと P6**)
+## 9. 次セッションの着手手順(P0〜P4・P5-1・P5-2・P5-3 は完了済み → **次は P5 の残りと P6**)
 
 **次の着手手順(コールドスタートの設計/実装セッションを想定。次はここから)**:
 
