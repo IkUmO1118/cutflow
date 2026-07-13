@@ -17,6 +17,7 @@ import {
 } from "./bgmMix.ts";
 import { fadeFactor, isImageFile } from "./overlayFade.ts";
 import { baseLayoutOf } from "./fastBase.ts";
+import { probe, summarizeProbe } from "./ffmpeg.ts";
 import type { DecodedBgmTrack } from "./bgmMix.ts";
 import type { BaseLayout } from "./fastBase.ts";
 import type { RenderProps } from "../../remotion/props.ts";
@@ -24,6 +25,26 @@ import type { RenderProps } from "../../remotion/props.ts";
 /** 1素材ぶんのデコード済み PCM(48kHz stereo interleaved f32) */
 export interface DecodedSource {
   pcm: Float32Array;
+}
+
+/**
+ * 挿入素材の PCM デコードを省略すべきか(design-T4 §9-5 の無音3分岐: 画像 /
+ * volume<=0 / 音声ストリーム無し)を判定する純関数。`hasAudioStream` は
+ * 呼び出し側が ffprobe(`probe()` + `summarizeProbe()`)で判定した結果を渡す。
+ *
+ * **なぜ ffprobe の事前判定が要るか**: `decodeAudioToPcm` は
+ * `ffmpeg -i <file> -vn -f f32le ...` で音声を吸い出すが、入力に音声
+ * ストリームが無いと ffmpeg 自体が「マップするものが無い」でエラー終了する
+ * (「長さ0の PCM を返す」という当初の設計前提は誤りだった。実 render で
+ * 実測して判明。design-T4.md §9-5 の記述はこの関数を導入する形で訂正する)。
+ * したがって「デコードしてから空を判定する」のでは間に合わず、**デコード
+ * 前**に音声ストリームの有無を知る必要がある。
+ */
+export function insertHasNoAudio(
+  ins: { file: string; volume?: number },
+  hasAudioStream: boolean,
+): boolean {
+  return isImageFile(ins.file) || (ins.volume ?? 1) <= 0 || !hasAudioStream;
 }
 
 /**
@@ -165,16 +186,21 @@ export async function mixInsertAudio(args: {
     const insertPcms: (Float32Array | null)[] = [];
     for (let i = 0; i < inserts.length; i++) {
       const ins = inserts[i];
-      // 画像 / volume<=0 は音を持たないのでデコードすら行わない
-      if (isImageFile(ins.file) || (ins.volume ?? 1) <= 0) {
+      const filePath = join(dir, ins.file);
+      // 画像 / volume<=0 は ffprobe すら要らずに判定できる(no-op を先に弾く)
+      const needsProbe = !isImageFile(ins.file) && (ins.volume ?? 1) > 0;
+      // 音声ストリームの無い素材(無音動画)へ decodeAudioToPcm を呼ぶと
+      // ffmpeg が「マップする音声が無い」でエラー終了する(-vn -f f32le は
+      // 出力ストリームが1本も無いと Invalid argument で失敗する)。
+      // デコード**前**に ffprobe で有無を確認し、無ければ丸ごとスキップする
+      const hasAudioStream = needsProbe ? summarizeProbe(await probe(filePath)).hasAudio : false;
+      if (insertHasNoAudio(ins, hasAudioStream)) {
         insertPcms.push(null);
         continue;
       }
       const decodedPath = join(fastDir, `.insert-mix-ins-${i}.f32le`);
       tempPaths.push(decodedPath);
-      const pcm = await decodeAudioToPcm(join(dir, ins.file), decodedPath);
-      // 音声ストリームの無い素材(無音動画)は ffmpeg がエラーにならず長さ0の
-      // PCM を返す。ここで null へ正規化する(design-T4.md §9-5)
+      const pcm = await decodeAudioToPcm(filePath, decodedPath);
       insertPcms.push(pcm.length > 0 ? pcm : null);
     }
 
