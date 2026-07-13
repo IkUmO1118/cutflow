@@ -12,12 +12,14 @@ import { dirname, join } from "node:path";
 import { run } from "./exec.ts";
 import { renderCaptionStill, captionStillKey } from "./captionStill.ts";
 import { renderOverlayStill } from "./overlayStill.ts";
+import { annotationFastReason } from "./annotation.ts";
+import { annotationStillKey, renderAnnotationStill } from "./annotationStill.ts";
 import { fadeFrames, overlayFastReason, overlaySeqRange } from "./overlayFade.ts";
 import { buildCaptionIndex, lookupCaption } from "./captionIndex.ts";
 import { capNum, DEFAULT_LAYER_ORDER, ovNum } from "../types.ts";
 import type { FastSpan } from "./fastPlan.ts";
 import type { WarmAssets } from "../stages/frames.ts";
-import type { Caption, OverlayItem, RenderProps } from "../../remotion/props.ts";
+import type { Caption, OverlayItem, RenderProps, ResolvedAnnotation } from "../../remotion/props.ts";
 import type { CaptionStillProps } from "../../remotion/CaptionStill.tsx";
 
 export const FAST_SEGMENT_DIR = "render.fast/segments";
@@ -81,7 +83,8 @@ export type FastLayerItem =
       /** overlay の Sequence 長(overlaySeqRange 由来) */
       durFrames: number;
       enableWindows: EnableWindow[];
-    };
+    }
+  | { kind: "annotation"; annotation: ResolvedAnnotation; enableWindows: EnableWindow[] };
 
 /** caption 1件から CaptionStill 用の props を組み立てる(renderFastSegment /
  * fastLayerMergeKey で共有) */
@@ -160,6 +163,42 @@ export function resolveFastLayers(props: RenderProps, span: FastSpan): FastLayer
     }
     out.push(...placements.values());
   }
+  // ---- 注釈グラフィック(最前面。layerOrder には載らない固定順) ----
+  // Main.tsx は layerOrder の全レイヤーを描いた「後」に annotations を配列順で
+  // 重ねる(後の要素ほど上)。FAST では layers 配列の末尾 = 最後の overlay
+  // フィルタ段 = 最前面になる。可視判定は Main と同一の t>=start && t<end を
+  // フレームごとに評価する(丸め規則を別実装しない)。
+  const annotations = props.annotations ?? [];
+  if (annotations.length > 0) {
+    const windows = new Map<number, EnableWindow[]>();
+    for (let frame = span.fromFrame; frame < span.toFrame; frame++) {
+      const t = frame / fps;
+      for (let j = 0; j < annotations.length; j++) {
+        const a = annotations[j];
+        if (t < a.start || t >= a.end) continue;
+        const reason = annotationFastReason(a);
+        if (reason !== null) {
+          // fastPlan が SLOW へ送っているはずの annotation。破れたら実装バグ
+          throw new Error(
+            `FAST span[${span.fromFrame},${span.toFrame}) に不適格 annotation が混入(${reason}: ${a.type} @${a.start})`,
+          );
+        }
+        const localFrame = frame - span.fromFrame;
+        const ws = windows.get(j);
+        if (!ws) windows.set(j, [[localFrame, localFrame]]);
+        else {
+          const last = ws[ws.length - 1];
+          if (last[1] === localFrame - 1) last[1] = localFrame;
+          else ws.push([localFrame, localFrame]);
+        }
+      }
+    }
+    // 配列順(= Main の兄弟順 = 後勝ちで上)を保って push
+    for (let j = 0; j < annotations.length; j++) {
+      const ws = windows.get(j);
+      if (ws) out.push({ kind: "annotation", annotation: annotations[j], enableWindows: ws });
+    }
+  }
   return out;
 }
 
@@ -180,6 +219,9 @@ function isAlphaOp(it: FastLayerItem, fps: number): boolean {
 /** 畳み込み用の純粋キー。同じキー = 同じ PNG(内容アドレスキーと 1:1) */
 export function fastLayerMergeKey(props: RenderProps, it: FastLayerItem): string {
   if (it.kind === "caption") return `cap:${captionStillKey(captionStillPropsOf(props, it.caption))}`;
+  if (it.kind === "annotation") {
+    return `ann:${annotationStillKey({ annotation: it.annotation, width: props.width, height: props.height })}`;
+  }
   const o = it.item;
   return `ov:${o.file}|${o.fit}|${o.rect ? `${o.rect.x},${o.rect.y},${o.rect.w},${o.rect.h}` : "-"}`;
 }
@@ -378,6 +420,13 @@ export async function renderFastSegment(args: {
   for (const it of items) {
     if (it.kind === "caption") {
       const pngPath = await renderCaptionStill({ dir, caption: captionStillPropsOf(props, it.caption), warm });
+      layers.push({ pngPath, enableWindows: it.enableWindows });
+      continue;
+    }
+    if (it.kind === "annotation") {
+      const pngPath = await renderAnnotationStill({
+        dir, annotation: it.annotation, width: props.width, height: props.height, warm,
+      });
       layers.push({ pngPath, enableWindows: it.enableWindows });
       continue;
     }

@@ -10,6 +10,7 @@
 // frame 写像=ffmpeg fade フィルタの start_frame>=0 前提を壊さないため)。
 // min-FAST-span 吸収が新たなまたぎを生みうるので不動点反復で解く(§3.3)。
 import { compositionDurationInFrames } from "./renderFrameMath.ts";
+import { annotationFastReason } from "./annotation.ts";
 import { overlayFastReason, overlaySeqRange } from "./overlayFade.ts";
 import { countFastPngInputs } from "./fastSegment.ts";
 import { DEFAULT_LAYER_ORDER, ovId } from "../types.ts";
@@ -228,8 +229,9 @@ export function fastPlan(props: RenderProps): FastPlan {
   const totalFrames = compositionDurationInFrames(props.durationSec, fps);
   const notes: string[] = [];
 
-  // ---- 全編ビデオフォールバック(inserts / colorFilter) ----
+  // ---- 全編ビデオフォールバック(layout / inserts / colorFilter) ----
   const wholeFallback: string[] = [];
+  if (props.layout) wholeFallback.push("layout(ショート経路)");
   if ((props.inserts?.length ?? 0) > 0) wholeFallback.push("inserts");
   if (props.colorFilter) wholeFallback.push("colorFilter");
   if (wholeFallback.length > 0) {
@@ -257,7 +259,18 @@ export function fastPlan(props: RenderProps): FastPlan {
     else slowSec.push({ start: o.start, end: o.end }); // 不適格 overlay だけ SLOW
   }
   for (const b of props.blurs ?? []) slowSec.push({ start: b.start, end: b.end });
-  for (const a of props.annotations ?? []) slowSec.push({ start: a.start, end: a.end });
+  // 静的 annotation(keyframes 無し)は最前面の時間不変レイヤーとして
+  // ffmpeg overlay できる(P5-2)。keyframes 付きだけを SLOW へ送る。
+  // **overlay(P5-1)と違い不動点(またぎ降格)には乗せない**: annotation は
+  // フェードを持たない硬い ON/OFF なので、FAST/SLOW 境界でクリップしても
+  // 絵は連続する(SLOW 側は Remotion が同じ絵を描く)。
+  for (const a of props.annotations ?? []) {
+    const reason = annotationFastReason(a);
+    if (reason !== null) {
+      slowSec.push({ start: a.start, end: a.end });
+      notes.push(`annotation(${a.type} @${a.start.toFixed(2)}s)が ${reason} のため SLOW`);
+    }
+  }
   for (const c of props.captions) {
     if (c.style?.anim) slowSec.push({ start: c.start, end: c.end });
     if (c.style?.karaoke) slowSec.push({ start: c.start, end: c.end });
