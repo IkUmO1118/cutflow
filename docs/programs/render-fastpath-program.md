@@ -517,8 +517,7 @@ PSNR 値との連続性は無い(比較対象は常に「同一収録のフル r
     `frames` / `editor` / `render` が全部死ぬ。この失敗は **typecheck も `npm test` も
     すり抜ける**(実際にバンドルを張って初めて出る)ので、`remotion/` に import を足したら
     `frames` を1回実行して確かめること
-- **P5-2 静的 annotation の FAST 化(実装完了・design-T2.md のとおり。実測は
-  コーディネータが実 render で行い、本節に追記する)**: `annotationFastReason`
+- **P5-2 静的 annotation の FAST 化(完了・実測済み 2026-07-14)**: `annotationFastReason`
   (適格判定。keyframes 無しなら3種別(arrow/box/spotlight)すべて適格)+
   `fastPlan` の SLOW 収集から静的 annotation を除外(**overlay と違い不動点
   (またぎ降格)には乗せない** — annotation はフェード無しの硬い ON/OFF なので
@@ -531,8 +530,23 @@ PSNR 値との連続性は無い(比較対象は常に「同一収録のフル r
   恒久判断**(§4 参照。PNG 化不可能・CSS blur と ffmpeg gblur の不一致・秘匿
   失敗の非対称リスクが理由)。`npx tsc --noEmit` clean・`npm test` **1393 pass**
   (`test/fastPlan.test.ts` P2-1〜P2-8・`test/fastSegment.test.ts` G2-1〜G2-9 追加)。
-  実収録での被覆率・cold render 時間・PSNR・z-order 目視・FAST/SLOW 境界連続性の
-  実測はコーディネータが担当(design-T2.md §8 の手順)。
+
+  **実測(2026-07-14。合成収録=実収録 2026-07-12 のコピーに annotation 6件
+  (arrow / box+fill / spotlight×2 / **keyframed box(不適格)** / SLOW 境界をまたぐ静的 box)
+  を足したもの。design-T2.md §8 の手順)**:
+  - 発動ログ `FAST 2 / SLOW 1 セグメント(被覆 99.5%, 音声 bgm-mix)`。**SLOW は
+    keyframed box の1区間だけ**(適格な 5 件は SLOW を作らない)
+  - `render.fast/annotations/*.png` は **5枚**(カットで割れた box+fill の2断片が
+    同一内容 → `mergeFastLayers` が1入力・窓2つに畳んだ)
+  - cold render: **191.3s → 95.8s(約50%短縮)**。出力は 6301f / 30fps で full と一致
+  - 全編 per-frame PSNR: `psnr_avg < 30dB` は **0 frame**、finite min 33.04dB /
+    avg 42.59dB。**annotation 区間だけ**を切り出すと avg 42.22 / **min 40.37dB** で
+    劣化なし(min 33.04 は P0-3a/P2 から既知の画面テキストのクロマ再サンプリング由来で、
+    P5-1 実測の min 33.04 と同値)
+  - **z-order 目視**: 矢印・box がテロップの**上**(最前面)に描かれ、fast/full で同一
+  - **FAST/SLOW 境界またぎ**(判断A の核心): 境界 frame 420 で静的 box が fast/full
+    同一位置に連続。全フレームで full と一致しているので境界のジャンプは存在しない
+    (= フェード無しの annotation は「クリップが正解」という判断が実証された)
 - **残(P5 の後続)**: inserts の span 化 / colorFilter
   写像 / カラオケ word の区分静的 PNG 列 / anim テロップの窓分割 /
   動画素材 overlay の span 化 / ショート展開
@@ -699,9 +713,23 @@ PSNR 値との連続性は無い(比較対象は常に「同一収録のフル r
     すり抜けた**(実際にバンドルを張って初めて出る)。純関数を browser-safe な
     `overlayFade.ts` へ移して解消。→ 教訓は §5 P5 に恒久ルールとして記載。
 
+- **2026-07-14 P5-2 完了(静的 annotation の FAST 化 / blur は SLOW 据え置きを恒久判断)**
+  (Opus 設計→Sonnet 実装→コーディネータ実測)。annotation 6件を足した合成収録で
+  **FAST 2 / SLOW 1(被覆 99.5%)・cold render 191.3s→95.8s(50%短縮)**。全編 PSNR は
+  30dB 未満 0 frame、annotation 区間だけ見ると min 40.37dB で劣化なし。z-order(テロップより上)と
+  FAST/SLOW 境界の連続性も目視で確認。数値は §5 P5 を正とする。
+  - **設計の核心的判断**: annotation は**フェードを持たない硬い ON/OFF** なので、overlay(P5-1)で
+    必要だった「またぎ降格の不動点」が**不要**(境界でクリップしてよい。SLOW 側は Remotion が
+    同じ絵を描く)。実装量とリスクが大きく下がり、実測で境界の連続性も確認された。
+  - **blur を FAST 化しない恒久判断**(§4 判定表に記録): PNG 化が原理的に不可能(ライブ映像を
+    ぼかす)、CSS `filter: blur()` は要素の境界ボックスの外へにじみ出す(`overflow:hidden` は
+    filter 適用**前**のクリップ)ため縁の意味論が ffmpeg と違う、そして何より **blur は秘匿
+    (目隠し)機能なので不一致は「見た目の微差」ではなく秘匿の失敗**という非対称リスク。
+    速度のために取るべき賭けではない。
+
 ---
 
-## 9. 次セッションの着手手順(P0〜P4・P5-1 は完了済み → **次は P5 の残りと P6**)
+## 9. 次セッションの着手手順(P0〜P4・P5-1・P5-2 は完了済み → **次は P5 の残りと P6**)
 
 **次の着手手順(コールドスタートの設計/実装セッションを想定。次はここから)**:
 
