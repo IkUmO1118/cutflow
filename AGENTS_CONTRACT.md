@@ -118,10 +118,12 @@ false staleness signals or gets silently discarded:
   run; deleting the whole directory forces a full regeneration
 - `render.design/` — a cache-style generated directory holding the base-layout
   design background (`config.yaml` `render.design.backgroundFile`) copied into
-  the recording folder, which is the Remotion `publicDir`. Only written when the
-  configured path is absolute (outside the recording folder). Re-fetched from the
-  source file on the next run, so deleting it is always safe. Kept out of
-  `materials/` on purpose: the background is never referenced from
+  the recording folder, which is the Remotion `publicDir`. Written only when the
+  design is enabled **and this recording is an obs-canvas one** (`manifest.json`
+  has `video.cameraRegion`) **and** the configured path points outside the
+  recording folder (repo-bundled `assets/backgrounds/…` or an absolute path).
+  Re-fetched from the source file on the next run, so deleting it is always safe.
+  Kept out of `materials/` on purpose: the background is never referenced from
   `overlays.json`, so it would be reported as an unused asset forever
 - `render.fast/` — a cache-style generated directory written by the render
   fast path: `captions/<key>.png` (per-caption transparent PNGs, content-hashed
