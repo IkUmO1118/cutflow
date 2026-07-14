@@ -522,7 +522,9 @@ export interface Config {
     /** render 高速パス(FAST/SLOW ハイブリッド ffmpeg 合成)。省略時 false=
      * 既存挙動とバイト等価(このコード経路に入らない)。true でも収録が v1 適格
      * (inserts/素材音声なし)かつ FAST 被覆 >= fastPathMinCoverage
-     * かつ composite 経路のときだけ発動し、欠ければ1行ログでフルレンダーへ落ちる */
+     * かつ基底が composite / design / plain-identity のいずれかとして安全に
+     * 合成できるときだけ発動する。条件やdesign静的資産が欠ければ1行ログで
+     * フルレンダーへ保守的にフォールバックする */
     fastPath?: boolean;
     /** FAST 被覆率がこの値以上のときだけ高速パスを発動。省略時 0.5 */
     fastPathMinCoverage?: number;
@@ -532,9 +534,11 @@ export interface Config {
        * zooms[].easeSec で個別指定があればそちらが優先 */
       easeSec?: number;
     };
-    /** ベースレイアウトのデザイン(背景画像 + 画面パネル + カメラ円)。
-     * 省略 / enabled: false で従来の「画面全面 + 右下ワイプ」とバイト等価。
-     * 有効時はワイプ焼き込み(composite)が使えないため高速パスも発動しない
+    /** ベースレイアウトのデザイン。plain は背景画像 + 画面パネル、
+     * obs-canvas はさらにカメラ円を描く。ショートには継承しない。
+     * 省略 / enabled: false で各収録レイアウトの従来描画とバイト等価。
+     * 有効時は静的design assetが揃えばdesign FAST基底で合成し、欠ければ
+     * 通常のRemotionレンダーへ保守的にフォールバックする
      * (§src/lib/design.ts。docs/programs/render-fastpath-program.md) */
     design?: DesignConfig;
   };

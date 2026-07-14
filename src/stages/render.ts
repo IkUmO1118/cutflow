@@ -1,3 +1,4 @@
+import { cliCmd } from "../lib/cliName.ts";
 import {
   existsSync,
   mkdirSync,
@@ -28,6 +29,7 @@ import {
 import { buildCutCacheKey, cutCacheKeyEquals } from "../lib/cutCache.ts";
 import { run } from "../lib/exec.ts";
 import { decideFastPath, runFastRender } from "../lib/fastRender.ts";
+import { resolveFastBaseCapability } from "../lib/fastBaseCapability.ts";
 import {
   audioSourceOf,
   keepAudioParts,
@@ -41,13 +43,14 @@ import {
 import { defaultShortProfileName, resolveProfile } from "../lib/profile.ts";
 import { buildRenderProps } from "../lib/renderProps.ts";
 import { renderCfgWithDesign } from "../lib/designAsset.ts";
+import { prepareDesignAssetsForProps } from "../lib/designStill.ts";
 import {
   compositionDurationInFrames,
   compositionDurationSec,
 } from "../lib/renderFrameMath.ts";
 import { loadShort, loadShorts } from "../lib/shorts.ts";
 import { mergeIntervals, playbackSegmentsOf } from "../lib/timeline.ts";
-import { timed } from "../lib/timing.ts";
+import { timed, timedSync } from "../lib/timing.ts";
 import { resolveVideoEncoder } from "../lib/videoEncode.ts";
 import { hasCamera } from "../types.ts";
 import type { ChunksCacheKey, FileStat } from "../lib/chunkPlan.ts";
@@ -118,7 +121,7 @@ export function canBurnWipe(manifest: Manifest, overlays: Overlays, cfg: Config)
   if (!hasCamera(manifest)) return false;
   // デザイン(背景 + 画面パネル + カメラ円)有効時は、ベースの幾何が
   // 「画面全面 + 右下 flush ワイプ」ではないので焼き込めない(Remotion 側の
-  // design 描画へフォールバック。高速パスも同時に落ちる。§src/lib/design.ts)
+  // design描画か、静的assetを使うdesign FAST基底で合成する。§src/lib/design.ts)
   if (cfg.render.design?.enabled) return false;
   if ((overlays.zooms?.length ?? 0) > 0) return false;
   if ((overlays.wipeFull?.length ?? 0) > 0) return false;
@@ -153,7 +156,7 @@ export async function render(dir: string, cfg: Config): Promise<string> {
   if (!gate.ok) {
     throw new Error(
       `render できません: ${gate.reason}\n` +
-        "preview で確認のうえ `node src/cli.ts approve <dir>` で承認してください" +
+        `preview で確認のうえ \`${cliCmd()} approve <dir>\` で承認してください` +
         "(GUI ならチェックボックス)。",
     );
   }
@@ -223,7 +226,7 @@ export async function render(dir: string, cfg: Config): Promise<string> {
     : null;
 
   const profile = resolveProfile(manifest.video.screenRegion, "default");
-  const props = buildRenderProps({
+  let props = buildRenderProps({
     manifest,
     keeps,
     transcript,
@@ -247,6 +250,13 @@ export async function render(dir: string, cfg: Config): Promise<string> {
     props.screenRegion = { x: 0, y: 0, w: sr.w, h: sr.h };
     props.wipeBurnedIn = true;
   }
+  props = await timed("design静的資産準備", () =>
+    prepareDesignAssetsForProps({
+      dir,
+      props,
+      warn: (message) => console.warn(`警告: ${message}`),
+    }),
+  );
   const propsPath = join(dir, "render.props.json");
   writeFileSync(propsPath, JSON.stringify(props, null, 2));
 
@@ -309,21 +319,27 @@ export async function render(dir: string, cfg: Config): Promise<string> {
   // 成功したら full-skip キーを書き chunk cache を種付けして返す。非適格・失敗は
   // 1行ログを出して下の通常フルレンダーへ落ちる(誤爆より保守)。
   if (cfg.render.fastPath) {
-    const decision = decideFastPath({ props, cfg, composite });
+    const base = resolveFastBaseCapability({ props, composite });
+    const decision = decideFastPath({ props, cfg, base });
     if (!decision.activate) {
       console.log(`render 高速パス: 非適用(${decision.reason}) → 通常レンダー`);
     } else {
-      const ok = await runFastRender({
-        dir, props, plan: decision.plan, cutPath, propsPath, outPath,
-        hardwareAcceleration, repoRoot, resourceArgs: remotionResourceArgs(cfg),
-      });
-      if (ok) {
+      if (!base.ok) throw new Error("高速パス能力判定の内部不整合");
+      const fastResult = await timed("高速パス 合計", () =>
+        runFastRender({
+          dir, props, plan: decision.plan, base, cutPath, propsPath, outPath,
+          hardwareAcceleration, repoRoot, resourceArgs: remotionResourceArgs(cfg),
+        }),
+      );
+      if (fastResult.ok) {
         writeFileSync(renderKeyPath, JSON.stringify(renderKey, null, 2));
         if (chunkSec > 0) {
-          await seedChunkCache({
-            dir, props, cutStat: { mtimeMs: cutStat.mtimeMs, size: cutStat.size },
-            outPath, chunkSec,
-          });
+          await timed("チャンクcache seed 合計", () =>
+            seedChunkCache({
+              dir, props, cutStat: { mtimeMs: cutStat.mtimeMs, size: cutStat.size },
+              outPath, chunkSec, verifiedKeyframeFrames: fastResult.keyframeFrames,
+            }),
+          );
         }
         return outPath;
       }
@@ -348,10 +364,12 @@ export async function render(dir: string, cfg: Config): Promise<string> {
   writeFileSync(renderKeyPath, JSON.stringify(renderKey, null, 2));
 
   if (chunkSec > 0) {
-    await seedChunkCache({
-      dir, props, cutStat: { mtimeMs: cutStat.mtimeMs, size: cutStat.size },
-      outPath, chunkSec,
-    });
+    await timed("チャンクcache seed 合計", () =>
+      seedChunkCache({
+        dir, props, cutStat: { mtimeMs: cutStat.mtimeMs, size: cutStat.size },
+        outPath, chunkSec,
+      }),
+    );
   }
   return outPath;
 }
@@ -418,7 +436,7 @@ async function renderOneShort(
   if (!gate.ok) {
     throw new Error(
       `ショート "${short.name}" を render できません: ${gate.reason}\n` +
-        `preview で確認のうえ \`node src/cli.ts approve <dir> --short ${short.name}\` で` +
+        `preview で確認のうえ \`${cliCmd()} approve <dir> --short ${short.name}\` で` +
         "承認してください(GUI ならチェックボックス)。",
     );
   }
@@ -680,6 +698,7 @@ async function seedChunkCache(args: {
   cutStat: FileStat;
   outPath: string;
   chunkSec: number;
+  verifiedKeyframeFrames?: readonly number[];
 }): Promise<void> {
   const { dir, props, cutStat, outPath, chunkSec } = args;
   const { chunksDir, keyPath, audioPath } = chunkPaths(dir);
@@ -687,24 +706,30 @@ async function seedChunkCache(args: {
   mkdirSync(chunksDir, { recursive: true });
 
   const totalFrames = compositionDurationInFrames(props.durationSec, props.fps);
-  const keyframeFrames = await probeKeyframes(outPath);
+  const keyframeFrames = args.verifiedKeyframeFrames !== undefined
+    ? [...args.verifiedKeyframeFrames]
+    : await timed("チャンクcache keyframe probe", () => probeKeyframes(outPath));
   const boundaries = carveBoundaries(keyframeFrames, totalFrames, chunkSec, props.fps);
-  await carveFinalToChunks(outPath, boundaries, chunksDir);
-  await extractAudio(outPath, audioPath);
+  await timed("チャンクcache carve", () => carveFinalToChunks(outPath, boundaries, chunksDir));
+  await timed("チャンクcache audio抽出", () => extractAudio(outPath, audioPath));
 
-  const materialStats = materialStatsOf(dir, props);
-  const chunkVideoKeys = boundaries
-    .slice(0, -1)
-    .map((from, i) => chunkVideoKey(props, from, boundaries[i + 1], cutStat, props.fps));
-  const key: ChunksCacheKey = {
-    fps: props.fps,
-    totalFrames,
-    boundaries,
-    globalKey: globalVideoKey(props, cutStat),
-    chunkVideoKeys,
-    audioKey: buildAudioKey(props, cutStat, materialStats),
-  };
-  writeFileSync(keyPath, JSON.stringify(key, null, 2));
+  const key = timedSync("チャンクcache key計算", (): ChunksCacheKey => {
+    const materialStats = materialStatsOf(dir, props);
+    const chunkVideoKeys = boundaries
+      .slice(0, -1)
+      .map((from, i) => chunkVideoKey(props, from, boundaries[i + 1], cutStat, props.fps));
+    return {
+      fps: props.fps,
+      totalFrames,
+      boundaries,
+      globalKey: globalVideoKey(props, cutStat),
+      chunkVideoKeys,
+      audioKey: buildAudioKey(props, cutStat, materialStats),
+    };
+  });
+  timedSync("チャンクcache key書込", () =>
+    writeFileSync(keyPath, JSON.stringify(key, null, 2)),
+  );
 }
 
 /** 収録フォルダ内の BGM ファイルを探す(render とエディタで共通の規約) */

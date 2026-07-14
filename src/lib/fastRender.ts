@@ -9,6 +9,8 @@ import { fastPlan } from "./fastPlan.ts";
 import { renderFastSegment, fastSegmentPath, FAST_SEGMENT_DIR } from "./fastSegment.ts";
 import { withCaptionStillAssets } from "./captionStill.ts";
 import { resolveFastPathCfg } from "./config.ts";
+import { timed } from "./timing.ts";
+import type { FastBaseCapability } from "./fastBaseCapability.ts";
 import type { FastPlan, FastSpan } from "./fastPlan.ts";
 import type { Config } from "./config.ts";
 import type { RenderProps } from "../../remotion/props.ts";
@@ -17,11 +19,15 @@ export type FastPathDecision =
   | { activate: true; plan: FastPlan }
   | { activate: false; reason: string };
 
-export function decideFastPath(args: { props: RenderProps; cfg: Config; composite: boolean }): FastPathDecision {
-  const { props, cfg, composite } = args;
+export function decideFastPath(args: {
+  props: RenderProps;
+  cfg: Config;
+  base: FastBaseCapability;
+}): FastPathDecision {
+  const { props, cfg, base } = args;
   const { enabled, minCoverage } = resolveFastPathCfg(cfg);
   if (!enabled) return { activate: false, reason: "fastPath 無効" };
-  if (!composite) return { activate: false, reason: "非composite経路(cut.mp4 が出力解像度でない)" };
+  if (!base.ok) return { activate: false, reason: base.reason };
   const plan = fastPlan(props);
   if (!plan.eligible) return { activate: false, reason: `適格外: ${plan.wholeFallback.join("/")}` };
   if (!plan.audioFastEligible) return { activate: false, reason: `音声適格外: ${plan.audioFallback.join("/")}` };
@@ -49,10 +55,32 @@ export function orderedFastJobs(dir: string, plan: FastPlan): FastJob[] {
   return plan.spans.map((span, index) => ({ index, span, outPath: fastSegmentPath(dir, index) }));
 }
 
+function fastJobTimingLabel(job: FastJob): string {
+  return `高速パス ${job.span.kind.toUpperCase()} job ${job.index}` +
+    `(frame ${job.span.fromFrame}-${job.span.toFrame - 1})`;
+}
+
+export function cleanupFastRenderTemps(args: {
+  segDir: string;
+  assembledVideo: string;
+  audioM4a: string;
+  tempFinal: string;
+}): void {
+  rmSync(args.segDir, { recursive: true, force: true });
+  rmSync(args.assembledVideo, { force: true });
+  rmSync(args.audioM4a, { force: true });
+  rmSync(args.tempFinal, { force: true });
+}
+
+export type FastRenderResult =
+  | { ok: true; keyframeFrames: number[] }
+  | { ok: false };
+
 export async function runFastRender(args: {
   dir: string; props: RenderProps; plan: FastPlan; cutPath: string; propsPath: string;
+  base?: Extract<FastBaseCapability, { ok: true }>;
   outPath: string; hardwareAcceleration: string; repoRoot: string; resourceArgs: string[];
-}): Promise<boolean> {
+}): Promise<FastRenderResult> {
   const { dir, props, plan, cutPath, propsPath, outPath, hardwareAcceleration, repoRoot, resourceArgs } = args;
   const fastDir = join(dir, "render.fast");
   const segDir = join(dir, FAST_SEGMENT_DIR);
@@ -63,48 +91,60 @@ export async function runFastRender(args: {
     rmSync(segDir, { recursive: true, force: true });
     mkdirSync(segDir, { recursive: true });
     const jobs = orderedFastJobs(dir, plan);
-    await withCaptionStillAssets(dir, async (warm) => {
-      for (const job of jobs) {
-        if (job.span.kind === "fast") {
-          await renderFastSegment({ dir, props, span: job.span, index: job.index, warm });
-        } else {
-          await run("npx", buildSlowSegmentRemotionArgs({
-            propsPath, publicDir: dir, outPath: job.outPath,
-            fromFrame: job.span.fromFrame, toFrame: job.span.toFrame, hardwareAcceleration, resourceArgs,
-          }), { cwd: repoRoot, label: "remotion" });
+    await timed("高速パス still環境+segment全体", () =>
+      withCaptionStillAssets(dir, async (warm) => {
+        for (const job of jobs) {
+          await timed(fastJobTimingLabel(job), async () => {
+            if (job.span.kind === "fast") {
+              await renderFastSegment({
+                dir,
+                props,
+                span: job.span,
+                index: job.index,
+                warm,
+                ...(args.base?.ok ? { base: args.base } : {}),
+              });
+            } else {
+              await run("npx", buildSlowSegmentRemotionArgs({
+                propsPath, publicDir: dir, outPath: job.outPath,
+                fromFrame: job.span.fromFrame, toFrame: job.span.toFrame, hardwareAcceleration, resourceArgs,
+              }), { cwd: repoRoot, label: "remotion" });
+            }
+          });
         }
-      }
-    });
-    await concatChunks(jobs.map((j) => j.outPath), assembledVideo);
+      }),
+    );
+    await timed("高速パス concat", () => concatChunks(jobs.map((j) => j.outPath), assembledVideo));
     // 挿入があれば PCM 領域でベース・挿入・BGM を1本に組み立てる insert-mix
     // (design-T4.md §3-D)。挿入が無い収録は従来どおり mixFastAudio のまま
     // (P4 で LUFS 検証済みの経路を触らないための意図的な二経路)
-    await (plan.audioMode === "insert-mix"
-      ? mixInsertAudio({ dir, props, cutPath, outM4a: audioM4a })
-      : mixFastAudio({ dir, props, cutPath, outM4a: audioM4a }));
-    await muxVideoAudio(assembledVideo, audioM4a, tempFinal);
-    const verify = await verifyAssembled(
-      tempFinal,
-      plan.totalFrames,
-      plan.totalFrames / props.fps,
-      props.fps,
+    await timed(`高速パス audio(${plan.audioMode})`, () =>
+      plan.audioMode === "insert-mix"
+        ? mixInsertAudio({ dir, props, cutPath, outM4a: audioM4a })
+        : mixFastAudio({ dir, props, cutPath, outM4a: audioM4a }),
+    );
+    await timed("高速パス mux", () => muxVideoAudio(assembledVideo, audioM4a, tempFinal));
+    const verify = await timed("高速パス verify", () =>
+      verifyAssembled(
+        tempFinal,
+        plan.totalFrames,
+        plan.totalFrames / props.fps,
+        props.fps,
+      ),
     );
     if (!verify.ok) {
       console.warn(`render 高速パス: 検証に失敗したためフルレンダーへ: ${verify.reason}`);
-      rmSync(fastDir, { recursive: true, force: true });
-      return false;
+      return { ok: false };
     }
     renameSync(tempFinal, outPath);
     const slowCount = jobs.filter((j) => j.span.kind === "slow").length;
-    console.log(`render 高速パス: FAST ${jobs.length - slowCount} / SLOW ${slowCount} セグメント(被覆 ${(plan.coverageRatio * 100).toFixed(1)}%, 音声 ${plan.audioMode})`);
-    return true;
+    const baseMode = args.base?.mode ?? "composite";
+    console.log(`render 高速パス: 基底 ${baseMode}, FAST ${jobs.length - slowCount} / SLOW ${slowCount} セグメント(被覆 ${(plan.coverageRatio * 100).toFixed(1)}%, 音声 ${plan.audioMode})`);
+    return { ok: true, keyframeFrames: verify.keyframeFrames };
   } catch (err) {
     console.warn(`render 高速パス: 失敗したためフルレンダーへ: ${(err as Error).message}`);
-    rmSync(fastDir, { recursive: true, force: true });
-    return false;
+    return { ok: false };
   } finally {
-    rmSync(assembledVideo, { force: true });
-    rmSync(audioM4a, { force: true });
-    rmSync(tempFinal, { force: true });
+    cleanupFastRenderTemps({ segDir, assembledVideo, audioM4a, tempFinal });
   }
 }

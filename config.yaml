@@ -62,8 +62,11 @@ detect:
 
 # カット確認用プレビュー動画
 preview:
-  # 出力する横幅(px)。キャンバス全体を縮小するので確認には十分な小ささでよい
-  width: 1280
+  # 出力する横幅(px)。拡張キャンバス全体(画面+カメラ横並び=3840px)を
+  # この幅へ縮小するので、画面領域の実効解像度はこの半分になる。
+  # 1280 だと画面が 640px 相当となり、エディタのプレビュー(1920 へ
+  # アップスケール表示)で明確にぼやける。2560 で画面 1280px 相当
+  width: 2560
   # proxy.mp4 / preview.mp4 のビデオエンコーダ。videotoolbox は macOS の
   # ハードウェアエンコーダ。生成時間はほぼ同等でファイルサイズが小さい。
   # libx264 で従来の ultrafast+CRF に戻せる(実測は docs/perf.md 参照)
@@ -156,8 +159,9 @@ render:
   # frame/音声パリティ検証済み。docs/perf.md フェーズ11)。問題が出たら
   # false に戻すだけで従来のフルレンダーへ完全に戻る。
   # true でも適格(素材音声なし等)かつ FAST 被覆が fastPathMinCoverage 以上
-  # かつ composite 経路のときだけ発動し、欠ければ1行ログで通常フルレンダーへ
-  # フォールバックする(誤爆より保守)。このキー省略時は false(オフ)。
+  # かつ基底が composite / design / plain-identity のいずれかとして安全に
+  # 合成できるときだけ発動する。条件や design 静的資産が欠ければ1行ログで
+  # 通常フルレンダーへフォールバックする(誤爆より保守)。このキー省略時は false(オフ)。
   fastPath: true
   # FAST 被覆率(FAST秒/出力総秒)の発動しきい値。省略時 0.5
   # fastPathMinCoverage: 0.5
@@ -166,16 +170,14 @@ render:
   zoom:
     # ズームイン/アウトの遷移秒数
     easeSec: 0.4
-  # ベースレイアウトのデザイン(背景画像 + 画面パネル + カメラ角丸ワイプ)。
-  # 既定 false = 従来どおり「画面全面 + 右下ワイプ」(この機能導入前とバイト等価)。
+  # ベースレイアウトのデザイン。plain は背景画像 + 画面パネル、OBS 拡張
+  # キャンバスはさらにカメラ角丸ワイプを描く。ショートには継承しない。
+  # 既定 false = 各収録レイアウトの従来描画(この機能導入前とバイト等価)。
   # true にすると同梱の背景でそのまま動く(assets/backgrounds/)。
   #
-  # 効くのは OBS 拡張キャンバス収録(manifest に cameraRegion がある = ingest/run を
-  # --layout obs-canvas で通したもの)だけ。通常動画(plain)は enabled: true でも
-  # 収録そのままの絵になる(§src/lib/design.ts)。
-  #
-  # 注意: 有効時はワイプ焼き込み(composite)経路が使えないため、render 高速パス
-  # (fastPath)も発動しない = cold render が約2倍の時間になる
+  # design 静的資産が揃えば fastPath の design 基底で合成する。資産生成失敗や
+  # その他の適格条件不足では、通常の Remotion レンダーへ保守的に戻る
+  # (§src/lib/design.ts)。
   design:
     enabled: true
     # 背景画像。省略時は backgroundColor の単色。3通りの書き方を解決する:

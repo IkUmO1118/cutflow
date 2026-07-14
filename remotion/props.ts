@@ -45,8 +45,11 @@ export interface Caption {
 export interface Span {
   start: number;
   end: number;
-  /** wipeFull の区間別遷移秒。0=最初から全画面、未指定=全体設定 */
+  /** wipeFull の旧形式の区間別遷移秒。個別指定がない両方向へ適用 */
   transitionSec?: number;
+  /** wipeFull の区間別の入り/戻り遷移秒。0=瞬時、未指定=旧形式または全体設定 */
+  transitionInSec?: number;
+  transitionOutSec?: number;
 }
 
 export interface ResolvedKeyframe {
@@ -184,7 +187,7 @@ export type RenderProps = {
    * カメラ)だけに CSS filter として効く(src/lib/colorFilter.ts が変換)。
    * 素材オーバーレイ・挿入クリップには効かない。省略時は無補正 */
   colorFilter?: ColorFilter;
-  /** ベースレイアウトのデザイン(背景画像 + 画面パネル + カメラ円)。
+  /** ベースレイアウトのデザイン(背景画像 + 画面パネル + optionalなカメラ円)。
    * config.yaml の render.design を buildRenderProps が出力px の矩形へ解決した
    * もの(src/lib/design.ts)。省略時は従来の「画面全面 + 右下ワイプ」。
    * layout(縦プリセット)経路には載らない=ショートには継承されない */

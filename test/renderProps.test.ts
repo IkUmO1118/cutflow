@@ -175,6 +175,64 @@ test("buildRenderProps: plain manifest(cameraRegion 無し)は cameraRegion unde
   assert.deepEqual(props.screenRegion, { x: 0, y: 0, w: 1080, h: 1920 });
 });
 
+test("buildRenderProps: plain designはportrait screenだけを載せ、cameraを載せない", () => {
+  const plainManifest: Manifest = {
+    ...manifest,
+    layout: "plain",
+    video: { width: 1080, height: 1920, fps: 30, screenRegion: { x: 0, y: 0, w: 1080, h: 1920 } },
+  };
+  const props = buildRenderProps({
+    manifest: plainManifest,
+    keeps: [{ start: 0, end: 10 }],
+    transcript: { segments: [] },
+    overlays: {},
+    renderCfg: {
+      ...renderCfg,
+      design: {
+        enabled: true,
+        backgroundColor: "#123456",
+        camera: { sizePx: 9999, marginPx: 9999 },
+      },
+    },
+    width: 1080,
+    height: 1920,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.deepEqual(props.design, {
+    backgroundColor: "#123456",
+    screen: {
+      rect: { x: 100, y: 266, w: 880, h: 1564 },
+      radiusPx: 24,
+      shadow: true,
+    },
+  });
+  assert.equal(props.cameraRegion, undefined);
+});
+
+test("buildRenderProps: short layoutはplain designを引き続き除外する", () => {
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 10 }],
+    transcript: { segments: [] },
+    overlays: {},
+    renderCfg: { ...renderCfg, design: { enabled: true } },
+    width: 1080,
+    height: 1920,
+    profile: PROFILES.vertical,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.equal(props.design, undefined);
+  assert.ok(props.layout);
+});
+
 test("buildRenderProps: vertical profile → layout/captionDefaultPos/fontSizePx(×fontScale)が入る", () => {
   const props = buildRenderProps({
     manifest,
@@ -520,7 +578,7 @@ test("buildRenderProps: wipeFull はカット・挿入・隣接エントリで�
   assert.deepEqual(props.wipeFull, [{ start: 10, end: 44 }]);
 });
 
-test("buildRenderProps: wipeFull の区間別 transitionSec は props へ渡る", () => {
+test("buildRenderProps: wipeFull の区間別の入り/戻り遷移は props へ渡る", () => {
   const props = buildRenderProps({
     manifest,
     keeps: [{ start: 0, end: 30 }],
@@ -528,7 +586,7 @@ test("buildRenderProps: wipeFull の区間別 transitionSec は props へ渡る"
     overlays: {
       wipeFull: [
         { start: 5, end: 10, transitionSec: 0 },
-        { start: 12, end: 18, transitionSec: 0.6 },
+        { start: 12, end: 18, transitionInSec: 0.6, transitionOutSec: 0 },
       ],
     },
     renderCfg,
@@ -542,8 +600,31 @@ test("buildRenderProps: wipeFull の区間別 transitionSec は props へ渡る"
   });
   assert.deepEqual(props.wipeFull, [
     { start: 5, end: 10, transitionSec: 0 },
-    { start: 12, end: 18, transitionSec: 0.6 },
+    { start: 12, end: 18, transitionInSec: 0.6, transitionOutSec: 0 },
   ]);
+});
+
+test("buildRenderProps: wipeFull は入り/戻り遷移が異なる隣接区間をマージしない", () => {
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 30 }],
+    transcript: { segments: [] },
+    overlays: {
+      wipeFull: [
+        { start: 5, end: 10, transitionInSec: 0.3, transitionOutSec: 0 },
+        { start: 10, end: 15, transitionInSec: 0, transitionOutSec: 0.3 },
+      ],
+    },
+    renderCfg,
+    width: 1920,
+    height: 1080,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.equal(props.wipeFull.length, 2);
 });
 
 test("buildRenderProps: zooms 未指定なら props に zooms キーが現れない(既存 props と完全一致)", () => {

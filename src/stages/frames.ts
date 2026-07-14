@@ -43,6 +43,7 @@ import {
 } from "@remotion/renderer";
 import { fmtT } from "../lib/fmt.ts";
 import { readEditSnapshot, resolveSnapshotRenderContext } from "../lib/renderSnapshot.ts";
+import { prepareDesignAssetsForProps } from "../lib/designStill.ts";
 import {
   buildTimeline,
   snapToOutput,
@@ -132,7 +133,13 @@ export async function renderFrames(
   const snapshot = readEditSnapshot(dir);
 
   const renderCtx = resolveSnapshotRenderContext({ dir, cfg, snapshot, shortName, fullRes });
-  const { keeps, overlays, props } = renderCtx;
+  const { keeps, overlays } = renderCtx;
+  const props = await prepareDesignAssetsForProps({
+    dir,
+    props: renderCtx.props,
+    warm,
+    warn: (message) => console.warn(`警告: ${message}`),
+  });
 
   // ベース映像はエディタと同じ軽量プロキシ。無ければここで作る(収録ごとに1回)。
   // 焼き込み済みの設定(ラウドネス・システム音声・プレビュー幅・エンコーダ)か

@@ -4,6 +4,8 @@ import { AnnotationStill, annotationStillDefaultProps } from "./AnnotationStill.
 import type { AnnotationStillProps } from "./AnnotationStill.tsx";
 import { CaptionStill, captionStillDefaultProps } from "./CaptionStill.tsx";
 import type { CaptionStillProps } from "./CaptionStill.tsx";
+import { DesignStill, designStillDefaultProps } from "./DesignStill.tsx";
+import type { DesignStillProps } from "./DesignStill.tsx";
 import { OverlayStill, overlayStillDefaultProps } from "./OverlayStill.tsx";
 import type { OverlayStillProps } from "./OverlayStill.tsx";
 import { defaultProps } from "./props.ts";
@@ -26,6 +28,23 @@ export const RemotionRoot = () => (
         width: props.width,
         height: props.height,
       })}
+    />
+    <Composition
+      id="DesignStill"
+      component={DesignStill}
+      durationInFrames={1}
+      fps={30}
+      width={1920}
+      height={1080}
+      defaultProps={designStillDefaultProps}
+      calculateMetadata={({ props }: { props: DesignStillProps }) => {
+        const rect = props.role === "screenMask"
+          ? props.design.screen.rect
+          : props.role === "cameraMask" && props.design.camera
+            ? props.design.camera.rect
+            : { w: props.width, h: props.height };
+        return { durationInFrames: 1, fps: 30, width: rect.w, height: rect.h };
+      }}
     />
     <Composition
       id="CaptionStill"

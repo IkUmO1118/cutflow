@@ -1,3 +1,4 @@
+import { cliCmd } from "../lib/cliName.ts";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { findSource } from "../lib/findSource.ts";
@@ -46,7 +47,7 @@ export async function bootstrapProjectWithLayout(
           `manifest.json は既に ${current} として作成済みです。` +
             `指定された --layout ${layout} では開けません。\n` +
             "レイアウトを変える場合は、意図を確認してから ingest を明示的に再実行してください: " +
-            `node src/cli.ts ingest <dir> --layout ${layout}`,
+            `${cliCmd()} ingest <dir> --layout ${layout}`,
         );
       }
     }
@@ -60,7 +61,7 @@ export async function bootstrapProjectWithLayout(
     writeFileSync(transcriptPath, JSON.stringify(emptyTranscript(), null, 2));
     console.log(
       "transcript.json が無いため空で作成しました。文字起こしは " +
-        "node src/cli.ts transcribe <dir>",
+        `${cliCmd()} transcribe <dir>`,
     );
   }
 
@@ -72,7 +73,7 @@ export async function bootstrapProjectWithLayout(
     );
     console.log(
       "cutplan.json が無いため全編 keep で作成しました。カット案は " +
-        "node src/cli.ts plan <dir>(または run)",
+        `${cliCmd()} plan <dir>(または run)`,
     );
   }
 }

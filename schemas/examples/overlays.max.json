@@ -40,7 +40,13 @@
       "fadeOutSec": 0.3
     }
   ],
-  "wipeFull": [{ "id": "wf_a1b2c3", "start": 30, "end": 35 }],
+  "wipeFull": [{
+    "id": "wf_a1b2c3",
+    "start": 30,
+    "end": 35,
+    "transitionInSec": 0.3,
+    "transitionOutSec": 0
+  }],
   "layerOrder": ["ov1", "wipe", "ov2", "caption", "cap2"],
   "captionTracks": [
     {

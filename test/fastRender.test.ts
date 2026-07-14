@@ -3,11 +3,17 @@
 // cold Before/After で実測する)。
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { mkdtemp, rm } from "node:fs/promises";
 import {
   buildSlowSegmentRemotionArgs,
+  cleanupFastRenderTemps,
   decideFastPath,
   orderedFastJobs,
 } from "../src/lib/fastRender.ts";
+import { resolveFastBaseCapability } from "../src/lib/fastBaseCapability.ts";
 import { fastPlan } from "../src/lib/fastPlan.ts";
 import { fastSegmentPath } from "../src/lib/fastSegment.ts";
 import type { FastPlan } from "../src/lib/fastPlan.ts";
@@ -51,17 +57,52 @@ function cfgWith(render: Partial<Config["render"]>): Config {
   return { render: baseRenderCfg(render) } as Config;
 }
 
+function decisionFor(props: RenderProps, cfg: Config, composite: boolean) {
+  const base = resolveFastBaseCapability({ props, composite });
+  return decideFastPath({ props, cfg, base });
+}
+
 // ---- decideFastPath ----
 
 test("decideFastPath: fastPath:false → 無効", () => {
-  const decision = decideFastPath({ props: mkProps(), cfg: cfgWith({ fastPath: false }), composite: true });
+  const decision = decisionFor(mkProps(), cfgWith({ fastPath: false }), true);
   assert.deepEqual(decision, { activate: false, reason: "fastPath 無効" });
 });
 
 test("decideFastPath: fastPath:true, composite:false → 非composite経路", () => {
-  const decision = decideFastPath({ props: mkProps(), cfg: cfgWith({ fastPath: true }), composite: false });
+  const decision = decisionFor(mkProps(), cfgWith({ fastPath: true }), false);
   assert.equal(decision.activate, false);
   assert.equal(!decision.activate && decision.reason, "非composite経路(cut.mp4 が出力解像度でない)");
+});
+
+test("decideFastPath: plain identityのlandscape/portraitをactivateする", () => {
+  for (const [width, height] of [[1920, 1080], [1080, 1920]]) {
+    const props = mkProps({
+      width,
+      height,
+      canvas: { w: width, h: height },
+      screenRegion: { x: 0, y: 0, w: width, h: height },
+      cameraRegion: undefined,
+    });
+    const base = resolveFastBaseCapability({ props, composite: false });
+    assert.deepEqual(base, { ok: true, mode: "plain-identity" });
+    assert.equal(decideFastPath({ props, cfg: cfgWith({ fastPath: true }), base }).activate, true);
+  }
+});
+
+test("decideFastPath: camera無しdesignのasset不足理由をそのまま返してfull fallback", () => {
+  const props = mkProps({
+    cameraRegion: undefined,
+    design: {
+      backgroundColor: "#001122",
+      screen: { rect: { x: 100, y: 22, w: 1720, h: 968 }, radiusPx: 24, shadow: true },
+    },
+  });
+  const base = resolveFastBaseCapability({ props, composite: false });
+  assert.deepEqual(decideFastPath({ props, cfg: cfgWith({ fastPath: true }), base }), {
+    activate: false,
+    reason: "design基底asset不足(backdrop/screenMask)",
+  });
 });
 
 test("decideFastPath: 挿入があっても映像・音声ともに適格(P5-4)。insert-mix で activate する", () => {
@@ -69,7 +110,7 @@ test("decideFastPath: 挿入があっても映像・音声ともに適格(P5-4)�
     baseSegments: [{ start: 5, videoStart: 0, durationSec: 15 }],
     inserts: [{ start: 0, end: 5, file: "i.mp4", fit: "cover" }],
   });
-  const decision = decideFastPath({ props, cfg: cfgWith({ fastPath: true }), composite: true });
+  const decision = decisionFor(props, cfgWith({ fastPath: true }), true);
   const plan = fastPlan(props);
   assert.equal(plan.eligible, true);
   assert.deepEqual(plan.wholeFallback, []);
@@ -87,7 +128,7 @@ test("decideFastPath: 挿入 + 素材音声(overlays[].volume>0)は依然とし�
     inserts: [{ start: 0, end: 5, file: "i.mp4", fit: "cover" }],
     overlays: [{ start: 6, end: 8, file: "material.mp4", track: 1, fit: "contain", volume: 1 }],
   });
-  const decision = decideFastPath({ props, cfg: cfgWith({ fastPath: true }), composite: true });
+  const decision = decisionFor(props, cfgWith({ fastPath: true }), true);
   assert.equal(decision.activate, false);
   const reason = !decision.activate ? decision.reason : "";
   assert.ok(reason.startsWith("音声適格外:"), reason);
@@ -96,13 +137,13 @@ test("decideFastPath: 挿入 + 素材音声(overlays[].volume>0)は依然とし�
 
 test("decideFastPath: colorFilter(表現可能)は activate する(P5-3)", () => {
   const props = mkProps({ colorFilter: { brightness: 1.1 } });
-  const decision = decideFastPath({ props, cfg: cfgWith({ fastPath: true }), composite: true });
+  const decision = decisionFor(props, cfgWith({ fastPath: true }), true);
   assert.equal(decision.activate, true);
 });
 
 test("decideFastPath: colorFilter(saturate>2.0776 で表現不能)は適格外", () => {
   const props = mkProps({ colorFilter: { saturate: 2.5 } });
-  const decision = decideFastPath({ props, cfg: cfgWith({ fastPath: true }), composite: true });
+  const decision = decisionFor(props, cfgWith({ fastPath: true }), true);
   assert.equal(decision.activate, false);
   assert.ok(!decision.activate);
   if (!decision.activate) assert.ok(decision.reason.startsWith("適格外: colorFilter("));
@@ -110,7 +151,7 @@ test("decideFastPath: colorFilter(saturate>2.0776 で表現不能)は適格外",
 
 test("decideFastPath: BGM があっても bgm-mix で activate", () => {
   const props = mkProps({ bgm: [{ file: "a.mp3", volumeDb: -18, start: 0, end: 20 }] });
-  const decision = decideFastPath({ props, cfg: cfgWith({ fastPath: true }), composite: true });
+  const decision = decisionFor(props, cfgWith({ fastPath: true }), true);
   assert.equal(decision.activate, true);
   assert.ok(decision.activate);
   if (decision.activate) {
@@ -123,7 +164,7 @@ test("decideFastPath: 素材音声があれば音声適格外", () => {
   const props = mkProps({
     overlays: [{ start: 5, end: 10, file: "material.mp4", track: 1, fit: "contain", volume: 1 }],
   });
-  const decision = decideFastPath({ props, cfg: cfgWith({ fastPath: true }), composite: true });
+  const decision = decisionFor(props, cfgWith({ fastPath: true }), true);
   assert.equal(decision.activate, false);
   const reason = !decision.activate ? decision.reason : "";
   assert.ok(reason.startsWith("音声適格外:"), reason);
@@ -135,7 +176,7 @@ test("decideFastPath: 全編 zoom(coverage 0)は被覆率で非適用", () => {
     durationSec: 20,
     zooms: [{ start: 0, end: 20, rect: { x: 0, y: 0, w: 100, h: 100 }, easeSec: 0 }],
   });
-  const decision = decideFastPath({ props, cfg: cfgWith({ fastPath: true }), composite: true });
+  const decision = decisionFor(props, cfgWith({ fastPath: true }), true);
   assert.equal(decision.activate, false);
   const reason = !decision.activate ? decision.reason : "";
   assert.ok(reason.startsWith("被覆率"), reason);
@@ -143,7 +184,7 @@ test("decideFastPath: 全編 zoom(coverage 0)は被覆率で非適用", () => {
 
 test("decideFastPath: 全適格・被覆率が閾値以上なら activate", () => {
   const props = mkProps();
-  const decision = decideFastPath({ props, cfg: cfgWith({ fastPath: true }), composite: true });
+  const decision = decisionFor(props, cfgWith({ fastPath: true }), true);
   assert.equal(decision.activate, true);
   const plan = fastPlan(props);
   assert.ok(decision.activate);
@@ -160,11 +201,75 @@ test("decideFastPath: fastPathMinCoverage の上書きで activate が反転す�
   const plan = fastPlan(props);
   assert.ok(plan.coverageRatio > 0.5 && plan.coverageRatio < 0.9, `coverageRatio=${plan.coverageRatio}`);
 
-  const low = decideFastPath({ props, cfg: cfgWith({ fastPath: true, fastPathMinCoverage: 0.5 }), composite: true });
+  const low = decisionFor(props, cfgWith({ fastPath: true, fastPathMinCoverage: 0.5 }), true);
   assert.equal(low.activate, true);
 
-  const high = decideFastPath({ props, cfg: cfgWith({ fastPath: true, fastPathMinCoverage: 0.9 }), composite: true });
+  const high = decisionFor(props, cfgWith({ fastPath: true, fastPathMinCoverage: 0.9 }), true);
   assert.equal(high.activate, false);
+});
+
+test("decideFastPath: compositeのdecision/planは能力ゲート導入前と同値", () => {
+  const props = mkProps();
+  const plan = fastPlan(props);
+  assert.deepEqual(
+    decisionFor(props, cfgWith({ fastPath: true }), true),
+    { activate: true, plan },
+  );
+});
+
+test("decideFastPath: asset完備のdesign基底はactivateする", () => {
+  const props = mkProps({
+    canvas: { w: 3840, h: 1080 },
+    design: {
+      backgroundColor: "#001122",
+      screen: { rect: { x: 100, y: 22, w: 1720, h: 968 }, radiusPx: 24, shadow: true },
+      camera: { rect: { x: 1517, y: 677, w: 375, h: 375 }, radiusPx: 96, shadow: true },
+      assets: {
+        key: "0123456789abcdef",
+        backdropFile: "render.fast/design/key.backdrop.png",
+        screenMaskFile: "render.fast/design/key.screen-mask.png",
+        cameraShadowFile: "render.fast/design/key.camera-shadow.png",
+        cameraMaskFile: "render.fast/design/key.camera-mask.png",
+      },
+    },
+  });
+  const base = resolveFastBaseCapability({ props, composite: false });
+  assert.equal(base.ok && base.mode, "design");
+  const decision = decideFastPath({ props, cfg: cfgWith({ fastPath: true }), base });
+  assert.equal(decision.activate, true);
+  assert.deepEqual(decision.activate && decision.plan, fastPlan(props));
+});
+
+test("cleanupFastRenderTemps: success/failureどちらでもcacheを残し一時出力だけ消す", async () => {
+  for (const outcome of ["success", "failure"]) {
+    const dir = await mkdtemp(join(tmpdir(), `cutflow-fast-${outcome}-`));
+    try {
+      const fastDir = join(dir, "render.fast");
+      const segDir = join(fastDir, "segments");
+      const cacheFiles = [
+        join(fastDir, "design", "key.backdrop.png"),
+        join(fastDir, "captions", "caption.png"),
+        join(fastDir, "overlays", "overlay.png"),
+        join(fastDir, "annotations", "annotation.png"),
+      ];
+      const assembledVideo = join(fastDir, ".assembled-video.mp4");
+      const audioM4a = join(fastDir, "audio.m4a");
+      const tempFinal = join(dir, ".final.fast.tmp.mp4");
+      for (const path of [...cacheFiles, join(segDir, "seg000.mp4"), assembledVideo, audioM4a, tempFinal]) {
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, outcome);
+      }
+
+      cleanupFastRenderTemps({ segDir, assembledVideo, audioM4a, tempFinal });
+
+      for (const path of cacheFiles) assert.equal(existsSync(path), true, path);
+      for (const path of [segDir, assembledVideo, audioM4a, tempFinal]) {
+        assert.equal(existsSync(path), false, path);
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
 });
 
 // ---- buildSlowSegmentRemotionArgs ----

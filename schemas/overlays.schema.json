@@ -182,7 +182,13 @@
         "id": { "$ref": "common.schema.json#/$defs/id" },
         "start": { "type": "number", "minimum": 0 },
         "end": { "type": "number", "minimum": 0 },
-        "transitionSec": { "type": "number", "minimum": 0 }
+        "transitionSec": {
+          "type": "number",
+          "minimum": 0,
+          "description": "旧形式。transitionInSec / transitionOutSec が無い方向の遷移秒"
+        },
+        "transitionInSec": { "type": "number", "minimum": 0 },
+        "transitionOutSec": { "type": "number", "minimum": 0 }
       }
     }
   },
