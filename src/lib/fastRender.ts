@@ -9,6 +9,7 @@ import { fastPlan } from "./fastPlan.ts";
 import { renderFastSegment, fastSegmentPath, FAST_SEGMENT_DIR } from "./fastSegment.ts";
 import { withCaptionStillAssets } from "./captionStill.ts";
 import { resolveFastPathCfg } from "./config.ts";
+import type { FastBaseCapability } from "./fastBaseCapability.ts";
 import type { FastPlan, FastSpan } from "./fastPlan.ts";
 import type { Config } from "./config.ts";
 import type { RenderProps } from "../../remotion/props.ts";
@@ -17,11 +18,20 @@ export type FastPathDecision =
   | { activate: true; plan: FastPlan }
   | { activate: false; reason: string };
 
-export function decideFastPath(args: { props: RenderProps; cfg: Config; composite: boolean }): FastPathDecision {
-  const { props, cfg, composite } = args;
+export function decideFastPath(args: {
+  props: RenderProps;
+  cfg: Config;
+  base: FastBaseCapability;
+}): FastPathDecision {
+  const { props, cfg, base } = args;
   const { enabled, minCoverage } = resolveFastPathCfg(cfg);
   if (!enabled) return { activate: false, reason: "fastPath 無効" };
-  if (!composite) return { activate: false, reason: "非composite経路(cut.mp4 が出力解像度でない)" };
+  if (!base.ok) return { activate: false, reason: base.reason };
+  // P1-1は能力ゲートだけを導入する。design/plain graphがrunFastRenderへ
+  // 接続される前に誤って既存composite graphを使わないための内部境界。
+  if (base.mode !== "composite") {
+    return { activate: false, reason: `${base.mode}基底graph未接続` };
+  }
   const plan = fastPlan(props);
   if (!plan.eligible) return { activate: false, reason: `適格外: ${plan.wholeFallback.join("/")}` };
   if (!plan.audioFastEligible) return { activate: false, reason: `音声適格外: ${plan.audioFallback.join("/")}` };
