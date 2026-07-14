@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { renderStill, selectComposition } from "@remotion/renderer";
 import {
   DESIGN_STILL_GENERATOR_VERSION,
   designAssetRefs,
@@ -209,13 +210,52 @@ test("prepareDesignStillAssets: 途中失敗では完成名を公開せず一時
   assert.ok(!readdirSync(join(dir, "render.fast/design")).some((file) => file.includes(".tmp-")));
 });
 
-test("DesignStill: 実 bundle で1920x1080の4 PNGを生成し mask は RGBA", async () => {
+test("DesignStill: 実 bundleで4 PNGを生成し、Mainはassets有無でpixel一致する", async () => {
   const renderDir = mkdtempSync(join(tmpdir(), "cutflow-designstill-render-"));
   try {
     const design: DesignStillDesign = { ...DESIGN, backgroundFile: undefined };
-    const refs = await withCaptionStillAssets(renderDir, (warm) =>
-      prepareDesignStillAssets({ dir: renderDir, design, width: 1920, height: 1080, warm })
-    );
+    const refs = await withCaptionStillAssets(renderDir, async (warm) => {
+      const generated = await prepareDesignStillAssets({
+        dir: renderDir,
+        design,
+        width: 1920,
+        height: 1080,
+        warm,
+      });
+      const mainDesign = design as NonNullable<RenderProps["design"]>;
+      const baseProps: RenderProps = {
+        ...defaultProps,
+        cameraRegion: { x: 1920, y: 0, w: 1920, h: 1080 },
+        design: mainDesign,
+      };
+      const renderMain = async (output: string, props: RenderProps) => {
+        const inputProps = props as unknown as Record<string, unknown>;
+        const composition = await selectComposition({
+          serveUrl: warm.serveUrl,
+          id: "Main",
+          inputProps,
+          puppeteerInstance: warm.browser,
+          logLevel: "warn",
+        });
+        await renderStill({
+          composition,
+          serveUrl: warm.serveUrl,
+          output,
+          frame: 0,
+          inputProps,
+          imageFormat: "png",
+          puppeteerInstance: warm.browser,
+          overwrite: true,
+          logLevel: "warn",
+        });
+      };
+      await renderMain(join(renderDir, "main-legacy.png"), baseProps);
+      await renderMain(join(renderDir, "main-assets.png"), {
+        ...baseProps,
+        design: { ...mainDesign, assets: generated },
+      });
+      return generated;
+    });
     const backdrop = readFileSync(join(renderDir, refs.backdropFile));
     const screenMask = readFileSync(join(renderDir, refs.screenMaskFile));
     const cameraShadow = readFileSync(join(renderDir, refs.cameraShadowFile!));
@@ -226,6 +266,10 @@ test("DesignStill: 実 bundle で1920x1080の4 PNGを生成し mask は RGBA", a
     assert.deepEqual([cameraMask.readUInt32BE(16), cameraMask.readUInt32BE(20)], [375, 375]);
     assert.equal(screenMask[25], 6, "screen mask PNG must use RGBA color type");
     assert.equal(cameraMask[25], 6, "camera mask PNG must use RGBA color type");
+    assert.deepEqual(
+      readFileSync(join(renderDir, "main-assets.png")),
+      readFileSync(join(renderDir, "main-legacy.png")),
+    );
   } finally {
     rmSync(renderDir, { recursive: true, force: true });
   }
