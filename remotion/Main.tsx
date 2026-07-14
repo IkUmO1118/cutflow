@@ -275,18 +275,11 @@ export const Main = (props: RenderProps) => {
           top: designWipe.rect.y,
           width: designWipe.rect.w,
           height: designWipe.rect.h,
+          borderRadius: designWipe.radiusPx,
           overflow: "hidden",
-          ...(staticDesignCamera
-            ? {
-                WebkitMaskImage: `url(${staticFile(staticCameraAssets.cameraMaskFile!)})`,
-                maskImage: `url(${staticFile(staticCameraAssets.cameraMaskFile!)})`,
-                WebkitMaskSize: "100% 100%",
-                maskSize: "100% 100%",
-              }
-            : {
-                borderRadius: designWipe.radiusPx,
-                ...(design.camera.shadow ? { boxShadow: CAMERA_SHADOW_CSS } : {}),
-              }),
+          ...(!staticDesignCamera && design.camera.shadow
+            ? { boxShadow: CAMERA_SHADOW_CSS }
+            : {}),
         }}
       >
         {hasVideo && props.cameraRegion ? (
@@ -380,18 +373,11 @@ export const Main = (props: RenderProps) => {
               top: panel.y,
               width: panel.w,
               height: panel.h,
+              borderRadius: design?.screen.radiusPx ?? 0,
               overflow: "hidden",
-              ...(screenAssets
-                ? {
-                    WebkitMaskImage: `url(${staticFile(screenAssets.screenMaskFile)})`,
-                    maskImage: `url(${staticFile(screenAssets.screenMaskFile)})`,
-                    WebkitMaskSize: "100% 100%",
-                    maskSize: "100% 100%",
-                  }
-                : {
-                    borderRadius: design?.screen.radiusPx ?? 0,
-                    ...(design?.screen.shadow ? { boxShadow: SCREEN_SHADOW_CSS } : {}),
-                  }),
+              ...(!screenAssets && design?.screen.shadow
+                ? { boxShadow: SCREEN_SHADOW_CSS }
+                : {}),
             }}
           >
             <div
