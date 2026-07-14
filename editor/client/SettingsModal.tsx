@@ -8,16 +8,18 @@ import {
   DEFAULT_ZOOM_EASE_SEC,
   DEFAULT_WIPE_TRANSITION_SEC,
 } from "../../src/types.ts";
+import type { CaptionBackground } from "../../src/types.ts";
 import type { AiAdapterKind, AiConfig, AiProvider, Config } from "../../src/lib/config.ts";
 import type { ConfigPatch } from "../../src/lib/configEdit.ts";
 import type { AiDoctorResult, AiProfileStatus, EditorCfg, PlanPerceptionStatus } from "./apiTypes.ts";
-import { NumInput } from "./widgets.tsx";
+import { NumInput, PctSlider, joinColor, splitColor } from "./widgets.tsx";
 import { CAPTION_WEIGHT_OPTIONS, FONT_PRESETS } from "./Inspector.tsx";
 
 type RenderCfg = Config["render"];
 type PreviewCfg = { width: number; videoEncoder?: "libx264" | "videotoolbox" };
 type AiReviewCfg = { vlm: boolean; maxImages: number; maxRefinements: number };
 type MainAiAdapter = Extract<AiAdapterKind, "claude-code" | "codex" | "openai" | "anthropic">;
+const DEFAULT_CAPTION_BACKGROUND: CaptionBackground = { color: "#000000" };
 
 export interface AiSettingsValue {
   adapter: MainAiAdapter | "custom";
@@ -59,6 +61,9 @@ export function buildConfigPatch(snap: CfgValues, cur: CfgValues): ConfigPatch |
   }
   if (c.captionFontWeight !== s.captionFontWeight) {
     r.captionFontWeight = c.captionFontWeight ?? null;
+  }
+  if (JSON.stringify(c.captionBackground) !== JSON.stringify(s.captionBackground)) {
+    r.captionBackground = c.captionBackground ?? null;
   }
   if (JSON.stringify(c.systemAudio) !== JSON.stringify(s.systemAudio)) {
     r.systemAudio = c.systemAudio ?? { mix: false, volumeDb: 0 };
@@ -202,11 +207,14 @@ export const SettingsModal = ({
   const effFamily = r.captionFontFamily ?? CAPTION_DEFAULT_FONT_FAMILY;
   const effWeight = r.captionFontWeight ?? CAPTION_DEFAULT_FONT_WEIGHT;
   const outlineNone = effOutline === "none";
+  const captionBg = r.captionBackground;
+  const captionBgColor = captionBg ? splitColor(captionBg.color) : null;
   const captionDefaultsTouched =
     r.captionColor !== undefined ||
     r.captionOutlineColor !== undefined ||
     r.captionFontFamily !== undefined ||
-    r.captionFontWeight !== undefined;
+    r.captionFontWeight !== undefined ||
+    r.captionBackground !== undefined;
   /** プリセットに無い手書きのフォント種はそのまま選択肢に足して残す */
   const familyOptions = FONT_PRESETS.some((p) => p.value === effFamily)
     ? FONT_PRESETS
@@ -580,6 +588,7 @@ export const SettingsModal = ({
                 captionOutlineColor: undefined,
                 captionFontFamily: undefined,
                 captionFontWeight: undefined,
+                captionBackground: undefined,
               })
             }
           >
@@ -587,6 +596,84 @@ export const SettingsModal = ({
           </button>
         )}
       </div>
+      <div className="field">
+        <label>テロップ既定 背景帯</label>
+        <input
+          type="checkbox"
+          checked={!!captionBg}
+          title="個別・トラック標準の指定が無いテロップの背後に帯を敷く"
+          onChange={(e) =>
+            patchRender({
+              captionBackground: e.target.checked
+                ? { ...DEFAULT_CAPTION_BACKGROUND }
+                : undefined,
+            })
+          }
+        />
+        {captionBg && captionBgColor && (
+          <>
+            <input
+              type="color"
+              value={captionBgColor.hex}
+              title="背景帯の色"
+              onChange={(e) =>
+                patchRender({
+                  captionBackground: {
+                    ...captionBg,
+                    color: joinColor(e.target.value, captionBgColor.alpha),
+                  },
+                })
+              }
+            />
+            <span className="hint dim">不透明度</span>
+            <PctSlider
+              pct={Math.round(captionBgColor.alpha * 100)}
+              title="背景帯の透け具合"
+              onChange={(pct) =>
+                patchRender({
+                  captionBackground: {
+                    ...captionBg,
+                    color: joinColor(captionBgColor.hex, pct / 100),
+                  },
+                })
+              }
+            />
+          </>
+        )}
+      </div>
+      {captionBg && (
+        <div className="field">
+          <label>背景帯 余白 / 角丸 (px)</label>
+          <NumInput
+            value={captionBg.paddingPx}
+            allowEmpty
+            placeholder={String(Math.round(r.captionFontSizePx * 0.35))}
+            title="背景帯の横方向余白。縦方向はこの半分。空欄=フォントサイズの0.35倍"
+            onCommit={(v) =>
+              patchRender({
+                captionBackground: {
+                  ...captionBg,
+                  paddingPx: v !== undefined ? Math.max(0, Math.round(v)) : undefined,
+                },
+              })
+            }
+          />
+          <NumInput
+            value={captionBg.radiusPx}
+            allowEmpty
+            placeholder="8"
+            title="背景帯の角丸。空欄=8"
+            onCommit={(v) =>
+              patchRender({
+                captionBackground: {
+                  ...captionBg,
+                  radiusPx: v !== undefined ? Math.max(0, Math.round(v)) : undefined,
+                },
+              })
+            }
+          />
+        </div>
+      )}
       <div className="field">
         <label>章カードの表示秒</label>
         <NumInput
