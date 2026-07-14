@@ -1998,10 +1998,12 @@ node src/cli.ts av <dir>                # sound レポートで BGM spans の反
   - `fit`: `contain`(省略時)か `cover`
   - `volume`: 音量(0〜2。**省略時 1=素材のまま**、0 で無音)
   - `fadeInSec` / `fadeOutSec`: 黒からの明転/黒への暗転(秒。音量も連動)
-- **wipeFull**: ワイプ(カメラ)を全画面にして背景を隠す区間。出入りは
-  config.yaml の `render.wipeTransitionSec`(既定 0.3 秒、0 で瞬時。エディタの
-  設定画面 ⌘, からも変更可)でなめらかに遷移する。遷移は区間全体の頭と末尾に
-  だけ入り、カット・挿入・隣接エントリで区間が繋がっている継ぎ目では走らない
+- **wipeFull**: ワイプ(カメラ)を全画面にして背景を隠す区間。入りと戻りは
+  `transitionInSec` / `transitionOutSec` で個別指定できる(0 で瞬時)。省略時は
+  config.yaml の `render.wipeTransitionSec`(既定 0.3 秒。エディタの設定画面 ⌘,
+  からも変更可)を使う。旧 `transitionSec` は後方互換のため、個別指定がない
+  両方向へ適用される。遷移は区間全体の頭と末尾にだけ入り、カット・挿入・
+  隣接エントリで区間が繋がっている継ぎ目では走らない
   - 通常動画(`manifest.layout: "plain"`。カメラの無い収録)では**使えない**
     (ワイプの crop 元が無いため。`validate` がエラーにする)。`layerOrder` に
     `wipe` を含めても無視されるだけ(警告)

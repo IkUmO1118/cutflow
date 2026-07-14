@@ -751,18 +751,38 @@ test("obs-canvas(従来どおり): wipeFull はエラーにならず、layerOrde
   assert.ok(noWipe.warnings.some((w) => w.where === "layerOrder" && w.message.includes("wipe がありません")));
 });
 
-test("wipeFull: transitionSec は0以上の数値", () => {
+test("wipeFull: 入り/戻りの transition 秒は0以上の数値", () => {
   const ok = validateDocs(DIR, baseDocs({
     manifest: manifestWithScreen,
-    overlays: { wipeFull: [{ start: 1, end: 5, transitionSec: 0 }] },
+    overlays: {
+      wipeFull: [{
+        start: 1,
+        end: 5,
+        transitionSec: 0,
+        transitionInSec: 0.2,
+        transitionOutSec: 0.4,
+      }],
+    },
   }));
   assert.ok(!ok.errors.some((e) => e.where.includes("transitionSec")));
+  assert.ok(!ok.errors.some((e) => e.where.includes("transitionInSec")));
+  assert.ok(!ok.errors.some((e) => e.where.includes("transitionOutSec")));
 
   const bad = validateDocs(DIR, baseDocs({
     manifest: manifestWithScreen,
-    overlays: { wipeFull: [{ start: 1, end: 5, transitionSec: -0.1 }] },
+    overlays: {
+      wipeFull: [{
+        start: 1,
+        end: 5,
+        transitionSec: -0.1,
+        transitionInSec: -0.2,
+        transitionOutSec: "slow",
+      }],
+    },
   }));
   assert.ok(bad.errors.some((e) => e.where === "wipeFull[0].transitionSec"));
+  assert.ok(bad.errors.some((e) => e.where === "wipeFull[0].transitionInSec"));
+  assert.ok(bad.errors.some((e) => e.where === "wipeFull[0].transitionOutSec"));
 });
 
 /* -------- bgm.json -------- */

@@ -34,6 +34,7 @@ import { valuesAt } from "../src/lib/keyframes.ts";
 import { fadeFactor, isImageFile } from "../src/lib/overlayFade.ts";
 import { cropFitStyle } from "../src/lib/panelStyle.ts";
 import { zoomTransformAt } from "../src/lib/zoom.ts";
+import { wipeProgressAt } from "../src/lib/wipe.ts";
 import { AnnotationItemView } from "./AnnotationLayer.tsx";
 import { PositionedCaption } from "./CaptionLayer.tsx";
 import { OverlayLayer } from "./OverlayLayer.tsx";
@@ -80,18 +81,12 @@ export const Main = (props: RenderProps) => {
     ? Math.round((props.wipe.widthPx * props.cameraRegion.h) / props.cameraRegion.w)
     : 0;
   const inSpan = (spans: Span[]) => spans.some((s) => t >= s.start && t < s.end);
-  // ワイプ全画面区間は、ワイプの器を画面サイズまで広げる。transitionSec が
-  // あれば区間の頭で広がり・末尾で戻る(0=1 の進行度を smoothstep で緩急)。
-  // 区間が遷移2回分より短いときは遷移を区間の半分へ縮め、短い区間でも
-  // 必ず全画面に到達させる(遷移導入前のデータの見え方を保つ)
+  // ワイプ全画面区間は、ワイプの器を画面サイズまで広げる。入り/戻りの
+  // 遷移秒は独立指定できる(0=その端で瞬時)。旧 transitionSec は個別指定が
+  // 無い方向のフォールバックとして扱う。各遷移を区間の半分までに縮め、
+  // 短い区間でも必ず全画面に到達させる。
   const wipeT = props.wipe.transitionSec ?? 0;
-  const wipeProgress = props.wipeFull.reduce((max, s) => {
-    if (t < s.start || t >= s.end) return max;
-    const wt = Math.min(s.transitionSec ?? wipeT, (s.end - s.start) / 2);
-    const p = wt <= 0 ? 1 : Math.min(1, (t - s.start) / wt, (s.end - t) / wt);
-    return Math.max(max, p);
-  }, 0);
-  const wipeEase = wipeProgress * wipeProgress * (3 - 2 * wipeProgress);
+  const wipeEase = wipeProgressAt(t, props.wipeFull, wipeT);
   const wipeW = Math.round(props.wipe.widthPx + (props.width - props.wipe.widthPx) * wipeEase);
   const wipeHNow = Math.round(wipeH + (props.height - wipeH) * wipeEase);
 

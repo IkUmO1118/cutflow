@@ -509,9 +509,14 @@ export function validateDocs(
           const w = `${key}[${i}]`;
           if (!isObj(o)) return err(f, w, "オブジェクトではありません");
           checkSpan(f, w, o, dur, err, warn);
-          if (key === "wipeFull" && o.transitionSec !== undefined) {
-            if (!isNum(o.transitionSec) || o.transitionSec < 0) {
-              err(f, `${w}.transitionSec`, "transitionSec は0以上の数値です");
+          if (key === "wipeFull") {
+            for (const transitionKey of [
+              "transitionSec", "transitionInSec", "transitionOutSec",
+            ] as const) {
+              if (o[transitionKey] !== undefined &&
+                  (!isNum(o[transitionKey]) || o[transitionKey] < 0)) {
+                err(f, `${w}.${transitionKey}`, `${transitionKey} は0以上の数値です`);
+              }
             }
           }
         },
