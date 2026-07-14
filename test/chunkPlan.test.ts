@@ -339,6 +339,42 @@ test("globalVideoKey: baseSegments 変更で全域キーが変わる(inserts の
   assert.notEqual(globalVideoKey(PROPS, CUT_STAT), globalVideoKey(changed, CUT_STAT));
 });
 
+test("globalVideoKey/chunkVideoKey: design 変更で全チャンクのキーが変わる", () => {
+  const withDesign: RenderProps = {
+    ...PROPS,
+    design: {
+      backgroundColor: "#001122",
+      screen: {
+        rect: { x: 100, y: 22, w: 1720, h: 968 },
+        radiusPx: 24,
+        shadow: true,
+      },
+      camera: {
+        rect: { x: 1517, y: 677, w: 375, h: 375 },
+        radiusPx: 96,
+        shadow: true,
+      },
+    },
+  };
+  const changed: RenderProps = {
+    ...withDesign,
+    design: { ...withDesign.design!, backgroundColor: "#334455" },
+  };
+  const before = keysOf(withDesign);
+  const after = keysOf(changed);
+  assert.notEqual(globalVideoKey(withDesign, CUT_STAT), globalVideoKey(changed, CUT_STAT));
+  assert.notEqual(before.chunk0, after.chunk0);
+  assert.notEqual(before.chunk1, after.chunk1);
+  assert.equal(before.audio, after.audio);
+});
+
+test("globalVideoKey: design 無しは従来のキーとバイト同一", () => {
+  assert.equal(
+    globalVideoKey(PROPS, CUT_STAT),
+    '{"baseSegments":null,"cameraRegion":{"h":0,"w":0,"x":0,"y":0},"canvas":{"h":1080,"w":1920},"caption":{"fontSizePx":44},"colorFilter":null,"cutStat":{"mtimeMs":1000,"size":2000},"durationSec":10,"fps":30,"height":1080,"layerOrder":null,"screenRegion":{"h":1080,"w":1920,"x":0,"y":0},"videoFile":"cut.mp4","width":1920,"wipe":{"marginPx":32,"widthPx":480}}',
+  );
+});
+
 test("overlapsChunk: 通常の重なり判定", () => {
   assert.ok(overlapsChunk(1, 2, 0, 150, FPS)); // 完全に内側
   assert.ok(!overlapsChunk(6, 7, 0, 150, FPS)); // 完全に外側(次チャンク)
