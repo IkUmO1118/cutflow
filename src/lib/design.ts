@@ -45,6 +45,19 @@ export interface DesignProps {
   screen: { rect: Region; radiusPx: number; shadow: boolean };
   /** カメラ(ワイプ)。design は obs-canvas 収録にしか載らないので必ず存在する */
   camera: { rect: Region; radiusPx: number; shadow: boolean };
+  /** render.fast/design/ に生成した静的レイアウト資産。ユーザー入力ではなく、
+   * render/frames/editor の prepare 段階だけが付与する */
+  assets?: DesignAssetRefs;
+}
+
+/** Main と FAST 基底が共有する内容アドレス式の静的レイアウト資産。camera
+ * 参照は plain design に備えて optional にする */
+export interface DesignAssetRefs {
+  key: string;
+  backdropFile: string;
+  screenMaskFile: string;
+  cameraShadowFile?: string;
+  cameraMaskFile?: string;
 }
 
 /** DesignConfig の既定値(config.yaml で省略された項目に入る) */
