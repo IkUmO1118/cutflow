@@ -64,6 +64,8 @@ test("renderCfgWithDesign: 絶対パス背景をplainでも取り込み、変更
   const source = join(sourceDir, "custom.jpg");
   try {
     writeFileSync(source, "first");
+    const fixedTime = new Date("2026-01-01T00:00:00.000Z");
+    utimesSync(source, fixedTime, fixedTime);
     const cfg = cfgWith(source);
     const first = renderCfgWithDesign(dir, cfg);
     strictEqual(first.design?.backgroundFile, "render.design/custom.jpg");
