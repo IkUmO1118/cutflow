@@ -26,11 +26,9 @@ import { cssFilterOf } from "../src/lib/colorFilter.ts";
 import {
   CAMERA_SHADOW_CSS,
   SCREEN_SHADOW_CSS,
-  completeScreenDesignAssets,
   panelRect,
   toPanelRect,
   wipeRectAt,
-  staticCameraDesignAssets,
 } from "../src/lib/design.ts";
 import { valuesAt } from "../src/lib/keyframes.ts";
 import { fadeFactor, isImageFile } from "../src/lib/overlayFade.ts";
@@ -110,7 +108,6 @@ export const Main = (props: RenderProps) => {
   // (props.layout があるショート経路)はパネル合成が別なので載せない。
   // panel = ベース映像が収まる矩形で、design 無しでは出力全面(§lib/design.ts)
   const design = props.layout ? undefined : props.design;
-  const screenAssets = completeScreenDesignAssets(design);
   const panel = panelRect(design, props.width, props.height);
 
   // ズーム演出(画面の一部を拡大)。ベース映像の背景レイヤーだけに掛ける
@@ -258,37 +255,25 @@ export const Main = (props: RenderProps) => {
   // wipeFull の区間では、デザイン無しの経路と同じ wipeEase で矩形・角丸を
   // 出力全画面(角丸0)へ補間する(§lib/design.ts の wipeRectAt)
   const designWipe = design ? wipeRectAt(design.camera, props.width, props.height, wipeEase) : null;
-  const staticCameraAssets = staticCameraDesignAssets(design, wipeProgress);
-  const staticDesignCamera = design && designWipe && staticCameraAssets;
   const wipeLayer: ReactNode = design && designWipe ? (
-    <>
-      {staticDesignCamera && (
-        <Img
-          src={staticFile(staticCameraAssets.cameraShadowFile!)}
-          style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
-        />
+    <div
+      style={{
+        position: "absolute",
+        left: designWipe.rect.x,
+        top: designWipe.rect.y,
+        width: designWipe.rect.w,
+        height: designWipe.rect.h,
+        borderRadius: designWipe.radiusPx,
+        overflow: "hidden",
+        ...(design.camera.shadow ? { boxShadow: CAMERA_SHADOW_CSS } : {}),
+      }}
+    >
+      {hasVideo && props.cameraRegion ? (
+        renderBase(props.cameraRegion, designWipe.rect.w, designWipe.rect.h, true)
+      ) : (
+        <Placeholder label="カメラ" />
       )}
-      <div
-        style={{
-          position: "absolute",
-          left: designWipe.rect.x,
-          top: designWipe.rect.y,
-          width: designWipe.rect.w,
-          height: designWipe.rect.h,
-          borderRadius: designWipe.radiusPx,
-          overflow: "hidden",
-          ...(!staticDesignCamera && design.camera.shadow
-            ? { boxShadow: CAMERA_SHADOW_CSS }
-            : {}),
-        }}
-      >
-        {hasVideo && props.cameraRegion ? (
-          renderBase(props.cameraRegion, designWipe.rect.w, designWipe.rect.h, true)
-        ) : (
-          <Placeholder label="カメラ" />
-        )}
-      </div>
-    </>
+    </div>
   ) : (
     <div
       style={{
@@ -347,17 +332,12 @@ export const Main = (props: RenderProps) => {
   return (
     <AbsoluteFill style={{ backgroundColor: design?.backgroundColor ?? "black" }}>
       {/* デザインの背景画像(最下層)。ベース映像もテロップも全てこの上に乗る */}
-      {screenAssets ? (
-        <Img
-          src={staticFile(screenAssets.backdropFile)}
-          style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
-        />
-      ) : design?.backgroundFile ? (
+      {design?.backgroundFile && (
         <Img
           src={staticFile(design.backgroundFile)}
           style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
         />
-      ) : null}
+      )}
 
       {hasVideo ? (
         props.layout ? (
@@ -375,9 +355,7 @@ export const Main = (props: RenderProps) => {
               height: panel.h,
               borderRadius: design?.screen.radiusPx ?? 0,
               overflow: "hidden",
-              ...(!screenAssets && design?.screen.shadow
-                ? { boxShadow: SCREEN_SHADOW_CSS }
-                : {}),
+              ...(design?.screen.shadow ? { boxShadow: SCREEN_SHADOW_CSS } : {}),
             }}
           >
             <div
