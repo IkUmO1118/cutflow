@@ -42,9 +42,9 @@ whisper:
   # 決定論処理(LLM も再文字起こしも使わない)。words[] があれば分割後の時刻は
   # 語境界そのもの。この項目ごと消せば従来どおり分割しない(バイト等価)。
   captionSplit:
-    maxChars: 20      # これを超える segment だけ分割(2026-07-12 の手編集粒度に対応)
-    minChars: 8       # 分割後の断片がこれ未満にならないよう文節境界を選ぶ(省略時 maxChars*0.4)
-    gapSec: 0.3       # 語間がこの秒以上なら「間」= 分割候補(words[] 依存)
+    maxChars: 20 # これを超える segment だけ分割(2026-07-12 の手編集粒度に対応)
+    minChars: 8 # 分割後の断片がこれ未満にならないよう文節境界を選ぶ(省略時 maxChars*0.4)
+    gapSec: 0.3 # 語間がこの秒以上なら「間」= 分割候補(words[] 依存)
 
 # 無音検出(機械的カットの候補づくり)
 detect:
@@ -84,11 +84,11 @@ render:
     type: none
     sec: 0.3
   # 字幕のフォントサイズ(px)。初学者の見やすさ優先で大きめ
-  captionFontSizePx: 64
+  captionFontSizePx: 48
   # テロップ既定の見た目(GUI エディタの設定画面 ⌘, からも変更できる)。
   # 個別のテロップ・トラック標準スタイルで指定の無い項目に効く
   captionColor: "#ffffff"
-  captionOutlineColor: "#000000" # "none" で縁取りなし
+  captionOutlineColor: "none" # "none" で縁取りなし
   # Noto Sans JP を先頭に。同梱の可変フォント(remotion/fonts/NotoSansJP.woff2、
   # wght 100〜900)なので fontWeight の 300/500/600/800 等の中間ウェイトが実際に
   # 描き分けられる。Hiragino は同梱フォント読込失敗時のフォールバック
@@ -177,7 +177,7 @@ render:
   # 注意: 有効時はワイプ焼き込み(composite)経路が使えないため、render 高速パス
   # (fastPath)も発動しない = cold render が約2倍の時間になる
   design:
-    enabled: false
+    enabled: true
     # 背景画像。省略時は backgroundColor の単色。3通りの書き方を解決する:
     #   assets/backgrounds/xxx.jpg … リポジトリ同梱の既定背景(誰の環境でも動く)
     #   ~/Movies/obs/xxx.jpg       … 自分のデザイン素材(絶対パス。~ は展開される)
@@ -202,6 +202,10 @@ render:
       # 落ち影(画面パネルの shadow とは独立)
       shadow: true
   captionFontWeight: 500
+  captionBackground:
+    color: rgba(35, 35, 35, 0.9)
+    radiusPx: 20
+    paddingPx: 52
 
 # 画面 OCR(frames --ocr)。AI が画面内テキスト(コード/ターミナル/エラー)を
 # テキストとして読むための Apple Vision OCR 設定。macOS 専用・オフライン。
