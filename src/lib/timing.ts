@@ -8,3 +8,11 @@ export async function timed<T>(label: string, fn: () => Promise<T>): Promise<T> 
   logStage(label, undefined, Date.now() - started);
   return result;
 }
+
+/** 同期処理向けの timed。成功時だけ計測ログを出す意味論も timed と揃える。 */
+export function timedSync<T>(label: string, fn: () => T): T {
+  const started = Date.now();
+  const result = fn();
+  logStage(label, undefined, Date.now() - started);
+  return result;
+}
