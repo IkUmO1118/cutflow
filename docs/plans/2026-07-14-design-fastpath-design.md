@@ -48,8 +48,9 @@ export interface DesignAssetRefs {
 ### D2. 合成順と角丸
 
 screen と camera はともに素材側 alpha に統一する。ffmpeg は
-`format=rgba` + `alphamerge`、Main は同じ mask PNG を1:1で CSS alpha mask
-として使う。premultiplied alpha をmask素材にしない。
+`format=rgba` + `alphamerge`を使う。当初はMainも同じmask PNGをCSS alpha mask
+として使う方針だったが、P2実測で遅化したため§7でMainだけnative rounded clipへ
+修正した。premultiplied alpha をmask素材にしない。
 
 通常 frame の順序は次のとおり。
 
@@ -223,3 +224,31 @@ wall time 150〜180秒目標を記録する。
 - design実収録でFAST約81.6%、`fastPlan` span列不変、verify成功
 - full/fastで30dB未満0 frame、境界に段差なし
 - design無しのargv、キー、出力、ログに回帰なし
+
+## 7. P2実測による設計修正
+
+commit `0d6b5ea` の初回実装は、Mainのscreen/camera動画へrenderStill製mask PNGを
+CSS `mask-image` として適用した。
+
+実測結果:
+
+- 実収録全編: legacy 7:01 / asset 7:24(双方font retryあり)
+- frames 1000-1299、順序入替3回中央値: legacy 17.86秒 / asset 18.78秒
+- asset版は5.2%遅い
+- 全6301 frame PSNR: finite平均60.29dB / 最小53.27dB / 30dB未満0
+- wipeFullの356 frameは完全一致
+
+正確性は通過したがP2軽量化は不合格。動的動画へ大きなCSS maskを毎frame
+適用するcompositing costがnative `borderRadius + overflow:hidden`より高いと
+判断した。
+
+修正後のMainはscreenMask/cameraMaskを使わずnative rounded clipへ戻す。
+backdrop(背景+screen影)とcameraShadow(通常camera影)は静的PNGを継続利用する。
+mask 2枚の生成、cache、props供給はP1 ffmpegの`alphamerge`用に維持する。
+wipeFull進行中は従来の動的CSS radius/shadow、asset不足時は完全legacy CSSへ戻す。
+
+再実測は同じ300 frameを順序交互で少なくとも5回行う。hybrid中央値がlegacy以下を
+必須、軽量化達成の主張には2%以上短縮を要求する。満たさない場合はcameraShadow
+PNGの有無を分離し、backdrop-only、それでも不合格ならMain完全legacyへ倒す。
+P1用4資産はどの場合も維持する。MainとFASTの角丸compositorが異なるため、P1では
+全FAST/SLOW境界±10 frameとscreen/camera角領域のPSNRを省略しない。
