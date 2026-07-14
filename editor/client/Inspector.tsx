@@ -400,7 +400,10 @@ export const Inspector = ({
     };
     return (
       <div className="insp">
-        <Section title={`${captionTrackName(track, overlays, capTracks)}(トラック標準)`}>
+        <Section
+          title={`${captionTrackName(track, overlays, capTracks)}(トラック標準)`}
+          className="flushTopSec"
+        >
           <p className="dim hint">
             このトラックのテロップ全部に効く既定。個々のテロップで指定した項目が
             あればそちらが優先されます
