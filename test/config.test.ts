@@ -143,6 +143,21 @@ test("applyConfigEdits: null でキーが消える(無いキーへの null は n
   assert.equal((parse(noop) as Config).render.captionFontFamily, undefined);
 });
 
+test("applyConfigEdits: テロップ既定の背景帯を追加・削除できる", () => {
+  const added = applyConfigEdits(RAW, {
+    render: {
+      captionBackground: { color: "rgba(0, 0, 0, 0.75)", paddingPx: 18, radiusPx: 10 },
+    },
+  });
+  assert.deepEqual((parse(added) as Config).render.captionBackground, {
+    color: "rgba(0, 0, 0, 0.75)",
+    paddingPx: 18,
+    radiusPx: 10,
+  });
+  const removed = applyConfigEdits(added, { render: { captionBackground: null } });
+  assert.equal((parse(removed) as Config).render.captionBackground, undefined);
+});
+
 test("applyConfigEdits: 子を全部コメントアウトした null スカラーの親でも投げない", () => {
   // `editor:` の中身が全部コメントアウトされ null スカラーになっている config
   const raw = `recordingsDir: ~/Movies/cutflow
@@ -204,6 +219,7 @@ test("validateConfigPatch: 正常系は空配列", () => {
         captionColor: "#ffffff",
         captionOutlineColor: "none",
         captionFontWeight: null,
+        captionBackground: { color: "rgba(0, 0, 0, 0.75)", paddingPx: 18, radiusPx: 10 },
         systemAudio: { mix: true, volumeDb: 0 },
         denoise: { mic: false, noiseFloorDb: -25 },
         bgm: { volumeDb: -22, ducking: { duckDb: -8, fadeSec: 0.4 } },
@@ -259,6 +275,12 @@ test("validateConfigPatch: 範囲外・型違い・未知キーを拒否", () =>
   assert.ok(validateConfigPatch({ preview: { width: 1281 } }).length > 0); // 奇数
   assert.ok(validateConfigPatch({ render: { targetLufs: 0 } }).length > 0);
   assert.ok(validateConfigPatch({ render: { captionFontWeight: 1000 } }).length > 0);
+  assert.ok(
+    validateConfigPatch({ render: { captionBackground: { paddingPx: 12 } } }).length > 0,
+  );
+  assert.ok(
+    validateConfigPatch({ render: { captionBackground: { color: "#000", radiusPx: -1 } } }).length > 0,
+  );
   assert.ok(validateConfigPatch({ render: { wipeWidthPx: "480" } }).length > 0);
   assert.ok(validateConfigPatch({ detect: { silenceDb: -35 } }).length > 0); // 対象外セクション
   assert.ok(validateConfigPatch({ render: { nope: 1 } }).length > 0);

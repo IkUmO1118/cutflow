@@ -18,6 +18,7 @@ import { basename, dirname, extname, join, normalize, resolve, sep } from "node:
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { renderCfgWithDesign } from "../src/lib/designAsset.ts";
 import { build } from "esbuild";
 import {
   clearCutplanApproval,
@@ -550,7 +551,7 @@ async function handle(
     syncEditorCfgFromYaml(cfg, nextYaml);
     const result: ConfigSaveResult = {
       ok: true,
-      renderCfg: cfg.render,
+      renderCfg: renderCfgWithDesign(dir, cfg),
       previewCfg: { width: cfg.preview.width, videoEncoder: cfg.preview.videoEncoder },
       editorCfg: resolvedEditorCfg(cfg, DEFAULT_MAX_UPLOAD_MB),
       aiProfiles: aiProfileStatuses(cfg),
@@ -973,6 +974,11 @@ export function loadProject(dir: string, cfg: Config): ProjectData {
         "先にパイプライン(run)を実行してください",
     );
   }
+  // デザインの背景取り込み(render.design/ へのコピー)は dirFiles を読む前に
+  // 済ませる。後にすると、初回だけコピー前の一覧が渡ってクライアントの
+  // overlayExists が「背景画像が見つかりません」と誤判定し、背景が落ちる
+  const designRenderCfg = renderCfgWithDesign(dir, cfg);
+
   // 素材選択やオーバーレイの存在チェック用にフォルダ内の全ファイルを渡す
   const dirFiles = readdirSync(dir, { recursive: true, withFileTypes: true })
     .filter((e) => e.isFile() && !e.name.startsWith("."))
@@ -1002,7 +1008,7 @@ export function loadProject(dir: string, cfg: Config): ProjectData {
     silences: readJson<AutoCuts | null>("cuts.auto.json", null)?.silences ?? null,
     proxyExists: existsSync(join(dir, "proxy.mp4")),
     proxyStale: isProxyStale(dir, cfg),
-    renderCfg: cfg.render,
+    renderCfg: designRenderCfg,
     previewCfg: { width: cfg.preview.width, videoEncoder: cfg.preview.videoEncoder },
     editorCfg: resolvedEditorCfg(cfg, DEFAULT_MAX_UPLOAD_MB),
     output: { w: manifest.video.screenRegion.w, h: manifest.video.screenRegion.h },

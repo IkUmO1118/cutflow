@@ -175,6 +175,7 @@ export const Timeline = ({
   deleteDisabled,
   onRemoveTrack,
   onRenameTrack,
+  onSelectCaptionTrack,
   onDropFile,
   onDropMaterial,
   dragMaterial,
@@ -232,6 +233,9 @@ export const Timeline = ({
   /** テロップトラックの名前を変更(空文字で自動ラベルに戻す)。
    * track = テロップトラック番号(TrackDef.renamableCaption) */
   onRenameTrack: (track: number, name: string) => void;
+  /** テロップトラックのラベルを選択(インスペクタでそのトラックの標準デザインを
+   * 編集する)。クリップ選択と排他 */
+  onSelectCaptionTrack: (track: number) => void;
   /** 素材トラックへのファイルドロップ(outT = ドロップ位置のカット後秒) */
   onDropFile: (track: TrackId, outT: number, file: File) => void;
   /** 素材パネルのカードのドロップ(file = プロジェクト相対パス) */
@@ -969,13 +973,25 @@ export const Timeline = ({
             {tracks.map((t, i) => {
               const audio = t.audio;
               const layerHidden = t.layer !== undefined && hiddenLayers.includes(t.layer);
+              const trackSelected =
+                t.renamableCaption !== undefined &&
+                selection?.kind === "captionTrack" &&
+                selection.index === t.renamableCaption;
               return (
                 <div
-                  className={`tlLabel${t.reorderable ? " reorderable" : ""}${dragLabel === t.id ? " dragging" : ""}${drop?.track === t.id ? " dropActive" : ""}`}
+                  className={`tlLabel${t.reorderable ? " reorderable" : ""}${dragLabel === t.id ? " dragging" : ""}${drop?.track === t.id ? " dropActive" : ""}${trackSelected ? " sel" : ""}`}
                   key={t.id}
                   style={{ height: rowH(t.id) }}
                   title={t.hint}
-                  onPointerDown={(e) => onLabelDown(e, i)}
+                  onPointerDown={(e) => {
+                    // テロップトラックのラベルはクリックで選択(インスペクタが
+                    // そのトラックの標準デザインに切り替わる)。並べ替えドラッグは
+                    // そのまま継続できるよう onLabelDown も従来どおり呼ぶ
+                    if (e.button === 0 && t.renamableCaption !== undefined) {
+                      onSelectCaptionTrack(t.renamableCaption);
+                    }
+                    onLabelDown(e, i);
+                  }}
                   onDoubleClick={() =>
                     t.renamableCaption !== undefined &&
                     setRenaming({ id: t.id, value: t.label })

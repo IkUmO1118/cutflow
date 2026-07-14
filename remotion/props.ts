@@ -3,12 +3,14 @@
 // 時刻はすべて「カット済み動画(cut.mp4)のタイムライン」の秒。
 
 import type {
+  CaptionBackground,
   CaptionStyle,
   ColorFilter,
   KeyframeEasing,
   LayerId,
   SpotlightShape,
 } from "../src/types.ts";
+import type { DesignProps } from "../src/lib/design.ts";
 
 export interface Region {
   x: number;
@@ -43,6 +45,8 @@ export interface Caption {
 export interface Span {
   start: number;
   end: number;
+  /** wipeFull の区間別遷移秒。0=最初から全画面、未指定=全体設定 */
+  transitionSec?: number;
 }
 
 export interface ResolvedKeyframe {
@@ -83,7 +87,6 @@ export interface ResolvedBlur {
   start: number;
   end: number;
   rect: Region;
-  type: "blur" | "mosaic";
   strength: number;
   keyframes?: ResolvedKeyframe[];
 }
@@ -181,6 +184,11 @@ export type RenderProps = {
    * カメラ)だけに CSS filter として効く(src/lib/colorFilter.ts が変換)。
    * 素材オーバーレイ・挿入クリップには効かない。省略時は無補正 */
   colorFilter?: ColorFilter;
+  /** ベースレイアウトのデザイン(背景画像 + 画面パネル + カメラ円)。
+   * config.yaml の render.design を buildRenderProps が出力px の矩形へ解決した
+   * もの(src/lib/design.ts)。省略時は従来の「画面全面 + 右下ワイプ」。
+   * layout(縦プリセット)経路には載らない=ショートには継承されない */
+  design?: DesignProps;
   /** ベース映像パネルの配置(縦プリセット用。src/lib/profile.ts の
    * Profile.layout から buildRenderProps が渡す)。省略時は現行ワイプ経路
    * (screen 全面 + camera 右下ワイプ)のまま */
@@ -196,6 +204,7 @@ export type RenderProps = {
     outlineColor?: string;
     fontFamily?: string;
     fontWeight?: number;
+    background?: CaptionBackground;
   };
   /** 位置指定の無いテロップの既定位置(縦プリセット用。profile.layout.caption
    * から buildRenderProps が渡す)。省略時は現行の下部中央 */
@@ -209,9 +218,9 @@ export type RenderProps = {
   /** ズーム演出(overlays.json の zooms。カット後の秒に写像・easeSec 解決済み)。
    * ベース映像の背景レイヤーだけを拡大する(ワイプ・テロップ・素材・挿入は
    * 動かない)。省略時(空)は現行の描画と完全に同じ */
-  zooms?: { start: number; end: number; rect: Region; easeSec: number }[];
-  /** 領域ぼかし/モザイク(overlays.json の blurs。カット後の秒へ写像・
-   * type/strength 解決済み)。ベース映像(画面クロップ)の rect 部分だけを
+  zooms?: { start: number; end: number; rect: Region; easeSec: number; easeOutSec?: number }[];
+  /** 領域ぼかし(overlays.json の blurs。カット後の秒へ写像・
+   * strength 解決済み)。ベース映像(画面クロップ)の rect 部分だけを
    * 隠す。zoom 追従なしの出力px固定。省略時(空)は現行の描画と完全に同じ。
    * props.layout(ショート/縦)経路では描画しない(本編のみ) */
   blurs?: ResolvedBlur[];

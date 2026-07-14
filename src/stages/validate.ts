@@ -508,6 +508,11 @@ export function validateDocs(
           const w = `${key}[${i}]`;
           if (!isObj(o)) return err(f, w, "オブジェクトではありません");
           checkSpan(f, w, o, dur, err, warn);
+          if (key === "wipeFull" && o.transitionSec !== undefined) {
+            if (!isNum(o.transitionSec) || o.transitionSec < 0) {
+              err(f, `${w}.transitionSec`, "transitionSec は0以上の数値です");
+            }
+          }
         },
       );
     }
@@ -567,6 +572,9 @@ export function validateDocs(
       if (z.easeSec !== undefined && (!isNum(z.easeSec) || z.easeSec < 0)) {
         err(f, w, `easeSec(遷移秒数)は0以上の数です(現在: ${JSON.stringify(z.easeSec)})`);
       }
+      if (z.easeOutSec !== undefined && (!isNum(z.easeOutSec) || z.easeOutSec < 0)) {
+        err(f, w, `easeOutSec(退出遷移秒数)は0以上の数です(現在: ${JSON.stringify(z.easeOutSec)})`);
+      }
     });
     // 重なり禁止(エラー)。ユーザーが時系列順に書くとは限らないので開始時刻でソートしてから隣接比較
     const sortedZooms = [...zoomSpans].sort((a, b) => a.start - b.start);
@@ -604,9 +612,6 @@ export function validateDocs(
               `(現在: x${r.x} y${r.y} w${r.w} h${r.h})`,
           );
         }
-      }
-      if (b.type !== undefined && b.type !== "blur" && b.type !== "mosaic") {
-        err(f, w, `type は "blur" か "mosaic" です(現在: ${JSON.stringify(b.type)})`);
       }
       if (b.strength !== undefined && (!isNum(b.strength) || b.strength < 0 || b.strength > 1)) {
         err(f, w, `strength は 0〜1 の数値です(現在: ${JSON.stringify(b.strength)})`);
@@ -1231,9 +1236,11 @@ function checkStyle(
     err(file, w, `fontWeight は 100〜900 の数値です(現在: ${JSON.stringify(style.fontWeight)})`);
   }
   const bg = style.background;
-  if (bg !== undefined) {
+  // "none" は「下の層(トラック標準 → config の render.captionBackground)から
+  // 継承した帯をこの層で明示的に消す」番兵(outlineColor: "none" と同じ流儀)
+  if (bg !== undefined && bg !== "none") {
     if (!isObj(bg)) {
-      err(file, w, `background はオブジェクト({color, paddingPx?, radiusPx?})です(現在: ${JSON.stringify(bg)})`);
+      err(file, w, `background はオブジェクト({color, paddingPx?, radiusPx?})か "none"(帯なし)です(現在: ${JSON.stringify(bg)})`);
     } else {
       if (typeof bg.color !== "string" || bg.color === "") {
         err(file, `${w}.background`, `color(帯の CSS カラー)がありません(現在: ${JSON.stringify(bg.color)})`);

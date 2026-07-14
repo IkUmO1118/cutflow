@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+// DOM の FocusEvent / MouseEvent を隠さないよう別名で入れる
+// (このファイルは document.addEventListener で DOM 側の型も使う)
+import type { FocusEvent as ReactFocusEvent, MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
 // ConfigPatch はサーバー側モジュールの型だが import type なのでバンドルには入らない
 import type { ConfigPatch } from "../../src/lib/configEdit.ts";
@@ -789,12 +792,30 @@ export const NumInput = ({
       title={title}
       onChange={(e) => setText(e.target.value)}
       onBlur={commit}
+      {...selectAllOnFocus}
       onKeyDown={(e) => {
         if (e.key === "Enter") (e.target as HTMLInputElement).blur();
         if (e.key === "Escape") setText(null);
       }}
     />
   );
+};
+
+/** 数値欄をクリックしたら中身を全選択する(打ち直しが1アクションで済む)。
+ * onFocus の select() だけでは直後の mouseup がキャレットを置いて選択を
+ * 解除してしまうので、フォーカスを取りに行くクリックの mouseup だけ潰す
+ * (既にフォーカス済みなら潰さない=途中にキャレットを置く操作は殺さない) */
+const selectAllOnFocus = {
+  onFocus: (e: ReactFocusEvent<HTMLInputElement>) => e.currentTarget.select(),
+  onMouseDown: (e: ReactMouseEvent<HTMLInputElement>) => {
+    if (document.activeElement !== e.currentTarget) e.currentTarget.dataset.selectOnUp = "1";
+  },
+  onMouseUp: (e: ReactMouseEvent<HTMLInputElement>) => {
+    if (e.currentTarget.dataset.selectOnUp) {
+      e.preventDefault();
+      delete e.currentTarget.dataset.selectOnUp;
+    }
+  },
 };
 
 /**
@@ -876,12 +897,15 @@ export const NumStepper = ({
     setText(null);
     onCommit(clamp(n));
   };
-  // ↑↓での増減。未確定テキストがあればそれを、無ければ確定値を、
-  // どちらも無ければ placeholder(自動値)を起点にする
+  // ↑↓/▲▼での増減。未確定テキストがあればそれを、無ければ確定値を、
+  // どちらも無ければ placeholder(自動値)を起点にする。
+  // 未確定テキストを先に見るのが要点(「60」と打った直後の ↑ は 61 であって、
+  // 確定値 52 の +1 ではない)
   const bump = (dir: number, mult: number) => {
+    const typed = text !== null && !invalid && typeof parsed === "number" ? parsed : undefined;
     const base =
+      typed ??
       value ??
-      (parsed !== undefined && !invalid ? parsed : undefined) ??
       (placeholder !== undefined && placeholder.trim() !== "" && Number.isFinite(Number(placeholder))
         ? Number(placeholder)
         : 0);
@@ -926,6 +950,7 @@ export const NumStepper = ({
         title={title}
         onChange={(e) => setText(e.target.value)}
         onBlur={commit}
+        {...selectAllOnFocus}
         onKeyDown={(e) => {
           if (e.key === "Enter") (e.target as HTMLInputElement).blur();
           else if (e.key === "Escape") setText(null);

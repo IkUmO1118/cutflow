@@ -4,8 +4,9 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 import { DEFAULT_OCR_LANGUAGES } from "./ocr.ts";
+import type { DesignConfig } from "./design.ts";
 import type { LogLevel } from "./obs.ts";
-import type { Region } from "../types.ts";
+import type { CaptionBackground, Region } from "../types.ts";
 import { normalizeBaseUrl, originOfProfile, resolveCredential } from "./ai/http.ts";
 import { adapterFor } from "./ai/registry.ts";
 
@@ -477,6 +478,8 @@ export interface Config {
     captionFontFamily?: string;
     /** テロップ既定の太さ(100〜900)。省略時 CAPTION_DEFAULT_FONT_WEIGHT(700) */
     captionFontWeight?: number;
+    /** テロップ既定の座布団(背景帯)。省略時は背景帯なし */
+    captionBackground?: CaptionBackground;
     chapterCardSec: number;
     targetLufs: number;
     /** システム音声(ingest.systemTrack)のミックス設定。
@@ -529,6 +532,11 @@ export interface Config {
        * zooms[].easeSec で個別指定があればそちらが優先 */
       easeSec?: number;
     };
+    /** ベースレイアウトのデザイン(背景画像 + 画面パネル + カメラ円)。
+     * 省略 / enabled: false で従来の「画面全面 + 右下ワイプ」とバイト等価。
+     * 有効時はワイプ焼き込み(composite)が使えないため高速パスも発動しない
+     * (§src/lib/design.ts。docs/programs/render-fastpath-program.md) */
+    design?: DesignConfig;
   };
   /** 画面 OCR(frames --ocr)。Apple Vision の認識設定のうち、収録の言語構成で
    * 変わりうるものだけを置く(認識レベル・言語補正はコード内の閉じた定数。
