@@ -28,9 +28,6 @@ export function decideFastPath(args: {
   const { enabled, minCoverage } = resolveFastPathCfg(cfg);
   if (!enabled) return { activate: false, reason: "fastPath 無効" };
   if (!base.ok) return { activate: false, reason: base.reason };
-  if (base.mode === "plain-identity") {
-    return { activate: false, reason: `${base.mode}基底graph未接続` };
-  }
   const plan = fastPlan(props);
   if (!plan.eligible) return { activate: false, reason: `適格外: ${plan.wholeFallback.join("/")}` };
   if (!plan.audioFastEligible) return { activate: false, reason: `音声適格外: ${plan.audioFallback.join("/")}` };
@@ -141,7 +138,8 @@ export async function runFastRender(args: {
     }
     renameSync(tempFinal, outPath);
     const slowCount = jobs.filter((j) => j.span.kind === "slow").length;
-    console.log(`render 高速パス: FAST ${jobs.length - slowCount} / SLOW ${slowCount} セグメント(被覆 ${(plan.coverageRatio * 100).toFixed(1)}%, 音声 ${plan.audioMode})`);
+    const baseMode = args.base?.mode ?? "composite";
+    console.log(`render 高速パス: 基底 ${baseMode}, FAST ${jobs.length - slowCount} / SLOW ${slowCount} セグメント(被覆 ${(plan.coverageRatio * 100).toFixed(1)}%, 音声 ${plan.audioMode})`);
     return { ok: true, keyframeFrames: verify.keyframeFrames };
   } catch (err) {
     console.warn(`render 高速パス: 失敗したためフルレンダーへ: ${(err as Error).message}`);

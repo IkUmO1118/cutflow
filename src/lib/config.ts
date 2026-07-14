@@ -535,7 +535,8 @@ export interface Config {
     /** ベースレイアウトのデザイン。plain は背景画像 + 画面パネル、
      * obs-canvas はさらにカメラ円を描く。
      * 省略 / enabled: false で従来の「画面全面 + 右下ワイプ」とバイト等価。
-     * 有効時はワイプ焼き込み(composite)が使えないため高速パスも発動しない
+     * 有効時はワイプ焼き込み(composite)を使わず、静的design assetが揃えば
+     * FAST基底で背景・パネルを合成する
      * (§src/lib/design.ts。docs/programs/render-fastpath-program.md) */
     design?: DesignConfig;
   };
