@@ -23,12 +23,16 @@ import type { FastSpan } from "./fastPlan.ts";
 import type { WarmAssets } from "../stages/frames.ts";
 import type { Caption, OverlayItem, RenderProps, ResolvedAnnotation } from "../../remotion/props.ts";
 import type { CaptionStillProps } from "../../remotion/CaptionStill.tsx";
+import type { Region } from "../types.ts";
 
 export const FAST_SEGMENT_DIR = "render.fast/segments";
 
 export type FastFpsRound = "zero" | "inf" | "down" | "up" | "near";
 
 export const FAST_FPS_ROUND: FastFpsRound = "near";
+
+/** design基底が追加する固定PNG。時間レイヤーの上限とは別枠で防御する。 */
+export const MAX_FAST_DESIGN_PNG_INPUTS = 4;
 
 /** ffmpeg 側の色空間補正。Remotion(sRGB/full-range 前提のブラウザ合成)と
  * 同じ見た目にするための固定チェーン(limited→full の展開 + BT.709 の
@@ -62,6 +66,16 @@ export interface FastLayerSpec {
   enableWindows: EnableWindow[];
 }
 
+export interface FastDesignBaseSpec {
+  mode: "design";
+  backdropPath: string;
+  screen: { sourceRect: Region; targetRect: Region; maskPath: string };
+  camera: { sourceRect: Region; targetRect: Region; maskPath: string; shadowPath: string };
+  /** 時間レイヤーのうち何件を描いた後にcamera shadow/cameraを挿入するか。
+   * undefinedはlayerOrderにwipeが無い/hiddenでcameraを描かない。 */
+  cameraLayerIndex?: number;
+}
+
 export interface FastSegmentSpec {
   cutPath: string;
   outPath: string;
@@ -79,6 +93,9 @@ export interface FastSegmentSpec {
    * 省略/空 = 無補正(既存挙動とバイト等価)。BASE_COLOR_FILTER の直後に
    * RGB 段として挿入される(design-T3.md §3) */
   colorFilters?: string[];
+  /** 省略時は現行composite基底。P1-2では純関数graphだけを接続し、
+   * runFastRenderからのdesign activationはP1-3まで行わない。 */
+  base?: FastDesignBaseSpec;
 }
 
 // ---- レイヤー解決 ----
@@ -334,7 +351,114 @@ function colorFilterStage(filters?: string[]): string {
   return `,format=rgb24,${filters.join(",")},format=yuvj420p`;
 }
 
+/** source regionをtarget aspectへcenter-coverする整数crop。 */
+export function centerCoverCrop(source: Region, target: Region): Region {
+  if (source.w <= 0 || source.h <= 0 || target.w <= 0 || target.h <= 0) {
+    throw new Error("design基底のcover矩形は正の幅・高さが必要です");
+  }
+  if (source.w * target.h > source.h * target.w) {
+    const w = Math.round((source.h * target.w) / target.h);
+    return { x: source.x + Math.round((source.w - w) / 2), y: source.y, w, h: source.h };
+  }
+  const h = Math.round((source.w * target.h) / target.w);
+  return { x: source.x, y: source.y + Math.round((source.h - h) / 2), w: source.w, h };
+}
+
+function designColorStage(filters?: string[]): string {
+  return filters && filters.length > 0
+    ? `format=rgb24,${filters.join(",")},format=rgba`
+    : "format=rgba";
+}
+
+function designInputPaths(base: FastDesignBaseSpec): string[] {
+  const paths = [
+    base.backdropPath,
+    base.screen.maskPath,
+    base.camera.shadowPath,
+    base.camera.maskPath,
+  ];
+  if (paths.length > MAX_FAST_DESIGN_PNG_INPUTS) {
+    throw new Error(`design基底PNGが上限${MAX_FAST_DESIGN_PNG_INPUTS}本を超えています`);
+  }
+  return paths;
+}
+
+function buildDesignFastSegmentFilter(spec: FastSegmentSpec & { base: FastDesignBaseSpec }): string {
+  const { base: design } = spec;
+  const cameraAt = design.cameraLayerIndex;
+  if (cameraAt !== undefined && (!Number.isInteger(cameraAt) || cameraAt < 0 || cameraAt > spec.layers.length)) {
+    throw new Error(`design cameraLayerIndexが範囲外です: ${cameraAt}`);
+  }
+  const round = spec.fpsRound ?? FAST_FPS_ROUND;
+  const v0 = spec.videoFromFrame ?? spec.fromFrame;
+  const v1 = v0 + (spec.toFrame - spec.fromFrame);
+  const screen = design.screen;
+  const camera = design.camera;
+  const cover = centerCoverCrop(camera.sourceRect, camera.targetRect);
+  const split = cameraAt === undefined ? "" : ",split=2[design-screen-src][design-camera-src]";
+  const sourceOut = cameraAt === undefined ? "[design-screen-src]" : "";
+  const parts = [
+    `[0:v]setpts=PTS-STARTPTS,fps=fps=${spec.fps}:round=${round}:start_time=0,` +
+      `trim=start_frame=${v0}:end_frame=${v1},setpts=N/${spec.fps}/TB,` +
+      `${BASE_COLOR_FILTER}${split}${sourceOut}`,
+    `[design-screen-src]crop=w=${screen.sourceRect.w}:h=${screen.sourceRect.h}:x=${screen.sourceRect.x}:y=${screen.sourceRect.y},` +
+      `scale=w=${screen.targetRect.w}:h=${screen.targetRect.h},${designColorStage(spec.colorFilters)}[design-screen-rgb]`,
+    "[2:v]alphaextract[design-screen-mask]",
+    "[design-screen-rgb][design-screen-mask]alphamerge[design-screen-alpha]",
+    "[1:v]format=rgba[design-backdrop]",
+    `[design-backdrop][design-screen-alpha]overlay=x=${screen.targetRect.x}:y=${screen.targetRect.y}:format=auto[design-base]`,
+  ];
+  if (cameraAt !== undefined) {
+    parts.push(
+      `[design-camera-src]crop=w=${cover.w}:h=${cover.h}:x=${cover.x}:y=${cover.y},` +
+        `scale=w=${camera.targetRect.w}:h=${camera.targetRect.h},${designColorStage(spec.colorFilters)}[design-camera-rgb]`,
+      "[4:v]alphaextract[design-camera-mask]",
+      "[design-camera-rgb][design-camera-mask]alphamerge[design-camera-alpha]",
+      "[3:v]format=rgba[design-camera-shadow]",
+    );
+  }
+
+  let prev = "design-base";
+  let op = 0;
+  const overlay = (src: string, x: number, y: number, enable?: string) => {
+    const out = `design-op${op++}`;
+    parts.push(
+      `[${prev}][${src}]overlay=x=${x}:y=${y}:format=auto${enable ? `:enable='${enable}'` : ""}[${out}]`,
+    );
+    prev = out;
+  };
+  const addCamera = () => {
+    overlay("design-camera-shadow", 0, 0);
+    overlay("design-camera-alpha", camera.targetRect.x, camera.targetRect.y);
+  };
+  spec.layers.forEach((L, i) => {
+    if (cameraAt === i) addCamera();
+    const inputIdx = MAX_FAST_DESIGN_PNG_INPUTS + 1 + i;
+    const enable = L.enableWindows.map(([a, b]) => `between(n,${a},${b})`).join("+");
+    let src = `${inputIdx}:v`;
+    if (isAlphaLayer(L)) {
+      const { startFrame: A, durFrames: d, fadeInFrames: fin, fadeOutFrames: fout } = L.fade!;
+      const pre: string[] = ["format=rgba"];
+      const opacity = L.opacity ?? 1;
+      if (opacity !== 1) pre.push(`colorchannelmixer=aa=${opacity}`);
+      if (fin > 0) pre.push(`fade=t=in:alpha=1:start_frame=0:nb_frames=${fin}`);
+      if (fout > 0) pre.push(`fade=t=out:alpha=1:start_frame=${d - fout}:nb_frames=${fout}`);
+      pre.push(`setpts=N/${spec.fps}/TB+${A}/${spec.fps}/TB`);
+      parts.push(`[${inputIdx}:v]${pre.join(",")}[design-layer${i}]`);
+      src = `design-layer${i}`;
+    }
+    overlay(src, 0, 0, enable);
+  });
+  if (cameraAt === spec.layers.length) addCamera();
+  parts.push(`[${prev}]format=yuvj420p[vout]`);
+  return parts.join(";");
+}
+
 export function buildFastSegmentFilter(spec: FastSegmentSpec): string {
+  if (spec.base?.mode === "design") {
+    designInputPaths(spec.base);
+    return buildDesignFastSegmentFilter(spec as FastSegmentSpec & { base: FastDesignBaseSpec });
+  }
   // fps は cut.mp4 の timestamp から CFR 格子を作る。そこで frame trim する
   // ことで、Remotion OffthreadVideo の時刻ベース選択と同じソースを選ぶ。
   // trim 後の setpts=N/fps/TB はセグメントローカル PTS を安定化し、FAST と
@@ -383,6 +507,13 @@ export function buildFastSegmentArgs(spec: FastSegmentSpec): string[] {
   const gop = Math.max(1, Math.round(spec.fps * 2));
   const segFrames = spec.toFrame - spec.fromFrame;
   const args = ["-y", "-v", "error", "-i", spec.cutPath];
+  if (spec.base?.mode === "design") {
+    // alphamerge/overlayのframesyncで静止PNGの既定25fps timestampが基底を
+    // 短縮しないよう、固定4枚も出力fps格子で無限ループする。
+    for (const path of designInputPaths(spec.base)) {
+      args.push("-loop", "1", "-framerate", String(spec.fps), "-i", path);
+    }
+  }
   for (const L of spec.layers) {
     if (isAlphaLayer(L)) {
       // 補遺1(必須): セグメント全長ではなく overlay 自身の尺(d)ぶんだけ
