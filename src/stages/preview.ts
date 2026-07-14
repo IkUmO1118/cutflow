@@ -7,7 +7,7 @@ import {
   measuredLoudnormFilter,
 } from "../lib/loudness.ts";
 import { playbackSegmentsOf } from "../lib/timeline.ts";
-import { videoEncodeArgs } from "../lib/videoEncode.ts";
+import { scaleFilter, videoEncodeArgs } from "../lib/videoEncode.ts";
 import type { Config } from "../lib/config.ts";
 import type { CutPlan, Manifest } from "../types.ts";
 
@@ -59,7 +59,7 @@ export async function preview(dir: string, cfg: Config): Promise<string> {
   });
   parts.push(
     `${labels.join("")}concat=n=${keeps.length}:v=1:a=1[vc][ac]`,
-    `[vc]scale=${cfg.preview.width}:-2[vout]`,
+    `[vc]${scaleFilter(cfg)}[vout]`,
     `[ac]${loudnorm}[aout]`,
   );
 
