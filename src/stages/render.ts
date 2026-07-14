@@ -28,6 +28,7 @@ import {
 import { buildCutCacheKey, cutCacheKeyEquals } from "../lib/cutCache.ts";
 import { run } from "../lib/exec.ts";
 import { decideFastPath, runFastRender } from "../lib/fastRender.ts";
+import { resolveFastBaseCapability } from "../lib/fastBaseCapability.ts";
 import {
   audioSourceOf,
   keepAudioParts,
@@ -315,7 +316,8 @@ export async function render(dir: string, cfg: Config): Promise<string> {
   // 成功したら full-skip キーを書き chunk cache を種付けして返す。非適格・失敗は
   // 1行ログを出して下の通常フルレンダーへ落ちる(誤爆より保守)。
   if (cfg.render.fastPath) {
-    const decision = decideFastPath({ props, cfg, composite });
+    const base = resolveFastBaseCapability({ props, composite });
+    const decision = decideFastPath({ props, cfg, base });
     if (!decision.activate) {
       console.log(`render 高速パス: 非適用(${decision.reason}) → 通常レンダー`);
     } else {
