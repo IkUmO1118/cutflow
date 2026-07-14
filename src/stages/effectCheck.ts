@@ -10,6 +10,7 @@
 // 返す(exit 0 を維持)。収録フォルダの編集ファイル(overlays.json 等)は
 // 一切書かない。書くのは effect-check.json(検品結果)と、補正候補があるときの
 // effect-fix.suggested.json(apply パッチ下書き。使い捨て)だけ。
+import { cliCmd } from "../lib/cliName.ts";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { resolveEffectCheckCfg } from "../lib/config.ts";
@@ -251,7 +252,7 @@ export interface EffectCheckOptions {
 export async function effectCheck(dir: string, cfg: Config, opts: EffectCheckOptions = {}): Promise<EffectCheckResult> {
   const manifest = readJsonOrNull<Manifest>(join(dir, "manifest.json"));
   if (!manifest) {
-    throw new Error(`${join(dir, "manifest.json")} がありません。先に \`node src/cli.ts ingest\` 相当を実行してください`);
+    throw new Error(`${join(dir, "manifest.json")} がありません。先に \`${cliCmd()} ingest\` 相当を実行してください`);
   }
   const overlays: Overlays = readJsonOrNull<Overlays>(join(dir, "overlays.json")) ?? {};
   const transcript: Transcript = readJsonOrNull<Transcript>(join(dir, "transcript.json")) ?? {
@@ -360,8 +361,8 @@ export function formatEffectCheckReport(dir: string, result: EffectCheckResult):
   lines.push(`検品レポートを ${result.reportPath} に書きました`);
   if (result.patchPath) {
     lines.push(`修正案を ${result.patchPath} に書きました。適用は:`);
-    lines.push(`  node src/cli.ts apply ${dir} --patch ${result.patchPath} --dry-run`);
-    lines.push(`  node src/cli.ts apply ${dir} --patch ${result.patchPath}`);
+    lines.push(`  ${cliCmd()} apply ${dir} --patch ${result.patchPath} --dry-run`);
+    lines.push(`  ${cliCmd()} apply ${dir} --patch ${result.patchPath}`);
   } else {
     lines.push("apply パッチ下書きなし(自動修正できる項目はありませんでした)");
   }

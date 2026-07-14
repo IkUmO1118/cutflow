@@ -4,6 +4,7 @@
 // materials.probe/index.json / overlays.json を読み、src/lib/materialFit.ts
 // (純関数)を呼んで apply パッチ下書き(material-fit.suggested.json)を書く。
 // 収録フォルダの編集ファイル(overlays.json 等)は一切書かない。
+import { cliCmd } from "../lib/cliName.ts";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolveMaterialFitCfg } from "../lib/config.ts";
@@ -41,7 +42,7 @@ export function materialFit(dir: string, cfg: Config): MaterialFitResult {
   const indexPath = join(dir, MATERIALS_PROBE_DIR, MATERIALS_INDEX_FILE);
   if (!existsSync(indexPath)) {
     throw new Error(
-      `${indexPath} がありません。先に \`node src/cli.ts materials ${dir}\` を実行してください`,
+      `${indexPath} がありません。先に \`${cliCmd()} materials ${dir}\` を実行してください`,
     );
   }
   const index = JSON.parse(readFileSync(indexPath, "utf8")) as MaterialsIndex;
@@ -56,7 +57,7 @@ export function materialFit(dir: string, cfg: Config): MaterialFitResult {
 
   if (!hasAnyOverlayId(overlays)) {
     throw new Error(
-      `overlays.json の overlay/insert に @id がありません。先に \`node src/cli.ts id-stamp ${dir}\` を実行してください`,
+      `overlays.json の overlay/insert に @id がありません。先に \`${cliCmd()} id-stamp ${dir}\` を実行してください`,
     );
   }
 
@@ -92,13 +93,13 @@ export function formatMaterialFitReport(dir: string, result: MaterialFitResult):
     lines.push(`[dangling] ${d.file}: 参照先が materials/ に見つかりません(${rep})${removable}`);
   }
   for (const u of result.unused) {
-    lines.push(`[unused] ${u.file}: 一度も参照されていません(\`node src/cli.ts plan-materials ${dir}\` で配置候補を出せます)`);
+    lines.push(`[unused] ${u.file}: 一度も参照されていません(\`${cliCmd()} plan-materials ${dir}\` で配置候補を出せます)`);
   }
 
   if (result.patchPath) {
     lines.push(`修正案を ${result.patchPath} に書きました。適用は:`);
-    lines.push(`  node src/cli.ts apply ${dir} --patch ${result.patchPath} --dry-run`);
-    lines.push(`  node src/cli.ts apply ${dir} --patch ${result.patchPath}`);
+    lines.push(`  ${cliCmd()} apply ${dir} --patch ${result.patchPath} --dry-run`);
+    lines.push(`  ${cliCmd()} apply ${dir} --patch ${result.patchPath}`);
   } else {
     lines.push("apply パッチ下書きなし(自動修正できる項目はありませんでした)");
   }

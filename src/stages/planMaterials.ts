@@ -6,6 +6,7 @@
 // ファイルパス・尺は一切 LLM に書かせず、実体への変換(materialAnchors.ts の
 // 純関数)と書き込み前の validate 検査(all-or-nothing)はすべてコード側で行う。
 // 生成する overlays[] は全件下書き(未承認)。approvals.json には一切触れない。
+import { cliCmd } from "../lib/cliName.ts";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -147,7 +148,7 @@ export async function planMaterials(dir: string, cfg: Config): Promise<PlanMater
   const indexPath = join(dir, MATERIALS_PROBE_DIR, MATERIALS_INDEX_FILE);
   if (!existsSync(indexPath)) {
     throw new Error(
-      `${indexPath} がありません。先に \`node src/cli.ts materials ${dir} --all\` を実行してください`,
+      `${indexPath} がありません。先に \`${cliCmd()} materials ${dir} --all\` を実行してください`,
     );
   }
   const index = JSON.parse(readFileSync(indexPath, "utf8")) as MaterialsIndex;
