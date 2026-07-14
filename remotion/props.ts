@@ -221,7 +221,16 @@ export type RenderProps = {
   /** ズーム演出(overlays.json の zooms。カット後の秒に写像・easeSec 解決済み)。
    * ベース映像の背景レイヤーだけを拡大する(ワイプ・テロップ・素材・挿入は
    * 動かない)。省略時(空)は現行の描画と完全に同じ */
-  zooms?: { start: number; end: number; rect: Region; easeSec: number; easeOutSec?: number }[];
+  zooms?: {
+    start: number;
+    end: number;
+    rect: Region;
+    easeSec: number;
+    easeOutSec?: number;
+    /** ズーム中にカメラワイプを右下アンカーで縮める倍率(1 = 縮小なし)。
+     * config.yaml の render.zoom.wipeScale から解決済み(既定 0.8) */
+    wipeScale: number;
+  }[];
   /** 領域ぼかし(overlays.json の blurs。カット後の秒へ写像・
    * strength 解決済み)。ベース映像(画面クロップ)の rect 部分だけを
    * 隠す。zoom 追従なしの出力px固定。省略時(空)は現行の描画と完全に同じ。

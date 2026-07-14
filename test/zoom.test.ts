@@ -3,7 +3,7 @@
 // 短い区間での遷移縮小を固定する(remotion/Main.tsx が使う)。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { zoomTransformAt } from "../src/lib/zoom.ts";
+import { zoomProgressAt, zoomTransformAt } from "../src/lib/zoom.ts";
 import type { ZoomSpan } from "../src/lib/zoom.ts";
 
 const WIDTH = 1920;
@@ -71,4 +71,71 @@ test("zoomTransformAt: 重ならない複数区間から正しく該当区間を
   ];
   assert.equal(zoomTransformAt(2, zooms, WIDTH, HEIGHT).translateX, WIDTH / 2 - (WIDTH / rectA.w) * (rectA.x + rectA.w / 2));
   assert.equal(zoomTransformAt(7, zooms, WIDTH, HEIGHT).translateX, WIDTH / 2 - (WIDTH / rectB.w) * (rectB.x + rectB.w / 2));
+});
+
+test("zoomProgressAt: 区間外は0", () => {
+  const zooms: ZoomSpan[] = [
+    { start: 10, end: 20, rect: { x: 480, y: 270, w: 960, h: 540 }, easeSec: 0.4 },
+  ];
+  assert.equal(zoomProgressAt(5, zooms), 0);
+  assert.equal(zoomProgressAt(20, zooms), 0);
+  assert.equal(zoomProgressAt(25, zooms), 0);
+});
+
+test("zoomProgressAt: 区間頭で0", () => {
+  const zooms: ZoomSpan[] = [
+    { start: 10, end: 20, rect: { x: 480, y: 270, w: 960, h: 540 }, easeSec: 0.4 },
+  ];
+  assert.equal(zoomProgressAt(10, zooms), 0);
+});
+
+test("zoomProgressAt: ease完了後は1", () => {
+  const zooms: ZoomSpan[] = [
+    { start: 10, end: 20, rect: { x: 480, y: 270, w: 960, h: 540 }, easeSec: 0.4 },
+  ];
+  assert.equal(zoomProgressAt(15, zooms), 1);
+  assert.equal(zoomProgressAt(10.4, zooms), 1);
+});
+
+test("zoomProgressAt: 区間が短いとease を区間の半分へ縮める", () => {
+  const zooms: ZoomSpan[] = [
+    { start: 10, end: 10.5, rect: { x: 480, y: 270, w: 960, h: 540 }, easeSec: 0.4 },
+  ];
+  // 縮んだease(0.25秒)の終端である10.25秒で完了(=1)のはず
+  assert.equal(zoomProgressAt(10.25, zooms), 1);
+});
+
+test("zoomProgressAt: easeOutSec 個別指定でズームアウトだけ別の速さになる", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 };
+  const base: ZoomSpan[] = [{ start: 10, end: 20, rect, easeSec: 0.4 }];
+  const slowOut: ZoomSpan[] = [{ start: 10, end: 20, rect, easeSec: 0.4, easeOutSec: 2 }];
+  const normal = zoomProgressAt(19, base);
+  const slow = zoomProgressAt(19, slowOut);
+  assert.ok(slow < normal);
+  assert.ok(slow > 0);
+});
+
+test("zoomProgressAt: smoothstep 値が zoomTransformAt の scale から逆算した進行度と一致する", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 };
+  const zooms: ZoomSpan[] = [{ start: 10, end: 20, rect, easeSec: 0.4 }];
+  for (const t of [10.1, 10.2, 10.3, 15, 19.7, 19.8, 19.9]) {
+    const transform = zoomTransformAt(t, zooms, WIDTH, HEIGHT);
+    const targetScale = WIDTH / rect.w;
+    const pFromScale = (transform.scale - 1) / (targetScale - 1);
+    const p = zoomProgressAt(t, zooms);
+    assert.ok(Math.abs(pFromScale - p) < 1e-9, `t=${t}: ${pFromScale} !== ${p}`);
+  }
+});
+
+test("zoomTransformAt: リファクタ後も既存の期待値が1つも変わらない(回帰の要)", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 };
+  const zooms: ZoomSpan[] = [{ start: 10, end: 20, rect, easeSec: 0.4 }];
+  assert.deepEqual(zoomTransformAt(5, zooms, WIDTH, HEIGHT), { scale: 1, translateX: 0, translateY: 0 });
+  const full = zoomTransformAt(15, zooms, WIDTH, HEIGHT);
+  const expectedScale = WIDTH / rect.w;
+  assert.equal(full.scale, expectedScale);
+  const cx = rect.x + rect.w / 2;
+  const cy = rect.y + rect.h / 2;
+  assert.equal(full.translateX, WIDTH / 2 - expectedScale * cx);
+  assert.equal(full.translateY, HEIGHT / 2 - expectedScale * cy);
 });

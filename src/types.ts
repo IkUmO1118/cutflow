@@ -659,6 +659,10 @@ export interface Zoom {
 /** render.zoom.easeSec 未指定時の既定(秒)。renderProps と設定画面で共有 */
 export const DEFAULT_ZOOM_EASE_SEC = 0.4;
 
+/** render.zoom.wipeScale 未指定時の既定。ズーム中のカメラワイプをこの倍率
+ * まで右下アンカーで縮める(1 = 縮小なし)。renderProps と設定画面で共有 */
+export const DEFAULT_ZOOM_WIPE_SCALE = 0.8;
+
 /** 領域ぼかし1件(overlays.json の blurs)。開発画面の API キー・
  * PII・パスワードなど、ベース映像(画面クロップ)の一部を隠す。start/end は
  * 元収録の秒、rect は出力px({x,y,w,h}。テロップ pos・zooms rect と同座標系)。
