@@ -40,7 +40,7 @@ your editor/validator config.
 |---|---|---|
 | `cutplan.json` | `schemas/cutplan.schema.json` | Which spans of the raw recording survive (`segments[].action: "keep"/"cut"`), each with a human-readable `reason`. Normally segments align to the candidate grid the numbered-selection prompt saw; when `plan.harness.applySplit` (opt-in, default off) is enabled, a segment can also be a word-boundary sub-span produced by the agentic loop's `split_candidate` tool, written only after `validate`+`assert` pass (rolled back otherwise) |
 | `transcript.json` | `schemas/transcript.schema.json` | Caption text, timing, per-caption position/style/track, and karaoke word timing |
-| `overlays.json` | `schemas/overlays.schema.json` | All visual production: material overlays, inserts, camera wipe, zooms, blurs/mosaic, annotations (arrow/box/spotlight), caption track defaults, layer order, color filter |
+| `overlays.json` | `schemas/overlays.schema.json` | All visual production: material overlays, inserts, camera wipe, zooms, blurs, annotations (arrow/box/spotlight), caption track defaults, layer order, color filter |
 | `bgm.json` | `schemas/bgm.schema.json` | Background music placement per time range |
 | `chapters.json` | `schemas/chapters.schema.json` | YouTube description chapter markers (not rendered into the video) |
 | `meta.json` | `schemas/meta.schema.json` | Draft titles and description text (does not affect the rendered video) |
