@@ -15,6 +15,9 @@
 - `render-fastpath-program.md`(render 高速パス母艦) — cold render の速度の床
   (headless Chrome の per-frame 描画)を、テロップ静止区間の ffmpeg 直合成で
   破る取り組み。編集の質(上3つ)と直交する「書き出しの速さ」の層
+- `render-design-program.md`(デザイン×render 統合母艦) — render 高速パス
+  母艦の直接の続編。`render.design`(背景+パネル+カメラ円)を有効にしても
+  高速パスを失わない統合と、design・高速パスの plain 収録への一級展開
 
 個別の設計書(`docs/plans/`)からは「親ドキュメント: `docs/programs/....md`
 (母艦)」の形で参照される。
