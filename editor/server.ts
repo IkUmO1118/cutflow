@@ -29,6 +29,7 @@ import {
   writeShortApproval,
 } from "../src/lib/approval.ts";
 import { APPROVAL_FILE } from "../src/lib/files.ts";
+import { removeEditorServeFile, writeEditorServeFile } from "../src/lib/editorServe.ts";
 import { run } from "../src/lib/exec.ts";
 import { ensureIds, hasAnyId, ID_PREFIX, usedIdsOf } from "../src/lib/ids.ts";
 import { mergeBodyOverDisk } from "../src/lib/applyEdits.ts";
@@ -170,6 +171,21 @@ export async function startEditor(
     server.once("error", ng);
     server.listen(port, "127.0.0.1", ok);
   });
+
+  // 待受情報を収録フォルダの外(~/.cutflow/editor/)へ書く。デタッチ起動でも
+  // フォアグラウンド起動でも同じように書くので、`editor <dir> --status` は
+  // どちらの起動でも見える。プロセスがどの経路で終わっても最終段で必ず発火する
+  // "exit" で同期的に消す(framesServe と同じ判断。async は exit 中に走らない)
+  writeEditorServeFile({ dir, port, pid: process.pid, startedAt: new Date().toISOString() });
+  process.on("exit", () => removeEditorServeFile(dir));
+  // シグナルで殺された場合、Node は "exit" を発火しない(既定ハンドラはプロセスを
+  // そのまま終了させる)。Ctrl+C(SIGINT)と `editor --stop`(SIGTERM)を明示的に
+  // 受けて process.exit を呼び、上の "exit" を必ず通して portfile を消す。
+  // (framesServe が SIGINT を書かずに済んでいるのは、remotion の openBrowser が
+  //  SIGINT リスナーで process.exit を呼んでいるため。エディタにはそれが無い)
+  process.on("SIGINT", () => process.exit(130));
+  process.on("SIGTERM", () => process.exit(0));
+
   const url = `http://127.0.0.1:${port}`;
   console.log(`エディタ起動: ${url}(対象: ${dir})`);
   console.log("終了は Ctrl+C");
@@ -278,6 +294,13 @@ async function handle(
   if (req.method === "GET" && path === "/particle_loop_icon.svg") {
     res.writeHead(200, { "Content-Type": "image/svg+xml; charset=utf-8" });
     res.end(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "client/particle_loop_icon.svg"), "utf8"));
+    return;
+  }
+  if (req.method === "GET" && path === "/api/ping") {
+    // 生存確認(editor --stop / --status が portfile の pid/port を検証する)。
+    // dir も返すのは、portfile が stale で別プロセスが同じ port を掴んでいる
+    // ケースを取り違えないため
+    sendJson(res, 200, { ok: true, pid: process.pid, dir });
     return;
   }
   if (req.method === "GET" && path === "/api/project") {

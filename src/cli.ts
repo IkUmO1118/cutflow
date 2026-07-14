@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { cliCmd } from "./lib/cliName.ts";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -23,6 +24,7 @@ import {
   resolvePlanLoopSecondaryObservationCfg,
   resolveAiRuntimeConfig,
 } from "./lib/config.ts";
+import { editorLogFilePath, liveEditor, startDetachedEditor, stopEditor } from "./lib/editorServe.ts";
 import { setLogLevel } from "./lib/obs.ts";
 import type { LogLevel } from "./lib/obs.ts";
 import { timed } from "./lib/timing.ts";
@@ -1290,15 +1292,54 @@ program
     "--layout <layout>",
     "初回 bootstrap 時の収録レイアウト(plain|obs-canvas|auto)。省略時は plain",
   )
-  .action(async (dir: string, opts: { layout?: string }) => {
+  .option("--detach", "バックグラウンドで起動してターミナルを返す(ログは ~/.cutflow/editor/)")
+  .option("--stop", "デタッチ起動中のエディタを止める")
+  .option("--status", "この収録のエディタが起動しているか表示する")
+  .action(async (dir: string, opts: { layout?: string; detach?: boolean; stop?: boolean; status?: boolean }) => {
     const explicit = program.opts().config as string | undefined;
+    const abs = resolveDir(dir);
+
+    const modes = [opts.detach, opts.stop, opts.status].filter(Boolean).length;
+    if (modes > 1) throw new Error("--detach / --stop / --status は同時に指定できません");
+
+    if (opts.status === true) {
+      const entry = await liveEditor(abs);
+      if (!entry) {
+        console.log(`エディタは起動していません(対象: ${abs})`);
+        return;
+      }
+      console.log(`エディタ起動中: http://127.0.0.1:${entry.port}(対象: ${entry.dir})`);
+      console.log(`  pid: ${entry.pid}  起動: ${entry.startedAt}`);
+      console.log(`  ログ: ${editorLogFilePath(abs)}`);
+      return;
+    }
+
+    if (opts.stop === true) {
+      const stopped = await stopEditor(abs);
+      if (!stopped) {
+        console.log(`エディタは起動していません(対象: ${abs})`);
+        return;
+      }
+      console.log(`エディタを停止しました(pid=${stopped.pid} 対象: ${stopped.dir})`);
+      return;
+    }
+
+    if (opts.detach === true) {
+      // 子プロセス(= 自分自身の editor コマンド)が listen して portfile を書く
+      const entry = await startDetachedEditor(abs, { layout: opts.layout, configPath: explicit });
+      console.log(`エディタ起動(バックグラウンド): http://127.0.0.1:${entry.port}(対象: ${entry.dir})`);
+      console.log(`  ログ: ${editorLogFilePath(abs)}`);
+      console.log(`  停止: ${cliCmd()} editor ${dir} --stop`);
+      return;
+    }
+
     const cfg = loadConfig(explicit);
     const layout = parseLayoutOpt(opts.layout);
     // 設定画面(POST /api/config)が書き戻す先。読んだ config.yaml と同じパス
     const cfgPath = resolveConfigPath(explicit);
     // esbuild 等のエディタ専用依存を CLI 起動時に読ませないため動的 import
     const { startEditor } = await import("../editor/server.ts");
-    await startEditor(resolveDir(dir), cfg, cfgPath, layout);
+    await startEditor(abs, cfg, cfgPath, layout);
   });
 
 program
