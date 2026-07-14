@@ -64,8 +64,9 @@ const GENERATED_NAME_PATTERNS: readonly RegExp[] = [
 /** 中間生成物のディレクトリ(配下は丸ごと中間生成物扱い): frames/(PNG・
  * props.json・OCR サイドカー。frames 実行のたびに全消しされる)・
  * render.chunks/(チャンク差分レンダーのキャッシュ)・
- * render.design/(config.yaml の render.design.backgroundFile が収録フォルダ外の
- * 絶対パスのとき、Remotion が読める publicDir 配下へ取り込んだ背景画像のコピー。
+ * render.design/(plain / obs-canvas 共通で、config.yaml の
+ * render.design.backgroundFile が収録フォルダ外の絶対パスまたはrepo同梱素材の
+ * とき、Remotion が読める publicDir 配下へ取り込んだ背景画像のコピー。
  * 元ファイルからいつでも再取得できるので generated。materials/ に置くと
  * `materials` コマンドに「未使用素材」として計上されてしまうため別ディレクトリ)・
  * render.fast/(render 高速パスのキャッシュ。captions/<key>.png=テロップ
