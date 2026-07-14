@@ -17,6 +17,33 @@ export function resolveVideoEncoder(
 }
 
 /**
+ * h264_videotoolbox が圧縮セッションを作れる各辺の上限(px)。これを超える
+ * と ffmpeg は "Cannot create compression session: -12903" で落ちる。
+ */
+const MAX_ENCODE_DIMENSION = 4096;
+
+/**
+ * proxy.mp4 / preview.mp4 の縮小 scale フィルタ。cfg.preview.width は
+ * 「拡張キャンバス(画面+カメラ横並び)をこの幅へ縮小する」ための値なので、
+ * 幅をそのまま指定すると縦長の収録(1080x1920 等)では逆に拡大され、
+ * 高さが h264_videotoolbox の上限(4096px)を超えてエンコーダが開けない。
+ *
+ * そこで「幅 cfg.preview.width」ではなく「幅 cfg.preview.width かつ各辺
+ * MAX_ENCODE_DIMENSION に収まる箱へ、アスペクト比を保って縮小のみする」と
+ * 表現する(min(...,iw) で拡大を禁じる=元より粗くならず、無駄に大きな
+ * プロキシも作らない)。横長の収録では従来どおり cfg.preview.width へ縮小
+ * されるので既存の挙動は変わらない。
+ */
+export function scaleFilter(cfg: Pick<Config, "preview">): string {
+  return [
+    `scale=w='min(${cfg.preview.width},iw)'`,
+    `h='min(${MAX_ENCODE_DIMENSION},ih)'`,
+    "force_original_aspect_ratio=decrease",
+    "force_divisible_by=2",
+  ].join(":");
+}
+
+/**
  * proxy.mp4 の GOP(キーフレーム間隔、フレーム数)。0.2秒@30fps。
  * エディタはカット境界ごとに <video> をシークして繋ぐため、GOP が長いと
  * 境界のたびに直前キーフレームからのデコード待ち(1秒 GOP で最大29枚)が

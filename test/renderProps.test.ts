@@ -175,7 +175,7 @@ test("buildRenderProps: plain manifest(cameraRegion 無し)は cameraRegion unde
   assert.deepEqual(props.screenRegion, { x: 0, y: 0, w: 1080, h: 1920 });
 });
 
-test("buildRenderProps: plain designはportrait screenだけを載せ、cameraを載せない", () => {
+test("buildRenderProps: plain収録(OBSではない素の動画)にはdesignを載せない", () => {
   const plainManifest: Manifest = {
     ...manifest,
     layout: "plain",
@@ -202,14 +202,7 @@ test("buildRenderProps: plain designはportrait screenだけを載せ、camera�
     overlayExists: () => true,
     warn: () => {},
   });
-  assert.deepEqual(props.design, {
-    backgroundColor: "#123456",
-    screen: {
-      rect: { x: 100, y: 266, w: 880, h: 1564 },
-      radiusPx: 24,
-      shadow: true,
-    },
-  });
+  assert.equal(props.design, undefined);
   assert.equal(props.cameraRegion, undefined);
 });
 

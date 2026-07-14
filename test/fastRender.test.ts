@@ -90,18 +90,18 @@ test("decideFastPath: plain identityのlandscape/portraitをactivateする", () 
   }
 });
 
-test("decideFastPath: camera無しdesignのasset不足理由をそのまま返してfull fallback", () => {
+test("decideFastPath: designのasset不足理由をそのまま返してfull fallback", () => {
   const props = mkProps({
-    cameraRegion: undefined,
     design: {
       backgroundColor: "#001122",
       screen: { rect: { x: 100, y: 22, w: 1720, h: 968 }, radiusPx: 24, shadow: true },
+      camera: { rect: { x: 1592, y: 752, w: 300, h: 300 }, radiusPx: 96, shadow: true },
     },
   });
   const base = resolveFastBaseCapability({ props, composite: false });
   assert.deepEqual(decideFastPath({ props, cfg: cfgWith({ fastPath: true }), base }), {
     activate: false,
-    reason: "design基底asset不足(backdrop/screenMask)",
+    reason: "design基底asset不足(backdrop/screenMask/cameraShadow/cameraMask)",
   });
 });
 

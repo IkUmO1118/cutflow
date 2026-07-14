@@ -40,7 +40,7 @@ export const RemotionRoot = () => (
       calculateMetadata={({ props }: { props: DesignStillProps }) => {
         const rect = props.role === "screenMask"
           ? props.design.screen.rect
-          : props.role === "cameraMask" && props.design.camera
+          : props.role === "cameraMask"
             ? props.design.camera.rect
             : { w: props.width, h: props.height };
         return { durationInFrames: 1, fps: 30, width: rect.w, height: rect.h };
