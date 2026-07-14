@@ -1616,6 +1616,8 @@
     min-width: 0;
     border-color: transparent;
     background: transparent;
+    /* 数値は左寄せ(ラベルのすぐ右に来るほうが読み取りやすい) */
+    text-align: left;
   }
   .capField select {
     flex: 1;
@@ -1629,8 +1631,8 @@
     border-color: transparent;
     background: transparent;
   }
-  /* Figma 風の数値フィールド。入力 + 単位 + ▾(プリセット)を1つの箱にまとめる。
-     ↑↓キーで増減、▾でプリセット一覧。狭い1列にも収まる */
+  /* 数値フィールド。入力 + 単位 + ▾(プリセット)を横に並べる。↑↓キーで増減。
+     囲い(枠・背景)は親の .capField が持つので、ここでは二重に描かない */
   .numStepper {
     position: relative;
     flex: 1;
@@ -1639,13 +1641,6 @@
     align-items: center;
     gap: 2px;
     height: 24px;
-    padding: 0 2px 0 6px;
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    background: rgba(255, 255, 255, 0.04);
-  }
-  .numStepper:focus-within {
-    border-color: var(--accent);
   }
   .numStepper input.num {
     flex: 1;
@@ -2272,6 +2267,13 @@
   .tlLabel.reorderable { cursor: grab; }
   .tlLabel.reorderable:active { cursor: grabbing; }
   .tlLabel.dragging { background: var(--panel2); color: var(--text); }
+  /* テロップトラックのラベルを選択中(インスペクタがトラック標準デザインを出す)。
+     クリップ選択の枠(.tlClip.sel)と混ざらないよう、左端のバーで示す */
+  .tlLabel.sel {
+    background: var(--panel2);
+    color: var(--text);
+    box-shadow: inset 2px 0 0 var(--accent, #60a5fa);
+  }
   /* テロップトラック名の編集欄(ラベルのダブルクリックで表示) */
   .tlLabel .tlRename {
     width: 100%; min-width: 0;

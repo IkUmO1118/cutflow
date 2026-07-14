@@ -15,7 +15,7 @@ import type { AnnotationType, CaptionPos, LayerId, Region, SpotlightShape } from
 /** overlays.json のどの配列か(hide 系はエディタ非表示の手書き互換)。
  * "short" はショートモードの ranges 帯(shorts.json のショート単位)。
  * "zoom" はズーム演出(overlays.json の zooms)の区間。
- * "blur" は領域ぼかし/モザイク(overlays.json の blurs)の区間。
+ * "blur" は領域ぼかし(overlays.json の blurs)の区間。
  * "annotation" は注釈グラフィック(overlays.json の annotations)の区間 */
 export type SpanKind =
   | "overlays"
@@ -42,11 +42,15 @@ export type AddKind =
  * short はショートモード中の選択中ショートの ranges の添字、
  * zoom は overlays.zooms の添字、blur は overlays.blurs の添字、
  * annotation は overlays.annotations の添字)。
+ * captionTrack だけは例外で、index は**配列の添字ではなくテロップトラック番号**
+ * (1始まり。overlays.json の captionTracks[].track と同じ値)。クリップではなく
+ * トラックそのものを選んだ状態=インスペクタがそのトラックの標準デザインを編集する。
  * wipe / bgm は表示専用 */
 export type SelKind =
   | "cut"
   | "insert"
   | "caption"
+  | "captionTrack"
   | "overlays"
   | "wipeFull"
   | "wipe"
@@ -107,7 +111,7 @@ const TRACK_DEFS = {
   blur: {
     id: "blur", label: "ぼかし", createKind: "blur",
     hint:
-      "領域ぼかし/モザイク区間(overlays.json の blurs)。秘匿情報の目隠し。" +
+      "領域ぼかし区間(overlays.json の blurs)。秘匿情報の目隠し。" +
       "ドラッグで区間を作成。かかるのはベース映像だけで、ズームには追従せず" +
       "出力px固定(ショートには継承されない)",
   },
