@@ -9,6 +9,7 @@ import type {
   LayerId,
   SpotlightShape,
 } from "../src/types.ts";
+import type { DesignProps } from "../src/lib/design.ts";
 
 export interface Region {
   x: number;
@@ -181,6 +182,11 @@ export type RenderProps = {
    * カメラ)だけに CSS filter として効く(src/lib/colorFilter.ts が変換)。
    * 素材オーバーレイ・挿入クリップには効かない。省略時は無補正 */
   colorFilter?: ColorFilter;
+  /** ベースレイアウトのデザイン(背景画像 + 画面パネル + カメラ円)。
+   * config.yaml の render.design を buildRenderProps が出力px の矩形へ解決した
+   * もの(src/lib/design.ts)。省略時は従来の「画面全面 + 右下ワイプ」。
+   * layout(縦プリセット)経路には載らない=ショートには継承されない */
+  design?: DesignProps;
   /** ベース映像パネルの配置(縦プリセット用。src/lib/profile.ts の
    * Profile.layout から buildRenderProps が渡す)。省略時は現行ワイプ経路
    * (screen 全面 + camera 右下ワイプ)のまま */

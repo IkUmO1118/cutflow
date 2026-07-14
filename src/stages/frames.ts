@@ -51,6 +51,7 @@ import {
 } from "../lib/timeline.ts";
 import { writeFramesIndex } from "../lib/framesIndex.ts";
 import { runOcr } from "../lib/ocr.ts";
+import { panelRect, resolveDesign, screenRectToOutput } from "../lib/design.ts";
 import { buildScreenStill } from "../lib/screenStill.ts";
 import { buildProxy, isProxyStale } from "./proxy.ts";
 import type { TimelineEntry } from "../lib/timeline.ts";
@@ -333,10 +334,20 @@ async function ocrFrame(
       warn: (msg) => console.warn(`警告: ${msg}`),
     });
     if (result === null) return undefined; // 非対応環境等(warn 済み)
+    // box は「テロップ pos / blurs.rect と同じ出力px」で書く契約。デザイン有効時は
+    // 画面がパネルへ縮んで置かれるので、screenRegion 画素 = 出力px の恒等が
+    // 崩れる。パネルへ写してから書く(design 無しでは恒等 = 従来と同じ値)
+    const sr = manifest.video.screenRegion;
+    const design = resolveDesign(cfg.render.design, sr.w, sr.h, !!manifest.video.cameraRegion);
+    const panel = panelRect(design, sr.w, sr.h);
+    const mapped = {
+      ...result,
+      lines: result.lines.map((l) => ({ ...l, box: screenRectToOutput(l.box, panel, sr) })),
+    };
     const ocrPath = join(outDir, `out${outSec.toFixed(2)}s.ocr.json`);
     writeFileSync(
       ocrPath,
-      JSON.stringify({ outSec, sourceSec, ...result }, null, 2),
+      JSON.stringify({ outSec, sourceSec, ...mapped }, null, 2),
     );
     return ocrPath;
   } finally {

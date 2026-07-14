@@ -23,6 +23,12 @@ import { buildCaptionIndex, lookupCaption } from "../src/lib/captionIndex.ts";
 import { bgmTrackTiming, bgmVolumeAtFrame } from "../src/lib/bgmEnvelope.ts";
 import { blurRadiusPx, mosaicBlockPx, outputRectToCanvasRegion } from "../src/lib/blur.ts";
 import { cssFilterOf } from "../src/lib/colorFilter.ts";
+import {
+  CAMERA_SHADOW_CSS,
+  SCREEN_SHADOW_CSS,
+  panelRect,
+  toPanelRect,
+} from "../src/lib/design.ts";
 import { valuesAt } from "../src/lib/keyframes.ts";
 import { fadeFactor, isImageFile } from "../src/lib/overlayFade.ts";
 import { cropFitStyle } from "../src/lib/panelStyle.ts";
@@ -92,14 +98,28 @@ export const Main = (props: RenderProps) => {
   // dip-to-black のときだけ props に載る)。境界点 tb の前後 sec/2 で
   // 0→1→0 の黒フェードを重ねる。尺・音声・字幕のタイミングには一切触れず、
   // 最上層(テロップより上)に黒い AbsoluteFill を重ねるだけの合成層の演出
-  // ズーム演出(画面の一部を拡大)。ベース映像の背景レイヤーだけに掛ける
-  // transform(props.layout があるショート/縦経路には zooms が乗らないので
-  // 自動的にここは恒等のまま=関与しない。D2 と同じ相乗り)
-  const zoomT = zoomTransformAt(t, props.zooms ?? [], props.width, props.height);
   // 簡易カラー調整(overlays.json の colorFilter)。ベース映像(画面クロップ+
   // カメラ=同一収録動画)だけに効く CSS filter(renderBase の全呼び出しに
   // 乗せる。素材オーバーレイ・挿入クリップは対象外)
   const filterCss = cssFilterOf(props.colorFilter);
+
+  // ベースレイアウトのデザイン(背景 + 画面パネル + カメラワイプ)。縦プリセット
+  // (props.layout があるショート経路)はパネル合成が別なので載せない。
+  // panel = ベース映像が収まる矩形で、design 無しでは出力全面(§lib/design.ts)
+  const design = props.layout ? undefined : props.design;
+  const panel = panelRect(design, props.width, props.height);
+
+  // ズーム演出(画面の一部を拡大)。ベース映像の背景レイヤーだけに掛ける
+  // transform(props.layout があるショート/縦経路には zooms が乗らないので
+  // 自動的にここは恒等のまま=関与しない。D2 と同じ相乗り)。デザイン有効時は
+  // ベース映像がパネルに収まるので、zoom の rect もパネルローカルへ写してから
+  // 「パネルを出力とみなす」既存の式に渡す(design 無しでは写像は恒等)
+  const zoomT = zoomTransformAt(
+    t,
+    (props.zooms ?? []).map((z) => ({ ...z, rect: toPanelRect(z.rect, panel) })),
+    panel.w,
+    panel.h,
+  );
 
   const cutHalf = (props.cutTransition?.sec ?? 0) / 2;
   const cutOpacity =
@@ -232,7 +252,29 @@ export const Main = (props: RenderProps) => {
   // props.overlays.filter(...) で全件走査+配列確保していたのを解消)
   const overlaysByTrack = useMemo(() => groupOverlaysByTrack(props.overlays), [props.overlays]);
 
-  const wipeLayer: ReactNode = (
+  // デザイン有効時のワイプ = 右下の角丸正方形(カメラを正方形へ center-crop。
+  // CroppedVideo の fit="cover" が 16:9 のカメラ領域を正方形の箱へ中央寄せで収める)。
+  // wipeFull(全画面化)はデザイン経路では効かない(buildRenderProps が警告する)
+  const wipeLayer: ReactNode = design ? (
+    <div
+      style={{
+        position: "absolute",
+        left: design.camera.rect.x,
+        top: design.camera.rect.y,
+        width: design.camera.rect.w,
+        height: design.camera.rect.h,
+        borderRadius: design.camera.radiusPx,
+        overflow: "hidden",
+        ...(design.camera.shadow ? { boxShadow: CAMERA_SHADOW_CSS } : {}),
+      }}
+    >
+      {hasVideo && props.cameraRegion ? (
+        renderBase(props.cameraRegion, design.camera.rect.w, design.camera.rect.h, true)
+      ) : (
+        <Placeholder label="カメラ" />
+      )}
+    </div>
+  ) : (
     <div
       style={{
         position: "absolute",
@@ -288,20 +330,44 @@ export const Main = (props: RenderProps) => {
   };
 
   return (
-    <AbsoluteFill style={{ backgroundColor: "black" }}>
+    <AbsoluteFill style={{ backgroundColor: design?.backgroundColor ?? "black" }}>
+      {/* デザインの背景画像(最下層)。ベース映像もテロップも全てこの上に乗る */}
+      {design?.backgroundFile && (
+        <Img
+          src={staticFile(design.backgroundFile)}
+          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
+        />
+      )}
+
       {hasVideo ? (
         props.layout ? (
           renderPanels(props.layout)
         ) : (
+          // デザイン有効時は画面クロップを角丸パネルへ収める(zoom はパネルの
+          // 内側で効く=角丸・影の外へはみ出さない)。design 無しでは panel が
+          // 出力全面・角丸0・影なしなので、従来の全面ベースと同じ絵になる
           <div
             style={{
               position: "absolute",
-              inset: 0,
-              transformOrigin: "0 0",
-              transform: `translate(${zoomT.translateX}px, ${zoomT.translateY}px) scale(${zoomT.scale})`,
+              left: panel.x,
+              top: panel.y,
+              width: panel.w,
+              height: panel.h,
+              borderRadius: design?.screen.radiusPx ?? 0,
+              overflow: "hidden",
+              ...(design?.screen.shadow ? { boxShadow: SCREEN_SHADOW_CSS } : {}),
             }}
           >
-            {renderBase(props.screenRegion, props.width, props.height, props.muteBase ?? false)}
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                transformOrigin: "0 0",
+                transform: `translate(${zoomT.translateX}px, ${zoomT.translateY}px) scale(${zoomT.scale})`,
+              }}
+            >
+              {renderBase(props.screenRegion, panel.w, panel.h, props.muteBase ?? false)}
+            </div>
           </div>
         )
       ) : (
@@ -337,7 +403,14 @@ export const Main = (props: RenderProps) => {
             : null;
           const rect = now ? { x: now.x, y: now.y, w: now.w, h: now.h } : b.rect;
           const strength = now?.strength ?? b.strength;
-          const cr = outputRectToCanvasRegion(rect, props.screenRegion, props.width, props.height);
+          // rect(出力px)はデザイン有効時パネルの内側を指すので、パネル
+          // ローカルへ写してから canvas 領域へ逆写像する(design 無しでは恒等)
+          const cr = outputRectToCanvasRegion(
+            toPanelRect(rect, panel),
+            props.screenRegion,
+            panel.w,
+            panel.h,
+          );
           const container = {
             position: "absolute" as const,
             left: rect.x,
