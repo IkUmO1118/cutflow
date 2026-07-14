@@ -72,7 +72,7 @@ export interface FastDesignBaseSpec {
   mode: "design";
   backdropPath: string;
   screen: { sourceRect: Region; targetRect: Region; maskPath: string };
-  camera: { sourceRect: Region; targetRect: Region; maskPath: string; shadowPath: string };
+  camera?: { sourceRect: Region; targetRect: Region; maskPath: string; shadowPath: string };
   /** 時間レイヤーのうち何件を描いた後にcamera shadow/cameraを挿入するか。
    * undefinedはlayerOrderにwipeが無い/hiddenでcameraを描かない。 */
   cameraLayerIndex?: number;
@@ -95,8 +95,7 @@ export interface FastSegmentSpec {
    * 省略/空 = 無補正(既存挙動とバイト等価)。BASE_COLOR_FILTER の直後に
    * RGB 段として挿入される(design-T3.md §3) */
   colorFilters?: string[];
-  /** 省略時は現行composite基底。P1-2では純関数graphだけを接続し、
-   * runFastRenderからのdesign activationはP1-3まで行わない。 */
+  /** 省略時は現行composite基底。plain-identityも同じargvを再利用する。 */
   base?: FastDesignBaseSpec;
 }
 
@@ -367,10 +366,10 @@ export function buildFastDesignBaseSpec(args: {
 }): FastDesignBaseSpec {
   const { dir, props, refs, cameraLayerIndex } = args;
   const design = props.design;
-  if (!design?.camera || !props.cameraRegion || !refs.cameraShadowFile || !refs.cameraMaskFile) {
+  if (!design || !refs.backdropFile || !refs.screenMaskFile) {
     throw new Error("design基底asset/geometryが不完全です");
   }
-  return {
+  const base: FastDesignBaseSpec = {
     mode: "design",
     backdropPath: join(dir, refs.backdropFile),
     screen: {
@@ -378,14 +377,19 @@ export function buildFastDesignBaseSpec(args: {
       targetRect: design.screen.rect,
       maskPath: join(dir, refs.screenMaskFile),
     },
-    camera: {
-      sourceRect: props.cameraRegion,
-      targetRect: design.camera.rect,
-      maskPath: join(dir, refs.cameraMaskFile),
-      shadowPath: join(dir, refs.cameraShadowFile),
-    },
-    ...(cameraLayerIndex !== undefined ? { cameraLayerIndex } : {}),
   };
+  if (!design.camera) return base;
+  if (!props.cameraRegion || !refs.cameraShadowFile || !refs.cameraMaskFile) {
+    throw new Error("design camera基底asset/geometryが不完全です");
+  }
+  base.camera = {
+    sourceRect: props.cameraRegion,
+    targetRect: design.camera.rect,
+    maskPath: join(dir, refs.cameraMaskFile),
+    shadowPath: join(dir, refs.cameraShadowFile),
+  };
+  if (cameraLayerIndex !== undefined) base.cameraLayerIndex = cameraLayerIndex;
+  return base;
 }
 
 // ---- 純関数: filtergraph / argv 組み立て ----
@@ -430,8 +434,7 @@ function designInputPaths(base: FastDesignBaseSpec): string[] {
   const paths = [
     base.backdropPath,
     base.screen.maskPath,
-    base.camera.shadowPath,
-    base.camera.maskPath,
+    ...(base.camera ? [base.camera.shadowPath, base.camera.maskPath] : []),
   ];
   if (paths.length > MAX_FAST_DESIGN_PNG_INPUTS) {
     throw new Error(`design基底PNGが上限${MAX_FAST_DESIGN_PNG_INPUTS}本を超えています`);
@@ -450,7 +453,10 @@ function buildDesignFastSegmentFilter(spec: FastSegmentSpec & { base: FastDesign
   const v1 = v0 + (spec.toFrame - spec.fromFrame);
   const screen = design.screen;
   const camera = design.camera;
-  const cover = centerCoverCrop(camera.sourceRect, camera.targetRect);
+  if (cameraAt !== undefined && !camera) {
+    throw new Error("design cameraLayerIndexに対応するcamera基底がありません");
+  }
+  const cover = camera ? centerCoverCrop(camera.sourceRect, camera.targetRect) : undefined;
   const split = cameraAt === undefined ? "" : ",split=2[design-screen-src][design-camera-src]";
   const sourceOut = cameraAt === undefined ? "[design-screen-src]" : "";
   const parts = [
@@ -466,8 +472,8 @@ function buildDesignFastSegmentFilter(spec: FastSegmentSpec & { base: FastDesign
   ];
   if (cameraAt !== undefined) {
     parts.push(
-      `[design-camera-src]crop=w=${cover.w}:h=${cover.h}:x=${cover.x}:y=${cover.y},` +
-        `scale=w=${camera.targetRect.w}:h=${camera.targetRect.h},${designColorStage(spec.colorFilters)}[design-camera-rgb]`,
+      `[design-camera-src]crop=w=${cover!.w}:h=${cover!.h}:x=${cover!.x}:y=${cover!.y},` +
+        `scale=w=${camera!.targetRect.w}:h=${camera!.targetRect.h},${designColorStage(spec.colorFilters)}[design-camera-rgb]`,
       "[4:v]alphaextract[design-camera-mask]",
       "[design-camera-rgb][design-camera-mask]alphamerge[design-camera-alpha]",
       "[3:v]format=rgba[design-camera-shadow]",
@@ -484,12 +490,14 @@ function buildDesignFastSegmentFilter(spec: FastSegmentSpec & { base: FastDesign
     prev = out;
   };
   const addCamera = () => {
+    if (!camera) throw new Error("design camera基底がありません");
     overlay("design-camera-shadow", 0, 0);
     overlay("design-camera-alpha", camera.targetRect.x, camera.targetRect.y);
   };
+  const temporalInputStart = designInputPaths(design).length + 1;
   spec.layers.forEach((L, i) => {
     if (cameraAt === i) addCamera();
-    const inputIdx = MAX_FAST_DESIGN_PNG_INPUTS + 1 + i;
+    const inputIdx = temporalInputStart + i;
     const enable = L.enableWindows.map(([a, b]) => `between(n,${a},${b})`).join("+");
     let src = `${inputIdx}:v`;
     if (isAlphaLayer(L)) {

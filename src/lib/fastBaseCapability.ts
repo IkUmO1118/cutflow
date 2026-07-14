@@ -1,6 +1,6 @@
 // FAST spanへ渡す基底映像を構築できるかの純関数ゲート。
 // graph実装の有無とは分離し、P1-1では能力だけをモデル化する。
-import { completeCameraDesignAssets } from "./design.ts";
+import { completeCameraDesignAssets, completeScreenDesignAssets } from "./design.ts";
 import type { DesignAssetRefs } from "./design.ts";
 import type { Region } from "../types.ts";
 import type { RenderProps } from "../../remotion/props.ts";
@@ -26,7 +26,7 @@ function validRect(rect: Region, bounds: { w: number; h: number }): boolean {
   );
 }
 
-function completeDesignRefs(refs: DesignAssetRefs | undefined): refs is DesignAssetRefs & {
+function completeCameraDesignRefs(refs: DesignAssetRefs | undefined): refs is DesignAssetRefs & {
   cameraShadowFile: string;
   cameraMaskFile: string;
 } {
@@ -39,48 +39,10 @@ function completeDesignRefs(refs: DesignAssetRefs | undefined): refs is DesignAs
   );
 }
 
-/**
- * composite、asset完備のOBS design、将来のplain identityを同じ能力型へ解決する。
- * allowPlainIdentityはP3接続用の境界で、既定falseなら従来の非composite理由を返す。
- */
-export function resolveFastBaseCapability(args: {
-  props: RenderProps;
-  composite: boolean;
-  allowPlainIdentity?: boolean;
-}): FastBaseCapability {
-  const { props, composite, allowPlainIdentity = false } = args;
-  const design = props.design;
-  if (design) {
-    if (!design.camera) {
-      return { ok: false, reason: "design基底asset不足(backdrop/screenMask/cameraShadow/cameraMask)" };
-    }
-    const assets = completeCameraDesignAssets(design);
-    if (!completeDesignRefs(assets)) {
-      return { ok: false, reason: "design基底asset不足(backdrop/screenMask/cameraShadow/cameraMask)" };
-    }
-    if (!validRect(props.screenRegion, props.canvas)) {
-      return { ok: false, reason: "design基底のscreenRegionがcanvas範囲外" };
-    }
-    if (!props.cameraRegion) {
-      return { ok: false, reason: "design基底にcameraRegionがない" };
-    }
-    if (!validRect(props.cameraRegion, props.canvas)) {
-      return { ok: false, reason: "design基底のcameraRegionがcanvas範囲外" };
-    }
-    const output = { w: props.width, h: props.height };
-    if (!validRect(design.screen.rect, output)) {
-      return { ok: false, reason: "design基底のscreen panelが出力範囲外" };
-    }
-    if (!validRect(design.camera.rect, output)) {
-      return { ok: false, reason: "design基底のcamera panelが出力範囲外" };
-    }
-    return { ok: true, mode: "design", design: assets };
-  }
-
-  if (composite) return { ok: true, mode: "composite" };
-
-  if (
-    allowPlainIdentity &&
+export function isPlainIdentityBase(props: RenderProps): boolean {
+  return (
+    !props.layout &&
+    !props.design &&
     !props.cameraRegion &&
     props.canvas.w === props.width &&
     props.canvas.h === props.height &&
@@ -88,8 +50,51 @@ export function resolveFastBaseCapability(args: {
     props.screenRegion.y === 0 &&
     props.screenRegion.w === props.width &&
     props.screenRegion.h === props.height
-  ) {
-    return { ok: true, mode: "plain-identity" };
+  );
+}
+
+/**
+ * composite、asset完備のdesign、実geometryで証明したplain identityの順に
+ * FAST基底能力を解決する。
+ */
+export function resolveFastBaseCapability(args: {
+  props: RenderProps;
+  composite: boolean;
+}): FastBaseCapability {
+  const { props, composite } = args;
+  if (composite) return { ok: true, mode: "composite" };
+
+  const design = props.design;
+  if (design) {
+    const screenAssets = completeScreenDesignAssets(design);
+    if (!screenAssets) {
+      return { ok: false, reason: "design基底asset不足(backdrop/screenMask)" };
+    }
+    if (!validRect(props.screenRegion, props.canvas)) {
+      return { ok: false, reason: "design基底のscreenRegionがcanvas範囲外" };
+    }
+    const output = { w: props.width, h: props.height };
+    if (!validRect(design.screen.rect, output)) {
+      return { ok: false, reason: "design基底のscreen panelが出力範囲外" };
+    }
+    if (!design.camera) return { ok: true, mode: "design", design: screenAssets };
+
+    const cameraAssets = completeCameraDesignAssets(design);
+    if (!completeCameraDesignRefs(cameraAssets)) {
+      return { ok: false, reason: "design基底asset不足(backdrop/screenMask/cameraShadow/cameraMask)" };
+    }
+    if (!props.cameraRegion) {
+      return { ok: false, reason: "design基底にcameraRegionがない" };
+    }
+    if (!validRect(props.cameraRegion, props.canvas)) {
+      return { ok: false, reason: "design基底のcameraRegionがcanvas範囲外" };
+    }
+    if (!validRect(design.camera.rect, output)) {
+      return { ok: false, reason: "design基底のcamera panelが出力範囲外" };
+    }
+    return { ok: true, mode: "design", design: cameraAssets };
   }
+
+  if (isPlainIdentityBase(props)) return { ok: true, mode: "plain-identity" };
   return { ok: false, reason: "非composite経路(cut.mp4 が出力解像度でない)" };
 }

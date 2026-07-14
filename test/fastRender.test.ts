@@ -75,6 +75,36 @@ test("decideFastPath: fastPath:true, composite:false → 非composite経路", ()
   assert.equal(!decision.activate && decision.reason, "非composite経路(cut.mp4 が出力解像度でない)");
 });
 
+test("decideFastPath: plain identityのlandscape/portraitをactivateする", () => {
+  for (const [width, height] of [[1920, 1080], [1080, 1920]]) {
+    const props = mkProps({
+      width,
+      height,
+      canvas: { w: width, h: height },
+      screenRegion: { x: 0, y: 0, w: width, h: height },
+      cameraRegion: undefined,
+    });
+    const base = resolveFastBaseCapability({ props, composite: false });
+    assert.deepEqual(base, { ok: true, mode: "plain-identity" });
+    assert.equal(decideFastPath({ props, cfg: cfgWith({ fastPath: true }), base }).activate, true);
+  }
+});
+
+test("decideFastPath: camera無しdesignのasset不足理由をそのまま返してfull fallback", () => {
+  const props = mkProps({
+    cameraRegion: undefined,
+    design: {
+      backgroundColor: "#001122",
+      screen: { rect: { x: 100, y: 22, w: 1720, h: 968 }, radiusPx: 24, shadow: true },
+    },
+  });
+  const base = resolveFastBaseCapability({ props, composite: false });
+  assert.deepEqual(decideFastPath({ props, cfg: cfgWith({ fastPath: true }), base }), {
+    activate: false,
+    reason: "design基底asset不足(backdrop/screenMask)",
+  });
+});
+
 test("decideFastPath: 挿入があっても映像・音声ともに適格(P5-4)。insert-mix で activate する", () => {
   const props = mkProps({
     baseSegments: [{ start: 5, videoStart: 0, durationSec: 15 }],

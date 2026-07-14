@@ -120,7 +120,7 @@ export function canBurnWipe(manifest: Manifest, overlays: Overlays, cfg: Config)
   if (!hasCamera(manifest)) return false;
   // デザイン(背景 + 画面パネル + カメラ円)有効時は、ベースの幾何が
   // 「画面全面 + 右下 flush ワイプ」ではないので焼き込めない(Remotion 側の
-  // design 描画へフォールバック。高速パスも同時に落ちる。§src/lib/design.ts)
+  // design描画か、静的assetを使うdesign FAST基底で合成する。§src/lib/design.ts)
   if (cfg.render.design?.enabled) return false;
   if ((overlays.zooms?.length ?? 0) > 0) return false;
   if ((overlays.wipeFull?.length ?? 0) > 0) return false;
