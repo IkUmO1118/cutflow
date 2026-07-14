@@ -27,7 +27,6 @@ import type {
   AutoCuts,
   Annotation,
   Bgm,
-  BlurType,
   CaptionPos,
   CaptionStyle,
   CaptionTrackDef,
@@ -514,7 +513,6 @@ export interface ZoomEntry extends MappedInterval {
 
 export interface BlurEntry extends MappedInterval {
   rect: Region;
-  type?: BlurType;
   strength?: number;
   keyframeCount?: number;
   keyframes?: KeyframeEntry[];
@@ -779,7 +777,6 @@ function buildProjection(inp: DescribeInputs, cfg?: Config): DescribeProjection 
     end: b.end,
     out: remapInterval(b.start, b.end, timeline),
     rect: b.rect,
-    ...(b.type !== undefined ? { type: b.type } : {}),
     ...(b.strength !== undefined ? { strength: b.strength } : {}),
     ...projectKeyframes(b.keyframes as { at: number; easing?: string; values: Record<string, number> }[] | undefined),
   }));

@@ -40,7 +40,7 @@ your editor/validator config.
 |---|---|---|
 | `cutplan.json` | `schemas/cutplan.schema.json` | Which spans of the raw recording survive (`segments[].action: "keep"/"cut"`), each with a human-readable `reason`. Normally segments align to the candidate grid the numbered-selection prompt saw; when `plan.harness.applySplit` (opt-in, default off) is enabled, a segment can also be a word-boundary sub-span produced by the agentic loop's `split_candidate` tool, written only after `validate`+`assert` pass (rolled back otherwise) |
 | `transcript.json` | `schemas/transcript.schema.json` | Caption text, timing, per-caption position/style/track, and karaoke word timing |
-| `overlays.json` | `schemas/overlays.schema.json` | All visual production: material overlays, inserts, camera wipe, zooms, blurs/mosaic, annotations (arrow/box/spotlight), caption track defaults, layer order, color filter |
+| `overlays.json` | `schemas/overlays.schema.json` | All visual production: material overlays, inserts, camera wipe, zooms, blurs, annotations (arrow/box/spotlight), caption track defaults, layer order, color filter |
 | `bgm.json` | `schemas/bgm.schema.json` | Background music placement per time range |
 | `chapters.json` | `schemas/chapters.schema.json` | YouTube description chapter markers (not rendered into the video) |
 | `meta.json` | `schemas/meta.schema.json` | Draft titles and description text (does not affect the rendered video) |
@@ -116,6 +116,15 @@ false staleness signals or gets silently discarded:
 - `av.probe/` — a **cache-style** generated directory written by `av <dir>`
   (`motion.json`, `sound.json`, `motion.strip.png`). It is not wiped on each
   run; deleting the whole directory forces a full regeneration
+- `render.design/` — a cache-style generated directory holding the base-layout
+  design background (`config.yaml` `render.design.backgroundFile`) copied into
+  the recording folder, which is the Remotion `publicDir`. Written only when the
+  design is enabled **and this recording is an obs-canvas one** (`manifest.json`
+  has `video.cameraRegion`) **and** the configured path points outside the
+  recording folder (repo-bundled `assets/backgrounds/…` or an absolute path).
+  Re-fetched from the source file on the next run, so deleting it is always safe.
+  Kept out of `materials/` on purpose: the background is never referenced from
+  `overlays.json`, so it would be reported as an unused asset forever
 - `render.fast/` — a cache-style generated directory written by the render
   fast path: `captions/<key>.png` (per-caption transparent PNGs, content-hashed
   by text + resolved style + position + output resolution); `overlays/<key>.png`

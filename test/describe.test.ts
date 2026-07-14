@@ -189,7 +189,6 @@ export function buildRichFixture(dir: string): void {
         start: 80,
         end: 85,
         rect: { x: 100, y: 100, w: 200, h: 100 },
-        type: "mosaic",
         strength: 0.7,
       },
     ],

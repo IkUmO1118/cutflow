@@ -17,7 +17,7 @@
 // meta.json は「id を持つ要素が無いため apply の対象外」とコメントされている
 // 意図的な欠落)+ "meta.json" とする。
 //
-// CaptionAnimKind/BlurType/AnnotationType/SpotlightShape は types.ts の
+// CaptionAnimKind/AnnotationType/SpotlightShape は types.ts の
 // **型エイリアス**(TS の型は実行時に消える)なので、値としてimportできない。
 // また test/**/*.ts は tsconfig.json の include 対象外で `npx tsc --noEmit`
 // では検査されないため、型レベルの網羅性チェックは実効性が無い
@@ -202,12 +202,9 @@ test("ピン留め: CaptionAnim の in/out enum === CaptionAnimKind(types.ts)", 
   sortedEq(anim?.properties?.out.enum as string[], kinds);
 });
 
-test("ピン留め: blurs[].type の enum === BlurType(types.ts)", () => {
-  const kinds = extractUnionLiterals(TYPES_TS, "BlurType");
-  assert.ok(kinds.length > 0);
+test("ピン留め: blurs は効果種別を持たない(モザイク廃止・ぼかし一本)", () => {
   const overlays = loadRegistry()["overlays.schema.json"];
-  const blurType = overlays.properties?.blurs.items?.properties?.type.enum as string[];
-  sortedEq(blurType, kinds);
+  assert.equal(overlays.properties?.blurs.items?.properties?.type, undefined);
 });
 
 test("ピン留め: annotations の type 判別子集合 === AnnotationType(types.ts)", () => {

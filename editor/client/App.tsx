@@ -133,6 +133,7 @@ import {
 import type { Peaks } from "./widgets.tsx";
 
 type OverlayEntry = NonNullable<Overlays["overlays"]>[number];
+type WipeFullEntry = NonNullable<Overlays["wipeFull"]>[number];
 type ZoomEntry = NonNullable<Overlays["zooms"]>[number];
 type BlurEntry = NonNullable<Overlays["blurs"]>[number];
 type BgmEntry = NonNullable<Bgm["tracks"]>[number];
@@ -1087,9 +1088,21 @@ export const App = () => {
       file: `media/${o.file}`,
     }));
     const bgmTracks = props.bgm.map((b) => ({ ...b, file: `media/${b.file}` }));
+    // デザインの背景画像も収録フォルダ内のファイル(render.design/…)なので、
+    // 素材と同じく /media/ 経由に付け替える(付け替え漏れると 404 で背景が
+    // 出ず、背景色だけになる)
+    const design = props.design?.backgroundFile
+      ? { ...props.design, backgroundFile: `media/${props.design.backgroundFile}` }
+      : props.design;
     return {
       warnings,
-      props: { ...props, overlays: overlayItems, inserts: insertItems, bgm: bgmTracks },
+      props: {
+        ...props,
+        overlays: overlayItems,
+        inserts: insertItems,
+        bgm: bgmTracks,
+        ...(design ? { design } : {}),
+      },
     };
   }, [
     proj, cutplan, overlays, transcript, bgm, keeps, shortMode, activeShort, shortKeepsMerged,
@@ -1336,14 +1349,14 @@ export const App = () => {
         });
       });
     });
-    // ぼかし: 領域ぼかし/モザイク区間(専用の「ぼかし」トラック)
+    // ぼかし: 領域ぼかし区間(専用の「ぼかし」トラック)
     (overlays.blurs ?? []).forEach((b, i) => {
       const parts = remapInterval(b.start, b.end, timeline);
       parts.forEach((iv, j) => {
         cs.push({
           kind: "blur", index: i, track: "blur",
           outStart: iv.start, outEnd: iv.end,
-          label: b.type === "mosaic" ? "モザイク" : "ぼかし", editable: true,
+          label: "ぼかし", editable: true,
           noTrimStart: j > 0, noTrimEnd: j < parts.length - 1,
         });
       });
@@ -1841,8 +1854,11 @@ export const App = () => {
       style?: CaptionStyle | null;
       anchor?: "center" | "topLeft" | null;
     },
+    // カラーピッカー・スライダーの連続更新を undo 1回分にまとめる
+    // (updateCaption の coalesceKey と同じ仕組み)
+    coalesceKey?: string,
   ) => {
-    pushHistory();
+    pushHistory(coalesceKey ?? null);
     setOverlays((prev) => {
       if (!prev) return prev;
       const entry = { ...((prev.captionTracks ?? []).find((t) => t.track === track) ?? { track }) };
@@ -2254,7 +2270,7 @@ export const App = () => {
       arr[sel.index] = { ...sp, ...t };
       setOverlays({ ...ctx.overlays, zooms: arr });
     } else if (sel.kind === "blur") {
-      // ぼかし区間の move / trim。rect / type / strength は動かさない
+      // ぼかし区間の move / trim。rect / strength は動かさない
       const arr = [...(ctx.overlays.blurs ?? [])];
       const sp = arr[sel.index];
       if (!sp) return;
@@ -2803,16 +2819,16 @@ export const App = () => {
   const updateSpan = (
     kind: "overlays" | "wipeFull",
     i: number,
-    patch: Partial<OverlayEntry>,
+    patch: Partial<OverlayEntry & WipeFullEntry>,
     coalesceKey?: string,
   ) => {
     pushHistory(coalesceKey ?? null);
     setOverlays((prev) => {
       if (!prev) return prev;
-      const arr = [...((prev[kind] ?? []) as OverlayEntry[])];
+      const arr = [...((prev[kind] ?? []) as (OverlayEntry | WipeFullEntry)[])];
       const entry = { ...arr[i], ...patch };
       // undefined を明示した項目(rect / volume 等の解除)はキーごと消す
-      for (const k of Object.keys(patch) as (keyof OverlayEntry)[]) {
+      for (const k of Object.keys(patch) as (keyof (OverlayEntry & WipeFullEntry))[]) {
         if (patch[k] === undefined) delete entry[k];
       }
       arr[i] = entry;
@@ -2848,9 +2864,9 @@ export const App = () => {
     setOverlays((prev) => prev && { ...prev, zooms: (prev.zooms ?? []).filter((_, j) => j !== i) });
     setSelection(null);
   };
-  /** ぼかし区間の start/end/rect/type/strength を部分更新。coalesceKey は
+  /** ぼかし区間の start/end/rect/strength を部分更新。coalesceKey は
    * プレビュー上のドラッグ・スライダーの連続変更を undo 1回にまとめる用。
-   * type=blur/strength=0.5(既定値)への変更は undefined を渡してキー削除
+   * strength=0.5(既定値)への変更は undefined を渡してキー削除
    * (判断4。JSON を汚さない) */
   const updateBlur = (
     i: number,
@@ -4766,9 +4782,11 @@ export const App = () => {
         onSplit={splitAtPlayhead}
         getSplitDisabled={getSplitDisabled}
         onDelete={removeSelected}
-        deleteDisabled={!selection}
+        // トラック標準の選択は「消せるクリップ」ではない(Delete は何もしない)
+        deleteDisabled={!selection || selection.kind === "captionTrack"}
         onRemoveTrack={removeTrack}
         onRenameTrack={setCaptionTrackName}
+        onSelectCaptionTrack={(track) => setSelection({ kind: "captionTrack", index: track })}
         onDropFile={onDropFile}
         onDropMaterial={onDropMaterial}
         dragMaterial={dragMaterial}

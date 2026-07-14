@@ -76,7 +76,13 @@
         "outlineWidthPx": { "type": "number", "minimum": 0 },
         "fontFamily": { "type": "string" },
         "fontWeight": { "type": "number", "minimum": 100, "maximum": 900 },
-        "background": { "$ref": "common.schema.json#/$defs/CaptionBackground" },
+        "background": {
+          "description": "座布団(背景帯)。\"none\" は下の層(トラック標準 → config の render.captionBackground)から継承した帯をこの層で明示的に消す番兵",
+          "oneOf": [
+            { "$ref": "common.schema.json#/$defs/CaptionBackground" },
+            { "const": "none" }
+          ]
+        },
         "anim": { "$ref": "common.schema.json#/$defs/CaptionAnim" },
         "karaoke": { "$ref": "common.schema.json#/$defs/CaptionKaraoke" }
       }

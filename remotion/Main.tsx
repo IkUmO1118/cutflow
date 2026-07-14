@@ -21,8 +21,15 @@ import type { LayerId } from "../src/types.ts";
 import { frameSpans } from "../src/lib/renderProps.ts";
 import { buildCaptionIndex, lookupCaption } from "../src/lib/captionIndex.ts";
 import { bgmTrackTiming, bgmVolumeAtFrame } from "../src/lib/bgmEnvelope.ts";
-import { blurRadiusPx, mosaicBlockPx, outputRectToCanvasRegion } from "../src/lib/blur.ts";
+import { blurRadiusPx } from "../src/lib/blur.ts";
 import { cssFilterOf } from "../src/lib/colorFilter.ts";
+import {
+  CAMERA_SHADOW_CSS,
+  SCREEN_SHADOW_CSS,
+  panelRect,
+  toPanelRect,
+  wipeRectAt,
+} from "../src/lib/design.ts";
 import { valuesAt } from "../src/lib/keyframes.ts";
 import { fadeFactor, isImageFile } from "../src/lib/overlayFade.ts";
 import { cropFitStyle } from "../src/lib/panelStyle.ts";
@@ -80,7 +87,7 @@ export const Main = (props: RenderProps) => {
   const wipeT = props.wipe.transitionSec ?? 0;
   const wipeProgress = props.wipeFull.reduce((max, s) => {
     if (t < s.start || t >= s.end) return max;
-    const wt = Math.min(wipeT, (s.end - s.start) / 2);
+    const wt = Math.min(s.transitionSec ?? wipeT, (s.end - s.start) / 2);
     const p = wt <= 0 ? 1 : Math.min(1, (t - s.start) / wt, (s.end - t) / wt);
     return Math.max(max, p);
   }, 0);
@@ -92,14 +99,28 @@ export const Main = (props: RenderProps) => {
   // dip-to-black のときだけ props に載る)。境界点 tb の前後 sec/2 で
   // 0→1→0 の黒フェードを重ねる。尺・音声・字幕のタイミングには一切触れず、
   // 最上層(テロップより上)に黒い AbsoluteFill を重ねるだけの合成層の演出
-  // ズーム演出(画面の一部を拡大)。ベース映像の背景レイヤーだけに掛ける
-  // transform(props.layout があるショート/縦経路には zooms が乗らないので
-  // 自動的にここは恒等のまま=関与しない。D2 と同じ相乗り)
-  const zoomT = zoomTransformAt(t, props.zooms ?? [], props.width, props.height);
   // 簡易カラー調整(overlays.json の colorFilter)。ベース映像(画面クロップ+
   // カメラ=同一収録動画)だけに効く CSS filter(renderBase の全呼び出しに
   // 乗せる。素材オーバーレイ・挿入クリップは対象外)
   const filterCss = cssFilterOf(props.colorFilter);
+
+  // ベースレイアウトのデザイン(背景 + 画面パネル + カメラワイプ)。縦プリセット
+  // (props.layout があるショート経路)はパネル合成が別なので載せない。
+  // panel = ベース映像が収まる矩形で、design 無しでは出力全面(§lib/design.ts)
+  const design = props.layout ? undefined : props.design;
+  const panel = panelRect(design, props.width, props.height);
+
+  // ズーム演出(画面の一部を拡大)。ベース映像の背景レイヤーだけに掛ける
+  // transform(props.layout があるショート/縦経路には zooms が乗らないので
+  // 自動的にここは恒等のまま=関与しない。D2 と同じ相乗り)。デザイン有効時は
+  // ベース映像がパネルに収まるので、zoom の rect もパネルローカルへ写してから
+  // 「パネルを出力とみなす」既存の式に渡す(design 無しでは写像は恒等)
+  const zoomT = zoomTransformAt(
+    t,
+    (props.zooms ?? []).map((z) => ({ ...z, rect: toPanelRect(z.rect, panel) })),
+    panel.w,
+    panel.h,
+  );
 
   const cutHalf = (props.cutTransition?.sec ?? 0) / 2;
   const cutOpacity =
@@ -145,7 +166,6 @@ export const Main = (props: RenderProps) => {
     height: number,
     muted: boolean,
     fit: "contain" | "cover" = "cover",
-    imageRendering?: "pixelated",
   ) =>
     continuous ? (
       <CroppedVideo
@@ -157,7 +177,6 @@ export const Main = (props: RenderProps) => {
         muted={muted}
         fit={fit}
         filter={filterCss}
-        imageRendering={imageRendering}
       />
     ) : (
       baseSegs.map((seg, i) => (
@@ -181,7 +200,6 @@ export const Main = (props: RenderProps) => {
             muted={muted}
             fit={fit}
             filter={filterCss}
-            imageRendering={imageRendering}
           />
         </Sequence>
       ))
@@ -232,7 +250,31 @@ export const Main = (props: RenderProps) => {
   // props.overlays.filter(...) で全件走査+配列確保していたのを解消)
   const overlaysByTrack = useMemo(() => groupOverlaysByTrack(props.overlays), [props.overlays]);
 
-  const wipeLayer: ReactNode = (
+  // デザイン有効時のワイプ = 右下の角丸正方形(カメラを正方形へ center-crop。
+  // CroppedVideo の fit="cover" が 16:9 のカメラ領域を正方形の箱へ中央寄せで収める)。
+  // wipeFull の区間では、デザイン無しの経路と同じ wipeEase で矩形・角丸を
+  // 出力全画面(角丸0)へ補間する(§lib/design.ts の wipeRectAt)
+  const designWipe = design ? wipeRectAt(design.camera, props.width, props.height, wipeEase) : null;
+  const wipeLayer: ReactNode = design && designWipe ? (
+    <div
+      style={{
+        position: "absolute",
+        left: designWipe.rect.x,
+        top: designWipe.rect.y,
+        width: designWipe.rect.w,
+        height: designWipe.rect.h,
+        borderRadius: designWipe.radiusPx,
+        overflow: "hidden",
+        ...(design.camera.shadow ? { boxShadow: CAMERA_SHADOW_CSS } : {}),
+      }}
+    >
+      {hasVideo && props.cameraRegion ? (
+        renderBase(props.cameraRegion, designWipe.rect.w, designWipe.rect.h, true)
+      ) : (
+        <Placeholder label="カメラ" />
+      )}
+    </div>
+  ) : (
     <div
       style={{
         position: "absolute",
@@ -288,20 +330,44 @@ export const Main = (props: RenderProps) => {
   };
 
   return (
-    <AbsoluteFill style={{ backgroundColor: "black" }}>
+    <AbsoluteFill style={{ backgroundColor: design?.backgroundColor ?? "black" }}>
+      {/* デザインの背景画像(最下層)。ベース映像もテロップも全てこの上に乗る */}
+      {design?.backgroundFile && (
+        <Img
+          src={staticFile(design.backgroundFile)}
+          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
+        />
+      )}
+
       {hasVideo ? (
         props.layout ? (
           renderPanels(props.layout)
         ) : (
+          // デザイン有効時は画面クロップを角丸パネルへ収める(zoom はパネルの
+          // 内側で効く=角丸・影の外へはみ出さない)。design 無しでは panel が
+          // 出力全面・角丸0・影なしなので、従来の全面ベースと同じ絵になる
           <div
             style={{
               position: "absolute",
-              inset: 0,
-              transformOrigin: "0 0",
-              transform: `translate(${zoomT.translateX}px, ${zoomT.translateY}px) scale(${zoomT.scale})`,
+              left: panel.x,
+              top: panel.y,
+              width: panel.w,
+              height: panel.h,
+              borderRadius: design?.screen.radiusPx ?? 0,
+              overflow: "hidden",
+              ...(design?.screen.shadow ? { boxShadow: SCREEN_SHADOW_CSS } : {}),
             }}
           >
-            {renderBase(props.screenRegion, props.width, props.height, props.muteBase ?? false)}
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                transformOrigin: "0 0",
+                transform: `translate(${zoomT.translateX}px, ${zoomT.translateY}px) scale(${zoomT.scale})`,
+              }}
+            >
+              {renderBase(props.screenRegion, panel.w, panel.h, props.muteBase ?? false)}
+            </div>
           </div>
         )
       ) : (
@@ -321,7 +387,7 @@ export const Main = (props: RenderProps) => {
         </Sequence>
       ))}
 
-      {/* 領域ぼかし/モザイク。ベース映像+zoom+挿入の直上・素材/テロップの直下。
+      {/* 領域ぼかし。ベース映像+zoom+挿入の直上・素材/テロップの直下。
           zoom transform の外(独立レイヤー)なので出力px固定。本編経路のみ
           (!props.layout && hasVideo)。ショート(props.layout あり)には
           継承しない(D2/座標が本編基準のため) */}
@@ -337,7 +403,9 @@ export const Main = (props: RenderProps) => {
             : null;
           const rect = now ? { x: now.x, y: now.y, w: now.w, h: now.h } : b.rect;
           const strength = now?.strength ?? b.strength;
-          const cr = outputRectToCanvasRegion(rect, props.screenRegion, props.width, props.height);
+          // 強度0は「効果なし」(スライダを0にしたら消える、の直感に合わせる)。
+          // 0超は 4px の床から始まり、秘匿の下限を保つ
+          if (strength <= 0) return null;
           const container = {
             position: "absolute" as const,
             left: rect.x,
@@ -346,42 +414,24 @@ export const Main = (props: RenderProps) => {
             height: rect.h,
             overflow: "hidden" as const,
           };
-          if (b.type === "mosaic") {
-            const block = mosaicBlockPx(strength);
-            // 縮小レンダー → pixelated 拡大。box を block で割った小箱に描き、
-            // その箱を scale(block) で拡大(ニアレストネイバー)。端数は ceil して
-            // 余りをはみ出させ overflow:hidden で切る(隙間を作らない)
-            const smallW = Math.max(1, Math.ceil(rect.w / block));
-            const smallH = Math.max(1, Math.ceil(rect.h / block));
-            return (
-              <div key={`blur-${i}`} style={container}>
-                <div
-                  style={{
-                    position: "absolute",
-                    left: 0,
-                    top: 0,
-                    width: smallW,
-                    height: smallH,
-                    transform: `scale(${block})`,
-                    transformOrigin: "0 0",
-                    imageRendering: "pixelated",
-                  }}
-                >
-                  {renderBase(cr, smallW, smallH, true, "cover", "pixelated")}
-                </div>
-              </div>
-            );
-          }
-          // type === "blur"(既定): コンテナに blur() を掛ける。colorFilter は
-          // 内側 CroppedVideo に既に乗っているので、コンテナ blur は色補正済みの
-          // 映像にさらに合成される(CSS filter は積み重なる)
+          // backdrop-filter で「この矩形に実際に
+          // 描かれている下層(ベース映像+zoom+挿入。colorFilter 適用済み)」を
+          // その場でぼかす。ソースを敷き直す方式(CroppedVideo の複製に CSS
+          // blur)は、カーネルが要素外の透明と混ざって縁が薄れるうえ、矩形が
+          // パネル端に近いと広げたソース自体が映像の無い領域(透明)に
+          // はみ出して内側までぼかしが抜ける(強度に比例して悪化。実測)。
+          // backdrop はブラウザが縁をエッジ複製で埋めるため強度によらず
+          // 矩形全面が一様に覆われ、ベース映像の二重デコードも無い
+          const cssBlur = `blur(${blurRadiusPx(strength)}px)`;
           return (
             <div
               key={`blur-${i}`}
-              style={{ ...container, filter: `blur(${blurRadiusPx(strength)}px)` }}
-            >
-              {renderBase(cr, rect.w, rect.h, true, "cover")}
-            </div>
+              style={{
+                ...container,
+                backdropFilter: cssBlur,
+                WebkitBackdropFilter: cssBlur,
+              }}
+            />
           );
         })}
 
@@ -583,7 +633,6 @@ const CroppedVideo = ({
   playbackRate,
   fit = "cover",
   filter,
-  imageRendering,
 }: {
   src: string;
   canvas: { w: number; h: number };
@@ -598,9 +647,6 @@ const CroppedVideo = ({
   fit?: "contain" | "cover";
   /** 簡易カラー調整(colorFilter)の CSS filter 文字列。省略時は無補正 */
   filter?: string;
-  /** mosaic の縮小→拡大でニアレストネイバーにする(pixelated)。省略時は
-   * ブラウザ既定の補間(滑らか) */
-  imageRendering?: "pixelated";
 }) => {
   const wrapRef = useRef<HTMLDivElement>(null);
   const fallbackRef = useRef<HTMLCanvasElement>(null);
@@ -616,7 +662,6 @@ const CroppedVideo = ({
     left: fitted.left,
     top: fitted.top,
     maxWidth: "none",
-    ...(imageRendering ? { imageRendering } : {}),
   };
   return (
     <div

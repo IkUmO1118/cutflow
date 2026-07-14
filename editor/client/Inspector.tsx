@@ -9,13 +9,13 @@ import {
   DEFAULT_ARROW_HEAD_PX,
   DEFAULT_ARROW_WIDTH_PX,
   DEFAULT_BLUR_STRENGTH,
-  DEFAULT_BLUR_TYPE,
   DEFAULT_BOX_RADIUS_PX,
   DEFAULT_BOX_WIDTH_PX,
   DEFAULT_CAPTION_ANIM_SEC,
   DEFAULT_SPOTLIGHT_DIM,
   DEFAULT_SPOTLIGHT_FEATHER_PX,
   DEFAULT_SPOTLIGHT_SHAPE,
+  DEFAULT_WIPE_TRANSITION_SEC,
   DEFAULT_ZOOM_EASE_SEC,
   KARAOKE_DEFAULT_ACTIVE,
   captionAnchorOf,
@@ -23,14 +23,15 @@ import {
   captionTrack,
   captionTrackName,
   overlayTrack,
+  resolveCaptionBackground,
 } from "../../src/types.ts";
 import type {
   Annotation,
   AnnotationType,
   Bgm,
-  BlurType,
   CaptionAnim,
   CaptionAnimKind,
+  CaptionBackground,
   CaptionKaraoke,
   CaptionPos,
   CaptionStyle,
@@ -61,6 +62,7 @@ import {
 } from "./widgets.tsx";
 
 type OverlayEntry = NonNullable<Overlays["overlays"]>[number];
+type WipeFullEntry = NonNullable<Overlays["wipeFull"]>[number];
 type InsertEntry = NonNullable<Overlays["inserts"]>[number];
 type BgmTrack = Bgm["tracks"][number];
 
@@ -182,6 +184,8 @@ export const Inspector = ({
       style?: CaptionStyle | null;
       anchor?: "center" | "topLeft" | null;
     },
+    /** カラーピッカー・スライダーの連続更新を undo 1回分にまとめるキー */
+    coalesceKey?: string,
   ) => void;
   updateCutSeg: (i: number, patch: Partial<CutPlan["segments"][number]>) => void;
   /** keep 区間をカットへ倒す(記録として残り、継ぎ目の印から戻せる) */
@@ -207,7 +211,7 @@ export const Inspector = ({
   updateSpan: (
     kind: "overlays" | "wipeFull",
     i: number,
-    patch: Partial<OverlayEntry>,
+    patch: Partial<OverlayEntry & WipeFullEntry>,
     coalesceKey?: string,
   ) => void;
   removeSpan: (kind: "overlays" | "wipeFull", i: number) => void;
@@ -365,6 +369,109 @@ export const Inspector = ({
     );
   }
 
+  /* ---------------- テロップトラックの標準デザイン ----------------
+   * タイムラインのトラックラベルを選ぶとここに来る。クリップ(個々のテロップ)
+   * ではなく **そのトラック全体の既定** を編集する層。
+   * 「テロップ」と「章」でデザインを変えたい、はここで表現する
+   * (書き込み先は overlays.json の captionTracks[n]) */
+
+  if (selection.kind === "captionTrack") {
+    // captionTrack だけ index は配列の添字ではなくトラック番号(model.ts 参照)
+    const track = selection.index;
+    const trackDef = (overlays.captionTracks ?? []).find((t) => t.track === track);
+    const anchor = trackDef?.anchor ?? "center";
+    /** このトラックの下にある層 = config.yaml の既定だけ */
+    const base: CaptionStyle = {
+      fontSizePx: captionDefaults.fontSizePx,
+      color: captionDefaults.color ?? CAPTION_DEFAULT_COLOR,
+      outlineColor: captionDefaults.outlineColor ?? CAPTION_DEFAULT_OUTLINE,
+      fontFamily: captionDefaults.fontFamily ?? CAPTION_DEFAULT_FONT_FAMILY,
+      fontWeight: captionDefaults.fontWeight ?? CAPTION_DEFAULT_FONT_WEIGHT,
+      ...(captionDefaults.background ? { background: captionDefaults.background } : {}),
+    };
+    /** トラック標準スタイルを項目単位で更新(空になったらキーごと消す)。
+     * クリップ側の patchStyle と同じ形で、書き込み先だけが違う */
+    const patchTrackStyle = (p: Partial<CaptionStyle>, key?: string) => {
+      const st: CaptionStyle = { ...trackDef?.style, ...p };
+      for (const k of Object.keys(st) as (keyof CaptionStyle)[]) {
+        if (st[k] === undefined) delete st[k];
+      }
+      setCaptionTrackDefault(track, { style: Object.keys(st).length > 0 ? st : null }, key);
+    };
+    return (
+      <div className="insp">
+        <Section title={`${captionTrackName(track, overlays, capTracks)}(トラック標準)`}>
+          <p className="dim hint">
+            このトラックのテロップ全部に効く既定。個々のテロップで指定した項目が
+            あればそちらが優先されます
+          </p>
+        </Section>
+        <Section title="標準位置">
+          <div className="capPositionGrid">
+            <div className="capField">
+              <label>X</label>
+              <NumStepper
+                value={trackDef?.x}
+                allowEmpty
+                unit="px"
+                placeholder={String(stdCaptionPos.x)}
+                title="このトラックの標準 X(出力px)。↑↓ で1ずつ(Shift で10)。空欄=下部中央"
+                onCommit={(v) =>
+                  setCaptionTrackDefault(track, {
+                    pos:
+                      v !== undefined
+                        ? { x: Math.round(v), y: trackDef?.y ?? stdCaptionPos.y }
+                        : null,
+                  })
+                }
+              />
+            </div>
+            <div className="capField">
+              <label>Y</label>
+              <NumStepper
+                value={trackDef?.y}
+                allowEmpty
+                unit="px"
+                placeholder={String(stdCaptionPos.y)}
+                title="このトラックの標準 Y(出力px)。↑↓ で1ずつ(Shift で10)。空欄=下部中央"
+                onCommit={(v) =>
+                  setCaptionTrackDefault(track, {
+                    pos:
+                      v !== undefined
+                        ? { x: trackDef?.x ?? stdCaptionPos.x, y: Math.round(v) }
+                        : null,
+                  })
+                }
+              />
+            </div>
+            <div className="capField wide">
+              <label>座標基準</label>
+              <Segmented
+                value={anchor}
+                options={[
+                  { value: "center", label: "中心", title: "pos をテキストの中心と見る(既定)" },
+                  {
+                    value: "topLeft",
+                    label: "左上",
+                    title: "pos をテキストボックスの左上と見る(章タイトルなどの左寄せ配置向け)",
+                  },
+                ]}
+                onChange={(v) => setCaptionTrackDefault(track, { anchor: v })}
+              />
+            </div>
+          </div>
+        </Section>
+        <CaptionDesignFields
+          style={trackDef?.style}
+          base={base}
+          patch={patchTrackStyle}
+          keyPrefix={`captrack:${track}`}
+          belowLabel="config.yaml の既定"
+        />
+      </div>
+    );
+  }
+
   /* ---------------- テロップ(単体) ---------------- */
 
   if (selection.kind === "caption") {
@@ -384,21 +491,14 @@ export const Inspector = ({
       outlineColor: captionDefaults.outlineColor ?? CAPTION_DEFAULT_OUTLINE,
       fontFamily: captionDefaults.fontFamily ?? CAPTION_DEFAULT_FONT_FAMILY,
       fontWeight: captionDefaults.fontWeight ?? CAPTION_DEFAULT_FONT_WEIGHT,
+      ...(captionDefaults.background ? { background: captionDefaults.background } : {}),
       ...trackDef?.style,
     };
     /** いま効いている見た目(個別 → 標準)。サンプルとプリセット計測に使う */
+    /** いま効いている見た目(トラック標準 → 個別)。配置プリセットの計測と
+     * カラオケの既定色に使う(タイポグラフィ/塗り/帯 の UI は
+     * CaptionDesignFields が同じ合成を内部で持つ) */
     const effStyle: CaptionStyle = { ...base, ...s.style };
-    const defaultFamily = base.fontFamily ?? CAPTION_DEFAULT_FONT_FAMILY;
-    const effFamily = s.style?.fontFamily ?? defaultFamily;
-    /** 先頭は「標準」。同値のプリセットは除外(option の key 重複防止)し、
-     * プリセットに無い手書きのフォント種はそのまま選択肢に足して残す */
-    const familyOptions = [
-      { label: "標準", value: defaultFamily },
-      ...FONT_PRESETS.filter((p) => p.value !== defaultFamily),
-      ...(effFamily !== defaultFamily && !FONT_PRESETS.some((p) => p.value === effFamily)
-        ? [{ label: "(その他)", value: effFamily }]
-        : []),
-    ];
     /** セグメントの style を項目単位で更新(undefined で項目を消し、空なら key ごと消す)。
      * key はカラーピッカー・スライダーの連続変更を undo 1回にまとめる用 */
     const patchStyle = (p: Partial<CaptionStyle>, key?: string) => {
@@ -459,9 +559,6 @@ export const Inspector = ({
               : output.h - m - Math.round(th / 2);
       updateCaption(selection.index, { pos: { x, y } });
     };
-    const outlineOn = (effStyle.outlineColor ?? CAPTION_DEFAULT_OUTLINE) !== "none";
-    const bg = s.style?.background;
-    const bgColor = bg ? splitColor(bg.color) : null;
     return (
       <div className="insp">
         <Section title={captionTrackName(track, overlays, capTracks)} className="captionTextSec">
@@ -482,11 +579,12 @@ export const Inspector = ({
           <div className="capPositionGrid">
               <div className="capField">
                 <label>X</label>
-                <NumInput
+                <NumStepper
                   value={s.pos?.x}
                   allowEmpty
+                  unit="px"
                   placeholder={String(eff.x)}
-                  title={`${posLabel}の出力px。空欄=標準位置。プレビュー上のドラッグでも動かせる`}
+                  title={`${posLabel}の出力px。↑↓ で1ずつ(Shift で10)。空欄=標準位置。プレビュー上のドラッグでも動かせる`}
                   onCommit={(v) =>
                     updateCaption(selection.index, {
                       pos: v !== undefined ? { ...eff, x: Math.round(v) } : undefined,
@@ -496,11 +594,12 @@ export const Inspector = ({
               </div>
               <div className="capField">
                 <label>Y</label>
-                <NumInput
+                <NumStepper
                   value={s.pos?.y}
                   allowEmpty
+                  unit="px"
                   placeholder={String(eff.y)}
-                  title={`${posLabel}の出力px。空欄=標準位置。プレビュー上のドラッグでも動かせる`}
+                  title={`${posLabel}の出力px。↑↓ で1ずつ(Shift で10)。空欄=標準位置。プレビュー上のドラッグでも動かせる`}
                   onCommit={(v) =>
                     updateCaption(selection.index, {
                       pos: v !== undefined ? { ...eff, y: Math.round(v) } : undefined,
@@ -524,232 +623,24 @@ export const Inspector = ({
             </p>
           )}
         </Section>
-        <Section title="タイポグラフィ">
-          <div className="capControlStack typographyControls">
-            <div className="capField wide noLabel">
-              <select
-                value={effFamily}
-                title="このテロップのフォント種。標準=トラック標準 → config の既定"
-                onChange={(e) =>
-                  patchStyle({
-                    fontFamily:
-                      e.target.value === defaultFamily ? undefined : e.target.value,
-                  })
-                }
-              >
-                {familyOptions.map((p) => (
-                  <option key={p.value} value={p.value}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="capField noLabel">
-              <select
-                value={s.style?.fontWeight ?? 400}
-                title="文字の太さ"
-                onChange={(e) =>
-                  patchStyle({
-                    fontWeight: Number(e.target.value),
-                  })
-                }
-              >
-                {CAPTION_WEIGHT_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="capField noLabel">
-              <NumStepper
-                value={s.style?.fontSizePx}
-                allowEmpty
-                min={1}
-                unit="px"
-                presets={CAPTION_SIZE_PRESETS}
-                placeholder={base.fontSizePx !== undefined ? String(base.fontSizePx) : undefined}
-                title="このテロップだけのフォントサイズ。↑↓で増減 / ▾でプリセット。空欄=標準(トラック標準 → config.yaml)"
-                onCommit={(v) =>
-                  patchStyle({ fontSizePx: v !== undefined ? Math.round(v) : undefined })
-                }
-              />
-            </div>
-          </div>
-        </Section>
-        <Section title="塗り">
-          <div className="capControlStack paintControls">
-            <div className="capField swatchField">
-              <label>文字</label>
-              <input
-                type="color"
-                value={s.style?.color ?? base.color}
-                title="文字色。指定すると transcript.json の style に保存"
-                onChange={(e) =>
-                  patchStyle({ color: e.target.value }, `caption:${selection.index}:color`)
-                }
-              />
-            </div>
-            <div className="capField swatchField">
-              <label>縁</label>
-              <input
-                type="checkbox"
-                checked={outlineOn}
-                title="文字の縁取りの有無(なし=outlineColor: none)"
-                onChange={(e) =>
-                  patchStyle(
-                    e.target.checked
-                      ? {
-                          outlineColor:
-                            base.outlineColor && base.outlineColor !== "none"
-                              ? undefined
-                              : CAPTION_DEFAULT_OUTLINE,
-                        }
-                      : { outlineColor: "none" },
-                  )
-                }
-              />
-              {outlineOn && (
-                <input
-                  type="color"
-                  value={
-                    (s.style?.outlineColor !== "none" ? s.style?.outlineColor : undefined) ??
-                    (base.outlineColor !== "none" ? base.outlineColor : CAPTION_DEFAULT_OUTLINE)
-                  }
-                  title="縁取り色。指定すると transcript.json の style に保存"
-                  onChange={(e) =>
-                    patchStyle(
-                      { outlineColor: e.target.value },
-                      `caption:${selection.index}:outlineColor`,
-                    )
-                  }
-                />
-              )}
-            </div>
-            {outlineOn && (
-              <div className="capField">
-                <label>縁太さ</label>
-                <NumStepper
-                  value={s.style?.outlineWidthPx}
-                  allowEmpty
-                  min={0}
-                  unit="px"
-                  presets={CAPTION_OUTLINE_PRESETS}
-                  placeholder={(() => {
-                    const fs = s.style?.fontSizePx ?? base.fontSizePx;
-                    return fs !== undefined ? String(Math.round(fs * 0.25)) : "自動";
-                  })()}
-                  title="縁取りの太さ(px)。↑↓で増減 / ▾でプリセット。空欄=自動(フォントサイズの0.25倍)"
-                  onCommit={(v) =>
-                    patchStyle(
-                      { outlineWidthPx: v !== undefined ? Math.max(0, Math.round(v)) : undefined },
-                      `caption:${selection.index}:outlineWidthPx`,
-                    )
-                  }
-                />
-              </div>
-            )}
-            <div className="capField swatchField">
-              <label>背景帯</label>
-              <input
-                type="checkbox"
-                checked={!!bg}
-                title="テキストの背後に帯を敷く(YouTube テロップの定番)。縁取りは自動で消える"
-                onChange={(e) =>
-                  patchStyle(
-                    e.target.checked
-                      ? { background: { color: "#000000" }, outlineColor: "none" }
-                      : { background: undefined, outlineColor: undefined },
-                  )
-                }
-              />
-              {bg && bgColor && (
-                <input
-                  type="color"
-                  value={bgColor.hex}
-                  title="帯の色"
-                  onChange={(e) =>
-                    patchStyle(
-                      {
-                        background: {
-                          ...bg,
-                          color: joinColor(e.target.value, bgColor.alpha),
-                        },
-                      },
-                      `caption:${selection.index}:bgColor`,
-                    )
-                  }
-                />
-              )}
-            </div>
-            {bg && bgColor && (
-              <>
-              <div className="capField wide">
-                <label>帯の不透明度</label>
-                <PctSlider
-                  pct={Math.round(bgColor.alpha * 100)}
-                  title="帯の透け具合(rgba として transcript.json に保存)"
-                  onChange={(pct) =>
-                    patchStyle(
-                      {
-                        background: { ...bg, color: joinColor(bgColor.hex, pct / 100) },
-                      },
-                      `caption:${selection.index}:bgAlpha`,
-                    )
-                  }
-                />
-              </div>
-              <div className="capField">
-                <label>余白</label>
-                <NumInput
-                  value={bg.paddingPx}
-                  allowEmpty
-                  placeholder={String(
-                    Math.round((effStyle.fontSizePx ?? base.fontSizePx ?? 44) * 0.35),
-                  )}
-                  title="テキスト周りの余白(横方向。縦はこの半分)。空欄=フォントサイズの0.35倍"
-                  onCommit={(v) =>
-                    patchStyle({
-                      background: {
-                        ...bg,
-                        paddingPx: v !== undefined ? Math.max(0, Math.round(v)) : undefined,
-                      },
-                    })
-                  }
-                />
-              </div>
-              <div className="capField">
-                <label>角丸</label>
-                <NumInput
-                  value={bg.radiusPx}
-                  allowEmpty
-                  placeholder="8"
-                  title="帯の角丸の半径(px)。空欄=8"
-                  onCommit={(v) =>
-                    patchStyle({
-                      background: {
-                        ...bg,
-                        radiusPx: v !== undefined ? Math.max(0, Math.round(v)) : undefined,
-                      },
-                    })
-                  }
-                />
-              </div>
-              </>
-            )}
-          </div>
-          {trackDef?.style && (
-            <p className="dim hint">
-              トラック T{track} の標準スタイル: {fmtStyle(trackDef.style)}{" "}
-              <button
-                className="linkish"
-                onClick={() => setCaptionTrackDefault(track, { style: null })}
-              >
-                解除
-              </button>
-            </p>
-          )}
-        </Section>
+        <CaptionDesignFields
+          style={s.style}
+          base={base}
+          patch={patchStyle}
+          keyPrefix={`caption:${selection.index}`}
+          belowLabel={trackDef?.style ? `トラック T${track} の標準` : "config.yaml の既定"}
+        />
+        {trackDef?.style && (
+          <p className="dim hint">
+            トラック T{track} の標準スタイル: {fmtStyle(trackDef.style)}{" "}
+            <button
+              className="linkish"
+              onClick={() => setCaptionTrackDefault(track, { style: null })}
+            >
+              解除
+            </button>
+          </p>
+        )}
         <Section title="アニメーション">
           <div className="capControlStack animationControls">
             <div className="capLabeledField">
@@ -1528,6 +1419,7 @@ export const Inspector = ({
   if (selection.kind === "wipeFull") {
     const sp = (overlays.wipeFull ?? [])[selection.index];
     if (!sp) return null;
+    const transitionMode = sp.transitionSec === 0 ? "instant" : "zoom";
     return (
       <div className="insp">
         <InspHead
@@ -1535,19 +1427,43 @@ export const Inspector = ({
           title={`${fmtTime(sp.start)} 〜 ${fmtTime(sp.end)}`}
           chips={[`長さ ${fmtTime(Math.max(0, sp.end - sp.start))}`]}
         />
-        <p className="dim hint" style={{ marginTop: 0 }}>
-          この区間はワイプ(カメラ)が画面全体に広がり、背景を隠します。
-          出入りの遷移時間は設定(⌘,)の「ワイプ全画面の遷移」で変えられます。
-        </p>
-        <TimingSection
-          start={sp.start}
-          end={sp.end}
-          timeline={timeline}
-          getPlayheadSrc={getPlayheadSrc}
-          seekToSrc={seekToSrc}
-          onStart={(v) => updateSpan("wipeFull", selection.index, { start: v })}
-          onEnd={(v) => updateSpan("wipeFull", selection.index, { end: v })}
-        />
+        <Section title="演出" className="flushTopSec">
+          <div className="capControlStack">
+            <div className="capField wide">
+              <label>入り方</label>
+              <Segmented
+                value={transitionMode}
+                onChange={(v: "instant" | "zoom") =>
+                  updateSpan("wipeFull", selection.index, {
+                    transitionSec: v === "instant" ? 0 : undefined,
+                  })
+                }
+                options={[
+                  { value: "zoom", label: "ズームイン", title: "右下ワイプから全画面へ広げる" },
+                  { value: "instant", label: "即 full", title: "区間の先頭から全画面にする" },
+                ]}
+              />
+            </div>
+            {transitionMode === "zoom" && (
+              <div className="capField wide">
+                <label>速さ</label>
+                <NumStepper
+                  value={sp.transitionSec}
+                  allowEmpty
+                  min={0}
+                  unit="秒"
+                  placeholder={String(DEFAULT_WIPE_TRANSITION_SEC)}
+                  title="全画面へ広がる/戻る秒数。空欄=設定の「ワイプ全画面の遷移」"
+                  onCommit={(v) =>
+                    updateSpan("wipeFull", selection.index, {
+                      transitionSec: v !== undefined ? Math.max(0, round2(v)) : undefined,
+                    })
+                  }
+                />
+              </div>
+            )}
+          </div>
+        </Section>
         <Section title="">
           <button className="danger" onClick={() => removeSpan("wipeFull", selection.index)}>
             この区間を削除
@@ -1575,13 +1491,28 @@ export const Inspector = ({
         </Section>
         <Section title="遷移">
           <div className="capControlStack">
-            <div className="capField noLabel">
-              <NumInput
+            <div className="capField">
+              <label>In</label>
+              <NumStepper
                 value={z.easeSec}
                 allowEmpty
+                min={0}
+                unit="秒"
                 placeholder={String(DEFAULT_ZOOM_EASE_SEC)}
-                title="区間の頭でズームイン・末尾でズームアウトする秒数。空欄=config の既定(render.zoom.easeSec)"
+                title="区間の頭でズームインする秒数。空欄=config の既定(render.zoom.easeSec)"
                 onCommit={(v) => updateZoom(selection.index, { easeSec: v })}
+              />
+            </div>
+            <div className="capField">
+              <label>Out</label>
+              <NumStepper
+                value={z.easeOutSec}
+                allowEmpty
+                min={0}
+                unit="秒"
+                placeholder={String(z.easeSec ?? DEFAULT_ZOOM_EASE_SEC)}
+                title="区間の末尾でズームアウトする秒数。空欄=In と同じ"
+                onCommit={(v) => updateZoom(selection.index, { easeOutSec: v })}
               />
             </div>
           </div>
@@ -1599,7 +1530,6 @@ export const Inspector = ({
   if (selection.kind === "blur") {
     const b = (overlays.blurs ?? [])[selection.index];
     if (!b) return null;
-    const type = b.type ?? DEFAULT_BLUR_TYPE;
     const strengthPct = Math.round((b.strength ?? DEFAULT_BLUR_STRENGTH) * 100);
     return (
       <div className="insp">
@@ -1613,18 +1543,6 @@ export const Inspector = ({
         </Section>
         <Section title="効果">
           <div className="capControlStack">
-            <div className="capField wide noLabel">
-                <Segmented
-                  value={type}
-                  onChange={(v: BlurType) =>
-                    updateBlur(selection.index, { type: v === DEFAULT_BLUR_TYPE ? undefined : v })
-                  }
-                  options={[
-                    { value: "blur", label: "ぼかし", title: "blur: CSS ぼかし(既定)" },
-                    { value: "mosaic", label: "モザイク", title: "mosaic: ピクセル化" },
-                  ]}
-                />
-            </div>
           <div className="capField wide">
             <label>強度</label>
             <PctSlider
@@ -1896,6 +1814,295 @@ const InspHead = ({
 );
 
 /** セクション(小見出し+罫線)。title 空文字は罫線だけ(削除ボタン置き場) */
+/**
+ * テロップのデザイン編集(タイポグラフィ / 塗り / 帯)。
+ *
+ * **クリップ1件とトラック標準の両方から使う**。どちらも「この層の style を、
+ * 下の層から継承した base の上に項目単位で重ねる」という同じ構造なので、UI は
+ * ここに1つだけ持つ(2箇所に書くと必ず片方だけ直されて食い違う)。
+ *
+ *   config.yaml の render.caption*  →  captionTracks[n].style  →  segment.style
+ *   └─ base(トラック選択時) ────┘  └─ base(クリップ選択時) ──┘
+ *
+ * 帯(background)だけは「下から継承した帯をこの層で消す」を表せる必要があるので
+ * "none" という番兵を持つ(outlineColor: "none" と同じ流儀)。undefined は
+ * 「指定なし=継承」であって「帯なし」ではない、が要点。
+ */
+const CaptionDesignFields = ({
+  style,
+  base,
+  patch,
+  keyPrefix,
+  belowLabel,
+}: {
+  /** この層自身の指定(未指定の項目は下の層から継承される) */
+  style: CaptionStyle | undefined;
+  /** 下の層から継承される実効値(config 既定、クリップ選択時は + トラック標準) */
+  base: CaptionStyle;
+  /** この層の style を項目単位で更新する(undefined でその項目を継承へ戻す) */
+  patch: (p: Partial<CaptionStyle>, key?: string) => void;
+  /** undo 合体キーの接頭辞(色・スライダーの連続変更を1回にまとめる) */
+  keyPrefix: string;
+  /** 継承ヒントに出す「下の層」の呼び名 */
+  belowLabel: string;
+}): ReactNode => {
+  /** いま実際に描かれる見た目(継承 + この層の上書き) */
+  const effStyle: CaptionStyle = { ...base, ...style };
+  const defaultFamily = base.fontFamily ?? CAPTION_DEFAULT_FONT_FAMILY;
+  const effFamily = style?.fontFamily ?? defaultFamily;
+  /** 先頭は「標準」。同値のプリセットは除外(option の key 重複防止)し、
+   * プリセットに無い手書きのフォント種はそのまま選択肢に足して残す */
+  const familyOptions = [
+    { label: "標準", value: defaultFamily },
+    ...FONT_PRESETS.filter((p) => p.value !== defaultFamily),
+    ...(effFamily !== defaultFamily && !FONT_PRESETS.some((p) => p.value === effFamily)
+      ? [{ label: "(その他)", value: effFamily }]
+      : []),
+  ];
+  const outlineOn = (effStyle.outlineColor ?? CAPTION_DEFAULT_OUTLINE) !== "none";
+  /** この層自身の帯指定。"none" = 下の層の帯を明示的に打ち消している */
+  const ownBg = style?.background;
+  /** 下の層から継承される帯 */
+  const inheritedBg = resolveCaptionBackground(base.background);
+  /** いま実際に描かれる帯 */
+  const effBg = resolveCaptionBackground(ownBg, base.background);
+  const bgColor = effBg ? splitColor(effBg.color) : null;
+  /** 帯を下から継承していて、この層は何も言っていない状態 */
+  const bgInherited = ownBg === undefined && !!inheritedBg;
+  /** 帯の項目を更新。継承中の帯を編集したらこの層へ実体化する
+   * (effBg を土台にするので継承値がそのまま引き継がれる) */
+  const patchBg = (p: Partial<CaptionBackground>, key?: string) => {
+    if (!effBg) return;
+    const next: CaptionBackground = { ...effBg, ...p };
+    for (const k of Object.keys(next) as (keyof CaptionBackground)[]) {
+      if (next[k] === undefined) delete next[k];
+    }
+    patch({ background: next }, key);
+  };
+  return (
+    <>
+      <Section title="タイポグラフィ">
+        <div className="capControlStack typographyControls">
+          <div className="capField wide noLabel">
+            <select
+              value={effFamily}
+              title="フォント種。標準=下の層(トラック標準 → config の既定)を継承"
+              onChange={(e) =>
+                patch({
+                  fontFamily: e.target.value === defaultFamily ? undefined : e.target.value,
+                })
+              }
+            >
+              {familyOptions.map((p) => (
+                <option key={p.value} value={p.value}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="capField noLabel">
+            <select
+              value={effStyle.fontWeight ?? CAPTION_DEFAULT_FONT_WEIGHT}
+              title="文字の太さ"
+              onChange={(e) => patch({ fontWeight: Number(e.target.value) })}
+            >
+              {CAPTION_WEIGHT_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="capField noLabel">
+            <NumStepper
+              value={style?.fontSizePx}
+              allowEmpty
+              min={1}
+              unit="px"
+              presets={CAPTION_SIZE_PRESETS}
+              placeholder={base.fontSizePx !== undefined ? String(base.fontSizePx) : undefined}
+              title={`フォントサイズ。↑↓で増減 / ▾でプリセット。空欄=${belowLabel}を継承`}
+              onCommit={(v) => patch({ fontSizePx: v !== undefined ? Math.round(v) : undefined })}
+            />
+          </div>
+        </div>
+      </Section>
+      <Section title="塗り(文字)">
+        <div className="capControlStack paintControls">
+          <div className="capField swatchField">
+            <label>文字</label>
+            <input
+              type="color"
+              value={style?.color ?? base.color}
+              title="文字色"
+              onChange={(e) => patch({ color: e.target.value }, `${keyPrefix}:color`)}
+            />
+          </div>
+          <div className="capField swatchField">
+            <label>縁</label>
+            <input
+              type="checkbox"
+              checked={outlineOn}
+              title="文字の縁取りの有無(なし=outlineColor: none)"
+              onChange={(e) =>
+                patch(
+                  e.target.checked
+                    ? {
+                        outlineColor:
+                          base.outlineColor && base.outlineColor !== "none"
+                            ? undefined
+                            : CAPTION_DEFAULT_OUTLINE,
+                      }
+                    : { outlineColor: "none" },
+                )
+              }
+            />
+            {outlineOn && (
+              <input
+                type="color"
+                value={
+                  (style?.outlineColor !== "none" ? style?.outlineColor : undefined) ??
+                  (base.outlineColor !== "none" ? base.outlineColor : CAPTION_DEFAULT_OUTLINE)
+                }
+                title="縁取り色"
+                onChange={(e) =>
+                  patch({ outlineColor: e.target.value }, `${keyPrefix}:outlineColor`)
+                }
+              />
+            )}
+          </div>
+          {outlineOn && (
+            <div className="capField">
+              <label>縁太さ</label>
+              <NumStepper
+                value={style?.outlineWidthPx}
+                allowEmpty
+                min={0}
+                unit="px"
+                presets={CAPTION_OUTLINE_PRESETS}
+                placeholder={(() => {
+                  const fs = style?.fontSizePx ?? base.fontSizePx;
+                  return fs !== undefined ? String(Math.round(fs * 0.25)) : "自動";
+                })()}
+                title="縁取りの太さ(px)。↑↓で増減 / ▾でプリセット。空欄=自動(フォントサイズの0.25倍)"
+                onCommit={(v) =>
+                  patch(
+                    { outlineWidthPx: v !== undefined ? Math.max(0, Math.round(v)) : undefined },
+                    `${keyPrefix}:outlineWidthPx`,
+                  )
+                }
+              />
+            </div>
+          )}
+        </div>
+      </Section>
+      <Section title="帯(テキストの背景)">
+        <div className="capControlStack bandControls">
+          <div className="capField swatchField">
+            <label>帯</label>
+            <input
+              type="checkbox"
+              checked={!!effBg}
+              title={
+                inheritedBg
+                  ? `テキストの背後に帯を敷く。外すとこの層だけ帯なし(background: "none")になり、${belowLabel}の帯を打ち消す`
+                  : "テキストの背後に帯を敷く(YouTube テロップの定番)。縁取りは自動で消える"
+              }
+              onChange={(e) =>
+                patch(
+                  e.target.checked
+                    ? // ON: 下の層に帯があるなら継承し直す("none" を外すだけ)。
+                      // 無ければこの層に1枚敷く
+                      inheritedBg
+                      ? { background: undefined }
+                      : { background: { color: "#000000" }, outlineColor: "none" }
+                    : // OFF: 下の層に帯があるなら "none" で明示的に打ち消す。
+                      // undefined にすると継承で復活してしまう(=「帯が消せない」の正体)。
+                      // 下に何も無ければキーごと消すだけでよい
+                      inheritedBg
+                      ? { background: "none" }
+                      : { background: undefined, outlineColor: undefined },
+                )
+              }
+            />
+            {effBg && bgColor && (
+              <input
+                type="color"
+                value={bgColor.hex}
+                title="帯の色"
+                onChange={(e) =>
+                  patchBg({ color: joinColor(e.target.value, bgColor.alpha) }, `${keyPrefix}:bgColor`)
+                }
+              />
+            )}
+          </div>
+          {effBg && bgColor && (
+            <>
+              <div className="capField wide">
+                <label>不透明度</label>
+                <PctSlider
+                  pct={Math.round(bgColor.alpha * 100)}
+                  title="帯の透け具合(rgba として保存)"
+                  onChange={(pct) =>
+                    patchBg({ color: joinColor(bgColor.hex, pct / 100) }, `${keyPrefix}:bgAlpha`)
+                  }
+                />
+              </div>
+              <div className="capField">
+                <label>余白</label>
+                <NumStepper
+                  value={effBg.paddingPx}
+                  allowEmpty
+                  min={0}
+                  unit="px"
+                  placeholder={String(
+                    Math.round((effStyle.fontSizePx ?? CAPTION_FALLBACK_SIZE_PX) * 0.35),
+                  )}
+                  title="テキスト周りの余白(横方向。縦はこの半分)。↑↓ で1ずつ(Shift で10)。空欄=フォントサイズの0.35倍"
+                  onCommit={(v) =>
+                    patchBg({
+                      paddingPx: v !== undefined ? Math.max(0, Math.round(v)) : undefined,
+                    })
+                  }
+                />
+              </div>
+              <div className="capField">
+                <label>角丸</label>
+                <NumStepper
+                  value={effBg.radiusPx}
+                  allowEmpty
+                  min={0}
+                  unit="px"
+                  placeholder="8"
+                  title="帯の角丸の半径(px)。↑↓ で1ずつ(Shift で10)。空欄=8"
+                  onCommit={(v) =>
+                    patchBg({
+                      radiusPx: v !== undefined ? Math.max(0, Math.round(v)) : undefined,
+                    })
+                  }
+                />
+              </div>
+            </>
+          )}
+        </div>
+        {bgInherited && (
+          <p className="dim hint">
+            帯は{belowLabel}から継承中。ここで値を変えるとこの層だけの帯になります
+          </p>
+        )}
+        {ownBg === "none" && (
+          <p className="dim hint">
+            この層だけ帯なし(<code>"none"</code> で{belowLabel}の帯を打ち消し中){" "}
+            <button className="linkish" onClick={() => patch({ background: undefined })}>
+              継承に戻す
+            </button>
+          </p>
+        )}
+      </Section>
+    </>
+  );
+};
+
 const Section = ({
   title,
   children,
@@ -1977,16 +2184,21 @@ const TimingSection = ({
   const visible = parts.length > 0;
   return (
     <Section title="タイミング">
-      <div className="field">
-        <label>長さ</label>
-        <span className="mono">{fmtTime(Math.max(0, end - start))}</span>
-        {visible ? (
-          <span className="dim hint">
-            出力 {fmtTime(parts[0].start)} 〜 {fmtTime(parts[parts.length - 1].end)}
-          </span>
-        ) : (
-          <span className="warnText hint">カット内(表示されない)</span>
-        )}
+      <div className="capControlStack">
+        <div className="capField">
+          <label>長さ</label>
+          <span className="mono">{fmtTime(Math.max(0, end - start))}</span>
+        </div>
+        <div className="capField wide">
+          <label>出力</label>
+          {visible ? (
+            <span className="mono">
+              {fmtTime(parts[0].start)} 〜 {fmtTime(parts[parts.length - 1].end)}
+            </span>
+          ) : (
+            <span className="warnText">カット内(表示されない)</span>
+          )}
+        </div>
       </div>
       <div className="btnRow">
         <button
@@ -2026,21 +2238,23 @@ const TimingSection = ({
         <summary>詳細(元収録の秒)</summary>
         {/* 逆転・負値は validate がエラーにする(保存も止まる)ので、
             入力の時点でクランプする */}
-        <div className="field">
-          <label>開始</label>
-          <NumInput
-            value={start}
-            onCommit={(v) =>
-              v !== undefined && onStart(round2(Math.max(0, Math.min(v, end - MIN_SPAN))))
-            }
-          />
-        </div>
-        <div className="field">
-          <label>終了</label>
-          <NumInput
-            value={end}
-            onCommit={(v) => v !== undefined && onEnd(round2(Math.max(v, start + MIN_SPAN)))}
-          />
+        <div className="capControlStack">
+          <div className="capField">
+            <label>開始</label>
+            <NumInput
+              value={start}
+              onCommit={(v) =>
+                v !== undefined && onStart(round2(Math.max(0, Math.min(v, end - MIN_SPAN))))
+              }
+            />
+          </div>
+          <div className="capField">
+            <label>終了</label>
+            <NumInput
+              value={end}
+              onCommit={(v) => v !== undefined && onEnd(round2(Math.max(v, start + MIN_SPAN)))}
+            />
+          </div>
         </div>
       </details>
     </Section>
@@ -3239,7 +3453,6 @@ const ProjectPanel = ({
   shortSection?: ReactNode;
 }) => {
   const keepsN = cutplan.segments.filter((s) => s.action === "keep").length;
-  const cutsN = cutplan.segments.length - keepsN;
   const cutPct = srcDur > 0 ? Math.max(0, Math.round((1 - duration / srcDur) * 100)) : 0;
   return (
     <div className="insp">
@@ -3248,41 +3461,38 @@ const ProjectPanel = ({
         title={project.dir.replace(/\/+$/, "").split("/").pop() ?? project.dir}
       />
       {shortSection}
-      <dl className="projRows">
-        <dt>収録</dt>
-        <dd className="mono">{fmtTime(srcDur)}</dd>
-        <dt>出力</dt>
-        <dd className="mono">
-          {fmtTime(duration)} <span className="dim">(カット {cutPct}%)</span>
-        </dd>
-        <dt>映像クリップ</dt>
-        <dd>
-          {keepsN} <span className="dim">/ カット記録 {cutsN}</span>
-        </dd>
-        <dt>テロップ</dt>
-        <dd>{transcript.segments.length}</dd>
-        <dt>素材</dt>
-        <dd>{materials.length}</dd>
-        <dt>BGM</dt>
-        <dd>
-          {project.bgmTracks > 0 ? (
-            `bgm.json(${project.bgmTracks} 区間)`
-          ) : (
-            project.bgmFile ?? <span className="dim">なし</span>
-          )}
-        </dd>
-        <dt>承認</dt>
-        <dd>
-          {project.approved ? (
-            "承認済み"
-          ) : (
-            <span className="warnText">未承認(ヘッダーの「書き出し ▾」から)</span>
-          )}
-        </dd>
-      </dl>
-      <p className="dim hint">
-        タイムラインのクリップを選ぶと、ここで詳細を編集できます。
-      </p>
+      <Section title="概要" className={shortSection ? undefined : "flushTopSec"}>
+        <dl className="projRows">
+          <dt>収録</dt>
+          <dd className="mono">{fmtTime(srcDur)}</dd>
+          <dt>出力</dt>
+          <dd className="mono">{fmtTime(duration)}</dd>
+          <dt>カット</dt>
+          <dd>{cutPct}%</dd>
+          <dt>承認</dt>
+          <dd>{project.approved ? "承認済み" : <span className="warnText">未承認</span>}</dd>
+        </dl>
+      </Section>
+      <Section title="構成">
+        <dl className="projRows">
+          <dt>映像</dt>
+          <dd>{keepsN}</dd>
+          <dt>カット記録</dt>
+          <dd>{cutplan.segments.length - keepsN}</dd>
+          <dt>テロップ</dt>
+          <dd>{transcript.segments.length}</dd>
+          <dt>素材</dt>
+          <dd>{materials.length}</dd>
+          <dt>カメラ</dt>
+          <dd>{project.hasCamera ? "あり" : "なし"}</dd>
+          <dt>BGM</dt>
+          <dd>
+            {project.bgmTracks > 0
+              ? `bgm.json(${project.bgmTracks} 区間)`
+              : project.bgmFile ?? <span className="dim">なし</span>}
+          </dd>
+        </dl>
+      </Section>
       <details className="inspDetails">
         <summary>操作ガイド</summary>
         <div className="guide">
@@ -3356,6 +3566,11 @@ export const FONT_PRESETS: { label: string; value: string }[] = [
  * font-weight。共通化して3箇所(個別・一括・トラック標準)の select で使う */
 /** フォントサイズ(px)の ▾ プリセット。Figma 風に代表値を並べる(直接入力・
  * ↑↓増減も可)。テロップは視認性優先で大きめ中心 */
+/** フォントサイズがどの層でも決まらないときの最後の頼み(帯の余白の自動値の計算用)。
+ * 実際には config.yaml の captionFontSizePx が必ず入るので使われないが、
+ * 型の上では undefined になりうる */
+const CAPTION_FALLBACK_SIZE_PX = 44;
+
 export const CAPTION_SIZE_PRESETS = [24, 28, 32, 40, 48, 56, 64, 72, 80, 96, 120, 160];
 
 /** 縁取りの太さ(px)の ▾ プリセット。0=縁なし相当〜太めまで */
@@ -3395,7 +3610,11 @@ const fmtStyle = (st: CaptionStyle): string =>
     st.outlineWidthPx !== undefined ? `縁幅 ${st.outlineWidthPx}px` : null,
     st.fontFamily ? "フォント指定" : null,
     st.fontWeight !== undefined ? `太さ ${st.fontWeight}` : null,
-    st.background ? `座布団 ${st.background.color}` : null,
+    st.background === "none"
+      ? "帯なし"
+      : st.background
+        ? `帯 ${st.background.color}`
+        : null,
     st.anim ? "アニメ" : null,
     st.karaoke ? "カラオケ" : null,
   ]

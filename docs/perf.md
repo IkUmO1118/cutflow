@@ -555,7 +555,85 @@ chrome-headless-shell 側のフレーク。
   伸び(1677f=56.07s、正しくは 55.90s)、Remotion(厳密30fps)との混在 concat 後に
   verifyAssembled の duration 判定で落ちる。`setpts=N/fps/TB`(frame 序数で CFR
   再スタンプ)で解決。frame 内容・順序・overlay の n ベース enable は不変。
+  **⚠ 追記(2026-07-14)**: この序数ベース再スタンプは duration は直るが、
+  ソースフレームの選択が「序数」になり Remotion の「時刻」選択と食い違う
+  (VFR ドリフト分=最大 400ms の A/V 先行と境界ジャンプ)ことが P3.5 検収で
+  判明。**時刻ベースの `fps=30` フィルタに置換済み**(プログラム文書 §5 P3.5)。
 - 楽観試算(90〜100s)に届かない残差は、SLOW Remotion を別プロセス(bundle 込み)で
   呼ぶ固定費+ caption still 用 bundle。P6 で bundle 共有の余地。
 - ユーザーの実収録は BGM×3 で v1 音声ゲート(cut.mp4 音声 -c copy)では発動しない
   =P4(決定論 BGM ミキサ)が実運用の必須フェーズ。
+
+---
+
+## フェーズ11: render 高速パス P3.5〜P6(検収・リソース実測・既定化。2026-07-14)
+
+プログラム(`docs/programs/render-fastpath-program.md`)の P3.5(VFR 時刻写像の
+修正)・P4(決定論 BGM ミキサ)・P5-1〜P5-4(overlay/annotation/colorFilter/inserts
+の適格化)を経た最終形の検収。対象は実収録 2026-07-12(BGM×3・そのまま。
+6301f/210.03s)、cut.mp4 温存の cold render、同一マシン状態、フェーズ9と同じ
+1秒サンプリング(プロセス RSS/CPU + vm_stat)。
+
+### cold render 時間(フェーズ経過の要約)
+
+| 時点 | フル | 高速パス | 短縮 | 備考 |
+|---|---|---|---|---|
+| P3(BGM 無し変種・被覆 70.8%) | 176.0s | 122.0s | 31% | フェーズ10。※CFR は後に P3.5 で修正 |
+| P4(BGM あり実収録・被覆 70.8%) | 183.1s | 123.3s | 33% | 音声 bgm-mix で初発動 |
+| P5-1(同・overlay 適格化で被覆 100%) | 210.5s | 92.8s | 56% | Remotion 呼び出し 0 回 |
+| **P6 検収(同・2回実測)** | **202.6s**(Remotion 段 188.5s) | **102.2s / 92.5s** | **約50〜55%(約2.1倍速)** | `FAST 1 / SLOW 0(被覆 100.0%, 音声 bgm-mix)` |
+
+### リソース(1秒サンプリング。render 関連プロセスのみ集計)
+
+| 指標 | フルレンダー | 高速パス |
+|---|---|---|
+| 併走 RSS ピーク(render 関連計) | **6.7GB** | **2.7GB** |
+| chrome-headless-shell | 同時最大 **59 プロセス**・単体最大 602MB | 同時最大 **5 プロセス**・単体最大 133MB(caption still 用) |
+| Remotion compositor | 594MB(512MB 上限+管理領域) | 8MB(still のみ) |
+| ffmpeg 単体最大 | 134MB(Remotion 同梱) | **2459MB**(FAST セグメント合成。PNG 107 入力) |
+| システム空きメモリ最小 | **23MB**(逼迫) | **1816MB** |
+| スワップアウト増 | 0 | 0 |
+
+「render 中に Mac が重くなる」問題はフェーズ9の対策(キャッシュ 512MB)後も
+フル経路では空きメモリ 23MB まで逼迫していたが、高速パスは構造的に軽い
+(Chrome の大群がいない)。ただし FAST の ffmpeg は **PNG 入力数に比例して
+メモリを食う**(107 入力で単体 2.4GB)点は今後 caption の多い収録で注意。
+
+### 等価性(fast vs full、クリーン run 同士)
+
+- 両者 **6301f / 30fps / 210.033333s**(comp 期待値と一致)
+- 全編 per-frame PSNR: **avg 42.52dB / min 33.04dB / 30dB 未満 0 frame**
+  (P5-1 検収と同値。min はフェーズ8から既知の画面テキストのクロマ再サンプリング由来)
+- 統合ラウドネス: 両方 **-14.2 LUFS**(差 0.0 LU)
+
+### 副産物: フル(Remotion)経路の非決定 +1 frame フレークを観測
+
+本日のフルレンダー2回のうち1回が **6302f**(出力 frame 3567 付近に1枚重複)。
+重複を +1 シフトすると以降の全フレームが一致(min 35.70dB・30dB 未満 0)する
+ので、重複挿入以外は正常。再実行では 6301f で再現せず。
+**フル経路にはこれを検出するゲートが無い**(黙って 1 frame 長い final.mp4 が
+出る。33ms の A/V ずれ)。高速パスは `verifyAssembled`(フレーム数・尺・fps・
+先頭 keyframe)が同種の組み立て異常を弾いてフルレンダーへ自動退避するため、
+この観点ではむしろ頑健。P5-4 検収で見えた「full 側が挿入内で 1 frame 隣を
+引く」OffthreadVideo 抽出アーティファクトと同族の可能性が高い。
+
+### 既定化判断(P6): `render.fastPath: true` を config.yaml の既定に
+
+根拠: (1) 実収録+4種の合成変種(BGM 無し / annotation / colorFilter / inserts)で
+frame パリティ・音声パリティを深く検証済み、(2) 約2倍速+マシン圧迫の大幅減、
+(3) 不適格要素は span 単位/全編の自動フォールバック・組み立て異常は
+verifyAssembled ゲートで自動退避(失敗しても壊れた出力ではなく遅い出力になるだけ)、
+(4) 切り戻しが config.yaml 1行。
+
+- 実装: `config.yaml` の `render.fastPath: true`(**コード側の省略時既定は
+  false のまま**=config を持たない環境では従来どおりオフ)
+- 残リスクと運用: パリティ検証は実収録1本+合成変種に基づく。**今後の数収録は
+  final をざっと目視**し、違和感があれば `fastPath: false` で即切り戻して
+  収録フォルダを保全→プログラム文書 §8 に追記する
+- 未適格(SLOW/フォールバックのまま): カラオケ word・anim テロップ・
+  動画素材 overlay・ショート・blurs(恒久 SLOW=判断B)・素材音声 overlay
+
+### 切り戻し
+
+`config.yaml` の `render.fastPath: false` で従来のフルレンダーへ完全に戻る
+(コード削除不要。発動条件・フォールバックは 1 行ログで観測できる)。

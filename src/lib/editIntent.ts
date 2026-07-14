@@ -38,7 +38,6 @@ export type EditIntent =
       type: "add-blur";
       range: { startSec: number; endSec: number };
       rect: Region;
-      effect?: "blur" | "mosaic";
       strength?: number;
     }
   | {
@@ -266,7 +265,6 @@ export function compileEditIntents(
         start: intent.range.startSec,
         end: intent.range.endSec,
         rect: intent.rect,
-        type: intent.effect ?? "blur",
         strength: intent.strength ?? DEFAULT_BLUR_STRENGTH,
       });
       overlaysChanged = true;

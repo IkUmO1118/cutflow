@@ -6,6 +6,7 @@ import {
   validateAiConfig,
 } from "./config.ts";
 import type { AiConfig, Config } from "./config.ts";
+import type { CaptionBackground } from "../types.ts";
 
 /**
  * エディタの設定画面(POST /api/config)が config.yaml を書き換えるための
@@ -25,6 +26,7 @@ export interface ConfigPatch {
     captionOutlineColor?: string | null;
     captionFontFamily?: string | null;
     captionFontWeight?: number | null;
+    captionBackground?: CaptionBackground | null;
     chapterCardSec?: number;
     targetLufs?: number;
     systemAudio?: { mix: boolean; volumeDb: number };
@@ -71,6 +73,8 @@ const NUM_RULES: Record<string, NumRule> = {
   "render.wipeTransitionSec": { min: 0, max: 5 },
   "render.captionFontSizePx": { min: 10, max: 200, int: true },
   "render.captionFontWeight": { min: 100, max: 900, int: true },
+  "render.captionBackground.paddingPx": { min: 0, max: 200, int: true },
+  "render.captionBackground.radiusPx": { min: 0, max: 200, int: true },
   "render.chapterCardSec": { min: 0.5, max: 30 },
   "render.targetLufs": { min: -36, max: -6 },
   "render.systemAudio.volumeDb": { min: -60, max: 20 },
@@ -95,6 +99,7 @@ const NULLABLE = new Set([
   "render.captionOutlineColor",
   "render.captionFontFamily",
   "render.captionFontWeight",
+  "render.captionBackground",
   "render.hardwareAcceleration",
   "editor.defaultImageDurationSec",
   "editor.defaultShortRangeSec",
@@ -105,6 +110,7 @@ const STR_MAX: Record<string, number> = {
   "render.captionColor": 64,
   "render.captionOutlineColor": 64,
   "render.captionFontFamily": 300,
+  "render.captionBackground.color": 64,
 };
 
 /**
@@ -203,11 +209,22 @@ export function validateConfigPatch(patch: unknown): string[] {
       [
         "wipeWidthPx", "wipeMarginPx", "wipeTransitionSec", "captionFontSizePx",
         "captionColor", "captionOutlineColor", "captionFontFamily", "captionFontWeight",
-        "chapterCardSec", "targetLufs", "systemAudio", "denoise", "bgm", "cutTransition",
-        "hardwareAcceleration", "zoom",
+        "captionBackground", "chapterCardSec", "targetLufs", "systemAudio", "denoise",
+        "bgm", "cutTransition", "hardwareAcceleration", "zoom",
       ],
-      ["systemAudio", "denoise", "bgm", "cutTransition", "zoom"],
+      ["systemAudio", "denoise", "bgm", "cutTransition", "zoom", "captionBackground"],
     );
+    if (p.render.captionBackground !== undefined && p.render.captionBackground !== null) {
+      const bg = p.render.captionBackground as unknown;
+      if (typeof bg !== "object" || bg === null) {
+        errors.push("render.captionBackground: { color, paddingPx?, radiusPx? } のブロックで指定してください");
+      } else {
+        walk("render.captionBackground", bg, ["color", "paddingPx", "radiusPx"], []);
+        if ((bg as Record<string, unknown>).color === undefined) {
+          errors.push("render.captionBackground.color: ブロック更新では必須です");
+        }
+      }
+    }
     if (p.render.systemAudio !== undefined) {
       const sa = p.render.systemAudio as unknown;
       if (typeof sa !== "object" || sa === null) {

@@ -40,6 +40,7 @@ import {
 } from "../lib/renderKey.ts";
 import { defaultShortProfileName, resolveProfile } from "../lib/profile.ts";
 import { buildRenderProps } from "../lib/renderProps.ts";
+import { renderCfgWithDesign } from "../lib/designAsset.ts";
 import {
   compositionDurationInFrames,
   compositionDurationSec,
@@ -115,6 +116,10 @@ function rectsIntersect(a: Region, b: Region): boolean {
  */
 export function canBurnWipe(manifest: Manifest, overlays: Overlays, cfg: Config): boolean {
   if (!hasCamera(manifest)) return false;
+  // デザイン(背景 + 画面パネル + カメラ円)有効時は、ベースの幾何が
+  // 「画面全面 + 右下 flush ワイプ」ではないので焼き込めない(Remotion 側の
+  // design 描画へフォールバック。高速パスも同時に落ちる。§src/lib/design.ts)
+  if (cfg.render.design?.enabled) return false;
   if ((overlays.zooms?.length ?? 0) > 0) return false;
   if ((overlays.wipeFull?.length ?? 0) > 0) return false;
   const g = wipeGeom(manifest, cfg);
@@ -223,7 +228,7 @@ export async function render(dir: string, cfg: Config): Promise<string> {
     keeps,
     transcript,
     overlays: overlaysIn,
-    renderCfg: cfg.render,
+    renderCfg: renderCfgWithDesign(dir, cfg),
     width: profile.width,
     height: profile.height,
     videoFile: "cut.mp4",

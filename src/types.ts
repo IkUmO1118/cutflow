@@ -139,8 +139,14 @@ export interface CaptionStyle {
   /** 文字の太さ(CSS の font-weight 相当の 100〜900)。既定は 700 */
   fontWeight?: number;
   /** 座布団(テキスト背後の背景帯)。YouTube テロップの定番表現。
-   * 省略時はなし。縁取りを消したい場合は outlineColor: "none" を併用する */
-  background?: CaptionBackground;
+   * 縁取りを消したい場合は outlineColor: "none" を併用する。
+   *
+   * 省略(undefined)は「指定なし」で、下の層(トラック標準 → config.yaml の
+   * render.captionBackground)から継承する。継承された帯を**この層で明示的に
+   * 消す**には "none" を書く(outlineColor: "none" と同じ流儀)。
+   * 解決の優先順は config 既定 → captionTracks[].style → segment.style で、
+   * どの層でも "none" でその下を打ち消せる */
+  background?: CaptionBackground | "none";
   /** 登場/退場アニメ(フェード・スライド・ポップ)。省略時アニメ無し=現状
    * (器の opacity/transform は動かず、追加 div も出ない)。素材(overlays)の
    * fadeInSec/fadeOutSec に対応するテロップ版 */
@@ -370,6 +376,20 @@ export const captionStyleOf = (
   return Object.keys(merged).length > 0 ? merged : null;
 };
 
+/** テロップの座布団(背景帯)の実効値。上の層の指定 → 下の層の既定、の順に
+ * 解決する。"none"(明示的に帯なし)は下の層を打ち消して undefined になる。
+ *
+ * render(Remotion 本編)・render 高速パスの PNG 焼き・エディタの表示は
+ * すべてこの1関数を通す。ここを通さずに `style.background ?? defaults` と
+ * 書くと "none" が素通りして「帯を消したのに消えない」に戻るので注意 */
+export const resolveCaptionBackground = (
+  style: CaptionBackground | "none" | undefined,
+  fallback?: CaptionBackground | "none",
+): CaptionBackground | undefined => {
+  const v = style ?? fallback;
+  return v === "none" || v === undefined ? undefined : v;
+};
+
 /** テロップの座標の解釈(トラック単位)。center: pos はテキスト中心 /
  * topLeft: pos はテキストボックスの左上(章タイトルなど左寄せ配置用) */
 export const captionAnchorOf = (
@@ -557,9 +577,11 @@ export interface Overlays {
     fadeInSec?: number;
     fadeOutSec?: number;
   }[];
-  /** ワイプ(カメラ)を全画面にして背景を隠す区間。id は "wf_a1b2c3" 形式
-   *(§Interval & id の共通仕様。src/lib/ids.ts が単一の出所。省略可=id 未採番) */
-  wipeFull?: (Interval & { id?: string })[];
+  /** ワイプ(カメラ)を全画面にして背景を隠す区間。transitionSec は区間別の
+   * 出入り遷移秒(0=最初から全画面、省略=render.wipeTransitionSec)。id は
+   * "wf_a1b2c3" 形式(§Interval & id の共通仕様。src/lib/ids.ts が単一の出所。
+   * 省略可=id 未採番) */
+  wipeFull?: (Interval & { id?: string; transitionSec?: number })[];
   /** 画面の重なり順(下→上)。ベース映像と BGM は対象外。
    *  省略時は DEFAULT_LAYER_ORDER(エディタのトラック並べ替えが書く) */
   layerOrder?: LayerId[];
@@ -584,7 +606,7 @@ export interface Overlays {
    * 例外的に継承される(本編とショートで肌色が変わる事故を防ぐため。
    * render.ts のショート経路がここだけ拾って渡す) */
   colorFilter?: ColorFilter;
-  /** 領域ぼかし/モザイク(秘匿情報の目隠し)。かかるのはベース映像
+  /** 領域ぼかし(秘匿情報の目隠し)。かかるのはベース映像
    * (画面クロップ)だけで、素材・挿入・テロップは対象外。zoom には追従せず
    * 出力px固定。ショート(profile 経路)には継承されない(座標が本編基準の
    * ため。shorts があると validate が警告する) */
@@ -619,20 +641,19 @@ export interface Zoom {
    * 拡大率は書かせない(rect の幅から scale = 出力幅 / rect.w が一意に決まる。
    * 倍率と rect の二重指定は矛盾の温床になるため) */
   rect: Region;
-  /** 区間の頭でズームイン・末尾でズームアウトする遷移時間(秒)。
+  /** 区間の頭でズームインする遷移時間(秒)。
    * 省略時 config.yaml の render.zoom.easeSec(既定 DEFAULT_ZOOM_EASE_SEC)。
-   * 区間が遷移2回分より短いときは遷移を区間の半分へ縮める(wipeFull と同じ規則) */
+   * easeOutSec 省略時は末尾のズームアウトにも同じ秒数を使う。
+   * 区間が短いときは遷移を区間の半分へ縮める(wipeFull と同じ規則) */
   easeSec?: number;
+  /** 区間の末尾でズームアウトする遷移時間(秒)。省略時 easeSec と同じ */
+  easeOutSec?: number;
 }
 
 /** render.zoom.easeSec 未指定時の既定(秒)。renderProps と設定画面で共有 */
 export const DEFAULT_ZOOM_EASE_SEC = 0.4;
 
-/** 領域ぼかし/モザイクの効果種別。省略時 "blur"。
- * 将来 "box"(単色塗り)を足す場合はここに追加する(今はスコープ外) */
-export type BlurType = "blur" | "mosaic";
-
-/** 領域ぼかし/モザイク1件(overlays.json の blurs)。開発画面の API キー・
+/** 領域ぼかし1件(overlays.json の blurs)。開発画面の API キー・
  * PII・パスワードなど、ベース映像(画面クロップ)の一部を隠す。start/end は
  * 元収録の秒、rect は出力px({x,y,w,h}。テロップ pos・zooms rect と同座標系)。
  * かかるのはベース映像だけ。zoom には追従せず出力px固定(zoom と時間が重なる
@@ -649,18 +670,15 @@ export interface BlurRegion {
   end: number;
   /** 隠す矩形(出力px)。画面外へはみ出すと validate がエラーにする */
   rect: Region;
-  /** 効果種別。省略時 "blur"(CSS ぼかし)。"mosaic" はピクセル化 */
-  type?: BlurType;
-  /** 強度(0〜1)。省略時 0.5。type ごとに px へ写像する
-   * (blur=ぼかし半径 / mosaic=ブロック辺長。src/lib/blur.ts) */
+  /** 強度(0〜1)。省略時 0.5。ぼかし半径(出力px)へ写像する
+   * (src/lib/blur.ts)。0 は効果なし(描画されない) */
   strength?: number;
   /** 矩形/strength の時間変化。時刻は元収録の秒 */
   keyframes?: Keyframe<BlurKeyframeValues>[];
 }
 
-/** BlurRegion.strength / type 未指定時の既定。renderProps と描画・検査で共有 */
+/** BlurRegion.strength 未指定時の既定。renderProps と描画・検査で共有 */
 export const DEFAULT_BLUR_STRENGTH = 0.5;
-export const DEFAULT_BLUR_TYPE: BlurType = "blur";
 
 /** 注釈グラフィックの種別。判別子は type。将来 "line" 等を足す場合はここに
  * 1枝追加する(今はスコープ外)。src/types.ts の Annotation union と揃える */
