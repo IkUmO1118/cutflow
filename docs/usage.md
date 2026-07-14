@@ -2047,6 +2047,66 @@ render:
 config.yaml の `render.zoom.easeSec`(既定 0.4)のみで変更する
 (`zooms[].easeSec` で個別指定があればそちらが優先)。
 
+## ベースレイアウトのデザイン(config.yaml `render.design`。既定オフ・obs-canvas 限定)
+
+既定(`enabled: false` / キーを書かない)では、ベース映像は**画面全面 + 右下ワイプ**
+(この機能の導入前とバイト等価)。`enabled: true` にすると、
+
+  背景画像 → 角丸+影の画面パネル → 右下の角丸正方形カメラワイプ → テロップ
+
+の重ね順で合成する。テロップ・素材・注釈はすべてこのデザインの**上**に出る。
+
+**効くのは OBS 拡張キャンバス収録(`obs-canvas`)だけ。** 判定は
+`manifest.json` の `video.cameraRegion` の有無で、これは `ingest` / `run` / `editor` を
+`--layout obs-canvas`(または `auto` が obs-canvas と判定)で通したときにだけ書かれる。
+通常動画(`plain`。カメラ領域が無い収録)は `enabled: true` のままでも**収録その
+ままの絵**になる — 背景もパネルも乗らない。「背景+パネル+ワイプ」は画面と
+カメラが別々に取れる収録が前提で、カメラの無い収録に部分適用しても意図した絵に
+ならないため。同じ理由でショート(縦プリセット)にも継承されない。
+
+```yaml
+render:
+  design:
+    enabled: true
+    # 省略時は backgroundColor の単色。3通りの書き方を解決する:
+    #   assets/backgrounds/teal.jpg … リポジトリ同梱(誰の環境でも動く)
+    #   ~/Movies/obs/bg.jpg         … 自分の素材(絶対パス。~ は展開される)
+    #   materials/bg.jpg            … その収録フォルダ内のファイル
+    backgroundFile: assets/backgrounds/teal.jpg
+    backgroundColor: "#1b1b1f"   # 背景画像の下地・画像が無いときの背景
+    screen:                       # 画面(screenRegion)パネル
+      marginXPx: 100              # 左右の余白(出力px)
+      marginBottomPx: 90          # 下の余白。高さは 16:9 維持の成り行き(上余白 22px)
+      radiusPx: 24
+      shadow: true
+    camera:                       # カメラ(ワイプ)。正方形へ center-crop する
+      sizePx: 375                 # 一辺(出力px)
+      marginPx: 28                # 右・下からの余白
+      radiusPx: 96                # sizePx/2 でクランプ(そこが最大の丸み = 円)
+      shadow: true                # 画面パネルの shadow とは独立
+```
+
+背景が収録フォルダの外(同梱 `assets/` / 絶対パス)にあるときは、合成前に収録
+フォルダの `render.design/` へ自動コピーされてから参照される(Remotion が読めるのは
+publicDir = 収録フォルダの中だけのため)。収録ごとの手コピーは要らない。中間生成物
+なので `clean` で消えるが、次の実行で自動的に復帰する。背景が見つからないときは
+警告だけ出して `backgroundColor` の単色へ劣化し、レンダーは止まらない。
+
+**注意点**:
+
+- **render 高速パス(`render.fastPath`)は発動しない。** デザインのワイプ幾何は
+  ffmpeg のワイプ焼き込み(composite 経路)と両立しないため、`canBurnWipe` が
+  false を返して Remotion のフルレンダーへ落ちる = cold render が**約2倍**の時間に
+  なる(§`docs/programs/render-fastpath-program.md`)
+- `overlays.json` の `wipeFull`(ワイプ全画面)はデザイン経路では効かない
+  (`render`/`preview` 時に警告が出る)
+- テロップの `pos`・`blurs.rect`・`annotations` の座標系は**変わらない**(従来どおり
+  出力px)。デザイン有効時はベース映像がパネルに縮んで置かれるため、`zooms` /
+  `blurs` / `frames --ocr` の box は内部でパネル座標へ写して辻褄を合わせている
+  (§`src/lib/design.ts`)
+- GUI エディタに専用 UI は無い(`cutTransition` と同じく config.yaml のみの設定。
+  プレビューは render props を最終レンダーと共有しているので自動で反映される)
+
 ## 見た目の調整(Remotion Studio)
 
 ワイプの大きさ・余白・字幕サイズ・テロップ既定の色/縁/フォントは
