@@ -324,19 +324,19 @@ export async function render(dir: string, cfg: Config): Promise<string> {
       console.log(`render 高速パス: 非適用(${decision.reason}) → 通常レンダー`);
     } else {
       if (!base.ok) throw new Error("高速パス能力判定の内部不整合");
-      const ok = await timed("高速パス 合計", () =>
+      const fastResult = await timed("高速パス 合計", () =>
         runFastRender({
           dir, props, plan: decision.plan, base, cutPath, propsPath, outPath,
           hardwareAcceleration, repoRoot, resourceArgs: remotionResourceArgs(cfg),
         }),
       );
-      if (ok) {
+      if (fastResult.ok) {
         writeFileSync(renderKeyPath, JSON.stringify(renderKey, null, 2));
         if (chunkSec > 0) {
           await timed("チャンクcache seed 合計", () =>
             seedChunkCache({
               dir, props, cutStat: { mtimeMs: cutStat.mtimeMs, size: cutStat.size },
-              outPath, chunkSec,
+              outPath, chunkSec, verifiedKeyframeFrames: fastResult.keyframeFrames,
             }),
           );
         }
@@ -697,6 +697,7 @@ async function seedChunkCache(args: {
   cutStat: FileStat;
   outPath: string;
   chunkSec: number;
+  verifiedKeyframeFrames?: readonly number[];
 }): Promise<void> {
   const { dir, props, cutStat, outPath, chunkSec } = args;
   const { chunksDir, keyPath, audioPath } = chunkPaths(dir);
@@ -704,7 +705,9 @@ async function seedChunkCache(args: {
   mkdirSync(chunksDir, { recursive: true });
 
   const totalFrames = compositionDurationInFrames(props.durationSec, props.fps);
-  const keyframeFrames = await timed("チャンクcache keyframe probe", () => probeKeyframes(outPath));
+  const keyframeFrames = args.verifiedKeyframeFrames !== undefined
+    ? [...args.verifiedKeyframeFrames]
+    : await timed("チャンクcache keyframe probe", () => probeKeyframes(outPath));
   const boundaries = carveBoundaries(keyframeFrames, totalFrames, chunkSec, props.fps);
   await timed("チャンクcache carve", () => carveFinalToChunks(outPath, boundaries, chunksDir));
   await timed("チャンクcache audio抽出", () => extractAudio(outPath, audioPath));
