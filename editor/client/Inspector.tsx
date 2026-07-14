@@ -400,7 +400,10 @@ export const Inspector = ({
     };
     return (
       <div className="insp">
-        <Section title={`${captionTrackName(track, overlays, capTracks)}(トラック標準)`}>
+        <Section
+          title={`${captionTrackName(track, overlays, capTracks)}(トラック標準)`}
+          className="flushTopSec"
+        >
           <p className="dim hint">
             このトラックのテロップ全部に効く既定。個々のテロップで指定した項目が
             あればそちらが優先されます
@@ -1419,7 +1422,20 @@ export const Inspector = ({
   if (selection.kind === "wipeFull") {
     const sp = (overlays.wipeFull ?? [])[selection.index];
     if (!sp) return null;
-    const transitionMode = sp.transitionSec === 0 ? "instant" : "zoom";
+    const transitionInSec = sp.transitionInSec ?? sp.transitionSec;
+    const transitionOutSec = sp.transitionOutSec ?? sp.transitionSec;
+    const transitionInMode = transitionInSec === 0 ? "instant" : "zoom";
+    const transitionOutMode = transitionOutSec === 0 ? "instant" : "zoom";
+    const transitionPatch = (
+      side: "in" | "out",
+      value: number | undefined,
+    ): Partial<WipeFullEntry> => ({
+      // 旧 transitionSec が反対側へ効いていた見た目を維持したうえで、
+      // この編集から入り/戻りの独立形式へ移行する。
+      transitionSec: undefined,
+      transitionInSec: side === "in" ? value : transitionInSec,
+      transitionOutSec: side === "out" ? value : transitionOutSec,
+    });
     return (
       <div className="insp">
         <InspHead
@@ -1432,32 +1448,79 @@ export const Inspector = ({
             <div className="capField wide">
               <label>入り方</label>
               <Segmented
-                value={transitionMode}
+                value={transitionInMode}
                 onChange={(v: "instant" | "zoom") =>
-                  updateSpan("wipeFull", selection.index, {
-                    transitionSec: v === "instant" ? 0 : undefined,
-                  })
+                  updateSpan(
+                    "wipeFull",
+                    selection.index,
+                    transitionPatch("in", v === "instant" ? 0 : undefined),
+                  )
                 }
                 options={[
                   { value: "zoom", label: "ズームイン", title: "右下ワイプから全画面へ広げる" },
-                  { value: "instant", label: "即 full", title: "区間の先頭から全画面にする" },
+                  { value: "instant", label: "即全画面", title: "区間の先頭から全画面にする" },
                 ]}
               />
             </div>
-            {transitionMode === "zoom" && (
+            {transitionInMode === "zoom" && (
               <div className="capField wide">
-                <label>速さ</label>
+                <label>入る速さ</label>
                 <NumStepper
-                  value={sp.transitionSec}
+                  value={transitionInSec}
                   allowEmpty
                   min={0}
                   unit="秒"
                   placeholder={String(DEFAULT_WIPE_TRANSITION_SEC)}
-                  title="全画面へ広がる/戻る秒数。空欄=設定の「ワイプ全画面の遷移」"
+                  title="全画面へ広がる秒数。空欄=設定の「ワイプ全画面の遷移」"
                   onCommit={(v) =>
-                    updateSpan("wipeFull", selection.index, {
-                      transitionSec: v !== undefined ? Math.max(0, round2(v)) : undefined,
-                    })
+                    updateSpan(
+                      "wipeFull",
+                      selection.index,
+                      transitionPatch(
+                        "in",
+                        v !== undefined ? Math.max(0, round2(v)) : undefined,
+                      ),
+                    )
+                  }
+                />
+              </div>
+            )}
+            <div className="capField wide">
+              <label>戻り方</label>
+              <Segmented
+                value={transitionOutMode}
+                onChange={(v: "instant" | "zoom") =>
+                  updateSpan(
+                    "wipeFull",
+                    selection.index,
+                    transitionPatch("out", v === "instant" ? 0 : undefined),
+                  )
+                }
+                options={[
+                  { value: "zoom", label: "ズームアウト", title: "全画面から右下ワイプへ戻す" },
+                  { value: "instant", label: "即ワイプ", title: "区間の末尾で右下ワイプへ戻す" },
+                ]}
+              />
+            </div>
+            {transitionOutMode === "zoom" && (
+              <div className="capField wide">
+                <label>戻る速さ</label>
+                <NumStepper
+                  value={transitionOutSec}
+                  allowEmpty
+                  min={0}
+                  unit="秒"
+                  placeholder={String(DEFAULT_WIPE_TRANSITION_SEC)}
+                  title="右下ワイプへ戻る秒数。空欄=設定の「ワイプ全画面の遷移」"
+                  onCommit={(v) =>
+                    updateSpan(
+                      "wipeFull",
+                      selection.index,
+                      transitionPatch(
+                        "out",
+                        v !== undefined ? Math.max(0, round2(v)) : undefined,
+                      ),
+                    )
                   }
                 />
               </div>

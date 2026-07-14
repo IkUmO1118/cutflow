@@ -124,6 +124,7 @@ function globalVideoProps(props: RenderProps, cutStat: FileStat) {
     videoFile: props.videoFile,
     baseSegments: props.baseSegments ?? null,
     colorFilter: props.colorFilter ?? null,
+    ...(props.design ? { design: props.design } : {}),
     cutStat,
   };
 }

@@ -14,6 +14,7 @@ import type {
 } from "../../src/types.ts";
 import type { FrameShot } from "../../src/stages/frames.ts";
 import type { ReviewBundle, ReviewKey } from "../../src/stages/review.ts";
+import type { PreparedDesignAssets } from "../../src/lib/design.ts";
 export type {
   AiProposeRequest,
   AiScope,
@@ -98,6 +99,8 @@ export interface ProjectData {
    * false のときは常に false(未生成であって陳腐化ではない) */
   proxyStale: boolean;
   renderCfg: Config["render"];
+  /** server が現在の design key と全 PNG の存在を検証した静的資産 */
+  designAssets?: PreparedDesignAssets;
   /** カット確認用プレビュー動画・プロキシの横幅(config の preview.width) */
   previewCfg: { width: number; videoEncoder?: "libx264" | "videotoolbox" };
   /** エディタ設定(サーバー側で省略時の既定値まで解決した実値) */
@@ -136,6 +139,7 @@ export interface EditorCfg {
 export interface ConfigSaveResult {
   ok: true;
   renderCfg: Config["render"];
+  designAssets?: PreparedDesignAssets;
   previewCfg: { width: number; videoEncoder?: "libx264" | "videotoolbox" };
   editorCfg: EditorCfg;
   aiProfiles: AiProfileStatus[];

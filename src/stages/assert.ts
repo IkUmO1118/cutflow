@@ -12,6 +12,7 @@
 // Tier 2(視覚・screenText/regionClear)は evaluateStructural では常に skip
 // (--visual が必要)。実評価は evaluateVisual(T4)+ --visual 配線(T5)で行う。
 
+import { cliCmd } from "../lib/cliName.ts";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -108,7 +109,7 @@ function hasAnyId(proj: DescribeProjection): boolean {
 function refNotFoundMessage(proj: DescribeProjection, ref: string): string {
   if (!hasAnyId(proj)) {
     return (
-      `id が1つも採番されていません。\`node src/cli.ts id-stamp <dir>\` を実行してから ` +
+      `id が1つも採番されていません。\`${cliCmd()} id-stamp <dir>\` を実行してから ` +
       `@id で指定してください(ref: ${ref})`
     );
   }
@@ -382,7 +383,7 @@ export function evaluateVisual(
 function refNotFoundMessageForBlurs(blurs: readonly BlurEntry[], ref: string): string {
   if (!blurs.some((b) => b.id !== undefined)) {
     return (
-      `id が1つも採番されていません。\`node src/cli.ts id-stamp <dir>\` を実行してから ` +
+      `id が1つも採番されていません。\`${cliCmd()} id-stamp <dir>\` を実行してから ` +
       `@id で指定してください(ref: ${ref})`
     );
   }

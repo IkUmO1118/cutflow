@@ -27,6 +27,8 @@ const TOTAL_FRAMES = 30; // 3秒 @ 10fps
 
 let dir: string;
 let sourceMp4: string;
+let bframeMp4: string;
+let fractionalMp4: string;
 
 before(async () => {
   dir = mkdtempSync(join(tmpdir(), "cutflow-chunkcache-"));
@@ -42,6 +44,27 @@ before(async () => {
     "-c:a", "aac",
     "-shortest",
     sourceMp4,
+  ]);
+
+  bframeMp4 = join(dir, "bframes.mp4");
+  await execFileAsync("ffmpeg", [
+    "-y", "-v", "error",
+    "-f", "lavfi", "-i", `testsrc=size=64x64:rate=${FPS}:duration=3`,
+    "-c:v", "libx264", "-g", "10", "-keyint_min", "10", "-sc_threshold", "0", "-bf", "2",
+    "-x264-params", "open-gop=0",
+    "-pix_fmt", "yuv420p",
+    "-frames:v", String(TOTAL_FRAMES),
+    bframeMp4,
+  ]);
+
+  fractionalMp4 = join(dir, "fractional.mp4");
+  await execFileAsync("ffmpeg", [
+    "-y", "-v", "error",
+    "-f", "lavfi", "-i", "testsrc=size=64x64:rate=30000/1001",
+    "-c:v", "libx264", "-g", "30", "-keyint_min", "30", "-sc_threshold", "0", "-bf", "0",
+    "-pix_fmt", "yuv420p",
+    "-frames:v", "60",
+    fractionalMp4,
   ]);
 });
 
@@ -97,7 +120,7 @@ test("extractAudio + muxVideoAudio + verifyAssembled: 総フレーム数・durat
   await muxVideoAudio(videoOnly, audioM4a, finalMp4);
 
   const result = await verifyAssembled(finalMp4, TOTAL_FRAMES, 3, FPS);
-  assert.deepEqual(result, { ok: true });
+  assert.deepEqual(result, { ok: true, keyframeFrames: [0, 10, 20] });
 });
 
 test("verifyAssembled: 期待フレーム数と違えば NG", async () => {
@@ -108,4 +131,28 @@ test("verifyAssembled: 期待フレーム数と違えば NG", async () => {
 test("verifyAssembled: 期待 duration と違えば NG", async () => {
   const result = await verifyAssembled(sourceMp4, TOTAL_FRAMES, 10, FPS);
   assert.equal(result.ok, false);
+});
+
+test("B-frame閉じGOP: decoded ordinalでkeyframeを返しcarve→concatも可逆", async () => {
+  const keyframes = await probeKeyframes(bframeMp4);
+  assert.deepEqual(keyframes, [0, 10, 20]);
+  assert.deepEqual(
+    await verifyAssembled(bframeMp4, TOTAL_FRAMES, 3, FPS),
+    { ok: true, keyframeFrames: [0, 10, 20] },
+  );
+
+  const boundaries = carveBoundaries(keyframes, TOTAL_FRAMES, 1, FPS);
+  const chunkFiles = await carveFinalToChunks(bframeMp4, boundaries, join(dir, "bframe-chunks"));
+  const reassembled = join(dir, "bframe-reassembled.mp4");
+  await concatChunks(chunkFiles, reassembled);
+  assert.equal(await framemd5Of(reassembled), await framemd5Of(bframeMp4));
+});
+
+test("30000/1001: decoded frame数とkeyframe ordinalを正確に検証する", async () => {
+  const fps = 30_000 / 1_001;
+  assert.deepEqual(await probeKeyframes(fractionalMp4), [0, 30]);
+  assert.deepEqual(
+    await verifyAssembled(fractionalMp4, 60, 60 / fps, fps),
+    { ok: true, keyframeFrames: [0, 30] },
+  );
 });

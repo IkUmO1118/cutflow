@@ -577,11 +577,17 @@ export interface Overlays {
     fadeInSec?: number;
     fadeOutSec?: number;
   }[];
-  /** ワイプ(カメラ)を全画面にして背景を隠す区間。transitionSec は区間別の
-   * 出入り遷移秒(0=最初から全画面、省略=render.wipeTransitionSec)。id は
+  /** ワイプ(カメラ)を全画面にして背景を隠す区間。transitionInSec / transitionOutSec
+   * は区間別の入り/戻りの遷移秒(0=瞬時、省略=render.wipeTransitionSec)。
+   * transitionSec は旧形式で、個別指定のない両方向へ適用する。id は
    * "wf_a1b2c3" 形式(§Interval & id の共通仕様。src/lib/ids.ts が単一の出所。
    * 省略可=id 未採番) */
-  wipeFull?: (Interval & { id?: string; transitionSec?: number })[];
+  wipeFull?: (Interval & {
+    id?: string;
+    transitionSec?: number;
+    transitionInSec?: number;
+    transitionOutSec?: number;
+  })[];
   /** 画面の重なり順(下→上)。ベース映像と BGM は対象外。
    *  省略時は DEFAULT_LAYER_ORDER(エディタのトラック並べ替えが書く) */
   layerOrder?: LayerId[];

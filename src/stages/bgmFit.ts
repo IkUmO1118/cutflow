@@ -7,6 +7,7 @@
 // (bgm-fit.suggested.json)と検出結果(bgm-fit.json)を書く。収録フォルダの
 // 編集ファイル(bgm.json 等)は一切書かない。cutplan.json / approvals.json は
 // 読まない・書かない(不変条件5・8)。
+import { cliCmd } from "../lib/cliName.ts";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolveBgmFitCfg } from "../lib/config.ts";
@@ -50,7 +51,7 @@ export interface BgmFitResult {
 export function bgmFit(dir: string, cfg: Config): BgmFitResult {
   const soundPath = join(dir, AV_DIR, SOUND_FILE);
   if (!existsSync(soundPath)) {
-    throw new Error(`${soundPath} がありません。先に \`node src/cli.ts av ${dir}\` を実行してください`);
+    throw new Error(`${soundPath} がありません。先に \`${cliCmd()} av ${dir}\` を実行してください`);
   }
   const sound = JSON.parse(readFileSync(soundPath, "utf8")) as SoundReport;
 
@@ -64,7 +65,7 @@ export function bgmFit(dir: string, cfg: Config): BgmFitResult {
   // 要求する(B4 だけ・検出なしは id 不要で通す)
   if (bgm && idlessTracksNeedIdStamp(sound, bgm, fitCfg)) {
     throw new Error(
-      `bgm.json の tracks に @id がありません。先に \`node src/cli.ts id-stamp ${dir}\` を実行してください`,
+      `bgm.json の tracks に @id がありません。先に \`${cliCmd()} id-stamp ${dir}\` を実行してください`,
     );
   }
 
@@ -137,8 +138,8 @@ export function formatBgmFitReport(dir: string, result: BgmFitResult): string[] 
   lines.push(`検出結果を ${result.reportPath} に書きました。`);
   if (result.patchPath) {
     lines.push(`修正案を ${result.patchPath} に書きました。適用は:`);
-    lines.push(`  node src/cli.ts apply ${dir} --patch ${result.patchPath} --dry-run`);
-    lines.push(`  node src/cli.ts apply ${dir} --patch ${result.patchPath}`);
+    lines.push(`  ${cliCmd()} apply ${dir} --patch ${result.patchPath} --dry-run`);
+    lines.push(`  ${cliCmd()} apply ${dir} --patch ${result.patchPath}`);
   } else {
     lines.push("apply パッチ下書きなし(自動修正できる項目はありませんでした)");
   }

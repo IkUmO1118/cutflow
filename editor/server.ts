@@ -19,6 +19,8 @@ import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { renderCfgWithDesign } from "../src/lib/designAsset.ts";
+import { resolveDesign } from "../src/lib/design.ts";
+import { existingDesignAssets, prepareDesignAssetBundle } from "../src/lib/designStill.ts";
 import { build } from "esbuild";
 import {
   clearCutplanApproval,
@@ -27,6 +29,7 @@ import {
   writeShortApproval,
 } from "../src/lib/approval.ts";
 import { APPROVAL_FILE } from "../src/lib/files.ts";
+import { removeEditorServeFile, writeEditorServeFile } from "../src/lib/editorServe.ts";
 import { run } from "../src/lib/exec.ts";
 import { ensureIds, hasAnyId, ID_PREFIX, usedIdsOf } from "../src/lib/ids.ts";
 import { mergeBodyOverDisk } from "../src/lib/applyEdits.ts";
@@ -101,6 +104,7 @@ export async function startEditor(
   // 無いものだけ決定的に補う(既存ファイルには触れない)。loadProject の
   // 3点チェックは最終防壁として残す
   await bootstrapProjectWithLayout(dir, cfg, layout);
+  await prepareEditorDesignAssets(dir, cfg);
 
   const editorDir = dirname(fileURLToPath(import.meta.url));
 
@@ -167,6 +171,21 @@ export async function startEditor(
     server.once("error", ng);
     server.listen(port, "127.0.0.1", ok);
   });
+
+  // 待受情報を収録フォルダの外(~/.cutflow/editor/)へ書く。デタッチ起動でも
+  // フォアグラウンド起動でも同じように書くので、`editor <dir> --status` は
+  // どちらの起動でも見える。プロセスがどの経路で終わっても最終段で必ず発火する
+  // "exit" で同期的に消す(framesServe と同じ判断。async は exit 中に走らない)
+  writeEditorServeFile({ dir, port, pid: process.pid, startedAt: new Date().toISOString() });
+  process.on("exit", () => removeEditorServeFile(dir));
+  // シグナルで殺された場合、Node は "exit" を発火しない(既定ハンドラはプロセスを
+  // そのまま終了させる)。Ctrl+C(SIGINT)と `editor --stop`(SIGTERM)を明示的に
+  // 受けて process.exit を呼び、上の "exit" を必ず通して portfile を消す。
+  // (framesServe が SIGINT を書かずに済んでいるのは、remotion の openBrowser が
+  //  SIGINT リスナーで process.exit を呼んでいるため。エディタにはそれが無い)
+  process.on("SIGINT", () => process.exit(130));
+  process.on("SIGTERM", () => process.exit(0));
+
   const url = `http://127.0.0.1:${port}`;
   console.log(`エディタ起動: ${url}(対象: ${dir})`);
   console.log("終了は Ctrl+C");
@@ -275,6 +294,13 @@ async function handle(
   if (req.method === "GET" && path === "/particle_loop_icon.svg") {
     res.writeHead(200, { "Content-Type": "image/svg+xml; charset=utf-8" });
     res.end(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "client/particle_loop_icon.svg"), "utf8"));
+    return;
+  }
+  if (req.method === "GET" && path === "/api/ping") {
+    // 生存確認(editor --stop / --status が portfile の pid/port を検証する)。
+    // dir も返すのは、portfile が stale で別プロセスが同じ port を掴んでいる
+    // ケースを取り違えないため
+    sendJson(res, 200, { ok: true, pid: process.pid, dir });
     return;
   }
   if (req.method === "GET" && path === "/api/project") {
@@ -549,9 +575,11 @@ async function handle(
     writeFileSync(tmp, nextYaml);
     renameSync(tmp, cfgPath);
     syncEditorCfgFromYaml(cfg, nextYaml);
+    await prepareEditorDesignAssets(dir, cfg);
     const result: ConfigSaveResult = {
       ok: true,
       renderCfg: renderCfgWithDesign(dir, cfg),
+      ...editorDesignAssets(dir, cfg),
       previewCfg: { width: cfg.preview.width, videoEncoder: cfg.preview.videoEncoder },
       editorCfg: resolvedEditorCfg(cfg, DEFAULT_MAX_UPLOAD_MB),
       aiProfiles: aiProfileStatuses(cfg),
@@ -974,9 +1002,10 @@ export function loadProject(dir: string, cfg: Config): ProjectData {
         "先にパイプライン(run)を実行してください",
     );
   }
-  // デザインの背景取り込み(render.design/ へのコピー)は dirFiles を読む前に
-  // 済ませる。後にすると、初回だけコピー前の一覧が渡ってクライアントの
-  // overlayExists が「背景画像が見つかりません」と誤判定し、背景が落ちる
+  // plain / obs-canvas 共通で、デザインの背景取り込み(render.design/ への
+  // コピー)は dirFiles を読む前に済ませる。後にすると、初回だけコピー前の
+  // 一覧が渡ってクライアントの overlayExists が「背景画像が見つかりません」
+  // と誤判定し、背景が落ちる
   const designRenderCfg = renderCfgWithDesign(dir, cfg);
 
   // 素材選択やオーバーレイの存在チェック用にフォルダ内の全ファイルを渡す
@@ -1009,6 +1038,7 @@ export function loadProject(dir: string, cfg: Config): ProjectData {
     proxyExists: existsSync(join(dir, "proxy.mp4")),
     proxyStale: isProxyStale(dir, cfg),
     renderCfg: designRenderCfg,
+    ...editorDesignAssets(dir, cfg, manifest, designRenderCfg),
     previewCfg: { width: cfg.preview.width, videoEncoder: cfg.preview.videoEncoder },
     editorCfg: resolvedEditorCfg(cfg, DEFAULT_MAX_UPLOAD_MB),
     output: { w: manifest.video.screenRegion.w, h: manifest.video.screenRegion.h },
@@ -1022,6 +1052,43 @@ export function loadProject(dir: string, cfg: Config): ProjectData {
       maxRefinements: Math.min(3, Math.max(1, (cfg.editor?.aiReview as { maxRefinements?: number } | undefined)?.maxRefinements ?? 2)),
     },
   };
+}
+
+function resolvedEditorDesign(
+  dir: string,
+  cfg: Config,
+  manifest?: Manifest,
+  renderCfg?: Config["render"],
+) {
+  const currentManifest = manifest ?? JSON.parse(
+    readFileSync(join(dir, "manifest.json"), "utf8"),
+  ) as Manifest;
+  const currentRenderCfg = renderCfg ?? renderCfgWithDesign(dir, cfg);
+  const width = currentManifest.video.screenRegion.w;
+  const height = currentManifest.video.screenRegion.h;
+  const design = resolveDesign(currentRenderCfg.design, width, height, hasCamera(currentManifest));
+  return design ? { dir, design, width, height } : undefined;
+}
+
+function editorDesignAssets(
+  dir: string,
+  cfg: Config,
+  manifest?: Manifest,
+  renderCfg?: Config["render"],
+): { designAssets?: NonNullable<ProjectData["designAssets"]> } {
+  const resolved = resolvedEditorDesign(dir, cfg, manifest, renderCfg);
+  if (!resolved) return {};
+  const prepared = existingDesignAssets(resolved);
+  return prepared ? { designAssets: prepared } : {};
+}
+
+async function prepareEditorDesignAssets(dir: string, cfg: Config): Promise<void> {
+  const resolved = resolvedEditorDesign(dir, cfg);
+  if (!resolved) return;
+  await prepareDesignAssetBundle({
+    ...resolved,
+    warn: (message) => console.warn(`警告: ${message}`),
+  });
 }
 
 /** 波形の分解能(1秒あたりのピーク数)。16kHz なら 160 サンプル/ピーク */

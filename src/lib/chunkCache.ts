@@ -92,26 +92,47 @@ export async function muxVideoAudio(
   ]);
 }
 
-/** 動画の keyframe 位置(フレーム番号、0始まり)を全件返す。
- * B フレームを使わない(decode順=表示順)閉じ GOP 前提(docs §1 で確認済み)。 */
-export async function probeKeyframes(mp4: string): Promise<number[]> {
+interface DecodedVideoProbe {
+  nbReadFrames: number;
+  listedFrames: number;
+  keyframeFrames: number[];
+}
+
+function parseDecodedVideoProbe(stdout: string): DecodedVideoProbe {
+  const probe = JSON.parse(stdout) as {
+    streams?: { nb_read_frames?: string }[];
+    frames?: { key_frame?: number | string }[];
+  };
+  const frames = Array.isArray(probe.frames) ? probe.frames : [];
+  return {
+    nbReadFrames: Number(probe.streams?.[0]?.nb_read_frames),
+    listedFrames: frames.length,
+    keyframeFrames: frames.flatMap((frame, index) => Number(frame.key_frame) === 1 ? [index] : []),
+  };
+}
+
+/** 選択映像streamを全frame decodeし、総数とkeyframeのdecoded ordinalを
+ * 1回のffprobeで得る。チャンクcarveの契約は従来どおり閉じGOP前提。 */
+async function probeDecodedVideo(mp4: string): Promise<DecodedVideoProbe> {
   const { stdout } = await run("ffprobe", [
     "-v", "error",
     "-select_streams", "v:0",
-    "-show_entries", "frame=key_frame",
-    "-of", "csv=p=0",
+    "-count_frames",
+    "-show_entries", "stream=nb_read_frames:frame=key_frame",
+    "-of", "json",
     mp4,
   ]);
-  // ffprobe の csv=p=0 出力は行によって末尾にカンマが付く(例: "1,")ことが
-  // あるため、行全体ではなく先頭フィールドだけを見る
-  const keyframes: number[] = [];
-  stdout.split("\n").forEach((line, i) => {
-    if (line.split(",")[0].trim() === "1") keyframes.push(i);
-  });
-  return keyframes;
+  return parseDecodedVideoProbe(stdout);
 }
 
-export type VerifyResult = { ok: true } | { ok: false; reason: string };
+/** 動画の keyframe 位置(decoded frame ordinal、0始まり)を全件返す。 */
+export async function probeKeyframes(mp4: string): Promise<number[]> {
+  return (await probeDecodedVideo(mp4)).keyframeFrames;
+}
+
+export type VerifyResult =
+  | { ok: true; keyframeFrames: number[] }
+  | { ok: false; reason: string };
 
 /**
  * concat+mux した成果物を検証する(§5)。総フレーム数・コンテナ/音声
@@ -124,31 +145,37 @@ export async function verifyAssembled(
   durationSec: number,
   fps: number,
 ): Promise<VerifyResult> {
-  let probe: {
-    streams?: { codec_type: string; nb_read_frames?: string; duration?: string; r_frame_rate?: string }[];
+  let decoded: DecodedVideoProbe;
+  let metadata: {
+    streams?: { codec_type: string; duration?: string; r_frame_rate?: string }[];
     format?: { duration?: string };
   };
   try {
+    decoded = await probeDecodedVideo(mp4);
     const { stdout } = await run("ffprobe", [
       "-v", "error",
-      "-count_frames",
       "-show_entries",
-      "stream=codec_type,nb_read_frames,duration,r_frame_rate:format=duration",
+      "stream=codec_type,duration,r_frame_rate:format=duration",
       "-of", "json",
       mp4,
     ]);
-    probe = JSON.parse(stdout);
+    metadata = JSON.parse(stdout);
   } catch (err) {
     return { ok: false, reason: `ffprobe に失敗しました: ${(err as Error).message}` };
   }
-  const video = probe.streams?.find((s) => s.codec_type === "video");
+  const video = metadata.streams?.find((s) => s.codec_type === "video");
   if (!video) return { ok: false, reason: "映像ストリームが見つかりません" };
 
-  const frameCount = Number(video.nb_read_frames);
-  if (frameCount !== expectedFrames) {
+  if (decoded.nbReadFrames !== expectedFrames) {
     return {
       ok: false,
-      reason: `総フレーム数が不一致です(期待 ${expectedFrames}、実測 ${frameCount})`,
+      reason: `総フレーム数が不一致です(期待 ${expectedFrames}、実測 ${decoded.nbReadFrames})`,
+    };
+  }
+  if (decoded.listedFrames !== expectedFrames) {
+    return {
+      ok: false,
+      reason: `列挙フレーム数が不一致です(期待 ${expectedFrames}、実測 ${decoded.listedFrames})`,
     };
   }
 
@@ -162,7 +189,7 @@ export async function verifyAssembled(
   }
 
   const tolerance = 1 / fps;
-  const containerDuration = Number(probe.format?.duration);
+  const containerDuration = Number(metadata.format?.duration);
   if (!Number.isFinite(containerDuration) || Math.abs(containerDuration - durationSec) > tolerance) {
     return {
       ok: false,
@@ -170,7 +197,7 @@ export async function verifyAssembled(
     };
   }
 
-  const audio = probe.streams?.find((s) => s.codec_type === "audio");
+  const audio = metadata.streams?.find((s) => s.codec_type === "audio");
   if (audio) {
     const audioDuration = Number(audio.duration);
     if (!Number.isFinite(audioDuration) || Math.abs(audioDuration - durationSec) > tolerance) {
@@ -181,10 +208,9 @@ export async function verifyAssembled(
     }
   }
 
-  const keyframes = await probeKeyframes(mp4);
-  if (keyframes[0] !== 0) {
+  if (decoded.keyframeFrames[0] !== 0) {
     return { ok: false, reason: "先頭フレームが keyframe ではありません" };
   }
 
-  return { ok: true };
+  return { ok: true, keyframeFrames: decoded.keyframeFrames };
 }

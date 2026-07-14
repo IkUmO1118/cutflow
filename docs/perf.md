@@ -637,3 +637,50 @@ verifyAssembled ゲートで自動退避(失敗しても壊れた出力ではな
 
 `config.yaml` の `render.fastPath: false` で従来のフルレンダーへ完全に戻る
 (コード削除不要。発動条件・フォールバックは 1 行ログで観測できる)。
+
+---
+
+## フェーズ12: plain design と高速基底の検収(2026-07-15)
+
+`docs/programs/render-design-program.md` のP3。cameraの無い通常動画(`plain`)へ
+背景+画面パネルのdesignを適用し、design無しは恒等基底、design有りは
+backdrop+screenMask基底として高速パスを解禁した。実収録から切り出した6秒の
+横1920x1080/縦1080x1920 scratchを使い、各条件でキャッシュを消したfullとFASTを
+比較した。全ケースが **180f / 30fps / 6.000s、-14.2 LUFS** で一致した。
+
+### cold時間と全編等価性
+
+| plain条件 | full | FAST | 全編PSNR avg / min / 30dB未満 | panel crop avg / min |
+|---|---:|---:|---:|---:|
+| 横・design無し | 5.5s | **1.9s** | 44.8958 / 44.42 / 0/180 | - |
+| 横・design有り | 6.6s | **3.3s** | 44.0856 / 43.67 / 0/180 | 43.3445 / 42.99 |
+| 縦・design無し | 5.5s | **1.9s** | 45.8423 / 45.40 / 0/180 | - |
+| 縦・design有り | 6.6s | **3.2s** | 46.1911 / 45.77 / 0/180 | 44.7723 / 44.41 |
+
+design解決後の画面rectは横`{x:100,y:22,w:1720,h:968}`、縦
+`{x:100,y:266,w:880,h:1564}`。repo背景、角丸、影、カメラ/wipeが無いことを
+代表frameで目視確認した。横designの代表runを`/usr/bin/time -l`で測ると、fullは
+6.98s / max RSS 745,340,928B、FASTは3.55s / 677,150,720Bだった。このmax RSSは
+**計測対象の親プロセスだけ**の値で、子ffmpeg/Chromeを含むプロセスツリー総量では
+ないため、フェーズ11の併走RSSとは直接比較しない。
+
+### 混在境界とフォールバック
+
+- 縦designにblurを1区間入れた混在ケースは`FAST 1 / SLOW 1`、被覆50%、境界
+  frame 90。full/FASTをframe序数でPNG化して比較した全編PSNRはfinite
+  avg 52.0523dB / min 43.62dB / 30dB未満0/180(127 finite、53 inf)、境界
+  frame 80〜100はavg 54.2748dB / min 44.30dB / 30dB未満0/21だった。
+- 動画同士を直接framesyncしたPSNRはB-frame timestamp表現の違いにより境界で
+  比較が止まった。このため、デコード後のframe数・順序を固定できる**序数PNG比較を
+  本ゲートの正式手法**とした。
+- `render.fast/design`をディレクトリではなくfileで塞いで`EEXIST`を起こすと、警告後に
+  `design asset missing backdrop/screenMask`を非適用理由として高速パスを使わず、
+  通常Remotionが5.2sで成功した。資産失敗を壊れたFAST出力へ進めないことを確認した。
+
+### 残リスク
+
+高周波synthetic stressではplain 25.88dB / design 29.46dBとなった。geometryの
+ずれではなく、full(libx264)とFAST(VideoToolbox)の固定bitrate差を人工的な高周波が
+増幅した結果なので、実収録由来素材を使う正式ゲートからは除外した。ただしcodec
+依存の画質差が高周波素材で見えやすいことは残リスクとして保持する。実装検収は
+`npm run typecheck`と`npm test` **1565/1565** が成功した。

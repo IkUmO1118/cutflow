@@ -7,6 +7,7 @@
 // src/lib/styleCheck.ts の純関数(compareProfiles)で距離を測る。
 // 収録フォルダの編集ファイルは一切書かない(読むのは describeJson・
 // av.probe・bgm 存在チェックだけ)。書くのは <dir>/style-check.json のみ。
+import { cliCmd } from "../lib/cliName.ts";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { Config } from "../lib/config.ts";
@@ -50,7 +51,7 @@ export function styleCheck(dir: string, opts: { profile?: string }, cfg: Config)
   const profilePath = join(channel, STYLE_PROBE_DIR, `${name}.json`);
   if (!existsSync(profilePath)) {
     throw new Error(
-      `${profilePath} がありません。先に \`node src/cli.ts style-profile --from ${dir}` +
+      `${profilePath} がありません。先に \`${cliCmd()} style-profile --from ${dir}` +
         `${name !== "default" ? ` --name ${name}` : ""}\` を実行してください`,
     );
   }

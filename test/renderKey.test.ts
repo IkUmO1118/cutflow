@@ -34,6 +34,7 @@ const STAT_SIZES: Record<string, { mtimeMs: number; size: number }> = {
   "/dir/materials/a.png": { mtimeMs: 100, size: 200 },
   "/dir/materials/b.mp4": { mtimeMs: 300, size: 400 },
   "/dir/bgm.mp3": { mtimeMs: 500, size: 600 },
+  "/dir/render.design/teal.jpg": { mtimeMs: 700, size: 800 },
 };
 const statFile = (p: string) => STAT_SIZES[p] ?? { mtimeMs: 0, size: 0 };
 
@@ -64,6 +65,54 @@ test("materialFilesOf: 同じファイルが複数箇所から参照されても
   assert.deepEqual(materialFilesOf(props), ["bgm.mp3", "materials/a.png"]);
 });
 
+test("materialFilesOf: design の背景画像を素材ファイルとして列挙する", () => {
+  const props: RenderProps = {
+    ...PROPS,
+    design: {
+      backgroundFile: "render.design/teal.jpg",
+      backgroundColor: "#000000",
+      screen: {
+        rect: { x: 100, y: 22, w: 1720, h: 968 },
+        radiusPx: 24,
+        shadow: true,
+      },
+      camera: {
+        rect: { x: 1517, y: 677, w: 375, h: 375 },
+        radiusPx: 96,
+        shadow: true,
+      },
+    },
+  };
+  assert.deepEqual(materialFilesOf(props), [
+    "bgm.mp3",
+    "materials/a.png",
+    "materials/b.mp4",
+    "render.design/teal.jpg",
+  ]);
+});
+
+test("materialFilesOf: design 無し・backgroundFile 無しは従来の列挙とバイト同一", () => {
+  const withoutBackground: RenderProps = {
+    ...PROPS,
+    design: {
+      backgroundColor: "#000000",
+      screen: {
+        rect: { x: 100, y: 22, w: 1720, h: 968 },
+        radiusPx: 24,
+        shadow: true,
+      },
+      camera: {
+        rect: { x: 1517, y: 677, w: 375, h: 375 },
+        radiusPx: 96,
+        shadow: true,
+      },
+    },
+  };
+  const legacy = '["bgm.mp3","materials/a.png","materials/b.mp4"]';
+  assert.equal(JSON.stringify(materialFilesOf(PROPS)), legacy);
+  assert.equal(JSON.stringify(materialFilesOf(withoutBackground)), legacy);
+});
+
 test("renderCacheKeyEquals: 全く同じ入力からは一致するキー", () => {
   assert.ok(renderCacheKeyEquals(keyOf({}), keyOf({})));
 });
@@ -89,6 +138,55 @@ test("renderCacheKeyEquals: 素材ファイルの mtime/size が変わると不�
       p === "/dir/materials/a.png" ? { mtimeMs: 999, size: 200 } : statFile(p),
   });
   assert.ok(!renderCacheKeyEquals(a, changed));
+});
+
+test("buildRenderCacheKey: design 背景画像の stat が materials に載る", () => {
+  const props: RenderProps = {
+    ...PROPS,
+    design: {
+      backgroundFile: "render.design/teal.jpg",
+      backgroundColor: "#000000",
+      screen: {
+        rect: { x: 100, y: 22, w: 1720, h: 968 },
+        radiusPx: 24,
+        shadow: true,
+      },
+      camera: {
+        rect: { x: 1517, y: 677, w: 375, h: 375 },
+        radiusPx: 96,
+        shadow: true,
+      },
+    },
+  };
+  const key = keyOf({ props });
+  assert.deepEqual(key.materials.at(-1), {
+    file: "render.design/teal.jpg",
+    mtimeMs: 700,
+    size: 800,
+  });
+
+  const changed = keyOf({
+    props,
+    statFile: (path) =>
+      path === "/dir/render.design/teal.jpg" ? { mtimeMs: 701, size: 800 } : statFile(path),
+  });
+  assert.ok(!renderCacheKeyEquals(key, changed));
+});
+
+test("buildRenderCacheKey: design 無しは従来のキーとバイト同一", () => {
+  assert.equal(
+    JSON.stringify(keyOf({})),
+    JSON.stringify({
+      props: PROPS,
+      cut: { mtimeMs: 1000, size: 2000 },
+      materials: [
+        { file: "bgm.mp3", mtimeMs: 500, size: 600 },
+        { file: "materials/a.png", mtimeMs: 100, size: 200 },
+        { file: "materials/b.mp4", mtimeMs: 300, size: 400 },
+      ],
+      hardwareAcceleration: "if-possible",
+    }),
+  );
 });
 
 test("renderCacheKeyEquals: hardwareAcceleration 設定が変わると不一致", () => {

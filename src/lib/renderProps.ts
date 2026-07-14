@@ -295,6 +295,8 @@ export function buildRenderProps(args: {
             start: parts[0].start,
             end: parts[parts.length - 1].end,
             ...(s.transitionSec !== undefined ? { transitionSec: s.transitionSec } : {}),
+            ...(s.transitionInSec !== undefined ? { transitionInSec: s.transitionInSec } : {}),
+            ...(s.transitionOutSec !== undefined ? { transitionOutSec: s.transitionOutSec } : {}),
           }]
         : [];
     }),
@@ -599,7 +601,13 @@ function mergeClose(spans: Span[], gap: number): Span[] {
   const out: Span[] = [];
   for (const s of sorted) {
     const last = out[out.length - 1];
-    if (last && s.start - last.end <= gap && last.transitionSec === s.transitionSec) {
+    if (
+      last &&
+      s.start - last.end <= gap &&
+      last.transitionSec === s.transitionSec &&
+      last.transitionInSec === s.transitionInSec &&
+      last.transitionOutSec === s.transitionOutSec
+    ) {
       last.end = Math.max(last.end, s.end);
     }
     else out.push({ ...s });

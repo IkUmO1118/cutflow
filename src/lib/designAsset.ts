@@ -4,7 +4,8 @@
 // チャンネル共通の背景を絶対パス(例: ~/Movies/obs/bg.jpg)で書いても、そのままでは
 // staticFile で参照できない。そこで render / frames / thumbnail が合成に入る前に
 // ここを通し(renderCfgWithDesign)、収録フォルダの render.design/ へ取り込んでから
-// 相対パスに書き換える(収録ごとの手コピーを不要にする)。obs-canvas 収録のときだけ動く。
+// 相対パスに書き換える(収録ごとの手コピーを不要にする)。plain / obs-canvas の
+// どちらでも、design が有効なら同じように動く。
 //
 // backgroundFile は3通りの書き方を解決する(resolveBackgroundSource):
 //   assets/backgrounds/xxx.jpg  … リポジトリ同梱の既定背景(誰の環境でも動く)
@@ -13,7 +14,7 @@
 //
 // 収録フォルダ相対のパス(従来の書き方)はそのまま素通しする。fs を触るので
 // remotion/Main.tsx が import する design.ts(ブラウザで動く純関数)とは別モジュール。
-import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, utimesSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, statSync, utimesSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expandHome } from "./config.ts";
@@ -47,10 +48,6 @@ export function renderCfgWithDesign(
 ): Config["render"] {
   const design = cfg.render.design;
   if (!design?.enabled || !design.backgroundFile) return cfg.render;
-  // デザインは obs-canvas 収録(manifest に cameraRegion がある)にしか効かない
-  // (§src/lib/design.ts の resolveDesign)。通常動画(plain)の収録フォルダに
-  // 使われない render.design/ を作らないよう、取り込み自体もここで打ち切る
-  if (!hasCameraRegion(dir)) return cfg.render;
 
   const src = resolveBackgroundSource(dir, design.backgroundFile);
   if (src === "as-is") return cfg.render; // 収録フォルダに実在 = 取り込み不要でそのまま使う
@@ -88,20 +85,6 @@ function resolveBackgroundSource(dir: string, file: string): string | "as-is" | 
   if (isAbsolute(abs)) return existsSync(abs) ? abs : null;
   const inRepo = join(REPO_ROOT, file);
   return existsSync(inRepo) ? inRepo : null;
-}
-
-/** この収録が obs-canvas(画面とカメラが別領域)か。manifest.video.cameraRegion の
- * 有無で見る(ingest / run を --layout obs-canvas で通したときだけ書かれる)。
- * manifest が無い/壊れているときは false(デザインを当てない側へ倒す) */
-function hasCameraRegion(dir: string): boolean {
-  try {
-    const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")) as {
-      video?: { cameraRegion?: unknown };
-    };
-    return manifest.video?.cameraRegion != null;
-  } catch {
-    return false;
-  }
 }
 
 /** 取り込み済みのコピーが元ファイルと同一(サイズ・mtime)か */
