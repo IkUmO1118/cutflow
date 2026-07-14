@@ -43,6 +43,7 @@ import type {
   Annotation,
 } from "../types.ts";
 import { resolveAnnotation } from "./annotation.ts";
+import { resolveDesign } from "./design.ts";
 import type {
   Caption,
   OverlayItem,
@@ -152,6 +153,19 @@ export function buildRenderProps(args: {
     overlayExists, warn,
   } = args;
   const layoutCaption = profile?.layout?.caption;
+
+  // ベースレイアウトのデザイン(config.yaml の render.design)。縦プリセット
+  // (profile.layout)はパネル合成で別レイアウトなので対象外
+  const design = profile?.layout
+    ? undefined
+    : resolveDesign(renderCfg.design, width, height, !!manifest.video.cameraRegion);
+  if (design?.backgroundFile && !overlayExists(design.backgroundFile)) {
+    warn(`背景画像が見つかりません: ${design.backgroundFile}(背景色のみで描画します)`);
+    delete design.backgroundFile;
+  }
+  if (design && (overlays.wipeFull?.length ?? 0) > 0) {
+    warn("render.design 有効時は wipeFull(ワイプ全画面)が効きません(カメラは円のまま)");
+  }
 
   // ベース映像への挿入。素材が無いものは挿入ごと除外する
   // (時間の穴になるより、以降が前へ詰まる方が壊れ方として安全)
@@ -419,6 +433,9 @@ export function buildRenderProps(args: {
       transitionSec: renderCfg.wipeTransitionSec ?? DEFAULT_WIPE_TRANSITION_SEC,
     },
     ...(overlays.colorFilter ? { colorFilter: overlays.colorFilter } : {}),
+    // ベースレイアウトのデザイン(背景 + 画面パネル + カメラ円)。縦プリセット
+    // (layout)経路には載せない=ショートは従来どおりのパネル合成のまま
+    ...(design ? { design } : {}),
     ...(profile?.layout ? { layout: { panels: profile.layout.panels } } : {}),
     // 既定スタイルは config(render.caption*)→ 無ければ描画側の定数。
     // undefined のキーは載せない(props を JSON に書く render.props.json を汚さない)
