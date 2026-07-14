@@ -225,7 +225,7 @@ function growToMinZoom(rect: Region, min: { w: number; h: number }): Region {
  *    安全に置けない)。
  *  - zoom: 時間衝突する zoom は先着優先で間引く(validate は zoom 重なりを
  *    エラーにするため)。rect は cfg.minZoomRect 未満なら中心保存で拡大。
- *  - blur: { start, end, rect, type: "blur", strength: cfg.defaultBlurStrength }。
+ *  - blur: { start, end, rect, strength: cfg.defaultBlurStrength }。
  *  - annotation: box のみ { type:"box", start, end, rect }(色・太さは既定)。
  *  - すべての rect は出力解像度内へ clamp する(blur の画面外は validate エラー)。
  *  - maxDecisions で打ち切る(採用できた件数ベース)。 */
@@ -258,7 +258,6 @@ export function decisionsToOverlays(
         start: anchor.start,
         end: anchor.end,
         rect,
-        type: "blur",
         strength: cfg.defaultBlurStrength,
       });
       accepted++;

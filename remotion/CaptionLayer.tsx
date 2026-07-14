@@ -6,6 +6,7 @@ import {
   CAPTION_DEFAULT_FONT_WEIGHT,
   CAPTION_DEFAULT_OUTLINE,
   KARAOKE_DEFAULT_ACTIVE,
+  resolveCaptionBackground,
 } from "../src/types.ts";
 import type { CaptionBackground, CaptionKaraoke, Region } from "../src/types.ts";
 import {
@@ -198,7 +199,7 @@ export const PositionedCaption = (p: PositionedCaptionProps): ReactNode => {
       outlineWidthPx={caption.style?.outlineWidthPx}
       fontFamily={caption.style?.fontFamily ?? defaults.fontFamily}
       fontWeight={caption.style?.fontWeight ?? defaults.fontWeight}
-      background={caption.style?.background}
+      background={resolveCaptionBackground(caption.style?.background, defaults.background)}
       maxWidth={maxWidth}
       words={caption.words}
       karaokeStyle={caption.style?.karaoke}

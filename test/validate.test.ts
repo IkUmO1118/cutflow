@@ -360,14 +360,18 @@ test("zoom: 極端な拡大率(scale>8)は警告", () => {
   assert.ok(r.warnings.some((w) => w.where === "zooms[0]" && w.message.includes("拡大率")));
 });
 
-test("zoom: easeSec が負だとエラー", () => {
+test("zoom: easeSec / easeOutSec が負だとエラー", () => {
   const r = validateDocs(DIR, baseDocs({
     manifest: manifestWithScreen,
     overlays: {
-      zooms: [{ start: 1, end: 5, rect: { x: 0, y: 0, w: 960, h: 1080 }, easeSec: -1 }],
+      zooms: [
+        { start: 1, end: 5, rect: { x: 0, y: 0, w: 960, h: 1080 }, easeSec: -1 },
+        { start: 6, end: 9, rect: { x: 0, y: 0, w: 960, h: 1080 }, easeOutSec: -1 },
+      ],
     },
   }));
   assert.ok(r.errors.some((e) => e.where === "zooms[0]" && e.message.includes("easeSec")));
+  assert.ok(r.errors.some((e) => e.where === "zooms[1]" && e.message.includes("easeOutSec")));
 });
 
 test("zoom: 区間が重なるとエラー(書いた順序に関わらず検出)", () => {
@@ -416,15 +420,6 @@ test("blurs: rect.w <= 0 はエラー", () => {
   assert.ok(r.errors.some((e) => e.where === "blurs[0]" && e.message.includes("rect")));
 });
 
-test("blurs: type が不正な値だとエラー", () => {
-  const r = validateDocs(DIR, baseDocs({
-    manifest: manifestWithScreen,
-    overlays: {
-      blurs: [{ start: 1, end: 5, rect: { x: 0, y: 0, w: 100, h: 100 }, type: "sepia" }],
-    },
-  }));
-  assert.ok(r.errors.some((e) => e.where === "blurs[0]" && e.message.includes("type")));
-});
 
 test("blurs: strength が範囲外(1.5)だとエラー", () => {
   const r = validateDocs(DIR, baseDocs({
@@ -436,13 +431,13 @@ test("blurs: strength が範囲外(1.5)だとエラー", () => {
   assert.ok(r.errors.some((e) => e.where === "blurs[0]" && e.message.includes("strength")));
 });
 
-test("blurs: 妥当な blur/mosaic はエラー・警告なし", () => {
+test("blurs: 妥当な blur はエラー・警告なし", () => {
   const r = validateDocs(DIR, baseDocs({
     manifest: manifestWithScreen,
     overlays: {
       blurs: [
-        { start: 1, end: 5, rect: { x: 0, y: 0, w: 500, h: 200 }, type: "blur", strength: 0.6 },
-        { start: 1, end: 5, rect: { x: 0, y: 300, w: 500, h: 200 }, type: "mosaic", strength: 0.6 },
+        { start: 1, end: 5, rect: { x: 0, y: 0, w: 500, h: 200 }, strength: 0.6 },
+        { start: 1, end: 5, rect: { x: 0, y: 300, w: 500, h: 200 }, strength: 0.6 },
       ],
     },
   }));
@@ -756,6 +751,20 @@ test("obs-canvas(従来どおり): wipeFull はエラーにならず、layerOrde
   assert.ok(noWipe.warnings.some((w) => w.where === "layerOrder" && w.message.includes("wipe がありません")));
 });
 
+test("wipeFull: transitionSec は0以上の数値", () => {
+  const ok = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: { wipeFull: [{ start: 1, end: 5, transitionSec: 0 }] },
+  }));
+  assert.ok(!ok.errors.some((e) => e.where.includes("transitionSec")));
+
+  const bad = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: { wipeFull: [{ start: 1, end: 5, transitionSec: -0.1 }] },
+  }));
+  assert.ok(bad.errors.some((e) => e.where === "wipeFull[0].transitionSec"));
+});
+
 /* -------- bgm.json -------- */
 
 test("bgm: file 欠落・volumeDb 非数値・startFrom 負・時刻逆転はエラー", () => {
@@ -858,6 +867,37 @@ test("style.fontWeight は 100〜900 の範囲外をエラーにする(文書と
     transcript: { segments: [{ start: 1, end: 3, text: "a", style: { fontWeight: 50 } }] },
   }));
   assert.ok(r.errors.some((e) => e.message.includes("fontWeight")));
+});
+
+/* -------- style.background(帯)と "none" 番兵 -------- */
+
+test('style.background: "none"(下の層の帯を明示的に消す)はエラーにしない', () => {
+  const r = validateDocs(DIR, baseDocs({
+    transcript: { segments: [{ start: 1, end: 3, text: "a", style: { background: "none" } }] },
+  }));
+  assert.equal(r.errors.length, 0);
+});
+
+test('style.background: captionTracks 側の "none" もエラーにしない(章トラックで帯を消す)', () => {
+  const r = validateDocs(DIR, baseDocs({
+    overlays: { captionTracks: [{ track: 2, name: "章", style: { background: "none" } }] },
+    transcript: { segments: [{ start: 1, end: 3, text: "a", track: 2 }] },
+  }));
+  assert.equal(r.errors.length, 0);
+});
+
+test("style.background: オブジェクトでも \"none\" でもない文字列はエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    transcript: { segments: [{ start: 1, end: 3, text: "a", style: { background: "off" } }] },
+  }));
+  assert.ok(r.errors.some((e) => e.message.includes("background")));
+});
+
+test("style.background: color の無いオブジェクトはエラー(従来どおり)", () => {
+  const r = validateDocs(DIR, baseDocs({
+    transcript: { segments: [{ start: 1, end: 3, text: "a", style: { background: { radiusPx: 8 } } }] },
+  }));
+  assert.ok(r.errors.some((e) => e.message.includes("color")));
 });
 
 /* -------- style.anim / style.karaoke(caption-anim フェーズ) -------- */

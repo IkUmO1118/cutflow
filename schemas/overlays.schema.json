@@ -173,6 +173,17 @@
           "items": { "$ref": "#/$defs/SpotlightKeyframe" }
         }
       }
+    },
+    "WipeFull": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/id" },
+        "start": { "type": "number", "minimum": 0 },
+        "end": { "type": "number", "minimum": 0 },
+        "transitionSec": { "type": "number", "minimum": 0 }
+      }
     }
   },
   "properties": {
@@ -224,7 +235,7 @@
     },
     "wipeFull": {
       "type": "array",
-      "items": { "$ref": "common.schema.json#/$defs/Interval" }
+      "items": { "$ref": "#/$defs/WipeFull" }
     },
     "layerOrder": {
       "type": "array",
@@ -251,7 +262,8 @@
           "start": { "type": "number" },
           "end": { "type": "number" },
           "rect": { "$ref": "common.schema.json#/$defs/Region" },
-          "easeSec": { "type": "number", "minimum": 0 }
+          "easeSec": { "type": "number", "minimum": 0 },
+          "easeOutSec": { "type": "number", "minimum": 0 }
         }
       }
     },
@@ -274,7 +286,6 @@
           "start": { "type": "number" },
           "end": { "type": "number" },
           "rect": { "$ref": "common.schema.json#/$defs/Region" },
-          "type": { "enum": ["blur", "mosaic"] },
           "strength": { "type": "number", "minimum": 0, "maximum": 1 },
           "keyframes": {
             "type": "array",

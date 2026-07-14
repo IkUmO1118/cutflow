@@ -12,7 +12,6 @@ import type { Profile } from "./profile.ts";
 import { remapKeyframesForPiece } from "./keyframes.ts";
 import {
   DEFAULT_BLUR_STRENGTH,
-  DEFAULT_BLUR_TYPE,
   DEFAULT_BOX_RADIUS_PX,
   DEFAULT_BOX_WIDTH_PX,
   DEFAULT_CUT_TRANSITION_SEC,
@@ -163,9 +162,6 @@ export function buildRenderProps(args: {
     warn(`背景画像が見つかりません: ${design.backgroundFile}(背景色のみで描画します)`);
     delete design.backgroundFile;
   }
-  if (design && (overlays.wipeFull?.length ?? 0) > 0) {
-    warn("render.design 有効時は wipeFull(ワイプ全画面)が効きません(カメラは円のまま)");
-  }
 
   // ベース映像への挿入。素材が無いものは挿入ごと除外する
   // (時間の穴になるより、以降が前へ詰まる方が壊れ方として安全)
@@ -295,7 +291,11 @@ export function buildRenderProps(args: {
     (overlays.wipeFull ?? []).flatMap((s) => {
       const parts = remapInterval(s.start, s.end, timeline);
       return parts.length > 0
-        ? [{ start: parts[0].start, end: parts[parts.length - 1].end }]
+        ? [{
+            start: parts[0].start,
+            end: parts[parts.length - 1].end,
+            ...(s.transitionSec !== undefined ? { transitionSec: s.transitionSec } : {}),
+          }]
         : [];
     }),
     0.004,
@@ -315,11 +315,12 @@ export function buildRenderProps(args: {
         end: parts[parts.length - 1].end,
         rect: z.rect,
         easeSec: z.easeSec ?? renderCfg.zoom?.easeSec ?? DEFAULT_ZOOM_EASE_SEC,
+        ...(z.easeOutSec !== undefined ? { easeOutSec: z.easeOutSec } : {}),
       },
     ];
   });
 
-  // 領域ぼかし/モザイクもカット後タイムラインへ写像する。rect は不変なので
+  // 領域ぼかしもカット後タイムラインへ写像する。rect は不変なので
   // マージ不要(zooms と同じく断片ごとに独立エントリのまま。判断5)。
   // wipeFull のような近接マージはしない(blur に遷移が無いため不要)
   const blurSpans = (overlays.blurs ?? []).flatMap((b) =>
@@ -337,14 +338,13 @@ export function buildRenderProps(args: {
       start: iv.start,
       end: iv.end,
       rect: b.rect,
-      type: b.type ?? DEFAULT_BLUR_TYPE,
       strength: b.strength ?? DEFAULT_BLUR_STRENGTH,
       ...(iv.keyframes ? { keyframes: iv.keyframes } : {}),
     })),
   );
 
   // 注釈グラフィック(矢印/囲み/スポットライト)もカット後タイムラインへ
-  // 写像する。既定値は resolveAnnotation が埋める(blurs の type/strength
+  // 写像する。既定値は resolveAnnotation が埋める(blurs の strength
   // 解決と同じ考え方)。挿入で割れた断片は独立エントリのまま(マージ不要)
   const annotationItems = (overlays.annotations ?? []).flatMap((a) =>
     keyframesForPieces(
@@ -453,6 +453,9 @@ export function buildRenderProps(args: {
         : {}),
       ...(renderCfg.captionFontWeight
         ? { fontWeight: renderCfg.captionFontWeight }
+        : {}),
+      ...(renderCfg.captionBackground
+        ? { background: renderCfg.captionBackground }
         : {}),
     },
     ...(layoutCaption
@@ -596,7 +599,9 @@ function mergeClose(spans: Span[], gap: number): Span[] {
   const out: Span[] = [];
   for (const s of sorted) {
     const last = out[out.length - 1];
-    if (last && s.start - last.end <= gap) last.end = Math.max(last.end, s.end);
+    if (last && s.start - last.end <= gap && last.transitionSec === s.transitionSec) {
+      last.end = Math.max(last.end, s.end);
+    }
     else out.push({ ...s });
   }
   return out;

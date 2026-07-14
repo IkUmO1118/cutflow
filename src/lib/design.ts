@@ -117,6 +117,34 @@ export function resolveDesign(
 }
 
 /**
+ * デザインのカメラワイプの矩形・角丸(出力px)を、ワイプ全画面の進行度
+ * (`ease`。0 = 通常の角丸ワイプ / 1 = 出力の全画面)で補間する。
+ *
+ * `overlays.json` の `wipeFull` はデザイン経路でも効く: 区間に入るとカメラが
+ * 右下の角丸正方形から出力いっぱいへ広がり(背景画像・画面パネルは覆い隠され
+ * る)、区間を出ると元へ戻る。角丸も 0 へ向かって補間するので、全画面時は
+ * デザイン無しの wipeFull と同じ絵になる。ease は Main.tsx が
+ * `render.wipeTransitionSec` から作る smoothstep 済みの進行度。
+ */
+export function wipeRectAt(
+  camera: DesignProps["camera"],
+  width: number,
+  height: number,
+  ease: number,
+): { rect: Region; radiusPx: number } {
+  const lerp = (from: number, to: number) => Math.round(from + (to - from) * ease);
+  return {
+    rect: {
+      x: lerp(camera.rect.x, 0),
+      y: lerp(camera.rect.y, 0),
+      w: lerp(camera.rect.w, width),
+      h: lerp(camera.rect.h, height),
+    },
+    radiusPx: lerp(camera.radiusPx, 0),
+  };
+}
+
+/**
  * ベース映像が収まる矩形(出力px)。デザイン有効時は画面パネル、無効時は
  * 出力全面。「design 無し = パネルが出力そのもの」を1箇所で言い切るための
  * 小関数で、これにより toPanelRect / screenRectToOutput が design の有無に

@@ -570,7 +570,6 @@ const EDITOR_AI_RESPONSE_SCHEMA: JsonSchemaTextFormat = {
                     keepHeadSec: { type: "number" },
                     keepTailSec: { type: "number" },
                     rect: { type: "object" },
-                    effect: { enum: ["blur", "mosaic"] },
                     strength: { type: "number" },
                     annotation: { type: "object" },
                     file: { type: "string" },

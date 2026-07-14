@@ -6,7 +6,7 @@ import { parse } from "yaml";
 import { DEFAULT_OCR_LANGUAGES } from "./ocr.ts";
 import type { DesignConfig } from "./design.ts";
 import type { LogLevel } from "./obs.ts";
-import type { Region } from "../types.ts";
+import type { CaptionBackground, Region } from "../types.ts";
 import { normalizeBaseUrl, originOfProfile, resolveCredential } from "./ai/http.ts";
 import { adapterFor } from "./ai/registry.ts";
 
@@ -478,6 +478,8 @@ export interface Config {
     captionFontFamily?: string;
     /** テロップ既定の太さ(100〜900)。省略時 CAPTION_DEFAULT_FONT_WEIGHT(700) */
     captionFontWeight?: number;
+    /** テロップ既定の座布団(背景帯)。省略時は背景帯なし */
+    captionBackground?: CaptionBackground;
     chapterCardSec: number;
     targetLufs: number;
     /** システム音声(ingest.systemTrack)のミックス設定。

@@ -68,8 +68,8 @@ test("additionalProperties 未指定は未知キーを許容する", () => {
 });
 
 test("enum: 許可リスト外を検出する", () => {
-  const schema: JsonSchema = { enum: ["blur", "mosaic"] };
-  assert.deepEqual(validateAgainstSchema("blur", schema, noRef), []);
+  const schema: JsonSchema = { enum: ["arrow", "box"] };
+  assert.deepEqual(validateAgainstSchema("arrow", schema, noRef), []);
   assert.equal(validateAgainstSchema("glow", schema, noRef).length, 1);
 });
 

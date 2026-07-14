@@ -229,7 +229,7 @@ test("chunkVideoKey: blurs は zooms/wipeFull と同じくチャンク限定(重
   const before = keysOf(PROPS);
   const withBlur: RenderProps = {
     ...PROPS,
-    blurs: [{ start: 1, end: 2, rect: { x: 0, y: 0, w: 500, h: 200 }, type: "blur", strength: 0.5 }],
+    blurs: [{ start: 1, end: 2, rect: { x: 0, y: 0, w: 500, h: 200 }, strength: 0.5 }],
   };
   const after = keysOf(withBlur);
   assert.notEqual(before.chunk0, after.chunk0); // 1-2s は chunk0([0,5s))に重なる
@@ -241,7 +241,7 @@ test("chunkVideoKey: blurs は zooms/wipeFull と同じくチャンク限定(重
 test("chunkVideoKey: blur の rect 変更は乗っているチャンクのキーだけを変える", () => {
   const withBlur: RenderProps = {
     ...PROPS,
-    blurs: [{ start: 1, end: 2, rect: { x: 0, y: 0, w: 500, h: 200 }, type: "blur", strength: 0.5 }],
+    blurs: [{ start: 1, end: 2, rect: { x: 0, y: 0, w: 500, h: 200 }, strength: 0.5 }],
   };
   const before = keysOf(withBlur);
   const after = keysOf({
