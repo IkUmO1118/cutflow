@@ -31,12 +31,9 @@ export const DesignStill = ({ width, height, role, design }: DesignStillProps) =
     return mask(design.screen.rect.w, design.screen.rect.h, design.screen.radiusPx);
   }
   if (role === "cameraMask") {
-    return design.camera
-      ? mask(design.camera.rect.w, design.camera.rect.h, design.camera.radiusPx)
-      : <AbsoluteFill style={{ backgroundColor: "transparent" }} />;
+    return mask(design.camera.rect.w, design.camera.rect.h, design.camera.radiusPx);
   }
   if (role === "cameraShadow") {
-    if (!design.camera) return <AbsoluteFill style={{ backgroundColor: "transparent" }} />;
     const { rect, radiusPx, shadow } = design.camera;
     return (
       <AbsoluteFill style={{ backgroundColor: "transparent" }}>
