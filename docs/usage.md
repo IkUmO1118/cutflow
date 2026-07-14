@@ -2046,6 +2046,13 @@ node src/cli.ts av <dir>                # sound レポートで BGM spans の反
     短いときは遷移を区間の半分へ縮める(`wipeFull` と同じ規則)
   - かかるのは**ベース映像の背景レイヤー(画面クロップ)だけ**。ワイプ・
     テロップ・素材オーバーレイ・挿入クリップの位置・可読性は変わらない
+  - **ズーム中はカメラワイプが `render.zoom.wipeScale` まで縮む**(既定 0.8。
+    ズームで画面が拡大されるぶんワイプが相対的に大きく見えるのを抑える)。
+    縮小・復帰のトランジションは zoom 本体の `easeSec`/`easeOutSec` と完全に
+    同じ(専用の時間設定は無い)。縮むのは**右下アンカー**(右・下の余白は
+    不変。素の経路は `right:0/bottom:0` flush のまま、design 経路は
+    `render.design.camera.marginPx` の余白がそのまま残る)。`wipeFull`
+    (ワイプ全画面)と重なる間は縮まない。`wipeScale: 1` で無効化できる
   - エディタでは専用の「ズーム」トラックにドラッグで区間を作り、プレビュー上の
     枠をドラッグ・リサイズして `rect` を調整する(素材の部分配置と同じ操作感)
   - ショート(`shorts.json` の縦動画)には効かない(overlays.json を継承しない
@@ -2138,7 +2145,9 @@ render:
 
 ズーム演出(`overlays.json` の `zooms`)の遷移秒数の既定値も同じ扱いで、
 config.yaml の `render.zoom.easeSec`(既定 0.4)のみで変更する
-(`zooms[].easeSec` で個別指定があればそちらが優先)。
+(`zooms[].easeSec` で個別指定があればそちらが優先)。ズーム中にカメラワイプを
+縮める倍率も同様に config.yaml の `render.zoom.wipeScale`(既定 0.8。
+`zooms[]` ごとの上書きは無い)のみで変更する。
 
 ## ベースレイアウトのデザイン(config.yaml `render.design`。既定オフ)
 

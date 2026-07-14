@@ -225,6 +225,31 @@ export function wipeRectAt(
 }
 
 /**
+ * 矩形を右下角(= rect.x + rect.w, rect.y + rect.h)を保ったまま倍率 s
+ * (0 < s <= 1 を想定。1 = 恒等)で縮める(zoom 中のワイプ縮小。§設計 D5)。
+ * 右・下の余白は不変のまま w/h だけ縮むので、呼び出し側が置くコンテナが
+ * 右下アンカー(design 経路)でも `right:0/bottom:0` flush(design 無し経路)
+ * でも同じ式で表現できる。radiusPx にも同じ s を掛け、相対的な丸みを保つ。
+ */
+export function shrinkRectBottomRight(
+  rect: Region,
+  radiusPx: number,
+  s: number,
+): { rect: Region; radiusPx: number } {
+  const w = Math.round(rect.w * s);
+  const h = Math.round(rect.h * s);
+  return {
+    rect: {
+      x: rect.x + (rect.w - w),
+      y: rect.y + (rect.h - h),
+      w,
+      h,
+    },
+    radiusPx: Math.round(radiusPx * s),
+  };
+}
+
+/**
  * ベース映像が収まる矩形(出力px)。デザイン有効時は画面パネル、無効時は
  * 出力全面。「design 無し = パネルが出力そのもの」を1箇所で言い切るための
  * 小関数で、これにより toPanelRect / screenRectToOutput が design の有無に

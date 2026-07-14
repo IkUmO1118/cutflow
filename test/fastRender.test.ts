@@ -174,7 +174,7 @@ test("decideFastPath: 素材音声があれば音声適格外", () => {
 test("decideFastPath: 全編 zoom(coverage 0)は被覆率で非適用", () => {
   const props = mkProps({
     durationSec: 20,
-    zooms: [{ start: 0, end: 20, rect: { x: 0, y: 0, w: 100, h: 100 }, easeSec: 0 }],
+    zooms: [{ start: 0, end: 20, rect: { x: 0, y: 0, w: 100, h: 100 }, easeSec: 0, wipeScale: 0.8 }],
   });
   const decision = decisionFor(props, cfgWith({ fastPath: true }), true);
   assert.equal(decision.activate, false);
@@ -196,7 +196,7 @@ test("decideFastPath: 全適格・被覆率が閾値以上なら activate", () =
 test("decideFastPath: fastPathMinCoverage の上書きで activate が反転する", () => {
   const props = mkProps({
     durationSec: 30,
-    zooms: [{ start: 9, end: 18, rect: { x: 0, y: 0, w: 100, h: 100 }, easeSec: 0 }],
+    zooms: [{ start: 9, end: 18, rect: { x: 0, y: 0, w: 100, h: 100 }, easeSec: 0, wipeScale: 0.8 }],
   });
   const plan = fastPlan(props);
   assert.ok(plan.coverageRatio > 0.5 && plan.coverageRatio < 0.9, `coverageRatio=${plan.coverageRatio}`);

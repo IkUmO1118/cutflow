@@ -14,7 +14,7 @@ test("Main design assets: design assetsを一切参照せずlegacy描画を使�
   );
   assert.doesNotMatch(source, /backdropFile|screenMaskFile|cameraShadowFile|cameraMaskFile/);
   assert.match(source, /staticFile\(design\.backgroundFile\)/);
-  assert.match(source, /borderRadius: designWipe\.radiusPx/);
+  assert.match(source, /borderRadius: shrunkDesignWipe\.radiusPx/);
   assert.match(source, /borderRadius: design\?\.screen\.radiusPx \?\? 0/);
   assert.match(source, /overflow: "hidden"/);
   assert.match(source, /const designCamera = design\?\.camera/);

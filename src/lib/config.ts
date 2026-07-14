@@ -533,6 +533,12 @@ export interface Config {
       /** ズームイン/アウトの遷移秒数。省略時 DEFAULT_ZOOM_EASE_SEC(0.4)。
        * zooms[].easeSec で個別指定があればそちらが優先 */
       easeSec?: number;
+      /** ズーム中にカメラワイプを右下アンカーで縮める倍率。省略時
+       * DEFAULT_ZOOM_WIPE_SCALE(0.8)。1 で縮小なし(従来どおり)。
+       * 縮小・復帰のトランジションは zoom 本体と同じ(easeSec/easeOutSec を
+       * 共有。専用の時間設定は無い)。zoom 1件ごとの上書きは非目標
+       * (overlays.json のスキーマは変えない) */
+      wipeScale?: number;
     };
     /** ベースレイアウトのデザイン。plain は背景画像 + 画面パネル、
      * obs-canvas はさらにカメラ円を描く。ショートには継承しない。

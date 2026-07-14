@@ -7,6 +7,7 @@ import {
   panelRect,
   resolveDesign,
   screenRectToOutput,
+  shrinkRectBottomRight,
   staticCameraDesignAssets,
   toPanelRect,
   wipeRectAt,
@@ -217,6 +218,33 @@ test("wipeRectAt: 途中は矩形も角丸も線形補間(遷移中の中割り)
     },
     radiusPx: Math.round(d.camera!.radiusPx / 2),
   });
+});
+
+test("shrinkRectBottomRight: s=1 は恒等", () => {
+  const rect = { x: 1592, y: 752, w: 300, h: 300 };
+  deepStrictEqual(shrinkRectBottomRight(rect, 96, 1), { rect, radiusPx: 96 });
+});
+
+test("shrinkRectBottomRight: s=0.8 で右辺・下辺が保存される(右下アンカー)", () => {
+  const rect = { x: 1592, y: 752, w: 300, h: 300 };
+  const shrunk = shrinkRectBottomRight(rect, 96, 0.8);
+  strictEqual(shrunk.rect.x + shrunk.rect.w, rect.x + rect.w);
+  strictEqual(shrunk.rect.y + shrunk.rect.h, rect.y + rect.h);
+  strictEqual(shrunk.rect.w, 240);
+  strictEqual(shrunk.rect.h, 240);
+});
+
+test("shrinkRectBottomRight: 丸めても右下角がずれない(奇数寸法)", () => {
+  const rect = { x: 100, y: 100, w: 301, h: 301 };
+  const shrunk = shrinkRectBottomRight(rect, 50, 0.8);
+  strictEqual(shrunk.rect.x + shrunk.rect.w, rect.x + rect.w);
+  strictEqual(shrunk.rect.y + shrunk.rect.h, rect.y + rect.h);
+});
+
+test("shrinkRectBottomRight: radius にも同じ s が掛かる", () => {
+  const rect = { x: 1592, y: 752, w: 300, h: 300 };
+  strictEqual(shrinkRectBottomRight(rect, 96, 0.8).radiusPx, Math.round(96 * 0.8));
+  strictEqual(shrinkRectBottomRight(rect, 96, 0.5).radiusPx, 48);
 });
 
 test("attachPreparedDesignAssets: raw design と解像度が一致するときだけrefsを付ける", () => {
