@@ -17,6 +17,9 @@ test("Main design assets: design assetsを一切参照せずlegacy描画を使�
   assert.match(source, /borderRadius: designWipe\.radiusPx/);
   assert.match(source, /borderRadius: design\?\.screen\.radiusPx \?\? 0/);
   assert.match(source, /overflow: "hidden"/);
-  assert.match(source, /design\.camera\.shadow \? \{ boxShadow: CAMERA_SHADOW_CSS \} : \{\}/);
+  assert.match(source, /const designCamera = design\?\.camera/);
+  assert.match(source, /const wipeLayer: ReactNode = !props\.cameraRegion \? null/);
+  assert.match(source, /props\.layout \|\| !props\.cameraRegion \|\| props\.wipeBurnedIn \? null : wipeLayer/);
+  assert.match(source, /designCamera\.shadow \? \{ boxShadow: CAMERA_SHADOW_CSS \} : \{\}/);
   assert.match(source, /design\?\.screen\.shadow \? \{ boxShadow: SCREEN_SHADOW_CSS \} : \{\}/);
 });

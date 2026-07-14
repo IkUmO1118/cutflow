@@ -43,8 +43,8 @@ export interface DesignProps {
   backgroundFile?: string;
   backgroundColor: string;
   screen: { rect: Region; radiusPx: number; shadow: boolean };
-  /** カメラ(ワイプ)。design は obs-canvas 収録にしか載らないので必ず存在する */
-  camera: { rect: Region; radiusPx: number; shadow: boolean };
+  /** カメラ(ワイプ)。plain designでは存在せず、背景+screenだけを描く */
+  camera?: { rect: Region; radiusPx: number; shadow: boolean };
   /** render.fast/design/ に生成した静的レイアウト資産。ユーザー入力ではなく、
    * render/frames/editor の prepare 段階だけが付与する */
   assets?: DesignAssetRefs;
@@ -91,6 +91,7 @@ export function completeScreenDesignAssets(
 export function completeCameraDesignAssets(
   design: DesignProps | undefined,
 ): DesignAssetRefs | undefined {
+  if (!design?.camera) return undefined;
   const assets = completeScreenDesignAssets(design);
   return assets?.cameraShadowFile && assets.cameraMaskFile ? assets : undefined;
 }
@@ -117,14 +118,8 @@ export const CAMERA_SHADOW_CSS = "0 8px 20px rgba(0,0,0,0.22), 0 24px 64px rgba(
 /**
  * config の design を出力px の矩形へ解決する。無効なら undefined。
  *
- * **OBS 拡張キャンバス収録(obs-canvas)だけに効く。** 判別は manifest に
- * cameraRegion があるか(= hasCamera)で行う: これは ingest / run を
- * `--layout obs-canvas` で通したときだけ書かれるので、通常動画(plain。
- * エディタの bootstrap を含む)は cameraRegion を持たず、config で design を
- * 有効にしていても常に undefined = 従来どおり収録そのままの絵になる。
- * 「背景+パネル+ワイプ」というデザインは画面とカメラが別々に取れる収録が
- * 前提なので、カメラの無い収録に部分適用(背景+パネルだけ)しても
- * 意図した絵にならない。
+ * plainでは背景+画面パネル、OBS拡張キャンバスではさらにカメラを解決する。
+ * channel共通configにcamera設定があってもplainでは使用しない。
  *
  * 画面パネルは「左右 marginXPx・下 marginBottomPx」から幅と Y を決め、高さは
  * 出力アスペクト(width:height)維持の成り行き。上余白は
@@ -138,37 +133,67 @@ export function resolveDesign(
   hasCamera: boolean,
 ): DesignProps | undefined {
   if (!cfg?.enabled) return undefined;
-  if (!hasCamera) return undefined; // 通常動画(plain)はデザインを適用しない
 
   const s = { ...DEFAULT_DESIGN.screen, ...cfg.screen };
-  const c = { ...DEFAULT_DESIGN.camera, ...cfg.camera };
+  const finiteNonnegative = (label: string, value: number) => {
+    if (!Number.isFinite(value) || value < 0) {
+      throw new Error(`render.design.${label} は有限の0以上である必要があります: ${value}`);
+    }
+  };
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    throw new Error(`render.design の出力寸法は有限の正数である必要があります: ${width}x${height}`);
+  }
+  finiteNonnegative("screen.marginXPx", s.marginXPx);
+  finiteNonnegative("screen.marginBottomPx", s.marginBottomPx);
+  finiteNonnegative("screen.radiusPx", s.radiusPx);
 
   const w = width - s.marginXPx * 2;
   const h = Math.round((w * height) / width);
   const screen: Region = { x: s.marginXPx, y: height - s.marginBottomPx - h, w, h };
-  if (w <= 0 || screen.y < 0) {
+  if (
+    screen.w <= 0 || screen.h <= 0 ||
+    screen.x < 0 || screen.y < 0 ||
+    screen.x + screen.w > width || screen.y + screen.h > height
+  ) {
     throw new Error(
       `render.design.screen の余白が大きすぎます(幅 ${w}px / 上余白 ${screen.y}px)`,
     );
   }
 
-  return {
+  const design: DesignProps = {
     ...(cfg.backgroundFile ? { backgroundFile: cfg.backgroundFile } : {}),
     backgroundColor: cfg.backgroundColor ?? DEFAULT_DESIGN.backgroundColor,
-    screen: { rect: screen, radiusPx: s.radiusPx, shadow: s.shadow },
-    camera: {
-      rect: {
-        x: width - c.marginPx - c.sizePx,
-        y: height - c.marginPx - c.sizePx,
-        w: c.sizePx,
-        h: c.sizePx,
-      },
-      // 半径は一辺の半分でクランプ(そこが最大の丸み = 円)。
-      // それ以上を書いても円より丸くはならない
-      radiusPx: Math.min(c.radiusPx, c.sizePx / 2),
-      shadow: c.shadow,
+    screen: {
+      rect: screen,
+      radiusPx: Math.min(s.radiusPx, screen.w / 2, screen.h / 2),
+      shadow: s.shadow,
     },
   };
+  if (!hasCamera) return design;
+
+  const c = { ...DEFAULT_DESIGN.camera, ...cfg.camera };
+  finiteNonnegative("camera.sizePx", c.sizePx);
+  finiteNonnegative("camera.marginPx", c.marginPx);
+  finiteNonnegative("camera.radiusPx", c.radiusPx);
+  const cameraRect: Region = {
+    x: width - c.marginPx - c.sizePx,
+    y: height - c.marginPx - c.sizePx,
+    w: c.sizePx,
+    h: c.sizePx,
+  };
+  if (
+    cameraRect.w <= 0 || cameraRect.h <= 0 ||
+    cameraRect.x < 0 || cameraRect.y < 0 ||
+    cameraRect.x + cameraRect.w > width || cameraRect.y + cameraRect.h > height
+  ) {
+    throw new Error("render.design.camera の矩形が出力範囲内に収まりません");
+  }
+  design.camera = {
+    rect: cameraRect,
+    radiusPx: Math.min(c.radiusPx, cameraRect.w / 2, cameraRect.h / 2),
+    shadow: c.shadow,
+  };
+  return design;
 }
 
 /**
@@ -182,7 +207,7 @@ export function resolveDesign(
  * `render.wipeTransitionSec` から作る smoothstep 済みの進行度。
  */
 export function wipeRectAt(
-  camera: DesignProps["camera"],
+  camera: NonNullable<DesignProps["camera"]>,
   width: number,
   height: number,
   ease: number,

@@ -367,7 +367,7 @@ export function buildFastDesignBaseSpec(args: {
 }): FastDesignBaseSpec {
   const { dir, props, refs, cameraLayerIndex } = args;
   const design = props.design;
-  if (!design || !props.cameraRegion || !refs.cameraShadowFile || !refs.cameraMaskFile) {
+  if (!design?.camera || !props.cameraRegion || !refs.cameraShadowFile || !refs.cameraMaskFile) {
     throw new Error("design基底asset/geometryが不完全です");
   }
   return {

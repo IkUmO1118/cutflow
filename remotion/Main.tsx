@@ -254,8 +254,11 @@ export const Main = (props: RenderProps) => {
   // CroppedVideo の fit="cover" が 16:9 のカメラ領域を正方形の箱へ中央寄せで収める)。
   // wipeFull の区間では、デザイン無しの経路と同じ wipeEase で矩形・角丸を
   // 出力全画面(角丸0)へ補間する(§lib/design.ts の wipeRectAt)
-  const designWipe = design ? wipeRectAt(design.camera, props.width, props.height, wipeEase) : null;
-  const wipeLayer: ReactNode = design && designWipe ? (
+  const designCamera = design?.camera;
+  const designWipe = designCamera
+    ? wipeRectAt(designCamera, props.width, props.height, wipeEase)
+    : null;
+  const wipeLayer: ReactNode = !props.cameraRegion ? null : designCamera && designWipe ? (
     <div
       style={{
         position: "absolute",
@@ -265,7 +268,7 @@ export const Main = (props: RenderProps) => {
         height: designWipe.rect.h,
         borderRadius: designWipe.radiusPx,
         overflow: "hidden",
-        ...(design.camera.shadow ? { boxShadow: CAMERA_SHADOW_CSS } : {}),
+        ...(designCamera.shadow ? { boxShadow: CAMERA_SHADOW_CSS } : {}),
       }}
     >
       {hasVideo && props.cameraRegion ? (
