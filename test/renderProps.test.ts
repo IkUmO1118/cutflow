@@ -175,6 +175,64 @@ test("buildRenderProps: plain manifest(cameraRegion 無し)は cameraRegion unde
   assert.deepEqual(props.screenRegion, { x: 0, y: 0, w: 1080, h: 1920 });
 });
 
+test("buildRenderProps: plain designはportrait screenだけを載せ、cameraを載せない", () => {
+  const plainManifest: Manifest = {
+    ...manifest,
+    layout: "plain",
+    video: { width: 1080, height: 1920, fps: 30, screenRegion: { x: 0, y: 0, w: 1080, h: 1920 } },
+  };
+  const props = buildRenderProps({
+    manifest: plainManifest,
+    keeps: [{ start: 0, end: 10 }],
+    transcript: { segments: [] },
+    overlays: {},
+    renderCfg: {
+      ...renderCfg,
+      design: {
+        enabled: true,
+        backgroundColor: "#123456",
+        camera: { sizePx: 9999, marginPx: 9999 },
+      },
+    },
+    width: 1080,
+    height: 1920,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.deepEqual(props.design, {
+    backgroundColor: "#123456",
+    screen: {
+      rect: { x: 100, y: 266, w: 880, h: 1564 },
+      radiusPx: 24,
+      shadow: true,
+    },
+  });
+  assert.equal(props.cameraRegion, undefined);
+});
+
+test("buildRenderProps: short layoutはplain designを引き続き除外する", () => {
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 10 }],
+    transcript: { segments: [] },
+    overlays: {},
+    renderCfg: { ...renderCfg, design: { enabled: true } },
+    width: 1080,
+    height: 1920,
+    profile: PROFILES.vertical,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.equal(props.design, undefined);
+  assert.ok(props.layout);
+});
+
 test("buildRenderProps: vertical profile → layout/captionDefaultPos/fontSizePx(×fontScale)が入る", () => {
   const props = buildRenderProps({
     manifest,

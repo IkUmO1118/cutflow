@@ -6,9 +6,7 @@ import type { DesignProps } from "../src/lib/design.ts";
 
 export type DesignStillRole = "backdrop" | "screenMask" | "cameraShadow" | "cameraMask";
 
-export type DesignStillDesign = Omit<DesignProps, "camera" | "assets"> & {
-  camera?: DesignProps["camera"];
-};
+export type DesignStillDesign = Omit<DesignProps, "assets">;
 
 export type DesignStillProps = {
   width: number;

@@ -51,6 +51,9 @@ export function resolveFastBaseCapability(args: {
   const { props, composite, allowPlainIdentity = false } = args;
   const design = props.design;
   if (design) {
+    if (!design.camera) {
+      return { ok: false, reason: "design基底asset不足(backdrop/screenMask/cameraShadow/cameraMask)" };
+    }
     const assets = completeCameraDesignAssets(design);
     if (!completeDesignRefs(assets)) {
       return { ok: false, reason: "design基底asset不足(backdrop/screenMask/cameraShadow/cameraMask)" };
