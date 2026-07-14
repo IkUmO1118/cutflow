@@ -75,11 +75,15 @@ export function cleanupFastRenderTemps(args: {
   rmSync(args.tempFinal, { force: true });
 }
 
+export type FastRenderResult =
+  | { ok: true; keyframeFrames: number[] }
+  | { ok: false };
+
 export async function runFastRender(args: {
   dir: string; props: RenderProps; plan: FastPlan; cutPath: string; propsPath: string;
   base?: Extract<FastBaseCapability, { ok: true }>;
   outPath: string; hardwareAcceleration: string; repoRoot: string; resourceArgs: string[];
-}): Promise<boolean> {
+}): Promise<FastRenderResult> {
   const { dir, props, plan, cutPath, propsPath, outPath, hardwareAcceleration, repoRoot, resourceArgs } = args;
   const fastDir = join(dir, "render.fast");
   const segDir = join(dir, FAST_SEGMENT_DIR);
@@ -133,15 +137,15 @@ export async function runFastRender(args: {
     );
     if (!verify.ok) {
       console.warn(`render 高速パス: 検証に失敗したためフルレンダーへ: ${verify.reason}`);
-      return false;
+      return { ok: false };
     }
     renameSync(tempFinal, outPath);
     const slowCount = jobs.filter((j) => j.span.kind === "slow").length;
     console.log(`render 高速パス: FAST ${jobs.length - slowCount} / SLOW ${slowCount} セグメント(被覆 ${(plan.coverageRatio * 100).toFixed(1)}%, 音声 ${plan.audioMode})`);
-    return true;
+    return { ok: true, keyframeFrames: verify.keyframeFrames };
   } catch (err) {
     console.warn(`render 高速パス: 失敗したためフルレンダーへ: ${(err as Error).message}`);
-    return false;
+    return { ok: false };
   } finally {
     cleanupFastRenderTemps({ segDir, assembledVideo, audioM4a, tempFinal });
   }
