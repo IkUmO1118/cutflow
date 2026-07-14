@@ -1087,9 +1087,21 @@ export const App = () => {
       file: `media/${o.file}`,
     }));
     const bgmTracks = props.bgm.map((b) => ({ ...b, file: `media/${b.file}` }));
+    // デザインの背景画像も収録フォルダ内のファイル(render.design/…)なので、
+    // 素材と同じく /media/ 経由に付け替える(付け替え漏れると 404 で背景が
+    // 出ず、背景色だけになる)
+    const design = props.design?.backgroundFile
+      ? { ...props.design, backgroundFile: `media/${props.design.backgroundFile}` }
+      : props.design;
     return {
       warnings,
-      props: { ...props, overlays: overlayItems, inserts: insertItems, bgm: bgmTracks },
+      props: {
+        ...props,
+        overlays: overlayItems,
+        inserts: insertItems,
+        bgm: bgmTracks,
+        ...(design ? { design } : {}),
+      },
     };
   }, [
     proj, cutplan, overlays, transcript, bgm, keeps, shortMode, activeShort, shortKeepsMerged,
