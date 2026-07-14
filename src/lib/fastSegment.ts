@@ -19,11 +19,13 @@ import { fadeFrames, overlayFastReason, overlaySeqRange } from "./overlayFade.ts
 import { buildCaptionIndex, lookupCaption } from "./captionIndex.ts";
 import { baseLayoutOf, baseSegOf, cutFrameOf } from "./fastBase.ts";
 import { capNum, DEFAULT_LAYER_ORDER, ovNum } from "../types.ts";
+import type { FastBaseCapability } from "./fastBaseCapability.ts";
 import type { FastSpan } from "./fastPlan.ts";
+import type { DesignAssetRefs } from "./design.ts";
 import type { WarmAssets } from "../stages/frames.ts";
 import type { Caption, OverlayItem, RenderProps, ResolvedAnnotation } from "../../remotion/props.ts";
 import type { CaptionStillProps } from "../../remotion/CaptionStill.tsx";
-import type { Region } from "../types.ts";
+import type { LayerId, Region } from "../types.ts";
 
 export const FAST_SEGMENT_DIR = "render.fast/segments";
 
@@ -332,6 +334,60 @@ export function countFastPngInputs(props: RenderProps, span: FastSpan): number {
   return mergeFastLayers(props, resolveFastLayers(props, span)).length;
 }
 
+export interface FastDesignLayerPlan {
+  items: FastLayerItem[];
+  cameraLayerIndex?: number;
+}
+
+/** design cameraはlayerOrderのwipe位置に入るため、wipeをまたぐ畳み込みを
+ * 禁止して正確な挿入位置を返す。composite用の解決・畳み込みは変更しない。 */
+export function resolveFastDesignLayers(props: RenderProps, span: FastSpan): FastDesignLayerPlan {
+  const hidden = new Set(props.hiddenLayers ?? []);
+  const order = (props.layerOrder ?? DEFAULT_LAYER_ORDER).filter((id) => !hidden.has(id));
+  const wipeIndex = order.indexOf("wipe");
+  if (wipeIndex < 0 || props.wipeBurnedIn || !props.cameraRegion) {
+    const visibleProps = { ...props, layerOrder: order };
+    return { items: mergeFastLayers(visibleProps, resolveFastLayers(visibleProps, span)) };
+  }
+
+  const lowerOrder = order.slice(0, wipeIndex) as LayerId[];
+  const upperOrder = order.slice(wipeIndex + 1) as LayerId[];
+  const lowerProps = { ...props, layerOrder: lowerOrder, annotations: [] };
+  const upperProps = { ...props, layerOrder: upperOrder };
+  const lower = mergeFastLayers(lowerProps, resolveFastLayers(lowerProps, span));
+  const upper = mergeFastLayers(upperProps, resolveFastLayers(upperProps, span));
+  return { items: [...lower, ...upper], cameraLayerIndex: lower.length };
+}
+
+export function buildFastDesignBaseSpec(args: {
+  dir: string;
+  props: RenderProps;
+  refs: DesignAssetRefs;
+  cameraLayerIndex?: number;
+}): FastDesignBaseSpec {
+  const { dir, props, refs, cameraLayerIndex } = args;
+  const design = props.design;
+  if (!design || !props.cameraRegion || !refs.cameraShadowFile || !refs.cameraMaskFile) {
+    throw new Error("design基底asset/geometryが不完全です");
+  }
+  return {
+    mode: "design",
+    backdropPath: join(dir, refs.backdropFile),
+    screen: {
+      sourceRect: props.screenRegion,
+      targetRect: design.screen.rect,
+      maskPath: join(dir, refs.screenMaskFile),
+    },
+    camera: {
+      sourceRect: props.cameraRegion,
+      targetRect: design.camera.rect,
+      maskPath: join(dir, refs.cameraMaskFile),
+      shadowPath: join(dir, refs.cameraShadowFile),
+    },
+    ...(cameraLayerIndex !== undefined ? { cameraLayerIndex } : {}),
+  };
+}
+
 // ---- 純関数: filtergraph / argv 組み立て ----
 
 function isAlphaLayer(L: FastLayerSpec): boolean {
@@ -574,6 +630,7 @@ export async function renderFastSegment(args: {
   span: FastSpan;
   index: number;
   warm: WarmAssets;
+  base?: Extract<FastBaseCapability, { ok: true }>;
 }): Promise<string> {
   const { dir, props, span, index, warm } = args;
   if (span.kind !== "fast") throw new Error("renderFastSegment は fast span 専用です");
@@ -588,7 +645,10 @@ export async function renderFastSegment(args: {
     throw new Error(`FAST span[${span.fromFrame},${span.toFrame}) が単一の baseSegment に収まっていない`);
   }
   const videoFromFrame = cutFrameOf(baseSeg, span.fromFrame);
-  const items = mergeFastLayers(props, resolveFastLayers(props, span));
+  const designLayerPlan = args.base?.mode === "design"
+    ? resolveFastDesignLayers(props, span)
+    : undefined;
+  const items = designLayerPlan?.items ?? mergeFastLayers(props, resolveFastLayers(props, span));
   const layers: FastLayerSpec[] = [];
   for (const it of items) {
     if (it.kind === "caption") {
@@ -641,6 +701,16 @@ export async function renderFastSegment(args: {
       videoFromFrame,
       fps: props.fps,
       layers,
+      ...(args.base?.mode === "design"
+        ? {
+            base: buildFastDesignBaseSpec({
+              dir,
+              props,
+              refs: args.base.design,
+              cameraLayerIndex: designLayerPlan?.cameraLayerIndex,
+            }),
+          }
+        : {}),
       ...(colorPlan.kind === "chain" ? { colorFilters: colorPlan.filters } : {}),
     }),
   );

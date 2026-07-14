@@ -27,9 +27,7 @@ export function decideFastPath(args: {
   const { enabled, minCoverage } = resolveFastPathCfg(cfg);
   if (!enabled) return { activate: false, reason: "fastPath 無効" };
   if (!base.ok) return { activate: false, reason: base.reason };
-  // P1-1は能力ゲートだけを導入する。design/plain graphがrunFastRenderへ
-  // 接続される前に誤って既存composite graphを使わないための内部境界。
-  if (base.mode !== "composite") {
+  if (base.mode === "plain-identity") {
     return { activate: false, reason: `${base.mode}基底graph未接続` };
   }
   const plan = fastPlan(props);
@@ -59,8 +57,21 @@ export function orderedFastJobs(dir: string, plan: FastPlan): FastJob[] {
   return plan.spans.map((span, index) => ({ index, span, outPath: fastSegmentPath(dir, index) }));
 }
 
+export function cleanupFastRenderTemps(args: {
+  segDir: string;
+  assembledVideo: string;
+  audioM4a: string;
+  tempFinal: string;
+}): void {
+  rmSync(args.segDir, { recursive: true, force: true });
+  rmSync(args.assembledVideo, { force: true });
+  rmSync(args.audioM4a, { force: true });
+  rmSync(args.tempFinal, { force: true });
+}
+
 export async function runFastRender(args: {
   dir: string; props: RenderProps; plan: FastPlan; cutPath: string; propsPath: string;
+  base?: Extract<FastBaseCapability, { ok: true }>;
   outPath: string; hardwareAcceleration: string; repoRoot: string; resourceArgs: string[];
 }): Promise<boolean> {
   const { dir, props, plan, cutPath, propsPath, outPath, hardwareAcceleration, repoRoot, resourceArgs } = args;
@@ -76,7 +87,14 @@ export async function runFastRender(args: {
     await withCaptionStillAssets(dir, async (warm) => {
       for (const job of jobs) {
         if (job.span.kind === "fast") {
-          await renderFastSegment({ dir, props, span: job.span, index: job.index, warm });
+          await renderFastSegment({
+            dir,
+            props,
+            span: job.span,
+            index: job.index,
+            warm,
+            ...(args.base?.ok ? { base: args.base } : {}),
+          });
         } else {
           await run("npx", buildSlowSegmentRemotionArgs({
             propsPath, publicDir: dir, outPath: job.outPath,
@@ -101,7 +119,6 @@ export async function runFastRender(args: {
     );
     if (!verify.ok) {
       console.warn(`render 高速パス: 検証に失敗したためフルレンダーへ: ${verify.reason}`);
-      rmSync(fastDir, { recursive: true, force: true });
       return false;
     }
     renameSync(tempFinal, outPath);
@@ -110,11 +127,8 @@ export async function runFastRender(args: {
     return true;
   } catch (err) {
     console.warn(`render 高速パス: 失敗したためフルレンダーへ: ${(err as Error).message}`);
-    rmSync(fastDir, { recursive: true, force: true });
     return false;
   } finally {
-    rmSync(assembledVideo, { force: true });
-    rmSync(audioM4a, { force: true });
-    rmSync(tempFinal, { force: true });
+    cleanupFastRenderTemps({ segDir, assembledVideo, audioM4a, tempFinal });
   }
 }

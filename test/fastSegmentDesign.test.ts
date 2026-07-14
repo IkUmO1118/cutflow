@@ -3,11 +3,13 @@ import assert from "node:assert/strict";
 import {
   BASE_COLOR_FILTER,
   MAX_FAST_DESIGN_PNG_INPUTS,
+  buildFastDesignBaseSpec,
   buildFastSegmentArgs,
   buildFastSegmentFilter,
   centerCoverCrop,
   countFastPngInputs,
   mergeFastLayers,
+  resolveFastDesignLayers,
   resolveFastLayers,
 } from "../src/lib/fastSegment.ts";
 import type { FastDesignBaseSpec, FastSegmentSpec } from "../src/lib/fastSegment.ts";
@@ -158,4 +160,103 @@ test("design追加でもresolve/merge/countの既存結果とspan分類用入力
   const resolved = resolveFastLayers(props, span);
   assert.equal(mergeFastLayers(props, resolved).length, 1);
   assert.equal(countFastPngInputs(props, span), 1);
+});
+
+test("design activation: asset refsとgeometryから絶対pathのbase specを組み立てる", () => {
+  const props: RenderProps = {
+    videoFile: "cut.mp4",
+    bgm: [],
+    durationSec: 10,
+    fps: 30,
+    width: 1920,
+    height: 1080,
+    canvas: { w: 3840, h: 1080 },
+    screenRegion: DESIGN.screen.sourceRect,
+    cameraRegion: DESIGN.camera.sourceRect,
+    wipe: { widthPx: 480, marginPx: 32 },
+    caption: { fontSizePx: 44 },
+    captions: [],
+    overlays: [],
+    wipeFull: [],
+    hideCaption: [],
+    design: {
+      backgroundColor: "#001122",
+      screen: { rect: DESIGN.screen.targetRect, radiusPx: 24, shadow: true },
+      camera: { rect: DESIGN.camera.targetRect, radiusPx: 96, shadow: true },
+    },
+  };
+  const refs = {
+    key: "key",
+    backdropFile: "render.fast/design/key.backdrop.png",
+    screenMaskFile: "render.fast/design/key.screen-mask.png",
+    cameraShadowFile: "render.fast/design/key.camera-shadow.png",
+    cameraMaskFile: "render.fast/design/key.camera-mask.png",
+  };
+  assert.deepEqual(buildFastDesignBaseSpec({ dir: "/rec", props, refs, cameraLayerIndex: 2 }), {
+    ...DESIGN,
+    cameraLayerIndex: 2,
+  });
+});
+
+test("design activation: wipe位置をまたいで同一PNGをmergeせずcamera indexを保つ", () => {
+  const props: RenderProps = {
+    videoFile: "cut.mp4",
+    bgm: [],
+    durationSec: 10,
+    fps: 30,
+    width: 1920,
+    height: 1080,
+    canvas: { w: 3840, h: 1080 },
+    screenRegion: DESIGN.screen.sourceRect,
+    cameraRegion: DESIGN.camera.sourceRect,
+    wipe: { widthPx: 480, marginPx: 32 },
+    caption: { fontSizePx: 44 },
+    captions: [],
+    overlays: [
+      { start: 0, end: 2, file: "same.png", track: 1, fit: "contain" },
+      { start: 3, end: 5, file: "same.png", track: 2, fit: "contain" },
+    ],
+    layerOrder: ["ov1", "wipe", "ov2"],
+    wipeFull: [],
+    hideCaption: [],
+  };
+  const span = { kind: "fast" as const, fromFrame: 0, toFrame: 300 };
+  assert.equal(mergeFastLayers(props, resolveFastLayers(props, span)).length, 1);
+  const design = resolveFastDesignLayers(props, span);
+  assert.equal(design.items.length, 2);
+  assert.equal(design.cameraLayerIndex, 1);
+  assert.deepEqual(design.items.map((item) => item.kind), ["overlay", "overlay"]);
+});
+
+test("design activation: lower/upperの後にannotationを置き、hidden wipeではcameraを省く", () => {
+  const props: RenderProps = {
+    videoFile: "cut.mp4",
+    bgm: [],
+    durationSec: 10,
+    fps: 30,
+    width: 1920,
+    height: 1080,
+    canvas: { w: 3840, h: 1080 },
+    screenRegion: DESIGN.screen.sourceRect,
+    cameraRegion: DESIGN.camera.sourceRect,
+    wipe: { widthPx: 480, marginPx: 32 },
+    caption: { fontSizePx: 44 },
+    captions: [
+      { start: 0, end: 2, text: "lower", track: 1 },
+      { start: 0, end: 2, text: "upper", track: 2 },
+    ],
+    overlays: [],
+    annotations: [{ type: "rect", start: 0, end: 2, rect: { x: 1, y: 2, w: 3, h: 4 } }],
+    layerOrder: ["cap1", "wipe", "cap2"],
+    wipeFull: [],
+    hideCaption: [],
+  };
+  const span = { kind: "fast" as const, fromFrame: 0, toFrame: 300 };
+  const visible = resolveFastDesignLayers(props, span);
+  assert.equal(visible.cameraLayerIndex, 1);
+  assert.deepEqual(visible.items.map((item) => item.kind), ["caption", "caption", "annotation"]);
+
+  const hidden = resolveFastDesignLayers({ ...props, hiddenLayers: ["wipe"] }, span);
+  assert.equal(hidden.cameraLayerIndex, undefined);
+  assert.deepEqual(hidden.items.map((item) => item.kind), ["caption", "caption", "annotation"]);
 });
