@@ -5,6 +5,7 @@
 // 方針: エラー = レンダーが壊れる・結果が明らかに不正になるもの(exit 1)。
 //       警告 = 動きはするが意図と違う可能性が高いもの(exit 0)。
 
+import { cliCmd } from "../lib/cliName.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { join, normalize, resolve, sep } from "node:path";
 import { isCutplanApproved, isShortApproved } from "../lib/approval.ts";
@@ -127,7 +128,7 @@ function checkFramesFreshness(dir: string, warnings: Problem[]): void {
     where: "-",
     message:
       `frames は撮影後に ${freshness.changed.join("、")} が変更されており古い可能性があります。` +
-      "古い PNG を読まないよう `node src/cli.ts frames <dir> ...` で撮り直してください" +
+      `古い PNG を読まないよう \`${cliCmd()} frames <dir> ...\` で撮り直してください` +
       "(config.yaml の変更はこの検出の対象外です)",
   });
 }
@@ -154,7 +155,7 @@ function checkApprovalFreshness(
         message:
           `approved: true ですが承認レコードが無効です(${gate.reason})。` +
           "この状態では render は拒否されます。preview で確認のうえ " +
-          "`node src/cli.ts approve <dir>` で再承認してください",
+          `\`${cliCmd()} approve <dir>\` で再承認してください`,
       });
     }
   }
@@ -171,7 +172,7 @@ function checkApprovalFreshness(
           message:
             `approved: true ですが承認レコードが無効です(${gate.reason})。` +
             `この状態では render --short は拒否されます。preview で確認のうえ ` +
-            `\`node src/cli.ts approve <dir> --short ${s.name}\` で再承認してください`,
+            `\`${cliCmd()} approve <dir> --short ${s.name}\` で再承認してください`,
         });
       }
     }

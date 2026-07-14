@@ -7,6 +7,7 @@
 // 純関数)と書き込み前の validate 検査(all-or-nothing)はすべてコード側で行う。
 // 生成する zooms/blurs/annotations は全件下書き(未承認)。approvals.json には
 // 一切触れない。
+import { cliCmd } from "../lib/cliName.ts";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -214,8 +215,8 @@ export async function planEffects(
   if (ocrSidecars.length === 0 && motion === null) {
     throw new Error(
       "画面OCR・動き検出のどちらも未生成です。先に " +
-        `\`node src/cli.ts frames ${dir} --every 10 --ocr\` と ` +
-        `\`node src/cli.ts av ${dir}\` のどちらか(両方推奨)を実行してください`,
+        `\`${cliCmd()} frames ${dir} --every 10 --ocr\` と ` +
+        `\`${cliCmd()} av ${dir}\` のどちらか(両方推奨)を実行してください`,
     );
   }
 

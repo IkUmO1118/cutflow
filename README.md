@@ -45,6 +45,7 @@ mkdir -p ~/Models/whisper
 curl -L -o ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin \
   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin
 npm install
+npm link      # `cutflow` コマンドをどこからでも使えるようにする(任意・推奨)
 ```
 
 > whisper モデルはまず軽い `base`(≈150MB)で即試し、本番で `large-v3-turbo` に上げる
@@ -54,8 +55,25 @@ npm install
 インストール後、環境が揃っているかは1コマンドで確認できます:
 
 ```sh
-node src/cli.ts doctor
+cutflow doctor
 ```
+
+### コマンドの2つの入口
+
+`npm link` すると `cutflow <コマンド>` がどこからでも打てます(収録フォルダ側で
+作業しているときもリポジトリへ `cd` しなくてよく、Node のバージョン不足も
+人間可読なメッセージで弾かれるので、**人間はこちらを使う**のがおすすめ)。
+
+リンクしていなくても、リポジトリのルートから同じことができます:
+
+```sh
+cutflow doctor            # npm link 済み(推奨)
+node src/cli.ts doctor    # リンク不要。リポジトリのルートから
+```
+
+以下このリポジトリのドキュメントは、リンク前提を置かないため
+`node src/cli.ts …` で書いています。`cutflow …` と読み替えて構いません
+(CLI が出すヒントも、実際に使った入口に合わせて書き分けます)。
 
 必須(Node / ffmpeg / ffprobe / config)が欠けていれば exit 1、収録・AI 系(whisper・
 モデル・エンコーダ・AI provider)の不足は warn(exit 0)で一覧表示されます。`--json` を

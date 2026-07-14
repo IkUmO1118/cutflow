@@ -1,3 +1,4 @@
+import { cliCmd } from "../lib/cliName.ts";
 import {
   existsSync,
   mkdirSync,
@@ -155,7 +156,7 @@ export async function render(dir: string, cfg: Config): Promise<string> {
   if (!gate.ok) {
     throw new Error(
       `render できません: ${gate.reason}\n` +
-        "preview で確認のうえ `node src/cli.ts approve <dir>` で承認してください" +
+        `preview で確認のうえ \`${cliCmd()} approve <dir>\` で承認してください` +
         "(GUI ならチェックボックス)。",
     );
   }
@@ -435,7 +436,7 @@ async function renderOneShort(
   if (!gate.ok) {
     throw new Error(
       `ショート "${short.name}" を render できません: ${gate.reason}\n` +
-        `preview で確認のうえ \`node src/cli.ts approve <dir> --short ${short.name}\` で` +
+        `preview で確認のうえ \`${cliCmd()} approve <dir> --short ${short.name}\` で` +
         "承認してください(GUI ならチェックボックス)。",
     );
   }

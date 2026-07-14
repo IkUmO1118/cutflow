@@ -3,6 +3,7 @@
 // 知覚コマンド。時刻は「元 = 元収録の秒 / 出力 = カット後(preview/final)の秒」を
 // 併記する(人間は preview を見て出力秒で話し、編集ファイルは元秒で書くため)。
 
+import { cliCmd } from "../lib/cliName.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fmtT } from "../lib/fmt.ts";
@@ -320,7 +321,7 @@ export function describe(dir: string, cfg?: Config): string {
     lines.push("");
     lines.push(
       `⚠ frames は撮影後に ${freshness.changed.join("、")} が変更されており古い可能性があります。` +
-        "古い PNG を読まないよう `node src/cli.ts frames <dir> ...` で撮り直してください" +
+        `古い PNG を読まないよう \`${cliCmd()} frames <dir> ...\` で撮り直してください` +
         "(config.yaml の変更はこの検出の対象外です)",
     );
   } else if (freshness.state === "fresh") {
