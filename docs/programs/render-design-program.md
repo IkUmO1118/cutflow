@@ -205,7 +205,7 @@ render <dir> ────────┼─ chunk 差分(P0 で design を globa
 
 ## 5. フェーズ計画(状態管理。終わったら状態を更新し結果を追記)
 
-### P0 — design 陳腐化バグ2件の修正 【状態: 未着手 / 設計不要・実装直行可】
+### P0 — design 陳腐化バグ2件の修正 【状態: 完了 / 2026-07-14】
 
 §2.3 の2件。純関数テストで固定でき render 実行不要。
 
@@ -364,6 +364,18 @@ design 有効時のみのレイヤー)。frames の PNG が render と同じ絵(
 - フェーズ構成: P0(バグ修正・設計不要)→ P1(FAST 基底 design 対応)→
   P2(バックプレート統一。P1 と同一設計 doc 可)→ P3(plain 展開)。
   P1〜P3 を Opus 設計子へ委任する(§9)。
+
+### 8-2. 2026-07-14 P0 完了(design キャッシュ陳腐化修正)
+
+- commit `a58a103`: design 変更を chunk の `globalVideoKey` に含め、
+  `design.backgroundFile` の stat を render cache key に含めた。
+- design 無しの旧キーをバイト同一に保つため、当初案の
+  `design: props.design ?? null` ではなく、design が存在するときだけ
+  `globalVideoProps` にフィールドを追加する方式を採用した。
+- コーディネータ実測ゲート: `npm run typecheck` 成功、`npm test` は
+  1506/1506 成功、`git diff --check` 成功。design 変更時の全 chunk key
+  無効化、背景画像 stat 変更時の render key 無効化、design 無しの旧キー
+  バイト同一を純関数テストで直接確認した。
 
 ---
 
