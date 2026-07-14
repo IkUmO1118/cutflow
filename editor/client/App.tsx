@@ -3,6 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 import { Player } from "@remotion/player";
 import type { CallbackListener, PlayerRef } from "@remotion/player";
 import { Main } from "../../remotion/Main.tsx";
+import { designForPlayer } from "./designAssets.ts";
 import {
   buildRenderProps,
   capCountOf,
@@ -620,6 +621,7 @@ export const App = () => {
           p && {
             ...p,
             renderCfg: res.renderCfg,
+            designAssets: res.designAssets,
             previewCfg: res.previewCfg,
             editorCfg: res.editorCfg,
             aiProfiles: res.aiProfiles,
@@ -1091,9 +1093,12 @@ export const App = () => {
     // デザインの背景画像も収録フォルダ内のファイル(render.design/…)なので、
     // 素材と同じく /media/ 経由に付け替える(付け替え漏れると 404 で背景が
     // 出ず、背景色だけになる)
-    const design = props.design?.backgroundFile
-      ? { ...props.design, backgroundFile: `media/${props.design.backgroundFile}` }
-      : props.design;
+    const design = designForPlayer(
+      props.design,
+      props.width,
+      props.height,
+      proj.designAssets,
+    );
     return {
       warnings,
       props: {

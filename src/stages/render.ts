@@ -41,6 +41,7 @@ import {
 import { defaultShortProfileName, resolveProfile } from "../lib/profile.ts";
 import { buildRenderProps } from "../lib/renderProps.ts";
 import { renderCfgWithDesign } from "../lib/designAsset.ts";
+import { prepareDesignAssetsForProps } from "../lib/designStill.ts";
 import {
   compositionDurationInFrames,
   compositionDurationSec,
@@ -223,7 +224,7 @@ export async function render(dir: string, cfg: Config): Promise<string> {
     : null;
 
   const profile = resolveProfile(manifest.video.screenRegion, "default");
-  const props = buildRenderProps({
+  let props = buildRenderProps({
     manifest,
     keeps,
     transcript,
@@ -247,6 +248,11 @@ export async function render(dir: string, cfg: Config): Promise<string> {
     props.screenRegion = { x: 0, y: 0, w: sr.w, h: sr.h };
     props.wipeBurnedIn = true;
   }
+  props = await prepareDesignAssetsForProps({
+    dir,
+    props,
+    warn: (message) => console.warn(`警告: ${message}`),
+  });
   const propsPath = join(dir, "render.props.json");
   writeFileSync(propsPath, JSON.stringify(props, null, 2));
 

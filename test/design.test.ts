@@ -1,9 +1,13 @@
 import { deepStrictEqual, strictEqual, throws } from "node:assert/strict";
 import { test } from "node:test";
 import {
+  attachPreparedDesignAssets,
+  completeCameraDesignAssets,
+  completeScreenDesignAssets,
   panelRect,
   resolveDesign,
   screenRectToOutput,
+  staticCameraDesignAssets,
   toPanelRect,
   wipeRectAt,
 } from "../src/lib/design.ts";
@@ -155,4 +159,62 @@ test("wipeRectAt: 途中は矩形も角丸も線形補間(遷移中の中割り)
     },
     radiusPx: Math.round(d.camera.radiusPx / 2),
   });
+});
+
+test("attachPreparedDesignAssets: raw design と解像度が一致するときだけrefsを付ける", () => {
+  const design = resolveDesign({ enabled: true }, W, H, true)!;
+  const prepared = {
+    width: W,
+    height: H,
+    design,
+    refs: {
+      key: "key",
+      backdropFile: "render.fast/design/key.backdrop.png",
+      screenMaskFile: "render.fast/design/key.screen-mask.png",
+      cameraShadowFile: "render.fast/design/key.camera-shadow.png",
+      cameraMaskFile: "render.fast/design/key.camera-mask.png",
+    },
+  };
+  strictEqual(attachPreparedDesignAssets(design, W, H, prepared)?.assets, prepared.refs);
+  strictEqual(attachPreparedDesignAssets(design, 1280, 720, prepared)?.assets, undefined);
+  const changed = { ...design, backgroundColor: "#ffffff" };
+  strictEqual(attachPreparedDesignAssets(changed, W, H, prepared)?.assets, undefined);
+});
+
+test("complete design assets: partial refs はscreen/cameraともCSS fallback", () => {
+  const design = resolveDesign({ enabled: true }, W, H, true)!;
+  const screenOnly = {
+    ...design,
+    assets: {
+      key: "key",
+      backdropFile: "backdrop.png",
+      screenMaskFile: "screen-mask.png",
+    },
+  };
+  strictEqual(completeScreenDesignAssets(screenOnly), screenOnly.assets);
+  strictEqual(completeCameraDesignAssets(screenOnly), undefined);
+  const partial = {
+    ...design,
+    assets: { key: "key", backdropFile: "", screenMaskFile: "screen-mask.png" },
+  };
+  strictEqual(completeScreenDesignAssets(partial), undefined);
+  strictEqual(completeCameraDesignAssets(partial), undefined);
+});
+
+test("staticCameraDesignAssets: 通常frameだけasset、wipeFull進行中はCSS fallback", () => {
+  const design = resolveDesign({ enabled: true }, W, H, true)!;
+  const withAssets = {
+    ...design,
+    assets: {
+      key: "key",
+      backdropFile: "backdrop.png",
+      screenMaskFile: "screen-mask.png",
+      cameraShadowFile: "camera-shadow.png",
+      cameraMaskFile: "camera-mask.png",
+    },
+  };
+  strictEqual(staticCameraDesignAssets(withAssets, 0), withAssets.assets);
+  strictEqual(staticCameraDesignAssets(withAssets, 0.001), undefined);
+  strictEqual(staticCameraDesignAssets(withAssets, 1), undefined);
+  strictEqual(staticCameraDesignAssets(withAssets, 0), withAssets.assets);
 });

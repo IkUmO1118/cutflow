@@ -15,11 +15,15 @@ import {
   DESIGN_STILL_GENERATOR_VERSION,
   designAssetRefs,
   designStillKey,
+  existingDesignAssets,
+  prepareDesignAssetsForProps,
   prepareDesignStillAssets,
 } from "../src/lib/designStill.ts";
 import { withCaptionStillAssets } from "../src/lib/captionStill.ts";
 import type { WarmAssets } from "../src/stages/frames.ts";
 import type { DesignStillDesign } from "../remotion/DesignStill.tsx";
+import { defaultProps } from "../remotion/props.ts";
+import type { RenderProps } from "../remotion/props.ts";
 
 let dir: string;
 
@@ -225,4 +229,38 @@ test("DesignStill: 実 bundle で1920x1080の4 PNGを生成し mask は RGBA", a
   } finally {
     rmSync(renderDir, { recursive: true, force: true });
   }
+});
+
+test("prepareDesignAssetsForProps: 完備cacheをattachし、design無しは同一参照", async () => {
+  const props = { ...defaultProps, design: DESIGN };
+  const prepared = await prepareDesignAssetsForProps({ dir, props, warm: fakeWarm });
+  assert.equal(prepared.design?.assets?.key, designStillKey({
+    dir,
+    design: DESIGN,
+    width: props.width,
+    height: props.height,
+  }));
+  assert.ok(existingDesignAssets({ dir, design: DESIGN, width: props.width, height: props.height }));
+  assert.equal(await prepareDesignAssetsForProps({ dir, props: defaultProps }), defaultProps);
+  const shortProps: RenderProps = {
+    ...props,
+    layout: { panels: [{ source: "screen", fit: "contain" }] },
+  };
+  assert.equal(await prepareDesignAssetsForProps({ dir, props: shortProps }), shortProps);
+});
+
+test("prepareDesignAssetsForProps: 生成失敗はassets無しCSS fallback + warning", async () => {
+  const fallbackDesign = { ...DESIGN, backgroundColor: "#fedcba" };
+  const warnings: string[] = [];
+  const props = { ...defaultProps, design: fallbackDesign };
+  const prepared = await prepareDesignAssetsForProps({
+    dir,
+    props,
+    warm: fakeWarm,
+    renderer: async () => { throw new Error("still failed"); },
+    warn: (message) => warnings.push(message),
+  });
+  assert.equal(prepared.design?.assets, undefined);
+  assert.equal(prepared.design?.backgroundColor, "#fedcba");
+  assert.match(warnings[0], /CSS描画へ戻します: still failed/);
 });
