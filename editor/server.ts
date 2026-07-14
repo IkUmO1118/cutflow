@@ -19,6 +19,8 @@ import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { renderCfgWithDesign } from "../src/lib/designAsset.ts";
+import { resolveDesign } from "../src/lib/design.ts";
+import { existingDesignAssets, prepareDesignAssetBundle } from "../src/lib/designStill.ts";
 import { build } from "esbuild";
 import {
   clearCutplanApproval,
@@ -101,6 +103,7 @@ export async function startEditor(
   // 無いものだけ決定的に補う(既存ファイルには触れない)。loadProject の
   // 3点チェックは最終防壁として残す
   await bootstrapProjectWithLayout(dir, cfg, layout);
+  await prepareEditorDesignAssets(dir, cfg);
 
   const editorDir = dirname(fileURLToPath(import.meta.url));
 
@@ -549,9 +552,11 @@ async function handle(
     writeFileSync(tmp, nextYaml);
     renameSync(tmp, cfgPath);
     syncEditorCfgFromYaml(cfg, nextYaml);
+    await prepareEditorDesignAssets(dir, cfg);
     const result: ConfigSaveResult = {
       ok: true,
       renderCfg: renderCfgWithDesign(dir, cfg),
+      ...editorDesignAssets(dir, cfg),
       previewCfg: { width: cfg.preview.width, videoEncoder: cfg.preview.videoEncoder },
       editorCfg: resolvedEditorCfg(cfg, DEFAULT_MAX_UPLOAD_MB),
       aiProfiles: aiProfileStatuses(cfg),
@@ -1009,6 +1014,7 @@ export function loadProject(dir: string, cfg: Config): ProjectData {
     proxyExists: existsSync(join(dir, "proxy.mp4")),
     proxyStale: isProxyStale(dir, cfg),
     renderCfg: designRenderCfg,
+    ...editorDesignAssets(dir, cfg, manifest, designRenderCfg),
     previewCfg: { width: cfg.preview.width, videoEncoder: cfg.preview.videoEncoder },
     editorCfg: resolvedEditorCfg(cfg, DEFAULT_MAX_UPLOAD_MB),
     output: { w: manifest.video.screenRegion.w, h: manifest.video.screenRegion.h },
@@ -1022,6 +1028,43 @@ export function loadProject(dir: string, cfg: Config): ProjectData {
       maxRefinements: Math.min(3, Math.max(1, (cfg.editor?.aiReview as { maxRefinements?: number } | undefined)?.maxRefinements ?? 2)),
     },
   };
+}
+
+function resolvedEditorDesign(
+  dir: string,
+  cfg: Config,
+  manifest?: Manifest,
+  renderCfg?: Config["render"],
+) {
+  const currentManifest = manifest ?? JSON.parse(
+    readFileSync(join(dir, "manifest.json"), "utf8"),
+  ) as Manifest;
+  const currentRenderCfg = renderCfg ?? renderCfgWithDesign(dir, cfg);
+  const width = currentManifest.video.screenRegion.w;
+  const height = currentManifest.video.screenRegion.h;
+  const design = resolveDesign(currentRenderCfg.design, width, height, hasCamera(currentManifest));
+  return design ? { dir, design, width, height } : undefined;
+}
+
+function editorDesignAssets(
+  dir: string,
+  cfg: Config,
+  manifest?: Manifest,
+  renderCfg?: Config["render"],
+): { designAssets?: NonNullable<ProjectData["designAssets"]> } {
+  const resolved = resolvedEditorDesign(dir, cfg, manifest, renderCfg);
+  if (!resolved) return {};
+  const prepared = existingDesignAssets(resolved);
+  return prepared ? { designAssets: prepared } : {};
+}
+
+async function prepareEditorDesignAssets(dir: string, cfg: Config): Promise<void> {
+  const resolved = resolvedEditorDesign(dir, cfg);
+  if (!resolved) return;
+  await prepareDesignAssetBundle({
+    ...resolved,
+    warn: (message) => console.warn(`警告: ${message}`),
+  });
 }
 
 /** 波形の分解能(1秒あたりのピーク数)。16kHz なら 160 サンプル/ピーク */

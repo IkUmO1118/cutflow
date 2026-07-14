@@ -5,7 +5,9 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs
 import { dirname, join } from "node:path";
 import { renderStill, selectComposition } from "@remotion/renderer";
 import type { WarmAssets } from "../stages/frames.ts";
-import type { DesignAssetRefs } from "./design.ts";
+import { withCaptionStillAssets } from "./captionStill.ts";
+import type { RenderProps } from "../../remotion/props.ts";
+import type { DesignAssetRefs, DesignProps, PreparedDesignAssets } from "./design.ts";
 import type {
   DesignStillDesign,
   DesignStillProps,
@@ -56,6 +58,11 @@ function rolesFor(design: DesignStillDesign): DesignStillRole[] {
     : ["backdrop", "screenMask"];
 }
 
+function stillDesign(design: DesignProps): Omit<DesignProps, "assets"> {
+  const { assets: _assets, ...source } = design;
+  return source;
+}
+
 function relativePath(key: string, role: DesignStillRole): string {
   return join(DESIGN_STILL_DIR, `${key}.${roleSuffix[role]}.png`);
 }
@@ -72,6 +79,32 @@ export function designAssetRefs(args: DesignStillKeyArgs): DesignAssetRefs {
     refs.cameraMaskFile = relativePath(key, "cameraMask");
   }
   return refs;
+}
+
+function assetFiles(refs: DesignAssetRefs): string[] {
+  return [
+    refs.backdropFile,
+    refs.screenMaskFile,
+    ...(refs.cameraShadowFile ? [refs.cameraShadowFile] : []),
+    ...(refs.cameraMaskFile ? [refs.cameraMaskFile] : []),
+  ];
+}
+
+/** 現在の resolved design から key を再計算し、必要な全fileが存在するときだけ
+ * bundleを返す。背景欠落・partial cache は未準備扱い */
+export function existingDesignAssets(args: DesignStillKeyArgs): PreparedDesignAssets | undefined {
+  try {
+    const refs = designAssetRefs(args);
+    if (!assetFiles(refs).every((file) => existsSync(join(args.dir, file)))) return undefined;
+    return {
+      width: args.width,
+      height: args.height,
+      design: args.design as Omit<DesignProps, "assets">,
+      refs,
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 export type DesignStillRenderRequest = {
@@ -134,5 +167,52 @@ export async function prepareDesignStillAssets(args: DesignStillKeyArgs & {
     return refs;
   } finally {
     for (const path of tempPaths) rmSync(path, { force: true });
+  }
+}
+
+export async function prepareDesignAssetsForProps(args: {
+  dir: string;
+  props: RenderProps;
+  warm?: WarmAssets;
+  warn?: (message: string) => void;
+  renderer?: DesignStillRenderer;
+}): Promise<RenderProps> {
+  const { dir, props, warm, renderer, warn = () => {} } = args;
+  if (!props.design || props.layout) return props;
+  const design = stillDesign(props.design);
+  const keyArgs = { dir, design, width: props.width, height: props.height };
+  const cached = existingDesignAssets(keyArgs);
+  if (cached) return { ...props, design: { ...design, assets: cached.refs } };
+  try {
+    const refs = warm
+      ? await prepareDesignStillAssets({ ...keyArgs, warm, ...(renderer ? { renderer } : {}) })
+      : await withCaptionStillAssets(dir, (assets) =>
+          prepareDesignStillAssets({ ...keyArgs, warm: assets, ...(renderer ? { renderer } : {}) })
+        );
+    return { ...props, design: { ...design, assets: refs } };
+  } catch (error) {
+    warn(`design 静的資産を生成できませんでした。CSS描画へ戻します: ${(error as Error).message}`);
+    return { ...props, design };
+  }
+}
+
+export async function prepareDesignAssetBundle(args: DesignStillKeyArgs & {
+  warn?: (message: string) => void;
+}): Promise<PreparedDesignAssets | undefined> {
+  const cached = existingDesignAssets(args);
+  if (cached) return cached;
+  try {
+    const refs = await withCaptionStillAssets(args.dir, (warm) =>
+      prepareDesignStillAssets({ ...args, warm })
+    );
+    return {
+      width: args.width,
+      height: args.height,
+      design: args.design as Omit<DesignProps, "assets">,
+      refs,
+    };
+  } catch (error) {
+    args.warn?.(`design 静的資産を生成できませんでした。CSS描画へ戻します: ${(error as Error).message}`);
+    return undefined;
   }
 }

@@ -60,6 +60,48 @@ export interface DesignAssetRefs {
   cameraMaskFile?: string;
 }
 
+/** editor server が検証済み refs を client へ渡すための envelope。client は
+ * URL 化前の resolved design + 出力解像度が一致するときだけ attach する */
+export interface PreparedDesignAssets {
+  width: number;
+  height: number;
+  design: Omit<DesignProps, "assets">;
+  refs: DesignAssetRefs;
+}
+
+export function attachPreparedDesignAssets(
+  design: DesignProps | undefined,
+  width: number,
+  height: number,
+  prepared: PreparedDesignAssets | undefined,
+): DesignProps | undefined {
+  if (!design || !prepared || width !== prepared.width || height !== prepared.height) return design;
+  const { assets: _assets, ...source } = design;
+  if (JSON.stringify(source) !== JSON.stringify(prepared.design)) return source;
+  return { ...source, assets: prepared.refs };
+}
+
+export function completeScreenDesignAssets(
+  design: DesignProps | undefined,
+): DesignAssetRefs | undefined {
+  const assets = design?.assets;
+  return assets?.backdropFile && assets.screenMaskFile ? assets : undefined;
+}
+
+export function completeCameraDesignAssets(
+  design: DesignProps | undefined,
+): DesignAssetRefs | undefined {
+  const assets = completeScreenDesignAssets(design);
+  return assets?.cameraShadowFile && assets.cameraMaskFile ? assets : undefined;
+}
+
+export function staticCameraDesignAssets(
+  design: DesignProps | undefined,
+  wipeProgress: number,
+): DesignAssetRefs | undefined {
+  return wipeProgress === 0 ? completeCameraDesignAssets(design) : undefined;
+}
+
 /** DesignConfig の既定値(config.yaml で省略された項目に入る) */
 export const DEFAULT_DESIGN = {
   backgroundColor: "#000000",
