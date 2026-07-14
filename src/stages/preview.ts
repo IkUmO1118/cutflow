@@ -69,9 +69,9 @@ export async function preview(dir: string, cfg: Config): Promise<string> {
     "-i", join(dir, manifest.source),
     "-filter_complex", parts.join(";"),
     "-map", "[vout]", "-map", "[aout]",
-    // -g 30: キーフレーム間隔を1秒に。エディタが preview.mp4 をプロキシとして
-    // 再生するため、細かいシークが軽くなるようにしておく
-    // (+faststart で moov を先頭に置き、ブラウザの初期ロードも速くする)
+    // -g 30: キーフレーム間隔を1秒に。人間が通しで見て時々シークする用途
+    // なのでこれで十分(エディタの再生はプロキシ側=proxy.mp4 が担う。
+    // そちらはカット境界シークのため、より短い GOP を使う)
     ...videoEncodeArgs(cfg),
     // loudnorm は内部で 192kHz にアップサンプルするため 48kHz に戻す
     "-c:a", "aac", "-ar", "48000",
