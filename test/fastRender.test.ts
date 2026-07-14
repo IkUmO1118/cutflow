@@ -3,8 +3,13 @@
 // cold Before/After で実測する)。
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { mkdtemp, rm } from "node:fs/promises";
 import {
   buildSlowSegmentRemotionArgs,
+  cleanupFastRenderTemps,
   decideFastPath,
   orderedFastJobs,
 } from "../src/lib/fastRender.ts";
@@ -182,7 +187,7 @@ test("decideFastPath: compositeのdecision/planは能力ゲート導入前と同
   );
 });
 
-test("decideFastPath: design能力があってもgraph未接続のP1-1ではactivateしない", () => {
+test("decideFastPath: asset完備のdesign基底はactivateする", () => {
   const props = mkProps({
     canvas: { w: 3840, h: 1080 },
     design: {
@@ -200,10 +205,41 @@ test("decideFastPath: design能力があってもgraph未接続のP1-1ではacti
   });
   const base = resolveFastBaseCapability({ props, composite: false });
   assert.equal(base.ok && base.mode, "design");
-  assert.deepEqual(
-    decideFastPath({ props, cfg: cfgWith({ fastPath: true }), base }),
-    { activate: false, reason: "design基底graph未接続" },
-  );
+  const decision = decideFastPath({ props, cfg: cfgWith({ fastPath: true }), base });
+  assert.equal(decision.activate, true);
+  assert.deepEqual(decision.activate && decision.plan, fastPlan(props));
+});
+
+test("cleanupFastRenderTemps: success/failureどちらでもcacheを残し一時出力だけ消す", async () => {
+  for (const outcome of ["success", "failure"]) {
+    const dir = await mkdtemp(join(tmpdir(), `cutflow-fast-${outcome}-`));
+    try {
+      const fastDir = join(dir, "render.fast");
+      const segDir = join(fastDir, "segments");
+      const cacheFiles = [
+        join(fastDir, "design", "key.backdrop.png"),
+        join(fastDir, "captions", "caption.png"),
+        join(fastDir, "overlays", "overlay.png"),
+        join(fastDir, "annotations", "annotation.png"),
+      ];
+      const assembledVideo = join(fastDir, ".assembled-video.mp4");
+      const audioM4a = join(fastDir, "audio.m4a");
+      const tempFinal = join(dir, ".final.fast.tmp.mp4");
+      for (const path of [...cacheFiles, join(segDir, "seg000.mp4"), assembledVideo, audioM4a, tempFinal]) {
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, outcome);
+      }
+
+      cleanupFastRenderTemps({ segDir, assembledVideo, audioM4a, tempFinal });
+
+      for (const path of cacheFiles) assert.equal(existsSync(path), true, path);
+      for (const path of [segDir, assembledVideo, audioM4a, tempFinal]) {
+        assert.equal(existsSync(path), false, path);
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
 });
 
 // ---- buildSlowSegmentRemotionArgs ----

@@ -321,8 +321,9 @@ export async function render(dir: string, cfg: Config): Promise<string> {
     if (!decision.activate) {
       console.log(`render 高速パス: 非適用(${decision.reason}) → 通常レンダー`);
     } else {
+      if (!base.ok) throw new Error("高速パス能力判定の内部不整合");
       const ok = await runFastRender({
-        dir, props, plan: decision.plan, cutPath, propsPath, outPath,
+        dir, props, plan: decision.plan, base, cutPath, propsPath, outPath,
         hardwareAcceleration, repoRoot, resourceArgs: remotionResourceArgs(cfg),
       });
       if (ok) {
