@@ -49,7 +49,7 @@ import {
 } from "../lib/renderFrameMath.ts";
 import { loadShort, loadShorts } from "../lib/shorts.ts";
 import { mergeIntervals, playbackSegmentsOf } from "../lib/timeline.ts";
-import { timed } from "../lib/timing.ts";
+import { timed, timedSync } from "../lib/timing.ts";
 import { resolveVideoEncoder } from "../lib/videoEncode.ts";
 import { hasCamera } from "../types.ts";
 import type { ChunksCacheKey, FileStat } from "../lib/chunkPlan.ts";
@@ -249,11 +249,13 @@ export async function render(dir: string, cfg: Config): Promise<string> {
     props.screenRegion = { x: 0, y: 0, w: sr.w, h: sr.h };
     props.wipeBurnedIn = true;
   }
-  props = await prepareDesignAssetsForProps({
-    dir,
-    props,
-    warn: (message) => console.warn(`警告: ${message}`),
-  });
+  props = await timed("design静的資産準備", () =>
+    prepareDesignAssetsForProps({
+      dir,
+      props,
+      warn: (message) => console.warn(`警告: ${message}`),
+    }),
+  );
   const propsPath = join(dir, "render.props.json");
   writeFileSync(propsPath, JSON.stringify(props, null, 2));
 
@@ -322,17 +324,21 @@ export async function render(dir: string, cfg: Config): Promise<string> {
       console.log(`render 高速パス: 非適用(${decision.reason}) → 通常レンダー`);
     } else {
       if (!base.ok) throw new Error("高速パス能力判定の内部不整合");
-      const ok = await runFastRender({
-        dir, props, plan: decision.plan, base, cutPath, propsPath, outPath,
-        hardwareAcceleration, repoRoot, resourceArgs: remotionResourceArgs(cfg),
-      });
+      const ok = await timed("高速パス 合計", () =>
+        runFastRender({
+          dir, props, plan: decision.plan, base, cutPath, propsPath, outPath,
+          hardwareAcceleration, repoRoot, resourceArgs: remotionResourceArgs(cfg),
+        }),
+      );
       if (ok) {
         writeFileSync(renderKeyPath, JSON.stringify(renderKey, null, 2));
         if (chunkSec > 0) {
-          await seedChunkCache({
-            dir, props, cutStat: { mtimeMs: cutStat.mtimeMs, size: cutStat.size },
-            outPath, chunkSec,
-          });
+          await timed("チャンクcache seed 合計", () =>
+            seedChunkCache({
+              dir, props, cutStat: { mtimeMs: cutStat.mtimeMs, size: cutStat.size },
+              outPath, chunkSec,
+            }),
+          );
         }
         return outPath;
       }
@@ -357,10 +363,12 @@ export async function render(dir: string, cfg: Config): Promise<string> {
   writeFileSync(renderKeyPath, JSON.stringify(renderKey, null, 2));
 
   if (chunkSec > 0) {
-    await seedChunkCache({
-      dir, props, cutStat: { mtimeMs: cutStat.mtimeMs, size: cutStat.size },
-      outPath, chunkSec,
-    });
+    await timed("チャンクcache seed 合計", () =>
+      seedChunkCache({
+        dir, props, cutStat: { mtimeMs: cutStat.mtimeMs, size: cutStat.size },
+        outPath, chunkSec,
+      }),
+    );
   }
   return outPath;
 }
@@ -696,24 +704,28 @@ async function seedChunkCache(args: {
   mkdirSync(chunksDir, { recursive: true });
 
   const totalFrames = compositionDurationInFrames(props.durationSec, props.fps);
-  const keyframeFrames = await probeKeyframes(outPath);
+  const keyframeFrames = await timed("チャンクcache keyframe probe", () => probeKeyframes(outPath));
   const boundaries = carveBoundaries(keyframeFrames, totalFrames, chunkSec, props.fps);
-  await carveFinalToChunks(outPath, boundaries, chunksDir);
-  await extractAudio(outPath, audioPath);
+  await timed("チャンクcache carve", () => carveFinalToChunks(outPath, boundaries, chunksDir));
+  await timed("チャンクcache audio抽出", () => extractAudio(outPath, audioPath));
 
-  const materialStats = materialStatsOf(dir, props);
-  const chunkVideoKeys = boundaries
-    .slice(0, -1)
-    .map((from, i) => chunkVideoKey(props, from, boundaries[i + 1], cutStat, props.fps));
-  const key: ChunksCacheKey = {
-    fps: props.fps,
-    totalFrames,
-    boundaries,
-    globalKey: globalVideoKey(props, cutStat),
-    chunkVideoKeys,
-    audioKey: buildAudioKey(props, cutStat, materialStats),
-  };
-  writeFileSync(keyPath, JSON.stringify(key, null, 2));
+  const key = timedSync("チャンクcache key計算", (): ChunksCacheKey => {
+    const materialStats = materialStatsOf(dir, props);
+    const chunkVideoKeys = boundaries
+      .slice(0, -1)
+      .map((from, i) => chunkVideoKey(props, from, boundaries[i + 1], cutStat, props.fps));
+    return {
+      fps: props.fps,
+      totalFrames,
+      boundaries,
+      globalKey: globalVideoKey(props, cutStat),
+      chunkVideoKeys,
+      audioKey: buildAudioKey(props, cutStat, materialStats),
+    };
+  });
+  timedSync("チャンクcache key書込", () =>
+    writeFileSync(keyPath, JSON.stringify(key, null, 2)),
+  );
 }
 
 /** 収録フォルダ内の BGM ファイルを探す(render とエディタで共通の規約) */
