@@ -223,12 +223,18 @@ audioKey(props): string
 
 チャンクパスの成果物は mux 後に**必ず検証**し、少しでも不審ならフルレンダー:
 
-- `ffprobe -count_frames` の総フレーム数 == 期待値(Σチャンク長)。
+- `ffprobe -count_frames` でdecodeした総フレーム数 == 期待値(Σチャンク長)。
+  同じ1回のdecode走査からkeyframe ordinalも得て先頭keyframeを検証する。
 - コンテナ duration が `durationSec` と ±1フレーム以内。音声 duration も同様。
 - 各チャンクの codec/pix_fmt/profile/level/fps が一致(carve と再レンダーで
   揃うことは §1 で確認済みだが、素材更新等の想定外に対する保険)。
 - 再レンダーチャンクの先頭が keyframe。
 - ffprobe/ffmpeg が非0で返る・warning を吐く → 破棄。
+
+FAST render直後のchunk seedでは、検証済みkeyframe ordinalをそのまま再利用する。
+seedのために同じfinal.mp4を再走査しない。通常のfull render直後は検証結果の
+引き渡しが無いため従来どおり`probeKeyframes`を実行する。packet数やstreamの
+`nb_frames`だけでdecode後frame数を代用せず、破損・欠落を弾く検証強度を保つ。
 
 NG 時は `render.chunks/` を破棄してフルレンダー(§4-3)を実行。ユーザーには
 「チャンク検証に失敗したためフル再生成しました」と1行で伝える(黙ってフルに
