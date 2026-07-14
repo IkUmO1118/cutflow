@@ -45,8 +45,11 @@ export interface Caption {
 export interface Span {
   start: number;
   end: number;
-  /** wipeFull の区間別遷移秒。0=最初から全画面、未指定=全体設定 */
+  /** wipeFull の旧形式の区間別遷移秒。個別指定がない両方向へ適用 */
   transitionSec?: number;
+  /** wipeFull の区間別の入り/戻り遷移秒。0=瞬時、未指定=旧形式または全体設定 */
+  transitionInSec?: number;
+  transitionOutSec?: number;
 }
 
 export interface ResolvedKeyframe {
