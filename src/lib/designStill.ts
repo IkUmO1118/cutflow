@@ -45,18 +45,21 @@ export function designStillKey({ dir, design, width, height }: DesignStillKeyArg
       backgroundFile: design.backgroundFile ?? null,
       backgroundColor: design.backgroundColor,
       screen: design.screen,
-      camera: design.camera ?? null,
+      camera: design.camera,
     },
     backgroundBytesHash,
   };
   return createHash("sha256").update(JSON.stringify(canon)).digest("hex").slice(0, 16);
 }
 
-function rolesFor(design: DesignStillDesign): DesignStillRole[] {
-  return design.camera
-    ? ["backdrop", "screenMask", "cameraShadow", "cameraMask"]
-    : ["backdrop", "screenMask"];
-}
+/** デザインは obs-canvas 収録だけに載る = camera は常にある(§lib/design.ts)ので、
+ * 役は常にこの4つ */
+const DESIGN_STILL_ROLES: DesignStillRole[] = [
+  "backdrop",
+  "screenMask",
+  "cameraShadow",
+  "cameraMask",
+];
 
 function stillDesign(design: DesignProps): Omit<DesignProps, "assets"> {
   const { assets: _assets, ...source } = design;
@@ -69,25 +72,17 @@ function relativePath(key: string, role: DesignStillRole): string {
 
 export function designAssetRefs(args: DesignStillKeyArgs): DesignAssetRefs {
   const key = designStillKey(args);
-  const refs: DesignAssetRefs = {
+  return {
     key,
     backdropFile: relativePath(key, "backdrop"),
     screenMaskFile: relativePath(key, "screenMask"),
+    cameraShadowFile: relativePath(key, "cameraShadow"),
+    cameraMaskFile: relativePath(key, "cameraMask"),
   };
-  if (args.design.camera) {
-    refs.cameraShadowFile = relativePath(key, "cameraShadow");
-    refs.cameraMaskFile = relativePath(key, "cameraMask");
-  }
-  return refs;
 }
 
 function assetFiles(refs: DesignAssetRefs): string[] {
-  return [
-    refs.backdropFile,
-    refs.screenMaskFile,
-    ...(refs.cameraShadowFile ? [refs.cameraShadowFile] : []),
-    ...(refs.cameraMaskFile ? [refs.cameraMaskFile] : []),
-  ];
+  return [refs.backdropFile, refs.screenMaskFile, refs.cameraShadowFile, refs.cameraMaskFile];
 }
 
 /** 現在の resolved design から key を再計算し、必要な全fileが存在するときだけ
@@ -145,7 +140,7 @@ export async function prepareDesignStillAssets(args: DesignStillKeyArgs & {
 }): Promise<DesignAssetRefs> {
   const { dir, design, width, height, warm, renderer = defaultRenderer } = args;
   const refs = designAssetRefs({ dir, design, width, height });
-  const roles = rolesFor(design);
+  const roles = DESIGN_STILL_ROLES;
   const finalPaths = roles.map((role) => join(dir, relativePath(refs.key, role)));
   if (finalPaths.every(existsSync)) return refs;
 

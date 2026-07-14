@@ -72,9 +72,10 @@ export interface FastDesignBaseSpec {
   mode: "design";
   backdropPath: string;
   screen: { sourceRect: Region; targetRect: Region; maskPath: string };
-  camera?: { sourceRect: Region; targetRect: Region; maskPath: string; shadowPath: string };
+  camera: { sourceRect: Region; targetRect: Region; maskPath: string; shadowPath: string };
   /** 時間レイヤーのうち何件を描いた後にcamera shadow/cameraを挿入するか。
-   * undefinedはlayerOrderにwipeが無い/hiddenでcameraを描かない。 */
+   * undefinedはlayerOrderにwipeが無い/hiddenでcameraを描かない(矩形・資産は
+   * 在るが合成しない、という意味。cameraそのものが無い状態は存在しない)。 */
   cameraLayerIndex?: number;
 }
 
@@ -366,7 +367,11 @@ export function buildFastDesignBaseSpec(args: {
 }): FastDesignBaseSpec {
   const { dir, props, refs, cameraLayerIndex } = args;
   const design = props.design;
-  if (!design || !refs.backdropFile || !refs.screenMaskFile) {
+  if (
+    !design || !props.cameraRegion ||
+    !refs.backdropFile || !refs.screenMaskFile ||
+    !refs.cameraShadowFile || !refs.cameraMaskFile
+  ) {
     throw new Error("design基底asset/geometryが不完全です");
   }
   const base: FastDesignBaseSpec = {
@@ -377,16 +382,12 @@ export function buildFastDesignBaseSpec(args: {
       targetRect: design.screen.rect,
       maskPath: join(dir, refs.screenMaskFile),
     },
-  };
-  if (!design.camera) return base;
-  if (!props.cameraRegion || !refs.cameraShadowFile || !refs.cameraMaskFile) {
-    throw new Error("design camera基底asset/geometryが不完全です");
-  }
-  base.camera = {
-    sourceRect: props.cameraRegion,
-    targetRect: design.camera.rect,
-    maskPath: join(dir, refs.cameraMaskFile),
-    shadowPath: join(dir, refs.cameraShadowFile),
+    camera: {
+      sourceRect: props.cameraRegion,
+      targetRect: design.camera.rect,
+      maskPath: join(dir, refs.cameraMaskFile),
+      shadowPath: join(dir, refs.cameraShadowFile),
+    },
   };
   if (cameraLayerIndex !== undefined) base.cameraLayerIndex = cameraLayerIndex;
   return base;
@@ -434,7 +435,8 @@ function designInputPaths(base: FastDesignBaseSpec): string[] {
   const paths = [
     base.backdropPath,
     base.screen.maskPath,
-    ...(base.camera ? [base.camera.shadowPath, base.camera.maskPath] : []),
+    base.camera.shadowPath,
+    base.camera.maskPath,
   ];
   if (paths.length > MAX_FAST_DESIGN_PNG_INPUTS) {
     throw new Error(`design基底PNGが上限${MAX_FAST_DESIGN_PNG_INPUTS}本を超えています`);
@@ -453,10 +455,10 @@ function buildDesignFastSegmentFilter(spec: FastSegmentSpec & { base: FastDesign
   const v1 = v0 + (spec.toFrame - spec.fromFrame);
   const screen = design.screen;
   const camera = design.camera;
-  if (cameraAt !== undefined && !camera) {
-    throw new Error("design cameraLayerIndexに対応するcamera基底がありません");
-  }
-  const cover = camera ? centerCoverCrop(camera.sourceRect, camera.targetRect) : undefined;
+  // cameraAt が undefined = wipe 非表示。矩形・資産は在るが合成しない
+  const cover = cameraAt === undefined
+    ? undefined
+    : centerCoverCrop(camera.sourceRect, camera.targetRect);
   const split = cameraAt === undefined ? "" : ",split=2[design-screen-src][design-camera-src]";
   const sourceOut = cameraAt === undefined ? "[design-screen-src]" : "";
   const parts = [
@@ -473,7 +475,7 @@ function buildDesignFastSegmentFilter(spec: FastSegmentSpec & { base: FastDesign
   if (cameraAt !== undefined) {
     parts.push(
       `[design-camera-src]crop=w=${cover!.w}:h=${cover!.h}:x=${cover!.x}:y=${cover!.y},` +
-        `scale=w=${camera!.targetRect.w}:h=${camera!.targetRect.h},${designColorStage(spec.colorFilters)}[design-camera-rgb]`,
+        `scale=w=${camera.targetRect.w}:h=${camera.targetRect.h},${designColorStage(spec.colorFilters)}[design-camera-rgb]`,
       "[4:v]alphaextract[design-camera-mask]",
       "[design-camera-rgb][design-camera-mask]alphamerge[design-camera-alpha]",
       "[3:v]format=rgba[design-camera-shadow]",
@@ -490,7 +492,6 @@ function buildDesignFastSegmentFilter(spec: FastSegmentSpec & { base: FastDesign
     prev = out;
   };
   const addCamera = () => {
-    if (!camera) throw new Error("design camera基底がありません");
     overlay("design-camera-shadow", 0, 0);
     overlay("design-camera-alpha", camera.targetRect.x, camera.targetRect.y);
   };

@@ -38,26 +38,28 @@ export interface DesignConfig {
   };
 }
 
-/** 解決済みのデザイン(すべて出力px。RenderProps に載る) */
+/** 解決済みのデザイン(すべて出力px。RenderProps に載る)。
+ * デザインは obs-canvas 収録だけに載る(resolveDesign 参照)ので、camera は
+ * 常に存在する(カメラの無いデザイン、という状態は作られない) */
 export interface DesignProps {
   backgroundFile?: string;
   backgroundColor: string;
   screen: { rect: Region; radiusPx: number; shadow: boolean };
-  /** カメラ(ワイプ)。plain designでは存在せず、背景+screenだけを描く */
-  camera?: { rect: Region; radiusPx: number; shadow: boolean };
+  /** カメラ(ワイプ)。描くかどうかは layerOrder が決める(§fastSegment の
+   * cameraLayerIndex)が、デザインが在る限り矩形は必ず解決されている */
+  camera: { rect: Region; radiusPx: number; shadow: boolean };
   /** render.fast/design/ に生成した静的レイアウト資産。ユーザー入力ではなく、
    * render/frames/editor の prepare 段階だけが付与する */
   assets?: DesignAssetRefs;
 }
 
-/** Main と FAST 基底が共有する内容アドレス式の静的レイアウト資産。camera
- * 参照は plain design に備えて optional にする */
+/** Main と FAST 基底が共有する内容アドレス式の静的レイアウト資産(4役) */
 export interface DesignAssetRefs {
   key: string;
   backdropFile: string;
   screenMaskFile: string;
-  cameraShadowFile?: string;
-  cameraMaskFile?: string;
+  cameraShadowFile: string;
+  cameraMaskFile: string;
 }
 
 /** editor server が検証済み refs を client へ渡すための envelope。client は
@@ -81,26 +83,24 @@ export function attachPreparedDesignAssets(
   return { ...source, assets: prepared.refs };
 }
 
-export function completeScreenDesignAssets(
+/** 4役すべてが揃った資産だけを返す(partial cache は未準備扱い) */
+export function completeDesignAssets(
   design: DesignProps | undefined,
 ): DesignAssetRefs | undefined {
   const assets = design?.assets;
-  return assets?.backdropFile && assets.screenMaskFile ? assets : undefined;
-}
-
-export function completeCameraDesignAssets(
-  design: DesignProps | undefined,
-): DesignAssetRefs | undefined {
-  if (!design?.camera) return undefined;
-  const assets = completeScreenDesignAssets(design);
-  return assets?.cameraShadowFile && assets.cameraMaskFile ? assets : undefined;
+  return assets?.backdropFile &&
+    assets.screenMaskFile &&
+    assets.cameraShadowFile &&
+    assets.cameraMaskFile
+    ? assets
+    : undefined;
 }
 
 export function staticCameraDesignAssets(
   design: DesignProps | undefined,
   wipeProgress: number,
 ): DesignAssetRefs | undefined {
-  return wipeProgress === 0 ? completeCameraDesignAssets(design) : undefined;
+  return wipeProgress === 0 ? completeDesignAssets(design) : undefined;
 }
 
 /** DesignConfig の既定値(config.yaml で省略された項目に入る) */
@@ -118,8 +118,12 @@ export const CAMERA_SHADOW_CSS = "0 8px 20px rgba(0,0,0,0.22), 0 24px 64px rgba(
 /**
  * config の design を出力px の矩形へ解決する。無効なら undefined。
  *
- * plainでは背景+画面パネル、OBS拡張キャンバスではさらにカメラを解決する。
- * channel共通configにcamera設定があってもplainでは使用しない。
+ * デザイン(背景 + 画面パネル + カメラワイプ)は **OBS拡張キャンバス収録
+ * (cameraRegion を持つ = hasCamera)だけ**に効く。plain 収録は「素材をその
+ * まま見せる素の映像」(スマホのショート動画等、OBSを通していない収録)なので、
+ * config で design が有効でも背景・パネルを一切かぶせず undefined を返す。
+ * これで render.design を有効にしたまま、OBS収録=デザイン付き /
+ * 素の収録=素のまま、が収録ごとの設定なしに自動で切り分かる。
  *
  * 画面パネルは「左右 marginXPx・下 marginBottomPx」から幅と Y を決め、高さは
  * 出力アスペクト(width:height)維持の成り行き。上余白は
@@ -133,6 +137,8 @@ export function resolveDesign(
   hasCamera: boolean,
 ): DesignProps | undefined {
   if (!cfg?.enabled) return undefined;
+  // plain 収録(OBSではない素の動画)にはデザインをかぶせない
+  if (!hasCamera) return undefined;
 
   const s = { ...DEFAULT_DESIGN.screen, ...cfg.screen };
   const finiteNonnegative = (label: string, value: number) => {
@@ -160,17 +166,6 @@ export function resolveDesign(
     );
   }
 
-  const design: DesignProps = {
-    ...(cfg.backgroundFile ? { backgroundFile: cfg.backgroundFile } : {}),
-    backgroundColor: cfg.backgroundColor ?? DEFAULT_DESIGN.backgroundColor,
-    screen: {
-      rect: screen,
-      radiusPx: Math.min(s.radiusPx, screen.w / 2, screen.h / 2),
-      shadow: s.shadow,
-    },
-  };
-  if (!hasCamera) return design;
-
   const c = { ...DEFAULT_DESIGN.camera, ...cfg.camera };
   finiteNonnegative("camera.sizePx", c.sizePx);
   finiteNonnegative("camera.marginPx", c.marginPx);
@@ -188,12 +183,21 @@ export function resolveDesign(
   ) {
     throw new Error("render.design.camera の矩形が出力範囲内に収まりません");
   }
-  design.camera = {
-    rect: cameraRect,
-    radiusPx: Math.min(c.radiusPx, cameraRect.w / 2, cameraRect.h / 2),
-    shadow: c.shadow,
+
+  return {
+    ...(cfg.backgroundFile ? { backgroundFile: cfg.backgroundFile } : {}),
+    backgroundColor: cfg.backgroundColor ?? DEFAULT_DESIGN.backgroundColor,
+    screen: {
+      rect: screen,
+      radiusPx: Math.min(s.radiusPx, screen.w / 2, screen.h / 2),
+      shadow: s.shadow,
+    },
+    camera: {
+      rect: cameraRect,
+      radiusPx: Math.min(c.radiusPx, cameraRect.w / 2, cameraRect.h / 2),
+      shadow: c.shadow,
+    },
   };
-  return design;
 }
 
 /**
