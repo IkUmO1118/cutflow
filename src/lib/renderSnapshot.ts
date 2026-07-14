@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { defaultShortProfileName, resolveProfile } from "./profile.ts";
 import { buildRenderProps } from "./renderProps.ts";
+import { renderCfgWithDesign } from "./designAsset.ts";
 import { mergeIntervals } from "./timeline.ts";
 import { hasCamera } from "../types.ts";
 import type { Config } from "./config.ts";
@@ -121,7 +122,7 @@ export function resolveSnapshotRenderContext(input: SnapshotRenderInput): Snapsh
     keeps,
     transcript: snapshot.transcript,
     overlays,
-    renderCfg: cfg.render,
+    renderCfg: renderCfgWithDesign(dir, cfg),
     width: profile.width,
     height: profile.height,
     profile,

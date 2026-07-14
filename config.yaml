@@ -166,7 +166,42 @@ render:
   zoom:
     # ズームイン/アウトの遷移秒数
     easeSec: 0.4
-  captionFontWeight: 400
+  # ベースレイアウトのデザイン(背景画像 + 画面パネル + カメラ角丸ワイプ)。
+  # 既定 false = 従来どおり「画面全面 + 右下ワイプ」(この機能導入前とバイト等価)。
+  # true にすると同梱の背景でそのまま動く(assets/backgrounds/)。
+  #
+  # 効くのは OBS 拡張キャンバス収録(manifest に cameraRegion がある = ingest/run を
+  # --layout obs-canvas で通したもの)だけ。通常動画(plain)は enabled: true でも
+  # 収録そのままの絵になる(§src/lib/design.ts)。
+  #
+  # 注意: 有効時はワイプ焼き込み(composite)経路が使えないため、render 高速パス
+  # (fastPath)も発動しない = cold render が約2倍の時間になる
+  design:
+    enabled: false
+    # 背景画像。省略時は backgroundColor の単色。3通りの書き方を解決する:
+    #   assets/backgrounds/xxx.jpg … リポジトリ同梱の既定背景(誰の環境でも動く)
+    #   ~/Movies/obs/xxx.jpg       … 自分のデザイン素材(絶対パス。~ は展開される)
+    #   materials/xxx.jpg          … その収録フォルダ内のファイル
+    # 収録フォルダ外のファイルは render.design/ へ自動コピーされてから合成される
+    # (Remotion は publicDir = 収録フォルダの中しか読めないため。§src/lib/designAsset.ts)
+    backgroundFile: assets/backgrounds/teal.jpg
+    backgroundColor: "#1b1b1f"
+    screen:
+      # 左右・下の余白(出力px)。高さは 16:9 維持の成り行き(上余白は 22px になる)
+      marginXPx: 100
+      marginBottomPx: 90
+      radiusPx: 24
+      shadow: true
+    camera:
+      # 一辺(出力px)。カメラ映像を正方形へ center-crop してこの大きさの角丸矩形にする
+      sizePx: 375
+      # 右・下からの余白(出力px)
+      marginPx: 28
+      # 角丸。sizePx/2 でクランプされ、そこが最大の丸み(= 円)になる
+      radiusPx: 96
+      # 落ち影(画面パネルの shadow とは独立)
+      shadow: true
+  captionFontWeight: 500
 
 # 画面 OCR(frames --ocr)。AI が画面内テキスト(コード/ターミナル/エラー)を
 # テキストとして読むための Apple Vision OCR 設定。macOS 専用・オフライン。

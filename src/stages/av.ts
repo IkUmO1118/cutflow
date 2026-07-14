@@ -8,6 +8,7 @@ import { audioSourceOf } from "../lib/loudness.ts";
 import { loadShort } from "../lib/shorts.ts";
 import { buildTimeline, mergeIntervals, toSourceTime, type TimelineEntry } from "../lib/timeline.ts";
 import { buildRenderProps } from "../lib/renderProps.ts";
+import { renderCfgWithDesign } from "../lib/designAsset.ts";
 import {
   aggregateMaxByWindow,
   keepsHash,
@@ -421,7 +422,7 @@ async function collectSound(args: {
     keeps,
     transcript,
     overlays: { ...overlays, inserts: [] },
-    renderCfg: cfg.render,
+    renderCfg: renderCfgWithDesign(dir, cfg),
     width: manifest.video.screenRegion.w,
     height: manifest.video.screenRegion.h,
     videoFile: manifest.source,

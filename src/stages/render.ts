@@ -40,6 +40,7 @@ import {
 } from "../lib/renderKey.ts";
 import { defaultShortProfileName, resolveProfile } from "../lib/profile.ts";
 import { buildRenderProps } from "../lib/renderProps.ts";
+import { renderCfgWithDesign } from "../lib/designAsset.ts";
 import {
   compositionDurationInFrames,
   compositionDurationSec,
@@ -227,7 +228,7 @@ export async function render(dir: string, cfg: Config): Promise<string> {
     keeps,
     transcript,
     overlays: overlaysIn,
-    renderCfg: cfg.render,
+    renderCfg: renderCfgWithDesign(dir, cfg),
     width: profile.width,
     height: profile.height,
     videoFile: "cut.mp4",

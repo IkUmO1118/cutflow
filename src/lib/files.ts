@@ -64,6 +64,10 @@ const GENERATED_NAME_PATTERNS: readonly RegExp[] = [
 /** 中間生成物のディレクトリ(配下は丸ごと中間生成物扱い): frames/(PNG・
  * props.json・OCR サイドカー。frames 実行のたびに全消しされる)・
  * render.chunks/(チャンク差分レンダーのキャッシュ)・
+ * render.design/(config.yaml の render.design.backgroundFile が収録フォルダ外の
+ * 絶対パスのとき、Remotion が読める publicDir 配下へ取り込んだ背景画像のコピー。
+ * 元ファイルからいつでも再取得できるので generated。materials/ に置くと
+ * `materials` コマンドに「未使用素材」として計上されてしまうため別ディレクトリ)・
  * render.fast/(render 高速パスのキャッシュ。captions/<key>.png=テロップ
  * 透過 PNG、overlays/<key>.png=素材オーバーレイのレイヤー画。差分更新型で
  * ディレクトリごと削除すればフル再生成に戻る)・
@@ -78,6 +82,7 @@ const GENERATED_NAME_PATTERNS: readonly RegExp[] = [
 const GENERATED_DIRS: readonly string[] = [
   "frames",
   "render.chunks",
+  "render.design",
   "render.fast",
   "shorts",
   "materials.probe",

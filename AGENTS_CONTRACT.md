@@ -116,6 +116,13 @@ false staleness signals or gets silently discarded:
 - `av.probe/` — a **cache-style** generated directory written by `av <dir>`
   (`motion.json`, `sound.json`, `motion.strip.png`). It is not wiped on each
   run; deleting the whole directory forces a full regeneration
+- `render.design/` — a cache-style generated directory holding the base-layout
+  design background (`config.yaml` `render.design.backgroundFile`) copied into
+  the recording folder, which is the Remotion `publicDir`. Only written when the
+  configured path is absolute (outside the recording folder). Re-fetched from the
+  source file on the next run, so deleting it is always safe. Kept out of
+  `materials/` on purpose: the background is never referenced from
+  `overlays.json`, so it would be reported as an unused asset forever
 - `render.fast/` — a cache-style generated directory written by the render
   fast path: `captions/<key>.png` (per-caption transparent PNGs, content-hashed
   by text + resolved style + position + output resolution); `overlays/<key>.png`

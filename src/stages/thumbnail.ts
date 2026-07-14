@@ -23,6 +23,7 @@ import {
 } from "@remotion/renderer";
 import { resolveProfile } from "../lib/profile.ts";
 import { buildRenderProps } from "../lib/renderProps.ts";
+import { renderCfgWithDesign } from "../lib/designAsset.ts";
 import type { Config } from "../lib/config.ts";
 import type { Manifest, Overlays, Thumbnail, Transcript } from "../types.ts";
 
@@ -71,7 +72,7 @@ export async function thumbnail(dir: string, cfg: Config): Promise<string> {
     keeps,
     transcript,
     overlays,
-    renderCfg: cfg.render,
+    renderCfg: renderCfgWithDesign(dir, cfg),
     width: profile.width,
     height: profile.height,
     profile,
