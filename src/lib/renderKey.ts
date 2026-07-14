@@ -16,13 +16,14 @@ export interface RenderCacheKey {
 }
 
 /** props が参照する素材ファイル(overlays[].file / inserts[].file /
- * bgm[].file)を重複なく列挙する。ソートして順序を固定し、挿入順の違いで
- * JSON.stringify 比較が揺れないようにする */
+ * bgm[].file / design.backgroundFile)を重複なく列挙する。ソートして順序を固定し、
+ * 挿入順の違いで JSON.stringify 比較が揺れないようにする */
 export function materialFilesOf(props: RenderProps): string[] {
   const files = new Set<string>();
   for (const o of props.overlays) files.add(o.file);
   for (const i of props.inserts ?? []) files.add(i.file);
   for (const b of props.bgm) files.add(b.file);
+  if (props.design?.backgroundFile) files.add(props.design.backgroundFile);
   return [...files].sort();
 }
 
