@@ -167,7 +167,6 @@ test("演出の全フィールドが verbatim(overlays/inserts/zooms/blurs/annot
           start: 80,
           end: 85,
           rect: { x: 100, y: 100, w: 200, h: 100 },
-          type: "mosaic",
           strength: 0.7,
         },
       ],
@@ -206,7 +205,7 @@ test("演出の全フィールドが verbatim(overlays/inserts/zooms/blurs/annot
 
     assert.equal(proj.overlays.zooms[0].rect.w, 960);
     assert.equal(proj.overlays.zooms[0].easeSec, 0.3);
-    assert.equal(proj.overlays.blurs[0].type, "mosaic");
+    assert.deepEqual(proj.overlays.blurs[0].rect, { x: 100, y: 100, w: 200, h: 100 });
     assert.equal(proj.overlays.blurs[0].strength, 0.7);
     assert.equal(proj.overlays.annotations[0].id, "ann_abc123");
     assert.equal(proj.overlays.annotations[0].type, "box");

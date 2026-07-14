@@ -1,9 +1,9 @@
 // remotion/Main.tsx の背景レイヤーが使う純関数。zooms(overlays.json 由来。
 // カット後の秒・rect・easeSec 解決済み)から、時刻 t における背景レイヤーの
 // 拡大・平行移動を求める。区間外は恒等(scale=1, translate=0)。区間の頭
-// easeSec 秒でイーズイン、末尾 easeSec 秒でイーズアウトし、遷移カーブは
-// wipeFull(remotion/Main.tsx の wipeEase)と同じ smoothstep。区間が遷移
-// 2回分より短いときは遷移を区間の半分へ縮める(wipeFull の既存規則を踏襲)。
+// easeSec 秒でイーズイン、末尾 easeOutSec 秒でイーズアウトし、遷移カーブは
+// wipeFull(remotion/Main.tsx の wipeEase)と同じ smoothstep。区間が短いときは
+// 各遷移を区間の半分へ縮める(wipeFull の既存規則を踏襲)。
 import type { Region } from "../types.ts";
 
 /** ズーム演出1件(カット後の秒に写像済み・easeSec 解決済み) */
@@ -12,6 +12,7 @@ export interface ZoomSpan {
   end: number;
   rect: Region;
   easeSec: number;
+  easeOutSec?: number;
 }
 
 export interface ZoomTransform {
@@ -39,8 +40,12 @@ export function zoomTransformAt(
 ): ZoomTransform {
   const z = zooms.find((z) => t >= z.start && t < z.end);
   if (!z) return IDENTITY;
-  const ease = Math.min(z.easeSec, (z.end - z.start) / 2);
-  const raw = ease <= 0 ? 1 : Math.min(1, (t - z.start) / ease, (z.end - t) / ease);
+  const half = (z.end - z.start) / 2;
+  const easeIn = Math.min(z.easeSec, half);
+  const easeOut = Math.min(z.easeOutSec ?? z.easeSec, half);
+  const inRaw = easeIn <= 0 ? 1 : Math.min(1, (t - z.start) / easeIn);
+  const outRaw = easeOut <= 0 ? 1 : Math.min(1, (z.end - t) / easeOut);
+  const raw = Math.min(inRaw, outRaw);
   const p = raw * raw * (3 - 2 * raw); // smoothstep
   const targetScale = width / z.rect.w;
   const scale = 1 + (targetScale - 1) * p;

@@ -50,7 +50,7 @@
       "x": 960,
       "y": 100,
       "anchor": "topLeft",
-      "style": { "fontSizePx": 48, "color": "#ffffff" }
+      "style": { "fontSizePx": 48, "color": "#ffffff", "background": "none" }
     }
   ],
   "hideCaption": [{ "id": "hc_a1b2c3", "start": 40, "end": 42 }],
@@ -64,7 +64,6 @@
       "start": 60,
       "end": 65,
       "rect": { "x": 200, "y": 200, "w": 300, "h": 100 },
-      "type": "mosaic",
       "strength": 0.7,
       "keyframes": [
         { "at": 60, "easing": "hold", "values": { "x": 200, "y": 200, "strength": 0.5 } },
