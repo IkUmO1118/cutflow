@@ -90,7 +90,7 @@ import type { AiSettingsValue, CfgValues } from "./SettingsModal.tsx";
 import { Timeline } from "./Timeline.tsx";
 import { playhead, usePlayheadSelector } from "./playhead.ts";
 import { useToasts, ToastStack } from "./toasts.tsx";
-import { SHORT_TRACK_DEF, buildTracks } from "./model.ts";
+import { SHORT_TRACK_DEF, buildTracks, fitZoomSpan } from "./model.ts";
 import type {
   AddKind,
   AnnotationPatch,
@@ -2272,7 +2272,17 @@ export const App = () => {
       if (!sp) return;
       const t = retime(sp);
       if (!t) return;
-      arr[sel.index] = { ...sp, ...t };
+      // ズームは重なれない(validate がエラー=保存できなくなる)ので、隣の
+      // ズームの手前で止める。カットの中へ丸ごと落ちた区間はタイムラインに
+      // クリップが出ず選択も削除もできなくなるので、その編集も採らない
+      const fit = fitZoomSpan(
+        arr.filter((_, j) => j !== sel.index),
+        t,
+        mode,
+        MIN_SPAN,
+      );
+      if (!fit || remapInterval(fit.start, fit.end, tl).length === 0) return;
+      arr[sel.index] = { ...sp, ...fit };
       setOverlays({ ...ctx.overlays, zooms: arr });
     } else if (sel.kind === "blur") {
       // ぼかし区間の move / trim。rect / strength は動かさない
@@ -2398,6 +2408,16 @@ export const App = () => {
    * インスペクタ・プレビュー上の枠で調整する前提の叩き台 */
   const addZoomSpan = (start: number, end: number) => {
     if (!overlays || !proj) return;
+    // ズームは重なれない。既存ズームの上に重なる分は手前で切り、丸ごと
+    // 重なるなら作らない(作れてしまうと validate で保存できなくなる)
+    const fit = fitZoomSpan(overlays.zooms ?? [], { start, end }, "create", MIN_SPAN);
+    if (!fit) {
+      setError(
+        "ここには既にズームがあります。ズームは重ねられません" +
+          "(別の区間に作るか、既存のズームを編集してください)",
+      );
+      return;
+    }
     pushHistory();
     const w = Math.round(proj.output.w / 2);
     const h = Math.round(proj.output.h / 2);
@@ -2407,7 +2427,7 @@ export const App = () => {
       w,
       h,
     };
-    const list = [...(overlays.zooms ?? []), { start, end, rect }];
+    const list = [...(overlays.zooms ?? []), { ...fit, rect }];
     setOverlays({ ...overlays, zooms: list });
     setSelection({ kind: "zoom", index: list.length - 1 });
   };
@@ -3105,6 +3125,19 @@ export const App = () => {
       const delta = round2(base - clip.entry.start);
       const dur = clip.entry.end - clip.entry.start;
       const shifted = { start: round2(base), end: round2(base + dur) };
+      // ズームだけは重なれない。貼り付け先が既存ズームと重なるなら手前で切り、
+      // 丸ごと重なるなら貼らない(履歴を積む前に判断する)
+      const zoomFit =
+        clip.kind === "zoom"
+          ? fitZoomSpan(overlays.zooms ?? [], shifted, "create", MIN_SPAN)
+          : null;
+      if (clip.kind === "zoom" && !zoomFit) {
+        setError(
+          "貼り付け先に既にズームがあります。ズームは重ねられません" +
+            "(プレイヘッドを別の位置へ動かしてください)",
+        );
+        return;
+      }
       pushHistory();
       if (clip.kind === "overlays") {
         const { id: _id, layer: _layer, ...rest } = clip.entry;
@@ -3121,7 +3154,7 @@ export const App = () => {
         setSelection({ kind: "overlays", index: list.length - 1 });
       } else if (clip.kind === "zoom") {
         const { id: _id, ...rest } = clip.entry;
-        const list = [...(overlays.zooms ?? []), { ...rest, ...shifted }];
+        const list = [...(overlays.zooms ?? []), { ...rest, ...(zoomFit ?? shifted) }];
         setOverlays({ ...overlays, zooms: list });
         setSelection({ kind: "zoom", index: list.length - 1 });
       } else if (clip.kind === "blur") {

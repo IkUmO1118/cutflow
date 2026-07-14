@@ -265,3 +265,53 @@ export interface Clip {
    * 合成で音が出ないもの(ワイプ・素材トラック)には付けない */
   wave?: { src: string; startSec: number; loop?: boolean };
 }
+
+/** 元収録の秒で表す区間(ズーム・ぼかし等の共通部分) */
+export interface TimeSpan {
+  start: number;
+  end: number;
+}
+
+/** ズーム区間の重なり回避。ズームは重なれない(CLI と同じ検査を通す保存が
+ * 「ズーム区間が重なっています」で落ち、GUI からは直せない状態になる)ので、
+ * 編集後の span を「自分以外のズームが空けている隙間」へ収めてから採る。
+ *
+ * mode="move" は尺を保ったまま隣のズームの手前で止める(隙間が尺より狭ければ
+ * null=そのドラッグを採らない)。trim / create は端を隙間へクランプする。
+ * 隙間が最小幅(minSpan)未満、またはアンカーが既存ズームの内側なら null。
+ * others は順不同でよい。返す秒は round2 済み(呼び出し側の量子と揃える) */
+export function fitZoomSpan(
+  others: readonly TimeSpan[],
+  span: TimeSpan,
+  mode: "create" | "move" | "trim-start" | "trim-end",
+  minSpan: number,
+): TimeSpan | null {
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const dur = span.end - span.start;
+  if (dur < minSpan) return null;
+  // どの隙間へ収めるかはアンカー(動かさない側の点)で決める。move / create は
+  // 移動後の中点、trim は固定端のすぐ内側(編集前の span は重なっていない前提)
+  const anchor =
+    mode === "move" || mode === "create"
+      ? (span.start + span.end) / 2
+      : mode === "trim-start"
+        ? span.end - minSpan / 2
+        : span.start + minSpan / 2;
+  let lo = 0;
+  let hi = Number.POSITIVE_INFINITY;
+  for (const o of others) {
+    if (o.start < anchor && anchor < o.end) return null; // 隙間が無い
+    if (o.end <= anchor) lo = Math.max(lo, o.end);
+    if (o.start >= anchor) hi = Math.min(hi, o.start);
+  }
+  if (hi - lo < minSpan) return null;
+  if (mode === "move") {
+    if (hi - lo < dur) return null; // 尺のまま平行移動では収まらない
+    const start = Math.min(Math.max(span.start, lo), hi - dur);
+    return { start: r2(start), end: r2(start + dur) };
+  }
+  const start = Math.max(span.start, lo);
+  const end = Math.min(span.end, hi);
+  if (end - start < minSpan) return null;
+  return { start: r2(start), end: r2(end) };
+}
