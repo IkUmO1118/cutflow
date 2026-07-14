@@ -109,17 +109,12 @@ test("designStillKey: generated assets はキーに含めない", () => {
   assert.equal(designStillKey({ ...args, design: withAssets }), key);
 });
 
-test("designAssetRefs: camera 有りは4役、camera 無しは2役だけを返す", () => {
+test("designAssetRefs: 常に4役を返す(designはOBS収録だけ = cameraが必ずある)", () => {
   const refs = designAssetRefs({ dir, design: DESIGN, width: 1920, height: 1080 });
   assert.match(refs.backdropFile, /^render\.fast\/design\/[a-f0-9]{16}\.backdrop\.png$/);
   assert.match(refs.screenMaskFile, /\.screen-mask\.png$/);
-  assert.match(refs.cameraShadowFile!, /\.camera-shadow\.png$/);
-  assert.match(refs.cameraMaskFile!, /\.camera-mask\.png$/);
-
-  const { camera: _camera, ...withoutCamera } = DESIGN;
-  const plainRefs = designAssetRefs({ dir, design: withoutCamera, width: 1920, height: 1080 });
-  assert.equal(plainRefs.cameraShadowFile, undefined);
-  assert.equal(plainRefs.cameraMaskFile, undefined);
+  assert.match(refs.cameraShadowFile, /\.camera-shadow\.png$/);
+  assert.match(refs.cameraMaskFile, /\.camera-mask\.png$/);
 });
 
 test("prepareDesignStillAssets: 4役を全て一時出力した後だけ完成名へ公開する", async () => {
@@ -159,26 +154,6 @@ test("prepareDesignStillAssets: cache hit は renderer を呼ばない", async (
     renderer: async () => { calls += 1; },
   });
   assert.equal(calls, 0);
-});
-
-test("prepareDesignStillAssets: camera 無しは backdrop/screenMask の2役だけ生成する", async () => {
-  const { camera: _camera, ...withoutCameraBase } = DESIGN;
-  const withoutCamera = { ...withoutCameraBase, backgroundColor: "#112233" };
-  const roles: string[] = [];
-  const refs = await prepareDesignStillAssets({
-    dir,
-    design: withoutCamera,
-    width: 1920,
-    height: 1080,
-    warm: fakeWarm,
-    renderer: async ({ props, output }) => {
-      roles.push(props.role);
-      writeFileSync(output, props.role);
-    },
-  });
-  assert.deepEqual(roles, ["backdrop", "screenMask"]);
-  assert.equal(refs.cameraShadowFile, undefined);
-  assert.equal(refs.cameraMaskFile, undefined);
 });
 
 test("prepareDesignStillAssets: 途中失敗では完成名を公開せず一時fileも残さない", async () => {

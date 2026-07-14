@@ -32,16 +32,6 @@ const DESIGN: FastDesignBaseSpec & { camera: NonNullable<FastDesignBaseSpec["cam
   cameraLayerIndex: 1,
 };
 
-const PLAIN_PORTRAIT: FastDesignBaseSpec = {
-  mode: "design",
-  backdropPath: "/rec/render.fast/design/plain.backdrop.png",
-  screen: {
-    sourceRect: { x: 0, y: 0, w: 1080, h: 1920 },
-    targetRect: { x: 100, y: 266, w: 880, h: 1564 },
-    maskPath: "/rec/render.fast/design/plain.screen-mask.png",
-  },
-};
-
 function spec(overrides: Partial<FastSegmentSpec> = {}): FastSegmentSpec {
   return {
     cutPath: "/rec/cut.mp4",
@@ -134,25 +124,6 @@ test("design argv: 固定4 PNGの後に時間レイヤーを並べ、入力index
   assert.match(filter, /\[6:v\]overlay/);
 });
 
-test("plain portrait design graph: screen branchだけをcrop/scaleしcamera入力を作らない", () => {
-  const s = spec({ base: PLAIN_PORTRAIT });
-  const args = buildFastSegmentArgs(s);
-  const inputs = args.flatMap((arg, i) => arg === "-i" ? [args[i + 1]] : []);
-  assert.deepEqual(inputs, [
-    s.cutPath,
-    PLAIN_PORTRAIT.backdropPath,
-    PLAIN_PORTRAIT.screen.maskPath,
-    "/rec/below.png",
-    "/rec/above.png",
-  ]);
-  assert.equal(args.filter((arg) => arg === "-loop").length, 2);
-  const filter = buildFastSegmentFilter(s);
-  assert.match(filter, /crop=w=1080:h=1920:x=0:y=0,scale=w=880:h=1564/);
-  assert.match(filter, /\[3:v\]overlay/);
-  assert.match(filter, /\[4:v\]overlay/);
-  assert.doesNotMatch(filter, /design-camera|camera-shadow/);
-});
-
 test("design graph: wipeが非表示ならcamera graphを作らずscreen基底だけ使う", () => {
   const filter = buildFastSegmentFilter(spec({ base: { ...DESIGN, cameraLayerIndex: undefined } }));
   assert.doesNotMatch(filter, /design-camera-src|design-camera-alpha|design-camera-shadow/);
@@ -237,35 +208,6 @@ test("design activation: asset refsとgeometryから絶対pathのbase specを組
     ...DESIGN,
     cameraLayerIndex: 2,
   });
-});
-
-test("design activation: camera無しplainは2-role base specを組み立てる", () => {
-  const props: RenderProps = {
-    videoFile: "cut.mp4",
-    bgm: [],
-    durationSec: 10,
-    fps: 30,
-    width: 1080,
-    height: 1920,
-    canvas: { w: 1080, h: 1920 },
-    screenRegion: PLAIN_PORTRAIT.screen.sourceRect,
-    wipe: { widthPx: 480, marginPx: 32 },
-    caption: { fontSizePx: 44 },
-    captions: [],
-    overlays: [],
-    wipeFull: [],
-    hideCaption: [],
-    design: {
-      backgroundColor: "#001122",
-      screen: { rect: PLAIN_PORTRAIT.screen.targetRect, radiusPx: 24, shadow: true },
-    },
-  };
-  const refs = {
-    key: "plain",
-    backdropFile: "render.fast/design/plain.backdrop.png",
-    screenMaskFile: "render.fast/design/plain.screen-mask.png",
-  };
-  assert.deepEqual(buildFastDesignBaseSpec({ dir: "/rec", props, refs }), PLAIN_PORTRAIT);
 });
 
 test("design activation: wipe位置をまたいで同一PNGをmergeせずcamera indexを保つ", () => {

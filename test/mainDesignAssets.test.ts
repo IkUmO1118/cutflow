@@ -10,7 +10,7 @@ test("Main design assets: design assetsを一切参照せずlegacy描画を使�
   assert.doesNotMatch(source, /(?:WebkitM|m)askImage/);
   assert.doesNotMatch(
     source,
-    /completeScreenDesignAssets|staticCameraDesignAssets|screenAssets|staticCameraAssets|staticDesignCamera/,
+    /completeDesignAssets|staticCameraDesignAssets|screenAssets|staticCameraAssets|staticDesignCamera/,
   );
   assert.doesNotMatch(source, /backdropFile|screenMaskFile|cameraShadowFile|cameraMaskFile/);
   assert.match(source, /staticFile\(design\.backgroundFile\)/);
