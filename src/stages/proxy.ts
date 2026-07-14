@@ -7,7 +7,7 @@ import {
   measuredLoudnormFilter,
 } from "../lib/loudness.ts";
 import { buildProxyCacheKey, proxyCacheKeyEquals } from "../lib/proxyCache.ts";
-import { PROXY_GOP_FRAMES, videoEncodeArgs } from "../lib/videoEncode.ts";
+import { PROXY_GOP_FRAMES, scaleFilter, videoEncodeArgs } from "../lib/videoEncode.ts";
 import type { ProxyCacheKey } from "../lib/proxyCache.ts";
 import type { Config } from "../lib/config.ts";
 import type { Manifest } from "../types.ts";
@@ -47,7 +47,7 @@ export async function buildProxy(dir: string, cfg: Config): Promise<string> {
     "-i", input,
     "-filter_complex",
     [
-      `[0:v]scale=${cfg.preview.width}:-2[vout]`,
+      `[0:v]${scaleFilter(cfg)}[vout]`,
       ...keepAudioParts(source, whole),
       `[a0]${loudnorm}[aout]`,
     ].join(";"),
