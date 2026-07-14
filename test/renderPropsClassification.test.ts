@@ -102,7 +102,7 @@ const BASE: RenderProps = {
   captions: [{ start: 1, end: 2, text: "テロップ", track: 1 }],
   overlays: [{ start: 1, end: 3, file: "materials/a.png", track: 1, fit: "contain" }],
   wipeFull: [{ start: 4, end: 5 }],
-  zooms: [{ start: 2, end: 3, rect: { x: 0, y: 0, w: 960, h: 540 }, easeSec: 0.4 }],
+  zooms: [{ start: 2, end: 3, rect: { x: 0, y: 0, w: 960, h: 540 }, easeSec: 0.4, wipeScale: 0.8 }],
   blurs: [{ start: 3, end: 4, rect: { x: 10, y: 10, w: 200, h: 100 }, strength: 0.5 }],
   annotations: [
     { type: "box", start: 4, end: 5, rect: { x: 50, y: 50, w: 300, h: 200 }, color: "#ff0000", widthPx: 4, radiusPx: 8 },

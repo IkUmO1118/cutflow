@@ -21,6 +21,7 @@ import {
   DEFAULT_SPOTLIGHT_FEATHER_PX,
   DEFAULT_WIPE_TRANSITION_SEC,
   DEFAULT_ZOOM_EASE_SEC,
+  DEFAULT_ZOOM_WIPE_SCALE,
   capId,
   capNum,
   captionAnchorOf,
@@ -318,6 +319,7 @@ export function buildRenderProps(args: {
         rect: z.rect,
         easeSec: z.easeSec ?? renderCfg.zoom?.easeSec ?? DEFAULT_ZOOM_EASE_SEC,
         ...(z.easeOutSec !== undefined ? { easeOutSec: z.easeOutSec } : {}),
+        wipeScale: renderCfg.zoom?.wipeScale ?? DEFAULT_ZOOM_WIPE_SCALE,
       },
     ];
   });
