@@ -532,7 +532,8 @@ export interface Config {
        * zooms[].easeSec で個別指定があればそちらが優先 */
       easeSec?: number;
     };
-    /** ベースレイアウトのデザイン(背景画像 + 画面パネル + カメラ円)。
+    /** ベースレイアウトのデザイン。plain は背景画像 + 画面パネル、
+     * obs-canvas はさらにカメラ円を描く。
      * 省略 / enabled: false で従来の「画面全面 + 右下ワイプ」とバイト等価。
      * 有効時はワイプ焼き込み(composite)が使えないため高速パスも発動しない
      * (§src/lib/design.ts。docs/programs/render-fastpath-program.md) */

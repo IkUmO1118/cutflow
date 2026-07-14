@@ -979,9 +979,10 @@ export function loadProject(dir: string, cfg: Config): ProjectData {
         "先にパイプライン(run)を実行してください",
     );
   }
-  // デザインの背景取り込み(render.design/ へのコピー)は dirFiles を読む前に
-  // 済ませる。後にすると、初回だけコピー前の一覧が渡ってクライアントの
-  // overlayExists が「背景画像が見つかりません」と誤判定し、背景が落ちる
+  // plain / obs-canvas 共通で、デザインの背景取り込み(render.design/ への
+  // コピー)は dirFiles を読む前に済ませる。後にすると、初回だけコピー前の
+  // 一覧が渡ってクライアントの overlayExists が「背景画像が見つかりません」
+  // と誤判定し、背景が落ちる
   const designRenderCfg = renderCfgWithDesign(dir, cfg);
 
   // 素材選択やオーバーレイの存在チェック用にフォルダ内の全ファイルを渡す

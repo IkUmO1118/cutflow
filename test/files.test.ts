@@ -102,6 +102,7 @@ test("fileRole: 中間生成物ディレクトリ配下は丸ごと generated", 
   assert.equal(fileRole("frames/out10.5s.ocr.json"), "generated");
   assert.equal(fileRole("render.chunks/v001.mp4"), "generated");
   assert.equal(fileRole("render.chunks/chunks.key.json"), "generated");
+  assert.equal(fileRole("render.design/dusk.jpg"), "generated");
   assert.equal(fileRole("shorts/highlight-1.mp4"), "generated");
 });
 
@@ -144,6 +145,7 @@ test("isGeneratedCache: 重いキャッシュだけ true、軽い中間生成物
     "preview.mp4", "render.props.json", "render.key.json",
     "cut.highlight-1.mp4", "render.highlight-1.key.json",
     "frames/out10s.png", "render.chunks/v001.mp4", "shorts/a.mp4",
+    "render.design/dusk.jpg",
     "materials.probe/index.json", "av.probe/motion.json", "review.probe/index.json",
     "render.fast/captions/ab12cd34.png"]) {
     assert.equal(isGeneratedCache(c), true, `${c} は cache のはず`);
