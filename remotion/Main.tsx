@@ -27,13 +27,14 @@ import {
   CAMERA_SHADOW_CSS,
   SCREEN_SHADOW_CSS,
   panelRect,
+  shrinkRectBottomRight,
   toPanelRect,
   wipeRectAt,
 } from "../src/lib/design.ts";
 import { valuesAt } from "../src/lib/keyframes.ts";
 import { fadeFactor, isImageFile } from "../src/lib/overlayFade.ts";
 import { cropFitStyle } from "../src/lib/panelStyle.ts";
-import { zoomTransformAt } from "../src/lib/zoom.ts";
+import { zoomProgressAt, zoomTransformAt } from "../src/lib/zoom.ts";
 import { wipeProgressAt } from "../src/lib/wipe.ts";
 import { AnnotationItemView } from "./AnnotationLayer.tsx";
 import { PositionedCaption } from "./CaptionLayer.tsx";
@@ -89,6 +90,17 @@ export const Main = (props: RenderProps) => {
   const wipeEase = wipeProgressAt(t, props.wipeFull, wipeT);
   const wipeW = Math.round(props.wipe.widthPx + (props.width - props.wipe.widthPx) * wipeEase);
   const wipeHNow = Math.round(wipeH + (props.height - wipeH) * wipeEase);
+
+  // ズーム中のワイプ縮小(right:0/bottom:0 flush・design アンカーいずれも
+  // 右下を保ったまま w/h だけ縮む。§設計 D4)。zoomProgressAt は zoom と同じ
+  // 区間探索・イーズ・カーブを使うので、縮小のトランジションは zoom 本体と
+  // 完全に一致する。wipeFull で全画面になっている間(wipeEase=1)は
+  // 縮めない((1 - wipeEase) の項)。zoom が無ければ p=0 → s=1 = 恒等
+  const zoomSpans = props.zooms ?? [];
+  const activeZoom = zoomSpans.find((z) => t >= z.start && t < z.end);
+  const zoomP = zoomProgressAt(t, zoomSpans);
+  const wipeShrinkK = activeZoom?.wipeScale ?? 1;
+  const wipeShrinkS = 1 - (1 - wipeShrinkK) * zoomP * (1 - wipeEase);
 
   // カット境界のディップ・トゥ・ブラック(config.yaml の render.cutTransition が
   // dip-to-black のときだけ props に載る)。境界点 tb の前後 sec/2 で
@@ -253,21 +265,29 @@ export const Main = (props: RenderProps) => {
   const designWipe = designCamera
     ? wipeRectAt(designCamera, props.width, props.height, wipeEase)
     : null;
-  const wipeLayer: ReactNode = !props.cameraRegion ? null : designCamera && designWipe ? (
+  // ズーム中のワイプ縮小(D5)。右下角を保ったまま w/h・角丸に wipeShrinkS を
+  // 掛ける(design 経路は shrinkRectBottomRight・素の経路は right:0/bottom:0
+  // flush の器の width/height を直接縮めるだけで同じ「右下アンカー」になる)
+  const shrunkDesignWipe = designWipe
+    ? shrinkRectBottomRight(designWipe.rect, designWipe.radiusPx, wipeShrinkS)
+    : null;
+  const wipeWNow = Math.round(wipeW * wipeShrinkS);
+  const wipeHShrunk = Math.round(wipeHNow * wipeShrinkS);
+  const wipeLayer: ReactNode = !props.cameraRegion ? null : designCamera && shrunkDesignWipe ? (
     <div
       style={{
         position: "absolute",
-        left: designWipe.rect.x,
-        top: designWipe.rect.y,
-        width: designWipe.rect.w,
-        height: designWipe.rect.h,
-        borderRadius: designWipe.radiusPx,
+        left: shrunkDesignWipe.rect.x,
+        top: shrunkDesignWipe.rect.y,
+        width: shrunkDesignWipe.rect.w,
+        height: shrunkDesignWipe.rect.h,
+        borderRadius: shrunkDesignWipe.radiusPx,
         overflow: "hidden",
         ...(designCamera.shadow ? { boxShadow: CAMERA_SHADOW_CSS } : {}),
       }}
     >
       {hasVideo && props.cameraRegion ? (
-        renderBase(props.cameraRegion, designWipe.rect.w, designWipe.rect.h, true)
+        renderBase(props.cameraRegion, shrunkDesignWipe.rect.w, shrunkDesignWipe.rect.h, true)
       ) : (
         <Placeholder label="カメラ" />
       )}
@@ -278,13 +298,13 @@ export const Main = (props: RenderProps) => {
         position: "absolute",
         right: 0,
         bottom: 0,
-        width: wipeW,
-        height: wipeHNow,
+        width: wipeWNow,
+        height: wipeHShrunk,
         overflow: "hidden",
       }}
     >
       {hasVideo && props.cameraRegion ? (
-        renderBase(props.cameraRegion, wipeW, wipeHNow, true)
+        renderBase(props.cameraRegion, wipeWNow, wipeHShrunk, true)
       ) : (
         <Placeholder label="カメラ" />
       )}

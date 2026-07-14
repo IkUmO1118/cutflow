@@ -201,7 +201,7 @@ test("chunkVideoKey: zooms は wipeFull と同じくチャンク限定(重なる
   const before = keysOf(PROPS);
   const withZoom: RenderProps = {
     ...PROPS,
-    zooms: [{ start: 1, end: 2, rect: { x: 0, y: 0, w: 960, h: 1080 }, easeSec: 0.4 }],
+    zooms: [{ start: 1, end: 2, rect: { x: 0, y: 0, w: 960, h: 1080 }, easeSec: 0.4, wipeScale: 0.8 }],
   };
   const after = keysOf(withZoom);
   assert.notEqual(before.chunk0, after.chunk0); // 1-2s は chunk0([0,5s))に重なる
@@ -213,7 +213,7 @@ test("chunkVideoKey: zooms は wipeFull と同じくチャンク限定(重なる
 test("chunkVideoKey: zoom の rect 変更は乗っているチャンクのキーだけを変える", () => {
   const withZoom: RenderProps = {
     ...PROPS,
-    zooms: [{ start: 1, end: 2, rect: { x: 0, y: 0, w: 960, h: 1080 }, easeSec: 0.4 }],
+    zooms: [{ start: 1, end: 2, rect: { x: 0, y: 0, w: 960, h: 1080 }, easeSec: 0.4, wipeScale: 0.8 }],
   };
   const before = keysOf(withZoom);
   const after = keysOf({
@@ -223,6 +223,23 @@ test("chunkVideoKey: zoom の rect 変更は乗っているチャンクのキー
   assert.notEqual(before.chunk0, after.chunk0);
   assert.equal(before.chunk1, after.chunk1);
   assert.equal(before.audio, after.audio);
+});
+
+test("chunkVideoKey: wipeScale の変更はその zoom に重なるチャンクのキーだけを変え、globalVideoKey は不変(D3の回帰)", () => {
+  const withZoom: RenderProps = {
+    ...PROPS,
+    zooms: [{ start: 1, end: 2, rect: { x: 0, y: 0, w: 960, h: 1080 }, easeSec: 0.4, wipeScale: 0.8 }],
+  };
+  const withDifferentScale: RenderProps = {
+    ...withZoom,
+    zooms: [{ ...withZoom.zooms![0], wipeScale: 0.6 }],
+  };
+  const before = keysOf(withZoom);
+  const after = keysOf(withDifferentScale);
+  assert.notEqual(before.chunk0, after.chunk0); // 1-2s は chunk0([0,5s))に重なる
+  assert.equal(before.chunk1, after.chunk1); // chunk1([5,10s))には重ならない
+  assert.equal(before.audio, after.audio); // 音声には影響しない
+  assert.equal(globalVideoKey(withZoom, CUT_STAT), globalVideoKey(withDifferentScale, CUT_STAT));
 });
 
 test("chunkVideoKey: blurs は zooms/wipeFull と同じくチャンク限定(重なるチャンクだけキーが変わる・全域キー不変)", () => {

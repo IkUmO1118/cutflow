@@ -26,6 +26,27 @@ export interface ZoomTransform {
 const IDENTITY: ZoomTransform = { scale: 1, translateX: 0, translateY: 0 };
 
 /**
+ * 時刻 t(カット後の秒)におけるズームの進行度 p ∈ [0,1]。区間外は 0、
+ * 区間頭で easeSec 秒かけて 1 へイーズイン、区間末尾で easeOutSec 秒かけて
+ * 0 へイーズアウトする(smoothstep)。区間が短いときは各遷移を区間の半分へ
+ * 縮める。zoomTransformAt と全く同じ区間探索・ease クランプ・カーブを使う
+ * (縮小ワイプ(render.zoom.wipeScale)等、zoom と同じトランジションを共有
+ * したい他の演出がこの関数を再利用する)。zooms は重ならない前提
+ * (validate がエラーにする)なので、該当区間は高々1つ。
+ */
+export function zoomProgressAt(t: number, zooms: ZoomSpan[]): number {
+  const z = zooms.find((z) => t >= z.start && t < z.end);
+  if (!z) return 0;
+  const half = (z.end - z.start) / 2;
+  const easeIn = Math.min(z.easeSec, half);
+  const easeOut = Math.min(z.easeOutSec ?? z.easeSec, half);
+  const inRaw = easeIn <= 0 ? 1 : Math.min(1, (t - z.start) / easeIn);
+  const outRaw = easeOut <= 0 ? 1 : Math.min(1, (z.end - t) / easeOut);
+  const raw = Math.min(inRaw, outRaw);
+  return raw * raw * (3 - 2 * raw); // smoothstep
+}
+
+/**
  * 時刻 t(カット後の秒)における背景レイヤーの transform。
  * rect の中心が出力の中心に来るよう平行移動し、scale = 出力幅 / rect.w に
  * 一様拡大する(歪ませない。rect のアスペクトが出力と違っても崩れない)。
@@ -40,13 +61,7 @@ export function zoomTransformAt(
 ): ZoomTransform {
   const z = zooms.find((z) => t >= z.start && t < z.end);
   if (!z) return IDENTITY;
-  const half = (z.end - z.start) / 2;
-  const easeIn = Math.min(z.easeSec, half);
-  const easeOut = Math.min(z.easeOutSec ?? z.easeSec, half);
-  const inRaw = easeIn <= 0 ? 1 : Math.min(1, (t - z.start) / easeIn);
-  const outRaw = easeOut <= 0 ? 1 : Math.min(1, (z.end - t) / easeOut);
-  const raw = Math.min(inRaw, outRaw);
-  const p = raw * raw * (3 - 2 * raw); // smoothstep
+  const p = zoomProgressAt(t, zooms);
   const targetScale = width / z.rect.w;
   const scale = 1 + (targetScale - 1) * p;
   const cx = z.rect.x + z.rect.w / 2;
