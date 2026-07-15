@@ -10,7 +10,6 @@ node_modules
 examples/
 public/
 bin/ocr/.build/
-docs/plans/regression/snapshots/*.json
 
 # メディア(収録・成果物はマウントで渡す。イメージに焼かない)
 *.mp4

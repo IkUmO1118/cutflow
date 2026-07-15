@@ -110,8 +110,7 @@ id が付いた配列は要素/フィールド単位でレビューできる。i
 `AGENTS_CONTRACT.md`(機械可読契約)を JSON ファイルの読み書き規約として公開するのに
 加え、`node src/cli.ts mcp <dir>` は同じ契約を [Model Context Protocol](https://modelcontextprotocol.io/)
 の tool として露出する。Claude Desktop・codex 等、任意の MCP 対応ホストが
-この収録フォルダを発見・操作できるようになる(`docs/plans/2026-07-07-mcp-server-design.md`
-設計)。依存追加はゼロ(公式 SDK は使わず、`node:readline`/`node:process` だけの
+この収録フォルダを発見・操作できるようになる。依存追加はゼロ(公式 SDK は使わず、`node:readline`/`node:process` だけの
 自前 stdio JSON-RPC 2.0 最小実装。schema バリデータを自前実装した前例と同じ
 判断軸)。
 
