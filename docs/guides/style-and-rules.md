@@ -8,8 +8,7 @@
 `node src/cli.ts style-profile --from <path> [--from <path> ...] [--name <名前>]` は、
 任意の動画/収録パスから**スタイルプロファイル**(テンポ・字幕密度/位置・
 ラウドネス・構成の観測統計)を抽出し、channel(最初の `--from` の親ディレクトリ)の
-`style.probe/<名前>.json`(省略時 `default.json`)へ書くコマンド
-(§docs/plans/2026-07-12-sd-t0-style-profile-design.md)。他コマンドと違い
+`style.probe/<名前>.json`(省略時 `default.json`)へ書くコマンド。他コマンドと違い
 位置引数 `<dir>` を取らず、`--from` 主導で入力を集める。
 
 - 入力の種類は `--from` のパスごとに自動判定する:
@@ -45,8 +44,8 @@ node src/cli.ts style-profile --from <動画ファイル> --name bare-test    # 
 
 `node src/cli.ts style-check <dir> [--profile <名前>]` は、この収録の**現在の編集
 (候補)**の観測統計が `style-profile` で抽出した**学習分散帯からどれだけ逸脱
-しているか**を決定論で測り、warn/info(**常に exit 0**)で報告するコマンド
-(§docs/plans/2026-07-12-sd-t1-style-check-design.md)。母艦の言う「J(主観)次元が
+しているか**を決定論で測り、warn/info(**常に exit 0**)で報告するコマンド。
+母艦の言う「J(主観)次元が
 プロファイル導入で D(決定論)へ落ちる」の測定面そのもの(SD-T1)で、`style-profile`
 (プロファイルを**作る**側)に対し、こちらは既存の編集をそこへ**照らす**側。
 

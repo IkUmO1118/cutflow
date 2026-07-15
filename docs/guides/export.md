@@ -61,7 +61,7 @@
 エンコーダ(macOS は VideoToolbox)を使い、`disable` で従来のソフトウェア
 エンコードに戻せる。`if-possible` はハードウェアエンコーダが使えない
 環境では自動でソフトウェアエンコードにフォールバックする(エラーには
-ならない)。実測は docs/perf.md 参照。
+ならない)。
 
 `proxy.mp4` / `preview.mp4` は config.yaml `preview.videoEncoder`(既定
 `videotoolbox`)で同じくハードウェアエンコーダを使う。生成時間は
@@ -73,9 +73,8 @@
 render 中に Mac 全体が重くなる主因はメモリで、Remotion の OffthreadVideo
 フレームキャッシュは既定で「利用可能メモリの半分」まで成長する(16GB 機では
 compositor 単体が数GB)。CutFlow は既定でこれを
-`render.offthreadVideoCacheMb: 512`(MB)に制限する。render 速度は変わらず
-(実測は docs/perf.md フェーズ7・9)、render 中のスワップ・他アプリの鈍化を
-防ぐ。`0` で Remotion 既定(無制限)に戻せる。
+`render.offthreadVideoCacheMb: 512`(MB)に制限する。render 速度は変わらず、
+render 中のスワップ・他アプリの鈍化を防ぐ。`0` で Remotion 既定(無制限)に戻せる。
 
 `render.concurrency` は Remotion の並列レンダータブ数(省略時は Remotion
 既定=CPU コア数の半分)。1タブ ≈ 350〜400MB なので、render 中のメモリを
@@ -91,7 +90,7 @@ compositor 単体が数GB)。CutFlow は既定でこれを
 HTTP 配信(asset/resource)だと、render 中の OffthreadVideo フレーム抽出が
 同一ホストへの Chrome の同時接続枠(6本)を占有し、フォント取得が接続待ちの
 まま `delayRender` タイムアウト(`Loading Noto Sans JP ... not cleared`)で
-render 全体が落ちることがある(実測は docs/perf.md フェーズ9)。
+render 全体が落ちることがある。
 
 
 ## ショート動画(shorts.json)
