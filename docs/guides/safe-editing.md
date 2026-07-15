@@ -123,8 +123,7 @@ exit 1。`--dry-run` は `@id` 単位の変更要約(`field: 旧 → 新`)と
 重なり・参照ファイルの存在・尺超えという普遍の不変条件)。一方 `assert <dir>`
 が答えるのは「この編集は**私が意図した状態になっている**か」——「ショートを
 60秒以内に収めたはずだ」「@cap_x のテロップは本編に残っているはずだ」
-「API キーを写した区間は目隠しできているはずだ」というこの収録固有の期待値
-(`docs/plans/2026-07-07-visual-assertions-design.md` 設計)。
+「API キーを写した区間は目隠しできているはずだ」というこの収録固有の期待値。
 
 期待値は `assertions.json`(収録フォルダ直下)に平文で宣言する。人間/AI が
 手で書く**第3の宣言ファイル**で、`rules.md` / `brief.md` と同じく
@@ -200,8 +199,7 @@ CI/ループが赤にならない優雅な劣化)。CLI 表示は `validate` に
 
 Claude Code に限らず、任意のコーディングエージェント・素の JSON エディタ・
 外部バリデータが CutFlow の編集ファイルを機械的に検証・補完できるよう、
-契約をコードから射影した2種類の成果物がある(`docs/plans/2026-07-07-machine-contract-design.md`
-設計。types.ts / validate.ts / files.ts / ids.ts という**既存の単一の出所**の
+契約をコードから射影した2種類の成果物がある(types.ts / validate.ts / files.ts / ids.ts という**既存の単一の出所**の
 射影であり、新しい真実は宣言しない。ずれたら `npm test`(`test/schema.test.ts` /
 `test/agentsMd.test.ts`)が落ちる)。
 

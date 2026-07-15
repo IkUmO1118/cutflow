@@ -62,7 +62,7 @@
 
 `plan-bgm <dir>` は、編集済みタイムラインのどこにどの曲を敷くか
 (または無音のままにするか)、LLM に**番号選択**だけさせて `bgm.json` の
-下書きを作るコマンド(§docs/plans/2026-07-11-b1-b3-bgm-placement-candidates-design.md)。
+下書きを作るコマンド。
 cut(`cutplan.json`)・承認(`approvals.json`)には一切触れない独立軸。
 
 - **切替アンカー(B3・決定論)**: BGM を切り替える/区切る境界を機械的に
@@ -117,8 +117,8 @@ node src/cli.ts av <dir>                # sound レポートで BGM spans の反
 
 `bgm-fit <dir>` は、**既に置かれている** BGM(`bgm.json`)の音量/duck/フェードが
 `av.probe/sound.json`(要 `av <dir>` の事前実行)の実測と合っているかを検品し、
-補正案を `apply` パッチ下書き(`bgm-fit.suggested.json`)として出すコマンド
-(§docs/plans/2026-07-11-b2-b4-bgm-audio-aware-design.md)。`plan-bgm`(SD-B1)が
+補正案を `apply` パッチ下書き(`bgm-fit.suggested.json`)として出すコマンド。
+`plan-bgm`(SD-B1)が
 BGM の区間割り・選曲を**作る**のに対し、こちらは既存の BGM を**直す**役割で、
 区間割り・選曲は一切行わない。**LLM を一切使わない決定論コマンド**(補正値は
 すべて `av.probe/sound.json` の実測値からの算術)。

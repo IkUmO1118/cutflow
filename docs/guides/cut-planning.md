@@ -92,8 +92,8 @@ plan:
 ## plan の候補格子を語境界で細分化する(config.yaml の candidates。既定オフ)
 
 `plan` / `plan --cuts-only` は、`detect` が無音から作った「残す候補区間」に
-番号を振って LLM に渡し、LLM は番号単位で cut/keep を選ぶ(番号選択方式。
-ハルシネーション対策は `docs/decisions.md` 2026-07-02 参照)。`config.yaml` の
+番号を振って LLM に渡し、LLM は番号単位で cut/keep を選ぶ(番号選択方式で
+ハルシネーションを抑える)。`config.yaml` の
 `candidates.enabled: true`(既定 false)にすると、この候補格子を **語タイムスタンプ
 (`transcript.json` の `words[]`。要 `whisper.wordTimestamps: true`、既定オン)由来の
 語境界でも細分化**し、無音検出だけでは拾えない微小ポーズ・フィラーの境界を
@@ -261,7 +261,7 @@ plan:
 
 `plan` / `plan --cuts-only` は、`style-profile` が抽出した style profile
 (`style.probe/<name>.json`)を **候補選択のソフトな prior** として LLM の
-プロンプトへ添えられる(§docs/plans/2026-07-12-sd-t4-style-injection-design.md)。
+プロンプトへ添えられる。
 既定オフで、オフのとき LLM 入力・`plan.raw.txt` は導入前と1バイトも変わらない
 (`plan.perception` と同じ不変条件)。
 
