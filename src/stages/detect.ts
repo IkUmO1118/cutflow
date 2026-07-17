@@ -8,6 +8,8 @@ import {
   FLOOR_METHOD,
   resolveEffectiveSilenceDb,
 } from "../lib/silenceFloor.ts";
+import { resolveEdgeTrimCfg, trimKeepEdges } from "../lib/edgeTrim.ts";
+import { decodeBoundaryPcm } from "./boundaryCheck.ts";
 
 export interface DetectParams {
   silenceDb: number;
@@ -132,11 +134,37 @@ export async function detect(dir: string, cfg: Config): Promise<AutoCuts> {
       },
     };
   }
-  const cuts = await detectAutoCuts(
+  let cuts = await detectAutoCuts(
     audioPath,
     manifest.durationSec,
     params,
   );
+  // C7(detect.edgeTrim): keep 端を実音声 RMS の発話エッジ+padSec へ詰める
+  // opt-in。off なら cuts はここまでの内容のままバイト等価
+  if (cfg.detect.edgeTrim?.enabled === true) {
+    const trimCfg = resolveEdgeTrimCfg(cfg.detect, params.minKeepSec);
+    const samples = await decodeBoundaryPcm(audioPath);
+    const trimmed = trimKeepEdges(cuts.keepSegments, samples, trimCfg);
+    cuts = {
+      ...cuts,
+      params: {
+        ...cuts.params,
+        edgeTrim: {
+          floorOffsetDb: trimCfg.floorOffsetDb,
+          padSec: trimCfg.padSec,
+          maxTrimSec: trimCfg.maxTrimSec,
+          floorDb: Math.round(trimmed.floorDb * 10) / 10,
+          thresholdDb: Math.round(trimmed.thresholdDb * 10) / 10,
+          trimmedSec: trimmed.trimmedSec,
+          trimmedEdges: trimmed.trimmedEdges,
+        },
+      },
+      keepSegments: trimmed.keeps,
+      keptDurationSec: round2(
+        trimmed.keeps.reduce((sum, k) => sum + (k.end - k.start), 0),
+      ),
+    };
+  }
   writeFileSync(join(dir, "cuts.auto.json"), JSON.stringify(cuts, null, 2));
   return cuts;
 }

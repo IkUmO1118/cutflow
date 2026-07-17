@@ -252,6 +252,16 @@ export interface AutoCuts {
       preset: "gentle" | "balanced" | "tight";
       minKeepSec: number;
     };
+    /** keep 端の実音声 RMS トリム(C7)の記録。detect.edgeTrim 有効時のみ */
+    edgeTrim?: {
+      floorOffsetDb: number;
+      padSec: number;
+      maxTrimSec: number;
+      floorDb: number;
+      thresholdDb: number;
+      trimmedSec: number;
+      trimmedEdges: number;
+    };
   };
   /** 無音区間(この区間がカット候補。補集合=発話区間は render の
    * BGM ダッキングにも使われる) */

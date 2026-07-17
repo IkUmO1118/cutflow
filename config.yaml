@@ -69,6 +69,14 @@ detect:
   # silenceCompaction:
   #   enabled: true
   #   preset: balanced # gentle | balanced | tight
+  # keep 端を実音声 RMS の発話エッジ+padSec へ詰める opt-in(C7)。
+  # 省略/false は従来の keep 端のまま(バイト等価)。測定系は boundary-check と同じ
+  # (mono 8kHz PCM16LE / 100ms窓 p5 床)。
+  # edgeTrim:
+  #   enabled: true
+  #   floorOffsetDb: 12 # 発話とみなす閾値 = 床 + これ(dB)
+  #   padSec: 0.1       # 発話エッジの外側へ残す余白(秒)
+  #   maxTrimSec: 1.5   # 1辺あたりの最大トリム量(秒)
 
 # カット確認用プレビュー動画
 preview:

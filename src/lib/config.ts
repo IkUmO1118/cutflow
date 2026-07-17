@@ -181,6 +181,14 @@ export interface Config {
       enabled: boolean;
       preset: "gentle" | "balanced" | "tight";
     };
+    /** keep 端を実音声 RMS の発話エッジ+padSec へ詰める opt-in(C7)。
+     *  省略/enabled:false は従来の keep 端のまま=出力バイト等価。 */
+    edgeTrim?: {
+      enabled: boolean;
+      floorOffsetDb?: number;
+      padSec?: number;
+      maxTrimSec?: number;
+    };
   };
   /** AI 設定の新しい入口。省略時は llm(旧設定)から解決し、両方無ければ claude-code */
   ai?: AiConfig;
@@ -1038,6 +1046,23 @@ function validateWorkflowConfig(cfg: Config): string[] {
     }
     if (!['gentle', 'balanced', 'tight'].includes(silenceCompaction.preset as string)) {
       errors.push('detect.silenceCompaction.preset は "gentle" | "balanced" | "tight" で指定してください');
+    }
+  }
+  const edgeTrim = cfg.detect?.edgeTrim as Record<string, unknown> | undefined;
+  if (edgeTrim) {
+    errors.push(...unknownKeys(edgeTrim, ["enabled", "floorOffsetDb", "padSec", "maxTrimSec"])
+      .map((key) => `detect.edgeTrim.${key} は未対応です`));
+    if (typeof edgeTrim.enabled !== "boolean") {
+      errors.push("detect.edgeTrim.enabled は boolean で指定してください");
+    }
+    if ("floorOffsetDb" in edgeTrim && !Number.isFinite(edgeTrim.floorOffsetDb)) {
+      errors.push("detect.edgeTrim.floorOffsetDb は有限の数値で指定してください");
+    }
+    if ("padSec" in edgeTrim && (!Number.isFinite(edgeTrim.padSec) || Number(edgeTrim.padSec) < 0)) {
+      errors.push("detect.edgeTrim.padSec は 0 以上の数値で指定してください");
+    }
+    if ("maxTrimSec" in edgeTrim && (!Number.isFinite(edgeTrim.maxTrimSec) || Number(edgeTrim.maxTrimSec) <= 0)) {
+      errors.push("detect.edgeTrim.maxTrimSec は正の数値で指定してください");
     }
   }
   const editorAiReview = cfg.editor?.aiReview as Record<string, unknown> | undefined;
