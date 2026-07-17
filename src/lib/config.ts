@@ -138,6 +138,16 @@ export interface Config {
      * 省略時 false(既存挙動と完全一致・words を一切書かない)。true で
      * whisper 実行を -ojf に切り替え、各 segment に words[] を付加する */
     wordTimestamps?: boolean;
+    /** DTW トークンアライメント(whisper.cpp の -dtw)。使用モデルに合う
+     *  preset 名(例 "large.v3.turbo" / "small" / "medium.en")を書くと
+     *  whisper 実行に -dtw を付け、各トークンに音響へ固定された t_dtw が入る。
+     *  buildWords は t_dtw を offsets より優先して words[] の時刻を組み立てる
+     *  (注意ベースの offsets は文中で±数百ms〜秒単位でずれ、ポーズに語を
+     *  等幅で塗り広げる。エディタのスクリプトタブの取り消し線判定は語の
+     *  実時刻に依存するため、この精度が体感品質に直結する)。
+     *  省略時は付けない(既存挙動と完全一致。wordTimestamps と独立だが、
+     *  words[] に効かせるには wordTimestamps: true が必要) */
+    dtw?: string;
     /** テロップ(transcript.json の 1 segment)を「約 maxChars 文字」の粒度へ
      *  割り直す設定。省略時は分割しない(whisper のチャンク幅そのまま=導入前と
      *  バイト等価)。日本語の文節末(助詞・句末表現)+ 無音ギャップ + 文字数上限で

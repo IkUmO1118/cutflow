@@ -14,6 +14,10 @@ export interface WhisperToken {
   offsets: { from: number; to: number };
   /** 確信度(0..1)。無いケースは未確認だが防御的に省略可扱いにする */
   p?: number;
+  /** DTW トークンアライメント(whisper -dtw)の音響固定タイムスタンプ。
+   * 単位はセンチ秒(10ms)・無効は -1(DTW 無効時は全トークン -1)。
+   * offsets(注意ベース)と違い文中でも実音声に合う(±数十ms) */
+  t_dtw?: number;
 }
 
 /** whisper.cpp の JSON 出力(-oj / -ojf)の必要部分 */
@@ -31,19 +35,43 @@ const isSpecialToken = (text: string): boolean => /^\[.*\]$/.test(text);
 
 /**
  * whisper -ojf の1 segment ぶんの tokens[] から words[](WordTiming[])を組み立てる。
- * 特殊トークン([_BEG_] 等)・trim 後空文字・ゼロ幅(from>=to)を除外し、
- * 残りは ms→秒変換して text を trim して返す。時系列順は tokens[] の順のまま
- * (whisper は昇順で出す)。tokens が無ければ空配列
+ * 特殊トークン([_BEG_] 等)・trim 後空文字・ゼロ幅を除外し、text を trim して
+ * 返す。時系列順は tokens[] の順のまま(whisper は昇順で出す)。tokens が
+ * 無ければ空配列。
+ *
+ * 時刻は DTW(t_dtw。whisper -dtw で音響に固定された点。単位センチ秒)が
+ * あればそれを優先する: t_dtw は「その語を言い終えた瞬間」に相当する点なので、
+ * 語の区間は [直前の有効な点(無ければその語の offsets 開始), 自分の点]。
+ * 実測(§docs 2026-07-18): 注意ベースの offsets は文中で±数百ms〜秒単位で
+ * ずれ、ポーズに語を等幅で塗り広げるが、DTW 点は keep/cut 境界との照合で
+ * 1484語中の逸脱が1語まで落ちる。t_dtw が無効(-1)のトークンは語として
+ * 出さない(偽の時刻で出すより欠けの方が害が小さい)。DTW 無効の実行
+ * (t_dtw が全て -1 / 無い)では従来の offsets 経路と完全に同じ
  */
 export function buildWords(tokens: WhisperToken[] | undefined): WordTiming[] {
   if (!tokens) return [];
+  const hasDtw = tokens.some((t) => typeof t.t_dtw === "number" && t.t_dtw >= 0);
   const words: WordTiming[] = [];
+  let prevPoint: number | null = null;
   for (const tok of tokens) {
     const text = tok.text.trim();
     if (text.length === 0) continue;
     if (isSpecialToken(text)) continue;
-    const start = tok.offsets.from / 1000;
-    const end = tok.offsets.to / 1000;
+    let start: number;
+    let end: number;
+    if (hasDtw) {
+      if (!(typeof tok.t_dtw === "number" && tok.t_dtw >= 0)) continue;
+      const point = tok.t_dtw / 100;
+      start = prevPoint ?? tok.offsets.from / 1000;
+      // 同一点に複数トークンが乗る(速い発話)ことがあるので、ゼロ幅は
+      // 10ms に丸めて文字を落とさない(点の逆行にも同じ防御)
+      if (start > point) start = Math.max(0, point - 0.01);
+      end = Math.max(point, start + 0.01);
+      prevPoint = Math.max(point, prevPoint ?? 0);
+    } else {
+      start = tok.offsets.from / 1000;
+      end = tok.offsets.to / 1000;
+    }
     if (!(start < end)) continue;
     const word: WordTiming = { text, start, end };
     if (typeof tok.p === "number") word.confidence = tok.p;
@@ -97,6 +125,11 @@ export async function transcribe(
     "-l", cfg.whisper.language,
     "-f", join(dir, manifest.audio.micWav),
     cfg.whisper.wordTimestamps ? "-ojf" : "-oj", // JSON 出力(-ojf は tokens[] 付き上位互換)
+    // DTW トークンアライメント(config.whisper.dtw)。flash attention とは
+    // 排他(whisper.cpp が注意行列を実体化しないため)なので -nfa も併せて
+    // 渡す(付けないと "not supported with flash_attn - disabling" で
+    // 黙って無効化され、t_dtw が全て -1 になる。実測で確認済み)
+    ...(cfg.whisper.dtw ? ["-dtw", cfg.whisper.dtw, "-nfa"] : []),
     "-osrt",        // 字幕(srt)も同時に出力
     "-of", outBase, // 出力ファイルのベース名
   ]);

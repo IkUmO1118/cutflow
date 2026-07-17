@@ -33,6 +33,12 @@ whisper:
   # 既存収録(words 無し)は再 transcribe が要る(validate が警告する)。
   # 明示的に false を書けば従来どおり words を一切書かない挙動に戻せる
   wordTimestamps: true
+  # DTW トークンアライメント(whisper.cpp の -dtw)。使用モデルに合う preset 名を
+  # 書くと、各トークンに音響へ固定された t_dtw が入り、words[] の時刻が実発話に
+  # 合う(注意ベースの既定タイムスタンプは文中で±数百ms〜秒単位でずれ、ポーズに
+  # 語を等幅で塗り広げる=スクリプトタブの取り消し線の誤りの根本原因)。
+  # flash attention と排他のため文字起こしは少し遅くなる。この行を消せば従来どおり
+  dtw: large.v3.turbo
   # システム音声(systemTrack)も第2トラックとして文字起こしする(知覚専用・
   # 描画しない)。既定 false。true で transcript.system.json を書く
   systemAudio: false
