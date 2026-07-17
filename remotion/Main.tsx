@@ -28,7 +28,6 @@ import {
   SCREEN_SHADOW_CSS,
   panelRect,
   shrinkRectBottomRight,
-  toPanelRect,
   wipeRectAt,
 } from "../src/lib/design.ts";
 import { valuesAt } from "../src/lib/keyframes.ts";
@@ -117,17 +116,14 @@ export const Main = (props: RenderProps) => {
   const design = props.layout ? undefined : props.design;
   const panel = panelRect(design, props.width, props.height);
 
-  // ズーム演出(画面の一部を拡大)。ベース映像の背景レイヤーだけに掛ける
-  // transform(props.layout があるショート/縦経路には zooms が乗らないので
-  // 自動的にここは恒等のまま=関与しない。D2 と同じ相乗り)。デザイン有効時は
-  // ベース映像がパネルに収まるので、zoom の rect もパネルローカルへ写してから
-  // 「パネルを出力とみなす」既存の式に渡す(design 無しでは写像は恒等)
-  const zoomT = zoomTransformAt(
-    t,
-    (props.zooms ?? []).map((z) => ({ ...z, rect: toPanelRect(z.rect, panel) })),
-    panel.w,
-    panel.h,
-  );
+  // ズーム演出(画面の一部を拡大)。「背景(デザインの背景画像)+画面パネル」
+  // をまとめた合成面全体に掛ける transform(ワイプ・素材・テロップ・
+  // blur/annotation は外=不動。props.layout があるショート/縦経路には zooms が
+  // 乗らないので自動的にここは恒等のまま=関与しない。D2 と同じ相乗り)。
+  // rect は出力px のまま、出力全面を対象に scale = 出力幅 / rect.w で拡大する
+  // (design 無しでは背景画像が無くパネル=出力全面なので、パネル内側に掛けて
+  // いた従来と同じ絵になる)
+  const zoomT = zoomTransformAt(t, zoomSpans, props.width, props.height);
 
   const cutHalf = (props.cutTransition?.sec ?? 0) / 2;
   const cutOpacity =
@@ -349,47 +345,51 @@ export const Main = (props: RenderProps) => {
 
   return (
     <AbsoluteFill style={{ backgroundColor: design?.backgroundColor ?? "black" }}>
-      {/* デザインの背景画像(最下層)。ベース映像もテロップも全てこの上に乗る */}
-      {design?.backgroundFile && (
-        <Img
-          src={staticFile(design.backgroundFile)}
-          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
-        />
-      )}
-
-      {hasVideo ? (
-        props.layout ? (
-          renderPanels(props.layout)
-        ) : (
-          // デザイン有効時は画面クロップを角丸パネルへ収める(zoom はパネルの
-          // 内側で効く=角丸・影の外へはみ出さない)。design 無しでは panel が
-          // 出力全面・角丸0・影なしなので、従来の全面ベースと同じ絵になる
+      {props.layout ? (
+        hasVideo ? renderPanels(props.layout) : <Placeholder label="画面(screenRegion)" />
+      ) : (
+        // ズームの器(出力全面)。背景画像+画面パネルをまとめて拡大する
+        // (ワイプ・素材・テロップ・blur/annotation はこの外=不動)。外側の
+        // div が出力枠でクリップし、内側の div に transform を掛ける(transform を
+        // 持つ要素自身の overflow クリップは拡大に釣られて広がるため2枚に分ける)
+        <div style={{ position: "absolute", inset: 0, overflow: "hidden" }}>
           <div
             style={{
               position: "absolute",
-              left: panel.x,
-              top: panel.y,
-              width: panel.w,
-              height: panel.h,
-              borderRadius: design?.screen.radiusPx ?? 0,
-              overflow: "hidden",
-              ...(design?.screen.shadow ? { boxShadow: SCREEN_SHADOW_CSS } : {}),
+              inset: 0,
+              transformOrigin: "0 0",
+              transform: `translate(${zoomT.translateX}px, ${zoomT.translateY}px) scale(${zoomT.scale})`,
             }}
           >
-            <div
-              style={{
-                position: "absolute",
-                inset: 0,
-                transformOrigin: "0 0",
-                transform: `translate(${zoomT.translateX}px, ${zoomT.translateY}px) scale(${zoomT.scale})`,
-              }}
-            >
-              {renderBase(props.screenRegion, panel.w, panel.h, props.muteBase ?? false)}
-            </div>
+            {/* デザインの背景画像(最下層)。ズームに追従して一緒に寄る */}
+            {design?.backgroundFile && (
+              <Img
+                src={staticFile(design.backgroundFile)}
+                style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
+              />
+            )}
+            {hasVideo ? (
+              // デザイン有効時は画面クロップを角丸パネルへ収める。design 無しでは
+              // panel が出力全面・角丸0・影なしなので、従来の全面ベースと同じ絵になる
+              <div
+                style={{
+                  position: "absolute",
+                  left: panel.x,
+                  top: panel.y,
+                  width: panel.w,
+                  height: panel.h,
+                  borderRadius: design?.screen.radiusPx ?? 0,
+                  overflow: "hidden",
+                  ...(design?.screen.shadow ? { boxShadow: SCREEN_SHADOW_CSS } : {}),
+                }}
+              >
+                {renderBase(props.screenRegion, panel.w, panel.h, props.muteBase ?? false)}
+              </div>
+            ) : (
+              <Placeholder label="画面(screenRegion)" />
+            )}
           </div>
-        )
-      ) : (
-        <Placeholder label="画面(screenRegion)" />
+        </div>
       )}
 
       {/* 挿入クリップ(イントロ等)。ベース映像と同じ最下層で、音声も持てる。

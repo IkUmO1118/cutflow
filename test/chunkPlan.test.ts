@@ -225,6 +225,53 @@ test("chunkVideoKey: zoom の rect 変更は乗っているチャンクのキー
   assert.equal(before.audio, after.audio);
 });
 
+test("chunkVideoKey: 連鎖ズーム(隣接=パン遷移)は隣の rect 変更で自チャンクも無効化される", () => {
+  // A: 2-4s(chunk0 のみ)と B: 4-7s(両チャンク)が隙間なく接する連鎖。
+  // B の描画は連鎖元 A の rect に依存するため、A の rect 変更は A 自身が
+  // 重ならない chunk1 の絵も変える(§lib/zoom.ts のパン遷移)。境界 5s を
+  // またがない位置に A を置く(overlapsChunk の ±1フレーム安全マージンで
+  // 元から両チャンクに入る配置では、この拡張の有無を区別できない)
+  const withChain: RenderProps = {
+    ...PROPS,
+    zooms: [
+      { start: 2, end: 4, rect: { x: 0, y: 0, w: 960, h: 1080 }, easeSec: 0.4, wipeScale: 0.8 },
+      { start: 4, end: 7, rect: { x: 960, y: 0, w: 960, h: 1080 }, easeSec: 0.4, wipeScale: 0.8 },
+    ],
+  };
+  const before = keysOf(withChain);
+  const after = keysOf({
+    ...withChain,
+    zooms: [
+      { ...withChain.zooms![0], rect: { x: 100, y: 100, w: 800, h: 900 } },
+      withChain.zooms![1],
+    ],
+  });
+  assert.notEqual(before.chunk0, after.chunk0); // A 自身が乗るチャンク
+  assert.notEqual(before.chunk1, after.chunk1); // B のパン入りが A の rect に依存
+  assert.equal(before.audio, after.audio);
+});
+
+test("chunkVideoKey: 隙間のあるズームどうしは従来どおりチャンク限定(隣の rect 変更で他チャンク不変)", () => {
+  const withGap: RenderProps = {
+    ...PROPS,
+    zooms: [
+      { start: 2, end: 4, rect: { x: 0, y: 0, w: 960, h: 1080 }, easeSec: 0.4, wipeScale: 0.8 },
+      { start: 5.5, end: 7, rect: { x: 960, y: 0, w: 960, h: 1080 }, easeSec: 0.4, wipeScale: 0.8 },
+    ],
+  };
+  const before = keysOf(withGap);
+  const after = keysOf({
+    ...withGap,
+    zooms: [
+      { ...withGap.zooms![0], rect: { x: 100, y: 100, w: 800, h: 900 } },
+      withGap.zooms![1],
+    ],
+  });
+  assert.notEqual(before.chunk0, after.chunk0);
+  assert.equal(before.chunk1, after.chunk1); // 連鎖していなければ隣チャンクは不変
+  assert.equal(before.audio, after.audio);
+});
+
 test("chunkVideoKey: wipeScale の変更はその zoom に重なるチャンクのキーだけを変え、globalVideoKey は不変(D3の回帰)", () => {
   const withZoom: RenderProps = {
     ...PROPS,

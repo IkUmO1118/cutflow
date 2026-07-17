@@ -1,4 +1,5 @@
 import type { OverlayItem, RenderProps } from "../../remotion/props.ts";
+import { zoomContiguous } from "./zoom.ts";
 
 /**
  * render チャンク差分レンダー(docs/render-chunk-cache.md)のキャッシュキーを
@@ -188,6 +189,16 @@ export function chunkVideoKey(
   const cutBoundariesHere = (props.cutBoundarySecs ?? []).filter((tb) =>
     overlaps(tb - cutSec / 2, tb + cutSec / 2),
   );
+  // ズームは連鎖(隣接=パン遷移。§lib/zoom.ts)すると隣のズームの rect にも
+  // 絵が依存するため、チャンクに重なるズームだけでなく、その隣接ズームも
+  // キーへ含める(隣の rect 編集でパン中のチャンクが正しく無効化される)
+  const zoomsAll = props.zooms ?? [];
+  const zoomsHere = zoomsAll.filter((z) => overlaps(z.start, z.end));
+  const zoomsKeyed = zoomsAll.filter((z) =>
+    zoomsHere.some(
+      (o) => z === o || zoomContiguous(z.end, o.start) || zoomContiguous(o.end, z.start),
+    ),
+  );
   const local = {
     captions: sortStable(props.captions.filter((c) => overlaps(c.start, c.end))),
     overlays: sortStable(
@@ -199,7 +210,7 @@ export function chunkVideoKey(
         .map(videoInsertProjection),
     ),
     wipeFull: sortStable((props.wipeFull ?? []).filter((s) => overlaps(s.start, s.end))),
-    zooms: sortStable((props.zooms ?? []).filter((z) => overlaps(z.start, z.end))),
+    zooms: sortStable(zoomsKeyed),
     // blurs も zooms と同型の時間局所要素。重なるチャンクだけキーが変わる
     // (globalVideoProps には入れない=全域無効化を避ける。§4 タスク6)
     blurs: sortStable((props.blurs ?? []).filter((b) => overlaps(b.start, b.end))),
