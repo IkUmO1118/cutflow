@@ -289,6 +289,10 @@ plan:
   # balanced(既定・明確な冗長は切る) / aggressive(テンポ最優先)。
   # rules.md / brief.md に「編集モード: aggressive」等の行があればそちらが優先
   editMode: balanced
+  # 承認済みコーパスから抽出した style profile を候補選択のソフトな prior として注入
+  # (目標ショット長・積極度・字幕密度/位置・冒頭フック・CTA 有無。brief.md に劣後)
+  styleProfile:
+    enabled: true # style.probe/default.json を使う(profile 省略時 "default")
   perception:
     audio: true # 無音・間の注記(決定論・追加依存なし。まずこれから)
     ocr: true # 画面OCRテキスト(macOS/Apple Vision 必要・区間数ぶん重い)
@@ -328,7 +332,7 @@ plan:
   # 細分化する(C1)+ 候補テキストを実際に残る語だけにする(C8)。
   # 既定 false=無音境界のみ(従来とバイト等価)。回帰基準線で on 比較してから既定化を検討
 candidates:
-  enabled: false
+  enabled: true
   splitOnlyLongerThanSec: 6 # これより長い候補だけを分割
   minSplitGapSec: 0.3 # 語間ギャップがこの秒以上なら分割点(無音検出が拾わない微小ポーズ)
   minCandidateSec: 0.5 # 分割後の最小尺(これ未満の断片は作らない)
