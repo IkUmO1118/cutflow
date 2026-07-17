@@ -20,6 +20,7 @@ import type {
   PeaksData,
   ProjectData,
   SaveRequest,
+  ScriptData,
   UploadResult,
 } from "./apiTypes.ts";
 
@@ -35,6 +36,12 @@ export class ApiError extends Error {
 
 export async function getProject(): Promise<ProjectData> {
   return (await request("/api/project", undefined)) as ProjectData;
+}
+
+/** スクリプトタブの元データ(元収録の全文文字起こし)。タブを初めて開いた
+ * ときだけ取得する(whisper-out.json 由来で数百KBになりうるため) */
+export async function getScript(): Promise<ScriptData> {
+  return (await request("/api/script", undefined)) as ScriptData;
 }
 
 /** タイムラインに描く音声の波形ピーク。時刻軸はマイク = 元収録の秒、

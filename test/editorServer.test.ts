@@ -10,6 +10,7 @@ import { join } from "node:path";
 import {
   buildAiReviewCandidateFromStoredProposal,
   loadProject,
+  loadScript,
   refineRequestKey,
   stampSaveBody,
   validateRefineRequest,
@@ -378,6 +379,129 @@ test("buildAiReviewCandidateFromStoredProposal: unknown hunk labels は 400", ()
           },
         }, ["missing-label"]),
       /unknown hunk labels/,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* ---------------- loadScript(スクリプトタブの元データ) ---------------- */
+
+test("loadScript: whisper-out.json から ms→秒・trim・words(特殊トークン除外)を組み立てる", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-script-"));
+  try {
+    writeFileSync(
+      join(dir, "whisper-out.json"),
+      JSON.stringify({
+        transcription: [
+          {
+            offsets: { from: 0, to: 6480 },
+            text: " 動画編集って ",
+            tokens: [
+              { text: "[_BEG_]", offsets: { from: 0, to: 0 } },
+              { text: "動画", offsets: { from: 0, to: 720 }, p: 0.99 },
+              { text: "編集", offsets: { from: 720, to: 1440 } },
+              { text: "って", offsets: { from: 1440, to: 2160 } },
+            ],
+          },
+          // 空文(trim 後空)は segments から除外される
+          { offsets: { from: 6480, to: 7000 }, text: "   " },
+        ],
+      }),
+    );
+    const s = loadScript(dir);
+    assert.equal(s.source, "whisper");
+    assert.equal(s.segments.length, 1);
+    assert.equal(s.segments[0].start, 0);
+    assert.equal(s.segments[0].end, 6.48);
+    assert.equal(s.segments[0].text, "動画編集って");
+    assert.deepEqual(
+      s.segments[0].words?.map((w) => [w.text, w.start, w.end]),
+      [
+        ["動画", 0, 0.72],
+        ["編集", 0.72, 1.44],
+        ["って", 1.44, 2.16],
+      ],
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadScript: whisper-out.json が無ければ transcript.json から代替する(source で区別)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-script-"));
+  try {
+    writeFileSync(
+      join(dir, "transcript.json"),
+      JSON.stringify({
+        language: "ja",
+        model: "m",
+        segments: [
+          {
+            start: 1,
+            end: 2,
+            text: "こんにちは",
+            track: 2,
+            words: [{ text: "こんにちは", start: 1, end: 2 }],
+          },
+          { start: 2, end: 3, text: "世界" },
+        ],
+      }),
+    );
+    const s = loadScript(dir);
+    assert.equal(s.source, "transcript");
+    assert.deepEqual(
+      s.segments.map((x) => [x.start, x.end, x.text, x.words?.length ?? 0]),
+      [
+        [1, 2, "こんにちは", 1],
+        [2, 3, "世界", 0],
+      ],
+    );
+    // words の無い文は words キー自体を持たない(表示側が文単位選択へ落とす)
+    assert.equal("words" in s.segments[1], false);
+    // transcript のテロップ用フィールド(track 等)は持ち込まない
+    assert.equal("track" in (s.segments[0] as Record<string, unknown>), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadScript: どちらも無ければ空(エラーにしない)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-script-"));
+  try {
+    assert.deepEqual(loadScript(dir), { source: "transcript", segments: [] });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadScript: t_dtw 付き whisper-out は aligned: true になり words が DTW 時刻で組まれる", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-script-"));
+  try {
+    writeFileSync(
+      join(dir, "whisper-out.json"),
+      JSON.stringify({
+        transcription: [
+          {
+            offsets: { from: 0, to: 2000 },
+            text: "動画編集",
+            tokens: [
+              { text: "[_BEG_]", offsets: { from: 0, to: 0 }, t_dtw: -1 },
+              { text: "動画", offsets: { from: 0, to: 720 }, t_dtw: 65 },
+              { text: "編集", offsets: { from: 720, to: 1440 }, t_dtw: 120 },
+            ],
+          },
+        ],
+      }),
+    );
+    const s = loadScript(dir);
+    assert.equal(s.aligned, true);
+    assert.deepEqual(
+      s.segments[0].words?.map((w) => [w.text, w.start, w.end]),
+      [
+        ["動画", 0, 0.65],
+        ["編集", 0.65, 1.2],
+      ],
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });

@@ -1389,6 +1389,73 @@
     resize: vertical;
   }
   .capRow .capEdit:focus { outline: none; border-color: var(--accent); }
+
+  /* ---- スクリプトタブ(文字ベース編集) ---- */
+  .scriptPanel { outline: none; min-height: 100%; display: flex; flex-direction: column; }
+  .scriptBar {
+    position: sticky; top: 0; z-index: 2;
+    display: flex; align-items: center; gap: 8px;
+    min-height: 42px; padding: 6px 14px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .scriptBar button { padding: 3px 10px; font-size: 12px; }
+  .scriptList { flex: 1; padding: 2px 0 8px; }
+  .scriptRow {
+    padding: 8px 14px 10px;
+    border-bottom: 1px solid #1e2128;
+    border-left: 2px solid transparent;
+    /* 画面外の行は描画をスキップ(テロップ一覧と同じ。長尺でも軽い)。
+       再生追従の scrollIntoView はスキップ中の行にも効く。
+       intrinsic-size は 15〜30 秒ブロック(数行の段落)のおおよその高さ */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 120px;
+  }
+  .scriptRow:hover { background: rgba(255, 255, 255, 0.03); }
+  .scriptRow.active { border-left-color: var(--accent); }
+  .scriptRowMeta {
+    display: flex; align-items: center; gap: 8px; width: fit-content;
+    font-size: 11px; margin-bottom: 4px; color: var(--dim);
+    cursor: pointer;
+  }
+  .scriptRowMeta:hover { color: var(--text); }
+  .scriptText {
+    line-height: 1.9; font-size: 13.5px;
+    cursor: text; user-select: text; -webkit-user-select: text;
+  }
+  .scriptText::selection, .scriptText *::selection {
+    background: rgba(37, 99, 235, 0.45); color: #fff;
+  }
+  .scriptWord { border-radius: 3px; padding: 1px 0; }
+  .scriptWord:hover { background: rgba(255, 255, 255, 0.08); }
+  /* カラオケ: 発話済みの語(sung)はわずかな青みだけ、発話中の語(now)は
+     淡い下地だけ(読むのを邪魔しない控えめな主張に留める) */
+  .scriptWord.sung { color: #a8bdd9; }
+  .scriptWord.now { background: rgba(96, 165, 250, 0.16); }
+  /* 発話の切れ目チップ(無音・文字起こしに残らなかったフィラー等)。
+     語と同じに選択・カット・復元・シークできる */
+  .scriptGap {
+    display: inline-block;
+    margin: 0 3px;
+    padding: 0 6px;
+    font-size: 10px;
+    line-height: 1.7;
+    border: 1px dashed var(--border);
+    border-radius: 9px;
+    color: var(--dim);
+    vertical-align: 1px;
+  }
+  .scriptGap.cut { opacity: 0.45; text-decoration: line-through; }
+  /* カット済みの語: 完全に消さずグレー+取り消し線で「消えている」ことを見せる
+     (.sung/.now より後に置いて色を上書きする=カットが常に優先) */
+  .scriptWord.cut {
+    color: var(--dim);
+    opacity: 0.6;
+    text-decoration: line-through;
+    text-decoration-thickness: 1.5px;
+    text-decoration-color: rgba(139, 147, 165, 0.85);
+  }
   .noPreview {
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
     color: var(--dim);
