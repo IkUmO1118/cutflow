@@ -238,7 +238,17 @@ export const DEFAULT_CUT_TRANSITION_SEC = 0.3;
 /** detect が生成(cuts.auto.json)。機械的に検出したカット候補 */
 export interface AutoCuts {
   /** 検出パラメータ(再現性のため記録) */
-  params: { silenceDb: number; minSilenceSec: number; padSec: number };
+  params: {
+    silenceDb: number;
+    minSilenceSec: number;
+    padSec: number;
+    calibration?: {
+      method: "silencedetect-occupancy-v1";
+      floorDb: number;
+      floorOffsetDb: number;
+      effectiveSilenceDb: number;
+    };
+  };
   /** 無音区間(この区間がカット候補。補集合=発話区間は render の
    * BGM ダッキングにも使われる) */
   silences: Interval[];

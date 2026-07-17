@@ -3,12 +3,18 @@ import { join } from "node:path";
 import { detectSilence } from "../lib/ffmpeg.ts";
 import type { Config } from "../lib/config.ts";
 import type { AutoCuts, Interval, Manifest } from "../types.ts";
+import {
+  estimateOperationalFloor,
+  FLOOR_METHOD,
+  resolveEffectiveSilenceDb,
+} from "../lib/silenceFloor.ts";
 
 export interface DetectParams {
   silenceDb: number;
   minSilenceSec: number;
   padSec: number;
   minKeepSec: number;
+  calibration?: AutoCuts["params"]["calibration"];
 }
 
 /** 検出済み無音から従来と同じ cuts.auto 算術を副作用なしで組み立てる。 */
@@ -32,6 +38,7 @@ export function buildAutoCuts(
       silenceDb: params.silenceDb,
       minSilenceSec: params.minSilenceSec,
       padSec: params.padSec,
+      ...(params.calibration === undefined ? {} : { calibration: params.calibration }),
     },
     silences,
     keepSegments,
@@ -59,10 +66,40 @@ export async function detect(dir: string, cfg: Config): Promise<AutoCuts> {
   const manifest = JSON.parse(
     readFileSync(join(dir, "manifest.json"), "utf8"),
   ) as Manifest;
+  const audioPath = join(dir, manifest.audio.micWav);
+  let params: DetectParams = {
+    silenceDb: cfg.detect.silenceDb,
+    minSilenceSec: cfg.detect.minSilenceSec,
+    padSec: cfg.detect.padSec,
+    minKeepSec: cfg.detect.minKeepSec,
+  };
+  if (cfg.detect.calibration?.enabled === true) {
+    if (cfg.detect.calibration.method !== FLOOR_METHOD) {
+      throw new Error(`detect.calibration.method は ${FLOOR_METHOD} である必要があります`);
+    }
+    const estimate = await estimateOperationalFloor(
+      manifest.durationSec,
+      (thresholdDb, minSilenceSec) => detectSilence(audioPath, thresholdDb, minSilenceSec),
+    );
+    const effectiveSilenceDb = resolveEffectiveSilenceDb(
+      estimate.floorDb,
+      cfg.detect.calibration.floorOffsetDb,
+    );
+    params = {
+      ...params,
+      silenceDb: effectiveSilenceDb,
+      calibration: {
+        method: FLOOR_METHOD,
+        floorDb: estimate.floorDb,
+        floorOffsetDb: cfg.detect.calibration.floorOffsetDb,
+        effectiveSilenceDb,
+      },
+    };
+  }
   const cuts = await detectAutoCuts(
-    join(dir, manifest.audio.micWav),
+    audioPath,
     manifest.durationSec,
-    cfg.detect,
+    params,
   );
   writeFileSync(join(dir, "cuts.auto.json"), JSON.stringify(cuts, null, 2));
   return cuts;

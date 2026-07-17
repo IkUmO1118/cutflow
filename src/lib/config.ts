@@ -169,6 +169,13 @@ export interface Config {
      *  reason 文言。省略時 DEFAULT_SILENCE_CUT_REASON("無音")。この cut は
      *  エディタで「この区間を動画に戻す」で復元できる(全ての映像を戻せる状態) */
     silenceCutReason?: string;
+    /** 収録ごとのsilencedetect床から実効thresholdを決めるopt-in較正。
+     *  省略/enabled:falseは従来のsilenceDbをそのまま使い、出力もバイト等価。 */
+    calibration?: {
+      enabled: boolean;
+      method: "silencedetect-occupancy-v1";
+      floorOffsetDb: number;
+    };
   };
   /** AI 設定の新しい入口。省略時は llm(旧設定)から解決し、両方無ければ claude-code */
   ai?: AiConfig;
@@ -1001,6 +1008,22 @@ export function resolveFastPathCfg(cfg: Config): { enabled: boolean; minCoverage
 
 function validateWorkflowConfig(cfg: Config): string[] {
   const errors: string[] = [];
+  const detectCalibration = cfg.detect?.calibration as Record<string, unknown> | undefined;
+  if (detectCalibration) {
+    errors.push(...unknownKeys(detectCalibration, ["enabled", "method", "floorOffsetDb"])
+      .map((key) => `detect.calibration.${key} は未対応です`));
+    if (typeof detectCalibration.enabled !== "boolean") {
+      errors.push("detect.calibration.enabled は boolean で指定してください");
+    }
+    if (detectCalibration.method !== "silencedetect-occupancy-v1") {
+      errors.push('detect.calibration.method は "silencedetect-occupancy-v1" で指定してください');
+    }
+    if (typeof detectCalibration.floorOffsetDb !== "number" || !Number.isFinite(detectCalibration.floorOffsetDb)) {
+      errors.push("detect.calibration.floorOffsetDb は有限の数値で指定してください");
+    } else if (!Number.isInteger(detectCalibration.floorOffsetDb * 2)) {
+      errors.push("detect.calibration.floorOffsetDb は0.5dB gridで指定してください");
+    }
+  }
   const editorAiReview = cfg.editor?.aiReview as Record<string, unknown> | undefined;
   if (editorAiReview) {
     errors.push(...unknownKeys(editorAiReview, ["vlm", "maxImages", "maxRefinements"]).map((key) => `editor.aiReview.${key} は未対応です`));

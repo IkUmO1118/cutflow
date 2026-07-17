@@ -73,6 +73,7 @@ import { envDoctor, formatDoctorReport } from "./stages/doctor.ts";
 import { planClean, executeClean, formatCleanReport } from "./stages/clean.ts";
 import { boundaryCheck, formatBoundaryCheckReport } from "./stages/boundaryCheck.ts";
 import { formatSilenceSweepReport, silenceSweep } from "./stages/silenceSweep.ts";
+import { floorCalibration, formatFloorCalibrationReport } from "./stages/floorCalibration.ts";
 
 const program = new Command();
 program
@@ -116,7 +117,7 @@ program.hook("postAction", (_thisCommand, actionCommand) => {
   // 通常 SIGINT まで返らないため多くの場合発火しないが、安全のため明示的に対応)。
   // 他コマンド・散文 describe/assert の stdout は従来どおり console.log(=不変)
   const jsonCommands = new Set([
-    "describe", "assert", "doctor", "clean", "boundary-check", "silence-sweep",
+    "describe", "assert", "doctor", "clean", "boundary-check", "silence-sweep", "floor-calibration",
   ]);
   const isMcp = actionCommand.name() === "mcp";
   if (isMcp || (jsonCommands.has(actionCommand.name()) && actionCommand.opts().json === true)) {
@@ -667,6 +668,27 @@ program
       console.log(JSON.stringify(report, null, 2));
     } else {
       for (const line of formatSilenceSweepReport(report)) console.log(line);
+    }
+  });
+
+program
+  .command("floor-calibration <fitDir>")
+  .description(
+    "silencedetect無音占有率から収録別floorを推定し、人間境界でoffsetをfitしてholdout検証する(read-only)",
+  )
+  .option("--verify <dir>", "選択offsetを検証する別録画。複数指定可", collectFrom, [])
+  .option("--json", "決定論的な FloorCalibrationReport JSON を標準出力に出す")
+  .action(async (fitDir: string, opts: { verify: string[]; json?: boolean }) => {
+    const cfg = loadConfig(program.opts().config);
+    const report = await floorCalibration(
+      resolveDir(fitDir),
+      opts.verify.map((dir) => resolveDir(dir)),
+      cfg,
+    );
+    if (opts.json === true) {
+      console.log(JSON.stringify(report, null, 2));
+    } else {
+      for (const line of formatFloorCalibrationReport(report)) console.log(line);
     }
   });
 
