@@ -4,6 +4,52 @@ import { detectSilence } from "../lib/ffmpeg.ts";
 import type { Config } from "../lib/config.ts";
 import type { AutoCuts, Interval, Manifest } from "../types.ts";
 
+export interface DetectParams {
+  silenceDb: number;
+  minSilenceSec: number;
+  padSec: number;
+  minKeepSec: number;
+}
+
+/** 検出済み無音から従来と同じ cuts.auto 算術を副作用なしで組み立てる。 */
+export function buildAutoCuts(
+  silences: Interval[],
+  durationSec: number,
+  params: DetectParams,
+): AutoCuts {
+  const keepSegments = complement(
+    silences,
+    durationSec,
+    params.padSec,
+    params.minKeepSec,
+  );
+  const keptDurationSec = keepSegments.reduce(
+    (sum, segment) => sum + (segment.end - segment.start),
+    0,
+  );
+  return {
+    params: {
+      silenceDb: params.silenceDb,
+      minSilenceSec: params.minSilenceSec,
+      padSec: params.padSec,
+    },
+    silences,
+    keepSegments,
+    keptDurationSec: round2(keptDurationSec),
+    originalDurationSec: round2(durationSec),
+  };
+}
+
+/** 音声を読むだけで無音検出と cuts.auto 算術を行う。ファイルは書かない。 */
+export async function detectAutoCuts(
+  audioPath: string,
+  durationSec: number,
+  params: DetectParams,
+): Promise<AutoCuts> {
+  const silences = await detectSilence(audioPath, params.silenceDb, params.minSilenceSec);
+  return buildAutoCuts(silences, durationSec, params);
+}
+
 /**
  * マイク音声から無音区間を検出し、機械的なカット候補(cuts.auto.json)を
  * 生成する。ここは決定的な処理のみで LLM は使わない。
@@ -13,32 +59,11 @@ export async function detect(dir: string, cfg: Config): Promise<AutoCuts> {
   const manifest = JSON.parse(
     readFileSync(join(dir, "manifest.json"), "utf8"),
   ) as Manifest;
-  const { silenceDb, minSilenceSec, padSec } = cfg.detect;
-
-  const silences = await detectSilence(
+  const cuts = await detectAutoCuts(
     join(dir, manifest.audio.micWav),
-    silenceDb,
-    minSilenceSec,
-  );
-
-  const keepSegments = complement(
-    silences,
     manifest.durationSec,
-    padSec,
-    cfg.detect.minKeepSec,
+    cfg.detect,
   );
-  const keptDurationSec = keepSegments.reduce(
-    (sum, s) => sum + (s.end - s.start),
-    0,
-  );
-
-  const cuts: AutoCuts = {
-    params: { silenceDb, minSilenceSec, padSec },
-    silences,
-    keepSegments,
-    keptDurationSec: round2(keptDurationSec),
-    originalDurationSec: round2(manifest.durationSec),
-  };
   writeFileSync(join(dir, "cuts.auto.json"), JSON.stringify(cuts, null, 2));
   return cuts;
 }

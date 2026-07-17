@@ -72,6 +72,7 @@ import type { AiRoute, Config } from "./lib/config.ts";
 import { envDoctor, formatDoctorReport } from "./stages/doctor.ts";
 import { planClean, executeClean, formatCleanReport } from "./stages/clean.ts";
 import { boundaryCheck, formatBoundaryCheckReport } from "./stages/boundaryCheck.ts";
+import { formatSilenceSweepReport, silenceSweep } from "./stages/silenceSweep.ts";
 
 const program = new Command();
 program
@@ -114,7 +115,9 @@ program.hook("postAction", (_thisCommand, actionCommand) => {
   // mcp は stdout が JSON-RPC 専用チャネルなので同様に stderr へ逃がす(サーバは
   // 通常 SIGINT まで返らないため多くの場合発火しないが、安全のため明示的に対応)。
   // 他コマンド・散文 describe/assert の stdout は従来どおり console.log(=不変)
-  const jsonCommands = new Set(["describe", "assert", "doctor", "clean", "boundary-check"]);
+  const jsonCommands = new Set([
+    "describe", "assert", "doctor", "clean", "boundary-check", "silence-sweep",
+  ]);
   const isMcp = actionCommand.name() === "mcp";
   if (isMcp || (jsonCommands.has(actionCommand.name()) && actionCommand.opts().json === true)) {
     console.error(line);
@@ -648,6 +651,22 @@ program
       console.log(JSON.stringify(report, null, 2));
     } else {
       for (const line of formatBoundaryCheckReport(report)) console.log(line);
+    }
+  });
+
+program
+  .command("silence-sweep <dir>")
+  .description(
+    "silenceDb -35/-40/-45/-50をread-onlyで比較し、語尾食い・削減尺・候補数・人間境界一致を測る",
+  )
+  .option("--json", "決定論的な SilenceSweepReport JSON を標準出力に出す")
+  .action(async (dir: string, opts: { json?: boolean }) => {
+    const cfg = loadConfig(program.opts().config);
+    const report = await silenceSweep(resolveDir(dir), cfg);
+    if (opts.json === true) {
+      console.log(JSON.stringify(report, null, 2));
+    } else {
+      for (const line of formatSilenceSweepReport(report)) console.log(line);
     }
   });
 
