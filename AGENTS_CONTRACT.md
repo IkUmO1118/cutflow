@@ -282,6 +282,7 @@ without `--force`; with `--force`, hand-edited files are moved to
 | `doctor` | Environment preflight (read-only): probes node (>=23.6), ffmpeg, ffprobe, effective-encoder integrity, whisper binary/model, and AI route reachability (reuses `ai doctor`). Required-missing (node/ffmpeg/ffprobe) exits 1; recording/AI-related issues warn (exit 0). `--json` for machine-readable output; `--no-ai` skips network probes. Never touches editable files or `approvals.json` |
 | `preview <dir>` | Render a lightweight cut-confirmation video (`preview.mp4`) |
 | `validate <dir>` | Structural + invariant checks (run after every JSON edit) |
+| `boundary-check <dir>` | Read-only acoustic inspection of every keep endpoint: deterministically decode `manifest.audio.micWav` to mono 8kHz signed PCM16LE, derive a recording-relative RMS threshold from non-overlapping 100ms windows (p5 + 12dB), and count speech-level audio in the following 120ms, including the subset actually discarded by an immediately following cut. Uses no transcript, words, or LLM and writes no report or recording artifact; `--json` emits a byte-deterministic report without paths or timestamps |
 | `assert <dir>` | Check declared editing intent (`assertions.json`) against the `describe --json` projection; `--visual` also evaluates OCR-based checks |
 | `id-stamp <dir>` | Assign stable IDs to addressable elements that don't have one |
 | `apply <dir>` | Checked atomic patch application (`@id` ops + whole-file replace) |

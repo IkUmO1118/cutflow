@@ -71,6 +71,7 @@ import { retrievalSearch } from "./stages/retrievalSearch.ts";
 import type { AiRoute, Config } from "./lib/config.ts";
 import { envDoctor, formatDoctorReport } from "./stages/doctor.ts";
 import { planClean, executeClean, formatCleanReport } from "./stages/clean.ts";
+import { boundaryCheck, formatBoundaryCheckReport } from "./stages/boundaryCheck.ts";
 
 const program = new Command();
 program
@@ -113,7 +114,7 @@ program.hook("postAction", (_thisCommand, actionCommand) => {
   // mcp は stdout が JSON-RPC 専用チャネルなので同様に stderr へ逃がす(サーバは
   // 通常 SIGINT まで返らないため多くの場合発火しないが、安全のため明示的に対応)。
   // 他コマンド・散文 describe/assert の stdout は従来どおり console.log(=不変)
-  const jsonCommands = new Set(["describe", "assert", "doctor", "clean"]);
+  const jsonCommands = new Set(["describe", "assert", "doctor", "clean", "boundary-check"]);
   const isMcp = actionCommand.name() === "mcp";
   if (isMcp || (jsonCommands.has(actionCommand.name()) && actionCommand.opts().json === true)) {
     console.error(line);
@@ -633,6 +634,21 @@ program
       (r.warnings.length > 0 ? `警告 ${r.warnings.length}件(動作はします)\n` : "") +
         `✔ エラーなし: ${r.summary}`,
     );
+  });
+
+program
+  .command("boundary-check <dir>")
+  .description(
+    "keep終端直後120msの実音声RMSを収録ごとのノイズ床相対で検品する(read-only・LLM/文字起こし不使用)",
+  )
+  .option("--json", "決定論的な BoundaryCheckReport JSON を標準出力に出す")
+  .action(async (dir: string, opts: { json?: boolean }) => {
+    const report = await boundaryCheck(resolveDir(dir));
+    if (opts.json === true) {
+      console.log(JSON.stringify(report, null, 2));
+    } else {
+      for (const line of formatBoundaryCheckReport(report)) console.log(line);
+    }
   });
 
 program
