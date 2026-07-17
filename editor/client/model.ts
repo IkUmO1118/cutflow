@@ -10,7 +10,8 @@
 // 隠したい場合はテロップそのものを削る・縮める(hideCaption は手書き互換)。
 
 import { capNum, ovNum } from "../../src/types.ts";
-import type { AnnotationType, CaptionPos, LayerId, Region, SpotlightShape } from "../../src/types.ts";
+import type { AnnotationType, CaptionPos, Interval, LayerId, PlanSegment, Region, SpotlightShape } from "../../src/types.ts";
+import type { ScriptSegment } from "./apiTypes.ts";
 
 /** overlays.json のどの配列か(hide 系はエディタ非表示の手書き互換)。
  * "short" はショートモードの ranges 帯(shorts.json のショート単位)。
@@ -270,6 +271,511 @@ export interface Clip {
 export interface TimeSpan {
   start: number;
   end: number;
+}
+
+/* ---------------- スクリプトタブの範囲カット/復元 ----------------
+ * 文字ベース編集: スクリプト(元収録の全文文字起こし)で選択した語の範囲
+ * [start,end](元収録の秒)を cutplan の keep 集合から抜く/戻す。
+ * どちらも cutplan.segments の純関数(App が pushHistory と setCutplan を巻く)。
+ * 分割の id 規約は splitAtPlayhead と同じ「左が元 id を保持・右は新規要素」。 */
+
+export const SCRIPT_CUT_REASON = "スクリプトで削除";
+export const SCRIPT_RESTORE_REASON = "スクリプトで復元";
+
+/** スクリプト表示のまとまり(段落ブロック)の分割パラメータ。
+ * whisper の segment はテロップ1枚程度で細かすぎるので、keep 後の尺と
+ * 表示文字数で「話している一まとまり」へ束ねて表示する */
+export const SCRIPT_BLOCK = {
+  /** ブロックの上限尺(これを超える連結はしない) */
+  maxSec: 30,
+  /** raw 側に大量のリテイクがある場合も段落を長大にしない表示文字数上限。
+   * 超える直前の whisper 発話境界で折る */
+  maxChars: 150,
+  /** これ以上の尺が溜まっていたら、小さな間(softGapSec)でも区切る */
+  minSec: 15,
+  softGapSec: 0.8,
+  /** これ以上の無音は尺に関係なく段落境界(リテイク・場面転換) */
+  hardGapSec: 2.5,
+  /** これ以上の発話の切れ目は「間チップ」として表示する(無音・
+   * 文字起こしに残らなかったフィラーの可視化) */
+  gapItemSec: 0.5,
+} as const;
+
+/** 語が「残っている」と判定する keep との最小重なり秒。whisper の語タイム
+ * スタンプは端で数百 ms ずれるため、中点判定だと無音詰めで端を削られた
+ * 語尾・助詞が大量に偽の取り消し線になる(実測: keep 内の文に混ざる誤判定の
+ * ほぼ全て)。実時間の重なりで判定すれば「一部でも音が残る語」は生き、
+ * スクリプトからのカット(語境界ちょうどの cut)は重なり 0 で正しく消える */
+export const SCRIPT_KEPT_MIN_OVERLAP = 0.02;
+
+/** keep 間の穴(カット・トリム痕)がこの幅未満なら「実質連続」とみなして
+ * 橋渡しする。息継ぎの無音詰め・境界トリム・LLM の微小トリム(実測 0.2〜0.26s の
+ * 「末尾の重複」等)は聴感上「言葉が消えた」にならないのに、語の途中を貫通して
+ * 音節単位の取り消し線を出すため(実例: ハ~~ッ~~シュ)。スクリプトからの
+ * カットは幅に関係なく橋渡ししない(消した語が即取り消し線になる
+ * フィードバックを守る) */
+export const SCRIPT_BRIDGE_MAX_SEC = 0.35;
+
+/** 語の区間がこの割合以上「実測無音」(cuts.auto.json の silences)に沈んで
+ * いたら、その語タイムスタンプは虚構とみなす。whisper は発話前後のポーズに
+ * トークンを等幅で塗り広げることがあり(実測: 幅 0.51s が機械的に並ぶ)、
+ * 語は実際には隣の keep の中で発話されている。虚構の語は幾何判定せず、
+ * 時間的に最寄りの「実在語」(音のある語)の取り消し状態を継承する */
+export const SCRIPT_FICTION_SILENCE_RATIO = 0.5;
+
+/** keep 間の穴(カットされている時間)がこの幅以上のときだけ「意図的な
+ * 内容カット」として語の取り消し線の対象にする。それ未満の穴は言い淀み
+ * トリム・境界の微修整とみなし、中に落ちた語を打ち消さない(=文は生きて
+ * いる扱いで吸収)。whisper の語タイムスタンプは文中でも数百 ms ずれるため、
+ * 小さな穴の中の語は「その語が消えた」証拠にならない(実測: 偽の取り消し
+ * 線の穴は 0.36〜1.04s、本物のリテイクカットは 1.9〜5.25s で分離できる)。
+ * スクリプトタブからのカットはこの吸収の対象外(幅に関係なく即取り消し線) */
+export const SCRIPT_REAL_CUT_MIN_SEC = 1.5;
+
+/**
+ * keep 集合の実効版: SCRIPT_BRIDGE_MAX_SEC 未満の穴を連続へ均す。
+ * noBridgeSpans(スクリプトからのカット記録)が覆う穴は橋渡ししない。
+ * keeps は時系列・重なりなし前提(返り値も同じ)
+ */
+export function bridgeKeeps(
+  keeps: readonly Interval[],
+  noBridgeSpans: readonly Interval[],
+  maxHoleSec: number,
+): Interval[] {
+  const out: Interval[] = [];
+  for (const k of keeps) {
+    const last = out[out.length - 1];
+    if (last) {
+      const holeStart = last.end;
+      const holeEnd = k.start;
+      const blocked = noBridgeSpans.some((s) => s.start < holeEnd && s.end > holeStart);
+      if (holeEnd - holeStart < maxHoleSec && !blocked) {
+        last.end = Math.max(last.end, k.end);
+        continue;
+      }
+    }
+    out.push({ start: k.start, end: k.end });
+  }
+  return out;
+}
+
+/**
+ * ブロック内全要素の「keep に残っているか」(取り消し線の反転)を判定する。
+ * 3層の決定論ルール(いずれも whisper の語タイムスタンプの既知の嘘への対処。
+ * 判定材料はすべて手元の実測データで、LLM は使わない):
+ * 1. 実効 keep(微小穴を橋渡し)との実時間の重なりが閾値超 → 残っている
+ * 2. 重ならない語でも、区間の過半が実測無音に沈む「虚構語」は、時間的に
+ *    最寄りの実在語(音のある word)の状態を継承する(ポーズに塗り
+ *    広げられた語は隣の発話に属する)
+ * 3. それ以外(音があるのに keep と重ならない)= 本当にカットされた発話
+ * silences が無い(detect 未実行)場合は 2 を飛ばして 1/3 だけで判定する。
+ *
+ * aligned = true(words の時刻が DTW で音響に固定済み)のときは補正
+ * ヒューリスティクス(2 の虚構語継承と、小穴への吸収)を使わない:
+ * 時刻が正確なら幾何判定だけが最も正確で、吸収は逆に本物の小さなカットを
+ * 隠す誤りになる(橋渡しとスクリプトカットの優先だけは残す=カット境界が
+ * 語の音節を貫くときに半端な取り消し線を出さないため)
+ */
+export function scriptKeptFlags(
+  blocks: readonly ScriptBlock[],
+  keeps: readonly Interval[],
+  silences: readonly Interval[] | null | undefined,
+  noBridgeSpans: readonly Interval[],
+  aligned = false,
+): boolean[][] {
+  const eff = bridgeKeeps(keeps, noBridgeSpans, SCRIPT_BRIDGE_MAX_SEC);
+  const sil = silences && silences.length > 0 ? silences : null;
+  interface Slot {
+    start: number;
+    end: number;
+    kept: boolean;
+    fictional: boolean;
+    isWord: boolean;
+    utterance?: number;
+    scriptCut: boolean;
+    /** 連続する虚構語のかたまり番号(虚構語のみ) */
+    run: number;
+  }
+  /** t を含む keep 間の穴の幅(keep の内側は 0)。最初の keep の前・最後の
+   * keep の後は無限大=常に「意図的カット」側に倒れる */
+  const holeWidthAt = (t: number): number => {
+    let lo = 0;
+    let hi = eff.length;
+    while (lo < hi) {
+      const m = (lo + hi) >> 1;
+      if (eff[m].end > t) hi = m;
+      else lo = m + 1;
+    }
+    const next = eff[lo];
+    if (next && next.start <= t) return 0; // keep の内側
+    const prevEnd = lo > 0 ? eff[lo - 1].end : Number.NEGATIVE_INFINITY;
+    const nextStart = next ? next.start : Number.POSITIVE_INFINITY;
+    return nextStart - prevEnd;
+  };
+  const slots: Slot[] = [];
+  for (const b of blocks) {
+    for (const it of b.items) {
+      const width = it.end - it.start;
+      const isWord = it.kind === "word";
+      // スクリプトタブから明示的に消した語は吸収・継承の対象外で常に取り消し
+      const scriptCut =
+        isWord &&
+        width > 0 &&
+        overlapWithKeeps(it.start, it.end, noBridgeSpans) > width / 2;
+      // 閾値は語幅の半分を上限にする(DTW のゼロ幅丸めで 10ms 程度になった
+      // 語は固定 0.02s を物理的に超えられず、keep の真ん中でも偽打消になる)
+      const minOv = Math.min(SCRIPT_KEPT_MIN_OVERLAP, Math.max(0.005, width / 2));
+      let kept = !scriptCut && overlapWithKeeps(it.start, it.end, eff) > minOv;
+      let fictional = false;
+      if (!scriptCut && !kept && isWord && !aligned) {
+        if (holeWidthAt((it.start + it.end) / 2) < SCRIPT_REAL_CUT_MIN_SEC) {
+          // 小さな穴(言い淀みトリム・境界の微修整)に落ちた語は「文が生きて
+          // いる」扱いで吸収する(語タイムスタンプのズレはこの語が消えた
+          // 証拠にならない。§SCRIPT_REAL_CUT_MIN_SEC)。間チップは対象外
+          // (ポーズが縮められた事実は正直に取り消しで見せる)
+          kept = true;
+        } else {
+          fictional =
+            sil !== null &&
+            width > 0 &&
+            overlapWithKeeps(it.start, it.end, sil) >= width * SCRIPT_FICTION_SILENCE_RATIO;
+        }
+      }
+      slots.push({
+        start: it.start,
+        end: it.end,
+        kept,
+        fictional,
+        isWord,
+        ...(it.kind === "word" && it.utterance !== undefined
+          ? { utterance: it.utterance }
+          : {}),
+        scriptCut,
+        run: -1,
+      });
+    }
+  }
+  // 虚構語は語単位ではなく「連続する虚構語のかたまり」単位で最寄りの実在語へ
+  // 寄せる(語単位だと「まだ|まだ」のような連続スミアの前半だけが手前の
+  // リテイクへ割れる)。間チップはかたまりを切らない(実在語だけが区切り)
+  const words = slots.filter((s) => s.isWord);
+  const anchors = words.filter((s) => !s.fictional);
+  const runs: { first: Slot; last: Slot; kept: boolean }[] = [];
+  let prevWord: Slot | null = null;
+  for (const s of words) {
+    if (s.fictional) {
+      const cur = runs[runs.length - 1];
+      // 直前の word も虚構ならかたまりを連結(実在語だけが区切り)
+      if (cur && prevWord === cur.last) {
+        cur.last = s;
+        s.run = runs.length - 1;
+      } else {
+        runs.push({ first: s, last: s, kept: s.kept });
+        s.run = runs.length - 1;
+      }
+    }
+    prevWord = s;
+  }
+  for (const r of runs) {
+    if (anchors.length === 0) break; // アンカー皆無なら幾何判定のまま
+    let lo = 0;
+    let hi = anchors.length;
+    while (lo < hi) {
+      const m = (lo + hi) >> 1;
+      if (anchors[m].start > r.first.start) hi = m;
+      else lo = m + 1;
+    }
+    const prev = anchors[lo - 1];
+    const next = anchors[lo];
+    if (!prev) r.kept = next.kept;
+    else if (!next) r.kept = prev.kept;
+    else {
+      const prevGap = Math.max(0, r.first.start - prev.end);
+      const nextGap = Math.max(0, next.start - r.last.end);
+      // ほぼ同着(whisper のトークンはポーズ全体を隙間なく敷き詰めるので、
+      // かたまりが両側のアンカーに密着して距離で決められないことがある)は
+      // 「残っている」側へ倒す。体感で重い誤りは「鳴っているのに取り消し線」
+      // の側で、逆(消えた語を生かして見せる)は軽微なため
+      r.kept =
+        Math.abs(prevGap - nextGap) <= 0.05
+          ? prev.kept || next.kept
+          : prevGap < nextGap
+            ? prev.kept
+            : next.kept;
+    }
+  }
+
+  // 既存 cutplan の境界は発話の途中を横切ることがあり、語ごとの幾何判定を
+  // そのまま描くと「何~~でカットされたの~~か」のように、一つのセリフが
+  // 細切れの取り消し線になる。元の whisper segment ごとに多数側へそろえ、
+  // 同じ発話は一つの読みやすい状態で表示する。スクリプトタブから明示的に
+  // 消した語がある発話はこの丸めをせず、選んだ語だけが即座に取り消される。
+  const utterances = new Map<number, Slot[]>();
+  for (const slot of slots) {
+    if (!slot.isWord || slot.utterance === undefined) continue;
+    const group = utterances.get(slot.utterance) ?? [];
+    group.push(slot);
+    utterances.set(slot.utterance, group);
+  }
+  for (const group of utterances.values()) {
+    if (group.some((slot) => slot.scriptCut)) continue;
+    const keptCount = group.filter((slot) =>
+      slot.fictional && slot.run >= 0 ? runs[slot.run].kept : slot.kept
+    ).length;
+    // 同数なら「聞こえるのに取り消される」誤表示を避ける側へ倒す。
+    const utteranceKept = keptCount * 2 >= group.length;
+    for (const slot of group) {
+      slot.kept = utteranceKept;
+      slot.fictional = false;
+    }
+  }
+  const flags: boolean[][] = [];
+  let i = 0;
+  for (const b of blocks) {
+    flags.push(
+      b.items.map(() => {
+        const s = slots[i++];
+        return s.fictional && s.run >= 0 ? runs[s.run].kept : s.kept;
+      }),
+    );
+  }
+  return flags;
+}
+
+/** スクリプトブロック内の1要素。word = whisper の語(トークン)、
+ * gap = 発話の切れ目(無音・未転写のフィラー等。text は持たない)。
+ * どちらも元収録の秒の区間で、選択・カット・カラオケ・シークは同じに扱う */
+export type ScriptItem =
+  | {
+      kind: "word";
+      text: string;
+      start: number;
+      end: number;
+      /** 元の whisper segment。既存 cut の表示を発話単位へそろえるために使う */
+      utterance?: number;
+      /** 同じ表示ブロック内の直前の発話との間に半角スペースを置く */
+      leadingSpace?: boolean;
+    }
+  | { kind: "gap"; start: number; end: number };
+
+/** スクリプト表示の1ブロック(15〜30秒の話のまとまり) */
+export interface ScriptBlock {
+  start: number;
+  end: number;
+  items: ScriptItem[];
+}
+
+/** 区間 [start,end] と keep 集合(時系列・重なりなし)の重なり秒 */
+export function overlapWithKeeps(
+  start: number,
+  end: number,
+  keeps: readonly Interval[],
+): number {
+  // 最初に end > start になりうる keep を二分探索してから前方走査
+  let lo = 0;
+  let hi = keeps.length;
+  while (lo < hi) {
+    const m = (lo + hi) >> 1;
+    if (keeps[m].end > start) hi = m;
+    else lo = m + 1;
+  }
+  let sum = 0;
+  for (let i = lo; i < keeps.length && keeps[i].start < end; i++) {
+    sum += Math.max(0, Math.min(end, keeps[i].end) - Math.max(start, keeps[i].start));
+  }
+  return sum;
+}
+
+/**
+ * /api/script の segments を表示用ブロックへ束ねる。
+ * - words の無い文は文全体を1語として扱う(選択粒度が文単位になるだけ)
+ * - 発話の切れ目(gapItemSec 以上)は gap 要素として差し込む。ブロックの
+ *   先頭にも直前ブロックからの切れ目を付ける(カットされた間・フィラーが
+ *   スクリプト上で見え、選択して復元/カットもできる)
+ * - 区切りは「maxSec 超過」「hardGapSec 以上の無音」「minSec 以上溜まった
+ *   状態での softGapSec 以上の無音」のいずれか
+ */
+export function buildScriptBlocks(
+  segments: readonly ScriptSegment[],
+  keeps?: readonly Interval[],
+): ScriptBlock[] {
+  const blocks: ScriptBlock[] = [];
+  let cur: ScriptBlock | null = null;
+  let curChars = 0;
+  let prevEnd = 0; // 直前の発話の終わり(先頭は収録開始 0 秒から)
+  /** keeps が渡されたエディタ表示では、raw のリテイクやカットを30秒へ
+   * 数えない。これにより最終的に連続して聞こえる説明文を同じ段落に保つ */
+  const visibleDuration = (start: number, end: number): number =>
+    keeps === undefined ? Math.max(0, end - start) : overlapWithKeeps(start, end, keeps);
+  for (let utterance = 0; utterance < segments.length; utterance++) {
+    const seg = segments[utterance];
+    const rawGap = seg.start - prevEnd;
+    const visibleGap = visibleDuration(prevEnd, seg.start);
+    const shouldBreak =
+      cur !== null &&
+      ((curChars > 0 && curChars + seg.text.length > SCRIPT_BLOCK.maxChars) ||
+        visibleDuration(cur.start, seg.end) > SCRIPT_BLOCK.maxSec ||
+        visibleGap >= SCRIPT_BLOCK.hardGapSec ||
+        (visibleDuration(cur.start, prevEnd) >= SCRIPT_BLOCK.minSec &&
+          visibleGap >= SCRIPT_BLOCK.softGapSec));
+    if (cur === null || shouldBreak) {
+      if (cur !== null) blocks.push(cur);
+      cur = { start: seg.start, end: seg.start, items: [] };
+      curChars = 0;
+    }
+    if (rawGap >= SCRIPT_BLOCK.gapItemSec) {
+      // 切れ目はブロック先頭なら「直前ブロックとの間」、途中なら「文間の間」
+      cur.items.push({ kind: "gap", start: prevEnd, end: seg.start });
+      if (cur.items.length === 1) cur.start = prevEnd;
+    }
+    const leadingSpace = cur.items.some((item) => item.kind === "word");
+    const words =
+      seg.words && seg.words.length > 0
+        ? seg.words
+        : [{ text: seg.text, start: seg.start, end: seg.end }];
+    for (let i = 0; i < words.length; i++) {
+      const w = words[i];
+      cur.items.push({
+        kind: "word",
+        text: w.text,
+        start: w.start,
+        end: w.end,
+        utterance,
+        ...(leadingSpace && i === 0 ? { leadingSpace: true } : {}),
+      });
+    }
+    cur.end = seg.end;
+    curChars += seg.text.length;
+    prevEnd = seg.end;
+  }
+  if (cur !== null) blocks.push(cur);
+  return blocks;
+}
+
+/** ok: false の reason。noop = 変更なし(範囲が既にカット済み/復元済みなど)、
+ * empty = 実行すると keep が1つも残らない(validate エラーになるので拒否) */
+export type ScriptRangeResult =
+  | { ok: true; segments: PlanSegment[] }
+  | { ok: false; reason: "noop" | "empty" };
+
+/**
+ * 範囲 [span.start, span.end] を keep から抜いて cut 記録にする。範囲に掛かる
+ * keep は端をトリムし、丸ごと入る keep は cut へ倒す(このときだけ id を
+ * cut 記録が引き継ぐ=既存の cutKeepSeg の flip と同じ扱い)。minSpan 未満の
+ * keep の切れ端は残さず cut 側へ吸収する(micro-keep で validate が煩くなる
+ * のを避ける)。cut 記録は削除せず残す=いつでも復元できる可逆編集
+ */
+export function cutSourceRange(
+  segments: readonly PlanSegment[],
+  span: TimeSpan,
+  minSpan: number,
+): ScriptRangeResult {
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const a = r2(span.start);
+  const b = r2(span.end);
+  if (b - a < minSpan) return { ok: false, reason: "noop" };
+  const next: PlanSegment[] = [];
+  let touched = false;
+  let keepLeft = 0;
+  for (const s of segments) {
+    const ovA = Math.max(a, s.start);
+    const ovB = Math.min(b, s.end);
+    if (s.action !== "keep" || ovB - ovA < minSpan) {
+      if (s.action === "keep") keepLeft++;
+      next.push(s);
+      continue;
+    }
+    touched = true;
+    const headOk = ovA - s.start >= minSpan;
+    const tailOk = s.end - ovB >= minSpan;
+    if (headOk) {
+      next.push({ ...s, end: r2(ovA) });
+      keepLeft++;
+    }
+    const cut: PlanSegment = {
+      start: r2(headOk ? ovA : s.start),
+      end: r2(tailOk ? ovB : s.end),
+      action: "cut",
+      reason: SCRIPT_CUT_REASON,
+    };
+    // speed は keep 専用フィールドなので cut 記録へは持ち越さない
+    if (!headOk && !tailOk && s.id !== undefined) cut.id = s.id;
+    next.push(cut);
+    if (tailOk) {
+      // 頭側が残っていれば右は新規要素(id は左が保持)。頭側が吸収されて
+      // 尾側だけ残るときは「同じ keep のトリム」なので id を保つ
+      next.push({ ...s, start: r2(ovB), ...(headOk ? { id: undefined } : {}) });
+      keepLeft++;
+    }
+  }
+  if (!touched) return { ok: false, reason: "noop" };
+  if (keepLeft === 0) return { ok: false, reason: "empty" };
+  return { ok: true, segments: next };
+}
+
+/**
+ * 範囲 [span.start, span.end] を keep に戻す。既存 keep と重なる部分を除いた
+ * 「隙間」だけを新しい keep として追加し(既存 keep とは重ならない=validate の
+ * 不変条件を保つ)、その隙間に掛かる cut 記録は切り詰める(復元済みの記録を
+ * 残さない)。返す segments は時系列順へ並べ直す
+ */
+export function restoreSourceRange(
+  segments: readonly PlanSegment[],
+  span: TimeSpan,
+  minSpan: number,
+): ScriptRangeResult {
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const a = r2(span.start);
+  const b = r2(span.end);
+  if (b - a < minSpan) return { ok: false, reason: "noop" };
+  const keeps = segments
+    .filter((s) => s.action === "keep")
+    .map((s) => ({ start: s.start, end: s.end }))
+    .sort((x, y) => x.start - y.start);
+  const gaps: TimeSpan[] = [];
+  let cur = a;
+  for (const k of keeps) {
+    if (k.end <= cur) continue;
+    if (k.start >= b) break;
+    if (k.start - cur >= minSpan) gaps.push({ start: r2(cur), end: r2(k.start) });
+    cur = Math.max(cur, k.end);
+    if (cur >= b) break;
+  }
+  if (cur < b && b - cur >= minSpan) gaps.push({ start: r2(cur), end: r2(b) });
+  if (gaps.length === 0) return { ok: false, reason: "noop" };
+  const next: PlanSegment[] = [];
+  for (const s of segments) {
+    if (s.action !== "cut") {
+      next.push(s);
+      continue;
+    }
+    // 復元される隙間を cut 記録から引き、残った部分だけを記録として保つ
+    let pieces: TimeSpan[] = [{ start: s.start, end: s.end }];
+    for (const g of gaps) {
+      const acc: TimeSpan[] = [];
+      for (const p of pieces) {
+        if (g.end <= p.start || g.start >= p.end) {
+          acc.push(p);
+          continue;
+        }
+        if (g.start - p.start >= minSpan) acc.push({ start: p.start, end: r2(g.start) });
+        if (p.end - g.end >= minSpan) acc.push({ start: r2(g.end), end: p.end });
+      }
+      pieces = acc;
+    }
+    pieces.forEach((p, i) => {
+      next.push(
+        i === 0
+          ? { ...s, start: p.start, end: p.end }
+          : { ...s, start: p.start, end: p.end, id: undefined },
+      );
+    });
+  }
+  for (const g of gaps) {
+    next.push({ start: g.start, end: g.end, action: "keep", reason: SCRIPT_RESTORE_REASON });
+  }
+  next.sort((x, y) => x.start - y.start || x.end - y.end);
+  return { ok: true, segments: next };
 }
 
 /** ズーム区間の重なり回避。ズームは重なれない(CLI と同じ検査を通す保存が

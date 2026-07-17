@@ -33,6 +33,12 @@ whisper:
   # 既存収録(words 無し)は再 transcribe が要る(validate が警告する)。
   # 明示的に false を書けば従来どおり words を一切書かない挙動に戻せる
   wordTimestamps: true
+  # DTW トークンアライメント(whisper.cpp の -dtw)。使用モデルに合う preset 名を
+  # 書くと、各トークンに音響へ固定された t_dtw が入り、words[] の時刻が実発話に
+  # 合う(注意ベースの既定タイムスタンプは文中で±数百ms〜秒単位でずれ、ポーズに
+  # 語を等幅で塗り広げる=スクリプトタブの取り消し線の誤りの根本原因)。
+  # flash attention と排他のため文字起こしは少し遅くなる。この行を消せば従来どおり
+  dtw: large.v3.turbo
   # システム音声(systemTrack)も第2トラックとして文字起こしする(知覚専用・
   # 描画しない)。既定 false。true で transcript.system.json を書く
   systemAudio: false
@@ -59,6 +65,30 @@ detect:
   # この cut はエディタのタイムラインに印が出て「この区間を動画に戻す」で
   # 復元できる(元収録の全時間を keep/cut で連続被覆=全ての映像を戻せる状態)
   silenceCutReason: 無音
+  # 収録ごとのsilencedetect無音占有率からthresholdを自動較正するopt-in。
+  # 省略または enabled:false は上の silenceDb をそのまま使う従来動作。
+  # 2026-07-17 有効化(V6 の前提。詳細は docs/programs/deterministic-calibration-program.md §10)
+  calibration:
+    enabled: true
+    method: silencedetect-occupancy-v1
+    floorOffsetDb: 12
+  # 境界thresholdとは独立に、無音圧縮の時間3ノブだけをpresetで選ぶopt-in。
+  # V4の gentle/balanced/tight は余白を広げる系列。compact-* は較正単独を
+  # 起点に詰める系列(除去量は gentle < balanced < tight、全て実録discard 0)。
+  # V6 の帰属を保つため、次の新規収録の V6 測定完了までは off(同 §10)。
+  # silenceCompaction:
+  #   enabled: true
+  #   preset: compact-balanced
+  #   # gentle | balanced | tight | compact-gentle | compact-balanced | compact-tight
+  # keep 端を実音声 RMS の発話エッジ+padSec へ詰める opt-in(C7)。
+  # 省略/false は従来の keep 端のまま(バイト等価)。測定系は boundary-check と同じ
+  # (mono 8kHz PCM16LE / 100ms窓 p5 床)。
+  # 相互作用は測定済み。V6 の帰属を保つため測定完了までは off(calibration-program §10)
+  # edgeTrim:
+  #   enabled: true
+  #   floorOffsetDb: 12 # 発話とみなす閾値 = 床 + これ(dB)
+  #   padSec: 0.1       # 発話エッジの外側へ残す余白(秒)
+  #   maxTrimSec: 1.5   # 1辺あたりの最大トリム量(秒)
 
 # カット確認用プレビュー動画
 preview:
@@ -271,6 +301,10 @@ plan:
   # balanced(既定・明確な冗長は切る) / aggressive(テンポ最優先)。
   # rules.md / brief.md に「編集モード: aggressive」等の行があればそちらが優先
   editMode: balanced
+  # 承認済みコーパスから抽出した style profile を候補選択のソフトな prior として注入
+  # (目標ショット長・積極度・字幕密度/位置・冒頭フック・CTA 有無。brief.md に劣後)
+  styleProfile:
+    enabled: true # style.probe/default.json を使う(profile 省略時 "default")
   perception:
     audio: true # 無音・間の注記(決定論・追加依存なし。まずこれから)
     ocr: true # 画面OCRテキスト(macOS/Apple Vision 必要・区間数ぶん重い)
@@ -310,7 +344,7 @@ plan:
   # 細分化する(C1)+ 候補テキストを実際に残る語だけにする(C8)。
   # 既定 false=無音境界のみ(従来とバイト等価)。回帰基準線で on 比較してから既定化を検討
 candidates:
-  enabled: false
+  enabled: true
   splitOnlyLongerThanSec: 6 # これより長い候補だけを分割
   minSplitGapSec: 0.3 # 語間ギャップがこの秒以上なら分割点(無音検出が拾わない微小ポーズ)
   minCandidateSec: 0.5 # 分割後の最小尺(これ未満の断片は作らない)

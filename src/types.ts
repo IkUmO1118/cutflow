@@ -238,7 +238,33 @@ export const DEFAULT_CUT_TRANSITION_SEC = 0.3;
 /** detect が生成(cuts.auto.json)。機械的に検出したカット候補 */
 export interface AutoCuts {
   /** 検出パラメータ(再現性のため記録) */
-  params: { silenceDb: number; minSilenceSec: number; padSec: number };
+  params: {
+    silenceDb: number;
+    minSilenceSec: number;
+    padSec: number;
+    calibration?: {
+      method: "silencedetect-occupancy-v1";
+      floorDb: number;
+      floorOffsetDb: number;
+      effectiveSilenceDb: number;
+    };
+    silenceCompaction?: {
+      preset:
+        | "gentle" | "balanced" | "tight"
+        | "compact-gentle" | "compact-balanced" | "compact-tight";
+      minKeepSec: number;
+    };
+    /** keep 端の実音声 RMS トリム(C7)の記録。detect.edgeTrim 有効時のみ */
+    edgeTrim?: {
+      floorOffsetDb: number;
+      padSec: number;
+      maxTrimSec: number;
+      floorDb: number;
+      thresholdDb: number;
+      trimmedSec: number;
+      trimmedEdges: number;
+    };
+  };
   /** 無音区間(この区間がカット候補。補集合=発話区間は render の
    * BGM ダッキングにも使われる) */
   silences: Interval[];
@@ -602,9 +628,14 @@ export interface Overlays {
    * src/lib/ids.ts が単一の出所。省略可=id 未採番) */
   hideCaption?: (Interval & { id?: string })[];
   /** ズーム演出(画面の一部を拡大して見せる)。区間は重ならないこと。
-   * かかるのはベース映像の背景レイヤー(画面クロップ)だけで、ワイプ・
-   * テロップ・素材オーバーレイ・挿入クリップは動かない。ショート
-   * (profile の layout 経路)には効かない(overlays.json を継承しないため) */
+   * かかるのは「背景(design の背景画像)+画面パネル」の合成面全体で、
+   * ワイプ・テロップ・素材オーバーレイ・挿入クリップ・blur/annotation は
+   * 動かない(design 無しでは背景が無くパネル=出力全面なので、実質
+   * ベース映像(画面クロップ)だけが動く)。隣の区間と隙間なく接する
+   * (end === 次の start)と連鎖になり、境界で等倍へ戻らず次の rect へ
+   * 直接パンする(次の区間の easeSec がパンの遷移時間。src/lib/zoom.ts)。
+   * ショート(profile の layout 経路)には効かない(overlays.json を
+   * 継承しないため) */
   zooms?: Zoom[];
   /** 簡易カラー調整(全編一律。区間指定なし)。かかるのはベース映像
    * (画面クロップ+カメラ=同一収録動画)だけで、素材オーバーレイ・
@@ -650,7 +681,9 @@ export interface Zoom {
   /** 区間の頭でズームインする遷移時間(秒)。
    * 省略時 config.yaml の render.zoom.easeSec(既定 DEFAULT_ZOOM_EASE_SEC)。
    * easeOutSec 省略時は末尾のズームアウトにも同じ秒数を使う。
-   * 区間が短いときは遷移を区間の半分へ縮める(wipeFull と同じ規則) */
+   * 区間が短いときは遷移を区間の半分へ縮める(wipeFull と同じ規則)。
+   * 前の区間と隙間なく接する連鎖では、頭の遷移は等倍からのズームインではなく
+   * 前の rect からのパンになる(この easeSec がパンの遷移時間) */
   easeSec?: number;
   /** 区間の末尾でズームアウトする遷移時間(秒)。省略時 easeSec と同じ */
   easeOutSec?: number;

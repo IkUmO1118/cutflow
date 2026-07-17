@@ -219,8 +219,10 @@ export type RenderProps = {
   /** ワイプを全画面にする区間 */
   wipeFull: Span[];
   /** ズーム演出(overlays.json の zooms。カット後の秒に写像・easeSec 解決済み)。
-   * ベース映像の背景レイヤーだけを拡大する(ワイプ・テロップ・素材・挿入は
-   * 動かない)。省略時(空)は現行の描画と完全に同じ */
+   * 「背景(design の背景画像)+画面パネル」の合成面全体を拡大する(ワイプ・
+   * テロップ・素材・挿入・blur/annotation は動かない)。隣接する区間は連鎖
+   * (境界で等倍へ戻らず次の rect へパン。src/lib/zoom.ts)。
+   * 省略時(空)は現行の描画と完全に同じ */
   zooms?: {
     start: number;
     end: number;

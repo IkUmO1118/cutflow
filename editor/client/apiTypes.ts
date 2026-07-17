@@ -11,6 +11,7 @@ import type {
   Overlays,
   Shorts,
   Transcript,
+  WordTiming,
 } from "../../src/types.ts";
 import type { FrameShot } from "../../src/stages/frames.ts";
 import type { ReviewBundle, ReviewKey } from "../../src/stages/review.ts";
@@ -89,8 +90,12 @@ export interface ProjectData {
    * ショート未定義)。エディタでは編集して /api/save の shorts で保存する */
   shorts: Shorts | null;
   /** cuts.auto.json の無音区間(BGM ダッキングをプレビューでも再現する
-   * ために渡す)。detect 未実行なら null */
+   * ために渡す。スクリプトタブの虚構タイムスタンプ判定の無音証拠にも使う)。
+   * detect 未実行なら null */
   silences: Interval[] | null;
+  /** cutplan の無音カット記録の reason 文言(config.detect.silenceCutReason の
+   * 解決値)。スクリプトタブが cut 記録を無音証拠として数える一致判定用 */
+  silenceCutReason: string;
   /** proxy.mp4(元収録の軽量プロキシ。エディタの再生ソース)があるか。
    * 無ければ POST /api/proxy で生成する(収録ごとに1回) */
   proxyExists: boolean;
@@ -121,6 +126,31 @@ export interface ProjectData {
 }
 
 export type PlanPerceptionStatus = PerceptionStatus;
+
+/** GET /api/script のレスポンス。元収録の全文スクリプト(AI が編集する前の
+ * ベース)。whisper の生出力(whisper-out.json。編集で変わらない)が正で、
+ * 無い収録では現在の transcript.json から代替する(source で区別)。
+ * 時刻はすべて元収録の秒。スクリプトタブの表示専用で編集・保存はしない
+ * (編集は cutplan.json 側に落ちる) */
+export interface ScriptData {
+  source: "whisper" | "transcript";
+  segments: ScriptSegment[];
+  /** words の時刻が DTW(whisper -dtw の t_dtw)で音響に固定されているか。
+   * true なら取り消し線判定は幾何(keep との重なり)だけで正確になり、
+   * 注意ベースのズレを補うヒューリスティクス(虚構語の継承・小穴の吸収)を
+   * 使わない。省略/false = 従来の注意ベース時刻(ヒューリスティクス併用) */
+  aligned?: boolean;
+}
+
+/** スクリプトの1文(whisper の segment 粒度)。words は語(トークン)単位の
+ * タイミング(whisper.wordTimestamps 有効時のみ。無い文は文単位でしか
+ * 選択できない) */
+export interface ScriptSegment {
+  start: number;
+  end: number;
+  text: string;
+  words?: WordTiming[];
+}
 
 /** エディタ設定の解決済み実値(config.yaml editor セクション+既定値) */
 export interface EditorCfg {

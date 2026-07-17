@@ -138,6 +138,16 @@ export interface Config {
      * 省略時 false(既存挙動と完全一致・words を一切書かない)。true で
      * whisper 実行を -ojf に切り替え、各 segment に words[] を付加する */
     wordTimestamps?: boolean;
+    /** DTW トークンアライメント(whisper.cpp の -dtw)。使用モデルに合う
+     *  preset 名(例 "large.v3.turbo" / "small" / "medium.en")を書くと
+     *  whisper 実行に -dtw を付け、各トークンに音響へ固定された t_dtw が入る。
+     *  buildWords は t_dtw を offsets より優先して words[] の時刻を組み立てる
+     *  (注意ベースの offsets は文中で±数百ms〜秒単位でずれ、ポーズに語を
+     *  等幅で塗り広げる。エディタのスクリプトタブの取り消し線判定は語の
+     *  実時刻に依存するため、この精度が体感品質に直結する)。
+     *  省略時は付けない(既存挙動と完全一致。wordTimestamps と独立だが、
+     *  words[] に効かせるには wordTimestamps: true が必要) */
+    dtw?: string;
     /** テロップ(transcript.json の 1 segment)を「約 maxChars 文字」の粒度へ
      *  割り直す設定。省略時は分割しない(whisper のチャンク幅そのまま=導入前と
      *  バイト等価)。日本語の文節末(助詞・句末表現)+ 無音ギャップ + 文字数上限で
@@ -169,6 +179,28 @@ export interface Config {
      *  reason 文言。省略時 DEFAULT_SILENCE_CUT_REASON("無音")。この cut は
      *  エディタで「この区間を動画に戻す」で復元できる(全ての映像を戻せる状態) */
     silenceCutReason?: string;
+    /** 収録ごとのsilencedetect床から実効thresholdを決めるopt-in較正。
+     *  省略/enabled:falseは従来のsilenceDbをそのまま使い、出力もバイト等価。 */
+    calibration?: {
+      enabled: boolean;
+      method: "silencedetect-occupancy-v1";
+      floorOffsetDb: number;
+    };
+    /** threshold較正とは独立に、無音圧縮の時間3ノブだけをpresetで置換するopt-in。 */
+    silenceCompaction?: {
+      enabled: boolean;
+      preset:
+        | "gentle" | "balanced" | "tight"
+        | "compact-gentle" | "compact-balanced" | "compact-tight";
+    };
+    /** keep 端を実音声 RMS の発話エッジ+padSec へ詰める opt-in(C7)。
+     *  省略/enabled:false は従来の keep 端のまま=出力バイト等価。 */
+    edgeTrim?: {
+      enabled: boolean;
+      floorOffsetDb?: number;
+      padSec?: number;
+      maxTrimSec?: number;
+    };
   };
   /** AI 設定の新しい入口。省略時は llm(旧設定)から解決し、両方無ければ claude-code */
   ai?: AiConfig;
@@ -1001,6 +1033,56 @@ export function resolveFastPathCfg(cfg: Config): { enabled: boolean; minCoverage
 
 function validateWorkflowConfig(cfg: Config): string[] {
   const errors: string[] = [];
+  const detectCalibration = cfg.detect?.calibration as Record<string, unknown> | undefined;
+  if (detectCalibration) {
+    errors.push(...unknownKeys(detectCalibration, ["enabled", "method", "floorOffsetDb"])
+      .map((key) => `detect.calibration.${key} は未対応です`));
+    if (typeof detectCalibration.enabled !== "boolean") {
+      errors.push("detect.calibration.enabled は boolean で指定してください");
+    }
+    if (detectCalibration.method !== "silencedetect-occupancy-v1") {
+      errors.push('detect.calibration.method は "silencedetect-occupancy-v1" で指定してください');
+    }
+    if (typeof detectCalibration.floorOffsetDb !== "number" || !Number.isFinite(detectCalibration.floorOffsetDb)) {
+      errors.push("detect.calibration.floorOffsetDb は有限の数値で指定してください");
+    } else if (!Number.isInteger(detectCalibration.floorOffsetDb * 2)) {
+      errors.push("detect.calibration.floorOffsetDb は0.5dB gridで指定してください");
+    }
+  }
+  const silenceCompaction = cfg.detect?.silenceCompaction as Record<string, unknown> | undefined;
+  if (silenceCompaction) {
+    errors.push(...unknownKeys(silenceCompaction, ["enabled", "preset"])
+      .map((key) => `detect.silenceCompaction.${key} は未対応です`));
+    if (typeof silenceCompaction.enabled !== "boolean") {
+      errors.push("detect.silenceCompaction.enabled は boolean で指定してください");
+    }
+    if (![
+      'gentle', 'balanced', 'tight',
+      'compact-gentle', 'compact-balanced', 'compact-tight',
+    ].includes(silenceCompaction.preset as string)) {
+      errors.push(
+        'detect.silenceCompaction.preset は "gentle" | "balanced" | "tight" | ' +
+        '"compact-gentle" | "compact-balanced" | "compact-tight" で指定してください',
+      );
+    }
+  }
+  const edgeTrim = cfg.detect?.edgeTrim as Record<string, unknown> | undefined;
+  if (edgeTrim) {
+    errors.push(...unknownKeys(edgeTrim, ["enabled", "floorOffsetDb", "padSec", "maxTrimSec"])
+      .map((key) => `detect.edgeTrim.${key} は未対応です`));
+    if (typeof edgeTrim.enabled !== "boolean") {
+      errors.push("detect.edgeTrim.enabled は boolean で指定してください");
+    }
+    if ("floorOffsetDb" in edgeTrim && !Number.isFinite(edgeTrim.floorOffsetDb)) {
+      errors.push("detect.edgeTrim.floorOffsetDb は有限の数値で指定してください");
+    }
+    if ("padSec" in edgeTrim && (!Number.isFinite(edgeTrim.padSec) || Number(edgeTrim.padSec) < 0)) {
+      errors.push("detect.edgeTrim.padSec は 0 以上の数値で指定してください");
+    }
+    if ("maxTrimSec" in edgeTrim && (!Number.isFinite(edgeTrim.maxTrimSec) || Number(edgeTrim.maxTrimSec) <= 0)) {
+      errors.push("detect.edgeTrim.maxTrimSec は正の数値で指定してください");
+    }
+  }
   const editorAiReview = cfg.editor?.aiReview as Record<string, unknown> | undefined;
   if (editorAiReview) {
     errors.push(...unknownKeys(editorAiReview, ["vlm", "maxImages", "maxRefinements"]).map((key) => `editor.aiReview.${key} は未対応です`));

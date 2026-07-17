@@ -69,6 +69,7 @@ import type {
   AiSelectionContext,
   DraftData,
   ProjectData,
+  ScriptData,
 } from "./apiTypes.ts";
 import type { ReviewBundle } from "../../src/stages/review.ts";
 import type { ReviewFrameRequest } from "../../src/lib/review.ts";
@@ -84,13 +85,20 @@ import { DiffReview } from "./DiffReview.tsx";
 import { MaterialOverlay } from "./MaterialOverlay.tsx";
 import type { OverlayRect } from "./MaterialOverlay.tsx";
 import { Inspector } from "./Inspector.tsx";
-import { CaptionsPanel, MaterialsPanel, ShortsPanel } from "./Panels.tsx";
+import { CaptionsPanel, MaterialsPanel, ScriptPanel, ShortsPanel } from "./Panels.tsx";
 import { SettingsModal, buildConfigPatch, patchTouchesProxy } from "./SettingsModal.tsx";
 import type { AiSettingsValue, CfgValues } from "./SettingsModal.tsx";
 import { Timeline } from "./Timeline.tsx";
 import { playhead, usePlayheadSelector } from "./playhead.ts";
 import { useToasts, ToastStack } from "./toasts.tsx";
-import { SHORT_TRACK_DEF, buildTracks, fitZoomSpan } from "./model.ts";
+import {
+  SCRIPT_CUT_REASON,
+  SHORT_TRACK_DEF,
+  buildTracks,
+  cutSourceRange,
+  fitZoomSpan,
+  restoreSourceRange,
+} from "./model.ts";
 import type {
   AddKind,
   AnnotationPatch,
@@ -116,6 +124,7 @@ import {
   fmtTime,
   getPeaks,
   getProject,
+  getScript,
   postAiDoctor,
   postConfig,
   postDraft,
@@ -326,6 +335,7 @@ const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
  * ライブラリとインスペクタで枠を奪い合わない) */
 const PANEL_TABS = [
   ["materials", "素材"],
+  ["script", "スクリプト"],
   ["captions", "テロップ"],
   ["shorts", "ショート"],
 ] as const;
@@ -417,6 +427,23 @@ export const App = () => {
   const peaksRequestedRef = useRef(new Set<string>());
   const playerRef = useRef<PlayerRef>(null);
   const [tab, setTab] = useState<PanelTab>("materials");
+  /** スクリプトタブの元データ(元収録の全文文字起こし)。タブを初めて
+   * 開いたときに取得する遅延ロード(whisper-out.json 由来で大きいため)。
+   * null = 未取得。外部変更のリロードで null へ戻し、次に開いたとき再取得 */
+  const [script, setScript] = useState<ScriptData | null>(null);
+  const [scriptError, setScriptError] = useState<string | null>(null);
+  const scriptFetchingRef = useRef(false);
+  useEffect(() => {
+    if (tab !== "script" || script !== null || scriptFetchingRef.current) return;
+    scriptFetchingRef.current = true;
+    setScriptError(null);
+    getScript()
+      .then(setScript)
+      .catch((e: Error) => setScriptError(e.message))
+      .finally(() => {
+        scriptFetchingRef.current = false;
+      });
+  }, [tab, script]);
   /** 左パネルの幅(px)。分割バーのドラッグで変更し、次回起動時も引き継ぐ */
   const [panelW, setPanelW] = useState(() => {
     const saved = Number(localStorage.getItem("cutflow.editor.panelW"));
@@ -690,6 +717,10 @@ export const App = () => {
         setActiveShortName(null);
       }
       if (p.proxyStale) setProxyStale(true);
+      // whisper-out.json も外部(plan --force / run --force)で変わりうるので
+      // スクリプトのキャッシュを捨て、次にタブを開いたとき取り直す
+      setScript(null);
+      setScriptError(null);
       undoRef.current = [];
       redoRef.current = [];
       historyKeyRef.current = null;
@@ -902,6 +933,31 @@ export const App = () => {
   const keeps = useMemo(() => (cutplan ? keepsOf(cutplan) : []), [cutplan]);
   const inserts = useMemo(() => overlays?.inserts ?? [], [overlays]);
   const timeline = useMemo(() => buildTimeline(keeps, inserts), [keeps, inserts]);
+  /** スクリプトタブで消したカット記録。取り消し線判定の微小穴ブリッジから
+   * 除外する(消した語が即グレーになるフィードバックを守る。§scriptKeptFlags) */
+  const scriptCutSpans = useMemo(
+    () =>
+      (cutplan?.segments ?? []).filter(
+        (s) => s.action === "cut" && s.reason === SCRIPT_CUT_REASON,
+      ),
+    [cutplan],
+  );
+  /** スクリプトタブの虚構タイムスタンプ判定に使う無音証拠。実測
+   * (cuts.auto.json の silences)に、cutplan の無音カット記録(plan 時点の
+   * 実測。reason は config 解決値で一致判定)を合算する。whisper がポーズへ
+   * 塗り広げた語をここへ照らして「実際は隣の発話」と判定する(§scriptKeptFlags) */
+  const silenceEvidence = useMemo(() => {
+    if (!proj) return null;
+    const list = [
+      ...(proj.silences ?? []),
+      ...(cutplan?.segments ?? []).filter(
+        (s) => s.action === "cut" && s.reason === proj.silenceCutReason,
+      ),
+    ]
+      .map((s) => ({ start: s.start, end: s.end }))
+      .sort((a, b) => a.start - b.start);
+    return list.length > 0 ? mergeIntervals(list) : null;
+  }, [proj, cutplan]);
 
   /* ---------------- ショートモード ----------------
    * 選択中のショートは本編とは独立の keep 集合(ranges)を持つ別の出力。
@@ -1596,6 +1652,28 @@ export const App = () => {
     const segs = [...cutplan.segments];
     segs[i] = { ...s, start: round2(a), end: round2(b), action: "keep" };
     setCutplan({ ...cutplan, segments: segs });
+  };
+
+  /** スクリプトタブ: 選択した語の範囲(元収録の秒)をカットする。
+   * 範囲計算は model.ts の純関数(cutSourceRange)で、ここは履歴と state だけ */
+  const cutScriptRange = (start: number, end: number) => {
+    if (!cutplan || shortMode) return;
+    const r = cutSourceRange(cutplan.segments, { start, end }, MIN_SPAN);
+    if (!r.ok) {
+      if (r.reason === "empty") setError("すべての映像をカットすることはできません");
+      return;
+    }
+    pushHistory();
+    setCutplan({ ...cutplan, segments: r.segments });
+  };
+
+  /** スクリプトタブ: 取り消し線の範囲(元収録の秒)を keep へ戻す */
+  const restoreScriptRange = (start: number, end: number) => {
+    if (!cutplan || shortMode) return;
+    const r = restoreSourceRange(cutplan.segments, { start, end }, MIN_SPAN);
+    if (!r.ok) return;
+    pushHistory();
+    setCutplan({ ...cutplan, segments: r.segments });
   };
 
   /* ---------------- プレビュー上のテロップ移動 ---------------- */
@@ -4392,6 +4470,21 @@ export const App = () => {
                 onDelete={(f) => void deleteMaterialFile(f)}
                 onDragBegin={onMaterialDragBegin}
                 onDragEnd={onMaterialDragEnd}
+              />
+            )}
+            {tab === "script" && (
+              <ScriptPanel
+                script={script}
+                error={scriptError}
+                keeps={shortMode ? shortKeepsMerged : keeps}
+                silences={silenceEvidence}
+                noBridgeSpans={scriptCutSpans}
+                timeline={curTimeline}
+                playing={playing}
+                editable={!shortMode}
+                onSeekSrc={seekToSrc}
+                onCutRange={cutScriptRange}
+                onRestoreRange={restoreScriptRange}
               />
             )}
             {tab === "captions" && (

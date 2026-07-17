@@ -71,6 +71,12 @@ import { retrievalSearch } from "./stages/retrievalSearch.ts";
 import type { AiRoute, Config } from "./lib/config.ts";
 import { envDoctor, formatDoctorReport } from "./stages/doctor.ts";
 import { planClean, executeClean, formatCleanReport } from "./stages/clean.ts";
+import { boundaryCheck, formatBoundaryCheckReport } from "./stages/boundaryCheck.ts";
+import { formatSilenceSweepReport, silenceSweep } from "./stages/silenceSweep.ts";
+import { floorCalibration, formatFloorCalibrationReport } from "./stages/floorCalibration.ts";
+import { boundaryDirection, formatBoundaryDirectionReport } from "./stages/boundaryDirection.ts";
+import { compactionSweep, formatCompactionSweepReport } from "./stages/compactionSweep.ts";
+import { calibrationEvaluate, formatCalibrationEvaluateReport } from "./stages/calibrationEvaluate.ts";
 
 const program = new Command();
 program
@@ -113,7 +119,12 @@ program.hook("postAction", (_thisCommand, actionCommand) => {
   // mcp は stdout が JSON-RPC 専用チャネルなので同様に stderr へ逃がす(サーバは
   // 通常 SIGINT まで返らないため多くの場合発火しないが、安全のため明示的に対応)。
   // 他コマンド・散文 describe/assert の stdout は従来どおり console.log(=不変)
-  const jsonCommands = new Set(["describe", "assert", "doctor", "clean"]);
+  const jsonCommands = new Set([
+    "describe", "assert", "doctor", "clean", "boundary-check", "silence-sweep", "floor-calibration",
+    "boundary-direction",
+    "compaction-sweep",
+    "calibration-evaluate",
+  ]);
   const isMcp = actionCommand.name() === "mcp";
   if (isMcp || (jsonCommands.has(actionCommand.name()) && actionCommand.opts().json === true)) {
     console.error(line);
@@ -633,6 +644,91 @@ program
       (r.warnings.length > 0 ? `警告 ${r.warnings.length}件(動作はします)\n` : "") +
         `✔ エラーなし: ${r.summary}`,
     );
+  });
+
+program
+  .command("boundary-check <dir>")
+  .description(
+    "keep終端直後120msの実音声RMSを収録ごとのノイズ床相対で検品する(read-only・LLM/文字起こし不使用)",
+  )
+  .option("--json", "決定論的な BoundaryCheckReport JSON を標準出力に出す")
+  .action(async (dir: string, opts: { json?: boolean }) => {
+    const report = await boundaryCheck(resolveDir(dir));
+    if (opts.json === true) {
+      console.log(JSON.stringify(report, null, 2));
+    } else {
+      for (const line of formatBoundaryCheckReport(report)) console.log(line);
+    }
+  });
+
+program
+  .command("silence-sweep <dir>")
+  .description(
+    "silenceDb -35/-40/-45/-50をread-onlyで比較し、語尾食い・削減尺・候補数・人間境界一致を測る",
+  )
+  .option("--json", "決定論的な SilenceSweepReport JSON を標準出力に出す")
+  .action(async (dir: string, opts: { json?: boolean }) => {
+    const cfg = loadConfig(program.opts().config);
+    const report = await silenceSweep(resolveDir(dir), cfg);
+    if (opts.json === true) {
+      console.log(JSON.stringify(report, null, 2));
+    } else {
+      for (const line of formatSilenceSweepReport(report)) console.log(line);
+    }
+  });
+
+program
+  .command("floor-calibration <fitDir>")
+  .description(
+    "silencedetect無音占有率から収録別floorを推定し、人間境界でoffsetをfitしてholdout検証する(read-only)",
+  )
+  .option("--verify <dir>", "選択offsetを検証する別録画。複数指定可", collectFrom, [])
+  .option("--json", "決定論的な FloorCalibrationReport JSON を標準出力に出す")
+  .action(async (fitDir: string, opts: { verify: string[]; json?: boolean }) => {
+    const cfg = loadConfig(program.opts().config);
+    const report = await floorCalibration(
+      resolveDir(fitDir),
+      opts.verify.map((dir) => resolveDir(dir)),
+      cfg,
+    );
+    if (opts.json === true) {
+      console.log(JSON.stringify(report, null, 2));
+    } else {
+      for (const line of formatFloorCalibrationReport(report)) console.log(line);
+    }
+  });
+
+program
+  .command("boundary-direction <dir>")
+  .description("承認済みhuman finalと現在設定のdetect keepを比較し、境界修正の方向を分類する(read-only)")
+  .option("--json", "決定論的な BoundaryDirectionReport JSON を標準出力に出す")
+  .action(async (dir: string, opts: { json?: boolean }) => {
+    const cfg = loadConfig(program.opts().config);
+    const report = await boundaryDirection(resolveDir(dir), cfg);
+    if (opts.json === true) console.log(JSON.stringify(report, null, 2));
+    else for (const line of formatBoundaryDirectionReport(report)) console.log(line);
+  });
+
+program
+  .command("compaction-sweep <dir>")
+  .description("較正済み境界thresholdを固定し、無音圧縮の時間3ノブ36条件をread-only比較する")
+  .option("--json", "決定論的な CompactionSweepReport JSON を標準出力に出す")
+  .action(async (dir: string, opts: { json?: boolean }) => {
+    const cfg = loadConfig(program.opts().config);
+    const report = await compactionSweep(resolveDir(dir), cfg);
+    if (opts.json === true) console.log(JSON.stringify(report, null, 2));
+    else for (const line of formatCompactionSweepReport(report)) console.log(line);
+  });
+
+program
+  .command("calibration-evaluate <dir>")
+  .description("V6の固定10 variantをboundary-check同一測定系でread-only比較する(human finalは任意)")
+  .option("--json", "決定論的な CalibrationEvaluateReport JSON を標準出力に出す")
+  .action(async (dir: string, opts: { json?: boolean }) => {
+    const cfg = loadConfig(program.opts().config);
+    const report = await calibrationEvaluate(resolveDir(dir), cfg);
+    if (opts.json === true) console.log(JSON.stringify(report, null, 2));
+    else for (const line of formatCalibrationEvaluateReport(report)) console.log(line);
   });
 
 program
@@ -1271,10 +1367,16 @@ program
     "再生成の重いキャッシュ(proxy/cut/render.chunks/frames/shorts/*.probe 等)だけを消し、" +
       "manifest.json / cuts.auto.json / whisper-out.* 等の軽い中間生成物は残す",
   )
+  .option(
+    "--logs-only",
+    "ログ・使い捨て下書き・検品結果(*.raw.txt / cuts.auto.json / *-fit.suggested.json / " +
+      "effect-check.json / style-check.json / preview.mp4 / frames/ 等)だけを消し、" +
+      "リレンダー最適化(cut/render.*)・proxy・whisper-out.*・manifest.json・shorts/ は残す。--cache-only とは排他",
+  )
   .option("--json", "CleanPlan を JSON で標準出力に出す(パイプ可。--dry-run と併用で機械可読な削除計画)")
-  .action((dir: string, opts: { dryRun?: boolean; cacheOnly?: boolean; json?: boolean }) => {
+  .action((dir: string, opts: { dryRun?: boolean; cacheOnly?: boolean; logsOnly?: boolean; json?: boolean }) => {
     const abs = resolveDir(dir);
-    const plan = planClean(abs, { cacheOnly: opts.cacheOnly === true });
+    const plan = planClean(abs, { cacheOnly: opts.cacheOnly === true, logsOnly: opts.logsOnly === true });
     if (opts.dryRun !== true) executeClean(abs, plan);
     if (opts.json === true) {
       console.log(JSON.stringify({ ...plan, dryRun: opts.dryRun === true }, null, 2));

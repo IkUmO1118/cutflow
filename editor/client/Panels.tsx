@@ -1,8 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent } from "react";
 import { captionTrack, captionTrackName } from "../../src/types.ts";
-import type { Overlays, Shorts, Transcript } from "../../src/types.ts";
-import { MATERIAL_MIME } from "./model.ts";
+import type { Interval, Overlays, Shorts, Transcript } from "../../src/types.ts";
+import { toSourceTime } from "../../src/lib/timeline.ts";
+import type { TimelineEntry } from "../../src/lib/timeline.ts";
+import type { ScriptData } from "./apiTypes.ts";
+import { usePlayheadSelector } from "./playhead.ts";
+import { MATERIAL_MIME, buildScriptBlocks, scriptKeptFlags } from "./model.ts";
+import type { ScriptBlock } from "./model.ts";
 import { VIDEO_EXT_RE, fmtTime } from "./widgets.tsx";
 
 /** ファイル名を中央省略する("B025_C012_0521MEbs" → "B025_C…21MEbs") */
@@ -400,6 +405,367 @@ export const ShortsPanel = ({
         セレクタと同じ)。ranges・レイアウト・承認・字幕配置はショート
         モードのタイムライン・プレビュー・インスペクタで編集します。
       </p>
+    </div>
+  );
+};
+
+/* ---------------- スクリプトタブ(文字ベース編集) ---------------- */
+
+/** カット後の秒 → 「ここまでに再生した元収録の位置」。keep の上はその元秒、
+ * 挿入クリップの上では直前の keep の終端(カラオケの塗りが挿入の間に
+ * 巻き戻らないように)、タイムライン末尾以降は最後の keep の終端 */
+const srcProgressAt = (outT: number, timeline: readonly TimelineEntry[]): number => {
+  if (timeline.length === 0) return 0;
+  let lo = 0;
+  let hi = timeline.length;
+  while (lo < hi) {
+    const m = (lo + hi) >> 1;
+    if (timeline[m].outputEnd > outT) hi = m;
+    else lo = m + 1;
+  }
+  const e = timeline[lo];
+  if (e === undefined) return timeline[timeline.length - 1].sourceEnd;
+  if (outT >= e.outputStart) return e.sourceStart + (outT - e.outputStart) * e.speed;
+  return lo > 0 ? timeline[lo - 1].sourceEnd : 0;
+};
+
+/**
+ * スクリプトの1ブロック(keep 後の尺+文字数で作る話のまとまり。
+ * model.ts の buildScriptBlocks)。
+ * カラオケ(発話済みの語の色替え)はブロックごとに playhead を購読して自前で
+ * 計算する(App / パネル全体を毎フレーム再レンダーしないための末端購読。
+ * 返り値は「発話位置コード」のプリミティブ1個 = 変わったフレームだけ再描画)。
+ * コード: -1 = 再生ヘッドがこのブロックより前 / それ以外 = 要素添字*2 +
+ * (要素の内側なら+1)。ブロックより後ろは常に「全要素発話済み」の一定値に
+ * なる(過去のブロックの塗りが保たれ、値が変わらないので再レンダーもされない)
+ */
+const ScriptRow = memo(function ScriptRow({
+  row,
+  rowIdx,
+  kept,
+  timeline,
+  active,
+  follow,
+  onSeekSrc,
+}: {
+  row: ScriptBlock;
+  rowIdx: number;
+  /** 要素ごとの「いまの keep 集合に残っているか」(false = グレー取り消し線) */
+  kept: boolean[];
+  timeline: TimelineEntry[];
+  /** 再生ヘッドがこのブロックの中にある(左枠のハイライト) */
+  active: boolean;
+  /** 再生中だけ true(active なブロックへの自動スクロールを再生追従に限る) */
+  follow: boolean;
+  onSeekSrc: (src: number) => void;
+}) {
+  const code = usePlayheadSelector((outT) => {
+    const src = srcProgressAt(outT, timeline);
+    if (src < row.start) return -1;
+    if (src >= row.end) return (row.items.length - 1) * 2;
+    let lo = 0;
+    let hi = row.items.length;
+    while (lo < hi) {
+      const m = (lo + hi) >> 1;
+      if (row.items[m].start > src) hi = m;
+      else lo = m + 1;
+    }
+    const idx = lo - 1;
+    if (idx < 0) return -1;
+    return idx * 2 + (src < row.items[idx].end ? 1 : 0);
+  });
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!active || !follow) return;
+    // 文字選択の途中では勝手にスクロールしない(選択が流れて見えるため)
+    const sel = document.getSelection();
+    if (sel && !sel.isCollapsed) return;
+    ref.current?.scrollIntoView({ block: "nearest" });
+  }, [active, follow]);
+  const spoken = code >> 1; // 直近に発話した要素の添字(-1 = まだ)
+  const inWord = (code & 1) === 1;
+  return (
+    <div className={`scriptRow${active ? " active" : ""}`} ref={ref}>
+      <div
+        className="scriptRowMeta mono"
+        title="クリックでこのブロックの先頭へシーク"
+        onClick={() => onSeekSrc(row.start)}
+      >
+        <span>{fmtTime(row.start)}</span>
+        <span className="dim">→ {fmtTime(row.end)}</span>
+      </div>
+      <div className="scriptText">
+        {row.items.map((it, j) => {
+          const seek = () => {
+            // ドラッグ選択を終えた click では飛ばない(単クリックだけシーク)
+            const sel = document.getSelection();
+            if (sel && !sel.isCollapsed) return;
+            onSeekSrc(it.start);
+          };
+          if (it.kind === "gap") {
+            // 発話の切れ目(無音・文字起こしに残らなかったフィラー等)。
+            // カラオケの塗りは載せない(チップの色が騒がしくなるだけ)
+            return (
+              <span
+                key={j}
+                data-sw={`${rowIdx}:${j}`}
+                className={`scriptGap${kept[j] ? "" : " cut"}`}
+                title="発話の切れ目(無音、または文字起こしに残らなかったフィラー等)"
+                onClick={seek}
+              >
+                {(it.end - it.start).toFixed(1)}s
+              </span>
+            );
+          }
+          const sung =
+            code >= 0 && (j < spoken || (j === spoken && !inWord)) ? " sung" : "";
+          const now = code >= 0 && j === spoken && inWord ? " now" : "";
+          return (
+            <span
+              key={j}
+              data-sw={`${rowIdx}:${j}`}
+              className={`scriptWord${sung}${now}${kept[j] ? "" : " cut"}`}
+              onClick={seek}
+            >
+              {it.leadingSpace ? " " : null}
+              {it.text}
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+});
+
+/**
+ * 左パネル「スクリプト」タブ。元収録の全文文字起こし(AI が編集する前の
+ * ベース。GET /api/script)を文ごとに一覧し、映像ではなく文字を選択して
+ * カットする(Descript 型の文字ベース編集)。編集はすべて cutplan.json の
+ * keep/cut へ落ち、カットされた語はグレーの取り消し線で残る(可逆)。
+ * 再生中はカラオケのように発話済みの語へ色が乗り、語クリックでその時刻へ
+ * シークする。
+ */
+export const ScriptPanel = ({
+  script,
+  error,
+  keeps,
+  silences,
+  noBridgeSpans,
+  timeline,
+  playing,
+  editable,
+  onSeekSrc,
+  onCutRange,
+  onRestoreRange,
+}: {
+  /** GET /api/script の結果。null = 読み込み中 */
+  script: ScriptData | null;
+  /** 読み込み失敗(null 以外なら script より優先して表示) */
+  error: string | null;
+  /** いまのモードの keep 区間(時系列・重なりなし)。取り消し線の判定 */
+  keeps: Interval[];
+  /** cuts.auto.json の実測無音(虚構タイムスタンプ語の判定材料)。
+   * null = detect 未実行(虚構判定なしで幾何判定だけになる) */
+  silences: Interval[] | null;
+  /** スクリプトからのカット記録(この穴は微小でも橋渡しせず即取り消し線) */
+  noBridgeSpans: Interval[];
+  /** いまのモードの元秒→カット後秒の写像(カラオケ・シーク用) */
+  timeline: TimelineEntry[];
+  playing: boolean;
+  /** false(ショートモード)は表示・シークのみでカット編集を出さない */
+  editable: boolean;
+  onSeekSrc: (src: number) => void;
+  /** 選択した語の範囲(元収録の秒)をカットへ */
+  onCutRange: (start: number, end: number) => void;
+  /** 選択した語の範囲(元収録の秒)を keep へ戻す */
+  onRestoreRange: (start: number, end: number) => void;
+}) => {
+  const rootRef = useRef<HTMLDivElement>(null);
+  /** 現在の文字選択(語 span に解決できたときだけ)。a/b = 元収録の秒 */
+  const [sel, setSel] = useState<{
+    a: number;
+    b: number;
+    anyKept: boolean;
+    anyCut: boolean;
+  } | null>(null);
+
+  /** whisper の細かい segment を keep 後の尺+文字数で「話のまとまり」へ
+   * 束ねた表示ブロック(発話の切れ目は間チップとして混ざる。
+   * model.ts の buildScriptBlocks) */
+  const rows = useMemo(
+    () => buildScriptBlocks(script?.segments ?? [], keeps),
+    [script, keeps],
+  );
+  /** 要素ごとの「keep に残っているか」(取り消し線の反転)。whisper の語
+   * タイムスタンプの既知の嘘(ポーズへの塗り広げ・境界の数百msズレ)を
+   * 実測無音と微小穴の橋渡しで補正する決定論判定(§model.ts scriptKeptFlags)。
+   * rows と同形 */
+  const keptFlags = useMemo(
+    () => scriptKeptFlags(rows, keeps, silences, noBridgeSpans, script?.aligned === true),
+    [rows, keeps, silences, noBridgeSpans, script],
+  );
+
+  // 再生ヘッドのあるブロック(自動スクロール用。ブロック単位でしか値が
+  // 変わらないのでパネルの再レンダーはブロックの切り替わり時だけ)
+  const activeRow = usePlayheadSelector((outT) => {
+    const src = toSourceTime(outT, timeline);
+    if (src === null) return -1;
+    let lo = 0;
+    let hi = rows.length;
+    while (lo < hi) {
+      const m = (lo + hi) >> 1;
+      if (rows[m].start > src) hi = m;
+      else lo = m + 1;
+    }
+    const idx = lo - 1;
+    return idx >= 0 && src < rows[idx].end ? idx : -1;
+  });
+
+  // 文字選択を監視して「どの語からどの語まで選ばれているか」へ解決する
+  useEffect(() => {
+    const resolve = (node: Node | null): { seg: number; word: number } | null => {
+      if (!node || !rootRef.current) return null;
+      const el = node instanceof Element ? node : node.parentElement;
+      const span = el?.closest?.("[data-sw]") as HTMLElement | null | undefined;
+      if (!span || !rootRef.current.contains(span)) return null;
+      const [seg, word] = (span.dataset.sw ?? "").split(":").map(Number);
+      if (!Number.isInteger(seg) || !Number.isInteger(word)) return null;
+      return { seg, word };
+    };
+    const onSelChange = () => {
+      const s = document.getSelection();
+      if (!s || s.isCollapsed) {
+        setSel(null);
+        return;
+      }
+      const anchor = resolve(s.anchorNode);
+      const focus = resolve(s.focusNode);
+      if (!anchor || !focus) {
+        setSel(null);
+        return;
+      }
+      const [lo, hi] =
+        anchor.seg < focus.seg || (anchor.seg === focus.seg && anchor.word <= focus.word)
+          ? [anchor, focus]
+          : [focus, anchor];
+      const first = rows[lo.seg]?.items[lo.word];
+      const last = rows[hi.seg]?.items[hi.word];
+      if (!first || !last) {
+        setSel(null);
+        return;
+      }
+      let anyKept = false;
+      let anyCut = false;
+      for (let i = lo.seg; i <= hi.seg; i++) {
+        const flags = keptFlags[i] ?? [];
+        const from = i === lo.seg ? lo.word : 0;
+        const to = i === hi.seg ? hi.word : flags.length - 1;
+        for (let j = from; j <= to; j++) {
+          if (flags[j]) anyKept = true;
+          else anyCut = true;
+        }
+      }
+      setSel({ a: first.start, b: last.end, anyKept, anyCut });
+    };
+    document.addEventListener("selectionchange", onSelChange);
+    return () => document.removeEventListener("selectionchange", onSelChange);
+  }, [rows, keptFlags]);
+
+  const clearSelection = () => {
+    document.getSelection()?.removeAllRanges();
+    setSel(null);
+  };
+  const doCut = () => {
+    if (!sel || !sel.anyKept || !editable) return;
+    onCutRange(sel.a, sel.b);
+    clearSelection();
+  };
+  const doRestore = () => {
+    if (!sel || !sel.anyCut || !editable) return;
+    onRestoreRange(sel.a, sel.b);
+    clearSelection();
+  };
+
+  if (error) {
+    return (
+      <p className="dim hint" style={{ padding: "14px" }}>
+        スクリプトを読み込めませんでした: {error}
+      </p>
+    );
+  }
+  if (!script) {
+    return (
+      <p className="dim hint" style={{ padding: "14px" }}>
+        スクリプトを読み込み中…
+      </p>
+    );
+  }
+  if (rows.length === 0) {
+    return (
+      <p className="dim hint" style={{ padding: "14px" }}>
+        スクリプトがありません(文字起こし(whisper)が未実行の収録かもしれません)。
+      </p>
+    );
+  }
+  return (
+    <div
+      className="scriptPanel"
+      ref={rootRef}
+      tabIndex={-1}
+      onPointerUp={() => rootRef.current?.focus({ preventScroll: true })}
+      onKeyDown={(e) => {
+        if ((e.key === "Backspace" || e.key === "Delete") && editable && sel?.anyKept) {
+          // 選択中はタイムラインのクリップ削除(グローバルの Delete)ではなく
+          // スクリプトのカットとして扱う
+          e.preventDefault();
+          e.stopPropagation();
+          doCut();
+        }
+      }}
+    >
+      <div className="scriptBar">
+        {sel ? (
+          <>
+            <span className="mono dim">
+              {fmtTime(sel.a)} → {fmtTime(sel.b)}
+            </span>
+            <span className="spacer" />
+            <button className="danger" disabled={!editable || !sel.anyKept} onClick={doCut}>
+              選択をカット
+            </button>
+            <button disabled={!editable || !sel.anyCut} onClick={doRestore}>
+              カットを戻す
+            </button>
+          </>
+        ) : (
+          <span className="dim">
+            {editable
+              ? "文字をドラッグで選択 → カット(Delete でも)。クリックでシーク"
+              : "ショート編集中は表示・シークのみ(カット編集は本編モードで)"}
+          </span>
+        )}
+      </div>
+      <div className="scriptList">
+        {rows.map((r, i) => (
+          <ScriptRow
+            key={i}
+            row={r}
+            rowIdx={i}
+            kept={keptFlags[i]}
+            timeline={timeline}
+            active={i === activeRow}
+            follow={playing}
+            onSeekSrc={onSeekSrc}
+          />
+        ))}
+      </div>
+      {script.source === "transcript" && (
+        <p className="dim hint" style={{ padding: "0 14px 10px" }}>
+          whisper の生出力(whisper-out.json)が無いため、現在のテロップ
+          (transcript.json)からスクリプトを表示しています(テロップの
+          手編集の影響を受けます)。
+        </p>
+      )}
     </div>
   );
 };

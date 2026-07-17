@@ -77,7 +77,12 @@ import type {
   AiReviewRequest,
   ProjectData,
   SaveRequest,
+  ScriptData,
+  ScriptSegment,
 } from "./client/apiTypes.ts";
+import { buildWords } from "../src/stages/transcribe.ts";
+import type { WhisperToken } from "../src/stages/transcribe.ts";
+import { DEFAULT_SILENCE_CUT_REASON } from "../src/lib/buildCutplan.ts";
 import type { EditableDocs } from "../src/lib/ids.ts";
 import type { ReviewDocs } from "../src/lib/docDiff.ts";
 import type { ReviewSpec } from "../src/lib/review.ts";
@@ -305,6 +310,12 @@ async function handle(
   }
   if (req.method === "GET" && path === "/api/project") {
     sendJson(res, 200, loadProject(dir, cfg));
+    return;
+  }
+  if (req.method === "GET" && path === "/api/script") {
+    // スクリプトタブ(文字ベース編集)の元データ。/api/project に含めないのは
+    // whisper-out.json が大きい(数百KB〜)ため=タブを開いたときだけ読む
+    sendJson(res, 200, loadScript(dir));
     return;
   }
   if (req.method === "GET" && path === "/api/events") {
@@ -987,6 +998,56 @@ export function buildAiReviewCandidateFromStoredProposal(
   return candidate;
 }
 
+/** スクリプトタブ用の全文スクリプト(元収録の秒)。whisper の生出力
+ * (whisper-out.json)が「AI が編集する前のベース」の正のデータで、segment の
+ * 組み立ては transcribe.ts と同じ規則(ms→秒・trim・空文字除外。captionSplit は
+ * 通さない=テロップ粒度ではなく発話1文の粒度)。tokens(-ojf)があれば
+ * buildWords で語単位タイミングも付ける。whisper-out.json が無い古い収録では
+ * 現在の transcript.json から代替する(テロップ編集の影響を受けるが、
+ * 表示・シーク・カットは成立する) */
+export function loadScript(dir: string): ScriptData {
+  const whisperPath = join(dir, "whisper-out.json");
+  if (existsSync(whisperPath)) {
+    const whisper = JSON.parse(readFileSync(whisperPath, "utf8")) as {
+      transcription: Array<{
+        offsets: { from: number; to: number };
+        text: string;
+        tokens?: WhisperToken[];
+      }>;
+    };
+    // words の時刻が DTW で音響に固定されているか(whisper -dtw の t_dtw)。
+    // 1トークンでも有効なら DTW 実行(buildWords が t_dtw 優先で組む)
+    const aligned = whisper.transcription.some((t) =>
+      (t.tokens ?? []).some((tok) => typeof tok.t_dtw === "number" && tok.t_dtw >= 0),
+    );
+    const segments = whisper.transcription
+      .map((t) => {
+        const seg: ScriptSegment = {
+          start: t.offsets.from / 1000,
+          end: t.offsets.to / 1000,
+          text: t.text.trim(),
+        };
+        const words = buildWords(t.tokens);
+        if (words.length > 0) seg.words = words;
+        return seg;
+      })
+      .filter((s) => s.text.length > 0);
+    return { source: "whisper", segments, aligned };
+  }
+  const transcriptPath = join(dir, "transcript.json");
+  const transcript = existsSync(transcriptPath)
+    ? (JSON.parse(readFileSync(transcriptPath, "utf8")) as Transcript)
+    : null;
+  const segments = (transcript?.segments ?? [])
+    .map((s) => {
+      const seg: ScriptSegment = { start: s.start, end: s.end, text: s.text };
+      if (s.words && s.words.length > 0) seg.words = s.words;
+      return seg;
+    })
+    .filter((s) => s.text.trim().length > 0);
+  return { source: "transcript", segments };
+}
+
 export function loadProject(dir: string, cfg: Config): ProjectData {
   const aiRuntime = resolveAiRuntimeConfig(cfg);
   const readJson = <T>(file: string, fallback: T): T => {
@@ -1035,6 +1096,7 @@ export function loadProject(dir: string, cfg: Config): ProjectData {
     bgmFile: findBgm(dir),
     shorts: loadShorts(dir),
     silences: readJson<AutoCuts | null>("cuts.auto.json", null)?.silences ?? null,
+    silenceCutReason: cfg.detect?.silenceCutReason ?? DEFAULT_SILENCE_CUT_REASON,
     proxyExists: existsSync(join(dir, "proxy.mp4")),
     proxyStale: isProxyStale(dir, cfg),
     renderCfg: designRenderCfg,
