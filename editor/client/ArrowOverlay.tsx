@@ -45,6 +45,16 @@ export const ArrowOverlay = ({
   const ref = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [dragging, setDragging] = useState(false);
+  // ドラッグ中の一時的な from/to(pointerup で 1 回だけ onChange に確定させる。
+  // move の間はこれだけを更新し、ドキュメント(overlays.json)には触れない)
+  const [draft, setDraft] = useState<{
+    index: number;
+    part: "from" | "to" | "line";
+    from: CaptionPos;
+    to: CaptionPos;
+  } | null>(null);
+  // アクティブなドラッグの listener 解除処理(外部変更ガードから使う)
+  const dragCleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const el = ref.current;
@@ -55,6 +65,18 @@ export const ArrowOverlay = ({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  // 外部変更ガード: ドラッグ中に arrows(props)の参照が変わったら(undo /
+  // hot-reload / 外部編集などドラッグ外の要因でしか起きない)ドラッグを強制
+  // キャンセルする(listener 除去 + draft 破棄。stale な draft を残さない)
+  useEffect(() => {
+    if (dragCleanupRef.current) {
+      dragCleanupRef.current();
+      dragCleanupRef.current = null;
+      setDraft(null);
+      setDragging(false);
+    }
+  }, [arrows]);
 
   // Player は親いっぱいに広がり、コンポジションはレターボックスで内接する
   const scale = box.w > 0 && box.h > 0 ? Math.min(box.w / width, box.h / height) : 0;
@@ -78,6 +100,15 @@ export const ArrowOverlay = ({
     const from0 = a.from;
     const to0 = a.to;
     const coalesceKey = `annotation:${a.index}:drag`;
+    // move ごとの最新の有効(非退化)候補をローカル変数にも持つ(pointerup の
+    // commit は React state ではなくこちらを読む=直近の setDraft がまだ
+    // コミットされていなくても最新値を確実に読める)
+    let current: {
+      index: number;
+      part: "from" | "to" | "line";
+      from: CaptionPos;
+      to: CaptionPos;
+    } | null = null;
     const move = (ev: PointerEvent) => {
       const ddx = (ev.clientX - x0) / scale;
       const ddy = (ev.clientY - y0) / scale;
@@ -90,33 +121,55 @@ export const ArrowOverlay = ({
           x: clamp(Math.round(to0.x + ddx), 0, width),
           y: clamp(Math.round(to0.y + ddy), 0, height),
         };
+        // MIN_DIST 未満(退化)なら候補を採用しない=直前の有効 draft を維持
         if (Math.hypot(to.x - from.x, to.y - from.y) < MIN_DIST) return;
-        onChange(a.index, { from, to }, coalesceKey);
+        current = { index: a.index, part, from, to };
       } else if (part === "from") {
         const from = {
           x: clamp(Math.round(from0.x + ddx), 0, width),
           y: clamp(Math.round(from0.y + ddy), 0, height),
         };
         if (Math.hypot(to0.x - from.x, to0.y - from.y) < MIN_DIST) return;
-        onChange(a.index, { from }, coalesceKey);
+        current = { index: a.index, part, from, to: to0 };
       } else {
         const to = {
           x: clamp(Math.round(to0.x + ddx), 0, width),
           y: clamp(Math.round(to0.y + ddy), 0, height),
         };
         if (Math.hypot(to.x - from0.x, to.y - from0.y) < MIN_DIST) return;
-        onChange(a.index, { to }, coalesceKey);
+        current = { index: a.index, part, from: from0, to };
       }
+      setDraft(current);
     };
-    const up = () => {
+    const cleanup = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
-      window.removeEventListener("pointercancel", up);
+      window.removeEventListener("pointercancel", cancel);
+      dragCleanupRef.current = null;
+    };
+    const up = () => {
+      cleanup();
+      if (current !== null) {
+        const patch: AnnotationPatch =
+          current.part === "line"
+            ? { from: current.from, to: current.to }
+            : current.part === "from"
+              ? { from: current.from }
+              : { to: current.to };
+        onChange(current.index, patch, coalesceKey);
+      }
+      setDraft(null);
       setDragging(false);
     };
+    const cancel = () => {
+      cleanup();
+      setDraft(null);
+      setDragging(false);
+    };
+    dragCleanupRef.current = cleanup;
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
-    window.addEventListener("pointercancel", up);
+    window.addEventListener("pointercancel", cancel);
   };
 
   return (
@@ -125,8 +178,9 @@ export const ArrowOverlay = ({
         <svg>
           {arrows.map((a) => {
             const sel = selection === a.index;
-            const from = toScreen(a.from);
-            const to = toScreen(a.to);
+            // ドラッグ中の対象だけ draft(一時値)を使う。他は props(確定値)のまま
+            const from = toScreen(draft?.index === a.index ? draft.from : a.from);
+            const to = toScreen(draft?.index === a.index ? draft.to : a.to);
             // 参考矢尻(装飾。to 側に小三角。線の向きに沿わせる)
             const ang = Math.atan2(to.y - from.y, to.x - from.x);
             const headLen = 10;
