@@ -5,7 +5,13 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { loadConfig } from "../src/lib/config.ts";
-import { buildAutoCuts, complement, detect, detectAutoCuts } from "../src/stages/detect.ts";
+import {
+  buildAutoCuts,
+  complement,
+  detect,
+  detectAutoCuts,
+  resolveDetectCandidateParams,
+} from "../src/stages/detect.ts";
 import {
   boundaryAgreement,
   buildSilenceSweepReport,
@@ -197,7 +203,12 @@ test("detectAutoCutsと通常detectの戻り値・cuts.auto.jsonはdeep/byte par
   const dir = makeRecording();
   try {
     const cfg = loadConfig();
-    const readOnly = await detectAutoCuts(join(dir, "mic.wav"), 2, cfg.detect);
+    delete cfg.detect.calibration;
+    delete cfg.detect.silenceCompaction;
+    delete cfg.detect.edgeTrim;
+    const readOnly = await detectAutoCuts(
+      join(dir, "mic.wav"), 2, resolveDetectCandidateParams(cfg.detect),
+    );
     const writtenResult = await detect(dir, cfg);
     assert.deepEqual(writtenResult, readOnly);
     assert.equal(

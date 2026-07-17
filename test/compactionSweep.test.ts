@@ -20,14 +20,17 @@ import type { CutPlan } from "../src/types.ts";
 
 const cli = resolve("src/cli.ts");
 
-test("preset resolver: gentle/balanced/tightは時間3ノブだけ置換しthresholdに触れない", () => {
+test("preset resolver: 全presetは時間3ノブだけ置換しthresholdに触れない", () => {
   assert.deepEqual(SILENCE_COMPACTION_PRESETS, {
     gentle: { minSilenceSec: 1, padSec: 0.3, minKeepSec: 0.3 },
     balanced: { minSilenceSec: 0.7, padSec: 0.3, minKeepSec: 0.5 },
     tight: { minSilenceSec: 1, padSec: 0.3, minKeepSec: 0.8 },
+    "compact-gentle": { minSilenceSec: 0.7, padSec: 0.1, minKeepSec: 0.5 },
+    "compact-balanced": { minSilenceSec: 0.7, padSec: 0.05, minKeepSec: 0.5 },
+    "compact-tight": { minSilenceSec: 0.6, padSec: 0.05, minKeepSec: 0.5 },
   });
   const cfg = loadConfig();
-  for (const preset of ["gentle", "balanced", "tight"] as const) {
+  for (const preset of Object.keys(SILENCE_COMPACTION_PRESETS) as Array<keyof typeof SILENCE_COMPACTION_PRESETS>) {
     const next = structuredClone(cfg.detect);
     next.silenceCompaction = { enabled: true, preset };
     const resolved = resolveDetectCandidateParams(next);
@@ -39,7 +42,23 @@ test("preset resolver: gentle/balanced/tightは時間3ノブだけ置換しthres
   }
   const invalid = structuredClone(cfg.detect);
   invalid.silenceCompaction = { enabled: true, preset: "unknown" as "gentle" };
-  assert.throws(() => resolveDetectCandidateParams(invalid), /preset は gentle \| balanced \| tight/);
+  assert.throws(() => resolveDetectCandidateParams(invalid), /preset は gentle .* compact-tight/);
+});
+
+test("compact presetはcalibration-onlyから詰め方向へ単調", () => {
+  const calibrationOnly = { minSilenceSec: 0.7, padSec: 0.15, minKeepSec: 0.5 };
+  const compact = [
+    SILENCE_COMPACTION_PRESETS["compact-gentle"],
+    SILENCE_COMPACTION_PRESETS["compact-balanced"],
+    SILENCE_COMPACTION_PRESETS["compact-tight"],
+  ];
+  let previous = calibrationOnly;
+  for (const current of compact) {
+    assert.ok(current.minSilenceSec <= previous.minSilenceSec);
+    assert.ok(current.padSec <= previous.padSec);
+    assert.ok(current.minKeepSec >= previous.minKeepSec);
+    previous = current;
+  }
 });
 
 test("silenceCompaction offはAutoCuts byte等価、enabledだけmetadata追加", () => {
@@ -67,8 +86,12 @@ test("config silenceCompaction validation", () => {
     );
     const path = join(dir, "config.yaml"); writeFileSync(path, active);
     assert.deepEqual(loadConfig(path).detect.silenceCompaction, { enabled: true, preset: "balanced" });
+    writeFileSync(path, active.replace("preset: balanced", "preset: compact-balanced"));
+    assert.deepEqual(loadConfig(path).detect.silenceCompaction, {
+      enabled: true, preset: "compact-balanced",
+    });
     writeFileSync(path, active.replace("preset: balanced", "preset: unknown"));
-    assert.throws(() => loadConfig(path), /preset は.*gentle.*balanced.*tight/);
+    assert.throws(() => loadConfig(path), /preset は.*gentle.*balanced.*tight.*compact-gentle.*compact-balanced.*compact-tight/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -145,11 +168,7 @@ const snapshot = (dir: string) => Object.fromEntries(readdirSync(dir).sort().map
 test("compaction-sweep CLIは36件・JSON決定論・録画read-only", () => {
   const dir = fixture(); const configDir = mkdtempSync(join(tmpdir(), "cutflow-compaction-config-"));
   try {
-    const source = readFileSync(resolve("config.yaml"), "utf8");
-    const active = source.replace(
-      "  silenceCutReason: 無音",
-      "  silenceCutReason: 無音\n  calibration:\n    enabled: true\n    method: silencedetect-occupancy-v1\n    floorOffsetDb: 12",
-    );
+    const active = readFileSync(resolve("config.yaml"), "utf8");
     const configPath = join(configDir, "config.yaml"); writeFileSync(configPath, active);
     const before = snapshot(dir);
     const args = [cli, "--config", configPath, "compaction-sweep", dir, "--json"];
@@ -167,12 +186,22 @@ test("compaction-sweep CLIは36件・JSON決定論・録画read-only", () => {
 });
 
 test("compaction-sweep CLIはcalibration offを明示拒否", () => {
-  const dir = fixture();
+  const dir = fixture(); const configDir = mkdtempSync(join(tmpdir(), "cutflow-compaction-off-config-"));
   try {
-    const result = spawnSync(process.execPath, [cli, "compaction-sweep", dir, "--json"], { encoding: "utf8" });
+    const source = readFileSync(resolve("config.yaml"), "utf8");
+    const off = source.replace(
+      "    enabled: true\n    method: silencedetect-occupancy-v1\n    floorOffsetDb: 12",
+      "    enabled: false\n    method: silencedetect-occupancy-v1\n    floorOffsetDb: 12",
+    );
+    const configPath = join(configDir, "config.yaml"); writeFileSync(configPath, off);
+    const result = spawnSync(
+      process.execPath, [cli, "--config", configPath, "compaction-sweep", dir, "--json"],
+      { encoding: "utf8" },
+    );
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /detect\.calibration\.enabled: true が必要/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+    rmSync(configDir, { recursive: true, force: true });
   }
 });

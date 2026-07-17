@@ -61,17 +61,23 @@ detect:
   silenceCutReason: 無音
   # 収録ごとのsilencedetect無音占有率からthresholdを自動較正するopt-in。
   # 省略または enabled:false は上の silenceDb をそのまま使う従来動作。
-  # calibration:
-  #   enabled: true
-  #   method: silencedetect-occupancy-v1
-  #   floorOffsetDb: 12
+  # 2026-07-17 有効化(V6 の前提。詳細は docs/programs/deterministic-calibration-program.md §10)
+  calibration:
+    enabled: true
+    method: silencedetect-occupancy-v1
+    floorOffsetDb: 12
   # 境界thresholdとは独立に、無音圧縮の時間3ノブだけをpresetで選ぶopt-in。
+  # V4の gentle/balanced/tight は余白を広げる系列。compact-* は較正単独を
+  # 起点に詰める系列(除去量は gentle < balanced < tight、全て実録discard 0)。
+  # V6 の帰属を保つため、次の新規収録の V6 測定完了までは off(同 §10)。
   # silenceCompaction:
   #   enabled: true
-  #   preset: balanced # gentle | balanced | tight
+  #   preset: compact-balanced
+  #   # gentle | balanced | tight | compact-gentle | compact-balanced | compact-tight
   # keep 端を実音声 RMS の発話エッジ+padSec へ詰める opt-in(C7)。
   # 省略/false は従来の keep 端のまま(バイト等価)。測定系は boundary-check と同じ
   # (mono 8kHz PCM16LE / 100ms窓 p5 床)。
+  # 相互作用は測定済み。V6 の帰属を保つため測定完了までは off(calibration-program §10)
   # edgeTrim:
   #   enabled: true
   #   floorOffsetDb: 12 # 発話とみなす閾値 = 床 + これ(dB)

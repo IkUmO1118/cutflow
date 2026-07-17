@@ -24,14 +24,23 @@ export const SILENCE_COMPACTION_PRESETS = {
   gentle: { minSilenceSec: 1, padSec: 0.3, minKeepSec: 0.3 },
   balanced: { minSilenceSec: 0.7, padSec: 0.3, minKeepSec: 0.5 },
   tight: { minSilenceSec: 1, padSec: 0.3, minKeepSec: 0.8 },
+  // calibration-only(.7/.15/.5)から詰め方向へ単調に振るopt-in系列。
+  // 2026-07-12実測: removed 270.74 -> 278.46 -> 295.23秒、全てdiscard 0。
+  "compact-gentle": { minSilenceSec: 0.7, padSec: 0.1, minKeepSec: 0.5 },
+  "compact-balanced": { minSilenceSec: 0.7, padSec: 0.05, minKeepSec: 0.5 },
+  "compact-tight": { minSilenceSec: 0.6, padSec: 0.05, minKeepSec: 0.5 },
 } as const;
+
+export type SilenceCompactionPreset = keyof typeof SILENCE_COMPACTION_PRESETS;
 
 export function resolveDetectCandidateParams(cfg: Config["detect"]): DetectParams {
   if (
     cfg.silenceCompaction?.enabled === true &&
     !Object.prototype.hasOwnProperty.call(SILENCE_COMPACTION_PRESETS, cfg.silenceCompaction.preset)
   ) {
-    throw new Error(`detect.silenceCompaction.preset は gentle | balanced | tight である必要があります`);
+    throw new Error(
+      `detect.silenceCompaction.preset は ${Object.keys(SILENCE_COMPACTION_PRESETS).join(" | ")} である必要があります`,
+    );
   }
   const selected = cfg.silenceCompaction?.enabled === true
     ? SILENCE_COMPACTION_PRESETS[cfg.silenceCompaction.preset]

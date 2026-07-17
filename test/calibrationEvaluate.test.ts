@@ -97,7 +97,11 @@ test("program primaryはbaseline比tail減少・5pt改善・p<.05を全要求す
   assert.equal(evaluateProgramPrimary(baseline, variant("balanced", 2), comparison(0.05, 0.049)), "not-achieved");
   assert.equal(evaluateProgramPrimary(baseline, balanced, comparison(0.049999, 0.001)), "not-achieved");
   assert.equal(evaluateProgramPrimary(baseline, balanced, comparison(0.05, 0.05)), "not-achieved");
-  assert.deepEqual(CALIBRATION_EVALUATION_VARIANTS, ["baseline", "calibration-only", "gentle", "balanced", "tight"]);
+  assert.deepEqual(CALIBRATION_EVALUATION_VARIANTS, [
+    "baseline", "calibration-only", "gentle", "balanced", "tight",
+    "calibration+edgeTrim", "compact-gentle", "compact-balanced", "compact-tight",
+    "calibration+edgeTrim+compact-balanced",
+  ]);
 });
 
 test("limited defect improvementはtail減少とrescue点数または秒数の改善を要求する", () => {
@@ -135,8 +139,9 @@ const snapshot = (dir: string) => Object.fromEntries(readdirSync(dir).sort().map
   name, readFileSync(join(dir, name)).toString("base64"),
 ]));
 
-test("calibration-evaluate CLIはapproval必須・固定順・決定論・録画read-only", () => {
-  const dir = fixture(true); const noApproval = fixture(false);
+test("calibration-evaluate CLIは固定順・決定論・録画read-onlyでhuman final有無に応じて列を切り替える", () => {
+  const dir = fixture(true); const noApproval = fixture(false); const noCutplan = fixture(false);
+  rmSync(join(noCutplan, "cutplan.json"));
   try {
     const before = snapshot(dir);
     const first = execFileSync(process.execPath, [cli, "calibration-evaluate", dir, "--json"], { encoding: "utf8" });
@@ -146,25 +151,64 @@ test("calibration-evaluate CLIはapproval必須・固定順・決定論・録画
       reference: { humanApproved: boolean };
       floor: { method: string };
       primaryCandidate: string;
-      variants: Array<{ name: string }>;
-      comparisons: Record<string, unknown>;
-      hypotheses: { h6: string; program: string };
-      verdict: { h6: string; programSuccess: string; limitedDefectImprovement: boolean };
+      variants: Array<{
+        name: string;
+        tailSpeechCount: number;
+        candidateRemovedSec: number;
+        keepCandidateCount: number;
+        exact?: unknown;
+        direction?: unknown;
+      }>;
+      comparisons?: Record<string, unknown>;
+      hypotheses?: { h6: string; program: string };
+      verdict?: { h6: string; programSuccess: string; limitedDefectImprovement: boolean };
     };
     assert.equal(report.reference.humanApproved, true);
     assert.equal(report.floor.method, "silencedetect-occupancy-v1");
     assert.equal(report.primaryCandidate, "balanced");
     assert.deepEqual(report.variants.map((item) => item.name), [...CALIBRATION_EVALUATION_VARIANTS]);
-    assert.deepEqual(Object.keys(report.comparisons), ["h6Primary", "programPrimary"]);
-    assert.equal(report.verdict.h6, report.hypotheses.h6);
-    assert.equal(report.verdict.programSuccess, report.hypotheses.program);
-    assert.equal(typeof report.verdict.limitedDefectImprovement, "boolean");
+    assert.deepEqual(Object.keys(report.comparisons!), ["h6Primary", "programPrimary"]);
+    assert.equal(report.verdict!.h6, report.hypotheses!.h6);
+    assert.equal(report.verdict!.programSuccess, report.hypotheses!.program);
+    assert.equal(typeof report.verdict!.limitedDefectImprovement, "boolean");
+    for (const item of report.variants) {
+      assert.equal(typeof item.tailSpeechCount, "number");
+      assert.equal(typeof item.candidateRemovedSec, "number");
+      assert.equal(typeof item.keepCandidateCount, "number");
+      assert.ok(item.exact !== undefined);
+      assert.ok(item.direction !== undefined);
+    }
     assert.deepEqual(snapshot(dir), before);
     assert.doesNotMatch(first, /generatedAt|createdAt|executedAt/);
     assert.doesNotMatch(first, new RegExp(dir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-    const refused = spawnSync(process.execPath, [cli, "calibration-evaluate", noApproval], { encoding: "utf8" });
-    assert.notEqual(refused.status, 0); assert.match(refused.stderr, /承認レコードがありません/);
+    const unapprovedBefore = snapshot(noApproval);
+    const degraded = spawnSync(
+      process.execPath, [cli, "calibration-evaluate", noApproval, "--json"], { encoding: "utf8" },
+    );
+    assert.equal(degraded.status, 0, degraded.stderr);
+    const degradedReport = JSON.parse(degraded.stdout) as typeof report;
+    assert.deepEqual(degradedReport.reference, { humanApproved: false });
+    assert.equal(degradedReport.comparisons, undefined);
+    assert.equal(degradedReport.hypotheses, undefined);
+    assert.equal(degradedReport.verdict, undefined);
+    assert.deepEqual(degradedReport.variants.map((item) => item.name), [...CALIBRATION_EVALUATION_VARIANTS]);
+    for (const item of degradedReport.variants) {
+      assert.equal(item.exact, undefined);
+      assert.equal(item.direction, undefined);
+      assert.equal(typeof item.tailSpeechCount, "number");
+      assert.equal(typeof item.candidateRemovedSec, "number");
+      assert.equal(typeof item.keepCandidateCount, "number");
+    }
+    assert.deepEqual(snapshot(noApproval), unapprovedBefore);
+    const noCutplanBefore = snapshot(noCutplan);
+    const withoutCutplan = spawnSync(
+      process.execPath, [cli, "calibration-evaluate", noCutplan, "--json"], { encoding: "utf8" },
+    );
+    assert.equal(withoutCutplan.status, 0, withoutCutplan.stderr);
+    assert.deepEqual(JSON.parse(withoutCutplan.stdout).reference, { humanApproved: false });
+    assert.deepEqual(snapshot(noCutplan), noCutplanBefore);
   } finally {
     rmSync(dir, { recursive: true, force: true }); rmSync(noApproval, { recursive: true, force: true });
+    rmSync(noCutplan, { recursive: true, force: true });
   }
 });

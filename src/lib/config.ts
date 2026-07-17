@@ -179,7 +179,9 @@ export interface Config {
     /** threshold較正とは独立に、無音圧縮の時間3ノブだけをpresetで置換するopt-in。 */
     silenceCompaction?: {
       enabled: boolean;
-      preset: "gentle" | "balanced" | "tight";
+      preset:
+        | "gentle" | "balanced" | "tight"
+        | "compact-gentle" | "compact-balanced" | "compact-tight";
     };
     /** keep 端を実音声 RMS の発話エッジ+padSec へ詰める opt-in(C7)。
      *  省略/enabled:false は従来の keep 端のまま=出力バイト等価。 */
@@ -1044,8 +1046,14 @@ function validateWorkflowConfig(cfg: Config): string[] {
     if (typeof silenceCompaction.enabled !== "boolean") {
       errors.push("detect.silenceCompaction.enabled は boolean で指定してください");
     }
-    if (!['gentle', 'balanced', 'tight'].includes(silenceCompaction.preset as string)) {
-      errors.push('detect.silenceCompaction.preset は "gentle" | "balanced" | "tight" で指定してください');
+    if (![
+      'gentle', 'balanced', 'tight',
+      'compact-gentle', 'compact-balanced', 'compact-tight',
+    ].includes(silenceCompaction.preset as string)) {
+      errors.push(
+        'detect.silenceCompaction.preset は "gentle" | "balanced" | "tight" | ' +
+        '"compact-gentle" | "compact-balanced" | "compact-tight" で指定してください',
+      );
     }
   }
   const edgeTrim = cfg.detect?.edgeTrim as Record<string, unknown> | undefined;

@@ -10,7 +10,7 @@ import {
   resolveEffectiveSilenceDb,
   silentOccupancyRatio,
 } from "../src/lib/silenceFloor.ts";
-import { detect, detectAutoCuts } from "../src/stages/detect.ts";
+import { detect, detectAutoCuts, resolveDetectCandidateParams } from "../src/stages/detect.ts";
 import { evaluateHoldout, selectFloorOffset } from "../src/stages/floorCalibration.ts";
 import type { FloorCalibrationReport } from "../src/stages/floorCalibration.ts";
 
@@ -147,8 +147,14 @@ test("detect calibration offは従来byte parity、enabledはmetadataを記録",
   const dir = makeRecording();
   try {
     const baseCfg = loadConfig();
-    const expected = await detectAutoCuts(join(dir, "mic.wav"), 1, baseCfg.detect);
-    const offCfg = structuredClone(baseCfg);
+    const legacyCfg = structuredClone(baseCfg);
+    delete legacyCfg.detect.calibration;
+    delete legacyCfg.detect.silenceCompaction;
+    delete legacyCfg.detect.edgeTrim;
+    const expected = await detectAutoCuts(
+      join(dir, "mic.wav"), 1, resolveDetectCandidateParams(legacyCfg.detect),
+    );
+    const offCfg = structuredClone(legacyCfg);
     offCfg.detect.calibration = {
       enabled: false,
       method: "silencedetect-occupancy-v1",
@@ -159,7 +165,7 @@ test("detect calibration offは従来byte parity、enabledはmetadataを記録",
     assert.equal(readFileSync(join(dir, "cuts.auto.json"), "utf8"), JSON.stringify(expected, null, 2));
     assert.equal("calibration" in off.params, false);
 
-    const enabledCfg = structuredClone(baseCfg);
+    const enabledCfg = structuredClone(legacyCfg);
     enabledCfg.detect.calibration = {
       enabled: true,
       method: "silencedetect-occupancy-v1",
@@ -174,7 +180,7 @@ test("detect calibration offは従来byte parity、enabledはmetadataを記録",
     });
     assert.equal(enabled.params.silenceDb, -47);
 
-    const invalidMethodCfg = structuredClone(baseCfg);
+    const invalidMethodCfg = structuredClone(legacyCfg);
     invalidMethodCfg.detect.calibration = {
       enabled: true,
       method: "not-supported" as "silencedetect-occupancy-v1",
@@ -189,11 +195,7 @@ test("detect calibration offは従来byte parity、enabledはmetadataを記録",
 test("config calibration validationと読込", () => {
   const dir = mkdtempSync(join(tmpdir(), "cutflow-floor-config-"));
   try {
-    const source = readFileSync(resolve("config.yaml"), "utf8");
-    const active = source.replace(
-      "  silenceCutReason: 無音",
-      "  silenceCutReason: 無音\n  calibration:\n    enabled: true\n    method: silencedetect-occupancy-v1\n    floorOffsetDb: 12",
-    );
+    const active = readFileSync(resolve("config.yaml"), "utf8");
     const path = join(dir, "config.yaml");
     writeFileSync(path, active);
     assert.deepEqual(loadConfig(path).detect.calibration, {

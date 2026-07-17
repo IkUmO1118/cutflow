@@ -249,7 +249,9 @@ export interface AutoCuts {
       effectiveSilenceDb: number;
     };
     silenceCompaction?: {
-      preset: "gentle" | "balanced" | "tight";
+      preset:
+        | "gentle" | "balanced" | "tight"
+        | "compact-gentle" | "compact-balanced" | "compact-tight";
       minKeepSec: number;
     };
     /** keep 端の実音声 RMS トリム(C7)の記録。detect.edgeTrim 有効時のみ */

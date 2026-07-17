@@ -21,6 +21,8 @@ import { cutplanFromAutoKeeps } from "./silenceSweep.ts";
 export const COMPACTION_MIN_SILENCE_GRID = [0.3, 0.5, 0.7, 1] as const;
 export const COMPACTION_PAD_GRID = [0.05, 0.15, 0.3] as const;
 export const COMPACTION_MIN_KEEP_GRID = [0.3, 0.5, 0.8] as const;
+export const V4_SILENCE_COMPACTION_PRESETS = ["gentle", "balanced", "tight"] as const;
+type V4SilenceCompactionPreset = typeof V4_SILENCE_COMPACTION_PRESETS[number];
 
 export interface CompactionSweepResult {
   minSilenceSec: number;
@@ -53,7 +55,7 @@ export interface CompactionSweepReport {
     candidateCount: number;
   };
   results: CompactionSweepResult[];
-  selectedPresets: Record<keyof typeof SILENCE_COMPACTION_PRESETS, CompactionSweepResult>;
+  selectedPresets: Record<V4SilenceCompactionPreset, CompactionSweepResult>;
   twoThreshold: { status: "not-adopted"; reason: "dominated-or-insufficient-gain" };
   hypothesis: { h7: "supported" | "rejected" | "inconclusive" };
 }
@@ -71,7 +73,7 @@ export async function collectCompactionSilences(
 }
 
 export function evaluateH7(
-  selected: Record<keyof typeof SILENCE_COMPACTION_PRESETS, CompactionSweepResult>,
+  selected: Record<V4SilenceCompactionPreset, CompactionSweepResult>,
 ): "supported" | "rejected" | "inconclusive" {
   const values = [selected.gentle, selected.balanced, selected.tight];
   if (!values.every((result) => result.effectiveSilenceDb === values[0]!.effectiveSilenceDb)) {
@@ -147,7 +149,7 @@ export async function compactionSweep(dir: string, cfg: Config): Promise<Compact
       }
     }
   }
-  const resultForPreset = (preset: keyof typeof SILENCE_COMPACTION_PRESETS) => {
+  const resultForPreset = (preset: V4SilenceCompactionPreset) => {
     const target = SILENCE_COMPACTION_PRESETS[preset];
     const result = results.find((item) =>
       item.minSilenceSec === target.minSilenceSec && item.padSec === target.padSec &&

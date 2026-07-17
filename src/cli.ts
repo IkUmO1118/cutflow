@@ -722,7 +722,7 @@ program
 
 program
   .command("calibration-evaluate <dir>")
-  .description("固定baseline/calibration-only/3presetを承認済みhuman境界へ事前固定比較する(read-only)")
+  .description("V6の固定10 variantをboundary-check同一測定系でread-only比較する(human finalは任意)")
   .option("--json", "決定論的な CalibrationEvaluateReport JSON を標準出力に出す")
   .action(async (dir: string, opts: { json?: boolean }) => {
     const cfg = loadConfig(program.opts().config);

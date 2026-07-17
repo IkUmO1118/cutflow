@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { isCutplanApproved } from "../lib/approval.ts";
 import type { Config } from "../lib/config.ts";
 import { detectSilence } from "../lib/ffmpeg.ts";
+import { resolveEdgeTrimCfg, trimKeepEdges } from "../lib/edgeTrim.ts";
 import { estimateOperationalFloor, FLOOR_METHOD, resolveEffectiveSilenceDb } from "../lib/silenceFloor.ts";
 import type { CutPlan, Interval, Manifest } from "../types.ts";
 import { analyzeBoundaryDirection } from "./boundaryDirection.ts";
@@ -12,6 +13,8 @@ import { boundaryAgreement, boundaryExactVector, cutplanFromAutoKeeps } from "./
 
 export const CALIBRATION_EVALUATION_VARIANTS = [
   "baseline", "calibration-only", "gentle", "balanced", "tight",
+  "calibration+edgeTrim", "compact-gentle", "compact-balanced", "compact-tight",
+  "calibration+edgeTrim+compact-balanced",
 ] as const;
 type VariantName = typeof CALIBRATION_EVALUATION_VARIANTS[number];
 
@@ -21,8 +24,8 @@ export interface EvaluationVariant {
   tailSpeechCount: number;
   candidateRemovedSec: number;
   keepCandidateCount: number;
-  exact: { matched: number; total: number; ratio: number; vector: boolean[] };
-  direction: {
+  exact?: { matched: number; total: number; ratio: number; vector: boolean[] };
+  direction?: {
     expandedPoints: number;
     expandedSec: number;
     narrowedPoints: number;
@@ -46,16 +49,18 @@ export interface McNemarComparison {
 
 export interface CalibrationEvaluateReport {
   version: 1;
-  reference: { humanApproved: true; humanKeepCount: number; humanBoundaryCount: number };
+  reference:
+    | { humanApproved: true; humanKeepCount: number; humanBoundaryCount: number }
+    | { humanApproved: false };
   floor: { method: typeof FLOOR_METHOD; floorDb: number; offsetDb: 12; effectiveSilenceDb: number };
   primaryCandidate: "balanced";
   variants: EvaluationVariant[];
-  comparisons: { h6Primary: McNemarComparison; programPrimary: McNemarComparison };
-  hypotheses: {
+  comparisons?: { h6Primary: McNemarComparison; programPrimary: McNemarComparison };
+  hypotheses?: {
     h6: "supported" | "rejected" | "inconclusive";
     program: "achieved" | "not-achieved";
   };
-  verdict: {
+  verdict?: {
     limitedDefectImprovement: boolean;
     h6: "supported" | "rejected" | "inconclusive";
     programSuccess: "achieved" | "not-achieved";
@@ -114,8 +119,8 @@ export function evaluateH6Primary(
   calibrationOnly: EvaluationVariant,
   comparison: McNemarComparison,
 ): "supported" | "rejected" | "inconclusive" {
-  const rescueWorsened = calibrationOnly.direction.expandedPoints > baseline.direction.expandedPoints ||
-    calibrationOnly.direction.expandedSec > baseline.direction.expandedSec;
+  const rescueWorsened = calibrationOnly.direction!.expandedPoints > baseline.direction!.expandedPoints ||
+    calibrationOnly.direction!.expandedSec > baseline.direction!.expandedSec;
   if (
     calibrationOnly.tailSpeechCount < baseline.tailSpeechCount &&
     comparison.agreementDelta >= 0.05 && comparison.oneSidedImprovementP < 0.05 &&
@@ -144,16 +149,18 @@ export function evaluateLimitedDefectImprovement(
   calibrationOnly: EvaluationVariant,
 ): boolean {
   return calibrationOnly.tailSpeechCount < baseline.tailSpeechCount && (
-    calibrationOnly.direction.expandedPoints < baseline.direction.expandedPoints ||
-    calibrationOnly.direction.expandedSec < baseline.direction.expandedSec
+    calibrationOnly.direction!.expandedPoints < baseline.direction!.expandedPoints ||
+    calibrationOnly.direction!.expandedSec < baseline.direction!.expandedSec
   );
 }
 
 export async function calibrationEvaluate(dir: string, _cfg: Config): Promise<CalibrationEvaluateReport> {
   const manifest = JSON.parse(readFileSync(resolve(dir, "manifest.json"), "utf8")) as Manifest;
-  const humanCutplan = JSON.parse(readFileSync(resolve(dir, "cutplan.json"), "utf8")) as CutPlan;
-  const gate = isCutplanApproved(dir, humanCutplan);
-  if (!gate.ok) throw new Error(`human final として使えません: ${gate.reason}`);
+  const cutplanPath = resolve(dir, "cutplan.json");
+  const humanCutplan = existsSync(cutplanPath)
+    ? JSON.parse(readFileSync(cutplanPath, "utf8")) as CutPlan
+    : undefined;
+  const hasHumanFinal = humanCutplan !== undefined && isCutplanApproved(dir, humanCutplan).ok;
   const audioPath = resolve(dir, manifest.audio.micWav);
   if (!existsSync(audioPath)) throw new Error(`マイク音声が見つかりません: ${audioPath}`);
   const floor = await estimateOperationalFloor(
@@ -162,14 +169,34 @@ export async function calibrationEvaluate(dir: string, _cfg: Config): Promise<Ca
   );
   const effectiveSilenceDb = resolveEffectiveSilenceDb(floor.floorDb, 12);
   const samples = await decodeBoundaryPcm(audioPath);
-  const humanKeeps = humanCutplan.segments.filter((segment) => segment.action === "keep");
-  const definitions: Array<{ name: VariantName; params: EvaluationVariant["params"] }> = [
+  const humanKeeps = hasHumanFinal
+    ? humanCutplan.segments.filter((segment) => segment.action === "keep")
+    : undefined;
+  const definitions: Array<{
+    name: VariantName;
+    params: EvaluationVariant["params"];
+    edgeTrim?: true;
+  }> = [
     { name: "baseline", params: { silenceDb: -35, minSilenceSec: 0.7, padSec: 0.15, minKeepSec: 0.5 } },
     { name: "calibration-only", params: { silenceDb: effectiveSilenceDb, minSilenceSec: 0.7, padSec: 0.15, minKeepSec: 0.5 } },
     ...(["gentle", "balanced", "tight"] as const).map((name) => ({
       name,
       params: { silenceDb: effectiveSilenceDb, ...SILENCE_COMPACTION_PRESETS[name] },
     })),
+    {
+      name: "calibration+edgeTrim",
+      params: { silenceDb: effectiveSilenceDb, minSilenceSec: 0.7, padSec: 0.15, minKeepSec: 0.5 },
+      edgeTrim: true,
+    },
+    ...(["compact-gentle", "compact-balanced", "compact-tight"] as const).map((name) => ({
+      name,
+      params: { silenceDb: effectiveSilenceDb, ...SILENCE_COMPACTION_PRESETS[name] },
+    })),
+    {
+      name: "calibration+edgeTrim+compact-balanced",
+      params: { silenceDb: effectiveSilenceDb, ...SILENCE_COMPACTION_PRESETS["compact-balanced"] },
+      edgeTrim: true,
+    },
   ];
   const silenceCache = new Map<string, Interval[]>();
   const variants: EvaluationVariant[] = [];
@@ -180,34 +207,54 @@ export async function calibrationEvaluate(dir: string, _cfg: Config): Promise<Ca
       silences = await detectSilence(audioPath, definition.params.silenceDb, definition.params.minSilenceSec);
       silenceCache.set(key, silences);
     }
-    const cuts = buildAutoCuts(silences, manifest.durationSec, definition.params);
+    const baseCuts = buildAutoCuts(silences, manifest.durationSec, definition.params);
+    const keepSegments = definition.edgeTrim === true
+      ? trimKeepEdges(
+        baseCuts.keepSegments,
+        samples,
+        resolveEdgeTrimCfg({ edgeTrim: { enabled: true } } as Config["detect"], definition.params.minKeepSec),
+      ).keeps
+      : baseCuts.keepSegments;
+    const keptDurationSec = keepSegments.reduce((sum, keep) => sum + keep.end - keep.start, 0);
+    const cuts = { ...baseCuts, keepSegments, keptDurationSec: round2(keptDurationSec) };
     const memoryCutplan = cutplanFromAutoKeeps(cuts.keepSegments, manifest.durationSec);
     const safety = analyzeBoundarySamples(samples, memoryCutplan, manifest.durationSec);
-    const direction = analyzeBoundaryDirection(cuts.keepSegments, humanCutplan, manifest.durationSec, definition.params);
-    const vector = boundaryExactVector(humanKeeps, cuts.keepSegments);
-    const agreement = boundaryAgreement(humanKeeps, cuts.keepSegments);
+    const direction = hasHumanFinal
+      ? analyzeBoundaryDirection(cuts.keepSegments, humanCutplan, manifest.durationSec, definition.params)
+      : undefined;
+    const vector = humanKeeps === undefined ? undefined : boundaryExactVector(humanKeeps, cuts.keepSegments);
+    const agreement = humanKeeps === undefined ? undefined : boundaryAgreement(humanKeeps, cuts.keepSegments);
     variants.push({
       name: definition.name,
       params: definition.params,
       tailSpeechCount: safety.summary.discarded,
       candidateRemovedSec: round2(cuts.originalDurationSec - cuts.keptDurationSec),
       keepCandidateCount: cuts.keepSegments.length,
-      exact: { ...agreement, vector },
-      direction: {
+      ...(agreement === undefined || vector === undefined ? {} : { exact: { ...agreement, vector } }),
+      ...(direction === undefined ? {} : { direction: {
         expandedPoints: direction.boundaries.expanded,
         expandedSec: direction.duration.expandedSec,
         narrowedPoints: direction.boundaries.narrowed,
         narrowedSec: direction.duration.narrowedSec,
         ambiguousPoints: direction.boundaries.ambiguous,
-      },
+      } }),
     });
+  }
+  if (!hasHumanFinal || humanKeeps === undefined) {
+    return {
+      version: 1,
+      reference: { humanApproved: false },
+      floor: { method: FLOOR_METHOD, floorDb: floor.floorDb, offsetDb: 12, effectiveSilenceDb },
+      primaryCandidate: "balanced",
+      variants,
+    };
   }
   const byName = (name: VariantName) => variants.find((variant) => variant.name === name)!;
   const baseline = byName("baseline");
   const calibrationOnly = byName("calibration-only");
   const balanced = byName("balanced");
-  const h6Primary = exactMcNemar("baseline", "calibration-only", baseline.exact.vector, calibrationOnly.exact.vector);
-  const programPrimary = exactMcNemar("baseline", "balanced", baseline.exact.vector, balanced.exact.vector);
+  const h6Primary = exactMcNemar("baseline", "calibration-only", baseline.exact!.vector, calibrationOnly.exact!.vector);
+  const programPrimary = exactMcNemar("baseline", "balanced", baseline.exact!.vector, balanced.exact!.vector);
   const h6 = evaluateH6Primary(baseline, calibrationOnly, h6Primary);
   const program = evaluateProgramPrimary(baseline, balanced, programPrimary);
   return {
@@ -227,9 +274,17 @@ export async function calibrationEvaluate(dir: string, _cfg: Config): Promise<Ca
 }
 
 export function formatCalibrationEvaluateReport(report: CalibrationEvaluateReport): string[] {
-  const lines = [`calibration-evaluate: H6 ${report.hypotheses.h6} / program ${report.hypotheses.program}`];
+  const lines = report.hypotheses === undefined
+    ? ["calibration-evaluate: human final なし / V6 primary (discard)"]
+    : [`calibration-evaluate: H6 ${report.hypotheses.h6} / program ${report.hypotheses.program}`];
   for (const variant of report.variants) {
-    lines.push(`${variant.name}: tail ${variant.tailSpeechCount} / exact ${variant.exact.matched}/${variant.exact.total} / removed ${variant.candidateRemovedSec}s`);
+    const humanColumns = variant.exact === undefined
+      ? ""
+      : ` / exact ${variant.exact.matched}/${variant.exact.total}`;
+    lines.push(
+      `${variant.name}: discard ${variant.tailSpeechCount}${humanColumns}` +
+      ` / removed ${variant.candidateRemovedSec}s / keep ${variant.keepCandidateCount}`,
+    );
   }
   return lines;
 }
