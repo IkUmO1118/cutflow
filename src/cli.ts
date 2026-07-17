@@ -74,6 +74,7 @@ import { planClean, executeClean, formatCleanReport } from "./stages/clean.ts";
 import { boundaryCheck, formatBoundaryCheckReport } from "./stages/boundaryCheck.ts";
 import { formatSilenceSweepReport, silenceSweep } from "./stages/silenceSweep.ts";
 import { floorCalibration, formatFloorCalibrationReport } from "./stages/floorCalibration.ts";
+import { boundaryDirection, formatBoundaryDirectionReport } from "./stages/boundaryDirection.ts";
 
 const program = new Command();
 program
@@ -118,6 +119,7 @@ program.hook("postAction", (_thisCommand, actionCommand) => {
   // 他コマンド・散文 describe/assert の stdout は従来どおり console.log(=不変)
   const jsonCommands = new Set([
     "describe", "assert", "doctor", "clean", "boundary-check", "silence-sweep", "floor-calibration",
+    "boundary-direction",
   ]);
   const isMcp = actionCommand.name() === "mcp";
   if (isMcp || (jsonCommands.has(actionCommand.name()) && actionCommand.opts().json === true)) {
@@ -690,6 +692,17 @@ program
     } else {
       for (const line of formatFloorCalibrationReport(report)) console.log(line);
     }
+  });
+
+program
+  .command("boundary-direction <dir>")
+  .description("承認済みhuman finalと現在設定のdetect keepを比較し、境界修正の方向を分類する(read-only)")
+  .option("--json", "決定論的な BoundaryDirectionReport JSON を標準出力に出す")
+  .action(async (dir: string, opts: { json?: boolean }) => {
+    const cfg = loadConfig(program.opts().config);
+    const report = await boundaryDirection(resolveDir(dir), cfg);
+    if (opts.json === true) console.log(JSON.stringify(report, null, 2));
+    else for (const line of formatBoundaryDirectionReport(report)) console.log(line);
   });
 
 program
