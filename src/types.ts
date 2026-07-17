@@ -248,6 +248,10 @@ export interface AutoCuts {
       floorOffsetDb: number;
       effectiveSilenceDb: number;
     };
+    silenceCompaction?: {
+      preset: "gentle" | "balanced" | "tight";
+      minKeepSec: number;
+    };
   };
   /** 無音区間(この区間がカット候補。補集合=発話区間は render の
    * BGM ダッキングにも使われる) */

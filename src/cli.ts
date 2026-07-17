@@ -75,6 +75,7 @@ import { boundaryCheck, formatBoundaryCheckReport } from "./stages/boundaryCheck
 import { formatSilenceSweepReport, silenceSweep } from "./stages/silenceSweep.ts";
 import { floorCalibration, formatFloorCalibrationReport } from "./stages/floorCalibration.ts";
 import { boundaryDirection, formatBoundaryDirectionReport } from "./stages/boundaryDirection.ts";
+import { compactionSweep, formatCompactionSweepReport } from "./stages/compactionSweep.ts";
 
 const program = new Command();
 program
@@ -120,6 +121,7 @@ program.hook("postAction", (_thisCommand, actionCommand) => {
   const jsonCommands = new Set([
     "describe", "assert", "doctor", "clean", "boundary-check", "silence-sweep", "floor-calibration",
     "boundary-direction",
+    "compaction-sweep",
   ]);
   const isMcp = actionCommand.name() === "mcp";
   if (isMcp || (jsonCommands.has(actionCommand.name()) && actionCommand.opts().json === true)) {
@@ -703,6 +705,17 @@ program
     const report = await boundaryDirection(resolveDir(dir), cfg);
     if (opts.json === true) console.log(JSON.stringify(report, null, 2));
     else for (const line of formatBoundaryDirectionReport(report)) console.log(line);
+  });
+
+program
+  .command("compaction-sweep <dir>")
+  .description("較正済み境界thresholdを固定し、無音圧縮の時間3ノブ36条件をread-only比較する")
+  .option("--json", "決定論的な CompactionSweepReport JSON を標準出力に出す")
+  .action(async (dir: string, opts: { json?: boolean }) => {
+    const cfg = loadConfig(program.opts().config);
+    const report = await compactionSweep(resolveDir(dir), cfg);
+    if (opts.json === true) console.log(JSON.stringify(report, null, 2));
+    else for (const line of formatCompactionSweepReport(report)) console.log(line);
   });
 
 program

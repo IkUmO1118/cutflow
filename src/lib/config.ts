@@ -176,6 +176,11 @@ export interface Config {
       method: "silencedetect-occupancy-v1";
       floorOffsetDb: number;
     };
+    /** threshold較正とは独立に、無音圧縮の時間3ノブだけをpresetで置換するopt-in。 */
+    silenceCompaction?: {
+      enabled: boolean;
+      preset: "gentle" | "balanced" | "tight";
+    };
   };
   /** AI 設定の新しい入口。省略時は llm(旧設定)から解決し、両方無ければ claude-code */
   ai?: AiConfig;
@@ -1022,6 +1027,17 @@ function validateWorkflowConfig(cfg: Config): string[] {
       errors.push("detect.calibration.floorOffsetDb は有限の数値で指定してください");
     } else if (!Number.isInteger(detectCalibration.floorOffsetDb * 2)) {
       errors.push("detect.calibration.floorOffsetDb は0.5dB gridで指定してください");
+    }
+  }
+  const silenceCompaction = cfg.detect?.silenceCompaction as Record<string, unknown> | undefined;
+  if (silenceCompaction) {
+    errors.push(...unknownKeys(silenceCompaction, ["enabled", "preset"])
+      .map((key) => `detect.silenceCompaction.${key} は未対応です`));
+    if (typeof silenceCompaction.enabled !== "boolean") {
+      errors.push("detect.silenceCompaction.enabled は boolean で指定してください");
+    }
+    if (!['gentle', 'balanced', 'tight'].includes(silenceCompaction.preset as string)) {
+      errors.push('detect.silenceCompaction.preset は "gentle" | "balanced" | "tight" で指定してください');
     }
   }
   const editorAiReview = cfg.editor?.aiReview as Record<string, unknown> | undefined;

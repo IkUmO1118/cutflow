@@ -65,6 +65,10 @@ detect:
   #   enabled: true
   #   method: silencedetect-occupancy-v1
   #   floorOffsetDb: 12
+  # 境界thresholdとは独立に、無音圧縮の時間3ノブだけをpresetで選ぶopt-in。
+  # silenceCompaction:
+  #   enabled: true
+  #   preset: balanced # gentle | balanced | tight
 
 # カット確認用プレビュー動画
 preview:

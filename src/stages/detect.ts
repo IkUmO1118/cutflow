@@ -15,6 +15,37 @@ export interface DetectParams {
   padSec: number;
   minKeepSec: number;
   calibration?: AutoCuts["params"]["calibration"];
+  silenceCompaction?: AutoCuts["params"]["silenceCompaction"];
+}
+
+export const SILENCE_COMPACTION_PRESETS = {
+  gentle: { minSilenceSec: 1, padSec: 0.3, minKeepSec: 0.3 },
+  balanced: { minSilenceSec: 0.7, padSec: 0.3, minKeepSec: 0.5 },
+  tight: { minSilenceSec: 1, padSec: 0.3, minKeepSec: 0.8 },
+} as const;
+
+export function resolveDetectCandidateParams(cfg: Config["detect"]): DetectParams {
+  if (
+    cfg.silenceCompaction?.enabled === true &&
+    !Object.prototype.hasOwnProperty.call(SILENCE_COMPACTION_PRESETS, cfg.silenceCompaction.preset)
+  ) {
+    throw new Error(`detect.silenceCompaction.preset は gentle | balanced | tight である必要があります`);
+  }
+  const selected = cfg.silenceCompaction?.enabled === true
+    ? SILENCE_COMPACTION_PRESETS[cfg.silenceCompaction.preset]
+    : null;
+  return {
+    silenceDb: cfg.silenceDb,
+    minSilenceSec: selected?.minSilenceSec ?? cfg.minSilenceSec,
+    padSec: selected?.padSec ?? cfg.padSec,
+    minKeepSec: selected?.minKeepSec ?? cfg.minKeepSec,
+    ...(selected === null ? {} : {
+      silenceCompaction: {
+        preset: cfg.silenceCompaction!.preset,
+        minKeepSec: selected.minKeepSec,
+      },
+    }),
+  };
 }
 
 /** 検出済み無音から従来と同じ cuts.auto 算術を副作用なしで組み立てる。 */
@@ -39,6 +70,7 @@ export function buildAutoCuts(
       minSilenceSec: params.minSilenceSec,
       padSec: params.padSec,
       ...(params.calibration === undefined ? {} : { calibration: params.calibration }),
+      ...(params.silenceCompaction === undefined ? {} : { silenceCompaction: params.silenceCompaction }),
     },
     silences,
     keepSegments,
@@ -57,6 +89,15 @@ export async function detectAutoCuts(
   return buildAutoCuts(silences, durationSec, params);
 }
 
+/** 解決済み候補paramsでread-only detectする共通API。 */
+export async function detectCandidate(
+  audioPath: string,
+  durationSec: number,
+  params: DetectParams,
+): Promise<AutoCuts> {
+  return detectAutoCuts(audioPath, durationSec, params);
+}
+
 /**
  * マイク音声から無音区間を検出し、機械的なカット候補(cuts.auto.json)を
  * 生成する。ここは決定的な処理のみで LLM は使わない。
@@ -67,12 +108,7 @@ export async function detect(dir: string, cfg: Config): Promise<AutoCuts> {
     readFileSync(join(dir, "manifest.json"), "utf8"),
   ) as Manifest;
   const audioPath = join(dir, manifest.audio.micWav);
-  let params: DetectParams = {
-    silenceDb: cfg.detect.silenceDb,
-    minSilenceSec: cfg.detect.minSilenceSec,
-    padSec: cfg.detect.padSec,
-    minKeepSec: cfg.detect.minKeepSec,
-  };
+  let params = resolveDetectCandidateParams(cfg.detect);
   if (cfg.detect.calibration?.enabled === true) {
     if (cfg.detect.calibration.method !== FLOOR_METHOD) {
       throw new Error(`detect.calibration.method は ${FLOOR_METHOD} である必要があります`);
