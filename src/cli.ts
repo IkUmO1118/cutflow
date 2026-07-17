@@ -76,6 +76,7 @@ import { formatSilenceSweepReport, silenceSweep } from "./stages/silenceSweep.ts
 import { floorCalibration, formatFloorCalibrationReport } from "./stages/floorCalibration.ts";
 import { boundaryDirection, formatBoundaryDirectionReport } from "./stages/boundaryDirection.ts";
 import { compactionSweep, formatCompactionSweepReport } from "./stages/compactionSweep.ts";
+import { calibrationEvaluate, formatCalibrationEvaluateReport } from "./stages/calibrationEvaluate.ts";
 
 const program = new Command();
 program
@@ -122,6 +123,7 @@ program.hook("postAction", (_thisCommand, actionCommand) => {
     "describe", "assert", "doctor", "clean", "boundary-check", "silence-sweep", "floor-calibration",
     "boundary-direction",
     "compaction-sweep",
+    "calibration-evaluate",
   ]);
   const isMcp = actionCommand.name() === "mcp";
   if (isMcp || (jsonCommands.has(actionCommand.name()) && actionCommand.opts().json === true)) {
@@ -716,6 +718,17 @@ program
     const report = await compactionSweep(resolveDir(dir), cfg);
     if (opts.json === true) console.log(JSON.stringify(report, null, 2));
     else for (const line of formatCompactionSweepReport(report)) console.log(line);
+  });
+
+program
+  .command("calibration-evaluate <dir>")
+  .description("固定baseline/calibration-only/3presetを承認済みhuman境界へ事前固定比較する(read-only)")
+  .option("--json", "決定論的な CalibrationEvaluateReport JSON を標準出力に出す")
+  .action(async (dir: string, opts: { json?: boolean }) => {
+    const cfg = loadConfig(program.opts().config);
+    const report = await calibrationEvaluate(resolveDir(dir), cfg);
+    if (opts.json === true) console.log(JSON.stringify(report, null, 2));
+    else for (const line of formatCalibrationEvaluateReport(report)) console.log(line);
   });
 
 program

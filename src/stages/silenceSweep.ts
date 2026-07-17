@@ -85,19 +85,25 @@ export function boundaryAgreement(
   humanKeeps: Interval[],
   candidateKeeps: Interval[],
 ): { matched: number; total: number; ratio: number } {
+  const vector = boundaryExactVector(humanKeeps, candidateKeeps);
+  const matched = vector.filter(Boolean).length;
+  return {
+    matched,
+    total: vector.length,
+    ratio: round6(matched / vector.length),
+  };
+}
+
+/** human boundary出現(start/end各1)ごとのexact一致vector。重複出現も別々に保持する。 */
+export function boundaryExactVector(humanKeeps: Interval[], candidateKeeps: Interval[]): boolean[] {
   const human = humanKeeps.flatMap((keep) => [keep.start, keep.end]);
   if (human.length === 0) {
     throw new Error("人間の最終 cutplan に keep がなく、境界一致を比較できません");
   }
   const candidate = candidateKeeps.flatMap((keep) => [keep.start, keep.end]);
-  const matched = human.filter((boundary) =>
+  return human.map((boundary) =>
     candidate.some((other) => Math.abs(boundary - other) <= BOUNDARY_AGREEMENT_TOLERANCE_SEC)
-  ).length;
-  return {
-    matched,
-    total: human.length,
-    ratio: round6(matched / human.length),
-  };
+  );
 }
 
 export function evaluateSweepHypotheses(results: SilenceSweepResult[]): SilenceSweepReport["hypotheses"] {
