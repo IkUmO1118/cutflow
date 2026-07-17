@@ -67,7 +67,8 @@ export const CaptionOverlay = ({
   const [posDraft, setPosDraft] = useState<{ index: number; pos: CaptionPos } | null>(
     null,
   );
-  // アクティブなドラッグの listener 解除処理(外部変更ガードから使う)
+  // アクティブなドラッグの listener 解除処理(アンマウント時のクリーンアップと
+  // onDown の直前ドラッグ畳みから使う)
   const dragCleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
@@ -80,17 +81,9 @@ export const CaptionOverlay = ({
     return () => ro.disconnect();
   }, []);
 
-  // 外部変更ガード: ドラッグ中に captions(props)の参照が変わったら(undo /
-  // hot-reload / 外部編集などドラッグ外の要因でしか起きない)ドラッグを強制
-  // キャンセルする(listener 除去 + posDraft 破棄。stale な posDraft を残さない)
-  useEffect(() => {
-    if (dragCleanupRef.current) {
-      dragCleanupRef.current();
-      dragCleanupRef.current = null;
-      setPosDraft(null);
-      setDragging(false);
-    }
-  }, [captions]);
+  // アンマウント時に進行中ドラッグの window リスナを確実に外す
+  // (mid-drag でツリーが外れても listener が孤児化して stale commit しないように)
+  useEffect(() => () => { dragCleanupRef.current?.(); }, []);
 
   // Player は親いっぱいに広がり、コンポジションはレターボックスで内接する
   const scale = box.w > 0 && box.h > 0 ? Math.min(box.w / width, box.h / height) : 0;
@@ -113,6 +106,7 @@ export const CaptionOverlay = ({
 
   const onDown = (e: ReactPointerEvent, c: OverlayCaption) => {
     if (e.button !== 0 || scale === 0 || editing === c.index) return;
+    dragCleanupRef.current?.(); // 直前のドラッグが残っていれば先に畳む(単一ドラッグ前提)
     e.preventDefault();
     e.stopPropagation();
     onSelect(c.index);

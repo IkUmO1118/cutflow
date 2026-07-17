@@ -48,7 +48,8 @@ export const MaterialOverlay = ({
   // ドラッグ中の一時的な rect(pointerup で 1 回だけ onRectChange に確定させる。
   // move の間はこれだけを更新し、ドキュメント(overlays.json)には触れない)
   const [draft, setDraft] = useState<{ index: number; rect: Region } | null>(null);
-  // アクティブなドラッグの listener 解除処理(外部変更ガードから使う)
+  // アクティブなドラッグの listener 解除処理(アンマウント時のクリーンアップと
+  // onDown の直前ドラッグ畳みから使う)
   const dragCleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
@@ -61,17 +62,9 @@ export const MaterialOverlay = ({
     return () => ro.disconnect();
   }, []);
 
-  // 外部変更ガード: ドラッグ中に overlays(props)の参照が変わったら(undo /
-  // hot-reload / 外部編集などドラッグ外の要因でしか起きない)ドラッグを強制
-  // キャンセルする(listener 除去 + draft 破棄。stale な draft を残さない)
-  useEffect(() => {
-    if (dragCleanupRef.current) {
-      dragCleanupRef.current();
-      dragCleanupRef.current = null;
-      setDraft(null);
-      setDragging(false);
-    }
-  }, [overlays]);
+  // アンマウント時に進行中ドラッグの window リスナを確実に外す
+  // (mid-drag でツリーが外れても listener が孤児化して stale commit しないように)
+  useEffect(() => () => { dragCleanupRef.current?.(); }, []);
 
   // Player は親いっぱいに広がり、コンポジションはレターボックスで内接する
   const scale = box.w > 0 && box.h > 0 ? Math.min(box.w / width, box.h / height) : 0;
@@ -130,6 +123,7 @@ export const MaterialOverlay = ({
     handle: HandleId | null,
   ) => {
     if (e.button !== 0 || scale === 0) return;
+    dragCleanupRef.current?.(); // 直前のドラッグが残っていれば先に畳む(単一ドラッグ前提)
     e.preventDefault();
     e.stopPropagation();
     onSelect(ov.index);
