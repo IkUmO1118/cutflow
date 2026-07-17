@@ -3,7 +3,7 @@
 // のトップレベル子エントリだけで、editable / approval / other には一切触れない。
 import { readdirSync, statSync, lstatSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { fileRole, isGeneratedCache } from "../lib/files.ts";
+import { fileRole, isGeneratedCache, isGeneratedLog } from "../lib/files.ts";
 
 export type CleanTargetKind = "file" | "dir";
 
@@ -20,6 +20,7 @@ export type CleanTarget = {
 export type CleanPlan = {
   dir: string;              // 走査した収録フォルダ(絶対パス)
   cacheOnly: boolean;       // --cache-only だったか
+  logsOnly: boolean;        // --logs-only だったか(cacheOnly と排他)
   targets: CleanTarget[];   // 削除対象(relPath 昇順)
   fileCount: number;        // 実際に unlink される総ファイル数
   dirCount: number;         // 削除されるトップレベル generated ディレクトリ数
@@ -50,10 +51,18 @@ function walkDir(abs: string): { bytes: number; files: number } {
 /**
  * 削除計画を立てる純関数(削除は一切しない)。収録フォルダ直下の子エントリだけを
  * 分類し、role === "generated" のものだけを対象にする。cacheOnly なら
- * isGeneratedCache が true のものに絞る。存在しないフォルダ/空フォルダでも安全。
+ * isGeneratedCache、logsOnly なら isGeneratedLog が true のものに絞る(両者は排他)。
+ * 存在しないフォルダ/空フォルダでも安全。
  */
-export function planClean(dir: string, opts?: { cacheOnly?: boolean }): CleanPlan {
+export function planClean(
+  dir: string,
+  opts?: { cacheOnly?: boolean; logsOnly?: boolean },
+): CleanPlan {
   const cacheOnly = opts?.cacheOnly === true;
+  const logsOnly = opts?.logsOnly === true;
+  if (cacheOnly && logsOnly) {
+    throw new Error("--cache-only と --logs-only は同時に指定できません");
+  }
   const targets: CleanTarget[] = [];
   let entries: import("node:fs").Dirent[];
   try {
@@ -65,6 +74,7 @@ export function planClean(dir: string, opts?: { cacheOnly?: boolean }): CleanPla
     const name = ent.name; // readdir の name は "/" も ".." も含まない=traversal 不可
     if (fileRole(name) !== "generated") continue;      // ★安全の核: generated 以外は選ばない
     if (cacheOnly && !isGeneratedCache(name)) continue; // 軽い中間生成物は cache-only で残す
+    if (logsOnly && !isGeneratedLog(name)) continue;    // ログ以外は logs-only で残す
     const abs = join(dir, name);
     if (ent.isDirectory() && !ent.isSymbolicLink()) {
       const w = walkDir(abs);
@@ -79,6 +89,7 @@ export function planClean(dir: string, opts?: { cacheOnly?: boolean }): CleanPla
   return {
     dir,
     cacheOnly,
+    logsOnly,
     targets,
     fileCount: targets.reduce((s, t) => s + t.files, 0),
     dirCount: targets.filter((t) => t.kind === "dir").length,
@@ -118,7 +129,7 @@ export function formatBytes(bytes: number): string {
 /** 人間向けレポート行を生成(CLI が1行ずつ console.log する) */
 export function formatCleanReport(plan: CleanPlan, dryRun: boolean): string[] {
   const lines: string[] = [];
-  const scope = plan.cacheOnly ? "キャッシュのみ" : "全中間生成物";
+  const scope = plan.cacheOnly ? "キャッシュのみ" : plan.logsOnly ? "ログのみ" : "全中間生成物";
   lines.push(`掃除(${scope}) 収録フォルダ: ${plan.dir}`);
   if (plan.targets.length === 0) {
     lines.push("削除対象はありません(すでに掃除済み)");

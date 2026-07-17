@@ -140,3 +140,42 @@ export function isGeneratedCache(relPath: string): boolean {
   if (GENERATED_NAME_PATTERNS.some((re) => re.test(relPath))) return true;
   return (GENERATED_CACHE_FILES as readonly string[]).includes(relPath);
 }
+
+/** 中間生成物のうち「ログ・使い捨て下書き・検品結果」= 消してもレンダー/エディタ/
+ * proxy の動作に影響せず、かつ再生成が安価(LLM/whisper/ffprobe の重い再実行を
+ * 伴わない)なものの固定名。--logs-only が消す対象。ここに載らない generated は
+ * 意図的に残す: whisper-out.* / transcript.system.json / *.probe/(再生成が高価)、
+ * manifest.json(エディタ起動・render の必須入力)、cut.mp4 / render.* / proxy.*
+ * (リレンダー最適化・proxy)、shorts/(成果物)。GENERATED_FILES の部分集合であること。 */
+export const GENERATED_LOG_FILES = [
+  "cuts.auto.json",
+  "plan.raw.txt",
+  "plan.loop.json",
+  "plan-shorts.raw.txt",
+  "plan-materials.raw.txt",
+  "plan-effects.raw.txt",
+  "plan-bgm.raw.txt",
+  "material-fit.suggested.json",
+  "effect-fix.suggested.json",
+  "bgm-fit.suggested.json",
+  "effect-check.json",
+  "bgm-fit.json",
+  "style-check.json",
+  "preview.mp4",
+] as const;
+
+/** --logs-only が消す generated ディレクトリ(配下丸ごと)。frames/ は撮影のたびに
+ * 全消し・再撮影される自己確認 still なのでログ同然。他の *.probe/ や
+ * render.chunks/ 等は残す(高価キャッシュ or リレンダー最適化)。 */
+const GENERATED_LOG_DIRS: readonly string[] = ["frames"];
+
+/** relPath が「ログ・使い捨て下書き」かどうか(--logs-only の対象判定)。
+ * 前提として generated であること(generated 以外は常に false=belt)。判定:
+ * 1) frames/ 配下は全て log 2) 固定名は GENERATED_LOG_FILES に載るものだけ log。
+ * ショート名可変のパターン(cut.<name>.mp4 等)は log ではない(リレンダー最適化)。 */
+export function isGeneratedLog(relPath: string): boolean {
+  if (fileRole(relPath) !== "generated") return false;
+  const top = relPath.split("/")[0];
+  if (GENERATED_LOG_DIRS.includes(top)) return true;
+  return (GENERATED_LOG_FILES as readonly string[]).includes(relPath);
+}

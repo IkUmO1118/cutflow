@@ -1271,10 +1271,16 @@ program
     "再生成の重いキャッシュ(proxy/cut/render.chunks/frames/shorts/*.probe 等)だけを消し、" +
       "manifest.json / cuts.auto.json / whisper-out.* 等の軽い中間生成物は残す",
   )
+  .option(
+    "--logs-only",
+    "ログ・使い捨て下書き・検品結果(*.raw.txt / cuts.auto.json / *-fit.suggested.json / " +
+      "effect-check.json / style-check.json / preview.mp4 / frames/ 等)だけを消し、" +
+      "リレンダー最適化(cut/render.*)・proxy・whisper-out.*・manifest.json・shorts/ は残す。--cache-only とは排他",
+  )
   .option("--json", "CleanPlan を JSON で標準出力に出す(パイプ可。--dry-run と併用で機械可読な削除計画)")
-  .action((dir: string, opts: { dryRun?: boolean; cacheOnly?: boolean; json?: boolean }) => {
+  .action((dir: string, opts: { dryRun?: boolean; cacheOnly?: boolean; logsOnly?: boolean; json?: boolean }) => {
     const abs = resolveDir(dir);
-    const plan = planClean(abs, { cacheOnly: opts.cacheOnly === true });
+    const plan = planClean(abs, { cacheOnly: opts.cacheOnly === true, logsOnly: opts.logsOnly === true });
     if (opts.dryRun !== true) executeClean(abs, plan);
     if (opts.json === true) {
       console.log(JSON.stringify({ ...plan, dryRun: opts.dryRun === true }, null, 2));

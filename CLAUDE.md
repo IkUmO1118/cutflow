@@ -492,7 +492,7 @@ node src/cli.ts unapprove <dir> [--short <name>]  # 承認を取り消す
 node src/cli.ts render <dir>      # 最終レンダー(approvals.json の承認レコードが必要。boolean approved だけでは通らない)
 node src/cli.ts render <dir> --short <name>  # ショート1本だけレンダー(shorts/<name>.mp4)
 node src/cli.ts render <dir> --shorts        # approved な全ショートをレンダー(未承認はスキップ)
-node src/cli.ts clean <dir>       # 中間生成物/キャッシュを安全削除(files.ts 分類由来。編集ファイル・approvals.json・materials/・元収録・成果物は触れない)。--dry-run / --cache-only / --json
+node src/cli.ts clean <dir>       # 中間生成物/キャッシュを安全削除(files.ts 分類由来。編集ファイル・approvals.json・materials/・元収録・成果物は触れない)。--dry-run / --cache-only(重いキャッシュだけ) / --logs-only(ログ・使い捨て下書き・検品結果・preview・frames だけ。リレンダー最適化 cut/render.*・proxy・whisper-out.*・manifest・shorts は残す。--cache-only と排他) / --json
 node src/cli.ts editor <dir>      # GUI エディタ(npm run editor と同じ。終了は Ctrl+C)
 node src/cli.ts editor <dir> --detach  # バックグラウンド起動でターミナルを返す(--status / --stop で確認・停止。待受情報とログは ~/.cutflow/editor/)
 node src/cli.ts mcp <dir>         # MCP サーバ(stdio。1収録フォルダに束縛。describe/validate/frames/materials/assert/apply/id-stamp だけを露出。承認/render/plan 等は露出しない)
