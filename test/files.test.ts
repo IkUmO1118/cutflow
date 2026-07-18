@@ -36,6 +36,7 @@ const EXPECTED_GENERATED_FILES = [
   "cut.mp4",
   "cut.keeps.json",
   "render.key.json",
+  "render.report.json",
   "preview.mp4",
   "proxy.mp4",
   "proxy.key.json",
@@ -79,6 +80,7 @@ test("fileRole: editable / generated / approval / other を正しく判定する
   assert.equal(fileRole("overlays.json"), "editable");
   assert.equal(fileRole("manifest.json"), "generated");
   assert.equal(fileRole("cut.mp4"), "generated");
+  assert.equal(fileRole("render.report.json"), "generated");
   assert.equal(fileRole("material-fit.suggested.json"), "generated");
   assert.equal(fileRole("approvals.json"), "approval");
   assert.equal(fileRole("final.mp4"), "other");
@@ -173,7 +175,7 @@ test("isGeneratedLog: ログ・下書き・検品結果だけ true、最適化/p
   for (const l of ["cuts.auto.json", "plan.raw.txt", "plan.loop.json",
     "plan-shorts.raw.txt", "material-fit.suggested.json", "effect-fix.suggested.json",
     "bgm-fit.suggested.json", "effect-check.json", "bgm-fit.json", "style-check.json",
-    "preview.mp4", "frames/out10s.png", "frames/props.json"]) {
+    "render.report.json", "preview.mp4", "frames/out10s.png", "frames/props.json"]) {
     assert.equal(isGeneratedLog(l), true, `${l} は log のはず`);
   }
   // generated だが log ではない(リレンダー最適化・proxy・高価な再生成物・成果物・必須入力)

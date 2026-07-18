@@ -30,6 +30,7 @@ function makeFixture(): string {
   // generated ログ・使い捨て下書き(logs-only 対象)
   put("plan.raw.txt"); put("plan.loop.json"); put("material-fit.suggested.json");
   put("effect-fix.suggested.json"); put("bgm-fit.suggested.json"); put("bgm-fit.json");
+  put("render.report.json");
   // generated だが logs-only では残す B(再生成が高価)
   put("transcript.system.json");
   // generated パターン(ショート名可変)
@@ -120,7 +121,8 @@ test("planClean --logs-only: ログ・下書き・検品結果だけ選び、レ
     // 消えるべき A(ログ・使い捨て下書き・検品結果・preview・frames)
     for (const log of ["cuts.auto.json", "plan.raw.txt", "plan.loop.json",
       "material-fit.suggested.json", "effect-fix.suggested.json", "bgm-fit.suggested.json",
-      "effect-check.json", "bgm-fit.json", "style-check.json", "preview.mp4", "frames"]) {
+      "effect-check.json", "bgm-fit.json", "style-check.json", "render.report.json",
+      "preview.mp4", "frames"]) {
       assert.ok(picked.has(log), `${log} が logs-only 対象に無い`);
     }
     // 残すべき: リレンダー最適化・proxy・高価な再生成物・成果物・必須入力
