@@ -63,6 +63,74 @@ check ゲート(C2)がエラーで止める:
 詳しいモーションの作法(CSS/WAAPI アダプタの書き方)は
 `./motion-css-waapi.md` を見る。
 
+## backend 選択の規範
+
+### 選択規則
+
+1. まず backend 名ではなく、必要な表現能力で考える。
+2. 必要能力を満たさない候補は使わない。
+3. 素材・render profile・決定論 tier・利用可否を満たさない候補は使わない。
+   利用可否は `hyperframe-backends --json` の `status` を正とする。
+4. 残った候補から runtime cost が最小のものを選ぶ。
+5. 同点なら browser-native、依存ゼロ、byte tier の順に優先する。
+6. より重い backend へ昇格するときは、軽い候補で不足する能力を理由として
+   card HTML の冒頭コメントに1行残す。
+7. render 時に別 backend へ黙って fallback しない。fallback は生成前に
+   再計画する。
+
+初期 cost 順序(実測でのみ変更する):
+
+```text
+CSS/SVG/DOM < WAAPI < Canvas 2D < GSAP core / Lottie(既存素材あり)
+  < Raw WebGL/shader < Three.js
+```
+
+これは表現力の優劣ではなく、依存・起動・検査・失敗面・再現性・AI 生成難度を
+含む運用コスト。既存の Lottie 素材を再生する場合は、同じ絵を WAAPI で再実装
+するより Lottie の方が低コストになり得るため、文脈で補正する。重い backend
+を選べるのは brief が明示した場合か、軽い候補では満たせない固有能力がある
+場合だけとする。
+
+### capability から backend への標準対応
+
+| 表現要件 | 第一候補 | 昇格条件 |
+|---|---|---|
+| fade / translate / scale / rotate / clip / simple stagger | CSS/WAAPI | 無し。原則ここで完結 |
+| text layout / diagram / UI mock / vector shape | DOM/SVG + WAAPI | pixel 単位の大量描画が必要な場合のみ Canvas |
+| 複雑な直列・並列 timeline、label、反復可能な choreography | WAAPI、次に GSAP | WAAPI が明瞭さ・生成成功率・保守性で劣る実測がある場合(B3 実測では出ていない) |
+| AE/bodymovin 素材の再生 | Lottie SVG | 有効な JSON 素材が実在する場合だけ |
+| 2D procedural drawing / 大量の同種プリミティブ | Canvas 2D | DOM/SVG の要素数・描画コストが実測で問題になる |
+| per-pixel shader / GPU particle / procedural texture | Raw WebGL/shader(`not-wired`) | Canvas/CSS で要件を満たせないことを説明でき、GPU render 配線が完了した場合 |
+| 真の3D geometry / perspective camera / lighting / depth occlusion | Three.js(`not-wired`) | 2D transform の擬似奥行きでは満たせず、pin と GPU render 配線が追加された場合 |
+| data-driven SVG chart | 素の SVG + WAAPI | D3 は使わない |
+| 地図 | 事前取得・固定した静止画/SVG | map runtime は使わない |
+
+Raw WebGL/shader と Three.js は現在 `not-wired` であり、通常の render 経路では
+使用不可。詳細と実測結果は下記「GPU / WebGL / shader cards」を参照する。
+
+### card の過剰設計
+
+- CSS transform でできるカードに Three.js scene/camera/renderer を作る。
+- 1要素の fade/slide のために GSAP をロードする。
+- JSON 素材が無いのに「滑らかそう」という理由で Lottie を選ぶ。
+- テキスト中心のカードを Canvas/WebGL に描き、アクセシビリティ・レイアウト・
+  font readiness を自前実装する。
+- shader を使うこと自体を visual quality の根拠にする。
+- GSAP + Three.js + Lottie を同一 card へ積み、どれが時間の正本か不明にする。
+  **1 card 1 runtime** は、外部 animation runtime と時間の正本を1つにする
+  規範である。DOM/SVG/CSS は別 runtime と数えず、外部 runtime と併用できる。
+
+重い backend の使用が直ちに check error になるわけではなく、人間の明示指定は
+尊重する。ただし理由の無い重い選択は authoring レビューで差し戻す。各 runtime
+の登録・seek 規約は下記の既存節を参照する。
+
+### tooling の過剰設計
+
+- backend ごとの worked example を常に全量 prompt に入れ、例示頻度で AI の
+  選択を偏らせる。
+- 将来追加するかもしれない backend のために、現時点で汎用 plugin ABI を
+  設計する。
+
 ## seek conventions(B1)
 
 CSS/WAAPI(`class="clip"` + Web Animations)の他に、bootstrap は以下の
