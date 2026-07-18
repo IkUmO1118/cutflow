@@ -422,3 +422,15 @@ test("19: false-positive guards for remote-URL scan", () => {
   );
   assert.ok(!hasErr(c, "remote URL"));
 });
+
+test("55: raw-WebGL hf-seek card with data-hf-determinism=\"perceptual\" is check-valid (0 errors); the same card with the attribute removed is a Rule 9 error (B5)", () => {
+  const clean = checkComposition(
+    `<div data-composition-id="root" data-width="1280" data-height="720" data-hf-determinism="perceptual"><canvas class="clip" data-start="0" data-duration="4"></canvas><script>window.addEventListener('hf-seek', function(e){});</script></div>`,
+  );
+  assert.equal(clean.errors.length, 0, JSON.stringify(clean.errors, null, 2));
+
+  const noTier = checkComposition(
+    `<div data-composition-id="root" data-width="1280" data-height="720"><canvas class="clip" data-start="0" data-duration="4"></canvas><script>window.addEventListener('hf-seek', function(e){});</script></div>`,
+  );
+  assert.ok(hasErr(noTier, 'requires data-hf-determinism="perceptual"'));
+});

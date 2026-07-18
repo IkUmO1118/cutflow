@@ -245,3 +245,123 @@ Lottie は After Effects の書き出し(bodymovin/Lottie JSON)を composition
   </div>
 </html>
 ```
+
+## GPU / WebGL / shader cards(B5)
+
+生 WebGL(inline fragment shader)でカードを自己描画するための規約と、
+現状の render 対応状況をまとめる。GSAP/Lottie と違い、GPU カードは
+**ライブラリもCDNピンも不要**(下記)。
+
+### hf-seek self-draw 契約
+
+GPU カードは `window.addEventListener('hf-seek', function(e){ draw(e.detail.time);
+})` を購読し、`e.detail.time`(絶対秒)から**ハンドラ内で同期的に**描き直す
+(上記「seek conventions(B1)」の hf-seek 規約と同一)。禁止事項は
+Rule 5 と共通で、`requestAnimationFrame` / `setInterval` / `Date.now` /
+`performance.now` / `new Date()` / `Math.random` は使えない — WebGL の描画
+自体は同期呼び出し(`gl.drawArrays` 等)で完結するため、rAF ループなしで
+1フレームぶんを即座に描ける。`getContext('webgl', {preserveDrawingBuffer:
+true})` を指定し、描画バッファが capture 時点まで保持されるようにする。
+
+### `data-hf-determinism="perceptual"` は必須
+
+`hf-seek` を購読する、または `data-hf-requires="three"` を宣言するカードは
+`data-hf-determinism="perceptual"` を**必ず**宣言する(Rule 9。省略または
+`"byte"` はエラー)。
+
+### ライブラリ・CDN 不要
+
+生 WebGL・inline shader 文字列・`getContext('webgl')` はいずれも `src` 経由の
+外部フェッチではないため、composition の `default-src 'none'` CSP には
+一切ブロックされない。GSAP/Lottie のような CDN ピン留めや
+`data-hf-requires` 宣言も不要。
+
+### 実測: render 対応状況(現状は render 不可)
+
+GPU/WebGL カードは check ゲートを通る(Rule 5 の同期描画・Rule 9 の
+perceptual 宣言を満たせば 0 エラー)が、**現状の既定 gl 設定では render
+できない**。Cutflow の Remotion/Chrome(macOS)環境で実測した結果:
+
+- **既定**(`openBrowser("chrome")`。現行の render 経路)→
+  `getContext('webgl')` が **null** を返し、カードは描画できず render に
+  失敗する
+- **swiftshader**(`chromiumOptions.gl:"swiftshader"`)→ こちらも
+  **null(WebGL コンテキストが取得できない)**。program §2.3 が想定していた
+  「SwiftShader が GPU の byte 決定論を保証する」という前提は、この
+  Cutflow の Remotion/Chrome/macOS 構成では成立しない(SwiftShader 自体が
+  WebGL を提供しない)
+- **angle**(`chromiumOptions.gl:"angle"`)→ WebGL が**動作し**、2回の
+  re-render で frame 0/60/119 が **byte 単位で完全一致**した(4秒/120フレーム
+  のクリップで render 約3.7秒)
+
+つまり、生 WebGL/shader カードは作図可能・check ゲートも通るが、
+**`chromiumOptions.gl` を render 経路へ配線しない限り実際には render
+できない**(angle が動作することは確認済みだが、GL の決定論はドライバ
+依存(program §2.3)であり、このマシンで byte 一致したことがどの環境でも
+保証されるわけではない — だから Rule 9 が強制する `perceptual` tier が
+引き続き正しい既定)。この配線は**実需要が出るまで意図的に見送る**
+(今この瞬間の需要はゼロ)。今日時点では「作図・check は通るが
+`hyperframe <dir> --name <name>` の render は失敗する」が正直な現状。
+
+### three.js は未ピン留め(見送り)
+
+three.js は**ピン留めしない**。生 WebGL がサポート対象の GPU 作図経路。
+three を後で導入するときに必要になるもの(いずれも実需要が出るまで
+見送り):
+
+- CDN ピン(算出済みだが `CDN_PINS` には未追加): url
+  `https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js`、
+  integrity `sha384-qOkzR5Ke/XkQxuGVJ9hpFEpDlcoLtWwVYhnJf06cLIZa2vaIptSqaubivErzmD5O`、
+  lib `three`
+- CSP の緩和: three のローダー/ワーカーは `blob:` worker を生成することが
+  あり、`default-src 'none'` はこれをブロックする(`blob:`/`worker-src` の
+  緩和が要る)
+
+### check ゲートを通る例(render には gl:"angle" 配線が必要)
+
+以下は check ゲートを 0 エラーで通る(Rule 5 の同期描画・Rule 9 の
+perceptual 宣言を満たす)。skills sweep(`test/hyperframeSkills.test.ts`)は
+`checkComposition` の静的検査だけを行うため、上記の render 不可の実測は
+この例の合格判定に影響しない。ただし実際に
+`hyperframe <dir> --name <name>` で render するには、上記のとおり
+`chromiumOptions.gl:"angle"` の配線(未実装・見送り中)が要る。
+
+```html
+<!doctype html>
+<html data-composition-variables='[]'>
+<head>
+<style>
+  html,body{margin:0;padding:0}
+  #root{position:relative;width:1280px;height:720px;background:#000;overflow:hidden}
+  #gl{position:absolute;inset:0;display:block}
+</style>
+</head>
+<body>
+  <div id="root" data-composition-id="root" data-width="1280" data-height="720" data-hf-determinism="perceptual">
+    <canvas id="gl" class="clip" data-start="0" data-duration="4" width="1280" height="720"></canvas>
+    <script>
+      var cv = document.getElementById('gl');
+      var gl = cv.getContext('webgl', { preserveDrawingBuffer: true, antialias: false });
+      var vs = 'attribute vec2 p;void main(){gl_Position=vec4(p,0.0,1.0);}';
+      var fs = 'precision highp float;uniform float uT;uniform vec2 uR;'
+             + 'void main(){vec2 uv=gl_FragCoord.xy/uR;'
+             + 'vec3 c=vec3(0.5+0.5*sin(uT+uv.x*6.2831),uv.y,0.5+0.5*cos(uT));'
+             + 'gl_FragColor=vec4(c,1.0);}';
+      function sh(t,s){var o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);return o;}
+      var prog=gl.createProgram();
+      gl.attachShader(prog,sh(gl.VERTEX_SHADER,vs));
+      gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,fs));
+      gl.linkProgram(prog);gl.useProgram(prog);
+      var b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);
+      gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+      var loc=gl.getAttribLocation(prog,'p');gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+      var uT=gl.getUniformLocation(prog,'uT'),uR=gl.getUniformLocation(prog,'uR');
+      gl.uniform2f(uR,1280,720);
+      function draw(t){gl.uniform1f(uT,t);gl.drawArrays(gl.TRIANGLES,0,3);gl.finish();}
+      window.addEventListener('hf-seek',function(e){draw(e.detail.time);});
+      draw(0);
+    </script>
+  </div>
+</html>
+```

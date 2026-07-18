@@ -231,6 +231,18 @@ SVG レンダラ(既定)は byte、`renderer:'canvas'` は
 `data-hf-determinism="perceptual"` を宣言する(詳細は
 `docs/hyperframes-skills/authoring-contract.md` の「Lottie」節)。
 
+GPU/WebGL/shader カードは `hf-seek` イベント(`window.addEventListener`
+で購読・ハンドラ内で同期描画・rAF 不使用)で自己描画し、
+`data-hf-determinism="perceptual"` を宣言する(Rule 9)。生 WebGL はライブラリ・
+CDN いずれも不要。実測の制約: check ゲートは通るが、現状の既定 gl では
+**render できない**(このリポジトリの Remotion/Chrome 構成では既定・
+swiftshader いずれも `getContext('webgl')` が null。`gl:"angle"` だけが
+WebGL を提供し、その条件下では re-render が byte 一致した)。render 経路への
+`chromiumOptions.gl` 配線は実需要が出るまで見送り。three.js は未ピン留め
+(生 WebGL が現状のサポート対象 GPU 作図経路。詳細は
+`docs/hyperframes-skills/authoring-contract.md` の「GPU / WebGL / shader
+カード」節)。
+
 ## HyperFrames 素材の配置(hyperframe-place)
 
 `hyperframe <dir> --name <name>` で render 済みの
