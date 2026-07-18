@@ -352,6 +352,53 @@ const LOTTIE_URL = "https://cdn.jsdelivr.net/npm/lottie-web@5.12.2/build/player/
 const LOTTIE_INTEGRITY = "sha384-J8C0MvgX4WP58J4N2W99vCKd2J6z99ynOJ5bEfE6jeP7kVTW1drYtv/jzrxM5jbm";
 const LOTTIE_SCRIPT_TAG = `<script src="${LOTTIE_URL}" integrity="${LOTTIE_INTEGRITY}" crossorigin="anonymous"></script>`;
 
+test("F1-1: distinct valid GSAP and Lottie pins produce one deterministic runtime warning", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-requires="gsap lottie"></div>${LOTTIE_SCRIPT_TAG}<script src="${GSAP_URL}" integrity="${GSAP_INTEGRITY}" crossorigin="anonymous"></script>`,
+  );
+  assert.equal(r.errors.length, 0);
+  assert.equal(r.warnings.filter((w) => w.message.includes("multiple pinned animation runtimes")).length, 1);
+  assert.ok(hasWarn(r, "gsap, lottie"));
+});
+
+test("F1-2: duplicate tags for the same valid pin do not produce a runtime warning", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-requires="gsap"></div><script src="${GSAP_URL}" integrity="${GSAP_INTEGRITY}" crossorigin="anonymous"></script><script src="${GSAP_URL}" integrity="${GSAP_INTEGRITY}" crossorigin="anonymous"></script>`,
+  );
+  assert.ok(!hasWarn(r, "multiple pinned animation runtimes"));
+});
+
+test("F1-3: a single valid pinned runtime does not produce a runtime warning", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-requires="lottie"></div>${LOTTIE_SCRIPT_TAG}`,
+  );
+  assert.ok(!hasWarn(r, "multiple pinned animation runtimes"));
+});
+
+test("F1-4: inline library-like code is not counted as a second pinned runtime", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-requires="lottie"></div>${LOTTIE_SCRIPT_TAG}<script>var GSAP = {name:'not a pinned runtime'};</script>`,
+  );
+  assert.ok(!hasWarn(r, "multiple pinned animation runtimes"));
+});
+
+test("F1-5: an invalid second pin keeps its Rule 4 error without a runtime warning", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-requires="gsap"></div><script src="${GSAP_URL}" integrity="${GSAP_INTEGRITY}" crossorigin="anonymous"></script><script src="${LOTTIE_URL}" integrity="sha384-invalid" crossorigin="anonymous"></script>`,
+  );
+  assert.ok(hasErr(r, "did you hand-write the sha384"));
+  assert.ok(!hasWarn(r, "multiple pinned animation runtimes"));
+});
+
+test("F1-6: multiple-runtime warning coexists with Rule 10 declaration errors", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root"></div>${LOTTIE_SCRIPT_TAG}<script src="${GSAP_URL}" integrity="${GSAP_INTEGRITY}" crossorigin="anonymous"></script>`,
+  );
+  assert.ok(hasWarn(r, "multiple pinned animation runtimes"));
+  assert.ok(hasErr(r, 'data-hf-requires="gsap"'));
+  assert.ok(hasErr(r, 'data-hf-requires="lottie"'));
+});
+
 test("48: full Lottie card (pinned tag + animationData + __hfLottie push + svg renderer) is clean (Rule 13/14)", () => {
   const r = checkComposition(
     `<div data-composition-id="root" data-hf-requires="lottie"></div>${LOTTIE_SCRIPT_TAG}<script>var anim = lottie.loadAnimation({container:document.getElementById('x'), renderer:'svg', loop:false, autoplay:false, animationData:{v:"5.7.4"}}); window.__hfLottie = window.__hfLottie || []; window.__hfLottie.push(anim);</script>`,

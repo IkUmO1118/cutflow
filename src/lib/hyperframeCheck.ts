@@ -32,6 +32,8 @@
 // Rule 14(B4): Lottie の renderer:'canvas' は byte 決定論を保証しない
 // (SVG パスの解像度非依存レンダラと違い canvas はラスタライズする)ため
 // data-hf-determinism="perceptual" の宣言を促す警告(既定 svg は byte のまま)。
+// Rule 15(F1): 異なる pinned animation runtime を同一 card に積むと時間の
+// 正本が曖昧になるため warning。正常認識された pin の lib 数だけで判定する。
 //
 // Rule 4(B2 拡張): 従来「<script src> の remote URL は常にエラー」
 // だったところを、hyperframeCdn.ts の CDN_PINS 表に一致する
@@ -588,6 +590,18 @@ export function checkComposition(html: string, opts?: CheckOpts): CheckResult {
       errors.push({ file, where: tagLabel(tag), message: `remote URL not allowed: ${compSrc}` });
     }
   });
+
+  // One card should have one external animation runtime/time authority. Warn
+  // only for distinct, fully recognized pins; duplicate tags and invalid pins
+  // retain their existing Rule 4 result without creating a design warning.
+  if (pinnedLibs.size >= 2) {
+    const libs = [...pinnedLibs].sort();
+    warnings.push({
+      file,
+      where: "<script src>",
+      message: `multiple pinned animation runtimes (${libs.join(", ")}) make the card's time authority ambiguous; use one external runtime per card / 複数の外部 animation runtime を同一 card に積まず、時間の正本を1つにしてください`,
+    });
+  }
 
   // CSP は CDN_PINS の完全 URL だけを許可するが、静的 check 側でも author
   // script による動的な script 挿入を契約違反として前倒しで拒否する。

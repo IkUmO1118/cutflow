@@ -42,9 +42,12 @@ Cutflow の check ゲート(`checkComposition`)がそのまま受理できる形
   (あなたは sha384 を計算できません。誤った値は check ゲートで弾かれます)。
   ピン留めスクリプトを使うカードはルート要素に
   `data-hf-requires="<lib>"`(例: `data-hf-requires="gsap"`)を必ず付けます。
-  下のパターンメニューは基本 CSS/WAAPI 前提で書かれています(GSAP を使う
-  authoring パターンは別途提供されます)。brief が明示的に GSAP を必要と
-  していない限り、GSAP は使わないでください
+  backend 名ではなく必要な表現能力から選び、CSS/SVG/DOM/WAAPI で完結する
+  ならそこで終えます。重い backend は brief の明示、または軽い候補で
+  満たせない固有能力がある場合だけ使い、外部 animation runtime と時間の
+  正本は card ごとに1つだけにします。Lottie は有効な JSON 素材が入力として
+  提供済みの場合だけ選びます。重い backend へ昇格する場合、軽い候補で
+  不足する能力を card HTML 冒頭のコメントに1行で残します
 - **`<script>` 以外のリモート URL を一切使わない**。`src`(`<script>` を除く。
   `<img>`/`<video>`/`<audio>`/`<source>`/`<iframe>` 等)/`href`/`srcset`/
   `poster`/`data-composition-src`・CSS `url()`・`@import`・`@font-face` の
