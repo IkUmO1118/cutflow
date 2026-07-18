@@ -216,6 +216,19 @@ export interface PeaksData {
   peaks: string;
 }
 
+/** GET /api/media-facts のレスポンス。動画素材(materials/ の mp4/mov/webm)
+ * ごとの codec 由来のブラウザ表示可否(§design 8.2)。/api/project に含めない
+ * (loadProject は sync・ffprobe は async I/O なので、初回ロードをそれで
+ * ブロックしない)理由から /api/script / /api/peaks と同じ「重い部分は要求
+ * されてから」の別エンドポイントにした。キーは素材の相対パス(dirFiles と
+ * 同じ表記、"materials/xxx.mov")。判定できない/表示可能な素材は載らない=
+ * 非表示のものだけを載せる疎な map。全素材が H.264/VP9 等なら空 {} で、
+ * UI は現状どおり(挙動不変)。画像・音声は対象外(codec 問題が無い)。
+ * 最終レンダーには影響しない(ffmpeg/Remotion は別途デコードできる) */
+export interface MediaFactsData {
+  mediaCodecFacts: Record<string, { codec: string; reason: string }>;
+}
+
 /** POST /api/upload のレスポンス。素材は materials/ に保存される */
 export interface UploadResult {
   /** 収録フォルダからの相対パス(materials/xxx.png) */

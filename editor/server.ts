@@ -31,6 +31,8 @@ import {
 import { APPROVAL_FILE } from "../src/lib/files.ts";
 import { removeEditorServeFile, writeEditorServeFile } from "../src/lib/editorServe.ts";
 import { run } from "../src/lib/exec.ts";
+import { classifyBrowserDisplayable } from "../src/lib/mediaCodec.ts";
+import type { DisplayVerdict, VideoCodecFacts } from "../src/lib/mediaCodec.ts";
 import { ensureIds, hasAnyId, ID_PREFIX, usedIdsOf } from "../src/lib/ids.ts";
 import { mergeBodyOverDisk } from "../src/lib/applyEdits.ts";
 import { bootstrapProjectWithLayout } from "../src/stages/bootstrap.ts";
@@ -338,6 +340,14 @@ async function handle(
     const body = await getPeaks(dir, url.searchParams.get("file"));
     res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
     res.end(body);
+    return;
+  }
+  if (req.method === "GET" && path === "/api/media-facts") {
+    // materials/ の動画素材を ffprobe して codec を調べる。/api/project に
+    // 含めないのは loadProject が sync なため(§design 8.2)。/api/script /
+    // /api/peaks と同じ「重い/遅い部分は要求されてから」の流儀
+    const mediaCodecFacts = await collectMediaCodecFacts(dir);
+    sendJson(res, 200, { mediaCodecFacts });
     return;
   }
   if (req.method === "POST" && path === "/api/save") {
@@ -1310,6 +1320,78 @@ function readWav(abs: string): {
 
 const MATERIAL_EXT = /^\.(png|jpe?g|webp|gif|bmp|avif|mp4|mov|webm|mp3|m4a|wav|aac|ogg|flac)$/;
 const VIDEO_EXT = /^\.(mp4|mov|webm)$/;
+
+/**
+ * 動画素材の codec 事実(ffprobe)を取り出す。v:0(最初の映像ストリーム)だけ
+ * 見る。ffprobe が無い(ENOENT→run が投げる)・非ゼロ終了(allowFailure で
+ * stdout 空)・JSON が壊れている・ストリームが無い、いずれも空 {} を返し
+ * classifyBrowserDisplayable 側で「表示可能(degrade)」に落ちる。ここは
+ * 絶対にブロックしない・500 にしない(サムネイル表示の脇道でしかないため)
+ */
+async function probeVideoCodec(abs: string): Promise<VideoCodecFacts> {
+  try {
+    const { stdout } = await run("ffprobe", [
+      "-v", "error",
+      "-select_streams", "v:0",
+      "-show_entries", "stream=codec_name,pix_fmt,profile",
+      "-of", "json",
+      abs,
+    ], { allowFailure: true });
+    const parsed = JSON.parse(stdout) as { streams?: Array<{ codec_name?: string; pix_fmt?: string; profile?: string }> };
+    const s = parsed.streams?.[0] ?? {};
+    return { codecName: s.codec_name, pixFmt: s.pix_fmt, profile: s.profile };
+  } catch (e) {
+    console.warn(`codec を判定できません(${abs}): ${(e as Error).message}`);
+    return {};
+  }
+}
+
+/** codec 判定のレシピ版。argv / classifier / pixfmt gate を変えたら上げる */
+const CODEC_RECIPE_V = 1;
+/** codec facts + verdict のキャッシュ(キー = 対象の絶対パス。値は mtime+size+
+ * レシピ版で無効化するので、素材の差し替え・レシピ変更を再起動なしで拾える) */
+const codecCache = new Map<string, { key: string; facts: VideoCodecFacts; verdict: DisplayVerdict }>();
+
+async function getCodecVerdict(abs: string): Promise<{ facts: VideoCodecFacts; verdict: DisplayVerdict }> {
+  const st = statSync(abs);
+  const key = `${st.mtimeMs}:${st.size}:v${CODEC_RECIPE_V}`;
+  const hit = codecCache.get(abs);
+  if (hit?.key === key) return { facts: hit.facts, verdict: hit.verdict };
+  const facts = await probeVideoCodec(abs);
+  const verdict = classifyBrowserDisplayable(facts);
+  codecCache.set(abs, { key, facts, verdict });
+  return { facts, verdict };
+}
+
+/**
+ * materials/ 配下の動画素材の codec を調べ、ブラウザで表示できないものだけを
+ * 疎な map で返す(displayable なもの・判定不能なものは載らない)。
+ * GET /api/media-facts が使う。画像・音声は対象外(codec 問題が無い)
+ */
+async function collectMediaCodecFacts(dir: string): Promise<Record<string, { codec: string; reason: string }>> {
+  const materialsDir = join(dir, "materials");
+  if (!existsSync(materialsDir)) return {};
+  const videoFiles = readdirSync(materialsDir, { recursive: true, withFileTypes: true })
+    .filter((e) => e.isFile() && !e.name.startsWith(".") && VIDEO_EXT.test(extname(e.name).toLowerCase()))
+    .map((e) => {
+      const parent = (e.parentPath ?? materialsDir).slice(materialsDir.length).replace(/^\//, "");
+      const rel = parent ? `${parent}/${e.name}` : e.name;
+      return `materials/${rel}`;
+    });
+  const entries = await Promise.all(
+    videoFiles.map(async (rel) => {
+      const { verdict } = await getCodecVerdict(join(dir, rel));
+      return [rel, verdict] as const;
+    }),
+  );
+  const facts: Record<string, { codec: string; reason: string }> = {};
+  for (const [rel, verdict] of entries) {
+    if (!verdict.browserDisplayable && verdict.reason) {
+      facts[rel] = { codec: verdict.codec, reason: verdict.reason };
+    }
+  }
+  return facts;
+}
 
 /** アップロードのバイト列を通しつつ、累積が上限を超えたら 413 で打ち切る。
  * Content-Length が無い(chunked)場合の歯止め */

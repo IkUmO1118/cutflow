@@ -122,6 +122,7 @@ import {
   deleteDraft,
   deleteMaterial,
   fmtTime,
+  getMediaFacts,
   getPeaks,
   getProject,
   getScript,
@@ -503,6 +504,7 @@ export const App = () => {
           if (draftDiffers(p.draft, p)) setDraftOffer(p.draft);
           else deleteDraft().catch(() => {});
         }
+        refreshMediaFacts();
       })
       .catch((e: Error) => setError(e.message));
   }, []);
@@ -537,6 +539,19 @@ export const App = () => {
   /** proxy.mp4 に焼き込まれる設定(targetLufs / systemAudio / denoise /
    * preview.width)を保存した後、プレビューへ反映するには再生成が要ることを促すバナー */
   const [proxyStale, setProxyStale] = useState(false);
+  /** 動画素材ごとの codec 由来のブラウザ表示可否(非表示のものだけの疎な map)。
+   * GET /api/media-facts から非同期に届く(loadProject は sync なので
+   * /api/project には含まれない)。既定 {} = 全素材表示可能扱い(degrade)。
+   * fetch 失敗時も {} のまま=警告なし(§design 8.2) */
+  const [mediaCodecFacts, setMediaCodecFacts] = useState<Record<string, { codec: string; reason: string }>>({});
+  /** 現在の収録フォルダに対して /api/media-facts を取り直す。初回ロード・
+   * 外部変更のホットリロード・アップロード成功後、いずれも呼ぶ
+   * (新しく置かれた ProRes 等を追随して検出するため) */
+  const refreshMediaFacts = () => {
+    getMediaFacts()
+      .then((r) => setMediaCodecFacts(r.mediaCodecFacts))
+      .catch(() => {}); // 失敗しても {} のまま(警告なしへ degrade)
+  };
   const [aiDoctorResult, setAiDoctorResult] = useState<import("./apiTypes.ts").AiDoctorResult[] | null>(null);
   const [aiDoctorBusy, setAiDoctorBusy] = useState(false);
   /** 再生速度(プレビューのみ)。次回起動時も引き継ぐ */
@@ -717,6 +732,9 @@ export const App = () => {
         setActiveShortName(null);
       }
       if (p.proxyStale) setProxyStale(true);
+      // 外部変更(手編集・Claude Code)で materials/ に新しいファイルが
+      // 増えている可能性があるので、codec 判定も取り直す
+      refreshMediaFacts();
       // whisper-out.json も外部(plan --force / run --force)で変わりうるので
       // スクリプトのキャッシュを捨て、次にタブを開いたとき取り直す
       setScript(null);
@@ -748,6 +766,7 @@ export const App = () => {
       setActiveShortName(null);
     }
     if (theirs.proxyStale) setProxyStale(true);
+    refreshMediaFacts();
     setCapMulti([]);
     setSelectionState((sel) => (selectionValid(sel, merged) ? sel : null));
     setExternalChange(false);
@@ -1139,6 +1158,23 @@ export const App = () => {
           "ショートにも指し示したい場合は別途足してください",
       );
     }
+    // codec 非対応の素材が overlays/inserts で使われていると Player でも黒く映る。
+    // 素材パネルのプレースホルダだけでは Player の空表示を説明できないので
+    // バナーにも出す(BGM は音声再生なので対象外)
+    const usedFiles = new Set<string>([
+      ...(overlays.overlays ?? []).map((o) => o.file),
+      ...(overlays.inserts ?? []).map((o) => o.file),
+    ]);
+    for (const f of usedFiles) {
+      const bad = mediaCodecFacts[f];
+      if (bad) {
+        warnings.push(
+          `素材「${f.replace(/^materials\//, "")}」(${bad.codec.toUpperCase()})は` +
+            "編集プレビューに映りません(プレビューが黒くてもレンダーには正しく入ります)。" +
+            "内容を確認したいときは H.264 に変換した素材に差し替えてください",
+        );
+      }
+    }
     // 素材はローカルサーバーの /media/ 経由で配信される
     const overlayItems = props.overlays.map((o) => ({ ...o, file: `media/${o.file}` }));
     const insertItems = (props.inserts ?? []).map((o) => ({
@@ -1167,7 +1203,7 @@ export const App = () => {
     };
   }, [
     proj, cutplan, overlays, transcript, bgm, keeps, shortMode, activeShort, shortKeepsMerged,
-    shorts,
+    shorts, mediaCodecFacts,
   ]);
 
   /** Player に渡す props。トラック別ミュート・レイヤーの一時非表示は
@@ -2714,6 +2750,9 @@ export const App = () => {
               : [...p.dirFiles, res.file].sort(),
           },
       );
+      // 新しくアップロードした素材が非対応 codec なら、配置後すぐプレースホルダ/
+      // バナーに反映されてほしい(配置は続けて行う=感知は非同期・待たない)
+      refreshMediaFacts();
       if (mode === "insert") {
         if (!at) return;
         // ドロップ位置にアンカー(末尾なら最後の keep の後ろへ)
@@ -2779,6 +2818,9 @@ export const App = () => {
         updateToast(toastId, { message: `${done}/${files.length} 件アップロード中…` });
       }
     }
+    // 複数ファイルを直列アップロードした後にまとめて1回だけ取り直す
+    // (ファイルごとに叩くと N 回の ffprobe 往復になる)
+    refreshMediaFacts();
     setBusy(null);
     if (errors.length === 0) {
       updateToast(toastId, {
@@ -4461,6 +4503,7 @@ export const App = () => {
             {tab === "materials" && (
               <MaterialsPanel
                 materials={materials}
+                mediaCodecFacts={mediaCodecFacts}
                 busy={busy !== null}
                 onUploadClick={onUploadClick}
                 onUploadFiles={(files) => void uploadOnly(files)}

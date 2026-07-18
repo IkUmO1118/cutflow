@@ -24,6 +24,7 @@ const midTrunc = (s: string, max = 18) =>
  */
 export const MaterialsPanel = ({
   materials,
+  mediaCodecFacts,
   busy,
   onUploadClick,
   onUploadFiles,
@@ -34,6 +35,9 @@ export const MaterialsPanel = ({
 }: {
   /** プロジェクト相対パス("materials/...")の一覧 */
   materials: string[];
+  /** codec 由来のブラウザ表示不可の疎な map(キー = materials の相対パス)。
+   * 無い/未判定のキー = 表示可能扱い。既定 {} なら全ブランチ現状どおり */
+  mediaCodecFacts: Record<string, { codec: string; reason: string }>;
   busy: boolean;
   /** 「素材を読み込む…」(App のファイル選択を開く) */
   onUploadClick: () => void;
@@ -132,6 +136,7 @@ export const MaterialsPanel = ({
             const name = m.replace(/^materials\//, "");
             const isVideo = VIDEO_EXT_RE.test(m);
             const isAudio = /\.(mp3|m4a|wav|aac|ogg|flac)$/i.test(m);
+            const badCodec = mediaCodecFacts[m]; // undefined = 表示可能 or 未判定
             return (
               <div
                 className="matCard"
@@ -149,8 +154,23 @@ export const MaterialsPanel = ({
                 onContextMenu={(e) => openMenu(e, m)}
               >
                 {isVideo ? (
-                  // preload=metadata で先頭フレームがサムネイルになる
-                  <video className="matThumb" src={`media/${m}`} preload="metadata" muted />
+                  badCodec ? (
+                    // codec が非対応=<video> は空のまま映る(ブラウザに
+                    // デコーダが無い)ので、空サムネの代わりに明示プレースホルダ。
+                    // ドラッグ・配置は従来どおり可能(最終レンダーには
+                    // 問題なく使える素材=disabled にはしない)
+                    <div
+                      className="matThumb matThumbUnplayable"
+                      aria-label={badCodec.reason}
+                      title={badCodec.reason}
+                    >
+                      <span>プレビュー不可</span>
+                      <span className="dim">{badCodec.codec.toUpperCase()}</span>
+                    </div>
+                  ) : (
+                    // preload=metadata で先頭フレームがサムネイルになる
+                    <video className="matThumb" src={`media/${m}`} preload="metadata" muted />
+                  )
                 ) : isAudio ? (
                   // 音声はサムネイルが無いので種別アイコンを出す(BGM トラックへ
                   // ドラッグして使う)
