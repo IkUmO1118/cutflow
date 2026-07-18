@@ -69,6 +69,7 @@ import type {
   AiSelectionContext,
   DraftData,
   ProjectData,
+  SaveRequest,
   ScriptData,
 } from "./apiTypes.ts";
 import type { ReviewBundle } from "../../src/stages/review.ts";
@@ -350,6 +351,49 @@ const VIEWER_MIN = 360;
 const TIMELINE_MIN = 140;
 const STAGE_MIN = 200;
 
+/** SaveRequest のドキュメントキー → ファイル名。src/lib/contentVersion.ts の
+ *  DOC_FILE と同じ内容だが、このファイルは esbuild で browser 向けにバンドル
+ *  されるため node:crypto/fs/path を import する contentVersion.ts を実行時に
+ *  import できない(§8.3 実装時のコーディネータ指摘)。ここではローカルに
+ *  複製する(値は絶対に乖離させないこと)。 */
+const DOC_FILE: Record<string, string> = {
+  cutplan: "cutplan.json",
+  overlays: "overlays.json",
+  transcript: "transcript.json",
+  bgm: "bgm.json",
+  shorts: "shorts.json",
+};
+
+/** body が触るドキュメントごとに、読み込み時点の base ハッシュ(baseHashesRef)
+ *  から /api/save へ echo する baseHashes を組み立てる(§8.3)。stored に
+ *  無い(=読み込み時に存在しなかった)ファイルは null(create 期待)を送る。 */
+function baseHashesForBody(
+  body: SaveRequest,
+  stored: Record<string, string | null>,
+): Record<string, string | null> {
+  const out: Record<string, string | null> = {};
+  for (const key of Object.keys(body)) {
+    const file = DOC_FILE[key];
+    if (!file) continue; // baseHashes 自身などは無視
+    out[file] = stored[file] ?? null; // 読んだとき存在しなかった→null(create期待)
+  }
+  return out;
+}
+
+/** /api/save のレスポンス contentHashes(書いた=hash / 削除=null)を
+ *  baseHashesRef へ反映する(reload せずに base を進める。§8.3)。 */
+function applySaveHashes(
+  ref: { current: Record<string, string | null> },
+  fresh: Record<string, string | null>,
+): void {
+  const next = { ...ref.current };
+  for (const [file, h] of Object.entries(fresh)) {
+    if (h === null) delete next[file]; // 削除された→base から外す
+    else next[file] = h;
+  }
+  ref.current = next;
+}
+
 /**
  * CutFlow エディタ本体。動画編集ソフトの標準レイアウト:
  * 上=タブパネル(左: 素材/テロップ)+プレビュー(中央)+インスペクタ(右)、
@@ -492,6 +536,7 @@ export const App = () => {
         setTranscript(p.transcript);
         setBgm(p.bgm);
         setShorts(p.shorts);
+        baseHashesRef.current = p.contentHashes ?? {};
         // proxy.mp4 の陳腐化はサーバーが proxy.key.json とファイルから毎回
         // 判定する(config.yaml が別セッション・別ツールで変わった場合も
         // 拾える)。false→true 方向だけ反映し、既にバナーが出ている
@@ -728,6 +773,7 @@ export const App = () => {
       setTranscript(p.transcript);
       setBgm(p.bgm);
       setShorts(p.shorts);
+      baseHashesRef.current = p.contentHashes ?? {};
       if (!p.shorts?.shorts.some((s) => s.name === activeShortName)) {
         setActiveShortName(null);
       }
@@ -762,6 +808,7 @@ export const App = () => {
     setBgm(merged.bgm);
     setShorts(merged.shorts);
     setProj(theirs);
+    baseHashesRef.current = theirs.contentHashes ?? {};
     if (!merged.shorts?.shorts.some((s) => s.name === activeShortName)) {
       setActiveShortName(null);
     }
@@ -800,6 +847,10 @@ export const App = () => {
       setError((e as Error).message);
     }
   };
+
+  // client が読んだ各ファイルの内容バージョン(sha256:…)。save 時に baseHashes
+  // として送り、409 stale_base を避ける。render を伴わないので ref で持つ。§8.3
+  const baseHashesRef = useRef<Record<string, string | null>>({});
 
   // 外部変更の監視(SSE)。未保存の編集が無ければ黙って読み込み直し、
   // あればバナーを出して人間に選ばせる(自動で上書きすると編集が消えるため)
@@ -3314,7 +3365,22 @@ export const App = () => {
         ? { shorts }
         : {}),
     };
-    if (Object.keys(body).length > 0) await postSave(body);
+    if (Object.keys(body).length > 0) {
+      try {
+        const resp = await postSave({
+          ...body,
+          baseHashes: baseHashesForBody(body, baseHashesRef.current),
+        });
+        applySaveHashes(baseHashesRef, resp.contentHashes);
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 409 && e.code === "stale_base") {
+          // 外部変更で base が古い。上書きせず、SSE-while-dirty と同じ三方向マージへ。
+          await reviewExternalChange();
+          return; // 成功時の後処理(proj 上書き・dirty 解除)はしない
+        }
+        throw e; // heavyJob 409 等はこれまでどおり呼び出し側/エラー表示へ
+      }
+    }
     setProj({ ...proj, cutplan, overlays, transcript, bgm, shorts });
     // 保存 = こちらの内容で上書きすると選んだということ。外部変更の警告は下げる
     setExternalChange(false);
@@ -3643,13 +3709,18 @@ export const App = () => {
         });
         return;
       }
-      await postSave({
+      const aiSaveBody: SaveRequest = {
         cutplan: merged.cutplan,
         overlays: merged.overlays,
         transcript: merged.transcript,
         bgm: merged.bgm,
         shorts: merged.shorts,
+      };
+      const resp = await postSave({
+        ...aiSaveBody,
+        baseHashes: baseHashesForBody(aiSaveBody, baseHashesRef.current),
       });
+      applySaveHashes(baseHashesRef, resp.contentHashes);
       saveSucceeded = true;
       setProj((p) => p && { ...p, ...merged });
       setExternalChange(false);
@@ -3664,6 +3735,12 @@ export const App = () => {
       });
       return;
     } catch (e) {
+      if (e instanceof ApiError && e.status === 409 && e.code === "stale_base") {
+        // 外部変更で base が古い。上書きせず三方向マージへ(saveSucceeded は
+        // false のまま=保存済み扱いにしない)
+        await reviewExternalChange();
+        return;
+      }
       const raw = (e as Error).message;
       const message =
         save ? `画面には反映しましたが保存に失敗しました: ${raw}` : raw;

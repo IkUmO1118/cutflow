@@ -21,6 +21,7 @@ import type {
   PeaksData,
   ProjectData,
   SaveRequest,
+  SaveResponse,
   ScriptData,
   UploadResult,
 } from "./apiTypes.ts";
@@ -69,8 +70,8 @@ export async function getPeaks(file?: string): Promise<Peaks> {
   return { rate: res.rate, data };
 }
 
-export async function postSave(body: SaveRequest): Promise<void> {
-  await request("/api/save", body);
+export async function postSave(body: SaveRequest): Promise<SaveResponse> {
+  return (await request("/api/save", body)) as SaveResponse;
 }
 
 export async function postAiPropose(body: AiProposeRequest): Promise<AiProposeResponse> {
