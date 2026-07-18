@@ -113,7 +113,7 @@ byte のまま宣言してよい)。
 ## Pinned CDN scripts(B2)
 
 Rule 4 の唯一の例外として、バージョン固定済みの CDN `<script src>` を
-1本まで読み込めます(既定は GSAP のみがピン留め済み)。すべて満たすこと:
+ピン表から読み込めます(既定 pin は GSAP と lottie-web)。すべて満たすこと:
 
 - `src` の URL が `src/lib/hyperframeCdn.ts` の `CDN_PINS` に一字一句一致する
   (バージョンを上げ下げしたり、`?` 付きクエリを足すだけでも `not-in-table`
@@ -130,6 +130,10 @@ Rule 4 の唯一の例外として、バージョン固定済みの CDN `<script
 
 GSAP は `window.__timelines` 経由の DOM スタイル書き込みである限り
 **byte tier のまま**でよい(`data-hf-determinism` は省略可・Rule 9 の対象外)。
+`gsap.to` / `gsap.from` / `gsap.fromTo` / `gsap.delayedCall` /
+`gsap.globalTimeline` の直接利用は禁止。すべての tween を
+`data-composition-id` と同じ key で登録した `{paused:true}` timeline に追加する
+(Rule 11)。
 srcdoc には `connect-src 'none'` を含む CSP が張られる — ライブラリの
 読み込み・実行(script-src 経由)はできるが、そのライブラリが outbound の
 fetch/XHR/WebSocket でどこかへ送信することはできない。
@@ -201,12 +205,19 @@ Lottie は After Effects の書き出し(bodymovin/Lottie JSON)を composition
 `hyperframe --from-brief` が生成した下書きへ人間が後付け)が手で埋め込む
 運用専用。
 
+対応するのは lottie-web が読む **JSON `animationData` のみ**。dotLottie の
+`.lottie` コンテナは runtime/pin が無いため未対応。
+
 - **animationData のインライン埋め込みが必須。`path:` フェッチは禁止**
   (check ゲート Rule 13a/13b)。理由は2つ: srcdoc の CSP
   `connect-src 'none'` が実行時フェッチをブロックする、そして
   `hyperframe.<name>.key.json` のキャッシュキー(html の sha256)は html の
   バイトしか見ないため、`path:` で外部 JSON を読む構成だとアニメのバイトが
   キャッシュキーに乗らない(アニメを差し替えてもキャッシュヒットしてしまう)
+- AE 書き出しに画像 asset がある場合、`assets[].p` は `data:` URL にする。
+  `assets[].u` の外部ディレクトリや `p:'img_0.png'` のようなファイル参照は
+  Rule 13 でエラーになる(CSP の `img-src data:` と html sha256 cache key の
+  両方に外れるため)
 - **ピン留めスクリプトタグは表から一字一句そのままコピーする**(下記)
 - ルート要素(または任意の要素)に `data-hf-requires="lottie"` を宣言する
   (Rule 10 と同じ規約)
@@ -216,8 +227,9 @@ Lottie は After Effects の書き出し(bodymovin/Lottie JSON)を composition
   (Rule 14。宣言しないと警告)
 - seek 規約は既存どおり: `window.__hfLottie = window.__hfLottie || [];
   window.__hfLottie.push(anim);` で登録する。`loadAnimation` には
-  `autoplay:false` を渡す(bootstrap が毎シークで `goToAndStop` するため、
-  自走再生は不要かつ壁時計 drift の原因になる)
+  `autoplay:false` と `loop:false` を渡す(bootstrap が毎シークで
+  `goToAndStop` するため、自走再生は不要かつ壁時計 drift の原因になる)。
+  3点はすべて check ゲートで強制される
 
 ```html
 <!doctype html>

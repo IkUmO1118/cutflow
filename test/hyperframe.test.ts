@@ -209,7 +209,18 @@ test("P-12: buildIframeSrcdoc injects a CSP <meta> before the bootstrap script",
   const cspEnd = out.indexOf(">", cspIdx);
   const cspTag = out.slice(cspIdx, cspEnd);
   assert.ok(cspTag.includes("connect-src 'none'"), "CSP must include connect-src 'none'");
-  assert.ok(cspTag.includes("https://cdn.jsdelivr.net"), "CSP must include the pinned CDN host");
+  assert.ok(
+    cspTag.includes("https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"),
+    "CSP must include the exact GSAP pin URL",
+  );
+  assert.ok(
+    cspTag.includes("https://cdn.jsdelivr.net/npm/lottie-web@5.12.2/build/player/lottie.min.js"),
+    "CSP must include the exact Lottie pin URL",
+  );
+  assert.ok(
+    !/script-src[^;]*https:\/\/cdn\.jsdelivr\.net(?:\s|;)/.test(cspTag),
+    "CSP must not allow the whole jsdelivr origin",
+  );
 });
 
 test("P-11: byte-anchor — clip 可視性ループと WAAPI シークループは verbatim のまま", () => {
