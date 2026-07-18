@@ -221,6 +221,15 @@ test('29: hf-seek usage with data-hf-determinism="byte" is an error (Rule 9)', (
   assert.ok(hasErr(r, 'requires data-hf-determinism="perceptual"'));
 });
 
+test("29b: Rule 9 explains ANGLE/driver perceptual semantics without SwiftShader", () => {
+  const html = `<div data-composition-id="root"></div><script>window.addEventListener('hf-seek', function(){});</script>`;
+  const result = checkComposition(html);
+  const message = result.errors.find((error) => error.where === "data-hf-determinism")?.message ?? "";
+  assert.match(message, /ANGLE/);
+  assert.match(message, /driver|ドライバ/);
+  assert.doesNotMatch(message, /SwiftShader/);
+});
+
 test('30: data-hf-requires="three" with no tier is an error (Rule 9)', () => {
   const r = checkComposition(`<div data-composition-id="root" data-hf-requires="three"></div>`);
   assert.ok(hasErr(r, 'requires data-hf-determinism="perceptual"'));

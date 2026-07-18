@@ -3,10 +3,12 @@
 // scripts/hyperframe-verify.ts(node --test では自動実行しない)側。
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import {
   buildIframeSrcdoc,
   mergeVariables,
   parseComposition,
+  SAMPLE_HTML as EXPORTED_SAMPLE_HTML,
 } from "../src/lib/hyperframe.ts";
 
 const SAMPLE_HTML = `<!doctype html>
@@ -154,6 +156,29 @@ test("P-7: buildIframeSrcdoc は決定論(同じ引数→同じ文字列)", () =
   const out1 = buildIframeSrcdoc(SAMPLE_HTML, vars);
   const out2 = buildIframeSrcdoc(SAMPLE_HTML, vars);
   assert.equal(out1, out2);
+});
+
+test("P-7b: default srcdoc is byte-identical to the pre-F2 baseline", () => {
+  const out = buildIframeSrcdoc(EXPORTED_SAMPLE_HTML, {});
+  assert.equal(out.length, 4887);
+  assert.equal(
+    createHash("sha256").update(out).digest("hex"),
+    "db89d42780703020a53207ae5f3bef89f1c6c538f0b11dd49e931c86ed40073e",
+  );
+  assert.equal(buildIframeSrcdoc(EXPORTED_SAMPLE_HTML, {}, "default"), out);
+  assert.doesNotMatch(out, /__hfGlStats|checkWebglContext|HTMLCanvasElement\.prototype\.getContext/);
+});
+
+test("P-7c: gpu-angle srcdoc tracks WebGL context requests without changing author script", () => {
+  const authorScript = "var canvas=document.querySelector('canvas');canvas.getContext('webgl');";
+  const html = `<html data-composition-id="root"><head></head><body><canvas></canvas><script>${authorScript}</script></body></html>`;
+  const out = buildIframeSrcdoc(html, {}, "gpu-angle");
+  assert.ok(out.includes(authorScript));
+  assert.match(out, /HTMLCanvasElement\.prototype\.getContext=function/);
+  assert.match(out, /name==='webgl'\|\|name==='webgl2'\|\|name==='experimental-webgl'/);
+  assert.match(out, /requests>0&&__hfGlStats\.successes===0/);
+  assert.match(out, /WebGL context creation failed/);
+  assert.equal((out.match(/checkWebglContext\(\);/g) || []).length, 3);
 });
 
 /* ---------------- P-8 ---------------- */

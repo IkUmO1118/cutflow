@@ -13,6 +13,7 @@ import {
 import { checkComposition } from "../src/lib/hyperframeCheck.ts";
 import { HYPERFRAME_REQUIRE_TOKENS } from "../src/lib/hyperframeRequirements.ts";
 import {
+  HYPERFRAME_RENDER_PROFILE_CONFIG,
   isHyperframeRenderProfileWired,
   resolveHyperframeRenderProfile,
 } from "../src/lib/hyperframeRenderProfile.ts";
@@ -30,7 +31,7 @@ test("backend report has fixed schema, stable order, and the exact four-state as
     ["canvas-2d", "usable"],
     ["gsap", "usable"],
     ["lottie", "material-routed"],
-    ["raw-webgl", "not-wired"],
+    ["raw-webgl", "usable"],
     ["three", "not-wired"],
     ["anime-js", "out"],
     ["d3", "out"],
@@ -68,12 +69,25 @@ test("every usable backend names an existing check-valid real render fixture", (
   }
 });
 
-test("render profile resolver shares Rule 9's GPU predicate but F0 leaves gpu-angle unwired", () => {
+test("render profile resolver shares Rule 9's GPU predicate and F2 wires gpu-angle", () => {
   assert.equal(resolveHyperframeRenderProfile("<script>listen('hf-seek')</script>"), "gpu-angle");
   assert.equal(resolveHyperframeRenderProfile('<div data-hf-requires="three"></div>'), "gpu-angle");
   assert.equal(resolveHyperframeRenderProfile('<div data-hf-requires="gsap"></div>'), "default");
   assert.equal(isHyperframeRenderProfileWired("default"), true);
-  assert.equal(isHyperframeRenderProfileWired("gpu-angle"), false);
+  assert.equal(isHyperframeRenderProfileWired("gpu-angle"), true);
+  assert.deepEqual(HYPERFRAME_RENDER_PROFILE_CONFIG, {
+    default: { chromiumGl: null },
+    "gpu-angle": { chromiumGl: "angle" },
+  });
+});
+
+test("the 2D-then-WebGL context-null fixture is check-valid and resolves to gpu-angle", () => {
+  const path = join(ROOT, "test", "fixtures", "hyperframe-backends", "raw-webgl-context-null.html");
+  const html = readFileSync(path, "utf8");
+  const result = checkComposition(html, { file: path });
+  assert.deepEqual(result.errors, []);
+  assert.deepEqual(result.warnings, []);
+  assert.equal(resolveHyperframeRenderProfile(html), "gpu-angle");
 });
 
 test("text format is stable and includes status, tier, pin, authoring route, and fixture", () => {
@@ -82,7 +96,7 @@ test("text format is stable and includes status, tier, pin, authoring route, and
   assert.match(text, /^HyperFrame backends \(schemaVersion 1\)$/m);
   assert.match(text, /^- gsap: usable; determinism=byte; pin=gsap@3\.14\.2 https:\/\//m);
   assert.match(text, /^- lottie: material-routed; determinism=byte,perceptual; .*authoring=material-import;/m);
-  assert.match(text, /^- raw-webgl: not-wired; determinism=perceptual; pin=none;/m);
+  assert.match(text, /^- raw-webgl: usable; determinism=perceptual; pin=none;.*fixture=test\/fixtures\/hyperframe-backends\/raw-webgl\.html$/m);
   assert.match(text, /^- anime-js: out; determinism=n\/a; pin=none; authoring=none;/m);
 });
 

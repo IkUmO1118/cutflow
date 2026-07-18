@@ -61,7 +61,7 @@ test("authoring contract fixes the backend selection norms and complete capabili
   ]) {
     assert.ok(authoringContract.includes(capability), `missing capability row: ${capability}`);
   }
-  assert.match(authoringContract, /Raw WebGL\/shader\(`not-wired`\)/);
+  assert.match(authoringContract, /Raw WebGL\/shader は `gpu-angle` profile で `usable`/);
   assert.match(authoringContract, /Three\.js\(`not-wired`\)/);
   assert.match(authoringContract, /### card の過剰設計/);
   assert.match(authoringContract, /### tooling の過剰設計/);

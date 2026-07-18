@@ -920,16 +920,15 @@ export function checkComposition(html: string, opts?: CheckOpts): CheckResult {
 
   // ---- Rule 9(B1): GPU 規約 × determinism tier ----
   // hf-seek(イベント駆動の GPU/canvas 自己描画)・three(data-hf-requires)は
-  // SwiftShader(chromiumOptions.gl)無しでは byte 決定論を保証できない。
-  // 未指定は byte と同義なので未指定もエラーにする。B5 で SwiftShader
-  // による byte 決定論が実測検証されたら byte ケースは緩和され得る
+  // ANGLE の出力は GPU/driver に依存し byte 決定論を保証できない。
+  // 未指定は byte と同義なので未指定もエラーにする。
   if (resolveHyperframeRenderProfile(html) === "gpu-angle") {
     if (tierRaw !== "perceptual") {
       errors.push({
         file,
         where: "data-hf-determinism",
         message:
-          'hf-seek/three (event-driven GPU drawing) requires data-hf-determinism="perceptual" (GPU/canvas output is not byte-deterministic without SwiftShader) / GPU 演出は perceptual tier を宣言してください',
+          'hf-seek/three (event-driven GPU drawing) requires data-hf-determinism="perceptual" (ANGLE GPU output is driver-dependent and not guaranteed byte-deterministic) / ANGLE の GPU 出力はドライバ依存のため perceptual tier を宣言してください',
       });
     }
   }

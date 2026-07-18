@@ -57,7 +57,7 @@ const BACKEND_DEFINITIONS: readonly BackendDefinition[] = [
   { id: "canvas-2d", capability: { kind: "native" }, determinismTiers: ["perceptual"], authoring: ["manual", "from-brief"], renderFixture: `${FIXTURE_DIR}/canvas-2d.html` },
   { id: "gsap", capability: { kind: "pinned", token: "gsap" }, determinismTiers: ["byte"], authoring: ["manual"], renderFixture: `${FIXTURE_DIR}/gsap.html` },
   { id: "lottie", capability: { kind: "material", token: "lottie" }, determinismTiers: ["byte", "perceptual"], authoring: ["material-import"], renderFixture: null },
-  { id: "raw-webgl", capability: { kind: "gpu" }, determinismTiers: ["perceptual"], authoring: ["manual"], renderFixture: null },
+  { id: "raw-webgl", capability: { kind: "gpu" }, determinismTiers: ["perceptual"], authoring: ["manual"], renderFixture: `${FIXTURE_DIR}/raw-webgl.html` },
   { id: "three", capability: { kind: "gpu-pinned", token: "three" }, determinismTiers: ["perceptual"], authoring: ["manual"], renderFixture: null },
   { id: "anime-js", capability: { kind: "out" }, determinismTiers: [], authoring: [], renderFixture: null },
   { id: "d3", capability: { kind: "out" }, determinismTiers: [], authoring: [], renderFixture: null },

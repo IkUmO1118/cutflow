@@ -29,6 +29,11 @@ import {
 import { mergeVariables, parseComposition } from "../lib/hyperframe.ts";
 import type { ParsedComposition, VarDecl } from "../lib/hyperframe.ts";
 import { checkComposition } from "../lib/hyperframeCheck.ts";
+import {
+  HYPERFRAME_RENDER_PROFILE_CONFIG,
+  resolveHyperframeRenderProfile,
+} from "../lib/hyperframeRenderProfile.ts";
+import type { HyperframeRenderProfile } from "../lib/hyperframeRenderProfile.ts";
 import { compositionDurationInFrames } from "../lib/renderFrameMath.ts";
 import {
   captureSnapshot,
@@ -131,6 +136,7 @@ export function hyperframeCacheKey(inputs: {
   durationSec: number;
   codec: string;
   hardwareAcceleration: string;
+  profile: HyperframeRenderProfile;
 }): string {
   const canon = canonicalize(inputs);
   return sha256Hex(JSON.stringify(canon));
@@ -287,7 +293,13 @@ async function lumaMaxDelta(oldMp4: string, newMp4: string): Promise<number | un
 
 export interface RenderHyperframeDeps {
   /** テスト用の produce 差し替え。既定は bundle+headless Chrome での実 render */
-  produce?: (tmp: string, inputProps: HyperFrameProps) => Promise<void>;
+  produce?: (
+    tmp: string,
+    inputProps: HyperFrameProps,
+    profile: HyperframeRenderProfile,
+  ) => Promise<void>;
+  /** transaction の commit を副作用なしで検証するテスト用差し替え */
+  verify?: (tmp: string) => Promise<VerifyOutcome>;
 }
 
 export interface RenderHyperframeResult {
@@ -314,6 +326,7 @@ async function renderHyperframeMp4(
   dir: string,
   outPath: string,
   inputProps: HyperFrameProps,
+  profile: HyperframeRenderProfile,
 ): Promise<void> {
   await ensureBrowser();
   const serveUrl = await bundle({
@@ -321,7 +334,11 @@ async function renderHyperframeMp4(
     publicDir: dir,
     symlinkPublicDir: true,
   });
-  const browser = await openBrowser("chrome");
+  const profileConfig = HYPERFRAME_RENDER_PROFILE_CONFIG[profile];
+  if (!profileConfig) throw new Error(`HyperFrame render profile is not wired: ${profile}`);
+  const browser = profileConfig.chromiumGl === "angle"
+    ? await openBrowser("chrome", { chromiumOptions: { gl: "angle" } })
+    : await openBrowser("chrome");
   try {
     const composition = await selectComposition({
       serveUrl,
@@ -370,6 +387,7 @@ export async function renderHyperframe(
     );
   }
   const html = readFileSync(sourcePath, "utf8");
+  const profile = resolveHyperframeRenderProfile(html);
   const parsed = parseComposition(html);
 
   const build = resolveHyperframeBuild({
@@ -396,7 +414,7 @@ export async function renderHyperframe(
     );
   }
 
-  const inputProps: HyperFrameProps = { html, variables, width, height, fps, durationSec };
+  const inputProps: HyperFrameProps = { html, variables, width, height, fps, durationSec, profile };
   const expectedFrames = compositionDurationInFrames(durationSec, fps);
   const hardwareAcceleration = "none";
 
@@ -410,6 +428,7 @@ export async function renderHyperframe(
     durationSec,
     codec: "h264",
     hardwareAcceleration,
+    profile,
   });
 
   const finalPath = join(dir, "materials", "hyperframes", `${opts.name}.mp4`);
@@ -461,14 +480,17 @@ export async function renderHyperframe(
   }
 
   const produce =
-    deps?.produce ?? ((tmp: string, props: HyperFrameProps) => renderHyperframeMp4(dir, tmp, props));
+    deps?.produce ?? ((tmp: string, props: HyperFrameProps, renderProfile: HyperframeRenderProfile) =>
+      renderHyperframeMp4(dir, tmp, props, renderProfile));
+  const verify = deps?.verify ?? ((tmp: string) =>
+    verifyHyperframeVideo(tmp, { width, height, fps, expectedFrames }));
 
   try {
     await publishAsTransaction({
       finalPath,
       inputs: [captureSnapshot(sourcePath)],
-      produce: (tempPath) => produce(tempPath, inputProps),
-      verify: (tempPath) => verifyHyperframeVideo(tempPath, { width, height, fps, expectedFrames }),
+      produce: (tempPath) => produce(tempPath, inputProps, profile),
+      verify,
       commit: () => {
         writeFileSync(
           keyPath,
@@ -483,6 +505,7 @@ export async function renderHyperframe(
               durationSec,
               codec: "h264",
               hardwareAcceleration,
+              profile,
             },
             null,
             2,
