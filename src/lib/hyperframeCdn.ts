@@ -32,6 +32,11 @@ export const CDN_PINS: readonly CdnPin[] = [
 
 export const CDN_SCRIPT_HOSTS: readonly string[] = [...new Set(CDN_PINS.map((p) => new URL(p.url).origin))];
 
+/** CSP の script-src に入れる完全 URL。origin だけを許可すると、card の
+ * inline script が動的に生成した未ピン留めの jsdelivr script まで取得でき、
+ * URL+SRI 完全一致という CDN_PINS の不変条件を迂回できる。 */
+export const CDN_SCRIPT_URLS: readonly string[] = CDN_PINS.map((p) => p.url);
+
 export type PinMatch =
   | { status: "match"; pin: CdnPin }
   | { status: "not-in-table" }

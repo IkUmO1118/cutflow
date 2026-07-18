@@ -19,12 +19,14 @@
 // Rule 10(B2): ピン留めされた <script src> を使うカードは
 // data-hf-requires="<lib>" を宣言すること(CDN 読み込み失敗を __failed
 // 経由で fail-fast させるための必須条件)。
-// Rule 11(B3): GSAP を参照しているのに window.__timelines へ paused
-// timeline を登録していないカードはエラー(seek できない)。
+// Rule 11(B3): GSAP animation は data-composition-id と同じ key で
+// window.__timelines へ paused timeline を登録する。直接 gsap.to/from 等は
+// self-running なので禁止する。
 // Rule 12(B3): gsap.ticker(壁時計で自走する内部 ticker)の使用は禁止。
 // 両ルールとも GSAP 検出でガードされ、CSS/WAAPI カードには一切発火しない。
 // Rule 13(B4): Lottie カード(loadAnimation( 呼び出しを検出)は
-// animationData のインライン埋め込みを必須とし、path: フェッチを禁止する
+// animationData のインライン埋め込み・autoplay:false・loop:false・
+// __hfLottie 登録を必須とし、path: フェッチと外部画像 asset を禁止する
 // (srcdoc の CSP connect-src 'none' でブロックされる上、キャッシュキー
 // (html sha256)にもアニメのバイトが乗らないため)。
 // Rule 14(B4): Lottie の renderer:'canvas' は byte 決定論を保証しない
@@ -147,6 +149,206 @@ function firstFamilyRaw(value: string): string {
     .split(",")[0]
     .trim()
     .replace(/^['"]|['"]$/g, "");
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+interface StaticObjectEntry {
+  key: string;
+  value: string;
+}
+
+function quotedEnd(source: string, start: number): number {
+  const quote = source[start];
+  for (let i = start + 1; i < source.length; i += 1) {
+    if (source[i] === "\\") {
+      i += 1;
+    } else if (source[i] === quote) {
+      return i + 1;
+    }
+  }
+  return source.length;
+}
+
+function balancedEnd(source: string, start: number): number | undefined {
+  const pairs: Record<string, string> = { "{": "}", "[": "]", "(": ")" };
+  const firstClose = pairs[source[start]];
+  if (!firstClose) return undefined;
+  const closes = [firstClose];
+  for (let i = start + 1; i < source.length; i += 1) {
+    const ch = source[i];
+    if (ch === '"' || ch === "'" || ch === "`") {
+      i = quotedEnd(source, i) - 1;
+      continue;
+    }
+    const close = pairs[ch];
+    if (close) {
+      closes.push(close);
+    } else if (ch === closes[closes.length - 1]) {
+      closes.pop();
+      if (closes.length === 0) return i + 1;
+    }
+  }
+  return undefined;
+}
+
+function valueEnd(source: string, start: number, outerClose: string): number {
+  const pairs: Record<string, string> = { "{": "}", "[": "]", "(": ")" };
+  const closes: string[] = [];
+  for (let i = start; i < source.length; i += 1) {
+    const ch = source[i];
+    if (ch === '"' || ch === "'" || ch === "`") {
+      i = quotedEnd(source, i) - 1;
+      continue;
+    }
+    const close = pairs[ch];
+    if (close) {
+      closes.push(close);
+    } else if (closes.length > 0 && ch === closes[closes.length - 1]) {
+      closes.pop();
+    } else if (closes.length === 0 && (ch === "," || ch === outerClose)) {
+      return i;
+    }
+  }
+  return source.length;
+}
+
+/** 静的 object literal の直下 property だけを読む。値の内部は文字列として
+ * 保持し、JS の評価や任意式の解決は行わない。 */
+function staticObjectEntries(source: string): StaticObjectEntry[] {
+  if (!source.trimStart().startsWith("{")) return [];
+  const objectStart = source.indexOf("{");
+  const objectEnd = balancedEnd(source, objectStart);
+  if (objectEnd === undefined) return [];
+  const object = source.slice(objectStart, objectEnd);
+  const entries: StaticObjectEntry[] = [];
+  let i = 1;
+  while (i < object.length - 1) {
+    while (/[\s,]/.test(object[i] ?? "")) i += 1;
+    if (i >= object.length - 1) break;
+
+    let key: string;
+    if (object[i] === '"' || object[i] === "'") {
+      const end = quotedEnd(object, i);
+      key = object.slice(i + 1, end - 1);
+      i = end;
+    } else {
+      const keyMatch = /^[A-Za-z_$][\w$-]*/.exec(object.slice(i));
+      if (!keyMatch) {
+        i = valueEnd(object, i, "}") + 1;
+        continue;
+      }
+      key = keyMatch[0];
+      i += key.length;
+    }
+    while (/\s/.test(object[i] ?? "")) i += 1;
+    if (object[i] !== ":") {
+      i = valueEnd(object, i, "}") + 1;
+      continue;
+    }
+    i += 1;
+    while (/\s/.test(object[i] ?? "")) i += 1;
+    const end = valueEnd(object, i, "}");
+    entries.push({ key, value: object.slice(i, end).trim() });
+    i = end + 1;
+  }
+  return entries;
+}
+
+function staticArrayValues(source: string): string[] {
+  if (!source.trimStart().startsWith("[")) return [];
+  const arrayStart = source.indexOf("[");
+  const arrayEnd = balancedEnd(source, arrayStart);
+  if (arrayEnd === undefined) return [];
+  const array = source.slice(arrayStart, arrayEnd);
+  const values: string[] = [];
+  let i = 1;
+  while (i < array.length - 1) {
+    while (/[\s,]/.test(array[i] ?? "")) i += 1;
+    if (i >= array.length - 1) break;
+    const end = valueEnd(array, i, "]");
+    values.push(array.slice(i, end).trim());
+    i = end + 1;
+  }
+  return values;
+}
+
+function declaredObjectLiterals(body: string, identifier: string): string[] {
+  const out: string[] = [];
+  const re = new RegExp(`\\b(?:const|let|var)\\s+${escapeRegExp(identifier)}\\s*=\\s*\\{`, "g");
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(body)) !== null) {
+    const start = body.indexOf("{", match.index);
+    const end = balancedEnd(body, start);
+    if (end !== undefined) out.push(body.slice(start, end));
+  }
+  return out;
+}
+
+function resolveStaticObjects(value: string, body: string): string[] {
+  const trimmed = value.trim();
+  if (trimmed.startsWith("{")) {
+    const end = balancedEnd(trimmed, 0);
+    return end === undefined ? [] : [trimmed.slice(0, end)];
+  }
+  return /^[A-Za-z_$][\w$]*$/.test(trimmed) ? declaredObjectLiterals(body, trimmed) : [];
+}
+
+function isPausedTimelineExpression(value: string, body: string): boolean {
+  const pausedTimeline =
+    /^gsap\s*\.\s*timeline\s*\(\s*\{[^}]*\bpaused\s*:\s*true\b[^}]*\}\s*\)/;
+  const trimmed = value.trim();
+  if (pausedTimeline.test(trimmed)) return true;
+  if (!/^[A-Za-z_$][\w$]*$/.test(trimmed)) return false;
+  const initializer = new RegExp(
+    `\\b(?:const|let|var)\\s+${escapeRegExp(trimmed)}\\s*=\\s*${pausedTimeline.source.slice(1)}`,
+  );
+  return initializer.test(body);
+}
+
+function registeredCompositionTimelineValues(body: string, compositionId: string): string[] {
+  const values: string[] = [];
+  const escapedId = escapeRegExp(compositionId);
+  const assignment = new RegExp(
+    `(?:window\\s*\\.\\s*)?__timelines(?:\\s*\\.\\s*${escapedId}|\\s*\\[\\s*["']${escapedId}["']\\s*\\])\\s*=\\s*([^;\\n]+)`,
+    "g",
+  );
+  let assignmentMatch: RegExpExecArray | null;
+  while ((assignmentMatch = assignment.exec(body)) !== null) values.push(assignmentMatch[1].trim());
+
+  const objectAssignment = /(?:window\s*\.\s*)?__timelines\s*=\s*\{/g;
+  let objectMatch: RegExpExecArray | null;
+  while ((objectMatch = objectAssignment.exec(body)) !== null) {
+    const start = body.indexOf("{", objectMatch.index);
+    const end = balancedEnd(body, start);
+    if (end === undefined) continue;
+    for (const entry of staticObjectEntries(body.slice(start, end))) {
+      if (entry.key === compositionId) values.push(entry.value);
+    }
+    objectAssignment.lastIndex = end;
+  }
+  return values;
+}
+
+function lottieAnimationDataObjects(body: string): string[] {
+  const out: string[] = [];
+  const loadAnimation = /\bloadAnimation\s*\(/g;
+  let match: RegExpExecArray | null;
+  while ((match = loadAnimation.exec(body)) !== null) {
+    let start = match.index + match[0].length;
+    while (/\s/.test(body[start] ?? "")) start += 1;
+    if (body[start] !== "{") continue;
+    const end = balancedEnd(body, start);
+    if (end === undefined) continue;
+    const options = staticObjectEntries(body.slice(start, end));
+    for (const entry of options) {
+      if (entry.key === "animationData") out.push(...resolveStaticObjects(entry.value, body));
+    }
+    loadAnimation.lastIndex = end;
+  }
+  return out;
 }
 
 export function checkComposition(html: string, opts?: CheckOpts): CheckResult {
@@ -385,6 +587,25 @@ export function checkComposition(html: string, opts?: CheckOpts): CheckResult {
     }
   });
 
+  // CSP は CDN_PINS の完全 URL だけを許可するが、静的 check 側でも author
+  // script による動的な script 挿入を契約違反として前倒しで拒否する。
+  // これにより SRI 属性を持たない createElement/import/document.write 経路が
+  // check を 0 error で通ることを防ぐ。
+  const dynamicScriptBody = inlineScripts(html).map(stripJsComments).join("\n");
+  const dynamicScriptPatterns = [
+    /\b(?:document\s*\.\s*)?createElement\s*\(\s*['"]script['"]\s*\)/i,
+    /\bimport\s*\(/,
+    /\bdocument\s*\.\s*write(?:ln)?\s*\(/i,
+  ];
+  if (dynamicScriptPatterns.some((re) => re.test(dynamicScriptBody))) {
+    errors.push({
+      file,
+      where: "<script>",
+      message:
+        "dynamic script loading is not allowed; use an exact pinned <script src> tag with integrity and crossorigin / 動的な script 読み込みは使えません。ピン表と完全一致する <script src> を使用してください",
+    });
+  }
+
   const styleBlocks: string[] = [];
   {
     const re = /<style\b[^>]*>([\s\S]*?)<\/style>/gi;
@@ -549,15 +770,27 @@ export function checkComposition(html: string, opts?: CheckOpts): CheckResult {
   // 「paused の __timelines timeline で駆動せよ」という契約をここで強制する
   const gsapScripts = inlineScripts(html).map(stripJsComments);
   const gsapBody = gsapScripts.join("\n");
-  const gsapApiRe = /\bgsap\s*\.\s*(?:to|from|fromTo|set|timeline|registerPlugin|delayedCall|globalTimeline)\b/;
-  const usesGsapApi = gsapScripts.some((s) => gsapApiRe.test(s));
-  const registersTimeline = /\bgsap\s*\.\s*timeline\s*\(/.test(gsapBody) && /__timelines\b/.test(gsapBody);
-  if (usesGsapApi && !registersTimeline) {
+  const createsTimeline = /\bgsap\s*\.\s*timeline\s*\(/.test(gsapBody);
+  const usesDirectTween = /\bgsap\s*\.\s*(?:to|from|fromTo|delayedCall|globalTimeline)\b/.test(gsapBody);
+  const hasPausedCompositionTimeline = rootId
+    ? registeredCompositionTimelineValues(gsapBody, rootId).some((value) =>
+        isPausedTimelineExpression(value, gsapBody),
+      )
+    : false;
+  if ((createsTimeline || usesDirectTween) && !hasPausedCompositionTimeline) {
     errors.push({
       file,
       where: "<script>",
       message:
-        'GSAP is used but no paused timeline is registered into window.__timelines; the card cannot be seeked (create gsap.timeline({paused:true}) and assign it to window.__timelines["<id>"]) / GSAP を使うなら paused の timeline を window.__timelines に登録してください',
+        `GSAP is used but no paused timeline is registered at window.__timelines["${rootId || "<id>"}"]; the card cannot be seeked (create gsap.timeline({paused:true}) and register it with the exact data-composition-id) / GSAP を使うなら paused の timeline を composition ID と同じ key で window.__timelines に登録してください`,
+    });
+  }
+  if (usesDirectTween) {
+    errors.push({
+      file,
+      where: "<script>",
+      message:
+        "direct gsap.to/from/fromTo/delayedCall/globalTimeline usage is self-running and cannot be seeked; add tweens to the registered paused timeline instead / gsap の直接 tween は使わず、登録済み paused timeline に追加してください",
     });
   }
 
@@ -582,7 +815,7 @@ export function checkComposition(html: string, opts?: CheckOpts): CheckResult {
   const isLottieCard = /\bloadAnimation\s*\(/.test(lottieBody);
   if (isLottieCard) {
     // Rule 13a: path: fetch banned (must inline animationData)
-    const pathFetchRe = /\bpath\s*:\s*['"][^'"]*?(?:https?:|\/\/|\.\/|\/|\.json|\.lottie)/i;
+    const pathFetchRe = /(?:^|[{,]\s*)["']?path["']?\s*:/im;
     if (pathFetchRe.test(lottieBody)) {
       errors.push({
         file,
@@ -590,13 +823,72 @@ export function checkComposition(html: string, opts?: CheckOpts): CheckResult {
         message:
           "Lottie loadAnimation uses path: to fetch the animation — inline it as animationData (a runtime fetch is blocked by the srcdoc CSP connect-src 'none' and its bytes are not captured by the html sha256 cache key) / Lottie の path: は使えません。アニメは animationData としてインライン埋め込みしてください",
       });
-    } else if (!/\banimationData\b/.test(lottieBody)) {
+    } else if (!/["']?animationData["']?\s*:/.test(lottieBody)) {
       // Rule 13b: no inline animationData present at all
       errors.push({
         file,
         where: "<script>",
         message:
           "Lottie loadAnimation must pass the animation JSON inlined as animationData (none found in the card) / animationData が見つかりません。アニメ JSON をカードにインライン埋め込みしてください",
+      });
+    }
+    if (!/["']?autoplay["']?\s*:\s*false\b/.test(lottieBody)) {
+      errors.push({
+        file,
+        where: "<script>",
+        message:
+          "Lottie loadAnimation must set autoplay:false so wall-clock playback cannot race frame seeking / Lottie は autoplay:false を指定してください",
+      });
+    }
+    if (!/["']?loop["']?\s*:\s*false\b/.test(lottieBody)) {
+      errors.push({
+        file,
+        where: "<script>",
+        message:
+          "Lottie loadAnimation must set loop:false; Cutflow drives playback by absolute seek / Lottie は loop:false を指定してください",
+      });
+    }
+    if (!/\b__hfLottie\s*\.\s*push\s*\(/.test(lottieBody)) {
+      errors.push({
+        file,
+        where: "<script>",
+        message:
+          "Lottie animation must be registered with window.__hfLottie.push(anim) so Cutflow can seek it / Lottie animation を window.__hfLottie.push(anim) で登録してください",
+      });
+    }
+
+    // AE/bodymovin JSON の画像 asset は {u:"images/",p:"img.png"} の形で
+    // 外部 byte を参照できる。CSP の img-src data: と html sha256 cache key の
+    // 両方に整合させるため、loadAnimation の animationData.assets[] 直下だけを
+    // 読み、文字列 p は data: URL だけを許可し、非空 u は拒否する。
+    const assetEntries = lottieAnimationDataObjects(lottieBody).flatMap((animationData) => {
+      const assets = staticObjectEntries(animationData).filter((entry) => entry.key === "assets");
+      return assets.flatMap((entry) =>
+        staticArrayValues(entry.value).flatMap((asset) => staticObjectEntries(asset)),
+      );
+    });
+    const externalImagePath = assetEntries.find((entry) => {
+      if (entry.key !== "p" || !/^(["']).*\1$/.test(entry.value)) return false;
+      const value = entry.value.slice(1, -1).trim();
+      return value.length > 0 && !/^data:/i.test(value);
+    });
+    if (externalImagePath) {
+      errors.push({
+        file,
+        where: "<script>",
+        message:
+          "Lottie image assets must be embedded as data: URLs inside animationData; external asset filenames are blocked by CSP and absent from the cache key / Lottie の画像 asset は data: URL として animationData 内へ埋め込んでください",
+      });
+    }
+    const assetDirectory = assetEntries.find(
+      (entry) => entry.key === "u" && /^(["']).+\1$/.test(entry.value),
+    );
+    if (assetDirectory) {
+      errors.push({
+        file,
+        where: "<script>",
+        message:
+          "Lottie image asset directories (u:) are not allowed; embed each image as a data: URL / Lottie の画像 asset directory(u:)は使えません",
       });
     }
     // Rule 14: canvas renderer is not byte-deterministic → warn to declare perceptual

@@ -2,7 +2,7 @@
 // matchCdnPin)の固定。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CDN_SCRIPT_HOSTS, matchCdnPin } from "../src/lib/hyperframeCdn.ts";
+import { CDN_SCRIPT_HOSTS, CDN_SCRIPT_URLS, matchCdnPin } from "../src/lib/hyperframeCdn.ts";
 
 const GSAP_URL = "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js";
 const GSAP_INTEGRITY = "sha384-sG0Hv1tP1lZCk9KQmrIbY/XNwi+OY84GQqhMscbnsoBFqAz8KNCil1kvfL3Hbbk2";
@@ -49,4 +49,8 @@ test("matchCdnPin: lottie-web wrong version is not-in-table (B4)", () => {
 
 test("CDN_SCRIPT_HOSTS still deep-equals [https://cdn.jsdelivr.net] after adding lottie (regression)", () => {
   assert.deepEqual(CDN_SCRIPT_HOSTS, ["https://cdn.jsdelivr.net"]);
+});
+
+test("CDN_SCRIPT_URLS contains only the exact pinned URLs used by CSP", () => {
+  assert.deepEqual(CDN_SCRIPT_URLS, [GSAP_URL, LOTTIE_URL]);
 });

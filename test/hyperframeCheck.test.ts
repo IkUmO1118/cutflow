@@ -228,7 +228,7 @@ test('30: data-hf-requires="three" with no tier is an error (Rule 9)', () => {
 
 test('31: regression — GSAP (window.__timelines) card declaring byte tier has no Rule 9 error', () => {
   const r = checkComposition(
-    `<div data-composition-id="root" data-hf-determinism="byte" data-hf-requires="gsap"></div><script>window.__timelines={main:gsap.timeline({paused:true})};</script>`,
+    `<div data-composition-id="root" data-hf-determinism="byte" data-hf-requires="gsap"></div><script>window.__timelines={root:gsap.timeline({paused:true})};</script>`,
   );
   assert.ok(!hasErr(r, 'requires data-hf-determinism="perceptual"'));
 });
@@ -330,7 +330,7 @@ test("44: registered timeline with no ticker usage has no Rule 12 error", () => 
 
 test("45: regression — test 31's GSAP (window.__timelines) card still has 0 errors with Rule 11/12 added", () => {
   const r = checkComposition(
-    `<div data-composition-id="root" data-hf-determinism="byte" data-hf-requires="gsap"></div><script>window.__timelines={main:gsap.timeline({paused:true})};</script>`,
+    `<div data-composition-id="root" data-hf-determinism="byte" data-hf-requires="gsap"></div><script>window.__timelines={root:gsap.timeline({paused:true})};</script>`,
   );
   assert.equal(r.errors.length, 0);
 });
@@ -433,4 +433,70 @@ test("55: raw-WebGL hf-seek card with data-hf-determinism=\"perceptual\" is chec
     `<div data-composition-id="root" data-width="1280" data-height="720"><canvas class="clip" data-start="0" data-duration="4"></canvas><script>window.addEventListener('hf-seek', function(e){});</script></div>`,
   );
   assert.ok(hasErr(noTier, 'requires data-hf-determinism="perceptual"'));
+});
+
+test("56: GSAP timeline without paused:true is rejected", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-requires="gsap"></div><script>window.__timelines={root:gsap.timeline()};window.__timelines.root.to('#x',{x:1});</script>`,
+  );
+  assert.ok(hasErr(r, "no paused timeline is registered"));
+});
+
+test("57: GSAP timeline registered under a key different from data-composition-id is rejected", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-requires="gsap"></div><script>window.__timelines={other:gsap.timeline({paused:true})};window.__timelines.other.to('#x',{x:1});</script>`,
+  );
+  assert.ok(hasErr(r, 'window.__timelines["root"]'));
+});
+
+test("58: direct gsap.to remains rejected even when an unrelated paused timeline is registered", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-requires="gsap"></div><script>window.__timelines={root:gsap.timeline({paused:true})};gsap.to('#x',{x:1});</script>`,
+  );
+  assert.ok(hasErr(r, "direct gsap.to"));
+});
+
+test("59: Lottie loadAnimation must use autoplay:false, loop:false, and __hfLottie registration", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-requires="lottie"></div>${LOTTIE_SCRIPT_TAG}<script>lottie.loadAnimation({renderer:'svg',autoplay:true,animationData:{v:'5.7.4'}});</script>`,
+  );
+  assert.ok(hasErr(r, "autoplay:false"));
+  assert.ok(hasErr(r, "loop:false"));
+  assert.ok(hasErr(r, "__hfLottie.push"));
+});
+
+test("60: Lottie external image filename/directory assets are rejected", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-requires="lottie"></div>${LOTTIE_SCRIPT_TAG}<script>var DATA={v:'5.7.4',assets:[{u:'images/',p:'img_0.png'}]};var anim=lottie.loadAnimation({renderer:'svg',autoplay:false,loop:false,animationData:DATA});window.__hfLottie=[];window.__hfLottie.push(anim);</script>`,
+  );
+  assert.ok(hasErr(r, "data: URLs"));
+  assert.ok(hasErr(r, "asset directories"));
+});
+
+test("61: Lottie data: image asset is accepted", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-width="1280" data-height="720" data-hf-requires="lottie"></div>${LOTTIE_SCRIPT_TAG}<script>var DATA={v:'5.7.4',assets:[{u:'',p:'data:image/png;base64,AA=='}]};var anim=lottie.loadAnimation({renderer:'svg',autoplay:false,loop:false,animationData:DATA});window.__hfLottie=[];window.__hfLottie.push(anim);</script>`,
+  );
+  assert.equal(r.errors.length, 0, JSON.stringify(r.errors, null, 2));
+});
+
+test("62: dynamic script construction is rejected before CSP", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root"></div><script>var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/animejs@4.1.3/dist/bundles/anime.umd.min.js';document.head.appendChild(s);</script>`,
+  );
+  assert.ok(hasErr(r, "dynamic script loading"));
+});
+
+test("63: the composition timeline itself must be paused, not a different registered timeline", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-requires="gsap"></div><script>window.__timelines={root:gsap.timeline(),other:gsap.timeline({paused:true})};window.__timelines.root.to('#x',{x:1});</script>`,
+  );
+  assert.ok(hasErr(r, 'window.__timelines["root"]'));
+});
+
+test("64: Lottie asset p/u checks ignore unrelated properties outside animationData assets", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-width="1280" data-height="720" data-hf-requires="lottie"></div>${LOTTIE_SCRIPT_TAG}<script>var unrelated={p:'not-an-asset.png',u:'not-an-asset-directory/'};var DATA={v:'5.7.4',assets:[]};var anim=lottie.loadAnimation({renderer:'svg',autoplay:false,loop:false,animationData:DATA});window.__hfLottie=[];window.__hfLottie.push(anim);</script>`,
+  );
+  assert.equal(r.errors.length, 0, JSON.stringify(r.errors, null, 2));
 });

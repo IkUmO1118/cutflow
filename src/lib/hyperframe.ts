@@ -3,9 +3,9 @@
 // されるため **node: の import は一切禁止**(annotation.ts と同じ流儀。
 // node 専用ロジックは annotationStill.ts のように分離する)。
 //
-// buildIframeSrcdoc は CSP <meta> の script-src ホストを hyperframeCdn.ts の
-// CDN_SCRIPT_HOSTS から導出する(ここではホストをハードコードしない。
-// ピン表と CSP が乖離しないようにするため)。
+// buildIframeSrcdoc は CSP <meta> の script-src 外部 source を
+// hyperframeCdn.ts の CDN_SCRIPT_URLS から完全 URL 単位で導出する
+// (ここでは URL をハードコードしない。ピン表と CSP が乖離しないようにする)。
 //
 // parseComposition は汎用の HTML パーサではない。HyperFrames の作図契約が
 // 定める限られた属性(data-composition-id / data-width / data-height /
@@ -16,7 +16,7 @@
 // 検証(不正な contract のはじき方)は C2 の責務(このファイルはそこまで
 // やらない)。
 
-import { CDN_SCRIPT_HOSTS } from "./hyperframeCdn.ts";
+import { CDN_SCRIPT_URLS } from "./hyperframeCdn.ts";
 
 export interface VarDecl {
   id: string;
@@ -172,15 +172,16 @@ export function mergeVariables(
  *
  * B2: ブートストラップ <script> の直前に CSP <meta> を注入する
  * (`<head>` 内の先頭。順序は CSP meta → bootstrap → card content)。
- * `script-src` のホスト部分は hyperframeCdn.ts の CDN_SCRIPT_HOSTS から
- * 導出し(ハードコードしない)、ピン留めされた CDN スクリプトの読み込みだけを
- * 許可する。`connect-src 'none'` によりライブラリは読み込めても outbound
+ * `script-src` の外部 source は hyperframeCdn.ts の CDN_SCRIPT_URLS から
+ * 完全 URL 単位で導出し(ハードコードしない)、ピン留めされた CDN
+ * スクリプトの読み込みだけを許可する。origin 単位では許可しない。
+ * `connect-src 'none'` によりライブラリは読み込めても outbound
  * fetch/XHR/WebSocket は送れない
  */
 export function buildIframeSrcdoc(html: string, variables: Record<string, unknown>): string {
   const policy =
     "default-src 'none'; " +
-    `script-src 'unsafe-inline' ${CDN_SCRIPT_HOSTS.join(" ")}; ` +
+    `script-src 'unsafe-inline' ${CDN_SCRIPT_URLS.join(" ")}; ` +
     "style-src 'unsafe-inline'; " +
     "img-src data:; " +
     "media-src data:; " +
