@@ -348,6 +348,64 @@ test("47: regression — SAMPLE_HTML (no GSAP) is unaffected by Rule 11/12", () 
   assert.equal(r.warnings.length, 0);
 });
 
+const LOTTIE_URL = "https://cdn.jsdelivr.net/npm/lottie-web@5.12.2/build/player/lottie.min.js";
+const LOTTIE_INTEGRITY = "sha384-J8C0MvgX4WP58J4N2W99vCKd2J6z99ynOJ5bEfE6jeP7kVTW1drYtv/jzrxM5jbm";
+const LOTTIE_SCRIPT_TAG = `<script src="${LOTTIE_URL}" integrity="${LOTTIE_INTEGRITY}" crossorigin="anonymous"></script>`;
+
+test("48: full Lottie card (pinned tag + animationData + __hfLottie push + svg renderer) is clean (Rule 13/14)", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-requires="lottie"></div>${LOTTIE_SCRIPT_TAG}<script>var anim = lottie.loadAnimation({container:document.getElementById('x'), renderer:'svg', loop:false, autoplay:false, animationData:{v:"5.7.4"}}); window.__hfLottie = window.__hfLottie || []; window.__hfLottie.push(anim);</script>`,
+  );
+  assert.equal(r.errors.length, 0);
+});
+
+test("49: Lottie loadAnimation with path: instead of animationData is an error (Rule 13a)", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-requires="lottie"></div>${LOTTIE_SCRIPT_TAG}<script>var anim = lottie.loadAnimation({container:document.getElementById('x'), renderer:'svg', path:"./anim.json"}); window.__hfLottie = window.__hfLottie || []; window.__hfLottie.push(anim);</script>`,
+  );
+  assert.ok(hasErr(r, "animationData"));
+});
+
+test("50: Lottie loadAnimation with neither animationData nor path is an error (Rule 13b)", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-requires="lottie"></div>${LOTTIE_SCRIPT_TAG}<script>var anim = lottie.loadAnimation({container:document.getElementById('x'), renderer:'svg'}); window.__hfLottie = window.__hfLottie || []; window.__hfLottie.push(anim);</script>`,
+  );
+  assert.ok(hasErr(r, "animationData"));
+});
+
+test("51: Lottie renderer:'canvas' with animationData and no perceptual tier is a warning, not an error (Rule 14)", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-requires="lottie"></div>${LOTTIE_SCRIPT_TAG}<script>var anim = lottie.loadAnimation({container:document.getElementById('x'), renderer:'canvas', animationData:{v:"5.7.4"}}); window.__hfLottie = window.__hfLottie || []; window.__hfLottie.push(anim);</script>`,
+  );
+  assert.ok(!hasErr(r, "canvas"));
+  assert.ok(hasWarn(r, "canvas"));
+});
+
+test('52: Lottie renderer:\'canvas\' with data-hf-determinism="perceptual" has no canvas warning (Rule 14)', () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-requires="lottie" data-hf-determinism="perceptual"></div>${LOTTIE_SCRIPT_TAG}<script>var anim = lottie.loadAnimation({container:document.getElementById('x'), renderer:'canvas', animationData:{v:"5.7.4"}}); window.__hfLottie = window.__hfLottie || []; window.__hfLottie.push(anim);</script>`,
+  );
+  assert.ok(!hasWarn(r, "canvas"));
+});
+
+test("53: data-hf-requires=\"lottie\" + pinned tag but no loadAnimation( call has 0 errors (Rule 13 false-positive guard)", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-requires="lottie"></div>${LOTTIE_SCRIPT_TAG}`,
+  );
+  assert.equal(r.errors.length, 0);
+});
+
+test("54: regression — a GSAP card (no loadAnimation) is unaffected by Rule 13/14; SAMPLE_HTML still 0/0", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-requires="gsap"></div><script src="${GSAP_URL}" integrity="${GSAP_INTEGRITY}" crossorigin="anonymous"></script><script>window.__timelines = {root: gsap.timeline({paused:true})}; window.__timelines.root.to('#x',{x:1});</script>`,
+  );
+  assert.equal(r.errors.length, 0);
+
+  const sample = checkComposition(SAMPLE_HTML);
+  assert.equal(sample.errors.length, 0);
+  assert.equal(sample.warnings.length, 0);
+});
+
 test("19: false-positive guards for remote-URL scan", () => {
   const a = checkComposition(
     `<div data-composition-id="root"></div><!-- see https://example.com -->`,

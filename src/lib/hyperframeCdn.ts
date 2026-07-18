@@ -23,6 +23,11 @@ export const CDN_PINS: readonly CdnPin[] = [
     integrity: "sha384-sG0Hv1tP1lZCk9KQmrIbY/XNwi+OY84GQqhMscbnsoBFqAz8KNCil1kvfL3Hbbk2",
     lib: "gsap",
   },
+  {
+    url: "https://cdn.jsdelivr.net/npm/lottie-web@5.12.2/build/player/lottie.min.js",
+    integrity: "sha384-J8C0MvgX4WP58J4N2W99vCKd2J6z99ynOJ5bEfE6jeP7kVTW1drYtv/jzrxM5jbm",
+    lib: "lottie",
+  },
 ];
 
 export const CDN_SCRIPT_HOSTS: readonly string[] = [...new Set(CDN_PINS.map((p) => new URL(p.url).origin))];

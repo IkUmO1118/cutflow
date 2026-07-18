@@ -23,6 +23,13 @@
 // timeline を登録していないカードはエラー(seek できない)。
 // Rule 12(B3): gsap.ticker(壁時計で自走する内部 ticker)の使用は禁止。
 // 両ルールとも GSAP 検出でガードされ、CSS/WAAPI カードには一切発火しない。
+// Rule 13(B4): Lottie カード(loadAnimation( 呼び出しを検出)は
+// animationData のインライン埋め込みを必須とし、path: フェッチを禁止する
+// (srcdoc の CSP connect-src 'none' でブロックされる上、キャッシュキー
+// (html sha256)にもアニメのバイトが乗らないため)。
+// Rule 14(B4): Lottie の renderer:'canvas' は byte 決定論を保証しない
+// (SVG パスの解像度非依存レンダラと違い canvas はラスタライズする)ため
+// data-hf-determinism="perceptual" の宣言を促す警告(既定 svg は byte のまま)。
 //
 // Rule 4(B2 拡張): 従来「<script src> の remote URL は常にエラー」
 // だったところを、hyperframeCdn.ts の CDN_PINS 表に一致する
@@ -564,6 +571,44 @@ export function checkComposition(html: string, opts?: CheckOpts): CheckResult {
       message:
         "gsap.ticker runs on wall-clock time and breaks seek determinism; drive animation via a paused window.__timelines timeline instead / gsap.ticker は壁時計で自走するため使えません",
     });
+  }
+
+  // ---- Rule 13/14 (B4): Lottie receptacle ----
+  // "Lottie card" = an inline script (comment-stripped) calls loadAnimation(.
+  // lottie-web の唯一のエントリポイント。宣言だけ(data-hf-requires="lottie")で
+  // loadAnimation を呼ばないカードは対象外(誤検知を避ける)。
+  const lottieScripts = inlineScripts(html).map(stripJsComments);
+  const lottieBody = lottieScripts.join("\n");
+  const isLottieCard = /\bloadAnimation\s*\(/.test(lottieBody);
+  if (isLottieCard) {
+    // Rule 13a: path: fetch banned (must inline animationData)
+    const pathFetchRe = /\bpath\s*:\s*['"][^'"]*?(?:https?:|\/\/|\.\/|\/|\.json|\.lottie)/i;
+    if (pathFetchRe.test(lottieBody)) {
+      errors.push({
+        file,
+        where: "<script>",
+        message:
+          "Lottie loadAnimation uses path: to fetch the animation — inline it as animationData (a runtime fetch is blocked by the srcdoc CSP connect-src 'none' and its bytes are not captured by the html sha256 cache key) / Lottie の path: は使えません。アニメは animationData としてインライン埋め込みしてください",
+      });
+    } else if (!/\banimationData\b/.test(lottieBody)) {
+      // Rule 13b: no inline animationData present at all
+      errors.push({
+        file,
+        where: "<script>",
+        message:
+          "Lottie loadAnimation must pass the animation JSON inlined as animationData (none found in the card) / animationData が見つかりません。アニメ JSON をカードにインライン埋め込みしてください",
+      });
+    }
+    // Rule 14: canvas renderer is not byte-deterministic → warn to declare perceptual
+    const tierRawLottie = firstAttr(html, "data-hf-determinism");
+    if (/renderer\s*:\s*['"]canvas['"]/i.test(lottieBody) && tierRawLottie !== "perceptual") {
+      warnings.push({
+        file,
+        where: "<script>",
+        message:
+          "Lottie renderer:'canvas' rasterizes off the resolution-independent SVG path and is not guaranteed byte-identical; declare data-hf-determinism='perceptual' (the default svg renderer stays byte) / canvas レンダラは byte 一致を保証しません。perceptual を宣言してください",
+      });
+    }
   }
 
   // ---- Rule 9(B1): GPU 規約 × determinism tier ----

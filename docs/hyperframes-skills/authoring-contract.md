@@ -191,3 +191,57 @@ fetch/XHR/WebSocket でどこかへ送信することはできない。
   </div>
 </html>
 ```
+
+## Lottie(人間持ち込み AE 素材)— B4
+
+Lottie は After Effects の書き出し(bodymovin/Lottie JSON)を composition
+カードへ持ち込むための受け皿。**LLM は Lottie カードを作図しない**
+(`prompts/hyperframe.md` / `card-patterns.md` のパターンメニューに Lottie は
+無い)。人間が AE から書き出した JSON をカード作者(人間、または
+`hyperframe --from-brief` が生成した下書きへ人間が後付け)が手で埋め込む
+運用専用。
+
+- **animationData のインライン埋め込みが必須。`path:` フェッチは禁止**
+  (check ゲート Rule 13a/13b)。理由は2つ: srcdoc の CSP
+  `connect-src 'none'` が実行時フェッチをブロックする、そして
+  `hyperframe.<name>.key.json` のキャッシュキー(html の sha256)は html の
+  バイトしか見ないため、`path:` で外部 JSON を読む構成だとアニメのバイトが
+  キャッシュキーに乗らない(アニメを差し替えてもキャッシュヒットしてしまう)
+- **ピン留めスクリプトタグは表から一字一句そのままコピーする**(下記)
+- ルート要素(または任意の要素)に `data-hf-requires="lottie"` を宣言する
+  (Rule 10 と同じ規約)
+- **`renderer:'svg'`(既定)は byte tier のまま**(解像度非依存の SVG パスを
+  描くため)。**`renderer:'canvas'` はラスタライズするため byte 一致を
+  保証しない**。使うときは `data-hf-determinism="perceptual"` を宣言する
+  (Rule 14。宣言しないと警告)
+- seek 規約は既存どおり: `window.__hfLottie = window.__hfLottie || [];
+  window.__hfLottie.push(anim);` で登録する。`loadAnimation` には
+  `autoplay:false` を渡す(bootstrap が毎シークで `goToAndStop` するため、
+  自走再生は不要かつ壁時計 drift の原因になる)
+
+```html
+<!doctype html>
+<html data-composition-variables='[]'>
+<head>
+<script src="https://cdn.jsdelivr.net/npm/lottie-web@5.12.2/build/player/lottie.min.js" integrity="sha384-J8C0MvgX4WP58J4N2W99vCKd2J6z99ynOJ5bEfE6jeP7kVTW1drYtv/jzrxM5jbm" crossorigin="anonymous"></script>
+<style>
+  html,body{margin:0;padding:0}
+  #root{position:relative;width:1280px;height:720px;background:#0a0a12;overflow:hidden}
+  #lottie{position:absolute;inset:0}
+</style>
+</head>
+<body>
+  <div id="root" data-composition-id="root" data-width="1280" data-height="720" data-hf-requires="lottie">
+    <div id="lottie"></div>
+    <script>
+      var DATA = {"v":"5.7.4","fr":30,"ip":0,"op":30,"w":1280,"h":720,"nm":"card","assets":[],"layers":[]};
+      var anim = lottie.loadAnimation({
+        container: document.getElementById('lottie'),
+        renderer: 'svg', loop: false, autoplay: false, animationData: DATA
+      });
+      window.__hfLottie = window.__hfLottie || [];
+      window.__hfLottie.push(anim);
+    </script>
+  </div>
+</html>
+```
