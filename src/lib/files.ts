@@ -49,6 +49,7 @@ export const GENERATED_FILES = [
   "bgm-fit.json",
   "bgm-fit.suggested.json",
   "style-check.json",
+  "hyperframe-place.suggested.json",
 ] as const;
 
 /** 中間生成物のうち、ショート名(shorts.json の name)や HyperFrame カード名
@@ -161,6 +162,7 @@ export const GENERATED_LOG_FILES = [
   "material-fit.suggested.json",
   "effect-fix.suggested.json",
   "bgm-fit.suggested.json",
+  "hyperframe-place.suggested.json",
   "effect-check.json",
   "bgm-fit.json",
   "style-check.json",

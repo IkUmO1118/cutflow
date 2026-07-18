@@ -78,14 +78,28 @@ function readJsonOrFallback<T>(dir: string, file: string, fallback: T): T {
   return JSON.parse(readFileSync(p, "utf8")) as T;
 }
 
-/** `materials/` 配下の実在ファイル一覧(収録フォルダ直下からの相対パス)。
- * ディレクトリが無ければ空配列(新規プロジェクトで普通に起こる) */
-function listPresentMaterialFiles(dir: string): string[] {
+/** `materials/` 配下の実在ファイル一覧(収録フォルダ直下からの相対パス。
+ * posix `/` 区切り=overlays.json の file 参照と同じ表記)。ディレクトリが
+ * 無ければ空配列(新規プロジェクトで普通に起こる)。**再帰的**に
+ * サブディレクトリ(例: `materials/hyperframes/<name>.mp4`。C4 参照)も辿る。
+ * ドット始まりの名前(`.DS_Store`・`.publish-<pid>.tmp` 等)はファイル・
+ * ディレクトリともスキップする */
+export function listPresentMaterialFiles(dir: string): string[] {
   const materialsDir = join(dir, "materials");
   if (!existsSync(materialsDir)) return [];
-  return readdirSync(materialsDir)
-    .filter((f) => statSync(join(materialsDir, f)).isFile())
-    .map((f) => join("materials", f));
+  const out: string[] = [];
+  const walk = (absSub: string, relSub: string): void => {
+    for (const name of readdirSync(absSub)) {
+      if (name.startsWith(".")) continue;
+      const absChild = join(absSub, name);
+      const relChild = `${relSub}/${name}`;
+      const st = statSync(absChild);
+      if (st.isDirectory()) walk(absChild, relChild);
+      else if (st.isFile()) out.push(relChild);
+    }
+  };
+  walk(materialsDir, "materials");
+  return out;
 }
 
 /**
