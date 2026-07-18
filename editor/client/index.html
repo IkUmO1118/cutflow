@@ -1334,6 +1334,21 @@
     pointer-events: none;
   }
   .matCard:hover .matThumb { outline-color: var(--dim); }
+  /* codec 非対応の動画素材のサムネイル placeholder(§design 8.2)。
+     .matThumb の箱サイズ(16:9・黒背景)を継いだまま、空の <video> の
+     代わりに理由を明示する */
+  .matThumbUnplayable {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    font-size: 11px;
+    color: var(--dim);
+    text-align: center;
+    padding: 4px;
+  }
+  .matThumbUnplayable .dim { font-size: 10px; }
   .matName {
     font-size: 11px; color: var(--dim);
     text-align: center; padding: 4px 2px 0;

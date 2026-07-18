@@ -17,6 +17,7 @@ import type {
   AiDoctorResult,
   ConfigSaveResult,
   DraftData,
+  MediaFactsData,
   PeaksData,
   ProjectData,
   SaveRequest,
@@ -42,6 +43,12 @@ export async function getProject(): Promise<ProjectData> {
  * ときだけ取得する(whisper-out.json 由来で数百KBになりうるため) */
 export async function getScript(): Promise<ScriptData> {
   return (await request("/api/script", undefined)) as ScriptData;
+}
+
+/** 動画素材ごとの codec 由来のブラウザ表示可否(非表示のものだけの疎な map)。
+ * fetch 失敗時は呼び出し側で {} 扱いにする(警告なしへ degrade。§design 8.2) */
+export async function getMediaFacts(): Promise<MediaFactsData> {
+  return (await request("/api/media-facts", undefined)) as MediaFactsData;
 }
 
 /** タイムラインに描く音声の波形ピーク。時刻軸はマイク = 元収録の秒、
