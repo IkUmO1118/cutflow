@@ -206,6 +206,23 @@ OK、不一致なら常に warn(YMAX≤10 なら「perceptual 宣言を検討」
 きだけ warn。入力が前回と異なる場合や ffmpeg 計測が失敗した場合は判定
 自体をスキップする(判定不能を byte 不一致として扱わない)。
 
+composition html 内のリモート URL(`http(s)://` / `//` 始まり)は check
+ゲートで一律禁止だが、唯一の例外として `<script src>` が
+`src/lib/hyperframeCdn.ts` の CDN ピン表(既定は gsap@3.14.2 のみ)に一致
+する URL と `integrity` を一字一句そのまま持ち、かつ
+`crossorigin="anonymous"` が付いているときだけ許可される(それ以外の
+remote 参照(img/video/audio/source/iframe の src・link href・srcset・
+poster・data-composition-src・CSS `url()`/`@import`)は引き続き無条件で
+エラー)。許可されたピン留めスクリプトは render 時に実際に jsdelivr から
+取得される(HyperFrames 本来のモデルと同じ。ローカルにバンドルされる
+わけではない)。srcdoc には `connect-src 'none'` を含む CSP が張られ、
+読み込んだライブラリを実行はできるが outbound の fetch/XHR/WebSocket は
+送れない。オフライン・integrity 不一致のときは `__failed` 経由で
+render がはっきりしたメッセージ付きで止まる(壊れた mp4 が出力される
+ことはない)。`hyperframe.<name>.key.json` によるキャッシュ整合性は
+変わらない(html の sha256 は `<script src>`/`integrity` の文字列ごと
+含むので、URL や integrity を変えればキャッシュキーも変わる)。
+
 ## HyperFrames 素材の配置(hyperframe-place)
 
 `hyperframe <dir> --name <name>` で render 済みの

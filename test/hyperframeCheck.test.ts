@@ -74,11 +74,15 @@ test("9: negative data-duration on a clip is an error", () => {
   assert.ok(hasErr(r, "data-duration must be a non-negative"));
 });
 
-test("10: remote <script src> (CDN) is an error", () => {
+test("10: remote <script src> (CDN, not in pin table) is an error", () => {
+  // B2: an un-pinned remote <script src> is still an error, but the message
+  // is now the CDN-pin-table message (Rule 4 exception), not the generic
+  // "remote URL not allowed" (that generic message is still used for every
+  // other remote-URL kind — see test 19 and the non-script cases above).
   const r = checkComposition(
     `<div data-composition-id="root"></div><script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script>`,
   );
-  assert.ok(hasErr(r, "remote URL"));
+  assert.ok(hasErr(r, "not in the CDN pin table"));
 });
 
 test("11: remote CSS url() is an error", () => {
@@ -227,6 +231,51 @@ test('31: regression — GSAP (window.__timelines) card declaring byte tier has 
     `<div data-composition-id="root" data-hf-determinism="byte" data-hf-requires="gsap"></div><script>window.__timelines={main:gsap.timeline({paused:true})};</script>`,
   );
   assert.ok(!hasErr(r, 'requires data-hf-determinism="perceptual"'));
+});
+
+const GSAP_URL = "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js";
+const GSAP_INTEGRITY = "sha384-sG0Hv1tP1lZCk9KQmrIbY/XNwi+OY84GQqhMscbnsoBFqAz8KNCil1kvfL3Hbbk2";
+
+test("32: pinned <script src> with matching integrity+crossorigin+data-hf-requires is clean (Rule 4/10)", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-requires="gsap"></div><script src="${GSAP_URL}" integrity="${GSAP_INTEGRITY}" crossorigin="anonymous"></script>`,
+  );
+  assert.equal(r.errors.length, 0);
+});
+
+test("33: pinned <script src> with wrong version is not-in-table (Rule 4)", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-requires="gsap"></div><script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/gsap.min.js" integrity="${GSAP_INTEGRITY}" crossorigin="anonymous"></script>`,
+  );
+  assert.ok(hasErr(r, "not in the CDN pin table"));
+});
+
+test("34: pinned <script src> without integrity is an error (Rule 4)", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-requires="gsap"></div><script src="${GSAP_URL}" crossorigin="anonymous"></script>`,
+  );
+  assert.ok(hasErr(r, "matching integrity attribute"));
+});
+
+test("35: pinned <script src> with mismatched integrity is an error (Rule 4)", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-requires="gsap"></div><script src="${GSAP_URL}" integrity="sha384-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" crossorigin="anonymous"></script>`,
+  );
+  assert.ok(hasErr(r, "did you hand-write the sha384"));
+});
+
+test("36: pinned <script src> matched but no crossorigin is an error (Rule 4)", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-requires="gsap"></div><script src="${GSAP_URL}" integrity="${GSAP_INTEGRITY}"></script>`,
+  );
+  assert.ok(hasErr(r, 'crossorigin="anonymous"'));
+});
+
+test("37: pinned <script src> matched+crossorigin but missing data-hf-requires=\"gsap\" is an error (Rule 10)", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root"></div><script src="${GSAP_URL}" integrity="${GSAP_INTEGRITY}" crossorigin="anonymous"></script>`,
+  );
+  assert.ok(hasErr(r, 'data-hf-requires="gsap"'));
 });
 
 test("19: false-positive guards for remote-URL scan", () => {

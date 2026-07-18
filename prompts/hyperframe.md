@@ -5,9 +5,10 @@
 kinetic typography のいずれか)を、**自己完結した1個の composition HTML 文字列**
 として作成します。この HTML は Cutflow の native interpreter(Remotion 上で
 `document.getAnimations()` の絶対時刻 seek により CSS アニメーション+WAAPI
-(`element.animate`)だけを解釈する。GSAP などの外部ランタイムは存在しません)
-がそのまま render し、Cutflow の check ゲート(`checkComposition`)がそのまま
-受理できる形でなければなりません。**音声・ナレーション・BGM は一切含めません**
+(`element.animate`)を解釈する。原則インラインスクリプトのみで、外部
+スクリプトは下記の唯一の例外を除いて使いません)がそのまま render し、
+Cutflow の check ゲート(`checkComposition`)がそのまま受理できる形で
+なければなりません。**音声・ナレーション・BGM は一切含めません**
 (このカードは無音の素材として本編に配置されます)。
 
 ## 入力: 今回の意図
@@ -32,12 +33,22 @@ kinetic typography のいずれか)を、**自己完結した1個の composition
 
 ## 満たすべき必須ルール(Cutflow の check ゲートがそのまま検査します)
 
-- **CSS アニメーション + WAAPI(`element.animate`)だけを使う**。GSAP・Lottie・
-  Three.js 等の外部アニメーションランタイムは使わない。`<script src="...">`
-  で外部スクリプトを読み込まない(インラインスクリプトのみ)
-- **リモート URL を一切使わない**。`src`/`href`/`srcset`/`poster`/
-  `data-composition-src`・CSS `url()`・`@import`・`@font-face` のいずれにも
-  `http(s)://` や `//` 始まりの値を書かない。フォントは
+- **原則 CSS アニメーション + WAAPI(`element.animate`)だけを使う**。
+  `<script src="...">` で外部スクリプトを読み込まない(インラインスクリプト
+  のみ)。**唯一の例外**: バージョン固定済みの CDN `<script src>` を、
+  Cutflow が提供する**そのままのタグ**(url・version・`integrity="sha384-..."`
+  を一字も変えず・`crossorigin="anonymous"` 付き)としてコピーする場合だけ
+  許されます。URL・version・integrity は**絶対に自分で作らない/書き換えない**
+  (あなたは sha384 を計算できません。誤った値は check ゲートで弾かれます)。
+  ピン留めスクリプトを使うカードはルート要素に
+  `data-hf-requires="<lib>"`(例: `data-hf-requires="gsap"`)を必ず付けます。
+  下のパターンメニューは基本 CSS/WAAPI 前提で書かれています(GSAP を使う
+  authoring パターンは別途提供されます)。brief が明示的に GSAP を必要と
+  していない限り、GSAP は使わないでください
+- **`<script>` 以外のリモート URL を一切使わない**。`src`(`<script>` を除く。
+  `<img>`/`<video>`/`<audio>`/`<source>`/`<iframe>` 等)/`href`/`srcset`/
+  `poster`/`data-composition-src`・CSS `url()`・`@import`・`@font-face` の
+  いずれにも `http(s)://` や `//` 始まりの値を書かない。フォントは
   `system-ui, sans-serif`(または `serif` / `monospace`)などの**総称フォント
   ファミリーのみ**を使う(埋め込みカスタムフォントも使わない)
 - **非決定的な駆動を一切使わない**: `Math.random`・`Date.now`・
