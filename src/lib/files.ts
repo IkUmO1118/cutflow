@@ -51,15 +51,17 @@ export const GENERATED_FILES = [
   "style-check.json",
 ] as const;
 
-/** 中間生成物のうち、ショート名(shorts.json の name)で可変になる
- * ファイル名パターン。GENERATED_FILES と合わせて一覧を成す
+/** 中間生成物のうち、ショート名(shorts.json の name)や HyperFrame カード名
+ * (hyperframes/<name>.html の name)で可変になるファイル名パターン。
+ * GENERATED_FILES と合わせて一覧を成す
  * (cut.<name>.mp4 / cut.<name>.keeps.json / render.<name>.props.json /
- * render.<name>.key.json) */
+ * render.<name>.key.json / hyperframe.<name>.key.json) */
 const GENERATED_NAME_PATTERNS: readonly RegExp[] = [
   /^cut\.[^./]+\.mp4$/,
   /^cut\.[^./]+\.keeps\.json$/,
   /^render\.[^./]+\.props\.json$/,
   /^render\.[^./]+\.key\.json$/,
+  /^hyperframe\.[^./]+\.key\.json$/,
 ];
 
 /** 中間生成物のディレクトリ(配下は丸ごと中間生成物扱い): frames/(PNG・
