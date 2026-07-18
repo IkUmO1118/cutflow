@@ -46,6 +46,7 @@ const EXPECTED_GENERATED_FILES = [
   "bgm-fit.json",
   "bgm-fit.suggested.json",
   "style-check.json",
+  "hyperframe-place.suggested.json",
 ];
 
 test("GENERATED_FILES: CLAUDE.md の中間生成物一覧(固定名部分)と一致する", () => {

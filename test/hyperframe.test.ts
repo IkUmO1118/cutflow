@@ -1,0 +1,162 @@
+// test/hyperframe.test.ts — src/lib/hyperframe.ts の純関数を固定する
+// (P-1〜P-9)。ブラウザ不使用の高速テスト。ヘビーな実描画検証は
+// scripts/hyperframe-verify.ts(node --test では自動実行しない)側。
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import {
+  buildIframeSrcdoc,
+  mergeVariables,
+  parseComposition,
+} from "../src/lib/hyperframe.ts";
+
+const SAMPLE_HTML = `<!doctype html>
+<html data-composition-variables='[
+  {"id":"title","type":"string","label":"Title","default":"CutFlow"},
+  {"id":"accent","type":"color","label":"Accent","default":"#22c55e"}
+]'>
+<head><style>
+  html,body{margin:0;padding:0}
+  #root{position:relative;width:1920px;height:1080px;background:#0b0f1a;overflow:hidden;font-family:sans-serif}
+  #box{position:absolute;top:480px;left:0;width:120px;height:120px;border-radius:12px;animation:slide 4s linear both;animation-play-state:paused}
+  @keyframes slide{from{transform:translateX(0)}to{transform:translateX(800px)}}
+  #title{position:absolute;top:200px;left:120px;font-size:96px;font-weight:800;color:#fff;opacity:0}
+</style></head>
+<body>
+  <div id="root" data-composition-id="root" data-width="1920" data-height="1080">
+    <div id="box" class="clip" data-start="0" data-duration="4"></div>
+    <h1 id="title"></h1>
+    <script>
+      var v = window.__hyperframes.getVariables();
+      var t = document.getElementById('title');
+      t.textContent = v.title;
+      document.getElementById('box').style.background = v.accent;
+      t.animate([{opacity:0},{opacity:1}], {duration:2000, easing:'linear', fill:'both'});
+    </script>
+  </div>
+</html>`;
+
+/* ---------------- P-1 ---------------- */
+
+test("P-1: parseComposition は compositionId/width/height を読む", () => {
+  const parsed = parseComposition(SAMPLE_HTML);
+  assert.equal(parsed.compositionId, "root");
+  assert.equal(parsed.width, 1920);
+  assert.equal(parsed.height, 1080);
+});
+
+/* ---------------- P-2 ---------------- */
+
+test("P-2: parseComposition は variables を JSON.parse する", () => {
+  const parsed = parseComposition(SAMPLE_HTML);
+  assert.equal(parsed.variables.length, 2);
+  assert.deepEqual(parsed.variables[0], {
+    id: "title",
+    type: "string",
+    label: "Title",
+    default: "CutFlow",
+  });
+  assert.deepEqual(parsed.variables[1], {
+    id: "accent",
+    type: "color",
+    label: "Accent",
+    default: "#22c55e",
+  });
+});
+
+test("P-2b: data-composition-variables が無ければ variables は []", () => {
+  const html = `<html data-composition-id="root"><body></body></html>`;
+  const parsed = parseComposition(html);
+  assert.deepEqual(parsed.variables, []);
+});
+
+/* ---------------- P-3 ---------------- */
+
+test("P-3: data-composition-id が文書中に無ければ throw する", () => {
+  const html = `<html><body><div class="clip" data-start="0" data-duration="4"></div></body></html>`;
+  assert.throws(() => parseComposition(html), /composition root missing data-composition-id/);
+});
+
+/* ---------------- P-4 ---------------- */
+
+test("P-4: intrinsicDurationSec は data-start+data-duration の max", () => {
+  const parsed = parseComposition(SAMPLE_HTML);
+  assert.equal(parsed.intrinsicDurationSec, 4);
+
+  const html = `<html data-composition-id="root">
+    <div class="clip" data-start="0" data-duration="4"></div>
+    <div class="clip" data-start="2" data-duration="3"></div>
+  </html>`;
+  const parsed2 = parseComposition(html);
+  assert.equal(parsed2.intrinsicDurationSec, 5);
+});
+
+/* ---------------- P-5 ---------------- */
+
+test("P-5: mergeVariables の優先度は default < instance < cli", () => {
+  const decls = [
+    { id: "title", type: "string", default: "CutFlow" },
+    { id: "accent", type: "color", default: "#22c55e" },
+  ];
+
+  // instance が default に勝つ
+  const merged1 = mergeVariables(decls, { title: "Instance" });
+  assert.equal(merged1.title, "Instance");
+  assert.equal(merged1.accent, "#22c55e");
+
+  // cli が instance に勝つ
+  const merged2 = mergeVariables(decls, { title: "Instance" }, { title: "Cli" });
+  assert.equal(merged2.title, "Cli");
+
+  // override 側にしか無いキーはそのまま素通し
+  const merged3 = mergeVariables(decls, undefined, { extra: 42 });
+  assert.equal(merged3.extra, 42);
+
+  // どちらにも無いキーは default のまま
+  const merged4 = mergeVariables(decls, { accent: "#000000" });
+  assert.equal(merged4.title, "CutFlow");
+  assert.equal(merged4.accent, "#000000");
+});
+
+/* ---------------- P-6 ---------------- */
+
+test("P-6: buildIframeSrcdoc は bootstrap script を author script より前に置く", () => {
+  const out = buildIframeSrcdoc(SAMPLE_HTML, { title: "CutFlow", accent: "#22c55e" });
+  const bootstrapIdx = out.indexOf("window.__hyperframes");
+  const authorIdx = out.indexOf("window.__hyperframes.getVariables()");
+  assert.ok(bootstrapIdx >= 0, "bootstrap script not found");
+  assert.ok(authorIdx >= 0, "author script not found");
+  assert.ok(bootstrapIdx < authorIdx, "bootstrap must come before author script");
+});
+
+/* ---------------- P-7 ---------------- */
+
+test("P-7: buildIframeSrcdoc は決定論(同じ引数→同じ文字列)", () => {
+  const vars = { title: "CutFlow", accent: "#22c55e" };
+  const out1 = buildIframeSrcdoc(SAMPLE_HTML, vars);
+  const out2 = buildIframeSrcdoc(SAMPLE_HTML, vars);
+  assert.equal(out1, out2);
+});
+
+/* ---------------- P-8 ---------------- */
+
+test("P-8: buildIframeSrcdoc は </script> を含む値をエスケープする", () => {
+  const out = buildIframeSrcdoc(SAMPLE_HTML, { title: "</script><script>alert(1)</script>" });
+  // ブートストラップの JSON リテラル内の </script> は <\/script> にエスケープされ、
+  // 生の "</script>" として本文中に出現しないこと(author の </script> タグ自体は除く)
+  const bootstrapStart = out.indexOf("window.__hyperframes");
+  const bootstrapEnd = out.indexOf("</script>", bootstrapStart);
+  const bootstrapSegment = out.slice(bootstrapStart, bootstrapEnd);
+  assert.ok(!bootstrapSegment.includes("</script>"), "raw </script> leaked into bootstrap segment");
+  assert.ok(out.includes("<\\/script>"), "expected escaped <\\/script> in output");
+});
+
+/* ---------------- P-9 ---------------- */
+
+test("P-9: 埋め込まれた JSON リテラルは渡した variables と deep-equal", () => {
+  const vars = { title: "CutFlow", accent: "#22c55e", nested: { a: 1, b: [1, 2, 3] } };
+  const out = buildIframeSrcdoc(SAMPLE_HTML, vars);
+  const m = /var __vars = (.*?);function seek/.exec(out.replace(/\n/g, ""));
+  assert.ok(m, "could not locate embedded __vars JSON literal");
+  const parsedBack = JSON.parse(m![1].replace(/<\\\//g, "</"));
+  assert.deepEqual(parsedBack, vars);
+});

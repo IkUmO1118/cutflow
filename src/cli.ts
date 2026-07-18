@@ -38,6 +38,8 @@ import { planShorts } from "./stages/planShorts.ts";
 import { planMaterials } from "./stages/planMaterials.ts";
 import { planEffects } from "./stages/planEffects.ts";
 import { planBgm } from "./stages/planBgm.ts";
+import { authorHyperframe, renderHyperframe } from "./stages/hyperframe.ts";
+import { formatPlaceReport, hyperframePlace } from "./stages/hyperframePlace.ts";
 import { learn } from "./stages/learn.ts";
 import { preview } from "./stages/preview.ts";
 import { render, renderShort, renderShorts } from "./stages/render.ts";
@@ -64,7 +66,7 @@ import { reviewEdit } from "./stages/review.ts";
 import { aiDoctor } from "./stages/aiDoctor.ts";
 import { readEditSnapshot } from "./lib/renderSnapshot.ts";
 import { fmtT, parseT } from "./lib/fmt.ts";
-import type { ApplyPatch, CutPlan, Overlays } from "./types.ts";
+import type { ApplyPatch, CutPlan, Overlays, Region } from "./types.ts";
 import type { EditSnapshot, ReviewSpec } from "./lib/review.ts";
 import { buildRetrievalIndex } from "./stages/retrievalIndex.ts";
 import { retrievalSearch } from "./stages/retrievalSearch.ts";
@@ -525,6 +527,194 @@ program
       "\n次のステップ: preview か GUI エディタで確認し、要らなければ overlays.json から削除してください。",
     );
   });
+
+program
+  .command("hyperframe <dir>")
+  .description(
+    "HyperFrames カード(無音の作図素材)を生成・render する。native Remotion interpreter で" +
+      "check ゲート通過済みの composition だけを render する(cut/承認には触れない)",
+  )
+  .requiredOption("--name <name>", "カード名(出力ファイル名の元。英数字・.・_・- のみ)")
+  .option(
+    "--from-brief",
+    "brief.md/rules.md から LLM で composition HTML の下書きを書く(hyperframes/<name>.html。render はしない)",
+  )
+  .option("--pattern <n>", "作図パターン番号を指定する(--from-brief 専用。省略時は LLM が選ぶ)")
+  .option("--var <kv...>", "composition variables の上書き(k=v。複数指定可。render 専用)")
+  .option(
+    "--width <n>",
+    "出力幅px(--from-brief 時は下書きの解像度、render 時は composition の data-width を上書き)",
+  )
+  .option("--height <n>", "出力高さpx(同上)")
+  .option("--fps <n>", "出力fps(render 専用。既定30)")
+  .option(
+    "--durationSec <s>",
+    "尺(秒)(--from-brief 時は下書きの尺、render 時は composition の intrinsic duration を上書き)",
+  )
+  .option(
+    "--force",
+    "既存の hyperframes/<name>.html(--from-brief 時)、または既存キャッシュ(render 時)を無視して上書き・再生成",
+  )
+  .action(
+    async (
+      dir: string,
+      opts: {
+        name: string;
+        fromBrief?: boolean;
+        pattern?: string;
+        var?: string[];
+        width?: string;
+        height?: string;
+        fps?: string;
+        durationSec?: string;
+        force?: boolean;
+      },
+    ) => {
+      if (!/^[A-Za-z0-9._-]+$/.test(opts.name)) {
+        throw new Error(`--name が不正です(英数字・.・_・- のみ使えます): ${opts.name}`);
+      }
+      const cfg = loadConfig(program.opts().config);
+      const abs = resolveDir(dir);
+
+      const parseNum = (raw: string | undefined, label: string): number | undefined => {
+        if (raw === undefined) return undefined;
+        const n = Number(raw);
+        if (!Number.isFinite(n)) throw new Error(`${label} が数値ではありません: ${raw}`);
+        return n;
+      };
+
+      if (opts.fromBrief) {
+        const sourcePath = join(abs, "hyperframes", `${opts.name}.html`);
+        if (existsSync(sourcePath) && !opts.force) {
+          throw new Error(
+            `${sourcePath} は既にあります。--from-brief の再実行はこれを LLM の生成物で` +
+              "上書きします。やり直す場合は --force を付けてください",
+          );
+        }
+        console.log("hyperframe --from-brief 実行中(LLM で composition HTML を下書き)...");
+        const result = await authorHyperframe(abs, cfg, {
+          name: opts.name,
+          pattern: opts.pattern !== undefined ? Number(opts.pattern) : undefined,
+          width: parseNum(opts.width, "--width"),
+          height: parseNum(opts.height, "--height"),
+          durationSec: parseNum(opts.durationSec, "--durationSec"),
+        });
+        console.log(`下書きを書きました: ${result.sourcePath}(variables ${result.varCount}件)`);
+        console.log(result.summary);
+        console.log(
+          "\n次のステップ: 内容を確認し(必要なら手編集し)、--from-brief 無しで再実行して" +
+            "render してください。",
+        );
+        return;
+      }
+
+      const cliVars: Record<string, unknown> = {};
+      for (const kv of opts.var ?? []) {
+        const eq = kv.indexOf("=");
+        if (eq === -1) throw new Error(`--var の形式が不正です(k=v が必要): ${kv}`);
+        cliVars[kv.slice(0, eq)] = kv.slice(eq + 1);
+      }
+
+      const overrides = {
+        width: parseNum(opts.width, "--width"),
+        height: parseNum(opts.height, "--height"),
+        fps: parseNum(opts.fps, "--fps"),
+        durationSec: parseNum(opts.durationSec, "--durationSec"),
+      };
+
+      const result = await renderHyperframe(abs, {
+        name: opts.name,
+        cliVars,
+        overrides,
+        force: opts.force === true,
+      });
+
+      const shortSha = result.sha256.slice(0, 12);
+      if (result.skipped) {
+        console.log(`再利用(変更なし): ${result.outPath}(${result.frames}フレーム, sha256=${shortSha})`);
+      } else {
+        console.log(`render 完了: ${result.outPath}(${result.frames}フレーム, sha256=${shortSha})`);
+        if (result.identical !== undefined) {
+          console.log(
+            result.identical
+              ? "(--force で再生成。内容は前回と byte 一致)"
+              : "(--force で再生成。内容が変わりました)",
+          );
+        }
+      }
+    },
+  );
+
+program
+  .command("hyperframe-place <dir>")
+  .description(
+    "HyperFrames カード(materials/hyperframes/<name>.mp4。要 hyperframe <dir> --name の事前 render)を " +
+      "overlays.json の overlay/insert として配置する apply パッチ下書き(hyperframe-place.suggested.json)を書く" +
+      "(尺は --duration か hyperframe.<name>.key.json か ffprobe から決定論的に解決。cut/承認には触れない)",
+  )
+  .requiredOption("--name <name>", "HyperFrames カード名(materials/hyperframes/<name>.mp4 の元)")
+  .requiredOption("--at <sec>", "配置位置(元収録の秒)")
+  .option("--as <kind>", "overlay(既定)または insert", "overlay")
+  .option("--duration <s>", "尺(秒)の明示指定。省略時は hyperframe.<name>.key.json → ffprobe の順に解決")
+  .option("--rect <x,y,w,h>", "表示領域(出力px)。overlay 専用")
+  .option("--track <n>", "素材トラック番号(1始まり)。overlay 専用")
+  .option("--fade <s>", "フェードイン/アウト秒(両方に同じ値)")
+  .option("--start-from <s>", "素材の頭出し(In点。秒)")
+  .action(
+    async (
+      dir: string,
+      opts: {
+        name: string;
+        at: string;
+        as?: string;
+        duration?: string;
+        rect?: string;
+        track?: string;
+        fade?: string;
+        startFrom?: string;
+      },
+    ) => {
+      if (!/^[A-Za-z0-9._-]+$/.test(opts.name)) {
+        throw new Error(`--name が不正です(英数字・.・_・- のみ使えます): ${opts.name}`);
+      }
+      const as = opts.as ?? "overlay";
+      if (as !== "overlay" && as !== "insert") {
+        throw new Error(`--as は overlay か insert です: ${as}`);
+      }
+
+      const parseNum = (raw: string | undefined, label: string): number | undefined => {
+        if (raw === undefined) return undefined;
+        const n = Number(raw);
+        if (!Number.isFinite(n)) throw new Error(`${label} が数値ではありません: ${raw}`);
+        return n;
+      };
+
+      const at = parseNum(opts.at, "--at");
+      if (at === undefined) throw new Error("--at が必要です");
+
+      let rect: Region | undefined;
+      if (opts.rect !== undefined) {
+        const parts = opts.rect.split(",").map((s) => Number(s.trim()));
+        if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n))) {
+          throw new Error(`--rect の形式が不正です(x,y,w,h の4つの数値が必要): ${opts.rect}`);
+        }
+        rect = { x: parts[0], y: parts[1], w: parts[2], h: parts[3] };
+      }
+
+      const abs = resolveDir(dir);
+      const result = await hyperframePlace(abs, {
+        name: opts.name,
+        at,
+        as,
+        durationSec: parseNum(opts.duration, "--duration"),
+        rect,
+        fadeSec: parseNum(opts.fade, "--fade"),
+        track: parseNum(opts.track, "--track"),
+        startFrom: parseNum(opts.startFrom, "--start-from"),
+      });
+      for (const line of formatPlaceReport(abs, result)) console.log(line);
+    },
+  );
 
 program
   .command("plan-effects <dir>")

@@ -8,6 +8,8 @@ import { DesignStill, designStillDefaultProps } from "./DesignStill.tsx";
 import type { DesignStillProps } from "./DesignStill.tsx";
 import { OverlayStill, overlayStillDefaultProps } from "./OverlayStill.tsx";
 import type { OverlayStillProps } from "./OverlayStill.tsx";
+import { HyperFrame, hyperFrameDefaultProps } from "./HyperFrame.tsx";
+import type { HyperFrameProps } from "./HyperFrame.tsx";
 import { defaultProps } from "./props.ts";
 import type { RenderProps } from "./props.ts";
 import { compositionDurationInFrames } from "../src/lib/renderFrameMath.ts";
@@ -87,6 +89,21 @@ export const RemotionRoot = () => (
       calculateMetadata={({ props }: { props: AnnotationStillProps }) => ({
         durationInFrames: 1,
         fps: 30,
+        width: props.width,
+        height: props.height,
+      })}
+    />
+    <Composition
+      id="HyperFrame"
+      component={HyperFrame}
+      durationInFrames={120}
+      fps={30}
+      width={1920}
+      height={1080}
+      defaultProps={hyperFrameDefaultProps}
+      calculateMetadata={({ props }: { props: HyperFrameProps }) => ({
+        durationInFrames: compositionDurationInFrames(props.durationSec, props.fps),
+        fps: props.fps,
         width: props.width,
         height: props.height,
       })}
