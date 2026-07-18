@@ -42,6 +42,8 @@
 import type { Problem } from "../stages/validate.ts";
 import { parseComposition } from "./hyperframe.ts";
 import { matchCdnPin } from "./hyperframeCdn.ts";
+import { HYPERFRAME_REQUIRE_TOKENS, readHyperframeRequires } from "./hyperframeRequirements.ts";
+import { resolveHyperframeRenderProfile } from "./hyperframeRenderProfile.ts";
 
 export interface CheckResult {
   errors: Problem[];
@@ -722,12 +724,11 @@ export function checkComposition(html: string, opts?: CheckOpts): CheckResult {
   }
 
   // ---- Rule 8(B1): data-hf-requires トークン検証 ----
-  const KNOWN_REQUIRES = new Set(["gsap", "lottie", "three"]);
-  let requiresTokens: string[] = [];
-  const requiresRaw = firstAttr(html, "data-hf-requires");
-  if (requiresRaw !== undefined) {
-    const toks = requiresRaw.split(/[\s,]+/).filter((t) => t.length > 0);
-    requiresTokens = toks;
+  const knownRequires = new Set<string>(HYPERFRAME_REQUIRE_TOKENS);
+  const requires = readHyperframeRequires(html);
+  const requiresTokens = requires.tokens;
+  if (requires.declared) {
+    const toks = requiresTokens;
     if (toks.length === 0) {
       errors.push({
         file,
@@ -736,11 +737,11 @@ export function checkComposition(html: string, opts?: CheckOpts): CheckResult {
       });
     }
     for (const tok of toks) {
-      if (!KNOWN_REQUIRES.has(tok)) {
+      if (!knownRequires.has(tok)) {
         errors.push({
           file,
           where: "data-hf-requires",
-          message: `data-hf-requires: unknown library "${tok}" (known: gsap, lottie, three) / 未知のライブラリです`,
+          message: `data-hf-requires: unknown library "${tok}" (known: ${HYPERFRAME_REQUIRE_TOKENS.join(", ")}) / 未知のライブラリです`,
         });
       }
     }
@@ -908,9 +909,7 @@ export function checkComposition(html: string, opts?: CheckOpts): CheckResult {
   // SwiftShader(chromiumOptions.gl)無しでは byte 決定論を保証できない。
   // 未指定は byte と同義なので未指定もエラーにする。B5 で SwiftShader
   // による byte 決定論が実測検証されたら byte ケースは緩和され得る
-  const usesHfSeek = /['"]hf-seek['"]/.test(html);
-  const requiresThree = requiresTokens.includes("three");
-  if (usesHfSeek || requiresThree) {
+  if (resolveHyperframeRenderProfile(html) === "gpu-angle") {
     if (tierRaw !== "perceptual") {
       errors.push({
         file,
