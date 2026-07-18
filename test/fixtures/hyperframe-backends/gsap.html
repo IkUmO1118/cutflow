@@ -1,0 +1,11 @@
+<!doctype html>
+<html><head><style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;font-family:system-ui}
+#card{display:grid;place-items:center;background:#231f20;color:#fff}#title{font-size:52px}
+</style></head><body>
+<main id="card" class="clip" data-composition-id="card" data-width="640" data-height="360" data-start="0" data-duration="4" data-hf-determinism="byte" data-hf-requires="gsap">
+  <div id="title">GSAP fixture</div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js" integrity="sha384-sG0Hv1tP1lZCk9KQmrIbY/XNwi+OY84GQqhMscbnsoBFqAz8KNCil1kvfL3Hbbk2" crossorigin="anonymous"></script>
+<script>var timeline=gsap.timeline({paused:true});window.__timelines=window.__timelines||{};window.__timelines.card=timeline;timeline.fromTo('#title',{x:-180,opacity:0},{x:0,opacity:1,duration:4});</script>
+</body></html>

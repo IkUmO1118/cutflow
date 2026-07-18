@@ -39,6 +39,7 @@ import { planMaterials } from "./stages/planMaterials.ts";
 import { planEffects } from "./stages/planEffects.ts";
 import { planBgm } from "./stages/planBgm.ts";
 import { authorHyperframe, renderHyperframe } from "./stages/hyperframe.ts";
+import { formatHyperframeBackends, hyperframeBackends } from "./lib/hyperframeBackends.ts";
 import { formatPlaceReport, hyperframePlace } from "./stages/hyperframePlace.ts";
 import { learn } from "./stages/learn.ts";
 import { preview } from "./stages/preview.ts";
@@ -125,7 +126,7 @@ program.hook("postAction", (_thisCommand, actionCommand) => {
     "describe", "assert", "doctor", "clean", "boundary-check", "silence-sweep", "floor-calibration",
     "boundary-direction",
     "compaction-sweep",
-    "calibration-evaluate",
+    "calibration-evaluate", "hyperframe-backends",
   ]);
   const isMcp = actionCommand.name() === "mcp";
   if (isMcp || (jsonCommands.has(actionCommand.name()) && actionCommand.opts().json === true)) {
@@ -526,6 +527,16 @@ program
     console.log(
       "\n次のステップ: preview か GUI エディタで確認し、要らなければ overlays.json から削除してください。",
     );
+  });
+
+program
+  .command("hyperframe-backends")
+  .description("HyperFrames backend の利用状態を表示する(収録フォルダ不要・read-only)")
+  .option("--json", "固定 schemaVersion の機械可読 JSON を標準出力に出す")
+  .action((opts: { json?: boolean }) => {
+    const report = hyperframeBackends();
+    if (opts.json === true) console.log(JSON.stringify(report, null, 2));
+    else console.log(formatHyperframeBackends(report));
   });
 
 program
