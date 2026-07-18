@@ -179,3 +179,38 @@ test("P-9: 埋め込まれた JSON リテラルは渡した variables と deep-e
   const parsedBack = JSON.parse(m![1].replace(/<\\\//g, "</"));
   assert.deepEqual(parsedBack, vars);
 });
+
+/* ---------------- P-10 (B1: seek conventions) ---------------- */
+
+test("P-10: bootstrap は GSAP/Lottie/hf-seek/readiness/error 規約の全マーカーを含む", () => {
+  const out = buildIframeSrcdoc(SAMPLE_HTML, { title: "CutFlow", accent: "#22c55e" });
+  assert.ok(out.includes("window.__timelines"), "GSAP window.__timelines marker missing");
+  const totalTimeCount = (out.match(/\.totalTime\(/g) || []).length;
+  assert.equal(totalTimeCount, 2, "expected exactly two .totalTime( calls (GSAP same-time-seek nudge)");
+  assert.ok(out.includes("window.__hfLottie"), "Lottie window.__hfLottie marker missing");
+  assert.ok(out.includes("goToAndStop"), "Lottie goToAndStop marker missing");
+  assert.ok(out.includes("new CustomEvent('hf-seek'"), "hf-seek CustomEvent dispatch missing");
+  assert.ok(out.includes("__isReady"), "__isReady marker missing");
+  assert.ok(out.includes("__failed"), "__failed marker missing");
+  assert.ok(out.includes("addEventListener('error'"), "error listener missing");
+  assert.ok(out.includes("typeof window["), "data-hf-requires library existence check missing");
+});
+
+test("P-11: byte-anchor — clip 可視性ループと WAAPI シークループは verbatim のまま", () => {
+  const out = buildIframeSrcdoc(SAMPLE_HTML, { title: "CutFlow", accent: "#22c55e" });
+  const clipLoop =
+    "var clips = document.querySelectorAll('.clip');" +
+    "for (var i=0;i<clips.length;i++){" +
+    "var el = clips[i];" +
+    "var s = parseFloat(el.getAttribute('data-start')||'0')*1000;" +
+    "var draw = el.getAttribute('data-duration');" +
+    "var dur = (draw==null) ? Infinity : parseFloat(draw)*1000;" +
+    "el.style.visibility = (tMs >= s && tMs < s+dur) ? '' : 'hidden';" +
+    "}";
+  assert.ok(out.includes(clipLoop), "clip visibility loop is not byte-verbatim");
+
+  const waapiLoop =
+    "var anims = document.getAnimations();" +
+    "for (var j=0;j<anims.length;j++){ var a=anims[j]; try{ a.pause(); a.currentTime=tMs; }catch(e){} }";
+  assert.ok(out.includes(waapiLoop), "getAnimations()/currentTime loop is not byte-verbatim");
+});

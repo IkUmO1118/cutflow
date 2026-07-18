@@ -151,10 +151,18 @@ export function mergeVariables(
 /**
  * author HTML の <head> 先頭にブートストラップ <script> を注入した srcdoc を
  * 返す純関数(同じ引数 → 常に同じ文字列)。ブートストラップは author の
- * インラインスクリプトより先に実行され、window.__hyperframes
- * ({getVariables, __seek}) を用意する。__seek は .clip 要素の可視性を
- * data-start/data-duration の窓で切り替え、Web Animations を対象フレーム
- * 時刻へ pause+シークする
+ * インラインスクリプトより先に実行され、window.__hyperframes を用意する:
+ * - getVariables()/__seek(tMs): 既存。__seek は .clip 要素の可視性を
+ *   data-start/data-duration の窓で切り替え、Web Animations を対象フレーム
+ *   時刻へ pause+シークする(CSS/WAAPI 駆動カード向け)
+ * - __seek(tMs) は加えて GSAP(window.__timelines)・Lottie
+ *   (window.__hfLottie)のシーク、および hf-seek CustomEvent の dispatch
+ *   (GPU/WebGL 自己描画カード向け。detail.time は秒)も行う(B1)
+ * - __isReady(): フォント読み込み・data-hf-requires の必須ライブラリ・
+ *   Lottie の読み込み完了・任意の window.__hyperframes.__ready を待つ
+ *   Promise を返す(B1)
+ * - __failed: window の error/unhandledrejection から集めた致命エラーの列
+ *   (B1。Remotion 側(HyperFrame.tsx)が cancelRender の判断に使う)
  */
 export function buildIframeSrcdoc(html: string, variables: Record<string, unknown>): string {
   const json = JSON.stringify(variables).replace(/<\//g, "<\\/");
@@ -163,6 +171,9 @@ export function buildIframeSrcdoc(html: string, variables: Record<string, unknow
     "(function(){" +
     `var __vars = ${json};` +
     "function seek(tMs){" +
+    "try{" +
+    "var tSec = tMs/1000;" +
+    // --- clip 可視性(verbatim。変更しない) ---
     "var clips = document.querySelectorAll('.clip');" +
     "for (var i=0;i<clips.length;i++){" +
     "var el = clips[i];" +
@@ -171,10 +182,108 @@ export function buildIframeSrcdoc(html: string, variables: Record<string, unknow
     "var dur = (draw==null) ? Infinity : parseFloat(draw)*1000;" +
     "el.style.visibility = (tMs >= s && tMs < s+dur) ? '' : 'hidden';" +
     "}" +
+    // --- Web Animations(verbatim。変更しない) ---
     "var anims = document.getAnimations();" +
     "for (var j=0;j<anims.length;j++){ var a=anims[j]; try{ a.pause(); a.currentTime=tMs; }catch(e){} }" +
+    // --- GSAP timelines(window.__timelines。ms→秒で totalTime) ---
+    "var tls = window.__timelines;" +
+    "if (tls) for (var k in tls){" +
+    "if (!tls.hasOwnProperty(k)) continue;" +
+    "var tl = tls[k];" +
+    "if (!tl) continue;" +
+    "try{" +
+    "tl.pause();" +
+    // GSAP 3.x の same-time-seek nudge: totalTime() を同じ値で連続呼び
+    // 出すと no-op になることがあるため、わずかに先の時刻へ寄せてから
+    // 目標時刻へ戻す(二重呼び出しが必須)
+    "tl.totalTime(tSec+0.001, true);" +
+    "tl.totalTime(tSec, true);" +
+    "}catch(e){}" +
     "}" +
-    "window.__hyperframes = { getVariables:function(){return __vars;}, __seek:seek };" +
+    // --- Lottie(window.__hfLottie。ms・isFrame=false) ---
+    "var las = window.__hfLottie;" +
+    "if (las && las.length) for (var m=0;m<las.length;m++){" +
+    "var an = las[m];" +
+    "if (!an) continue;" +
+    "var rdy = (an.isLoaded===true) || (typeof an.totalFrames==='number' && an.totalFrames>0);" +
+    "if (rdy){ try{ an.goToAndStop(tMs, false); }catch(e){} }" +
+    "}" +
+    // --- hf-seek CustomEvent(GPU/WebGL 自己描画カード向け。秒・重複排除) ---
+    "if (__lastSeekMs !== tMs){" +
+    "__lastSeekMs = tMs;" +
+    "try{ window.dispatchEvent(new CustomEvent('hf-seek', {detail:{time: tSec}})); }catch(e){}" +
+    "}" +
+    "}catch(err){}" +
+    "}" +
+    "var __lastSeekMs = null;" +
+    "function pushFail(msg, fatal){ HF.__failed.push({ message: String(msg), fatal: fatal !== false }); }" +
+    "var HF = { getVariables:function(){return __vars;}, __seek: seek, __isReady: whenReady, __failed: [], __ready: undefined };" +
+    "window.__hyperframes = HF;" +
+    // --- エラーチャンネル(card script より前にインストール) ---
+    "window.addEventListener('error', function(e){" +
+    "var target = e && e.target;" +
+    "if (target && (target.tagName === 'SCRIPT' || target.tagName === 'LINK')){" +
+    "pushFail('failed to load resource: ' + (target.src || target.href || target.tagName), true);" +
+    "}else{" +
+    "pushFail((e && e.message) || 'script error', true);" +
+    "}" +
+    "}, true);" +
+    "window.addEventListener('unhandledrejection', function(e){" +
+    "var reason = e && e.reason;" +
+    "pushFail((reason && reason.message) || ('unhandled rejection: ' + String(reason)), true);" +
+    "});" +
+    // --- readiness gate ---
+    "function animsReady(){" +
+    "var las = window.__hfLottie;" +
+    "if (!las || !las.length) return true;" +
+    "for (var i=0;i<las.length;i++){" +
+    "var an = las[i];" +
+    "if (!an) continue;" +
+    "var ok = (an.isLoaded===true) || (typeof an.totalFrames==='number' && an.totalFrames>0);" +
+    "if (!ok) return false;" +
+    "}" +
+    "return true;" +
+    "}" +
+    "function requiresCheck(){" +
+    "var el = document.querySelector('[data-hf-requires]');" +
+    "if (!el) return;" +
+    "var toks = (el.getAttribute('data-hf-requires')||'').split(/[\\s,]+/);" +
+    "var g = {gsap:'gsap', three:'THREE', lottie:'lottie'};" +
+    "for (var i=0;i<toks.length;i++){" +
+    "var tok = toks[i];" +
+    "if (!tok) continue;" +
+    "var name = g[tok] || tok;" +
+    "if (typeof window[name] === 'undefined') pushFail('required library \"'+tok+'\" (window.'+name+') is not defined', true);" +
+    "}" +
+    "}" +
+    "function whenReady(){" +
+    "if (HF.__readyPromise) return HF.__readyPromise;" +
+    "HF.__readyPromise = new Promise(function(resolve){" +
+    "requiresCheck();" +
+    "var start = Date.now(), TIMEOUT = 10000;" +
+    "function poll(){" +
+    "if (animsReady()){" +
+    "var cr = HF.__ready;" +
+    "if (cr && typeof cr.then === 'function'){" +
+    "cr.then(function(){ resolve(); }, function(err){" +
+    "pushFail((err && err.message) || 'card __ready rejected', true);" +
+    "resolve();" +
+    "});" +
+    "}else resolve();" +
+    "return;" +
+    "}" +
+    "if (Date.now()-start > TIMEOUT){" +
+    "pushFail('readiness timed out after '+TIMEOUT+'ms', true);" +
+    "resolve();" +
+    "return;" +
+    "}" +
+    "setTimeout(poll, 32);" +
+    "}" +
+    "var fr = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();" +
+    "fr.then(poll, poll);" +
+    "});" +
+    "return HF.__readyPromise;" +
+    "}" +
     "})();" +
     "</script>";
 

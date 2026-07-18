@@ -59,6 +59,53 @@ check ゲート(C2)がエラーで止める:
 詳しいモーションの作法(CSS/WAAPI アダプタの書き方)は
 `./motion-css-waapi.md` を見る。
 
+## seek conventions(B1)
+
+CSS/WAAPI(`class="clip"` + Web Animations)の他に、bootstrap は以下の
+シーク規約もサポートする(名前は上流 HyperFrames と同一。エコシステム
+互換のため):
+
+- **GSAP**: `window.__timelines["<id>"]` にポーズ状態
+  (`{paused:true}`)の GSAP timeline を登録する。bootstrap は毎シークで
+  `tl.pause()` した上で `tl.totalTime(tSec, true)`(GSAP 3.x の
+  same-time-seek nudge として `tSec+0.001` へ一度寄せてから `tSec` へ
+  戻す二重呼び出し)する
+- **Lottie**: `window.__hfLottie` に Lottie アニメーションインスタンスの
+  配列を登録する。bootstrap は毎シークで `an.goToAndStop(tMs, false)`
+  (ミリ秒・`isFrame=false`)する
+- **hf-seek CustomEvent**: GPU/WebGL/canvas の自己描画カード向け。
+  bootstrap は毎シークで `window.dispatchEvent(new CustomEvent('hf-seek',
+  {detail:{time: tSec}}))` を dispatch する(`detail.time` は**秒**。
+  同じ時刻への連続シークはイベントを重複 dispatch しない)。カード側は
+  `window.addEventListener('hf-seek', function(e){ draw(e.detail.time);
+  })` で購読して絶対時刻から描き直す
+- **readiness hook**: `window.__hyperframes.__ready` に任意で Promise を
+  代入すると、bootstrap の `__isReady()`(フォント読み込み・
+  `data-hf-requires` の必須ライブラリ存在チェック・Lottie 読み込み完了を
+  待った後にこの Promise も待つ)がそれを解決してから render 側の
+  seek+continueRender を進める
+- **エラーチャンネル**: `window.__hyperframes.__failed` に
+  `{message, fatal}` の配列が溜まる(`window` の `error`/
+  `unhandledrejection` から自動収集。リソース読み込み失敗や
+  `data-hf-requires` の未定義ライブラリも fatal として積まれる)。
+  fatal な失敗が1件でもあると Remotion 側(`HyperFrame.tsx`)は
+  `cancelRender` してレンダーを止める
+- **`data-hf-requires`**: ルート要素(または任意の要素)に
+  `data-hf-requires="gsap"` のように空白/カンマ区切りで宣言する
+  (既知トークン: `gsap` / `lottie` / `three`)。bootstrap は宣言された
+  トークンごとに対応するグローバル(`window.gsap` / `window.lottie` /
+  `window.THREE`)の存在を確認し、無ければ `__failed` に積む
+
+**GPU/`hf-seek`/`three` カードは `data-hf-determinism="perceptual"` を
+必ず宣言する**(check ゲート Rule 9)。GPU/canvas 出力は SwiftShader
+無しでは byte 決定論を保証できないため、`hf-seek` イベントの購読
+(`addEventListener('hf-seek', ...)` 等クォート済みの `'hf-seek'`/
+`"hf-seek"` トークンを検出)または `data-hf-requires` に `three` を含む
+カードは、`data-hf-determinism` が未指定(既定 byte 相当)または
+`"byte"` のままだとエラーになる。GSAP(`window.__timelines`)・Lottie
+(`window.__hfLottie`)単独の使用は対象外(DOM スタイル書き込みなので
+byte のまま宣言してよい)。
+
 ## 0エラーの composition 例
 
 ```html
