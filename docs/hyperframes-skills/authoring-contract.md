@@ -270,9 +270,17 @@ fetch/XHR/WebSocket でどこかへ送信することはできない。
 Lottie は After Effects の書き出し(bodymovin/Lottie JSON)を composition
 カードへ持ち込むための受け皿。**LLM は Lottie カードを作図しない**
 (`prompts/hyperframe.md` / `card-patterns.md` のパターンメニューに Lottie は
-無い)。人間が AE から書き出した JSON をカード作者(人間、または
-`hyperframe --from-brief` が生成した下書きへ人間が後付け)が手で埋め込む
-運用専用。
+無い)。人間が AE から書き出した JSON は次の material import 経路で card にする:
+
+```sh
+node src/cli.ts hyperframe <dir> --name <name> --embed-lottie <animation.json>
+```
+
+この authoring-only command は JSON の `w` / `h` / `fr` / `ip` / `op` から
+寸法と尺を導出し、canonical な `renderer:'svg'` / byte tier card を
+`hyperframes/<name>.html` へ atomic publish する。既存 card の置換は `--force`
+必須。`--from-brief` や `--pattern` / `--var` / 寸法・fps・尺 flag とは併用しない。
+canvas は生成も自動 fallback もしない。
 
 対応するのは lottie-web が読む **JSON `animationData` のみ**。dotLottie の
 `.lottie` コンテナは runtime/pin が無いため未対応。
@@ -287,6 +295,15 @@ Lottie は After Effects の書き出し(bodymovin/Lottie JSON)を composition
   `assets[].u` の外部ディレクトリや `p:'img_0.png'` のようなファイル参照は
   Rule 13 でエラーになる(CSP の `img-src data:` と html sha256 cache key の
   両方に外れるため)
+- importer は `assets[].u + p` を JSON directory 内だけで解決する。既存の
+  `data:image` は保持し、PNG/JPEG/GIF/WebP は拡張子で信用せず magic bytes を
+  検査して `p=data:...` / `u=""` / `e=1` に正規化する。remote/protocol/absolute/
+  path escape、directory 外への symlink、未知形式、拡張子不一致は拒否する。
+  precomp asset(`p` 無し)は変更しない
+- source provenance は元 JSON の basename と sha256 だけを inert metadata に残す。
+  JSON と画像 byte はすべて HTML に入るため、素材差し替えは html sha256 と
+  render cache key を必ず変える。生成後の check は 0 errors / 0 warnings 必須で、
+  失敗時は新規 card を書かず、`--force` 時も既存 byte を保持する
 - **ピン留めスクリプトタグは表から一字一句そのままコピーする**(下記)
 - ルート要素(または任意の要素)に `data-hf-requires="lottie"` を宣言する
   (Rule 10 と同じ規約)

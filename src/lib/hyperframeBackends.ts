@@ -46,6 +46,7 @@ interface BackendDefinition {
 }
 
 const FIXTURE_DIR = "test/fixtures/hyperframe-backends";
+const LOTTIE_FIXTURE = "test/fixtures/lottie/hyperframes/card.html";
 
 // Stable display order. Status and pins are deliberately absent: they are
 // resolved below from the pin table, Rule 8 tokens, and render profile wiring.
@@ -56,7 +57,7 @@ const BACKEND_DEFINITIONS: readonly BackendDefinition[] = [
   { id: "dom", capability: { kind: "native" }, determinismTiers: ["byte"], authoring: ["manual", "from-brief"], renderFixture: `${FIXTURE_DIR}/dom.html` },
   { id: "canvas-2d", capability: { kind: "native" }, determinismTiers: ["perceptual"], authoring: ["manual", "from-brief"], renderFixture: `${FIXTURE_DIR}/canvas-2d.html` },
   { id: "gsap", capability: { kind: "pinned", token: "gsap" }, determinismTiers: ["byte"], authoring: ["manual"], renderFixture: `${FIXTURE_DIR}/gsap.html` },
-  { id: "lottie", capability: { kind: "material", token: "lottie" }, determinismTiers: ["byte", "perceptual"], authoring: ["material-import"], renderFixture: null },
+  { id: "lottie", capability: { kind: "material", token: "lottie" }, determinismTiers: ["byte", "perceptual"], authoring: ["material-import"], renderFixture: LOTTIE_FIXTURE },
   { id: "raw-webgl", capability: { kind: "gpu" }, determinismTiers: ["perceptual"], authoring: ["manual"], renderFixture: `${FIXTURE_DIR}/raw-webgl.html` },
   { id: "three", capability: { kind: "gpu-pinned", token: "three" }, determinismTiers: ["perceptual"], authoring: ["manual"], renderFixture: null },
   { id: "anime-js", capability: { kind: "out" }, determinismTiers: [], authoring: [], renderFixture: null },
@@ -95,7 +96,8 @@ function resolveBackend(definition: BackendDefinition): HyperframeBackend {
     determinismTiers: [...definition.determinismTiers],
     pin,
     authoring: [...definition.authoring],
-    renderFixture: status === "usable" ? definition.renderFixture : null,
+    renderFixture:
+      status === "usable" || status === "material-routed" ? definition.renderFixture : null,
   };
 }
 
