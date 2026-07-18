@@ -214,3 +214,141 @@ export async function verifyAssembled(
 
   return { ok: true, keyframeFrames: decoded.keyframeFrames };
 }
+
+/**
+ * §8.4 render transaction 用の検証器2つ(publishAsTransaction の VerifyFn に
+ * そのまま渡せる)。verifyAssembled(既存・チャンク再組立て専用)とは意図的に
+ * 独立させる: 各々「async ffprobe ラッパ + 純評価関数(probeJson: unknown)」に
+ * 分けて ffmpeg 無しでロジックをユニットテストできるようにする。
+ */
+
+/**
+ * cut.mp4(VFR の中間ファイル。trim+concat の結果でフレーム数は事前に
+ * 不明)向けの検証。厳密なフレーム数チェックはできない(そもそも期待値が
+ * 無い)ので、「映像ストリームが1本以上あり、format.duration が有限かつ
+ * 正」= 非空・可読であることだけを見る。
+ */
+export function evaluatePlayableProbe(probeJson: unknown): VerifyResult {
+  const probe = probeJson as {
+    streams?: { codec_type?: string }[];
+    format?: { duration?: string };
+  };
+  const streams = Array.isArray(probe.streams) ? probe.streams : [];
+  const hasVideo = streams.some((s) => s.codec_type === "video");
+  if (!hasVideo) return { ok: false, reason: "映像ストリームが見つかりません" };
+
+  const duration = Number(probe.format?.duration);
+  if (!Number.isFinite(duration) || duration <= 0) {
+    return {
+      ok: false,
+      reason: `duration が不正です(実測 ${probe.format?.duration ?? "なし"})`,
+    };
+  }
+  return { ok: true, keyframeFrames: [] };
+}
+
+/** cut.mp4 等の中間ファイルが再生可能か(空でない・壊れていない)を ffprobe で見る */
+export async function verifyPlayableVideo(mp4: string): Promise<VerifyResult> {
+  let probeJson: unknown;
+  try {
+    const { stdout } = await run("ffprobe", [
+      "-v", "error",
+      "-show_entries", "stream=codec_type:format=duration",
+      "-of", "json",
+      mp4,
+    ]);
+    probeJson = JSON.parse(stdout);
+  } catch (err) {
+    return { ok: false, reason: `ffprobe に失敗しました: ${(err as Error).message}` };
+  }
+  return evaluatePlayableProbe(probeJson);
+}
+
+/**
+ * final.mp4 / shorts(composition から期待フレーム数が既知)向けの検証。
+ * 映像ストリームの存在・decode フレーム数の完全一致・fps 一致を見る。
+ * 先頭 keyframe assert は意図的に入れない(フルレンダーにはチャンク経路の
+ * ようなフォールバックが無く、false-negative で正当な render を塞ぐと
+ * 有害なため)。
+ *
+ * duration は **映像ストリーム自身の duration**(`streams[].duration`)とだけ
+ * 突き合わせる(実測で判明: container の `format.duration` は BGM 等の
+ * audio tail が映像より長いと正当に伸びる。フル remotion 出力は
+ * `-shortest` を使わないため container ≠ 映像長になり得る。verifyAssembled
+ * (チャンク経路)が container で見て問題ないのは `muxVideoAudio` が
+ * `-shortest` で audio を映像長に切り詰めているため)。video duration が
+ * 欠落/非数値のときは lenient にスキップする(フレーム数完全一致+fps一致が
+ * 主要ガードで実測で確実。duration は補助的なクロスチェックに留め、
+ * 欠落時の false-negative で正当な render を塞がないことを優先する)。
+ */
+export function evaluateExactFramesProbe(
+  probeJson: unknown,
+  expectedFrames: number,
+  durationSec: number,
+  fps: number,
+): VerifyResult {
+  const probe = probeJson as {
+    streams?: {
+      codec_type?: string;
+      nb_read_frames?: string;
+      r_frame_rate?: string;
+      duration?: string;
+    }[];
+  };
+  const video = probe.streams?.find((s) => s.codec_type === "video");
+  if (!video) return { ok: false, reason: "映像ストリームが見つかりません" };
+
+  const nbReadFrames = Number(video.nb_read_frames);
+  if (nbReadFrames !== expectedFrames) {
+    return {
+      ok: false,
+      reason: `総フレーム数が不一致です(期待 ${expectedFrames}、実測 ${nbReadFrames})`,
+    };
+  }
+
+  const [num, den] = String(video.r_frame_rate ?? "").split("/").map(Number);
+  const actualFps = den ? num / den : num;
+  if (!Number.isFinite(actualFps) || Math.round(actualFps) !== Math.round(fps)) {
+    return {
+      ok: false,
+      reason: `フレームレートが不一致です(期待 ${fps}、実測 ${actualFps})`,
+    };
+  }
+
+  const videoDuration = Number(video.duration);
+  if (Number.isFinite(videoDuration)) {
+    const tolerance = 1 / fps;
+    if (Math.abs(videoDuration - durationSec) > tolerance) {
+      return {
+        ok: false,
+        reason: `映像ストリームの duration が不一致です(期待 ${durationSec}秒、実測 ${videoDuration}秒)`,
+      };
+    }
+  }
+
+  return { ok: true, keyframeFrames: [] };
+}
+
+/** final.mp4 / shorts/<name>.mp4 が期待どおりのフレーム数・fps・durationか ffprobe で見る */
+export async function verifyRenderedVideo(
+  mp4: string,
+  expectedFrames: number,
+  durationSec: number,
+  fps: number,
+): Promise<VerifyResult> {
+  let probeJson: unknown;
+  try {
+    const { stdout } = await run("ffprobe", [
+      "-v", "error",
+      "-select_streams", "v:0",
+      "-count_frames",
+      "-show_entries", "stream=codec_type,nb_read_frames,r_frame_rate,duration",
+      "-of", "json",
+      mp4,
+    ]);
+    probeJson = JSON.parse(stdout);
+  } catch (err) {
+    return { ok: false, reason: `ffprobe に失敗しました: ${(err as Error).message}` };
+  }
+  return evaluateExactFramesProbe(probeJson, expectedFrames, durationSec, fps);
+}
