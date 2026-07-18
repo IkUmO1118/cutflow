@@ -81,7 +81,14 @@ false staleness signals or gets silently discarded:
   `render.props.json`,
   `whisper-out.json`, `whisper-out.srt`, `transcript.system.json`,
   `whisper-system-out.json`, `cut.mp4`, `cut.keeps.json`,
-  `render.key.json`, `preview.mp4`, `proxy.mp4`, `proxy.key.json`,
+  `render.key.json`, `render.report.json` (the machine-readable summary of
+  the last `render()` attempt: chosen path — `full-skip` / `chunk-diff` /
+  `fast` / `full-remotion` — plus fallback reason, per-stage timings and
+  success/failure, cache hits, changed-chunk count, FAST coverage ratio,
+  effective concurrency, an input-snapshot hash, an output probe, and an
+  overall ok/failed status; a pure local side artifact that is never
+  transmitted anywhere; covers the main render only — shorts are future
+  work), `preview.mp4`, `proxy.mp4`, `proxy.key.json`,
   `material-fit.suggested.json` (a disposable draft written by
   `material-fit`; an `apply`-compatible patch of `set`/`remove` ops for
   material duration-fit and dangling-reference fixes — apply it yourself

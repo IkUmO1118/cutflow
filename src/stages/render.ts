@@ -57,7 +57,14 @@ import {
 } from "../lib/renderFrameMath.ts";
 import { loadShort, loadShorts } from "../lib/shorts.ts";
 import { mergeIntervals, playbackSegmentsOf } from "../lib/timeline.ts";
-import { timed, timedSync } from "../lib/timing.ts";
+import { timed, timedSync, setTimingSink, clearTimingSink } from "../lib/timing.ts";
+import {
+  RenderReportCollector,
+  hashInputSnapshot,
+  writeRenderReport,
+  type OutputProbe,
+} from "../lib/renderReport.ts";
+import { logStage } from "../lib/obs.ts";
 import { resolveVideoEncoder } from "../lib/videoEncode.ts";
 import { hasCamera } from "../types.ts";
 import type { ChunksCacheKey, FileStat } from "../lib/chunkPlan.ts";
@@ -167,6 +174,39 @@ export async function render(dir: string, cfg: Config): Promise<string> {
         "(GUI ならチェックボックス)。",
     );
   }
+
+  // render.report.json(直近の render() 試行の構造化サマリ)。timing.ts の
+  // グローバルシンクへ収集し、成功/失敗どちらでも最後に1回だけ書く
+  const collector = new RenderReportCollector();
+  collector.concurrency = cfg.render.concurrency ?? null;
+  setTimingSink((e) => collector.recordStage(e));
+  try {
+    return await runRenderMain(dir, cfg, manifest, cutplan, collector);
+  } catch (e) {
+    collector.markFailed(e);
+    throw e;
+  } finally {
+    clearTimingSink();
+    try {
+      writeRenderReport(dir, collector.finish());
+    } catch (e) {
+      logStage("render.report", "書込失敗: " + (e instanceof Error ? e.message : String(e)));
+    }
+  }
+}
+
+/**
+ * render() の実処理本体(承認ゲート通過後)。render.report.json 用の
+ * collector を受け取り、経路選択(full-skip/chunk-diff/fast/full-remotion)・
+ * キャッシュ再利用・入力ハッシュ・出力プローブを収集しながら本編を合成する。
+ */
+async function runRenderMain(
+  dir: string,
+  cfg: Config,
+  manifest: Manifest,
+  cutplan: CutPlan,
+  collector: RenderReportCollector,
+): Promise<string> {
   const transcript = JSON.parse(
     readFileSync(join(dir, "transcript.json"), "utf8"),
   ) as Transcript;
@@ -208,6 +248,7 @@ export async function render(dir: string, cfg: Config): Promise<string> {
     : null;
   if (existsSync(cutPath) && cachedKey && cutCacheKeyEquals(cachedKey, cacheKey)) {
     console.log("cut.mp4 を再利用します(カット・音声設定に変更なし)");
+    collector.cutReused = true;
   } else {
     await publishAsTransaction({
       finalPath: cutPath,
@@ -298,6 +339,7 @@ export async function render(dir: string, cfg: Config): Promise<string> {
       return { mtimeMs: s.mtimeMs, size: s.size };
     },
   });
+  collector.inputHash = hashInputSnapshot(renderKey);
   const cachedRenderKey = existsSync(renderKeyPath)
     ? (JSON.parse(readFileSync(renderKeyPath, "utf8")) as RenderCacheKey)
     : null;
@@ -307,6 +349,9 @@ export async function render(dir: string, cfg: Config): Promise<string> {
     renderCacheKeyEquals(cachedRenderKey, renderKey)
   ) {
     console.log("final.mp4 を再利用します(編集内容・素材に変更なし)");
+    collector.setPath("full-skip");
+    collector.finalFullSkip = true;
+    collector.output = probeOutput(outPath, props);
     return outPath;
   }
 
@@ -323,6 +368,10 @@ export async function render(dir: string, cfg: Config): Promise<string> {
       resourceArgs: remotionResourceArgs(cfg),
     });
     if (chunked) {
+      collector.setPath("chunk-diff");
+      collector.changedChunkCount = chunked.changedChunks;
+      collector.chunkCount = chunked.chunkCount;
+      collector.output = probeOutput(outPath, props);
       writeFileSync(renderKeyPath, JSON.stringify(renderKey, null, 2));
       return outPath;
     }
@@ -337,7 +386,9 @@ export async function render(dir: string, cfg: Config): Promise<string> {
     const decision = decideFastPath({ props, cfg, base });
     if (!decision.activate) {
       console.log(`render 高速パス: 非適用(${decision.reason}) → 通常レンダー`);
+      collector.setFallback(`fast: ${decision.reason}`);
     } else {
+      collector.fastCoverage = decision.plan.coverageRatio;
       if (!base.ok) throw new Error("高速パス能力判定の内部不整合");
       const fastResult = await timed("高速パス 合計", () =>
         runFastRender({
@@ -346,6 +397,8 @@ export async function render(dir: string, cfg: Config): Promise<string> {
         }),
       );
       if (fastResult.ok) {
+        collector.setPath("fast");
+        collector.output = probeOutput(outPath, props);
         writeFileSync(renderKeyPath, JSON.stringify(renderKey, null, 2));
         if (chunkSec > 0) {
           await timed("チャンクcache seed 合計", () =>
@@ -357,6 +410,7 @@ export async function render(dir: string, cfg: Config): Promise<string> {
         }
         return outPath;
       }
+      collector.setFallback("fast: 高速パス失敗 → 通常レンダー");
     }
   }
 
@@ -401,6 +455,8 @@ export async function render(dir: string, cfg: Config): Promise<string> {
       }),
     );
   }
+  collector.setPath("full-remotion");
+  collector.output = probeOutput(outPath, props);
   return outPath;
 }
 
@@ -616,6 +672,17 @@ function chunkPaths(dir: string) {
   };
 }
 
+/** 出力ファイル(final.mp4 等)の実測プローブ。render.report.json の
+ * output フィールドに載せる(サイズ・想定尺・想定フレーム数) */
+function probeOutput(outPath: string, props: RenderProps): OutputProbe {
+  return {
+    path: outPath,
+    sizeBytes: existsSync(outPath) ? statSync(outPath).size : 0,
+    durationSec: compositionDurationSec(props.durationSec, props.fps),
+    frameCount: compositionDurationInFrames(props.durationSec, props.fps),
+  };
+}
+
 /** props が参照する素材ファイルの mtime/size 一覧(audioKey の入力) */
 function materialStatsOf(
   dir: string,
@@ -646,7 +713,7 @@ async function tryChunkRender(args: {
   /** remotionResourceArgs(cfg) の結果(キャッシュ上限・timeout 等)。
    * フルレンダーと同じ上限をチャンク再レンダーにも適用する */
   resourceArgs: string[];
-}): Promise<boolean> {
+}): Promise<false | { changedChunks: number; chunkCount: number }> {
   const { dir, props, propsPath, cutStat, hardwareAcceleration, repoRoot, outPath, resourceArgs } = args;
   const { chunksDir, keyPath, audioPath } = chunkPaths(dir);
   if (!existsSync(outPath) || !existsSync(keyPath) || !existsSync(audioPath)) return false;
@@ -754,7 +821,7 @@ async function tryChunkRender(args: {
         ? "チャンク差分レンダー: 変更チャンクなし(再連結のみ)"
         : `チャンク差分レンダー: ${changedIndices.length}/${chunkCount} チャンクを再レンダー`,
     );
-    return true;
+    return { changedChunks: changedIndices.length, chunkCount };
   } finally {
     rmSync(assembledVideo, { force: true });
     rmSync(tempFinal, { force: true });

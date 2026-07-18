@@ -39,6 +39,7 @@ export const GENERATED_FILES = [
   "cut.mp4",
   "cut.keeps.json",
   "render.key.json",
+  "render.report.json",
   "preview.mp4",
   "proxy.mp4",
   "proxy.key.json",
@@ -161,6 +162,7 @@ export const GENERATED_LOG_FILES = [
   "effect-check.json",
   "bgm-fit.json",
   "style-check.json",
+  "render.report.json",
   "preview.mp4",
 ] as const;
 
