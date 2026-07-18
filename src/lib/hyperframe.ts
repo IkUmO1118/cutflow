@@ -17,6 +17,7 @@
 // やらない)。
 
 import { CDN_SCRIPT_URLS } from "./hyperframeCdn.ts";
+import type { HyperframeRenderProfile } from "./hyperframeRenderProfile.ts";
 
 export interface VarDecl {
   id: string;
@@ -178,7 +179,11 @@ export function mergeVariables(
  * `connect-src 'none'` によりライブラリは読み込めても outbound
  * fetch/XHR/WebSocket は送れない
  */
-export function buildIframeSrcdoc(html: string, variables: Record<string, unknown>): string {
+export function buildIframeSrcdoc(
+  html: string,
+  variables: Record<string, unknown>,
+  profile: HyperframeRenderProfile = "default",
+): string {
   const policy =
     "default-src 'none'; " +
     `script-src 'unsafe-inline' ${CDN_SCRIPT_URLS.join(" ")}; ` +
@@ -191,9 +196,35 @@ export function buildIframeSrcdoc(html: string, variables: Record<string, unknow
   const cspMeta = '<meta http-equiv="Content-Security-Policy" content="' + policy + '">';
 
   const json = JSON.stringify(variables).replace(/<\//g, "<\\/");
+  const gpuBootstrap = profile === "gpu-angle"
+    ? "var __hfGlStats={requests:0,successes:0,failed:false};" +
+      "var __hfGetContext=HTMLCanvasElement.prototype.getContext;" +
+      "HTMLCanvasElement.prototype.getContext=function(kind){" +
+      "var name=String(kind).toLowerCase();" +
+      "var tracked=name==='webgl'||name==='webgl2'||name==='experimental-webgl';" +
+      "if(tracked)__hfGlStats.requests++;" +
+      "var context=__hfGetContext.apply(this,arguments);" +
+      "if(tracked&&context)__hfGlStats.successes++;" +
+      "return context;" +
+      "};" +
+      "function checkWebglContext(){" +
+      "if(!__hfGlStats.failed&&__hfGlStats.requests>0&&__hfGlStats.successes===0){" +
+      "__hfGlStats.failed=true;" +
+      "pushFail('WebGL context creation failed: webgl/webgl2/experimental-webgl was requested but ANGLE returned no context',true);" +
+      "}" +
+      "}"
+    : "";
+  const gpuSeekCheck = profile === "gpu-angle" ? "checkWebglContext();" : "";
+  const readyThen = profile === "gpu-angle"
+    ? "cr.then(function(){checkWebglContext();resolve(); }, function(err){"
+    : "cr.then(function(){ resolve(); }, function(err){";
+  const readyElse = profile === "gpu-angle"
+    ? "}else{checkWebglContext();resolve();}"
+    : "}else resolve();";
   const bootstrap =
     "<script>" +
     "(function(){" +
+    gpuBootstrap +
     `var __vars = ${json};` +
     "function seek(tMs){" +
     "try{" +
@@ -237,6 +268,7 @@ export function buildIframeSrcdoc(html: string, variables: Record<string, unknow
     "if (__lastSeekMs !== tMs){" +
     "__lastSeekMs = tMs;" +
     "try{ window.dispatchEvent(new CustomEvent('hf-seek', {detail:{time: tSec}})); }catch(e){}" +
+    gpuSeekCheck +
     "}" +
     "}catch(err){}" +
     "}" +
@@ -290,11 +322,11 @@ export function buildIframeSrcdoc(html: string, variables: Record<string, unknow
     "if (animsReady()){" +
     "var cr = HF.__ready;" +
     "if (cr && typeof cr.then === 'function'){" +
-    "cr.then(function(){ resolve(); }, function(err){" +
+    readyThen +
     "pushFail((err && err.message) || 'card __ready rejected', true);" +
     "resolve();" +
     "});" +
-    "}else resolve();" +
+    readyElse +
     "return;" +
     "}" +
     "if (Date.now()-start > TIMEOUT){" +

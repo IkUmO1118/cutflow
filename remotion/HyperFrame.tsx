@@ -7,6 +7,7 @@
 import { AbsoluteFill, cancelRender, continueRender, delayRender, useCurrentFrame, useVideoConfig } from "remotion";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { buildIframeSrcdoc, SAMPLE_HTML } from "../src/lib/hyperframe.ts";
+import type { HyperframeRenderProfile } from "../src/lib/hyperframeRenderProfile.ts";
 
 export type HyperFrameProps = {
   html: string;
@@ -15,6 +16,7 @@ export type HyperFrameProps = {
   height: number;
   fps: number;
   durationSec: number;
+  profile: HyperframeRenderProfile;
 };
 
 export const hyperFrameDefaultProps: HyperFrameProps = {
@@ -24,6 +26,7 @@ export const hyperFrameDefaultProps: HyperFrameProps = {
   height: 1080,
   fps: 30,
   durationSec: 4,
+  profile: "default",
 };
 
 type HyperFramesWindow = Window & {
@@ -42,8 +45,8 @@ export const HyperFrame = (props: HyperFrameProps) => {
   const handleRef = useRef<number | null>(null);
 
   const srcDoc = useMemo(
-    () => buildIframeSrcdoc(props.html, props.variables),
-    [props.html, props.variables],
+    () => buildIframeSrcdoc(props.html, props.variables, props.profile),
+    [props.html, props.profile, props.variables],
   );
 
   if (handleRef.current === null) {

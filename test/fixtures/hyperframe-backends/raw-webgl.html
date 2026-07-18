@@ -1,0 +1,16 @@
+<!doctype html>
+<html><head><style>html,body{margin:0;width:100%;height:100%;overflow:hidden}canvas{display:block}</style></head><body>
+<canvas id="card" class="clip" data-composition-id="card" data-width="640" data-height="360" data-start="0" data-duration="4" data-hf-determinism="perceptual" width="640" height="360"></canvas>
+<script>
+var canvas=document.getElementById('card');
+var gl=canvas.getContext('webgl',{preserveDrawingBuffer:true,antialias:false});
+var vertex=gl.createShader(gl.VERTEX_SHADER);gl.shaderSource(vertex,'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}');gl.compileShader(vertex);
+var fragment=gl.createShader(gl.FRAGMENT_SHADER);gl.shaderSource(fragment,'precision mediump float;uniform float uTime;uniform vec2 uSize;void main(){vec2 p=gl_FragCoord.xy/uSize;gl_FragColor=vec4(p.x,0.2+0.6*p.y,0.25+0.25*sin(uTime),1.);}');gl.compileShader(fragment);
+var program=gl.createProgram();gl.attachShader(program,vertex);gl.attachShader(program,fragment);gl.linkProgram(program);gl.useProgram(program);
+var buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+var position=gl.getAttribLocation(program,'p');gl.enableVertexAttribArray(position);gl.vertexAttribPointer(position,2,gl.FLOAT,false,0,0);
+var uTime=gl.getUniformLocation(program,'uTime');var uSize=gl.getUniformLocation(program,'uSize');gl.uniform2f(uSize,640,360);
+function draw(time){gl.uniform1f(uTime,time);gl.drawArrays(gl.TRIANGLES,0,3);gl.finish();}
+window.addEventListener('hf-seek',function(event){draw(event.detail.time);});draw(0);
+</script>
+</body></html>

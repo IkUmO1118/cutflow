@@ -6,16 +6,11 @@ export interface HyperframeRenderProfileConfig {
   chromiumGl: "angle" | null;
 }
 
-/**
- * F2 will make gpu-angle non-null and use this same table in the render/cache
- * path. Keeping it null in F0 records that the profile is not wired without
- * changing current rendering or cache keys.
- */
 export const HYPERFRAME_RENDER_PROFILE_CONFIG: Readonly<
   Record<HyperframeRenderProfile, Readonly<HyperframeRenderProfileConfig> | null>
 > = {
   default: { chromiumGl: null },
-  "gpu-angle": null,
+  "gpu-angle": { chromiumGl: "angle" },
 };
 
 export function resolveHyperframeRenderProfile(html: string): HyperframeRenderProfile {
