@@ -10,9 +10,11 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -43,6 +45,14 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 function sha256Hex(data: Buffer | string): string {
   return createHash("sha256").update(data).digest("hex");
 }
+
+/** B0: byte tier で「同一入力からの再 render が byte 一致しなかった」ときに、
+ * それが実害(視覚的にも変わった)か AA jitter 程度の無害な揺れかを分ける
+ * しきい値。ending-card の AA jitter 実例(memory:
+ * hyperframe-render-determinism-composition-dependent)で、luma max delta
+ * (YMAX、0〜255)が10以下なら人間の目には区別できないことを確認済み。
+ * perceptual tier の「知覚同一」判定にも同じしきい値を使う */
+export const PERCEPTUAL_YMAX_THRESHOLD = 10;
 
 /**
  * 値を再帰的に正規化(オブジェクトキーをソート)する。
@@ -179,6 +189,98 @@ export async function verifyHyperframeVideo(
   return { ok: true };
 }
 
+/** ffmpeg signalstats の `lavfi.signalstats.YMAX=<number>` 行(metadata=print
+ * が stdout に吐く形式)から最大値を拾う純関数。複数行あれば最大、1つも
+ * 無ければ 0 を返す */
+export function parseSignalstatsYmax(text: string): number {
+  const re = /lavfi\.signalstats\.YMAX=(-?[\d.]+)/g;
+  let max: number | undefined;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const n = Number(m[1]);
+    if (!Number.isFinite(n)) continue;
+    if (max === undefined || n > max) max = n;
+  }
+  return max ?? 0;
+}
+
+/**
+ * B0 決定論判定(--force 再生成時、入力が前回と同じだったときだけ呼ばれる)。
+ * tier(宣言) × byteIdentical(実測)× ymax(実測。luma max delta)から
+ * ok/level/message を決める純関数。メッセージは日英併記でコード的な文体、
+ * warn は "⚠ " で始める
+ */
+export function determinismVerdict(args: {
+  tier: "byte" | "perceptual";
+  byteIdentical: boolean;
+  ymax: number;
+}): { ok: boolean; level: "info" | "warn"; message: string } {
+  const { tier, byteIdentical, ymax } = args;
+  if (tier === "byte") {
+    if (byteIdentical) {
+      return { ok: true, level: "info", message: "byte tier: 前回と byte 一致(決定論 OK)" };
+    }
+    if (ymax <= PERCEPTUAL_YMAX_THRESHOLD) {
+      return {
+        ok: false,
+        level: "warn",
+        message:
+          `⚠ byte tier 宣言だが byte 不一致(YMAX=${ymax} ≤ ${PERCEPTUAL_YMAX_THRESHOLD})。` +
+          "perceptual tier の宣言を検討してください",
+      };
+    }
+    return {
+      ok: false,
+      level: "warn",
+      message: `⚠ byte tier: 前回と視覚が乖離しました(YMAX=${ymax})`,
+    };
+  }
+  // perceptual
+  if (ymax <= PERCEPTUAL_YMAX_THRESHOLD) {
+    return {
+      ok: true,
+      level: "info",
+      message: `perceptual tier: 知覚同一(YMAX=${ymax} ≤ ${PERCEPTUAL_YMAX_THRESHOLD})`,
+    };
+  }
+  return {
+    ok: false,
+    level: "warn",
+    message: `⚠ perceptual tier: YMAX=${ymax} が閾値 ${PERCEPTUAL_YMAX_THRESHOLD} を超過`,
+  };
+}
+
+/**
+ * 2つの mp4 の luma max delta(YMAX)を ffmpeg の signalstats で計測する。
+ * `blend=all_mode=difference` で差分フレームを作り、grayscale 化した
+ * signalstats の YMAX(0〜255)を metadata=print:file=- で stdout へ吐かせて
+ * 読む。ffmpeg のビルドによっては差分計測自体は成功していても非ゼロ終了
+ * することがあるため、例外時も捕まえた stdout から救済を試みる。それでも
+ * YMAX 行が1つも取れなければ undefined(呼び出し側は「計測不能」として
+ * 扱い、成功した publish 自体は絶対に失敗させない)
+ */
+async function lumaMaxDelta(oldMp4: string, newMp4: string): Promise<number | undefined> {
+  const args = [
+    "-v", "error",
+    "-i", oldMp4,
+    "-i", newMp4,
+    "-filter_complex",
+    "[0:v][1:v]blend=all_mode=difference,format=gray,signalstats,metadata=print:file=-",
+    "-an",
+    "-f", "null",
+    "-",
+  ];
+  let stdout = "";
+  try {
+    stdout = execFileSync("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] }).toString("utf8");
+  } catch (err) {
+    const raw = (err as { stdout?: Buffer | string } | undefined)?.stdout;
+    if (raw) stdout = typeof raw === "string" ? raw : raw.toString("utf8");
+  }
+  if (!stdout.includes("lavfi.signalstats.YMAX=")) return undefined;
+  return parseSignalstatsYmax(stdout);
+}
+
 /* ------------------------------------------------------------------ */
 /* render(node/browser)                                                */
 /* ------------------------------------------------------------------ */
@@ -193,8 +295,17 @@ export interface RenderHyperframeResult {
   skipped: boolean;
   frames: number;
   sha256: string;
+  /** 宣言された tier(data-hf-determinism)。常に設定される */
+  tier: "byte" | "perceptual";
   /** --force で再生成したときだけ設定。旧 mp4 と新 mp4 の sha256 が一致したか */
   identical?: boolean;
+  /** --force かつ inputsUnchanged(前回と入力キーが同じ)かつ !identical の
+   * ときだけ設定(luma max delta。ffmpeg 計測が失敗した場合は undefined のまま) */
+  ymax?: number;
+  /** 同上。determinismVerdict(...).ok */
+  determinismOk?: boolean;
+  /** 同上。determinismVerdict(...).message(warn は "⚠ " prefix 込み) */
+  determinismMessage?: string;
 }
 
 /** bundle + headless Chrome + renderMedia の実 render(scripts/hyperframe-verify.ts と
@@ -313,6 +424,7 @@ export async function renderHyperframe(
           skipped: true,
           frames: expectedFrames,
           sha256: sha256Hex(readFileSync(finalPath)),
+          tier: parsed.determinismTier,
         };
       }
     } catch {
@@ -322,51 +434,101 @@ export async function renderHyperframe(
 
   mkdirSync(dirname(finalPath), { recursive: true });
 
+  // --force で既存 mp4 を上書きするとき: 決定論判定(B0)のために「前回と
+  // 入力(cache key)が同じだったか」を先に確認する。同じなら
+  // publishAsTransaction が finalPath を上書きしてしまう前に旧 mp4 の
+  // バイトをサイドカーへ退避しておく(publishAsTransaction は temp→
+  // finalPath への atomic rename で旧ファイルを消してしまうため、退避
+  // しないと render 後に旧 vs 新の diff が取れない)
+  const oldExists = Boolean(opts.force && existsSync(finalPath));
   let oldSha256: string | undefined;
-  if (opts.force && existsSync(finalPath)) {
+  let inputsUnchanged = false;
+  let sidecarPath: string | undefined;
+  if (oldExists) {
     oldSha256 = sha256Hex(readFileSync(finalPath));
+    if (existsSync(keyPath)) {
+      try {
+        const prevKey = JSON.parse(readFileSync(keyPath, "utf8")) as { key?: string };
+        inputsUnchanged = prevKey.key === key;
+      } catch {
+        inputsUnchanged = false;
+      }
+    }
+    if (inputsUnchanged) {
+      sidecarPath = join(dirname(finalPath), `.${opts.name}.det-old.tmp.mp4`);
+      copyFileSync(finalPath, sidecarPath);
+    }
   }
 
   const produce =
     deps?.produce ?? ((tmp: string, props: HyperFrameProps) => renderHyperframeMp4(dir, tmp, props));
 
-  await publishAsTransaction({
-    finalPath,
-    inputs: [captureSnapshot(sourcePath)],
-    produce: (tempPath) => produce(tempPath, inputProps),
-    verify: (tempPath) => verifyHyperframeVideo(tempPath, { width, height, fps, expectedFrames }),
-    commit: () => {
-      writeFileSync(
-        keyPath,
-        JSON.stringify(
-          {
-            key,
-            htmlSha256,
-            variables,
-            width,
-            height,
-            fps,
-            durationSec,
-            codec: "h264",
-            hardwareAcceleration,
-          },
-          null,
-          2,
-        ),
-      );
-    },
-  });
+  try {
+    await publishAsTransaction({
+      finalPath,
+      inputs: [captureSnapshot(sourcePath)],
+      produce: (tempPath) => produce(tempPath, inputProps),
+      verify: (tempPath) => verifyHyperframeVideo(tempPath, { width, height, fps, expectedFrames }),
+      commit: () => {
+        writeFileSync(
+          keyPath,
+          JSON.stringify(
+            {
+              key,
+              htmlSha256,
+              variables,
+              width,
+              height,
+              fps,
+              durationSec,
+              codec: "h264",
+              hardwareAcceleration,
+            },
+            null,
+            2,
+          ),
+        );
+      },
+    });
 
-  const newSha256 = sha256Hex(readFileSync(finalPath));
-  const identical = opts.force && oldSha256 !== undefined ? oldSha256 === newSha256 : undefined;
+    const newSha256 = sha256Hex(readFileSync(finalPath));
+    const identical = oldExists ? oldSha256 === newSha256 : undefined;
 
-  return {
-    outPath: finalPath,
-    skipped: false,
-    frames: expectedFrames,
-    sha256: newSha256,
-    identical,
-  };
+    const result: RenderHyperframeResult = {
+      outPath: finalPath,
+      skipped: false,
+      frames: expectedFrames,
+      sha256: newSha256,
+      tier: parsed.determinismTier,
+      identical,
+    };
+
+    // 決定論判定(verdict)は「--force かつ前回と入力キーが同じだった」
+    // ときだけ意味を持つ(入力が変わっていれば byte 不一致は当然なので
+    // 判定対象にしない)。identical なら ffmpeg を起動せず ymax=0 で済ませる
+    if (oldExists && inputsUnchanged && sidecarPath) {
+      const byteIdentical = identical === true;
+      const ymax = byteIdentical ? 0 : await lumaMaxDelta(sidecarPath, finalPath);
+      if (ymax !== undefined) {
+        const verdict = determinismVerdict({ tier: parsed.determinismTier, byteIdentical, ymax });
+        result.ymax = ymax;
+        result.determinismOk = verdict.ok;
+        result.determinismMessage = verdict.message;
+      } else {
+        console.log("(決定論判定は計測できませんでした: ffmpeg の luma diff 計測に失敗)");
+      }
+    }
+
+    return result;
+  } finally {
+    if (sidecarPath) {
+      try {
+        rmSync(sidecarPath, { force: true });
+      } catch {
+        // 退避コピーの削除失敗は致命的ではない
+      }
+    }
+  }
 }
 
 /* ------------------------------------------------------------------ */

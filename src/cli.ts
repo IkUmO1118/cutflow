@@ -631,15 +631,24 @@ program
 
       const shortSha = result.sha256.slice(0, 12);
       if (result.skipped) {
-        console.log(`再利用(変更なし): ${result.outPath}(${result.frames}フレーム, sha256=${shortSha})`);
+        console.log(
+          `再利用(変更なし): ${result.outPath}(${result.frames}フレーム, sha256=${shortSha}, tier: ${result.tier})`,
+        );
       } else {
         console.log(`render 完了: ${result.outPath}(${result.frames}フレーム, sha256=${shortSha})`);
         if (result.identical !== undefined) {
-          console.log(
-            result.identical
-              ? "(--force で再生成。内容は前回と byte 一致)"
-              : "(--force で再生成。内容が変わりました)",
-          );
+          if (result.determinismMessage !== undefined) {
+            // --force かつ前回と入力が同じだった: tier に応じた決定論判定
+            // (byte 一致/不一致・perceptual の YMAX 判定)を報告する
+            console.log(`(--force で再生成) ${result.determinismMessage}`);
+          } else if (result.identical) {
+            console.log(`(--force で再生成。内容は前回と byte 一致。tier: ${result.tier})`);
+          } else {
+            console.log(
+              "(--force で再生成。決定論判定はスキップ(前回と入力が異なる、または計測に失敗)。" +
+                "内容が変わりました)",
+            );
+          }
         }
       }
     },

@@ -5,8 +5,9 @@
 //
 // parseComposition は汎用の HTML パーサではない。HyperFrames の作図契約が
 // 定める限られた属性(data-composition-id / data-width / data-height /
-// data-composition-variables / data-start / data-duration)だけを対象にした
-// 契約スコープの属性リーダーで、任意の HTML を安全に扱う設計ではない。
+// data-composition-variables / data-start / data-duration /
+// data-hf-determinism)だけを対象にした契約スコープの属性リーダーで、
+// 任意の HTML を安全に扱う設計ではない。
 // Node には DOMParser が無いため正規表現で該当属性を拾う。厳密なスキーマ
 // 検証(不正な contract のはじき方)は C2 の責務(このファイルはそこまで
 // やらない)。
@@ -60,6 +61,11 @@ export interface ParsedComposition {
   /** data-start と data-duration を両方持つ要素すべてについて
    * max(start + duration) を取ったもの。該当要素が無ければ undefined */
   intrinsicDurationSec?: number;
+  /** data-hf-determinism の寛容パース(B0)。"perceptual" のときだけ
+   * "perceptual"、それ以外(既定・不在・不正値)は "byte"。属性値の
+   * 厳密な検証(byte|perceptual 以外を弾く)は checkComposition の
+   * Rule 7 が担う(このパーサは throw しない) */
+  determinismTier: "byte" | "perceptual";
 }
 
 function htmlUnescape(s: string): string {
@@ -113,7 +119,10 @@ export function parseComposition(html: string): ParsedComposition {
     intrinsicDurationSec = intrinsicDurationSec === undefined ? end : Math.max(intrinsicDurationSec, end);
   }
 
-  return { compositionId, width, height, variables, intrinsicDurationSec };
+  const tierRaw = findAttr(html, "data-hf-determinism");
+  const determinismTier = tierRaw === "perceptual" ? "perceptual" : "byte";
+
+  return { compositionId, width, height, variables, intrinsicDurationSec, determinismTier };
 }
 
 /**

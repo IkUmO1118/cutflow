@@ -8,6 +8,11 @@
 //
 // node: の import は不要(純文字列処理)。CLI コマンドは持たない
 // (ライブラリのみ。呼び出し側は将来の C3/C4 が担う)。
+//
+// Rule 7(B0): data-hf-determinism の *値* だけを検証する(byte|perceptual)。
+// GPU 規約(hf-seek / __timelines / __hfLottie)との整合検査(perceptual を
+// 要する規約を使うのに byte を名乗る等)は B1 で規約が導入されてから足す
+// (このリリースではまだ何も突き合わせない)。
 
 import type { Problem } from "../stages/validate.ts";
 import { parseComposition } from "./hyperframe.ts";
@@ -405,6 +410,20 @@ export function checkComposition(html: string, opts?: CheckOpts): CheckResult {
         message: `font-family "${raw}" is neither generic/system nor a local @font-face; rendering may vary across machines`,
       });
     }
+  }
+
+  // ---- Rule 7: determinism tier value ----
+  // B0: 属性の *値* だけを検証する(byte|perceptual)。GPU 規約(hf-seek /
+  // __timelines / __hfLottie)との整合検査(perceptual を要する規約を使うのに
+  // byte を名乗る等)は B1 で規約が導入されてから足す(ここではまだ何も
+  // 突き合わせない)。
+  const tierRaw = firstAttr(html, "data-hf-determinism");
+  if (tierRaw !== undefined && tierRaw !== "byte" && tierRaw !== "perceptual") {
+    errors.push({
+      file,
+      where: "data-hf-determinism",
+      message: `data-hf-determinism must be "byte" or "perceptual" (got "${tierRaw}")`,
+    });
   }
 
   // ---- summary ----

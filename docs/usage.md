@@ -190,6 +190,22 @@ Remotion(native interpreter)で作る2段階コマンド。生成された HTML 
 境界を通して配置する(このコマンド自体は cutplan/approvals には一切触れない)。
 配置候補の生成は次の `hyperframe-place` が担う。
 
+composition html のルート要素には任意で `data-hf-determinism="byte"` /
+`data-hf-determinism="perceptual"` を書ける(属性が無い・不正な値のときは
+既定の `byte` として扱う。値の妥当性は check ゲートの Rule 7 が検査する)。
+`byte` は「同じ入力からの再 render は毎回 byte 単位で同一になる」ことを
+期待する composition(CSS アニメ+Web Animations 中心の静的カード)向けの
+既定 tier。`perceptual` は GPU 系の演出(将来の hf-seek / Lottie 規約等)で
+byte 一致まで求めず「見た目が同じなら OK」としたい composition 向けの tier。
+未変更の入力に対して `--force` で再 render すると、旧 mp4 と新 mp4 を
+ffmpeg の signalstats(`blend=all_mode=difference` の luma max delta=YMAX、
+0〜255)で比較した決定論判定を stdout に出す: 閾値は YMAX≤10(AA jitter は
+無害・視覚的に区別不能という実測に基づく)。`byte` tier は byte が一致すれば
+OK、不一致なら常に warn(YMAX≤10 なら「perceptual 宣言を検討」、それ以上
+なら「視覚が乖離」)。`perceptual` tier は YMAX≤10 なら OK、それを超えたと
+きだけ warn。入力が前回と異なる場合や ffmpeg 計測が失敗した場合は判定
+自体をスキップする(判定不能を byte 不一致として扱わない)。
+
 ## HyperFrames 素材の配置(hyperframe-place)
 
 `hyperframe <dir> --name <name>` で render 済みの

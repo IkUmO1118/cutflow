@@ -90,6 +90,25 @@ test("P-4: intrinsicDurationSec は data-start+data-duration の max", () => {
   assert.equal(parsed2.intrinsicDurationSec, 5);
 });
 
+/* ---------------- P-4b (determinismTier) ---------------- */
+
+test('P-4b: determinismTier is "perceptual" when data-hf-determinism="perceptual"', () => {
+  const html = `<html data-composition-id="root" data-hf-determinism="perceptual"></html>`;
+  const parsed = parseComposition(html);
+  assert.equal(parsed.determinismTier, "perceptual");
+});
+
+test('P-4c: determinismTier defaults to "byte" when data-hf-determinism is absent', () => {
+  const parsed = parseComposition(SAMPLE_HTML);
+  assert.equal(parsed.determinismTier, "byte");
+});
+
+test('P-4d: determinismTier falls back to "byte" for an invalid value (lenient parser never throws)', () => {
+  const html = `<html data-composition-id="root" data-hf-determinism="frames"></html>`;
+  const parsed = parseComposition(html);
+  assert.equal(parsed.determinismTier, "byte");
+});
+
 /* ---------------- P-5 ---------------- */
 
 test("P-5: mergeVariables の優先度は default < instance < cli", () => {

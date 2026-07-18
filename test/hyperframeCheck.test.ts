@@ -147,6 +147,40 @@ test("18: custom font-family (no @font-face) is a warning", () => {
   assert.ok(hasWarn(r, "Comic Sans Custom"));
 });
 
+test('20: data-hf-determinism="perceptual" is clean', () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-determinism="perceptual"></div>`,
+  );
+  assert.equal(r.errors.length, 0);
+  assert.ok(!hasErr(r, "data-hf-determinism"));
+});
+
+test('21: data-hf-determinism="byte" is clean', () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-determinism="byte"></div>`,
+  );
+  assert.equal(r.errors.length, 0);
+  assert.ok(!hasErr(r, "data-hf-determinism"));
+});
+
+test("22: invalid data-hf-determinism value is an error", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-determinism="frames"></div>`,
+  );
+  assert.ok(hasErr(r, 'must be "byte" or "perceptual"'));
+});
+
+test("23: absent data-hf-determinism does not warn (defaults to byte)", () => {
+  // SAMPLE_HTML(rule 1: SAMPLE_HTML is clean)自体が「属性なし→0 warning」の
+  // 回帰アンカーなので、ここでは data-hf-determinism 由来の警告/エラーが
+  // 無いことだけをピンポイントで確認する(width/height 等の無関係な警告は
+  // 別ルールの担当)
+  const r = checkComposition(`<div data-composition-id="root"></div>`);
+  assert.ok(!hasErr(r, "data-hf-determinism"));
+  assert.ok(!hasWarn(r, "data-hf-determinism"));
+  assert.ok(!hasWarn(r, "determinism"));
+});
+
 test("19: false-positive guards for remote-URL scan", () => {
   const a = checkComposition(
     `<div data-composition-id="root"></div><!-- see https://example.com -->`,
