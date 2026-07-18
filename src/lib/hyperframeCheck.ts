@@ -10,9 +10,12 @@
 // (ライブラリのみ。呼び出し側は将来の C3/C4 が担う)。
 //
 // Rule 7(B0): data-hf-determinism の *値* だけを検証する(byte|perceptual)。
-// GPU 規約(hf-seek / __timelines / __hfLottie)との整合検査(perceptual を
-// 要する規約を使うのに byte を名乗る等)は B1 で規約が導入されてから足す
-// (このリリースではまだ何も突き合わせない)。
+// Rule 8(B1): data-hf-requires のトークン(gsap|lottie|three)を検証する。
+// Rule 9(B1): GPU 規約(hf-seek イベント購読 / data-hf-requires="three")と
+// determinism tier の整合を検証する(perceptual を要する規約を使うのに
+// byte(または未指定=既定 byte)を名乗るとエラー)。GSAP(__timelines)・
+// Lottie(__hfLottie)単独の使用は対象外(DOM スタイル書き込みなので byte
+// のままで妥当)。
 
 import type { Problem } from "../stages/validate.ts";
 import { parseComposition } from "./hyperframe.ts";
@@ -345,6 +348,13 @@ export function checkComposition(html: string, opts?: CheckOpts): CheckResult {
   }
 
   // ---- Rule 5: seek-safe ----
+  // GPU/WebGL カードは self-draw を hf-seek CustomEvent(bootstrap が絶対
+  // 時刻で dispatch する。B1)で駆動すること(決定論)。インラインの
+  // requestAnimationFrame を直接シーク駆動に使うのは上の
+  // DETERMINISM_PATTERNS で禁止済み。ライブラリ内部の rAF(例: gsap.ticker)
+  // はこのスキャン(author のインラインスクリプト)の対象外で、B3 の
+  // 利用規約(ライブラリは pause 状態で読み込み、内部 ticker を進めない)で
+  // 別途担保する
   const scripts = inlineScripts(html);
   const DETERMINISM_PATTERNS: Array<{ re: RegExp; token: string }> = [
     { re: /\bMath\.random\b/, token: "Math.random" },
@@ -424,6 +434,49 @@ export function checkComposition(html: string, opts?: CheckOpts): CheckResult {
       where: "data-hf-determinism",
       message: `data-hf-determinism must be "byte" or "perceptual" (got "${tierRaw}")`,
     });
+  }
+
+  // ---- Rule 8(B1): data-hf-requires トークン検証 ----
+  const KNOWN_REQUIRES = new Set(["gsap", "lottie", "three"]);
+  let requiresTokens: string[] = [];
+  const requiresRaw = firstAttr(html, "data-hf-requires");
+  if (requiresRaw !== undefined) {
+    const toks = requiresRaw.split(/[\s,]+/).filter((t) => t.length > 0);
+    requiresTokens = toks;
+    if (toks.length === 0) {
+      errors.push({
+        file,
+        where: "data-hf-requires",
+        message: "data-hf-requires is empty / data-hf-requires が空です",
+      });
+    }
+    for (const tok of toks) {
+      if (!KNOWN_REQUIRES.has(tok)) {
+        errors.push({
+          file,
+          where: "data-hf-requires",
+          message: `data-hf-requires: unknown library "${tok}" (known: gsap, lottie, three) / 未知のライブラリです`,
+        });
+      }
+    }
+  }
+
+  // ---- Rule 9(B1): GPU 規約 × determinism tier ----
+  // hf-seek(イベント駆動の GPU/canvas 自己描画)・three(data-hf-requires)は
+  // SwiftShader(chromiumOptions.gl)無しでは byte 決定論を保証できない。
+  // 未指定は byte と同義なので未指定もエラーにする。B5 で SwiftShader
+  // による byte 決定論が実測検証されたら byte ケースは緩和され得る
+  const usesHfSeek = /['"]hf-seek['"]/.test(html);
+  const requiresThree = requiresTokens.includes("three");
+  if (usesHfSeek || requiresThree) {
+    if (tierRaw !== "perceptual") {
+      errors.push({
+        file,
+        where: "data-hf-determinism",
+        message:
+          'hf-seek/three (event-driven GPU drawing) requires data-hf-determinism="perceptual" (GPU/canvas output is not byte-deterministic without SwiftShader) / GPU 演出は perceptual tier を宣言してください',
+      });
+    }
   }
 
   // ---- summary ----

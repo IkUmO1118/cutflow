@@ -181,6 +181,54 @@ test("23: absent data-hf-determinism does not warn (defaults to byte)", () => {
   assert.ok(!hasWarn(r, "determinism"));
 });
 
+test('24: data-hf-requires="gsap" is clean (Rule 8)', () => {
+  const r = checkComposition(`<div data-composition-id="root" data-hf-requires="gsap"></div>`);
+  assert.equal(r.errors.length, 0);
+});
+
+test('25: data-hf-requires="bogus" is an error (Rule 8)', () => {
+  const r = checkComposition(`<div data-composition-id="root" data-hf-requires="bogus"></div>`);
+  assert.ok(hasErr(r, 'unknown library "bogus"'));
+});
+
+test('26: data-hf-requires="" is an error (Rule 8)', () => {
+  const r = checkComposition(`<div data-composition-id="root" data-hf-requires=""></div>`);
+  assert.ok(hasErr(r, "data-hf-requires is empty"));
+});
+
+test("27: hf-seek usage without data-hf-determinism is an error (Rule 9)", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root"></div><script>window.addEventListener('hf-seek', function(e){draw(e.detail.time);});</script>`,
+  );
+  assert.ok(hasErr(r, 'requires data-hf-determinism="perceptual"'));
+});
+
+test('28: hf-seek usage with data-hf-determinism="perceptual" is clean (Rule 9)', () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-determinism="perceptual"></div><script>window.addEventListener('hf-seek', function(e){draw(e.detail.time);});</script>`,
+  );
+  assert.ok(!hasErr(r, "data-hf-determinism"));
+});
+
+test('29: hf-seek usage with data-hf-determinism="byte" is an error (Rule 9)', () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-determinism="byte"></div><script>window.addEventListener('hf-seek', function(e){draw(e.detail.time);});</script>`,
+  );
+  assert.ok(hasErr(r, 'requires data-hf-determinism="perceptual"'));
+});
+
+test('30: data-hf-requires="three" with no tier is an error (Rule 9)', () => {
+  const r = checkComposition(`<div data-composition-id="root" data-hf-requires="three"></div>`);
+  assert.ok(hasErr(r, 'requires data-hf-determinism="perceptual"'));
+});
+
+test('31: regression — GSAP (window.__timelines) card declaring byte tier has no Rule 9 error', () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-determinism="byte" data-hf-requires="gsap"></div><script>window.__timelines={main:gsap.timeline({paused:true})};</script>`,
+  );
+  assert.ok(!hasErr(r, 'requires data-hf-determinism="perceptual"'));
+});
+
 test("19: false-positive guards for remote-URL scan", () => {
   const a = checkComposition(
     `<div data-composition-id="root"></div><!-- see https://example.com -->`,
