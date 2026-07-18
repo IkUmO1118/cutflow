@@ -123,6 +123,11 @@ export interface ProjectData {
   aiProfiles: AiProfileStatus[];
   aiRoutes: { text: string; structured: string; vision?: string };
   aiReviewCfg: { vlm: boolean; maxImages: number; maxRefinements: number };
+  /** 並行制御用の内容バージョン(§8.3)。存在する編集ファイル(cutplan/overlays/
+   *  transcript/bgm/shorts)ごとの "sha256:…"。存在しないファイルはキーごと省略。
+   *  client は不透明 token として保持し save 時に baseHashes として echo する
+   *  (再計算はしない)。 */
+  contentHashes: Record<string, string>;
 }
 
 export type PlanPerceptionStatus = PerceptionStatus;
@@ -251,4 +256,16 @@ export interface SaveRequest {
   /** ショート動画の定義。`null` / 空 shorts は shorts.json を削除する。
    * `undefined`(キー無し)は shorts.json を触らない */
   shorts?: Shorts | null;
+  /** client が読み込んだ各ファイルの内容バージョン("sha256:…" / 読み込み時に
+   *  存在しなければ null)。送られていれば server は一致時のみ書き、不一致なら
+   *  全体を 409 stale_base で拒否する。キー自体が無ければ従来どおり無条件保存
+   *  (旧 client・プログラム的呼び出しの後方互換)。§8.3 */
+  baseHashes?: Record<string, string | null>;
+}
+
+/** POST /api/save の 200 レスポンス。書いた/削除したファイルの保存後内容バージョン
+ *  (削除は null)。client は reload せずにこれで base を更新する。 */
+export interface SaveResponse {
+  ok: true;
+  contentHashes: Record<string, string | null>;
 }

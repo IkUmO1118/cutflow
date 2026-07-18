@@ -28,7 +28,14 @@ import {
   writeCutplanApproval,
   writeShortApproval,
 } from "../src/lib/approval.ts";
-import { APPROVAL_FILE } from "../src/lib/files.ts";
+import {
+  checkBaseHashes,
+  contentHashesOf,
+  DOC_FILE,
+  fileContentHash,
+  hashOfString,
+  isExternalChange,
+} from "../src/lib/contentVersion.ts";
 import { removeEditorServeFile, writeEditorServeFile } from "../src/lib/editorServe.ts";
 import { run } from "../src/lib/exec.ts";
 import { classifyBrowserDisplayable } from "../src/lib/mediaCodec.ts";
@@ -134,20 +141,26 @@ export async function startEditor(
   const indexHtml = readFileSync(join(editorDir, "client/index.html"), "utf8");
 
   // 編集 JSON の外部変更(Claude Code や手編集)を検知して SSE で通知する。
-  // GUI 自身の保存(/api/save)による変更は selfWroteAt で除外し、
+  // GUI 自身の保存(/api/save)による変更は lastWrittenHash(自分が最後に
+  // 書いた内容のハッシュ)との内容一致で除外する(時間窓ではない。§8.3)。
   // 連続イベント(エディタの書き込みは複数イベントになる)は少しまとめる
   const hub: EventHub = { clients: new Set() };
   let changed = new Set<string>();
   let notifyTimer: NodeJS.Timeout | null = null;
   watch(dir, (_event, filename) => {
     if (!filename || !WATCHED_FILES.includes(filename)) return;
-    if (Date.now() - (selfWroteAt.get(filename) ?? 0) < 1500) return;
-    invalidateStoredProposals();
     changed.add(filename);
     notifyTimer ??= setTimeout(() => {
-      const files = [...changed];
+      const candidates = [...changed];
       changed = new Set();
       notifyTimer = null;
+      // フラッシュ時(書き込み完了後)に現ディスク内容をハッシュし、
+      // 自分が最後に書いた内容と違うものだけを「外部変更」として流す。
+      const files = candidates.filter((f) =>
+        isExternalChange(fileContentHash(dir, f), lastWrittenHash.get(f)),
+      );
+      if (files.length === 0) return;
+      invalidateStoredProposals();
       for (const c of hub.clients) c.write(`data: ${JSON.stringify({ files })}\n\n`);
     }, 200);
   });
@@ -227,8 +240,10 @@ const WATCHED_FILES = [
 ];
 /** 未保存編集の自動退避先(隠しファイル。素材一覧・外部変更の監視の対象外) */
 const DRAFT_FILE = ".editor-draft.json";
-/** /api/save が最後に各ファイルを書いた時刻。watch の自己イベント除外用 */
-const selfWroteAt = new Map<string, number>();
+/** /api/save が各ファイルに最後に書いた内容ハッシュ(削除は null)。
+ *  watch の自己エコー除外に使う(時間窓ではなく内容一致で判定する。§8.3)。
+ *  値は "sha256:..."(書いた) / null(自分で削除した) / キー無し(一度も書いていない) */
+const lastWrittenHash = new Map<string, string | null>();
 
 /** SSE(/api/events)の接続中クライアント */
 interface EventHub {
@@ -351,13 +366,30 @@ async function handle(
     return;
   }
   if (req.method === "POST" && path === "/api/save") {
-    const body = (await readBody(req)) as SaveRequest;
+    // checkBaseHashes は(src/lib/contentVersion.ts が editor 固有の型に依存
+    // しないよう)body を Record<string, unknown> として読む。SaveRequest は
+    // interface(index signature 無し)なので、その交差型として cast する
+    const body = (await readBody(req)) as SaveRequest & Record<string, unknown>;
     if (heavyJob) {
       throw new HttpError(409, `${jaStage(heavyJob.stage)}を実行中です。完了までお待ちください`);
     }
+    // 内容バージョンゲート: baseHashes が付いていれば、書き込み対象ファイルの
+    // 現ディスク内容が client が読んだ版と一致するときだけ通す(§8.3)。
+    // baseHashes 無し(旧 client / プログラム的呼び出し)は従来どおり無条件。
+    const { stale } = checkBaseHashes(dir, body);
+    if (stale.length > 0) {
+      throw new HttpError(
+        409,
+        `外部で変更されたファイルがあります: ${stale.join(", ")}`,
+        "stale_base",
+      );
+    }
     saveProject(dir, body);
     invalidateStoredProposals();
-    sendJson(res, 200, { ok: true });
+    // 書き込み後の新しい内容ハッシュ(削除したファイルは null)。client は
+    // reload せずにこれで base を更新する。
+    const contentHashes = hashesForBody(dir, body);
+    sendJson(res, 200, { ok: true, contentHashes });
     return;
   }
   if (req.method === "POST" && path === "/api/ai/propose") {
@@ -1101,6 +1133,7 @@ export function loadProject(dir: string, cfg: Config): ProjectData {
     transcript,
     cutplan,
     overlays: readJson<Overlays>("overlays.json", {}),
+    contentHashes: contentHashesOf(dir),
     dirFiles,
     bgm: readJson<Bgm | null>("bgm.json", null),
     bgmFile: findBgm(dir),
@@ -1542,6 +1575,19 @@ export function stampSaveBody(
   return { ...body, cutplan, transcript, overlays, bgm, shorts };
 }
 
+/** body が書いた/削除したファイルの保存後の内容ハッシュ(削除は null)。
+ *  /api/save の 200 応答に載せ、client の base 更新に使う(§8.3)。
+ *  export はテスト用(test/saveProject.test.ts)。 */
+export function hashesForBody(dir: string, body: SaveRequest): Record<string, string | null> {
+  const out: Record<string, string | null> = {};
+  for (const [key, file] of Object.entries(DOC_FILE)) {
+    if (body[key as keyof SaveRequest] !== undefined) {
+      out[file] = fileContentHash(dir, file); // 書いた→hash / 削除→null
+    }
+  }
+  return out;
+}
+
 /** 編集結果の保存。渡されたドキュメントだけを書く(それ以外のファイルは不可侵)。
  * export はテスト用(test/saveProject.test.ts。HTTP サーバは起動せず直接呼ぶ) */
 export function saveProject(dir: string, body: SaveRequest): void {
@@ -1567,15 +1613,16 @@ export function saveProject(dir: string, body: SaveRequest): void {
   const stampedBody = stampSaveBody(body, idEnabled, usedIdsOf(idDocs));
 
   const write = (file: string, data: CutPlan | Overlays | Transcript | Bgm | Shorts) => {
-    selfWroteAt.set(file, Date.now());
-    writeFileSync(join(dir, file), JSON.stringify(data, null, 2));
+    const json = JSON.stringify(data, null, 2);
+    lastWrittenHash.set(file, hashOfString(json)); // 書いた内容のハッシュを記録
+    writeFileSync(join(dir, file), json);
   };
   if (stampedBody.cutplan) {
     write("cutplan.json", stampedBody.cutplan);
     // 承認レコード(approvals.json)の mint/clear。GUI は「人間が起動した
     // プロセスが人間のチェックで書く」= 分離層の権威側(設計 §1.3 / §8)。
-    // approved トグルに応じてハッシュ束縛レコードを作る/消す
-    selfWroteAt.set(APPROVAL_FILE, Date.now());
+    // approved トグルに応じてハッシュ束縛レコードを作る/消す。approvals.json
+    // は WATCHED_FILES に無く watch は発火しないので lastWrittenHash は不要
     if (stampedBody.cutplan.approved) writeCutplanApproval(dir, stampedBody.cutplan, "gui");
     else clearCutplanApproval(dir);
   }
@@ -1588,7 +1635,7 @@ export function saveProject(dir: string, body: SaveRequest): void {
     } else {
       const p = join(dir, "bgm.json");
       if (existsSync(p)) {
-        selfWroteAt.set("bgm.json", Date.now());
+        lastWrittenHash.set("bgm.json", null);
         rmSync(p);
       }
     }
@@ -1598,7 +1645,6 @@ export function saveProject(dir: string, body: SaveRequest): void {
     if (stampedBody.shorts && stampedBody.shorts.shorts.length > 0) {
       write("shorts.json", stampedBody.shorts);
       // 各ショートの approved トグルに応じて name 別の承認レコードを mint/clear
-      selfWroteAt.set(APPROVAL_FILE, Date.now());
       for (const short of stampedBody.shorts.shorts) {
         if (short.approved) writeShortApproval(dir, short, "gui");
         else clearShortApproval(dir, short.name);
@@ -1606,7 +1652,7 @@ export function saveProject(dir: string, body: SaveRequest): void {
     } else {
       const p = join(dir, "shorts.json");
       if (existsSync(p)) {
-        selfWroteAt.set("shorts.json", Date.now());
+        lastWrittenHash.set("shorts.json", null);
         rmSync(p);
       }
     }
