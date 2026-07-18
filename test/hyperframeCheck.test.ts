@@ -278,6 +278,76 @@ test("37: pinned <script src> matched+crossorigin but missing data-hf-requires=\
   assert.ok(hasErr(r, 'data-hf-requires="gsap"'));
 });
 
+test("38: GSAP API used but no window.__timelines registration is an error (Rule 11)", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-requires="gsap"></div><script src="${GSAP_URL}" integrity="${GSAP_INTEGRITY}" crossorigin="anonymous"></script><script>var tl = gsap.to('#x',{x:1});</script>`,
+  );
+  assert.ok(hasErr(r, "no paused timeline is registered"));
+});
+
+test("39: GSAP timeline registered via window.__timelines.<id> = tl (dot form) is clean (Rule 11)", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-requires="gsap"></div><script src="${GSAP_URL}" integrity="${GSAP_INTEGRITY}" crossorigin="anonymous"></script><script>window.__timelines = window.__timelines || {}; var tl = gsap.timeline({paused:true}); window.__timelines.root = tl; tl.to('#x',{x:1});</script>`,
+  );
+  assert.ok(!hasErr(r, "no paused timeline is registered"));
+});
+
+test("40: GSAP timeline registered via object-literal window.__timelines={...} is clean (Rule 11)", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-requires="gsap"></div><script src="${GSAP_URL}" integrity="${GSAP_INTEGRITY}" crossorigin="anonymous"></script><script>window.__timelines = {root: gsap.timeline({paused:true})}; window.__timelines.root.to('#x',{x:1});</script>`,
+  );
+  assert.ok(!hasErr(r, "no paused timeline is registered"));
+});
+
+test("41: CSS/WAAPI-only card whose only 'gsap.' mention is inside a comment triggers no Rule 11 (false-positive guard)", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root"></div><script>// see gsap.to docs\nvar el = document.querySelector('#x'); el.animate([{opacity:0},{opacity:1}],{duration:500});</script>`,
+  );
+  assert.equal(r.errors.length, 0);
+  assert.ok(!hasErr(r, "no paused timeline is registered"));
+});
+
+test("42: gsap.ticker.add usage is an error even with a registered timeline (Rule 12)", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-requires="gsap"></div><script src="${GSAP_URL}" integrity="${GSAP_INTEGRITY}" crossorigin="anonymous"></script><script>window.__timelines = {root: gsap.timeline({paused:true})}; gsap.ticker.add(function(){});</script>`,
+  );
+  assert.ok(hasErr(r, "gsap.ticker runs on wall-clock"));
+});
+
+test("43: gsap.ticker.fps usage is an error (Rule 12)", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-requires="gsap"></div><script src="${GSAP_URL}" integrity="${GSAP_INTEGRITY}" crossorigin="anonymous"></script><script>window.__timelines = {root: gsap.timeline({paused:true})}; gsap.ticker.fps(30);</script>`,
+  );
+  assert.ok(hasErr(r, "gsap.ticker runs on wall-clock"));
+});
+
+test("44: registered timeline with no ticker usage has no Rule 12 error", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-requires="gsap"></div><script src="${GSAP_URL}" integrity="${GSAP_INTEGRITY}" crossorigin="anonymous"></script><script>window.__timelines = {root: gsap.timeline({paused:true})}; window.__timelines.root.to('#x',{x:1});</script>`,
+  );
+  assert.equal(r.errors.length, 0);
+});
+
+test("45: regression — test 31's GSAP (window.__timelines) card still has 0 errors with Rule 11/12 added", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-determinism="byte" data-hf-requires="gsap"></div><script>window.__timelines={main:gsap.timeline({paused:true})};</script>`,
+  );
+  assert.equal(r.errors.length, 0);
+});
+
+test("46: regression — test 32's pinned-gsap clean card (no inline script) still has 0 errors with Rule 11/12 added", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-hf-requires="gsap"></div><script src="${GSAP_URL}" integrity="${GSAP_INTEGRITY}" crossorigin="anonymous"></script>`,
+  );
+  assert.equal(r.errors.length, 0);
+});
+
+test("47: regression — SAMPLE_HTML (no GSAP) is unaffected by Rule 11/12", () => {
+  const r = checkComposition(SAMPLE_HTML);
+  assert.equal(r.errors.length, 0);
+  assert.equal(r.warnings.length, 0);
+});
+
 test("19: false-positive guards for remote-URL scan", () => {
   const a = checkComposition(
     `<div data-composition-id="root"></div><!-- see https://example.com -->`,
