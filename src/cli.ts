@@ -39,6 +39,7 @@ import { planMaterials } from "./stages/planMaterials.ts";
 import { planEffects } from "./stages/planEffects.ts";
 import { planBgm } from "./stages/planBgm.ts";
 import { authorHyperframe, renderHyperframe } from "./stages/hyperframe.ts";
+import { formatPlaceReport, hyperframePlace } from "./stages/hyperframePlace.ts";
 import { learn } from "./stages/learn.ts";
 import { preview } from "./stages/preview.ts";
 import { render, renderShort, renderShorts } from "./stages/render.ts";
@@ -65,7 +66,7 @@ import { reviewEdit } from "./stages/review.ts";
 import { aiDoctor } from "./stages/aiDoctor.ts";
 import { readEditSnapshot } from "./lib/renderSnapshot.ts";
 import { fmtT, parseT } from "./lib/fmt.ts";
-import type { ApplyPatch, CutPlan, Overlays } from "./types.ts";
+import type { ApplyPatch, CutPlan, Overlays, Region } from "./types.ts";
 import type { EditSnapshot, ReviewSpec } from "./lib/review.ts";
 import { buildRetrievalIndex } from "./stages/retrievalIndex.ts";
 import { retrievalSearch } from "./stages/retrievalSearch.ts";
@@ -641,6 +642,77 @@ program
           );
         }
       }
+    },
+  );
+
+program
+  .command("hyperframe-place <dir>")
+  .description(
+    "HyperFrames カード(materials/hyperframes/<name>.mp4。要 hyperframe <dir> --name の事前 render)を " +
+      "overlays.json の overlay/insert として配置する apply パッチ下書き(hyperframe-place.suggested.json)を書く" +
+      "(尺は --duration か hyperframe.<name>.key.json か ffprobe から決定論的に解決。cut/承認には触れない)",
+  )
+  .requiredOption("--name <name>", "HyperFrames カード名(materials/hyperframes/<name>.mp4 の元)")
+  .requiredOption("--at <sec>", "配置位置(元収録の秒)")
+  .option("--as <kind>", "overlay(既定)または insert", "overlay")
+  .option("--duration <s>", "尺(秒)の明示指定。省略時は hyperframe.<name>.key.json → ffprobe の順に解決")
+  .option("--rect <x,y,w,h>", "表示領域(出力px)。overlay 専用")
+  .option("--track <n>", "素材トラック番号(1始まり)。overlay 専用")
+  .option("--fade <s>", "フェードイン/アウト秒(両方に同じ値)")
+  .option("--start-from <s>", "素材の頭出し(In点。秒)")
+  .action(
+    async (
+      dir: string,
+      opts: {
+        name: string;
+        at: string;
+        as?: string;
+        duration?: string;
+        rect?: string;
+        track?: string;
+        fade?: string;
+        startFrom?: string;
+      },
+    ) => {
+      if (!/^[A-Za-z0-9._-]+$/.test(opts.name)) {
+        throw new Error(`--name が不正です(英数字・.・_・- のみ使えます): ${opts.name}`);
+      }
+      const as = opts.as ?? "overlay";
+      if (as !== "overlay" && as !== "insert") {
+        throw new Error(`--as は overlay か insert です: ${as}`);
+      }
+
+      const parseNum = (raw: string | undefined, label: string): number | undefined => {
+        if (raw === undefined) return undefined;
+        const n = Number(raw);
+        if (!Number.isFinite(n)) throw new Error(`${label} が数値ではありません: ${raw}`);
+        return n;
+      };
+
+      const at = parseNum(opts.at, "--at");
+      if (at === undefined) throw new Error("--at が必要です");
+
+      let rect: Region | undefined;
+      if (opts.rect !== undefined) {
+        const parts = opts.rect.split(",").map((s) => Number(s.trim()));
+        if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n))) {
+          throw new Error(`--rect の形式が不正です(x,y,w,h の4つの数値が必要): ${opts.rect}`);
+        }
+        rect = { x: parts[0], y: parts[1], w: parts[2], h: parts[3] };
+      }
+
+      const abs = resolveDir(dir);
+      const result = await hyperframePlace(abs, {
+        name: opts.name,
+        at,
+        as,
+        durationSec: parseNum(opts.duration, "--duration"),
+        rect,
+        fadeSec: parseNum(opts.fade, "--fade"),
+        track: parseNum(opts.track, "--track"),
+        startFrom: parseNum(opts.startFrom, "--start-from"),
+      });
+      for (const line of formatPlaceReport(abs, result)) console.log(line);
     },
   );
 

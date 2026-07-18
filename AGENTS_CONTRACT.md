@@ -108,7 +108,12 @@ false staleness signals or gets silently discarded:
   directly from it), `style-check.json` (the machine-readable report written
   by `style-check`: cut/caption/audio deviation findings against a
   `style.probe/<name>.json` profile, each with observed/expected/band/confidence/severity;
-  warn/info only, never fail)
+  warn/info only, never fail), `hyperframe-place.suggested.json` (a disposable
+  draft written by `hyperframe-place`; an `apply`-compatible patch with a
+  single `add` op — `target: "overlays.overlays"` or `target:
+  "overlays.inserts"` — placing a rendered `materials/hyperframes/<name>.mp4`
+  card into the timeline; apply it yourself with `apply --patch`, never write
+  to `overlays.json` directly from it)
 - Short-name-variable generated files: `cut.<name>.mp4`,
   `cut.<name>.keeps.json`, `render.<name>.props.json`,
   `render.<name>.key.json` (one set per `shorts.json` entry), and
@@ -292,6 +297,7 @@ without `--force`; with `--force`, hand-edited files are moved to
 | `plan-effects <dir>` | Draft effect (zoom/blur/annotation) placements into `overlays.json`'s `zooms`/`blurs`/`annotations` (number + type selection only; coordinates come from perception, not the LLM; requires `frames --ocr` and/or `av <dir>` first) |
 | `plan-bgm <dir>` | Draft BGM placements (interval × song, or silence) into `bgm.json`'s `tracks[]` (number selection only; interval boundaries come from deterministic switch-anchors (chapter boundaries + big-cut boundaries), not the LLM; song files come from real audio files in `materials/` or root `bgm.*`) |
 | `hyperframe <dir>` | Generate or render a HyperFrames composition card (a silent, self-contained drawn asset: chapter title / explainer / diagram / kinetic typography), honored entirely by Cutflow's native Remotion interpreter — no HyperFrames runtime or engine code executes. `--from-brief` drafts a single composition HTML into `hyperframes/<name>.html` via LLM (number-selection over a fixed pattern menu in `docs/hyperframes-skills/card-patterns.md`; the raw response is always kept at `hyperframes/<name>.raw.txt`, but the draft is written only if it passes the deterministic check gate with zero errors). Without `--from-brief`, renders the existing `hyperframes/<name>.html` to `materials/hyperframes/<name>.mp4` (check-gated; `--var k=v` / `--width` / `--height` / `--fps` / `--durationSec` override composition variables/dimensions; cached via `hyperframe.<name>.key.json`; published atomically via temp-file render → ffprobe verify → rename). Never touches `cutplan.json`/`approvals.json` |
+| `hyperframe-place <dir>` | Propose placing a rendered `materials/hyperframes/<name>.mp4` card (requires `hyperframe <dir> --name <name>` first) into the timeline as an `overlays.json` `overlay` (default; `--rect`/`--track` accepted) or `insert` (`--as insert`; no `rect`/`track`). Resolves the clip's duration deterministically — `--duration` flag, else `hyperframe.<name>.key.json`, else `ffprobe` — and writes an `apply`-ready patch draft (`hyperframe-place.suggested.json`) with a single `add` op. Warns (non-blocking) if `--at` falls outside a `cutplan.json` keep segment. Never writes editable files or touches `cutplan.json`/`approvals.json` |
 | `learn <dir>` | Draft channel-rule suggestions from the latest edit into `rules.suggested.md` |
 | `ai` | Parent command for AI diagnostics (`ai doctor`) |
 | `doctor` | Nested under `ai`; probes configured AI profiles/routes for text, structured output, and image connectivity |
