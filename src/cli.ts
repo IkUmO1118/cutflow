@@ -39,6 +39,7 @@ import { planMaterials } from "./stages/planMaterials.ts";
 import { planEffects } from "./stages/planEffects.ts";
 import { planBgm } from "./stages/planBgm.ts";
 import { authorHyperframe, renderHyperframe } from "./stages/hyperframe.ts";
+import { embedLottieHyperframe } from "./stages/hyperframeLottie.ts";
 import { formatHyperframeBackends, hyperframeBackends } from "./lib/hyperframeBackends.ts";
 import { formatPlaceReport, hyperframePlace } from "./stages/hyperframePlace.ts";
 import { learn } from "./stages/learn.ts";
@@ -550,6 +551,10 @@ program
     "--from-brief",
     "brief.md/rules.md から LLM で composition HTML の下書きを書く(hyperframes/<name>.html。render はしない)",
   )
+  .option(
+    "--embed-lottie <path>",
+    "AE/bodymovin JSON と外部画像を SVG/byte Lottie composition HTML に埋め込む(render はしない)",
+  )
   .option("--pattern <n>", "作図パターン番号を指定する(--from-brief 専用。省略時は LLM が選ぶ)")
   .option("--var <kv...>", "composition variables の上書き(k=v。複数指定可。render 専用)")
   .option(
@@ -564,7 +569,7 @@ program
   )
   .option(
     "--force",
-    "既存の hyperframes/<name>.html(--from-brief 時)、または既存キャッシュ(render 時)を無視して上書き・再生成",
+    "既存の hyperframes/<name>.html(author/import 時)、または既存キャッシュ(render 時)を無視して上書き・再生成",
   )
   .action(
     async (
@@ -572,6 +577,7 @@ program
       opts: {
         name: string;
         fromBrief?: boolean;
+        embedLottie?: string;
         pattern?: string;
         var?: string[];
         width?: string;
@@ -584,7 +590,6 @@ program
       if (!/^[A-Za-z0-9._-]+$/.test(opts.name)) {
         throw new Error(`--name が不正です(英数字・.・_・- のみ使えます): ${opts.name}`);
       }
-      const cfg = loadConfig(program.opts().config);
       const abs = resolveDir(dir);
 
       const parseNum = (raw: string | undefined, label: string): number | undefined => {
@@ -594,7 +599,40 @@ program
         return n;
       };
 
+      if (opts.embedLottie !== undefined) {
+        if (opts.fromBrief === true) {
+          throw new Error("--embed-lottie と --from-brief は同時に指定できません");
+        }
+        const rejected = [
+          ["--pattern", opts.pattern],
+          ["--var", opts.var],
+          ["--width", opts.width],
+          ["--height", opts.height],
+          ["--fps", opts.fps],
+          ["--durationSec", opts.durationSec],
+        ].filter((entry) => entry[1] !== undefined).map((entry) => entry[0]);
+        if (rejected.length > 0) {
+          throw new Error(
+            `--embed-lottie では source JSON から寸法・fps・尺を決めるため ${rejected.join(", ")} は指定できません`,
+          );
+        }
+        const result = embedLottieHyperframe(abs, {
+          name: opts.name,
+          lottiePath: opts.embedLottie,
+          force: opts.force === true,
+        });
+        console.log(
+          `Lottie composition を書きました: ${result.sourcePath}` +
+            `(${result.width}x${result.height}, ${result.frameRate}fps, ${result.durationSec}秒, ` +
+            `画像asset ${result.imageAssetCount}件)`,
+        );
+        console.log(result.summary);
+        console.log("\n次のステップ: --embed-lottie 無しで再実行して render してください。");
+        return;
+      }
+
       if (opts.fromBrief) {
+        const cfg = loadConfig(program.opts().config);
         const sourcePath = join(abs, "hyperframes", `${opts.name}.html`);
         if (existsSync(sourcePath) && !opts.force) {
           throw new Error(

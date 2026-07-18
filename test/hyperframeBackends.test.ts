@@ -69,6 +69,16 @@ test("every usable backend names an existing check-valid real render fixture", (
   }
 });
 
+test("material-routed Lottie exposes the real imported AE fixture", () => {
+  const backend = hyperframeBackends().backends.find((candidate) => candidate.id === "lottie");
+  assert.equal(backend?.status, "material-routed");
+  assert.equal(backend?.renderFixture, "test/fixtures/lottie/hyperframes/card.html");
+  const html = readFileSync(join(ROOT, backend!.renderFixture!), "utf8");
+  const result = checkComposition(html, { file: backend!.renderFixture! });
+  assert.equal(result.errors.length, 0);
+  assert.equal(result.warnings.length, 0);
+});
+
 test("render profile resolver shares Rule 9's GPU predicate and F2 wires gpu-angle", () => {
   assert.equal(resolveHyperframeRenderProfile("<script>listen('hf-seek')</script>"), "gpu-angle");
   assert.equal(resolveHyperframeRenderProfile('<div data-hf-requires="three"></div>'), "gpu-angle");
@@ -95,7 +105,7 @@ test("text format is stable and includes status, tier, pin, authoring route, and
   assert.equal(text.split("\n").length, hyperframeBackends().backends.length + 1);
   assert.match(text, /^HyperFrame backends \(schemaVersion 1\)$/m);
   assert.match(text, /^- gsap: usable; determinism=byte; pin=gsap@3\.14\.2 https:\/\//m);
-  assert.match(text, /^- lottie: material-routed; determinism=byte,perceptual; .*authoring=material-import;/m);
+  assert.match(text, /^- lottie: material-routed; determinism=byte,perceptual; .*authoring=material-import; fixture=test\/fixtures\/lottie\/hyperframes\/card\.html$/m);
   assert.match(text, /^- raw-webgl: usable; determinism=perceptual; pin=none;.*fixture=test\/fixtures\/hyperframe-backends\/raw-webgl\.html$/m);
   assert.match(text, /^- anime-js: out; determinism=n\/a; pin=none; authoring=none;/m);
 });
