@@ -10,6 +10,7 @@ import { renderFastSegment, fastSegmentPath, FAST_SEGMENT_DIR } from "./fastSegm
 import { withCaptionStillAssets } from "./captionStill.ts";
 import { resolveFastPathCfg } from "./config.ts";
 import { timed } from "./timing.ts";
+import { captureSnapshot, defaultInputStat, inputsDrifted } from "./renderTransaction.ts";
 import type { FastBaseCapability } from "./fastBaseCapability.ts";
 import type { FastPlan, FastSpan } from "./fastPlan.ts";
 import type { Config } from "./config.ts";
@@ -87,6 +88,11 @@ export async function runFastRender(args: {
   const assembledVideo = join(fastDir, ".assembled-video.mp4");
   const audioM4a = join(fastDir, "audio.m4a");
   const tempFinal = join(dir, ".final.fast.tmp.mp4");
+  // point3(最小実装): 高速パスは produce に数分かかりうる。cutPath だけ
+  // render 開始時点のスナップショットを取り、rename 直前で drift していないか
+  // 確認する(materialStatsOf は render.ts 側にしか無く、この最小実装では
+  // 持ち込まない=cutPath の drift だけ見る)
+  const cutSnapshot = captureSnapshot(cutPath);
   try {
     rmSync(segDir, { recursive: true, force: true });
     mkdirSync(segDir, { recursive: true });
@@ -134,6 +140,13 @@ export async function runFastRender(args: {
     );
     if (!verify.ok) {
       console.warn(`render 高速パス: 検証に失敗したためフルレンダーへ: ${verify.reason}`);
+      return { ok: false };
+    }
+    const drift = inputsDrifted([cutSnapshot], defaultInputStat);
+    if (drift.drifted) {
+      console.warn(
+        `render 高速パス: 入力ファイルが変化したためフルレンダーへ(${drift.path}): ${drift.reason}`,
+      );
       return { ok: false };
     }
     renameSync(tempFinal, outPath);

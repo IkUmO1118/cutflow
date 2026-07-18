@@ -19,7 +19,14 @@ import {
   muxVideoAudio,
   probeKeyframes,
   verifyAssembled,
+  verifyPlayableVideo,
+  verifyRenderedVideo,
 } from "../lib/chunkCache.ts";
+import {
+  defaultInputStat,
+  inputsDrifted,
+  publishAsTransaction,
+} from "../lib/renderTransaction.ts";
 import {
   audioKey as buildAudioKey,
   carveBoundaries,
@@ -202,8 +209,15 @@ export async function render(dir: string, cfg: Config): Promise<string> {
   if (existsSync(cutPath) && cachedKey && cutCacheKeyEquals(cachedKey, cacheKey)) {
     console.log("cut.mp4 を再利用します(カット・音声設定に変更なし)");
   } else {
-    await cutFullRes(dir, manifest, keeps, cutPath, cfg, { composite });
-    writeFileSync(cutKeepsPath, JSON.stringify(cacheKey, null, 2));
+    await publishAsTransaction({
+      finalPath: cutPath,
+      inputs: [
+        { path: join(dir, manifest.source), mtimeMs: sourceStat.mtimeMs, size: sourceStat.size },
+      ],
+      produce: (tmp) => cutFullRes(dir, manifest, keeps, tmp, cfg, { composite }),
+      verify: (tmp) => verifyPlayableVideo(tmp),
+      commit: () => writeFileSync(cutKeepsPath, JSON.stringify(cacheKey, null, 2)),
+    });
   }
 
   // 2. テロップ・演出の時刻をカット後のタイムラインに変換して props を作る
@@ -346,22 +360,38 @@ export async function render(dir: string, cfg: Config): Promise<string> {
     }
   }
 
-  await timed("Remotion", () =>
-    run(
-      "npx",
-      [
-        "remotion", "render",
-        "remotion/index.ts", "Main", outPath,
-        "--props", propsPath,
-        "--public-dir", dir,
-        "--codec", "h264",
-        "--hardware-acceleration", hardwareAcceleration,
-        ...remotionResourceArgs(cfg),
-      ],
-      { cwd: repoRoot, label: "remotion" },
-    ),
-  );
-  writeFileSync(renderKeyPath, JSON.stringify(renderKey, null, 2));
+  const totalFrames = compositionDurationInFrames(props.durationSec, props.fps);
+  const durationSec = compositionDurationSec(props.durationSec, props.fps);
+  await publishAsTransaction({
+    finalPath: outPath,
+    inputs: [
+      { path: cutPath, mtimeMs: cutStat.mtimeMs, size: cutStat.size },
+      ...materialStatsOf(dir, props).map((m) => ({
+        path: join(dir, m.file),
+        mtimeMs: m.mtimeMs,
+        size: m.size,
+      })),
+    ],
+    produce: async (tmp) => {
+      await timed("Remotion", () =>
+        run(
+          "npx",
+          [
+            "remotion", "render",
+            "remotion/index.ts", "Main", tmp,
+            "--props", propsPath,
+            "--public-dir", dir,
+            "--codec", "h264",
+            "--hardware-acceleration", hardwareAcceleration,
+            ...remotionResourceArgs(cfg),
+          ],
+          { cwd: repoRoot, label: "remotion" },
+        ),
+      );
+    },
+    verify: (tmp) => verifyRenderedVideo(tmp, totalFrames, durationSec, props.fps),
+    commit: () => writeFileSync(renderKeyPath, JSON.stringify(renderKey, null, 2)),
+  });
 
   if (chunkSec > 0) {
     await timed("チャンクcache seed 合計", () =>
@@ -459,8 +489,15 @@ async function renderOneShort(
   if (existsSync(cutPath) && cachedKey && cutCacheKeyEquals(cachedKey, cacheKey)) {
     console.log(`cut.${name}.mp4 を再利用します(カット・音声設定に変更なし)`);
   } else {
-    await cutFullRes(dir, manifest, shortKeeps, cutPath, cfg);
-    writeFileSync(cutKeepsPath, JSON.stringify(cacheKey, null, 2));
+    await publishAsTransaction({
+      finalPath: cutPath,
+      inputs: [
+        { path: join(dir, manifest.source), mtimeMs: sourceStat.mtimeMs, size: sourceStat.size },
+      ],
+      produce: (tmp) => cutFullRes(dir, manifest, shortKeeps, tmp, cfg),
+      verify: (tmp) => verifyPlayableVideo(tmp),
+      commit: () => writeFileSync(cutKeepsPath, JSON.stringify(cacheKey, null, 2)),
+    });
   }
 
   // ショートは本編 overlays.json の素材/インサート/wipeFull/hideCaption と
@@ -534,22 +571,38 @@ async function renderOneShort(
     return outPath;
   }
 
-  await timed(`Remotion(${name})`, () =>
-    run(
-      "npx",
-      [
-        "remotion", "render",
-        "remotion/index.ts", "Main", outPath,
-        "--props", propsPath,
-        "--public-dir", dir,
-        "--codec", "h264",
-        "--hardware-acceleration", hardwareAcceleration,
-        ...remotionResourceArgs(cfg),
-      ],
-      { cwd: repoRoot, label: "remotion" },
-    ),
-  );
-  writeFileSync(renderKeyPath, JSON.stringify(renderKey, null, 2));
+  const totalFrames = compositionDurationInFrames(props.durationSec, props.fps);
+  const durationSec = compositionDurationSec(props.durationSec, props.fps);
+  await publishAsTransaction({
+    finalPath: outPath,
+    inputs: [
+      { path: cutPath, mtimeMs: cutStat.mtimeMs, size: cutStat.size },
+      ...materialStatsOf(dir, props).map((m) => ({
+        path: join(dir, m.file),
+        mtimeMs: m.mtimeMs,
+        size: m.size,
+      })),
+    ],
+    produce: async (tmp) => {
+      await timed(`Remotion(${name})`, () =>
+        run(
+          "npx",
+          [
+            "remotion", "render",
+            "remotion/index.ts", "Main", tmp,
+            "--props", propsPath,
+            "--public-dir", dir,
+            "--codec", "h264",
+            "--hardware-acceleration", hardwareAcceleration,
+            ...remotionResourceArgs(cfg),
+          ],
+          { cwd: repoRoot, label: "remotion" },
+        ),
+      );
+    },
+    verify: (tmp) => verifyRenderedVideo(tmp, totalFrames, durationSec, props.fps),
+    commit: () => writeFileSync(renderKeyPath, JSON.stringify(renderKey, null, 2)),
+  });
   return outPath;
 }
 
@@ -663,6 +716,26 @@ async function tryChunkRender(args: {
     );
     if (!verify.ok) {
       console.warn(`チャンク検証に失敗したためフル再生成します: ${verify.reason}`);
+      rmSync(chunksDir, { recursive: true, force: true });
+      return false;
+    }
+    // point3: 変更チャンクのレンダー中(数分かかりうる)に cut.mp4 や参照
+    // 素材ファイルが差し替わっていないか確認する。drift していれば
+    // 古い入力から作った final.mp4 を正としない(フル再生成へフォールバック)
+    const chunkInputs = [
+      { path: join(dir, "cut.mp4"), mtimeMs: cutStat.mtimeMs, size: cutStat.size },
+      ...materialStats.map((m) => ({
+        path: join(dir, m.file),
+        mtimeMs: m.mtimeMs,
+        size: m.size,
+      })),
+    ];
+    const drift = inputsDrifted(chunkInputs, defaultInputStat);
+    if (drift.drifted) {
+      console.warn(
+        `チャンク検証: 入力ファイルが変化したためフル再生成します(${drift.path}): ${drift.reason}`,
+      );
+      rmSync(tempFinal, { force: true });
       rmSync(chunksDir, { recursive: true, force: true });
       return false;
     }
