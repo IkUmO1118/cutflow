@@ -45,6 +45,12 @@ export const MaterialOverlay = ({
   const ref = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [dragging, setDragging] = useState(false);
+  // ドラッグ中の一時的な rect(pointerup で 1 回だけ onRectChange に確定させる。
+  // move の間はこれだけを更新し、ドキュメント(overlays.json)には触れない)
+  const [draft, setDraft] = useState<{ index: number; rect: Region } | null>(null);
+  // アクティブなドラッグの listener 解除処理(アンマウント時のクリーンアップと
+  // onDown の直前ドラッグ畳みから使う)
+  const dragCleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const el = ref.current;
@@ -55,6 +61,10 @@ export const MaterialOverlay = ({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  // アンマウント時に進行中ドラッグの window リスナを確実に外す
+  // (mid-drag でツリーが外れても listener が孤児化して stale commit しないように)
+  useEffect(() => () => { dragCleanupRef.current?.(); }, []);
 
   // Player は親いっぱいに広がり、コンポジションはレターボックスで内接する
   const scale = box.w > 0 && box.h > 0 ? Math.min(box.w / width, box.h / height) : 0;
@@ -113,6 +123,7 @@ export const MaterialOverlay = ({
     handle: HandleId | null,
   ) => {
     if (e.button !== 0 || scale === 0) return;
+    dragCleanupRef.current?.(); // 直前のドラッグが残っていれば先に畳む(単一ドラッグ前提)
     e.preventDefault();
     e.stopPropagation();
     onSelect(ov.index);
@@ -120,20 +131,38 @@ export const MaterialOverlay = ({
     const x0 = e.clientX;
     const y0 = e.clientY;
     const r0 = ov.rect;
-    const move = (ev: PointerEvent) =>
-      onRectChange(
-        ov.index,
-        applyDrag(r0, handle, (ev.clientX - x0) / scale, (ev.clientY - y0) / scale),
-      );
-    const up = () => {
+    // move ごとの最新候補をローカル変数にも持つ(pointerup の commit は React
+    // state の draft ではなくこちらを読む=直近の setDraft がまだコミットされて
+    // いなくても最新値を確実に読める)
+    let current: { index: number; rect: Region } | null = null;
+    const move = (ev: PointerEvent) => {
+      current = {
+        index: ov.index,
+        rect: applyDrag(r0, handle, (ev.clientX - x0) / scale, (ev.clientY - y0) / scale),
+      };
+      setDraft(current);
+    };
+    const cleanup = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
-      window.removeEventListener("pointercancel", up);
+      window.removeEventListener("pointercancel", cancel);
+      dragCleanupRef.current = null;
+    };
+    const up = () => {
+      cleanup();
+      if (current !== null) onRectChange(current.index, current.rect);
+      setDraft(null);
       setDragging(false);
     };
+    const cancel = () => {
+      cleanup();
+      setDraft(null);
+      setDragging(false);
+    };
+    dragCleanupRef.current = cleanup;
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
-    window.addEventListener("pointercancel", up);
+    window.addEventListener("pointercancel", cancel);
   };
 
   return (
@@ -141,15 +170,17 @@ export const MaterialOverlay = ({
       {scale > 0 &&
         overlays.map((ov) => {
           const sel = selection === ov.index;
+          // ドラッグ中の対象だけ draft(一時値)を使う。他は props(確定値)のまま
+          const r = draft?.index === ov.index ? draft.rect : ov.rect;
           return (
             <div
               key={ov.index}
               className={`matBox${sel ? " sel" : ""}`}
               style={{
-                left: dx + ov.rect.x * scale,
-                top: dy + ov.rect.y * scale,
-                width: ov.rect.w * scale,
-                height: ov.rect.h * scale,
+                left: dx + r.x * scale,
+                top: dy + r.y * scale,
+                width: r.w * scale,
+                height: r.h * scale,
               }}
               title="ドラッグで移動・端をドラッグでリサイズ(overlays.json の rect に保存)"
               onPointerDown={(e) => onDown(e, ov, null)}

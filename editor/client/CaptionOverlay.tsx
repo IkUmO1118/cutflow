@@ -61,6 +61,15 @@ export const CaptionOverlay = ({
   // インライン編集中のテロップ添字と下書き(null=非編集)
   const [editing, setEditing] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
+  // ドラッグ中の一時的な位置(pointerup で 1 回だけ onMove に確定させる。
+  // move の間はこれだけを更新する。テキスト編集用の draft/setDraft とは別物
+  // (名前衝突を避けるため posDraft と呼ぶ)
+  const [posDraft, setPosDraft] = useState<{ index: number; pos: CaptionPos } | null>(
+    null,
+  );
+  // アクティブなドラッグの listener 解除処理(アンマウント時のクリーンアップと
+  // onDown の直前ドラッグ畳みから使う)
+  const dragCleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const el = ref.current;
@@ -71,6 +80,10 @@ export const CaptionOverlay = ({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  // アンマウント時に進行中ドラッグの window リスナを確実に外す
+  // (mid-drag でツリーが外れても listener が孤児化して stale commit しないように)
+  useEffect(() => () => { dragCleanupRef.current?.(); }, []);
 
   // Player は親いっぱいに広がり、コンポジションはレターボックスで内接する
   const scale = box.w > 0 && box.h > 0 ? Math.min(box.w / width, box.h / height) : 0;
@@ -93,6 +106,7 @@ export const CaptionOverlay = ({
 
   const onDown = (e: ReactPointerEvent, c: OverlayCaption) => {
     if (e.button !== 0 || scale === 0 || editing === c.index) return;
+    dragCleanupRef.current?.(); // 直前のドラッグが残っていれば先に畳む(単一ドラッグ前提)
     e.preventDefault();
     e.stopPropagation();
     onSelect(c.index);
@@ -103,29 +117,52 @@ export const CaptionOverlay = ({
     // 中心基準・左上基準どちらのトラックでも同じ計算でよい)
     const p0 = c.pos;
     const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
-    const move = (ev: PointerEvent) =>
-      onMove(c.index, {
-        x: clamp(Math.round(p0.x + (ev.clientX - x0) / scale), 0, width),
-        y: clamp(Math.round(p0.y + (ev.clientY - y0) / scale), 0, height),
-      });
-    const up = () => {
+    // move ごとの最新候補をローカル変数にも持つ(pointerup の commit は React
+    // state ではなくこちらを読む=直近の setPosDraft がまだコミットされて
+    // いなくても最新値を確実に読める)
+    let current: { index: number; pos: CaptionPos } | null = null;
+    const move = (ev: PointerEvent) => {
+      current = {
+        index: c.index,
+        pos: {
+          x: clamp(Math.round(p0.x + (ev.clientX - x0) / scale), 0, width),
+          y: clamp(Math.round(p0.y + (ev.clientY - y0) / scale), 0, height),
+        },
+      };
+      setPosDraft(current);
+    };
+    const cleanup = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
-      window.removeEventListener("pointercancel", up);
+      window.removeEventListener("pointercancel", cancel);
+      dragCleanupRef.current = null;
+    };
+    const up = () => {
+      cleanup();
+      if (current !== null) onMove(current.index, current.pos);
+      setPosDraft(null);
       setDragging(false);
     };
+    const cancel = () => {
+      cleanup();
+      setPosDraft(null);
+      setDragging(false);
+    };
+    dragCleanupRef.current = cleanup;
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
-    window.addEventListener("pointercancel", up);
+    window.addEventListener("pointercancel", cancel);
   };
 
   return (
     <div className={`capOverlay${dragging ? " dragging" : ""}`} ref={ref}>
       {scale > 0 &&
         captions.map((c) => {
+          // ドラッグ中の対象だけ posDraft(一時値)を使う。他は props(確定値)のまま
+          const pos = posDraft?.index === c.index ? posDraft.pos : c.pos;
           const common = {
-            left: dx + c.pos.x * scale,
-            top: dy + c.pos.y * scale,
+            left: dx + pos.x * scale,
+            top: dy + pos.y * scale,
             // CSS(.capBox)は中心基準の translate を持つので左上基準では外す
             ...(c.anchor === "topLeft" ? { transform: "none" } : {}),
             // 本編の字幕(OutlinedText)と同じフォント計量で当たり判定を合わせる
