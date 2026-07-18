@@ -38,6 +38,7 @@ import { planShorts } from "./stages/planShorts.ts";
 import { planMaterials } from "./stages/planMaterials.ts";
 import { planEffects } from "./stages/planEffects.ts";
 import { planBgm } from "./stages/planBgm.ts";
+import { authorHyperframe, renderHyperframe } from "./stages/hyperframe.ts";
 import { learn } from "./stages/learn.ts";
 import { preview } from "./stages/preview.ts";
 import { render, renderShort, renderShorts } from "./stages/render.ts";
@@ -525,6 +526,123 @@ program
       "\n次のステップ: preview か GUI エディタで確認し、要らなければ overlays.json から削除してください。",
     );
   });
+
+program
+  .command("hyperframe <dir>")
+  .description(
+    "HyperFrames カード(無音の作図素材)を生成・render する。native Remotion interpreter で" +
+      "check ゲート通過済みの composition だけを render する(cut/承認には触れない)",
+  )
+  .requiredOption("--name <name>", "カード名(出力ファイル名の元。英数字・.・_・- のみ)")
+  .option(
+    "--from-brief",
+    "brief.md/rules.md から LLM で composition HTML の下書きを書く(hyperframes/<name>.html。render はしない)",
+  )
+  .option("--pattern <n>", "作図パターン番号を指定する(--from-brief 専用。省略時は LLM が選ぶ)")
+  .option("--var <kv...>", "composition variables の上書き(k=v。複数指定可。render 専用)")
+  .option(
+    "--width <n>",
+    "出力幅px(--from-brief 時は下書きの解像度、render 時は composition の data-width を上書き)",
+  )
+  .option("--height <n>", "出力高さpx(同上)")
+  .option("--fps <n>", "出力fps(render 専用。既定30)")
+  .option(
+    "--durationSec <s>",
+    "尺(秒)(--from-brief 時は下書きの尺、render 時は composition の intrinsic duration を上書き)",
+  )
+  .option(
+    "--force",
+    "既存の hyperframes/<name>.html(--from-brief 時)、または既存キャッシュ(render 時)を無視して上書き・再生成",
+  )
+  .action(
+    async (
+      dir: string,
+      opts: {
+        name: string;
+        fromBrief?: boolean;
+        pattern?: string;
+        var?: string[];
+        width?: string;
+        height?: string;
+        fps?: string;
+        durationSec?: string;
+        force?: boolean;
+      },
+    ) => {
+      if (!/^[A-Za-z0-9._-]+$/.test(opts.name)) {
+        throw new Error(`--name が不正です(英数字・.・_・- のみ使えます): ${opts.name}`);
+      }
+      const cfg = loadConfig(program.opts().config);
+      const abs = resolveDir(dir);
+
+      const parseNum = (raw: string | undefined, label: string): number | undefined => {
+        if (raw === undefined) return undefined;
+        const n = Number(raw);
+        if (!Number.isFinite(n)) throw new Error(`${label} が数値ではありません: ${raw}`);
+        return n;
+      };
+
+      if (opts.fromBrief) {
+        const sourcePath = join(abs, "hyperframes", `${opts.name}.html`);
+        if (existsSync(sourcePath) && !opts.force) {
+          throw new Error(
+            `${sourcePath} は既にあります。--from-brief の再実行はこれを LLM の生成物で` +
+              "上書きします。やり直す場合は --force を付けてください",
+          );
+        }
+        console.log("hyperframe --from-brief 実行中(LLM で composition HTML を下書き)...");
+        const result = await authorHyperframe(abs, cfg, {
+          name: opts.name,
+          pattern: opts.pattern !== undefined ? Number(opts.pattern) : undefined,
+          width: parseNum(opts.width, "--width"),
+          height: parseNum(opts.height, "--height"),
+          durationSec: parseNum(opts.durationSec, "--durationSec"),
+        });
+        console.log(`下書きを書きました: ${result.sourcePath}(variables ${result.varCount}件)`);
+        console.log(result.summary);
+        console.log(
+          "\n次のステップ: 内容を確認し(必要なら手編集し)、--from-brief 無しで再実行して" +
+            "render してください。",
+        );
+        return;
+      }
+
+      const cliVars: Record<string, unknown> = {};
+      for (const kv of opts.var ?? []) {
+        const eq = kv.indexOf("=");
+        if (eq === -1) throw new Error(`--var の形式が不正です(k=v が必要): ${kv}`);
+        cliVars[kv.slice(0, eq)] = kv.slice(eq + 1);
+      }
+
+      const overrides = {
+        width: parseNum(opts.width, "--width"),
+        height: parseNum(opts.height, "--height"),
+        fps: parseNum(opts.fps, "--fps"),
+        durationSec: parseNum(opts.durationSec, "--durationSec"),
+      };
+
+      const result = await renderHyperframe(abs, {
+        name: opts.name,
+        cliVars,
+        overrides,
+        force: opts.force === true,
+      });
+
+      const shortSha = result.sha256.slice(0, 12);
+      if (result.skipped) {
+        console.log(`再利用(変更なし): ${result.outPath}(${result.frames}フレーム, sha256=${shortSha})`);
+      } else {
+        console.log(`render 完了: ${result.outPath}(${result.frames}フレーム, sha256=${shortSha})`);
+        if (result.identical !== undefined) {
+          console.log(
+            result.identical
+              ? "(--force で再生成。内容は前回と byte 一致)"
+              : "(--force で再生成。内容が変わりました)",
+          );
+        }
+      }
+    },
+  );
 
 program
   .command("plan-effects <dir>")
