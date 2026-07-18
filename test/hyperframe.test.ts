@@ -196,6 +196,22 @@ test("P-10: bootstrap は GSAP/Lottie/hf-seek/readiness/error 規約の全マー
   assert.ok(out.includes("typeof window["), "data-hf-requires library existence check missing");
 });
 
+/* ---------------- P-12 (B2: CSP injection) ---------------- */
+
+test("P-12: buildIframeSrcdoc injects a CSP <meta> before the bootstrap script", () => {
+  const out = buildIframeSrcdoc(SAMPLE_HTML, { title: "CutFlow", accent: "#22c55e" });
+  const cspIdx = out.indexOf('<meta http-equiv="Content-Security-Policy"');
+  const bootstrapIdx = out.indexOf("window.__hyperframes");
+  assert.ok(cspIdx >= 0, "CSP meta not found");
+  assert.ok(bootstrapIdx >= 0, "bootstrap script not found");
+  assert.ok(cspIdx < bootstrapIdx, "CSP meta must precede the bootstrap script");
+
+  const cspEnd = out.indexOf(">", cspIdx);
+  const cspTag = out.slice(cspIdx, cspEnd);
+  assert.ok(cspTag.includes("connect-src 'none'"), "CSP must include connect-src 'none'");
+  assert.ok(cspTag.includes("https://cdn.jsdelivr.net"), "CSP must include the pinned CDN host");
+});
+
 test("P-11: byte-anchor — clip 可視性ループと WAAPI シークループは verbatim のまま", () => {
   const out = buildIframeSrcdoc(SAMPLE_HTML, { title: "CutFlow", accent: "#22c55e" });
   const clipLoop =

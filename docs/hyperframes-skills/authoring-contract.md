@@ -54,7 +54,11 @@ check ゲート(C2)がエラーで止める:
 - リモート URL(`http(s)://` / `//` 始まり)は `src`/`href`/`srcset`/
   `poster`/`data-composition-src`・CSS `url()`・`@import`・`@font-face` の
   どこにあってもエラー。フォントは総称ファミリー(`system-ui`/`sans-serif`/
-  `serif`/`monospace` 等)のみを使う
+  `serif`/`monospace` 等)のみを使う。**唯一の例外**: `<script src>` が
+  `src/lib/hyperframeCdn.ts` の CDN ピン表に一致する URL・`integrity`
+  (両方一字一句そのまま)を持ち、かつ `crossorigin="anonymous"` を持つ
+  場合だけは許可される。それ以外の remote 参照(script 以外の全部)は
+  この例外の対象外で常にエラーのまま
 
 詳しいモーションの作法(CSS/WAAPI アダプタの書き方)は
 `./motion-css-waapi.md` を見る。
@@ -105,6 +109,58 @@ CSS/WAAPI(`class="clip"` + Web Animations)の他に、bootstrap は以下の
 `"byte"` のままだとエラーになる。GSAP(`window.__timelines`)・Lottie
 (`window.__hfLottie`)単独の使用は対象外(DOM スタイル書き込みなので
 byte のまま宣言してよい)。
+
+## Pinned CDN scripts(B2)
+
+Rule 4 の唯一の例外として、バージョン固定済みの CDN `<script src>` を
+1本まで読み込めます(既定は GSAP のみがピン留め済み)。すべて満たすこと:
+
+- `src` の URL が `src/lib/hyperframeCdn.ts` の `CDN_PINS` に一字一句一致する
+  (バージョンを上げ下げしたり、`?` 付きクエリを足すだけでも `not-in-table`
+  エラーになる)
+- `integrity="sha384-..."` がそのピンの `integrity` と一字一句一致する
+  (手書き・自己計算した sha384 は必ず不一致になる。値は表からそのまま
+  コピーする)
+- `crossorigin="anonymous"` を付ける(無いと SRI が効かずブラウザに
+  ブロックされるため check ゲートがエラーにする)
+- ルート要素(または任意の要素)に `data-hf-requires="<lib>"`
+  (例: `data-hf-requires="gsap"`)を付ける(Rule 10。CDN 読み込みが
+  失敗したときに bootstrap の requiresCheck が `__failed` へ積んで
+  fail-fast させるための必須条件)
+
+GSAP は `window.__timelines` 経由の DOM スタイル書き込みである限り
+**byte tier のまま**でよい(`data-hf-determinism` は省略可・Rule 9 の対象外)。
+srcdoc には `connect-src 'none'` を含む CSP が張られる — ライブラリの
+読み込み・実行(script-src 経由)はできるが、そのライブラリが outbound の
+fetch/XHR/WebSocket でどこかへ送信することはできない。
+
+```html
+<!doctype html>
+<html data-composition-variables='[
+  {"id":"headline","type":"string","label":"Headline","default":"Powered by GSAP"}
+]'>
+<head>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js" integrity="sha384-sG0Hv1tP1lZCk9KQmrIbY/XNwi+OY84GQqhMscbnsoBFqAz8KNCil1kvfL3Hbbk2" crossorigin="anonymous"></script>
+<style>
+  html,body{margin:0;padding:0}
+  #root{position:relative;width:1280px;height:720px;background:#0a0a12;overflow:hidden;font-family:system-ui,sans-serif}
+  #headline{position:absolute;top:300px;left:80px;right:80px;margin:0;font-size:64px;font-weight:700;color:#f5f5f7;opacity:0}
+</style>
+</head>
+<body>
+  <div id="root" data-composition-id="root" data-width="1280" data-height="720" data-hf-requires="gsap">
+    <h1 id="headline" class="clip" data-start="0" data-duration="3"></h1>
+    <script>
+      var v = window.__hyperframes.getVariables();
+      var h = document.getElementById('headline');
+      h.textContent = v.headline;
+      window.__timelines = window.__timelines || {};
+      window.__timelines.root = gsap.timeline({paused:true});
+      window.__timelines.root.fromTo(h, {opacity:0, y:24}, {opacity:1, y:0, duration:0.6, ease:'power2.out'});
+    </script>
+  </div>
+</html>
+```
 
 ## 0エラーの composition 例
 

@@ -16,9 +16,19 @@
 // byte(または未指定=既定 byte)を名乗るとエラー)。GSAP(__timelines)・
 // Lottie(__hfLottie)単独の使用は対象外(DOM スタイル書き込みなので byte
 // のままで妥当)。
+// Rule 10(B2): ピン留めされた <script src> を使うカードは
+// data-hf-requires="<lib>" を宣言すること(CDN 読み込み失敗を __failed
+// 経由で fail-fast させるための必須条件)。
+//
+// Rule 4(B2 拡張): 従来「<script src> の remote URL は常にエラー」
+// だったところを、hyperframeCdn.ts の CDN_PINS 表に一致する
+// (url + integrity + crossorigin)ときだけ許可する例外を設ける。それ以外の
+// remote 参照(img/video/audio/source/iframe の src・link href・srcset・
+// poster・data-composition-src・CSS url()/@import)は引き続き無条件エラー。
 
 import type { Problem } from "../stages/validate.ts";
 import { parseComposition } from "./hyperframe.ts";
+import { matchCdnPin } from "./hyperframeCdn.ts";
 
 export interface CheckResult {
   errors: Problem[];
@@ -277,15 +287,51 @@ export function checkComposition(html: string, opts?: CheckOpts): CheckResult {
     }
   });
 
-  // ---- Rule 4: remote-URL ban ----
+  // ---- Rule 4: remote-URL ban (with a pinned-CDN <script> exception) ----
   const stripped = stripComments(html);
   const URL_ATTR_TAGS = new Set(["script", "img", "video", "audio", "source", "iframe"]);
+  const pinnedLibs = new Set<string>();
   eachOpeningTag(stripped, (tag) => {
     const name = tagName(tag);
     if (URL_ATTR_TAGS.has(name)) {
       const src = firstAttr(tag, "src");
       if (src !== undefined) {
-        if (isRemote(src)) {
+        if (name === "script" && isRemote(src)) {
+          const match = matchCdnPin(src, firstAttr(tag, "integrity"));
+          if (match.status === "match") {
+            const crossorigin = firstAttr(tag, "crossorigin");
+            if (!crossorigin || crossorigin.trim() === "") {
+              errors.push({
+                file,
+                where: tagLabel(tag),
+                message:
+                  'pinned <script src> must include crossorigin="anonymous" (SRI on a cross-origin script is not enforced without it, and the script will be blocked) / ピン留めスクリプトには crossorigin="anonymous" が必要です',
+              });
+            } else {
+              pinnedLibs.add(match.pin.lib);
+            }
+          } else if (match.status === "not-in-table") {
+            errors.push({
+              file,
+              where: tagLabel(tag),
+              message: `remote <script src> is not in the CDN pin table / ピン表にない外部スクリプトです: ${src}`,
+            });
+          } else if (match.status === "missing-integrity") {
+            errors.push({
+              file,
+              where: tagLabel(tag),
+              message:
+                "<script src> to a pinned CDN must carry the matching integrity attribute / ピン留めされた CDN の <script src> には一致する integrity 属性が必要です",
+            });
+          } else {
+            errors.push({
+              file,
+              where: tagLabel(tag),
+              message:
+                "integrity does not match the pin table — did you hand-write the sha384? / integrity がピン表と一致しません(sha384 を手書きしていませんか?)",
+            });
+          }
+        } else if (isRemote(src)) {
           errors.push({ file, where: tagLabel(tag), message: `remote URL not allowed: ${src}` });
         } else if (name === "script") {
           warnings.push({
@@ -458,6 +504,22 @@ export function checkComposition(html: string, opts?: CheckOpts): CheckResult {
           message: `data-hf-requires: unknown library "${tok}" (known: gsap, lottie, three) / 未知のライブラリです`,
         });
       }
+    }
+  }
+
+  // ---- Rule 10(B2): ピン留め <script src> は data-hf-requires を宣言 ----
+  // CDN 読み込みが失敗した(オフライン・integrity 不一致でブラウザがブロック
+  // 等)ときに bootstrap の requiresCheck() が __failed へ積んで fail-fast
+  // させるには、data-hf-requires にそのライブラリ名が無ければならない。
+  // determinism tier は問わない(GSAP を __timelines 経由で使う限り byte
+  // のまま。Rule 9 は変更しない)。
+  for (const lib of pinnedLibs) {
+    if (!requiresTokens.includes(lib)) {
+      errors.push({
+        file,
+        where: "data-hf-requires",
+        message: `a pinned <script src> for "${lib}" requires the composition to declare data-hf-requires="${lib}" so a failed CDN load fails fast / ピン留めスクリプトを使うカードは data-hf-requires="${lib}" を宣言してください`,
+      });
     }
   }
 

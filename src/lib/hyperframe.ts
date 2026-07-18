@@ -3,6 +3,10 @@
 // されるため **node: の import は一切禁止**(annotation.ts と同じ流儀。
 // node 専用ロジックは annotationStill.ts のように分離する)。
 //
+// buildIframeSrcdoc は CSP <meta> の script-src ホストを hyperframeCdn.ts の
+// CDN_SCRIPT_HOSTS から導出する(ここではホストをハードコードしない。
+// ピン表と CSP が乖離しないようにするため)。
+//
 // parseComposition は汎用の HTML パーサではない。HyperFrames の作図契約が
 // 定める限られた属性(data-composition-id / data-width / data-height /
 // data-composition-variables / data-start / data-duration /
@@ -11,6 +15,8 @@
 // Node には DOMParser が無いため正規表現で該当属性を拾う。厳密なスキーマ
 // 検証(不正な contract のはじき方)は C2 の責務(このファイルはそこまで
 // やらない)。
+
+import { CDN_SCRIPT_HOSTS } from "./hyperframeCdn.ts";
 
 export interface VarDecl {
   id: string;
@@ -163,8 +169,26 @@ export function mergeVariables(
  *   Promise を返す(B1)
  * - __failed: window の error/unhandledrejection から集めた致命エラーの列
  *   (B1。Remotion 側(HyperFrame.tsx)が cancelRender の判断に使う)
+ *
+ * B2: ブートストラップ <script> の直前に CSP <meta> を注入する
+ * (`<head>` 内の先頭。順序は CSP meta → bootstrap → card content)。
+ * `script-src` のホスト部分は hyperframeCdn.ts の CDN_SCRIPT_HOSTS から
+ * 導出し(ハードコードしない)、ピン留めされた CDN スクリプトの読み込みだけを
+ * 許可する。`connect-src 'none'` によりライブラリは読み込めても outbound
+ * fetch/XHR/WebSocket は送れない
  */
 export function buildIframeSrcdoc(html: string, variables: Record<string, unknown>): string {
+  const policy =
+    "default-src 'none'; " +
+    `script-src 'unsafe-inline' ${CDN_SCRIPT_HOSTS.join(" ")}; ` +
+    "style-src 'unsafe-inline'; " +
+    "img-src data:; " +
+    "media-src data:; " +
+    "font-src data:; " +
+    "connect-src 'none'; " +
+    "base-uri 'none'";
+  const cspMeta = '<meta http-equiv="Content-Security-Policy" content="' + policy + '">';
+
   const json = JSON.stringify(variables).replace(/<\//g, "<\\/");
   const bootstrap =
     "<script>" +
@@ -295,19 +319,19 @@ export function buildIframeSrcdoc(html: string, variables: Record<string, unknow
     const headOpenMatch = headOpenRe.exec(html);
     if (headOpenMatch) {
       const idx = headOpenMatch.index + headOpenMatch[0].length;
-      return html.slice(0, idx) + bootstrap + html.slice(idx);
+      return html.slice(0, idx) + cspMeta + bootstrap + html.slice(idx);
     }
     // <head> 開きタグが見つからないが </head> はある(通常起こらないが保険)
-    return html.replace(headCloseRe, `${bootstrap}</head>`);
+    return html.replace(headCloseRe, `${cspMeta}${bootstrap}</head>`);
   }
 
   const htmlOpenMatch = htmlOpenRe.exec(html);
   if (htmlOpenMatch) {
     const idx = htmlOpenMatch.index + htmlOpenMatch[0].length;
-    const headBlock = `<head>${bootstrap}</head>`;
+    const headBlock = `<head>${cspMeta}${bootstrap}</head>`;
     return html.slice(0, idx) + headBlock + html.slice(idx);
   }
 
   // <html> すら無い断片。先頭に差し込む
-  return `<head>${bootstrap}</head>` + html;
+  return `<head>${cspMeta}${bootstrap}</head>` + html;
 }
