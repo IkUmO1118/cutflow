@@ -17,7 +17,10 @@ import { join } from "node:path";
 import { parseComposition, SAMPLE_HTML } from "../src/lib/hyperframe.ts";
 import type { ParsedComposition } from "../src/lib/hyperframe.ts";
 import {
+  determinismVerdict,
   hyperframeCacheKey,
+  parseSignalstatsYmax,
+  PERCEPTUAL_YMAX_THRESHOLD,
   renderHyperframe,
   resolveHyperframeBuild,
 } from "../src/stages/hyperframe.ts";
@@ -85,6 +88,78 @@ test("hyperframeCacheKey: durationSec が変われば別キー", () => {
 });
 
 /* ------------------------------------------------------------------ */
+/* parseSignalstatsYmax                                                */
+/* ------------------------------------------------------------------ */
+
+test("parseSignalstatsYmax: 複数行あれば最大値を返す", () => {
+  const text = [
+    "frame:0    pts:0       pts_time:0",
+    "lavfi.signalstats.YMIN=0.000000",
+    "lavfi.signalstats.YMAX=3.000000",
+    "frame:1    pts:1       pts_time:0.033333",
+    "lavfi.signalstats.YMAX=12.000000",
+    "frame:2    pts:2       pts_time:0.066667",
+    "lavfi.signalstats.YMAX=7.000000",
+  ].join("\n");
+  assert.equal(parseSignalstatsYmax(text), 12);
+});
+
+test("parseSignalstatsYmax: YMAX 行が無ければ 0", () => {
+  assert.equal(parseSignalstatsYmax(""), 0);
+  assert.equal(parseSignalstatsYmax("frame:0    pts:0       pts_time:0\n"), 0);
+});
+
+/* ------------------------------------------------------------------ */
+/* determinismVerdict                                                  */
+/* ------------------------------------------------------------------ */
+
+test("determinismVerdict: byte tier + byteIdentical → ok/info", () => {
+  const v = determinismVerdict({ tier: "byte", byteIdentical: true, ymax: 0 });
+  assert.equal(v.ok, true);
+  assert.equal(v.level, "info");
+  assert.ok(v.message.includes("byte 一致"));
+});
+
+test("determinismVerdict: byte tier + !identical + ymax<=threshold → warn(perceptual を検討)", () => {
+  const v = determinismVerdict({ tier: "byte", byteIdentical: false, ymax: PERCEPTUAL_YMAX_THRESHOLD });
+  assert.equal(v.ok, false);
+  assert.equal(v.level, "warn");
+  assert.ok(v.message.startsWith("⚠ "));
+  assert.ok(v.message.includes("perceptual tier の宣言を検討"));
+});
+
+test("determinismVerdict: byte tier + !identical + ymax>threshold → warn(視覚が乖離)", () => {
+  const v = determinismVerdict({
+    tier: "byte",
+    byteIdentical: false,
+    ymax: PERCEPTUAL_YMAX_THRESHOLD + 1,
+  });
+  assert.equal(v.ok, false);
+  assert.equal(v.level, "warn");
+  assert.ok(v.message.startsWith("⚠ "));
+  assert.ok(v.message.includes("視覚が乖離"));
+});
+
+test("determinismVerdict: perceptual tier + ymax<=threshold → ok/info(知覚同一)", () => {
+  const v = determinismVerdict({ tier: "perceptual", byteIdentical: false, ymax: PERCEPTUAL_YMAX_THRESHOLD });
+  assert.equal(v.ok, true);
+  assert.equal(v.level, "info");
+  assert.ok(v.message.includes("知覚同一"));
+});
+
+test("determinismVerdict: perceptual tier + ymax>threshold → warn(閾値超過)", () => {
+  const v = determinismVerdict({
+    tier: "perceptual",
+    byteIdentical: false,
+    ymax: PERCEPTUAL_YMAX_THRESHOLD + 1,
+  });
+  assert.equal(v.ok, false);
+  assert.equal(v.level, "warn");
+  assert.ok(v.message.startsWith("⚠ "));
+  assert.ok(v.message.includes("閾値"));
+});
+
+/* ------------------------------------------------------------------ */
 /* resolveHyperframeBuild                                              */
 /* ------------------------------------------------------------------ */
 
@@ -98,6 +173,7 @@ function parsedFixture(overrides?: Partial<ParsedComposition>): ParsedCompositio
       { id: "accent", type: "color", default: "#22c55e" },
     ],
     intrinsicDurationSec: 4,
+    determinismTier: "byte",
     ...overrides,
   };
 }
@@ -268,6 +344,7 @@ test("renderHyperframe: キャッシュキーが一致すれば produce を呼�
   assert.equal(called, false, "produce は呼ばれてはいけない(キャッシュ再利用)");
   assert.equal(result.skipped, true);
   assert.equal(result.outPath, join(tmp, "materials", "hyperframes", "y.mp4"));
+  assert.equal(result.tier, "byte", "SAMPLE_HTML に data-hf-determinism が無いので既定 byte");
   assert.equal(
     readFileSync(result.outPath, "utf8"),
     "stub-mp4-bytes",
