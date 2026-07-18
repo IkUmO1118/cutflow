@@ -19,6 +19,10 @@
 // Rule 10(B2): ピン留めされた <script src> を使うカードは
 // data-hf-requires="<lib>" を宣言すること(CDN 読み込み失敗を __failed
 // 経由で fail-fast させるための必須条件)。
+// Rule 11(B3): GSAP を参照しているのに window.__timelines へ paused
+// timeline を登録していないカードはエラー(seek できない)。
+// Rule 12(B3): gsap.ticker(壁時計で自走する内部 ticker)の使用は禁止。
+// 両ルールとも GSAP 検出でガードされ、CSS/WAAPI カードには一切発火しない。
 //
 // Rule 4(B2 拡張): 従来「<script src> の remote URL は常にエラー」
 // だったところを、hyperframeCdn.ts の CDN_PINS 表に一致する
@@ -97,6 +101,13 @@ function inlineScripts(html: string): string[] {
 
 function stripComments(html: string): string {
   return html.replace(/<!--[\s\S]*?-->/g, "");
+}
+
+/** インラインスクリプトから JS コメントを除去する(gsap. がコメント内に
+ * あるだけの誤検知を避けるため。契約スコープの文字列スキャナであって JS
+ * パーサではない=文字列リテラル内の // は残りうるが許容) */
+function stripJsComments(s: string): string {
+  return s.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
 }
 
 function htmlUnescape(s: string): string {
@@ -521,6 +532,38 @@ export function checkComposition(html: string, opts?: CheckOpts): CheckResult {
         message: `a pinned <script src> for "${lib}" requires the composition to declare data-hf-requires="${lib}" so a failed CDN load fails fast / ピン留めスクリプトを使うカードは data-hf-requires="${lib}" を宣言してください`,
       });
     }
+  }
+
+  // ---- Rule 11 (B3): GSAP used but no paused timeline registered ----
+  // GSAP を参照しているのに window.__timelines へ timeline を登録していない
+  // カードは seek できない(bootstrap に駆動対象が無く、tween が動かない/
+  // gsap のグローバル ticker で壁時計走行する)。Rule 5 は inline の rAF しか
+  // 見ない(gsap 内部の rAF は CDN ライブラリ内で不可視)ので、その補完として
+  // 「paused の __timelines timeline で駆動せよ」という契約をここで強制する
+  const gsapScripts = inlineScripts(html).map(stripJsComments);
+  const gsapBody = gsapScripts.join("\n");
+  const gsapApiRe = /\bgsap\s*\.\s*(?:to|from|fromTo|set|timeline|registerPlugin|delayedCall|globalTimeline)\b/;
+  const usesGsapApi = gsapScripts.some((s) => gsapApiRe.test(s));
+  const registersTimeline = /\bgsap\s*\.\s*timeline\s*\(/.test(gsapBody) && /__timelines\b/.test(gsapBody);
+  if (usesGsapApi && !registersTimeline) {
+    errors.push({
+      file,
+      where: "<script>",
+      message:
+        'GSAP is used but no paused timeline is registered into window.__timelines; the card cannot be seeked (create gsap.timeline({paused:true}) and assign it to window.__timelines["<id>"]) / GSAP を使うなら paused の timeline を window.__timelines に登録してください',
+    });
+  }
+
+  // ---- Rule 12 (B3): gsap.ticker is a self-running wall-clock driver ----
+  // gsap.ticker.add/.fps/.lagSmoothing は実時間で進むため絶対時刻 seek を壊す。
+  // Rule 5 の inline requestAnimationFrame 禁止の CDN ライブラリ版(無条件禁止)
+  if (/\bgsap\s*\.\s*ticker\b/.test(gsapBody)) {
+    errors.push({
+      file,
+      where: "<script>",
+      message:
+        "gsap.ticker runs on wall-clock time and breaks seek determinism; drive animation via a paused window.__timelines timeline instead / gsap.ticker は壁時計で自走するため使えません",
+    });
   }
 
   // ---- Rule 9(B1): GPU 規約 × determinism tier ----
