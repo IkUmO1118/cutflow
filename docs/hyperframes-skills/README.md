@@ -57,7 +57,12 @@ Cutflow の native な作図契約(C1/C2)に意味があるものだけを翻案
 - [`motion-css-waapi.md`](./motion-css-waapi.md) — `hyperframes-animation`
   の CSS/WAAPI adapter + `hyperframes-keyframes` の seek-safe 作法
 - [`card-patterns.md`](./card-patterns.md) — カードパターンの numbered
-  menu(6パターン、各 gate 通過の ```html 例付き)
+  menu(11パターン、各 gate 通過の ```html 例付き)
+- [`blueprints.md`](./blueprints.md) — 製品非依存の時間割り shot テンプレート
+  (15 blueprints。スケルトンのみ・完全 composition は置かない。card-patterns
+  に無い beat を Reproduce/Adapt/Compose するときの元)
+- [`recipes/`](./recipes) — atomic motion recipes(1 move = 1 ファイル)。
+  card-patterns / blueprints から Compose するときの部品
 - [`../../prompts/hyperframe.md`](../../prompts/hyperframe.md) — 上記を
   踏まえた C4 の運用プロンプト本体
 - [`../../remotion/vendor/hyperframes/upstream-docs/`](../../remotion/vendor/hyperframes/upstream-docs/) —

@@ -52,3 +52,20 @@ for (const file of recipeFiles) {
     });
   });
 }
+
+// --- blueprints.md: skeleton doc — any ```html block with a data-composition-id root
+//     (there should be none) must still pass 0/0. Vacuous while skeleton-only. ---
+const BLUEPRINTS_FILE = join(repoRoot, "docs/hyperframes-skills/blueprints.md");
+{
+  const md = readFileSync(BLUEPRINTS_FILE, "utf8");
+  const blocks = htmlBlocksWithRoot(md);
+  blocks.forEach((html, i) => {
+    test(`blueprints.md html block #${i} passes checkComposition (0/0)`, () => {
+      const { errors, warnings } = checkComposition(html, {
+        file: `docs/hyperframes-skills/blueprints.md#${i}`,
+      });
+      assert.equal(errors.length, 0, JSON.stringify(errors, null, 2));
+      assert.equal(warnings.length, 0, JSON.stringify(warnings, null, 2));
+    });
+  });
+}
