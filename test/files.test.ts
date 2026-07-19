@@ -138,6 +138,11 @@ test("fileRole: style.probe/ 配下(style-profile が書くスタイルプロフ
   assert.equal(fileRole("style.probe/default.json"), "generated");
 });
 
+test("fileRole: hyperframe.probe/ 配下(hyperframe-check が書く動的監査レポート+still)は generated", () => {
+  assert.equal(fileRole("hyperframe.probe/intro/index.json"), "generated");
+  assert.equal(fileRole("hyperframe.probe/intro/head.png"), "generated");
+});
+
 test("fileRole: render.fast/ 配下(高速パスのテロップPNG・キー)は generated", () => {
   assert.equal(fileRole("render.fast/captions/ab12cd34.png"), "generated");
   assert.equal(fileRole("render.fast/segments/v000.mp4"), "generated");
@@ -152,6 +157,7 @@ test("isGeneratedCache: 重いキャッシュだけ true、軽い中間生成物
     "frames/out10s.png", "render.chunks/v001.mp4", "shorts/a.mp4",
     "render.design/dusk.jpg",
     "materials.probe/index.json", "av.probe/motion.json", "review.probe/index.json",
+    "hyperframe.probe/intro/index.json",
     "render.fast/captions/ab12cd34.png"]) {
     assert.equal(isGeneratedCache(c), true, `${c} は cache のはず`);
   }
@@ -184,7 +190,8 @@ test("isGeneratedLog: ログ・下書き・検品結果だけ true、最適化/p
     "proxy.mp4", "proxy.key.json", "manifest.json", "whisper-out.json", "whisper-out.srt",
     "transcript.system.json", "whisper-system-out.json", "cut.highlight-1.mp4",
     "render.highlight-1.key.json", "render.chunks/v001.mp4", "render.fast/captions/ab.png",
-    "shorts/a.mp4", "materials.probe/index.json", "av.probe/motion.json", "render.design/dusk.jpg"]) {
+    "shorts/a.mp4", "materials.probe/index.json", "av.probe/motion.json", "render.design/dusk.jpg",
+    "hyperframe.probe/intro/index.json"]) {
     assert.equal(isGeneratedLog(g), false, `${g} は log ではないはず`);
   }
   // generated 以外は常に false(belt)

@@ -43,6 +43,7 @@ import { embedLottieHyperframe } from "./stages/hyperframeLottie.ts";
 import { formatHyperframeBackends, hyperframeBackends } from "./lib/hyperframeBackends.ts";
 import { loadHyperframeAssetInputs } from "./lib/hyperframeAssets.ts";
 import { formatPlaceReport, hyperframePlace } from "./stages/hyperframePlace.ts";
+import { auditHyperframe, formatHyperframeAuditReport } from "./stages/hyperframeAudit.ts";
 import { learn } from "./stages/learn.ts";
 import { preview } from "./stages/preview.ts";
 import { render, renderShort, renderShorts } from "./stages/render.ts";
@@ -785,6 +786,73 @@ program
         startFrom: parseNum(opts.startFrom, "--start-from"),
       });
       for (const line of formatPlaceReport(abs, result)) console.log(line);
+    },
+  );
+
+program
+  .command("hyperframe-check <dir>")
+  .description(
+    "HyperFrames カードの render 不要な動的監査(終端未完了(最終フレーム完了進捗)/空終端/画面外要素/seek無反応/dead zone/一斉登場)。" +
+      "決定論のみ・常に exit 0・warn/info のみ(still/VLM は未実装。commit 2 予定)。" +
+      "hyperframe.probe/<name>/index.json に書く(収録フォルダの編集ファイルは一切書かない)",
+  )
+  .requiredOption("--name <name>", "HyperFrames カード名(hyperframes/<name>.html の元)")
+  .option("--no-vlm", "VLM 二次確認をスキップ(commit 2 実装まではノーオペ)")
+  .option("--step <sec>", "サンプル間隔(秒)。省略時 config.yaml の hyperframeCheck.stepSec")
+  .option("--var <kv...>", "composition variables の上書き(k=v。複数指定可)")
+  .option("--width <n>", "出力幅px(composition の data-width を上書き)")
+  .option("--height <n>", "出力高さpx(同上)")
+  .option("--fps <n>", "出力fps(既定30)")
+  .option("--durationSec <s>", "尺(秒)(composition の intrinsic duration を上書き)")
+  .action(
+    async (
+      dir: string,
+      opts: {
+        name: string;
+        vlm?: boolean;
+        step?: string;
+        var?: string[];
+        width?: string;
+        height?: string;
+        fps?: string;
+        durationSec?: string;
+      },
+    ) => {
+      if (!/^[A-Za-z0-9._-]+$/.test(opts.name)) {
+        throw new Error(`--name が不正です(英数字・.・_・- のみ使えます): ${opts.name}`);
+      }
+      const cfg = loadConfig(program.opts().config);
+      const abs = resolveDir(dir);
+
+      const parseNum = (raw: string | undefined, label: string): number | undefined => {
+        if (raw === undefined) return undefined;
+        const n = Number(raw);
+        if (!Number.isFinite(n)) throw new Error(`${label} が数値ではありません: ${raw}`);
+        return n;
+      };
+
+      const cliVars: Record<string, unknown> = {};
+      for (const kv of opts.var ?? []) {
+        const eq = kv.indexOf("=");
+        if (eq === -1) throw new Error(`--var の形式が不正です(k=v が必要): ${kv}`);
+        cliVars[kv.slice(0, eq)] = kv.slice(eq + 1);
+      }
+
+      const overrides = {
+        width: parseNum(opts.width, "--width"),
+        height: parseNum(opts.height, "--height"),
+        fps: parseNum(opts.fps, "--fps"),
+        durationSec: parseNum(opts.durationSec, "--durationSec"),
+      };
+
+      const result = await auditHyperframe(abs, cfg, {
+        name: opts.name,
+        useVlm: opts.vlm !== false,
+        stepSec: parseNum(opts.step, "--step"),
+        overrides,
+        cliVars,
+      });
+      for (const line of formatHyperframeAuditReport(abs, result)) console.log(line);
     },
   );
 

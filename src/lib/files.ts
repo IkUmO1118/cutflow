@@ -83,7 +83,9 @@ const GENERATED_NAME_PATTERNS: readonly RegExp[] = [
  * 全消しはされない差分更新型。`materials/` 自体(人間の素材置き場)とは
  * 別名の生成ディレクトリなので "other" にはならない)・
  * style.probe/(`style-profile` が channel 直下に書くスタイルプロファイル
- * 集約。生成物) */
+ * 集約。生成物)・hyperframe.probe/(`hyperframe-check` が書く動的監査
+ * レポート+still の集約。materials.probe/ 等と同じ差分更新型キャッシュ。
+ * `hyperframe.probe/<name>/index.json` の形でカード名ごとのサブディレクトリを持つ) */
 const GENERATED_DIRS: readonly string[] = [
   "frames",
   "render.chunks",
@@ -94,6 +96,7 @@ const GENERATED_DIRS: readonly string[] = [
   "av.probe",
   "review.probe",
   "style.probe",
+  "hyperframe.probe",
 ];
 
 /** 収録フォルダ直下の承認レコードファイル名(src/lib/approval.ts の再輸出。
