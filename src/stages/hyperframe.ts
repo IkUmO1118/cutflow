@@ -608,6 +608,147 @@ export function resolveHyperframeAuthorBrief(
   return explicitBrief ?? recordingBrief ?? "(見せ場リストなし)";
 }
 
+/** 選択注入の1レシピ分: recipes/<name>.md の basename(.md なし)+ 用途1行グロス。 */
+interface RecipeHint {
+  name: string;
+  gloss: string;
+}
+
+/** card-patterns.md の1パターンに紐づく selective 注入素材。
+ * recipe は骨子だけ(全文は注入しない=prompt bloat 回避)、example は
+ * examples/<file> への by-name pointer(""=該当例なし)。 */
+interface PatternInjection {
+  patternName: string;
+  recipes: RecipeHint[];
+  example: string;
+}
+
+/** pattern 番号(1..11)→ signature recipe + worked example の選択注入マップ。
+ * gloss は recipes/INDEX.md の 用途 列から採取して凍結(実行時 parse はしない)。
+ * example は docs/hyperframes-skills/examples/ の実在ファイル basename。
+ * 該当が無ければ recipes:[] / example:"" にして注入を省く。 */
+const HYPERFRAME_PATTERN_INJECTION: Record<number, PatternInjection> = {
+  1: {
+    patternName: "chapter-title",
+    recipes: [
+      { name: "ambient-glow-bloom", gloss: "Un-triggered soft radial glow blooms behind a hero + bounded idle breathe (peak opacity ≤ ~0.45)." },
+    ],
+    example: "",
+  },
+  2: {
+    patternName: "explainer-card",
+    recipes: [
+      { name: "depth-of-field-blur", gloss: "Rack-focus: tween filter:blur() + dim on off-focus layers, focal stays sharp." },
+      { name: "svg-icon-enrichment", gloss: "Bring icons alive: rotating hands, oscillating blades, pulsing dots, dash-flow." },
+    ],
+    example: "hyperframes-animation--demo-page-scroll-spotlight.html",
+  },
+  3: {
+    patternName: "diagram / labeled",
+    recipes: [
+      { name: "svg-path-draw", gloss: "Outline draws itself via stroke-dasharray/offset (getTotalLength feeds a static value)." },
+      { name: "center-outward-expansion", gloss: "Elements clustered at center expand outward to CSS-set targets in lockstep." },
+    ],
+    example: "hyperframes-animation--concept-demo-decode-pan.html",
+  },
+  4: {
+    patternName: "kinetic-typography",
+    recipes: [
+      { name: "kinetic-beat-slam", gloss: "Percussive phrases slam on one shared beat array, distinct entrances, locked finale." },
+      { name: "discrete-text-sequence", gloss: "Replace whole text states at time thresholds (typos, holds, backspaces)." },
+    ],
+    example: "hyperframes-animation--messaging-multi-phrase.html",
+  },
+  5: {
+    patternName: "code-card",
+    recipes: [
+      { name: "discrete-text-sequence", gloss: "Replace whole text states at time thresholds (typewriter without a timer)." },
+      { name: "context-sensitive-cursor", gloss: "Typing cursor whose color switches per segment + square-wave blink." },
+    ],
+    example: "talking-head-recut--terminal.html",
+  },
+  6: {
+    patternName: "stat / count-up",
+    recipes: [
+      { name: "stat-bars-and-fills", gloss: "Number + graphic: growth bars (scaleY), progress fill (scaleX/ring), star wipe (clip-path)." },
+      { name: "counting-dynamic-scale", gloss: "Counter whose scale grows with the value; O(1) onUpdate, tabular-nums." },
+    ],
+    example: "hyperframes-animation--hook-counter-burst.html",
+  },
+  7: {
+    patternName: "titlecard-reveal",
+    recipes: [
+      { name: "scale-swap-transition", gloss: "Morph two elements at one center: exit shrinks+fades, entrance pops back.out(2)." },
+      { name: "ambient-glow-bloom", gloss: "Soft radial glow behind the value line (peak opacity ≤ ~0.4)." },
+    ],
+    example: "music-to-video--mask-reveal.html",
+  },
+  8: {
+    patternName: "grid-card-assemble",
+    recipes: [
+      { name: "center-outward-expansion", gloss: "Short-path into-slot form: tiles slide a short distance directly into place." },
+      { name: "spring-pop-entrance", gloss: "Smooth-settle register: deterministic index stagger, no overshoot on tiles." },
+    ],
+    example: "music-to-video--mosaic-pack.html",
+  },
+  9: {
+    patternName: "comparison-split",
+    recipes: [
+      { name: "split-tilt-cards", gloss: "Two cards, opposing rotationY tilts, entry from their sides, phase-opposed float." },
+      { name: "scale-swap-transition", gloss: "Center handoff between the two sides if you swap A→B." },
+    ],
+    example: "hyperframes-animation--comparison-split-cards.html",
+  },
+  10: {
+    patternName: "logo-assemble-lockup",
+    recipes: [
+      { name: "svg-path-draw", gloss: "Mark outline stroke-draws itself (getTotalLength as a static value)." },
+      { name: "spring-pop-entrance", gloss: "Part pop + letter-by-letter wordmark cascade (index-derived stagger)." },
+    ],
+    example: "hyperframes-animation--brand-reveal-assemble-zoom.html",
+  },
+  11: {
+    patternName: "typewriter-reveal",
+    recipes: [
+      { name: "discrete-text-sequence", gloss: "Character type-on via steps() width animation (seek-safe, no timer)." },
+      { name: "context-sensitive-cursor", gloss: "Caret blink (finite steps) that can switch color per segment." },
+    ],
+    example: "music-to-video--typewriter-reveal.html",
+  },
+};
+
+/** 選択された pattern(1..11)に対応する recipe/example の選択注入を組み立てる。
+ * pattern 未指定・マップ外・注入素材が空なら "" を返す(従来 prompt とバイト等価)。
+ * 非空時は自前で先頭に `\n\n## …` ヘッダを持つ({{recipes}} 隣接プレースホルダーが
+ * 空値で従来と一致するのと同じ流儀)。全文 HTML / recipe は注入しない=bloat 回避。 */
+export function buildRecipeInjection(pattern: number | undefined): string {
+  if (pattern === undefined) return "";
+  const entry = HYPERFRAME_PATTERN_INJECTION[pattern];
+  if (entry === undefined) return "";
+  if (entry.recipes.length === 0 && entry.example === "") return "";
+
+  const lines: string[] = [];
+  lines.push("");
+  lines.push("");
+  lines.push("## 選んだパターン向けの motion recipe(参考)");
+  lines.push("");
+  lines.push(
+    `パターン${pattern}(${entry.patternName})を選ぶ場合、次の atomic motion recipe が` +
+      " signature を作ります(全文は `docs/hyperframes-skills/recipes/<name>.md`。" +
+      "骨子だけ抜粋。文言・色は brief に合わせて書き換える):",
+  );
+  lines.push("");
+  for (const r of entry.recipes) {
+    lines.push(`- \`${r.name}\` — ${r.gloss}`);
+  }
+  if (entry.example !== "") {
+    lines.push("");
+    lines.push("近い worked example(構造の参考。この HTML の文言・色は流用しない):");
+    lines.push(`\`docs/hyperframes-skills/examples/${entry.example}\``);
+  }
+  return lines.join("\n");
+}
+
 /** author prompt の決定的な組み立て。brief の取得元(fs / editor request)だけを
  * 呼び出し側で解決し、その他の prompt 入力と pattern 追記は従来どおり保つ。 */
 export function resolveHyperframeAuthorPrompt(args: {
@@ -621,10 +762,13 @@ export function resolveHyperframeAuthorPrompt(args: {
   pattern?: number;
   /** 空文字なら従来 prompt とバイト等価。値は formatHyperframeAssetPrompt 由来。 */
   assets?: string;
+  /** 空文字なら従来 prompt とバイト等価。値は buildRecipeInjection 由来。 */
+  recipes?: string;
 }): string {
   let prompt = args.template
     .replaceAll("{{brief}}", () => args.brief)
     .replaceAll("{{assets}}", () => args.assets ?? "")
+    .replaceAll("{{recipes}}", () => args.recipes ?? "")
     .replaceAll("{{rules}}", () => args.rules)
     .replaceAll("{{patterns}}", () => args.patterns)
     .replaceAll("{{width}}", () => String(args.width))
@@ -694,6 +838,7 @@ export async function authorHyperframe(
     durationSec,
     pattern: opts.pattern,
     assets: formatHyperframeAssetPrompt(assets),
+    recipes: buildRecipeInjection(opts.pattern),
   });
 
   const raw = await completeWithJsonSchema(
