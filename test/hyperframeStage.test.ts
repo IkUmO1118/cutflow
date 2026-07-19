@@ -23,8 +23,46 @@ import {
   parseSignalstatsYmax,
   PERCEPTUAL_YMAX_THRESHOLD,
   renderHyperframe,
+  resolveHyperframeAuthorBrief,
+  resolveHyperframeAuthorPrompt,
   resolveHyperframeBuild,
 } from "../src/stages/hyperframe.ts";
+
+test("resolveHyperframeAuthorBrief: 明示briefを優先し、省略時は recording briefへ後方互換", () => {
+  assert.equal(resolveHyperframeAuthorBrief("editor brief", "recording brief"), "editor brief");
+  assert.equal(resolveHyperframeAuthorBrief(undefined, "recording brief"), "recording brief");
+  assert.equal(resolveHyperframeAuthorBrief(undefined, undefined), "(見せ場リストなし)");
+});
+
+test("resolveHyperframeAuthorPrompt: 明示briefと既存の全入力・既定値をpromptへ伝播する", () => {
+  const prompt = resolveHyperframeAuthorPrompt({
+    template: "B={{brief}} R={{rules}} P={{patterns}} W={{width}} H={{height}} D={{durationSec}}",
+    brief: "GUIで指定したカード",
+    rules: "rule text",
+    patterns: "pattern menu",
+    width: 1920,
+    height: 1080,
+    durationSec: 4,
+  });
+  assert.equal(
+    prompt,
+    "B=GUIで指定したカード R=rule text P=pattern menu W=1920 H=1080 D=4",
+  );
+});
+
+test("resolveHyperframeAuthorPrompt: pattern指定の従来追記を保つ", () => {
+  const prompt = resolveHyperframeAuthorPrompt({
+    template: "{{brief}}",
+    brief: "brief",
+    rules: "",
+    patterns: "",
+    width: 1920,
+    height: 1080,
+    durationSec: 4,
+    pattern: 3,
+  });
+  assert.match(prompt, /パターン3/);
+});
 
 /* ------------------------------------------------------------------ */
 /* hyperframeCacheKey                                                  */

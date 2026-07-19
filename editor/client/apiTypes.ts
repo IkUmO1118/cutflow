@@ -263,6 +263,16 @@ export interface HyperframeRenderResponse {
   skipped: boolean;
 }
 
+export interface HyperframeAuthorRequest {
+  name: string;
+  brief: string;
+}
+
+export interface HyperframeAuthorResponse {
+  ok: true;
+  card: HyperframeCard;
+}
+
 /** POST /api/upload のレスポンス。素材は materials/ に保存される */
 export interface UploadResult {
   /** 収録フォルダからの相対パス(materials/xxx.png) */

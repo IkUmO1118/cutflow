@@ -20,10 +20,75 @@ import {
   validateReviewRequest,
 } from "../editor/server.ts";
 import { ID_RE } from "../src/lib/ids.ts";
-import type { Config } from "../src/lib/config.ts";
+import type { AiProfileStatus, Config } from "../src/lib/config.ts";
 import type { AiRefineRequest, AiReviewRequest, SaveRequest } from "../editor/client/apiTypes.ts";
 import { parseComposition, SAMPLE_HTML } from "../src/lib/hyperframe.ts";
 import { hyperframeCacheKey, resolveHyperframeBuild } from "../src/stages/hyperframe.ts";
+import {
+  hyperframeAuthorConflict,
+  hyperframeAuthorReadiness,
+  validateHyperframeAuthorRequest,
+} from "../src/lib/hyperframeAuthor.ts";
+
+const authorProfile = (overrides: Partial<AiProfileStatus> = {}): AiProfileStatus => ({
+  name: "local",
+  adapter: "claude-code",
+  model: "auto",
+  origin: null,
+  credential: "not-required",
+  capabilities: {
+    textInput: true,
+    textOutput: true,
+    structuredOutput: "native-json-schema",
+    imageInput: false,
+    maxImages: 0,
+  },
+  ...overrides,
+});
+
+test("validateHyperframeAuthorRequest: {name,brief} だけを厳格に受理する", () => {
+  assert.deepEqual(validateHyperframeAuthorRequest({ name: "ending-card.v2", brief: "締めカード" }), []);
+  assert.match(validateHyperframeAuthorRequest({ name: "../x", brief: "x" }).join(" / "), /name は英数字/);
+  assert.match(validateHyperframeAuthorRequest({ name: "x", brief: "  " }).join(" / "), /brief は空でない/);
+  assert.match(validateHyperframeAuthorRequest({ name: "x", brief: "x", force: true }).join(" / "), /name \/ brief だけ/);
+  assert.match(validateHyperframeAuthorRequest(null).join(" / "), /JSON object/);
+});
+
+test("hyperframeAuthorConflict: HTML / MP4 / sidecar のどれか1つでも同名なら conflict", () => {
+  const base = { name: "card", htmlNames: [] as string[], mp4Names: [] as string[], sidecarNames: [] as string[] };
+  assert.equal(hyperframeAuthorConflict(base), false);
+  assert.equal(hyperframeAuthorConflict({ ...base, htmlNames: ["card"] }), true);
+  assert.equal(hyperframeAuthorConflict({ ...base, mp4Names: ["card"] }), true);
+  assert.equal(hyperframeAuthorConflict({ ...base, sidecarNames: ["card"] }), true);
+  assert.equal(hyperframeAuthorConflict({ ...base, htmlNames: ["other"] }), false);
+});
+
+test("hyperframeAuthorReadiness: structured route/profile/capability/credential をUI gateにする", () => {
+  assert.deepEqual(
+    hyperframeAuthorReadiness({ structuredRoute: "local", profiles: [authorProfile()] }),
+    { ready: true },
+  );
+  assert.match(
+    hyperframeAuthorReadiness({ structuredRoute: "missing", profiles: [authorProfile()] }).disabledReason ?? "",
+    /route が見つかりません/,
+  );
+  assert.match(
+    hyperframeAuthorReadiness({
+      structuredRoute: "local",
+      profiles: [authorProfile({
+        capabilities: { ...authorProfile().capabilities, structuredOutput: "none" },
+      })],
+    }).disabledReason ?? "",
+    /structured output/,
+  );
+  assert.match(
+    hyperframeAuthorReadiness({
+      structuredRoute: "local",
+      profiles: [authorProfile({ credential: "missing" })],
+    }).disabledReason ?? "",
+    /認証情報/,
+  );
+});
 
 function freshHyperframeSidecar(html = SAMPLE_HTML): string {
   const parsed = parseComposition(html);
