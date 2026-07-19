@@ -234,6 +234,35 @@ export interface MediaFactsData {
   mediaCodecFacts: Record<string, { codec: string; reason: string }>;
 }
 
+/** GET /api/hyperframes のカード1件。HTML source と render 済み MP4 の
+ * 和集合なので、どちらか片方だけのカードも返る。error は壊れた HTML / cache
+ * sidecar をカード単位で知らせるもので、一覧全体の取得失敗とは区別する。 */
+export interface HyperframeCard {
+  name: string;
+  mp4Path?: string;
+  htmlExists: boolean;
+  rendered: boolean;
+  stale: boolean;
+  durationSec?: number;
+  width?: number;
+  height?: number;
+  error?: string;
+}
+
+export interface HyperframesData {
+  hyperframes: HyperframeCard[];
+}
+
+export interface HyperframeRenderRequest {
+  name: string;
+}
+
+export interface HyperframeRenderResponse {
+  ok: true;
+  card: HyperframeCard;
+  skipped: boolean;
+}
+
 /** POST /api/upload のレスポンス。素材は materials/ に保存される */
 export interface UploadResult {
   /** 収録フォルダからの相対パス(materials/xxx.png) */

@@ -53,6 +53,13 @@ import { findBgm, render } from "../src/stages/render.ts";
 import { reviewEdit } from "../src/stages/review.ts";
 import { validateDocs } from "../src/stages/validate.ts";
 import { aiDoctor } from "../src/stages/aiDoctor.ts";
+import {
+  hyperframeCacheKey,
+  renderHyperframe,
+  resolveHyperframeBuild,
+} from "../src/stages/hyperframe.ts";
+import { parseComposition } from "../src/lib/hyperframe.ts";
+import { resolveHyperframeRenderProfile } from "../src/lib/hyperframeRenderProfile.ts";
 import { readEditableDocs } from "../src/stages/idStamp.ts";
 import { aiProfileStatuses, profileForRoute, resolveAiReviewCfg, resolveAiRuntimeConfig, resolvePerceptionStatus } from "../src/lib/config.ts";
 import type { Config } from "../src/lib/config.ts";
@@ -80,6 +87,8 @@ import type {
 import type {
   ConfigSaveResult,
   DraftData,
+  HyperframeCard,
+  HyperframeRenderRequest,
   AiFrameRequest,
   AiProposeRequest,
   AiRefineRequest,
@@ -363,6 +372,27 @@ async function handle(
     // /api/peaks と同じ「重い/遅い部分は要求されてから」の流儀
     const mediaCodecFacts = await collectMediaCodecFacts(dir);
     sendJson(res, 200, { mediaCodecFacts });
+    return;
+  }
+  if (req.method === "GET" && path === "/api/hyperframes") {
+    sendJson(res, 200, { hyperframes: loadHyperframeCards(dir) });
+    return;
+  }
+  if (req.method === "POST" && path === "/api/hyperframe/render") {
+    const body = await readBody(req) as HyperframeRenderRequest;
+    const requestErrors = validateHyperframeRenderRequest(body);
+    if (requestErrors.length > 0) throw new HttpError(400, requestErrors.join(" / "));
+    if (!existsSync(join(dir, "hyperframes", `${body.name}.html`))) {
+      throw new HttpError(404, `hyperframes/${body.name}.html がありません`);
+    }
+    const result = await runHeavyJob(
+      "hyperframe-render",
+      `hyperframe-render:${body.name}`,
+      () => renderHyperframe(dir, { name: body.name, cliVars: {} }),
+    );
+    const card = loadHyperframeCards(dir).find((item) => item.name === body.name);
+    if (!card) throw new Error(`render 後の HF カードが見つかりません: ${body.name}`);
+    sendJson(res, 200, { ok: true, card, skipped: result.skipped });
     return;
   }
   if (req.method === "POST" && path === "/api/save") {
@@ -717,7 +747,193 @@ async function handle(
 /** proxy.mp4 の生成(数十秒かかる)の実行中プロミス。二重生成の防止用 */
 let proxyBuilding: Promise<string> | null = null;
 
-type HeavyJobStage = "preview" | "render" | "review" | "propose";
+export interface HyperframeCardSources {
+  htmlByName: Record<string, string>;
+  htmlErrors?: Record<string, string>;
+  mp4Names: string[];
+  sidecarByName?: Record<string, string>;
+  sidecarErrors?: Record<string, string>;
+}
+
+/** HTML source と render 済み MP4 の和集合をカード状態へ解決する純関数。
+ * 鮮度は renderHyperframe と同じ build 解決・cache key レシピで判定する。 */
+export function buildHyperframeCards(sources: HyperframeCardSources): HyperframeCard[] {
+  const htmlNames = [
+    ...Object.keys(sources.htmlByName),
+    ...Object.keys(sources.htmlErrors ?? {}),
+  ];
+  const names = [...new Set([...htmlNames, ...sources.mp4Names])]
+    .sort((a, b) => a.localeCompare(b));
+  const renderedNames = new Set(sources.mp4Names);
+
+  return names.map((name) => {
+    const htmlExists = htmlNames.includes(name);
+    const rendered = renderedNames.has(name);
+    const card: HyperframeCard = {
+      name,
+      ...(rendered ? { mp4Path: `materials/hyperframes/${name}.mp4` } : {}),
+      htmlExists,
+      rendered,
+      stale: false,
+    };
+    const htmlReadError = sources.htmlErrors?.[name];
+    if (htmlReadError) {
+      return {
+        ...card,
+        stale: rendered,
+        error: `hyperframes/${name}.html を読み込めません: ${htmlReadError}`,
+      };
+    }
+
+    const sidecarReadError = sources.sidecarErrors?.[name];
+    if (sidecarReadError) {
+      return {
+        ...card,
+        stale: rendered && htmlExists,
+        error: `hyperframe.${name}.key.json を読み込めません: ${sidecarReadError}`,
+      };
+    }
+    let sidecar: Record<string, unknown> | undefined;
+    const sidecarText = sources.sidecarByName?.[name];
+    if (sidecarText !== undefined) {
+      try {
+        const parsed: unknown = JSON.parse(sidecarText);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          throw new Error("JSON object ではありません");
+        }
+        sidecar = parsed as Record<string, unknown>;
+      } catch (error) {
+        return {
+          ...card,
+          stale: rendered && htmlExists,
+          error: `hyperframe.${name}.key.json が壊れています: ${(error as Error).message}`,
+        };
+      }
+    }
+
+    const metadata = sidecarMetadata(sidecar);
+    if (!htmlExists) return { ...card, ...metadata };
+
+    try {
+      const html = sources.htmlByName[name];
+      const parsed = parseComposition(html);
+      const build = resolveHyperframeBuild({ parsed, cliVars: {} });
+      if (!build.ok) throw new Error(build.error);
+      const details = {
+        durationSec: build.durationSec,
+        width: build.width,
+        height: build.height,
+      };
+      if (!rendered) return { ...card, ...details };
+      if (!sidecar) {
+        return {
+          ...card,
+          ...details,
+          stale: true,
+          error: `hyperframe.${name}.key.json がありません`,
+        };
+      }
+      if (typeof sidecar.key !== "string") {
+        return {
+          ...card,
+          ...details,
+          stale: true,
+          error: `hyperframe.${name}.key.json の key が不正です`,
+        };
+      }
+      const expectedKey = hyperframeCacheKey({
+        htmlSha256: sha256Hex(html),
+        variables: build.variables,
+        width: build.width,
+        height: build.height,
+        fps: build.fps,
+        durationSec: build.durationSec,
+        codec: "h264",
+        hardwareAcceleration: "none",
+        profile: resolveHyperframeRenderProfile(html),
+      });
+      return { ...card, ...details, stale: sidecar.key !== expectedKey };
+    } catch (error) {
+      return {
+        ...card,
+        ...metadata,
+        stale: rendered,
+        error: `hyperframes/${name}.html を解析できません: ${(error as Error).message}`,
+      };
+    }
+  });
+}
+
+function sidecarMetadata(sidecar: Record<string, unknown> | undefined):
+  Pick<HyperframeCard, "durationSec" | "width" | "height"> {
+  if (!sidecar) return {};
+  return {
+    ...(typeof sidecar.durationSec === "number" && Number.isFinite(sidecar.durationSec) && sidecar.durationSec > 0
+      ? { durationSec: sidecar.durationSec }
+      : {}),
+    ...(typeof sidecar.width === "number" && Number.isInteger(sidecar.width) && sidecar.width > 0
+      ? { width: sidecar.width }
+      : {}),
+    ...(typeof sidecar.height === "number" && Number.isInteger(sidecar.height) && sidecar.height > 0
+      ? { height: sidecar.height }
+      : {}),
+  };
+}
+
+/** GET /api/hyperframes の filesystem adapter。個別ファイルの破損・read error は
+ * sources の error へ変換し、他カードの一覧を巻き込まない。 */
+export function loadHyperframeCards(dir: string): HyperframeCard[] {
+  const htmlDir = join(dir, "hyperframes");
+  const mp4Dir = join(dir, "materials", "hyperframes");
+  const htmlByName: Record<string, string> = {};
+  const htmlErrors: Record<string, string> = {};
+  const htmlNames = existsSync(htmlDir)
+    ? readdirSync(htmlDir).filter((file) => extname(file).toLowerCase() === ".html")
+    : [];
+  for (const file of htmlNames) {
+    const name = file.slice(0, -extname(file).length);
+    try {
+      htmlByName[name] = readFileSync(join(htmlDir, file), "utf8");
+    } catch (error) {
+      htmlErrors[name] = (error as Error).message;
+    }
+  }
+  const mp4Names = existsSync(mp4Dir)
+    ? readdirSync(mp4Dir)
+        .filter((file) => extname(file).toLowerCase() === ".mp4")
+        .map((file) => file.slice(0, -extname(file).length))
+    : [];
+  const sidecarByName: Record<string, string> = {};
+  const sidecarErrors: Record<string, string> = {};
+  for (const name of new Set([...Object.keys(htmlByName), ...Object.keys(htmlErrors), ...mp4Names])) {
+    const keyPath = join(dir, `hyperframe.${name}.key.json`);
+    if (!existsSync(keyPath)) continue;
+    try {
+      sidecarByName[name] = readFileSync(keyPath, "utf8");
+    } catch (error) {
+      sidecarErrors[name] = (error as Error).message;
+    }
+  }
+  return buildHyperframeCards({ htmlByName, htmlErrors, mp4Names, sidecarByName, sidecarErrors });
+}
+
+/** POST /api/hyperframe/render は name 以外を受けず、CLI と同じ文字集合に
+ * 固定する。型が string でも trim による暗黙補正はしない。 */
+export function validateHyperframeRenderRequest(body: unknown): string[] {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return ["body は {name} の JSON object で指定してください"];
+  }
+  const record = body as Record<string, unknown>;
+  const errors: string[] = [];
+  const unknown = Object.keys(record).filter((key) => key !== "name");
+  if (unknown.length > 0) errors.push("name だけを指定してください");
+  if (typeof record.name !== "string" || !/^[A-Za-z0-9._-]+$/.test(record.name)) {
+    errors.push("name は英数字・.・_・- のみで指定してください");
+  }
+  return errors;
+}
+
+type HeavyJobStage = "preview" | "render" | "review" | "propose" | "hyperframe-render";
 
 /** 実行中の重いジョブ(preview / render / review)。同時に1つだけ走らせ、
  * 同じ key の二重起動はプロミスを共有、別 key は 409 で拒否する */
@@ -729,6 +945,8 @@ const proposalStore = new Map<string, StoredProposal>();
 const jaStage = (s: HeavyJobStage): string =>
   s === "render"
     ? "レンダー"
+    : s === "hyperframe-render"
+      ? "HFカード再render"
     : s === "review"
       ? "比較生成"
       : s === "propose"

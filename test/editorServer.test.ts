@@ -4,21 +4,107 @@
 // コードはサーバー再起動まで反映されない)。
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildAiReviewCandidateFromStoredProposal,
+  buildHyperframeCards,
   loadProject,
   loadScript,
   refineRequestKey,
   stampSaveBody,
   validateRefineRequest,
+  validateHyperframeRenderRequest,
   validateReviewRequest,
 } from "../editor/server.ts";
 import { ID_RE } from "../src/lib/ids.ts";
 import type { Config } from "../src/lib/config.ts";
 import type { AiRefineRequest, AiReviewRequest, SaveRequest } from "../editor/client/apiTypes.ts";
+import { parseComposition, SAMPLE_HTML } from "../src/lib/hyperframe.ts";
+import { hyperframeCacheKey, resolveHyperframeBuild } from "../src/stages/hyperframe.ts";
+
+function freshHyperframeSidecar(html = SAMPLE_HTML): string {
+  const parsed = parseComposition(html);
+  const build = resolveHyperframeBuild({ parsed, cliVars: {} });
+  assert.equal(build.ok, true);
+  if (!build.ok) throw new Error(build.error);
+  return JSON.stringify({
+    key: hyperframeCacheKey({
+      htmlSha256: createHash("sha256").update(html).digest("hex"),
+      variables: build.variables,
+      width: build.width,
+      height: build.height,
+      fps: build.fps,
+      durationSec: build.durationSec,
+      codec: "h264",
+      hardwareAcceleration: "none",
+      profile: "default",
+    }),
+    width: build.width,
+    height: build.height,
+    durationSec: build.durationSec,
+  });
+}
+
+test("buildHyperframeCards: HTML / MP4 の和集合を name 順に返す", () => {
+  const cards = buildHyperframeCards({
+    htmlByName: { source: SAMPLE_HTML, both: SAMPLE_HTML },
+    mp4Names: ["rendered", "both"],
+    sidecarByName: { both: freshHyperframeSidecar() },
+  });
+  assert.deepEqual(cards.map((card) => card.name), ["both", "rendered", "source"]);
+  assert.deepEqual(
+    cards.map((card) => [card.htmlExists, card.rendered]),
+    [[true, true], [false, true], [true, false]],
+  );
+  assert.equal(cards[1].mp4Path, "materials/hyperframes/rendered.mp4");
+});
+
+test("buildHyperframeCards: 現 HTML と sidecar key が一致すれば fresh", () => {
+  const [card] = buildHyperframeCards({
+    htmlByName: { card: SAMPLE_HTML },
+    mp4Names: ["card"],
+    sidecarByName: { card: freshHyperframeSidecar() },
+  });
+  assert.equal(card.stale, false);
+  assert.equal(card.error, undefined);
+  assert.ok((card.durationSec ?? 0) > 0);
+  assert.ok((card.width ?? 0) > 0);
+  assert.ok((card.height ?? 0) > 0);
+});
+
+test("buildHyperframeCards: HTML drift は stale", () => {
+  const changed = SAMPLE_HTML.replace('"default":"CutFlow"', '"default":"Changed"');
+  const [card] = buildHyperframeCards({
+    htmlByName: { card: changed },
+    mp4Names: ["card"],
+    sidecarByName: { card: freshHyperframeSidecar(SAMPLE_HTML) },
+  });
+  assert.equal(card.stale, true);
+});
+
+test("buildHyperframeCards: 壊れた sidecar はそのカードだけ error + stale", () => {
+  const cards = buildHyperframeCards({
+    htmlByName: { broken: SAMPLE_HTML, good: SAMPLE_HTML },
+    mp4Names: ["broken", "good"],
+    sidecarByName: { broken: "{not-json", good: freshHyperframeSidecar() },
+  });
+  assert.equal(cards.length, 2);
+  assert.equal(cards[0].name, "broken");
+  assert.equal(cards[0].stale, true);
+  assert.match(cards[0].error ?? "", /key\.json が壊れています/);
+  assert.equal(cards[1].stale, false);
+});
+
+test("validateHyperframeRenderRequest: name だけを厳格に受理する", () => {
+  assert.deepEqual(validateHyperframeRenderRequest({ name: "ending-card.v2" }), []);
+  assert.match(validateHyperframeRenderRequest({ name: "../escape" }).join(" / "), /英数字/);
+  assert.match(validateHyperframeRenderRequest({ name: "card", force: true }).join(" / "), /name だけ/);
+  assert.match(validateHyperframeRenderRequest({ name: 1 }).join(" / "), /英数字/);
+  assert.match(validateHyperframeRenderRequest(null).join(" / "), /JSON object/);
+});
 
 test("stampSaveBody: idEnabled=false は body をそのまま返す(参照も同一・バイト等価)", () => {
   const body: SaveRequest = {

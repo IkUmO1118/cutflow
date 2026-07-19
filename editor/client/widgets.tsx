@@ -17,6 +17,8 @@ import type {
   AiDoctorResult,
   ConfigSaveResult,
   DraftData,
+  HyperframeRenderResponse,
+  HyperframesData,
   MediaFactsData,
   PeaksData,
   ProjectData,
@@ -50,6 +52,16 @@ export async function getScript(): Promise<ScriptData> {
  * fetch 失敗時は呼び出し側で {} 扱いにする(警告なしへ degrade。§design 8.2) */
 export async function getMediaFacts(): Promise<MediaFactsData> {
   return (await request("/api/media-facts", undefined)) as MediaFactsData;
+}
+
+/** HTML source と render 済み MP4 を突き合わせた HF カード一覧。 */
+export async function getHyperframes(): Promise<HyperframesData> {
+  return (await request("/api/hyperframes", undefined)) as HyperframesData;
+}
+
+/** HF source を既存 stage で render する。force は渡せず cache hit を再利用する。 */
+export async function postHyperframeRender(name: string): Promise<HyperframeRenderResponse> {
+  return (await request("/api/hyperframe/render", { name })) as HyperframeRenderResponse;
 }
 
 /** タイムラインに描く音声の波形ピーク。時刻軸はマイク = 元収録の秒、

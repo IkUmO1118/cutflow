@@ -68,6 +68,7 @@ import type {
   AiScope,
   AiSelectionContext,
   DraftData,
+  HyperframeCard,
   ProjectData,
   SaveRequest,
   ScriptData,
@@ -124,6 +125,7 @@ import {
   deleteMaterial,
   fmtTime,
   getMediaFacts,
+  getHyperframes,
   getPeaks,
   getProject,
   getScript,
@@ -136,6 +138,7 @@ import {
   postPreview,
   postProxy,
   postRender,
+  postHyperframeRender,
   postReveal,
   postSave,
   probeMaterialDuration,
@@ -550,6 +553,7 @@ export const App = () => {
           else deleteDraft().catch(() => {});
         }
         refreshMediaFacts();
+        void refreshHyperframes();
       })
       .catch((e: Error) => setError(e.message));
   }, []);
@@ -589,6 +593,13 @@ export const App = () => {
    * /api/project には含まれない)。既定 {} = 全素材表示可能扱い(degrade)。
    * fetch 失敗時も {} のまま=警告なし(§design 8.2) */
   const [mediaCodecFacts, setMediaCodecFacts] = useState<Record<string, { codec: string; reason: string }>>({});
+  /** HF palette は project payload と分離し、agent が source / MP4 を追加した
+   * 変更にも保存競合なしで追随する。 */
+  const [hyperframes, setHyperframes] = useState<HyperframeCard[]>([]);
+  const [hyperframesLoading, setHyperframesLoading] = useState(false);
+  const [hyperframesError, setHyperframesError] = useState<string | null>(null);
+  const [hyperframeRendering, setHyperframeRendering] = useState<string | null>(null);
+  const [hyperframeErrors, setHyperframeErrors] = useState<Record<string, string>>({});
   /** 現在の収録フォルダに対して /api/media-facts を取り直す。初回ロード・
    * 外部変更のホットリロード・アップロード成功後、いずれも呼ぶ
    * (新しく置かれた ProRes 等を追随して検出するため) */
@@ -597,6 +608,45 @@ export const App = () => {
       .then((r) => setMediaCodecFacts(r.mediaCodecFacts))
       .catch(() => {}); // 失敗しても {} のまま(警告なしへ degrade)
   };
+  const refreshHyperframes = useCallback(async (visible = true) => {
+    if (visible) setHyperframesLoading(true);
+    try {
+      const data = await getHyperframes();
+      setHyperframes(data.hyperframes);
+      const renderedPaths = data.hyperframes.flatMap((card) => card.mp4Path ? [card.mp4Path] : []);
+      setProj((current) => {
+        if (!current) return current;
+        const previous = current.dirFiles.filter((file) => file.startsWith("materials/hyperframes/"));
+        if (previous.length === renderedPaths.length && previous.every((file, index) => file === renderedPaths[index])) {
+          return current;
+        }
+        return {
+          ...current,
+          dirFiles: [
+            ...current.dirFiles.filter((file) => !file.startsWith("materials/hyperframes/")),
+            ...renderedPaths,
+          ].sort(),
+        };
+      });
+      setHyperframesError(null);
+    } catch (e) {
+      setHyperframesError((e as Error).message);
+    } finally {
+      if (visible) setHyperframesLoading(false);
+    }
+  }, []);
+  // HF は編集 JSON 用 SSE の監視対象外。agent/CLI の生成をパレットへ収斂
+  // させるため、素材タブ表示中だけ軽い一覧 API を定期 pull し、focus 復帰時も取る。
+  useEffect(() => {
+    if (tab !== "materials") return;
+    const timer = window.setInterval(() => void refreshHyperframes(false), 4000);
+    const onFocus = () => void refreshHyperframes(false);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [tab, refreshHyperframes]);
   const [aiDoctorResult, setAiDoctorResult] = useState<import("./apiTypes.ts").AiDoctorResult[] | null>(null);
   const [aiDoctorBusy, setAiDoctorBusy] = useState(false);
   /** 再生速度(プレビューのみ)。次回起動時も引き継ぐ */
@@ -781,6 +831,7 @@ export const App = () => {
       // 外部変更(手編集・Claude Code)で materials/ に新しいファイルが
       // 増えている可能性があるので、codec 判定も取り直す
       refreshMediaFacts();
+      void refreshHyperframes(false);
       // whisper-out.json も外部(plan --force / run --force)で変わりうるので
       // スクリプトのキャッシュを捨て、次にタブを開いたとき取り直す
       setScript(null);
@@ -814,6 +865,7 @@ export const App = () => {
     }
     if (theirs.proxyStale) setProxyStale(true);
     refreshMediaFacts();
+    void refreshHyperframes(false);
     setCapMulti([]);
     setSelectionState((sel) => (selectionValid(sel, merged) ? sel : null));
     setExternalChange(false);
@@ -1106,7 +1158,9 @@ export const App = () => {
     [layerOrder],
   );
   const materials = useMemo(
-    () => (proj ? proj.dirFiles.filter(isMaterialFile) : []),
+    () => (proj
+      ? proj.dirFiles.filter(isMaterialFile).filter((file) => !file.startsWith("materials/hyperframes/"))
+      : []),
     [proj],
   );
   /** Timeline へ渡すトラック一覧。ショートモードは ranges 帯 + テロップ
@@ -4052,6 +4106,38 @@ export const App = () => {
     }
   };
 
+  /** HF render は server の runHeavyJob に直列化を委ねる。成功・失敗のどちらも
+   * palette 行へ残し、失敗は通常の sticky toast にも出す。 */
+  const runHyperframeRender = async (name: string) => {
+    setHyperframeRendering(name);
+    setHyperframeErrors((current) => {
+      const next = { ...current };
+      delete next[name];
+      return next;
+    });
+    try {
+      const result = await postHyperframeRender(name);
+      setHyperframes((cards) => {
+        const rest = cards.filter((card) => card.name !== name);
+        return [...rest, result.card].sort((a, b) => a.name.localeCompare(b.name));
+      });
+      addToast({
+        kind: "success",
+        message: result.skipped
+          ? `HF カード「${name}」は最新です(cache hit)`
+          : `HF カード「${name}」をrenderしました`,
+      });
+      await refreshHyperframes(false);
+    } catch (e) {
+      const message = (e as Error).message;
+      setHyperframeErrors((current) => ({ ...current, [name]: message }));
+      addToast({ kind: "error", message: `HF カード「${name}」: ${message}` });
+      await refreshHyperframes(false);
+    } finally {
+      setHyperframeRendering(null);
+    }
+  };
+
   /** 素材パネルからドラッグ中の素材。タイムラインが実尺のゴーストを出せる
    * よう、掴んだ瞬間に尺を調べて渡す(結果は次回のために控えておく) */
   const [dragMaterial, setDragMaterial] = useState<{
@@ -4581,13 +4667,19 @@ export const App = () => {
               <MaterialsPanel
                 materials={materials}
                 mediaCodecFacts={mediaCodecFacts}
-                busy={busy !== null}
+                hyperframes={hyperframes}
+                hyperframesLoading={hyperframesLoading}
+                hyperframesError={hyperframesError}
+                hyperframeRendering={hyperframeRendering}
+                hyperframeErrors={hyperframeErrors}
+                busy={busy !== null || hyperframeRendering !== null}
                 onUploadClick={onUploadClick}
                 onUploadFiles={(files) => void uploadOnly(files)}
                 onPlace={(f) =>
                   void placeMaterial(f, null, AUDIO_ONLY_RE.test(f) ? "bgm" : "overlay")
                 }
                 onDelete={(f) => void deleteMaterialFile(f)}
+                onRenderHyperframe={(name) => void runHyperframeRender(name)}
                 onDragBegin={onMaterialDragBegin}
                 onDragEnd={onMaterialDragEnd}
               />
