@@ -143,6 +143,13 @@ test("fileRole: hyperframe.probe/ 配下(hyperframe-check が書く動的監査�
   assert.equal(fileRole("hyperframe.probe/intro/head.png"), "generated");
 });
 
+test("fileRole: hyperframe-freeze.suggested/ 配下(hyperframe-freeze の使い捨て DRAFT)は generated", () => {
+  assert.equal(fileRole("hyperframe-freeze.suggested/intro.html"), "generated");
+  assert.equal(fileRole("hyperframe-freeze.suggested/intro.md"), "generated");
+  assert.equal(isGeneratedLog("hyperframe-freeze.suggested/intro.html"), true);
+  assert.equal(isGeneratedCache("hyperframe-freeze.suggested/intro.html"), false);
+});
+
 test("fileRole: render.fast/ 配下(高速パスのテロップPNG・キー)は generated", () => {
   assert.equal(fileRole("render.fast/captions/ab12cd34.png"), "generated");
   assert.equal(fileRole("render.fast/segments/v000.mp4"), "generated");

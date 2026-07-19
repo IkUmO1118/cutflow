@@ -85,7 +85,14 @@ const GENERATED_NAME_PATTERNS: readonly RegExp[] = [
  * style.probe/(`style-profile` が channel 直下に書くスタイルプロファイル
  * 集約。生成物)・hyperframe.probe/(`hyperframe-check` が書く動的監査
  * レポート+still の集約。materials.probe/ 等と同じ差分更新型キャッシュ。
- * `hyperframe.probe/<name>/index.json` の形でカード名ごとのサブディレクトリを持つ) */
+ * `hyperframe.probe/<name>/index.json` の形でカード名ごとのサブディレクトリを持つ)・
+ * hyperframe-freeze.suggested/(`hyperframe-freeze <dir> --name <name>` が書く
+ * 使い捨ての DRAFT。中身は `<name>.html`(skeletonize 済みカード)+
+ * `<name>.md`(採用手順+根拠)。material-fit.suggested.json 等と同じ
+ * disposable-draft パターンだが単体ファイルではなくディレクトリ。channel
+ * 直下の `hyperframe-seeds/`(fileRole は "other". CutFlow は書かない)への
+ * 実採用は人間の仕事。「重いキャッシュ」ではないので isGeneratedCache は
+ * false(--cache-only では残す)、`--logs-only` では掃除する) */
 const GENERATED_DIRS: readonly string[] = [
   "frames",
   "render.chunks",
@@ -97,7 +104,14 @@ const GENERATED_DIRS: readonly string[] = [
   "review.probe",
   "style.probe",
   "hyperframe.probe",
+  "hyperframe-freeze.suggested",
 ];
+
+/** GENERATED_DIRS のうち「重いキャッシュ」ではなく使い捨ての下書きに過ぎない
+ * ディレクトリ(isGeneratedCache の対象から除く。--cache-only では残し、
+ * --logs-only では掃除する。frames/ 等の「両方で掃除される」ディレクトリとは
+ * 扱いが違う)。GENERATED_DIRS の部分集合であること。 */
+const GENERATED_DIRS_NOT_CACHE: readonly string[] = ["hyperframe-freeze.suggested"];
 
 /** 収録フォルダ直下の承認レコードファイル名(src/lib/approval.ts の再輸出。
  * files.ts をファイル分類の唯一の出所にするため、他コードはここから参照する) */
@@ -143,7 +157,7 @@ export const GENERATED_CACHE_FILES = [
 export function isGeneratedCache(relPath: string): boolean {
   if (fileRole(relPath) !== "generated") return false;
   const top = relPath.split("/")[0];
-  if (GENERATED_DIRS.includes(top)) return true;
+  if (GENERATED_DIRS.includes(top) && !GENERATED_DIRS_NOT_CACHE.includes(top)) return true;
   if (GENERATED_NAME_PATTERNS.some((re) => re.test(relPath))) return true;
   return (GENERATED_CACHE_FILES as readonly string[]).includes(relPath);
 }
@@ -174,9 +188,10 @@ export const GENERATED_LOG_FILES = [
 ] as const;
 
 /** --logs-only が消す generated ディレクトリ(配下丸ごと)。frames/ は撮影のたびに
- * 全消し・再撮影される自己確認 still なのでログ同然。他の *.probe/ や
+ * 全消し・再撮影される自己確認 still なのでログ同然。hyperframe-freeze.suggested/
+ * は使い捨ての DRAFT(重いキャッシュではない)なのでログ同然。他の *.probe/ や
  * render.chunks/ 等は残す(高価キャッシュ or リレンダー最適化)。 */
-const GENERATED_LOG_DIRS: readonly string[] = ["frames"];
+const GENERATED_LOG_DIRS: readonly string[] = ["frames", "hyperframe-freeze.suggested"];
 
 /** relPath が「ログ・使い捨て下書き」かどうか(--logs-only の対象判定)。
  * 前提として generated であること(generated 以外は常に false=belt)。判定:

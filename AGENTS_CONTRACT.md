@@ -167,6 +167,20 @@ false staleness signals or gets silently discarded:
   whole directory forces a full re-audit. Holds the dynamic audit report
   (deterministic findings, driver counts, sample-grid metadata) and, in a
   later commit, still paths and VLM secondary-review results
+- `hyperframe-freeze.suggested/` — a **disposable-draft** generated
+  directory written by `hyperframe-freeze <dir> --name <name>` (`<name>.html`,
+  a skeletonized copy of `hyperframes/<name>.html` with `string`-typed
+  `data-composition-variables` defaults reset to their label — or `"Text"`
+  if the label is blank — while colors/numbers/layout/motion are kept
+  verbatim; `<name>.md`, a one-line usage-gloss placeholder plus the adopt
+  command and any evidence). Overwritten on each run, like
+  `material-fit.suggested.json`; a human copies the file pair into the
+  channel's `hyperframe-seeds/` directory themselves — Cutflow never writes
+  there. Requires the source card to already pass `checkComposition` with
+  zero errors; unlike the other `*.probe/` caches this is not a heavy
+  cache, so it is excluded from `--cache-only` but still swept by
+  `--logs-only` (like `frames/`); never touches
+  `cutplan.json`/`approvals.json`
 - `style.probe/` — a generated directory written by `style-profile`
   (`<name>.json` per `--name`, default `default.json`) under the **channel**
   directory (the parent of the first `--from` path), not necessarily inside
@@ -185,6 +199,20 @@ false staleness signals or gets silently discarded:
   editor's autosaved unsaved draft)
 - `rules.suggested.md` (a disposable draft written by `learn`; a human
   reads it and manually merges what they want into `rules.md`)
+
+`hyperframe-seeds/` is a **human-curated channel store**, not a Cutflow
+artifact: like `rules.md`, it lives under a recording folder's **parent**
+directory (the channel directory), not inside one. It holds frozen
+HyperFrames seed cards (`<name>.html` plus an optional `<name>.md` gloss)
+that a human has adopted from `hyperframe-freeze.suggested/`. Its `fileRole`
+is `"other"` — Cutflow never writes into it. When present,
+`hyperframe <dir> --name <name> --from-brief` reads every `*.html` in it and
+appends each one that still passes `checkComposition` with zero errors as
+additional numbered entries after the fixed
+`docs/hyperframes-skills/card-patterns.md` menu (contiguous numbering
+starting after the highest fixed pattern number; failing seeds are skipped
+with a warning, never an error). An absent or empty store leaves the author
+prompt byte-identical to before this feature.
 
 `node src/lib/files.ts` (`GENERATED_FILES` + the generated-name patterns and
 directories) is the single source of truth for this list; this file's
@@ -309,6 +337,7 @@ without `--force`; with `--force`, hand-edited files are moved to
 | `hyperframe <dir>` | Generate or render a HyperFrames composition card (a silent, self-contained drawn asset: chapter title / explainer / diagram / kinetic typography), honored entirely by Cutflow's native Remotion interpreter — no HyperFrames runtime or engine code executes. `--from-brief` drafts a single composition HTML into `hyperframes/<name>.html` via LLM (number-selection over a fixed pattern menu in `docs/hyperframes-skills/card-patterns.md`; the raw response is always kept at `hyperframes/<name>.raw.txt`, but the draft is written only if it passes the deterministic check gate with zero errors). Repeatable `--asset <path>` (only with `--from-brief`) accepts PNG/JPEG/GIF/WebP under the configured per-file/total byte limits, verifies extension/magic bytes/dimensions, retains sources in `hyperframes/<name>.assets/`, gives the LLM metadata plus numbered `__HF_ASSET_n__` tokens only, and deterministically replaces valid tokens with `data:` URLs before the check gate; invented or partial tokens fail without publishing HTML while raw response and attachments remain for retry. `--embed-lottie <path>` deterministically converts a human-provided AE/bodymovin JSON plus confined PNG/JPEG/GIF/WebP assets into one canonical SVG/byte card: it rejects remote/absolute/escaping/symlink-escaping assets, verifies image magic bytes, derives dimensions/timing from JSON, embeds `animationData` and image `data:` URLs, requires check 0 errors/0 warnings, and atomically publishes only after full success (`--force` required to replace an existing card; `.lottie`/canvas unsupported). Without either authoring flag, renders the existing `hyperframes/<name>.html` to `materials/hyperframes/<name>.mp4` (check-gated; `--var k=v` / `--width` / `--height` / `--fps` / `--durationSec` override composition variables/dimensions; cached via `hyperframe.<name>.key.json`; published atomically via temp-file render → ffprobe verify → rename). External refs in composition html are banned except a `<script src>` matching the repo's CDN pin table (`src/lib/hyperframeCdn.ts`) with exact `integrity`/`crossorigin="anonymous"`; srcdoc CSP lists the exact pinned URLs (not the whole CDN origin), enforces `connect-src 'none'`, and the check gate rejects dynamic script construction/import. Never touches `cutplan.json`/`approvals.json`. GSAP animation must use a `{paused:true}` timeline registered under the exact composition ID; direct gsap tweens are rejected. The CDN pin table also includes lottie-web (human-brought AE JSON exports only, LLM does not author Lottie cards); a Lottie card must inline its animation JSON as `animationData`, set `autoplay:false`/`loop:false`, register with `window.__hfLottie`, and embed image assets as `data:` URLs (`path:`/external assets are rejected). Raw WebGL/shader cards self-draw via the `hf-seek` event, require `data-hf-determinism="perceptual"`, and render with the automatically resolved `gpu-angle` profile; non-GPU cards retain the default Chrome launch path. The profile is included in the cache key/sidecar, and a requested-but-null WebGL context fails explicitly instead of publishing a black MP4. three.js remains unpinned and `not-wired` (deferred until real demand) |
 | `hyperframe-place <dir>` | Propose placing a rendered `materials/hyperframes/<name>.mp4` card (requires `hyperframe <dir> --name <name>` first) into the timeline as an `overlays.json` `overlay` (default; `--rect`/`--track` accepted) or `insert` (`--as insert`; no `rect`/`track`). Resolves the clip's duration deterministically — `--duration` flag, else `hyperframe.<name>.key.json`, else `ffprobe` — and writes an `apply`-ready patch draft (`hyperframe-place.suggested.json`) with a single `add` op. Warns (non-blocking) if `--at` falls outside a `cutplan.json` keep segment. Never writes editable files or touches `cutplan.json`/`approvals.json` |
 | `hyperframe-check <dir>` | Render-free dynamic audit of a HyperFrames composition card: loads `hyperframes/<name>.html`'s srcdoc in a headless browser, seeks a time grid, and reads logical animation state (not pixels, and excluding zero-area/full-bleed helper elements) to detect terminal-unfinished single-pass animations (judged by last-frame completion progress, not duration metadata), empty-terminal frames, off-screen terminal content elements, seek-unresponsive wiring, dead zones, and simultaneous entries. Deterministic only, always exit 0, warn/info findings only (no fail). If `materials/hyperframes/<name>.mp4` has been rendered, extracts head/mid/tail plus each WARN finding's timestamp as PNG stills via ffmpeg (degrades to a `stillsNote` with no stills, never touching the deterministic findings, if the mp4 is missing or extraction fails), and optionally runs a judgment-only VLM secondary review (same pattern as `effect-check`, no coordinates generated) when a vision route is configured and not disabled by `--no-vlm`/config; `ok:false` items become `vlm-mismatch` warn findings. Writes `hyperframe.probe/<name>/index.json`; never writes editable files or touches `cutplan.json`/`approvals.json` |
+| `hyperframe-freeze <dir>` | Turn an already check-passing `hyperframes/<name>.html` card into a reusable seed for next time: writes a disposable skeletonized draft (`hyperframe-freeze.suggested/<name>.{html,md}`) that resets only `string`-typed composition-variable defaults (to their label, or `"Text"` if the label is blank) while keeping colors/numbers/layout/motion verbatim, re-verifies the skeleton still passes `checkComposition` with zero errors, and collects read-only adoption evidence (an `overlays.json` reference to `materials/hyperframes/<name>.mp4`, whether that file has been rendered, and the `hyperframe.probe/<name>/index.json` warn-finding count, if present) into the draft's `.md` sidecar. A human reviews the draft, fills in the one-line usage gloss, and copies the pair into the channel's `hyperframe-seeds/` directory themselves — Cutflow never writes there. Once adopted, the seed appears as an additional numbered pattern (after the fixed `docs/hyperframes-skills/card-patterns.md` menu; failing seeds are skipped with a warning, numbering stays contiguous) in the next `hyperframe --from-brief` author menu. Never touches `cutplan.json`/`approvals.json` |
 | `learn <dir>` | Draft channel-rule suggestions from the latest edit into `rules.suggested.md` |
 | `ai` | Parent command for AI diagnostics (`ai doctor`) |
 | `doctor` | Nested under `ai`; probes configured AI profiles/routes for text, structured output, and image connectivity |

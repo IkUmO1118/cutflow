@@ -51,6 +51,7 @@ import {
 } from "../lib/hyperframeAssets.ts";
 import type { HyperframeAssetInput } from "../lib/hyperframeAssets.ts";
 import { readRules } from "./plan.ts";
+import { loadFrozenSeedMenu } from "./hyperframeFreeze.ts";
 import type { HyperFrameProps } from "../../remotion/HyperFrame.tsx";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -840,6 +841,9 @@ export async function authorHyperframe(
     join(REPO_ROOT, "docs", "hyperframes-skills", "card-patterns.md"),
     "utf8",
   );
+  // W3: 凍結カード(channel の hyperframe-seeds/)を番号メニュー末尾へ連結。
+  // 凍結ゼロ/store 不在なら loadFrozenSeedMenu は "" を返し patterns はバイト等価。
+  const patternsWithFrozen = patterns + loadFrozenSeedMenu(dir, patterns);
 
   const briefPath = join(dir, "brief.md");
   const recordingBrief = opts.brief === undefined && existsSync(briefPath)
@@ -862,7 +866,7 @@ export async function authorHyperframe(
 
   const prompt = resolveHyperframeAuthorPrompt({
     template,
-    patterns,
+    patterns: patternsWithFrozen,
     brief,
     rules,
     width,

@@ -44,6 +44,7 @@ import { formatHyperframeBackends, hyperframeBackends } from "./lib/hyperframeBa
 import { loadHyperframeAssetInputs } from "./lib/hyperframeAssets.ts";
 import { formatPlaceReport, hyperframePlace } from "./stages/hyperframePlace.ts";
 import { auditHyperframe, formatHyperframeAuditReport } from "./stages/hyperframeAudit.ts";
+import { formatFreezeReport, freezeHyperframe } from "./stages/hyperframeFreeze.ts";
 import { learn } from "./stages/learn.ts";
 import { preview } from "./stages/preview.ts";
 import { render, renderShort, renderShorts } from "./stages/render.ts";
@@ -856,6 +857,23 @@ program
       for (const line of formatHyperframeAuditReport(abs, result)) console.log(line);
     },
   );
+
+program
+  .command("hyperframe-freeze <dir>")
+  .description(
+    "check 済みの HyperFrames カード(hyperframes/<name>.html)から skeletonize した" +
+      " DRAFT(hyperframe-freeze.suggested/<name>.{html,md})を書く。channel の" +
+      " hyperframe-seeds/ への採用コピーは人間の仕事(cut/承認には触れない)",
+  )
+  .requiredOption("--name <name>", "HyperFrames カード名(hyperframes/<name>.html の元)")
+  .action(async (dir: string, opts: { name: string }) => {
+    if (!/^[A-Za-z0-9._-]+$/.test(opts.name)) {
+      throw new Error(`--name が不正です(英数字・.・_・- のみ使えます): ${opts.name}`);
+    }
+    const abs = resolveDir(dir);
+    const result = await freezeHyperframe(abs, { name: opts.name });
+    for (const line of formatFreezeReport(abs, result)) console.log(line);
+  });
 
 program
   .command("plan-effects <dir>")
