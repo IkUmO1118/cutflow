@@ -9,6 +9,10 @@ import type { LogLevel } from "./obs.ts";
 import type { CaptionBackground, Region } from "../types.ts";
 import { normalizeBaseUrl, originOfProfile, resolveCredential } from "./ai/http.ts";
 import { adapterFor } from "./ai/registry.ts";
+import {
+  DEFAULT_HYPERFRAME_ASSET_MAX_BYTES,
+  DEFAULT_HYPERFRAME_ASSET_MAX_TOTAL_BYTES,
+} from "./hyperframeAssets.ts";
 
 export type AiProvider = "claude-code" | "codex" | "anthropic" | "openai";
 export type LegacyLlmBackend = "claude-cli" | "api";
@@ -484,6 +488,15 @@ export interface Config {
       maxRefinements?: number;
     };
   };
+  /** HyperFrame authoring のローカル入力制限。省略時は安全な既定値を使う。 */
+  hyperframe?: {
+    assets?: {
+      /** 添付画像1ファイルの最大byte数。省略時 2MiB。 */
+      maxBytes?: number;
+      /** 1回の author に添付できる画像の合計最大byte数。省略時 6MiB。 */
+      maxTotalBytes?: number;
+    };
+  };
   render: {
     wipeWidthPx: number;
     wipeMarginPx: number;
@@ -629,6 +642,16 @@ export const DEFAULT_AI_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 export const DEFAULT_AI_MAX_OUTPUT_TOKENS = 8192;
 export const MAX_AI_IMAGES = 4;
 const LEGACY_AI_PROFILE = "legacy-default";
+
+export function resolveHyperframeAssetLimits(cfg: Config): {
+  maxBytes: number;
+  maxTotalBytes: number;
+} {
+  return {
+    maxBytes: cfg.hyperframe?.assets?.maxBytes ?? DEFAULT_HYPERFRAME_ASSET_MAX_BYTES,
+    maxTotalBytes: cfg.hyperframe?.assets?.maxTotalBytes ?? DEFAULT_HYPERFRAME_ASSET_MAX_TOTAL_BYTES,
+  };
+}
 
 export function resolveAiReviewCfg(cfg: Config): { vlm: boolean; maxImages: number } {
   const requested = cfg.editor?.aiReview?.maxImages ?? 4;
@@ -1033,6 +1056,40 @@ export function resolveFastPathCfg(cfg: Config): { enabled: boolean; minCoverage
 
 function validateWorkflowConfig(cfg: Config): string[] {
   const errors: string[] = [];
+  const hyperframeValue = cfg.hyperframe as unknown;
+  if (hyperframeValue !== undefined && (
+    hyperframeValue === null || typeof hyperframeValue !== "object" || Array.isArray(hyperframeValue)
+  )) {
+    errors.push("hyperframe は object で指定してください");
+  } else if (hyperframeValue) {
+    const hyperframe = hyperframeValue as Record<string, unknown>;
+    errors.push(...unknownKeys(hyperframe, ["assets"])
+      .map((key) => `hyperframe.${key} は未対応です`));
+    const assetsValue = hyperframe.assets;
+    if (assetsValue !== undefined && (
+      assetsValue === null || typeof assetsValue !== "object" || Array.isArray(assetsValue)
+    )) {
+      errors.push("hyperframe.assets は object で指定してください");
+    } else if (assetsValue) {
+      const assets = assetsValue as Record<string, unknown>;
+      errors.push(...unknownKeys(assets, ["maxBytes", "maxTotalBytes"])
+        .map((key) => `hyperframe.assets.${key} は未対応です`));
+      for (const key of ["maxBytes", "maxTotalBytes"] as const) {
+        if (key in assets && (!Number.isInteger(assets[key]) || Number(assets[key]) <= 0)) {
+          errors.push(`hyperframe.assets.${key} は正の整数で指定してください`);
+        }
+      }
+      const maxBytes = Number.isInteger(assets.maxBytes)
+        ? Number(assets.maxBytes)
+        : DEFAULT_HYPERFRAME_ASSET_MAX_BYTES;
+      const maxTotalBytes = Number.isInteger(assets.maxTotalBytes)
+        ? Number(assets.maxTotalBytes)
+        : DEFAULT_HYPERFRAME_ASSET_MAX_TOTAL_BYTES;
+      if (maxBytes > 0 && maxTotalBytes > 0 && maxTotalBytes < maxBytes) {
+        errors.push("hyperframe.assets.maxTotalBytes は maxBytes 以上にしてください");
+      }
+    }
+  }
   const detectCalibration = cfg.detect?.calibration as Record<string, unknown> | undefined;
   if (detectCalibration) {
     errors.push(...unknownKeys(detectCalibration, ["enabled", "method", "floorOffsetDb"])

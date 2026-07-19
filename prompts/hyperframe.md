@@ -1,5 +1,5 @@
 # hyperframe ステージ用プロンプト
-# brief / rules / patterns / width / height / durationSec の各プレースホルダーが実行時に置換される
+# brief / assets / rules / patterns / width / height / durationSec の各プレースホルダーが実行時に置換される
 
 あなたは、単一の**無音**の HyperFrames カード(章タイトル・説明カード・図解・
 kinetic typography のいずれか)を、**自己完結した1個の composition HTML 文字列**
@@ -13,7 +13,7 @@ Cutflow の check ゲート(`checkComposition`)がそのまま受理できる形
 
 ## 入力: 今回の意図
 
-{{brief}}
+{{brief}}{{assets}}
 
 ## 入力: チャンネルの型(rules.md があれば)
 

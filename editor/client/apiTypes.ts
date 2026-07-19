@@ -251,6 +251,10 @@ export interface HyperframeCard {
 
 export interface HyperframesData {
   hyperframes: HyperframeCard[];
+  assetLimits: {
+    maxBytes: number;
+    maxTotalBytes: number;
+  };
 }
 
 export interface HyperframeRenderRequest {
@@ -266,6 +270,11 @@ export interface HyperframeRenderResponse {
 export interface HyperframeAuthorRequest {
   name: string;
   brief: string;
+  assets?: Array<{
+    name: string;
+    /** Base64 本体(data: prefix は付けない)。 */
+    data: string;
+  }>;
 }
 
 export interface HyperframeAuthorResponse {

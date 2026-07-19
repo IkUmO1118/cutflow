@@ -65,9 +65,39 @@ export async function postHyperframeRender(name: string): Promise<HyperframeRend
   return (await request("/api/hyperframe/render", { name })) as HyperframeRenderResponse;
 }
 
-/** brief 1件から新規 HF card を author → render する。既存名は上書きしない。 */
-export async function postHyperframeAuthor(name: string, brief: string): Promise<HyperframeAuthorResponse> {
-  return (await request("/api/hyperframe/author", { name, brief })) as HyperframeAuthorResponse;
+function fileBase64(file: File): Promise<string> {
+  return file.arrayBuffer().then((buffer) => {
+    const bytes = new Uint8Array(buffer);
+    const chunkSize = 0x8000;
+    let binary = "";
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+    }
+    return btoa(binary);
+  });
+}
+
+/** brief と任意の画像から新規カードを author → render する。既存名は上書きしない。 */
+export async function postHyperframeAuthor(
+  name: string,
+  brief: string,
+  files: readonly File[],
+): Promise<HyperframeAuthorResponse> {
+  const assets = await Promise.all(files.map(async (file) => ({
+    name: file.name,
+    data: await fileBase64(file),
+  })));
+  return (await request("/api/hyperframe/author", {
+    name,
+    brief,
+    ...(assets.length > 0 ? { assets } : {}),
+  })) as HyperframeAuthorResponse;
+}
+
+/** AI 生成素材(カード)を丸ごと削除する(render 済み MP4 と、再生成に使う
+ * source html・添付素材の両方)。undo できないので、呼ぶ側で確認を挟むこと */
+export async function deleteHyperframe(name: string): Promise<void> {
+  await request(`/api/hyperframe?name=${encodeURIComponent(name)}`, undefined, "DELETE");
 }
 
 /** タイムラインに描く音声の波形ピーク。時刻軸はマイク = 元収録の秒、

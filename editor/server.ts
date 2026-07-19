@@ -67,7 +67,7 @@ import {
   validateHyperframeAuthorRequest,
 } from "../src/lib/hyperframeAuthor.ts";
 import { readEditableDocs } from "../src/stages/idStamp.ts";
-import { aiProfileStatuses, profileForRoute, resolveAiReviewCfg, resolveAiRuntimeConfig, resolvePerceptionStatus } from "../src/lib/config.ts";
+import { aiProfileStatuses, profileForRoute, resolveAiReviewCfg, resolveAiRuntimeConfig, resolveHyperframeAssetLimits, resolvePerceptionStatus } from "../src/lib/config.ts";
 import type { Config } from "../src/lib/config.ts";
 import {
   applyConfigEdits,
@@ -243,7 +243,7 @@ class HttpError extends Error {
 /** 素材アップロードの上限の既定値(config で editor.maxUploadMb 未指定のとき) */
 const DEFAULT_MAX_UPLOAD_MB = 2048;
 /** brief を含む単発 author request の JSON 上限。 */
-const HYPERFRAME_AUTHOR_MAX_BODY_BYTES = 256 * 1024;
+const HYPERFRAME_AUTHOR_JSON_OVERHEAD_BYTES = 256 * 1024;
 
 /** エディタが編集する(=外部変更を監視する)ファイル */
 const WATCHED_FILES = [
@@ -384,13 +384,22 @@ async function handle(
     return;
   }
   if (req.method === "GET" && path === "/api/hyperframes") {
-    sendJson(res, 200, { hyperframes: loadHyperframeCards(dir) });
+    sendJson(res, 200, {
+      hyperframes: loadHyperframeCards(dir),
+      assetLimits: resolveHyperframeAssetLimits(cfg),
+    });
     return;
   }
   if (req.method === "POST" && path === "/api/hyperframe/author") {
-    const body = await readBody(req, HYPERFRAME_AUTHOR_MAX_BODY_BYTES) as HyperframeAuthorRequest;
+    const assetLimits = resolveHyperframeAssetLimits(cfg);
+    const maxBodyBytes = Math.ceil(assetLimits.maxTotalBytes * 4 / 3) +
+      HYPERFRAME_AUTHOR_JSON_OVERHEAD_BYTES;
+    const body = await readBody(req, maxBodyBytes) as HyperframeAuthorRequest;
     const requestErrors = validateHyperframeAuthorRequest(body);
     if (requestErrors.length > 0) throw new HttpError(400, requestErrors.join(" / "));
+    if (Buffer.byteLength(body.brief, "utf8") > HYPERFRAME_AUTHOR_JSON_OVERHEAD_BYTES) {
+      throw new HttpError(413, "作りたい内容が長すぎます");
+    }
     ensureHyperframeAuthorNameAvailable(dir, body.name);
     await runHeavyJob(
       "hyperframe-author",
@@ -402,12 +411,16 @@ async function handle(
         await authorHyperframe(dir, cfg, {
           name: body.name,
           brief: body.brief.trim(),
+          assets: (body.assets ?? []).map((asset) => ({
+            name: asset.name,
+            bytes: Buffer.from(asset.data, "base64"),
+          })),
         });
         await renderHyperframe(dir, { name: body.name, cliVars: {} });
       },
     );
     const card = loadHyperframeCards(dir).find((item) => item.name === body.name);
-    if (!card) throw new Error(`生成後の HF カードが見つかりません: ${body.name}`);
+    if (!card) throw new Error(`生成後の素材が見つかりません: ${body.name}`);
     sendJson(res, 200, { ok: true, card });
     return;
   }
@@ -416,7 +429,7 @@ async function handle(
     const requestErrors = validateHyperframeRenderRequest(body);
     if (requestErrors.length > 0) throw new HttpError(400, requestErrors.join(" / "));
     if (!existsSync(join(dir, "hyperframes", `${body.name}.html`))) {
-      throw new HttpError(404, `hyperframes/${body.name}.html がありません`);
+      throw new HttpError(404, `素材「${body.name}」の生成元がありません`);
     }
     const result = await runHeavyJob(
       "hyperframe-render",
@@ -424,7 +437,7 @@ async function handle(
       () => renderHyperframe(dir, { name: body.name, cliVars: {} }),
     );
     const card = loadHyperframeCards(dir).find((item) => item.name === body.name);
-    if (!card) throw new Error(`render 後の HF カードが見つかりません: ${body.name}`);
+    if (!card) throw new Error(`作り直した素材が見つかりません: ${body.name}`);
     sendJson(res, 200, { ok: true, card, skipped: result.skipped });
     return;
   }
@@ -718,6 +731,28 @@ async function handle(
     sendJson(res, 200, saved);
     return;
   }
+  if (req.method === "DELETE" && path === "/api/hyperframe") {
+    // AI 生成素材(カード)を丸ごと削除する(source html / raw 応答 / 添付素材 /
+    // render 済み MP4 / キャッシュキー)。MP4 だけ消すと一覧に「未 render」の
+    // 抜け殻が残るため、ユーザーの「削除」はカード単位で扱う。タイムラインで
+    // 参照中かの判定は /api/material と同じくクライアント側の仕事
+    const name = url.searchParams.get("name") ?? "";
+    if (!HYPERFRAME_NAME_RE.test(name)) {
+      throw new HttpError(400, `カード名が不正です: ${name}`);
+    }
+    const targets = [
+      join(dir, "hyperframes", `${name}.html`),
+      join(dir, "hyperframes", `${name}.raw.txt`),
+      join(dir, "hyperframes", `${name}.assets`),
+      join(dir, "materials", "hyperframes", `${name}.mp4`),
+      join(dir, `hyperframe.${name}.key.json`),
+    ];
+    const present = targets.filter((p) => existsSync(p));
+    if (present.length === 0) throw new HttpError(404, `カードが見つかりません: ${name}`);
+    for (const p of present) rmSync(p, { recursive: true });
+    sendJson(res, 200, { ok: true });
+    return;
+  }
   if (req.method === "DELETE" && path === "/api/material") {
     // 素材ファイルの削除(materials/ 内のみ。トラバーサルは normalize 後の
     // 前方一致で弾く)。タイムラインで参照中かの判定はクライアント側の仕事
@@ -814,7 +849,7 @@ export function buildHyperframeCards(sources: HyperframeCardSources): Hyperframe
       return {
         ...card,
         stale: rendered,
-        error: `hyperframes/${name}.html を読み込めません: ${htmlReadError}`,
+        error: `素材「${name}」の生成元を読み込めません: ${htmlReadError}`,
       };
     }
 
@@ -823,7 +858,7 @@ export function buildHyperframeCards(sources: HyperframeCardSources): Hyperframe
       return {
         ...card,
         stale: rendered && htmlExists,
-        error: `hyperframe.${name}.key.json を読み込めません: ${sidecarReadError}`,
+        error: `素材「${name}」の生成情報を読み込めません: ${sidecarReadError}`,
       };
     }
     let sidecar: Record<string, unknown> | undefined;
@@ -839,7 +874,7 @@ export function buildHyperframeCards(sources: HyperframeCardSources): Hyperframe
         return {
           ...card,
           stale: rendered && htmlExists,
-          error: `hyperframe.${name}.key.json が壊れています: ${(error as Error).message}`,
+          error: `素材「${name}」の生成情報が壊れています: ${(error as Error).message}`,
         };
       }
     }
@@ -863,7 +898,7 @@ export function buildHyperframeCards(sources: HyperframeCardSources): Hyperframe
           ...card,
           ...details,
           stale: true,
-          error: `hyperframe.${name}.key.json がありません`,
+          error: `素材「${name}」の生成情報がありません`,
         };
       }
       if (typeof sidecar.key !== "string") {
@@ -871,7 +906,7 @@ export function buildHyperframeCards(sources: HyperframeCardSources): Hyperframe
           ...card,
           ...details,
           stale: true,
-          error: `hyperframe.${name}.key.json の key が不正です`,
+          error: `素材「${name}」の生成情報が不正です`,
         };
       }
       const expectedKey = hyperframeCacheKey({
@@ -891,7 +926,7 @@ export function buildHyperframeCards(sources: HyperframeCardSources): Hyperframe
         ...card,
         ...metadata,
         stale: rendered,
-        error: `hyperframes/${name}.html を解析できません: ${(error as Error).message}`,
+        error: `素材「${name}」の生成元を解析できません: ${(error as Error).message}`,
       };
     }
   });
@@ -961,7 +996,7 @@ export function validateHyperframeRenderRequest(body: unknown): string[] {
   const unknown = Object.keys(record).filter((key) => key !== "name");
   if (unknown.length > 0) errors.push("name だけを指定してください");
   if (typeof record.name !== "string" || !HYPERFRAME_NAME_RE.test(record.name)) {
-    errors.push("name は英数字・.・_・- のみで指定してください");
+    errors.push("ファイル名は英数字・.・_・- のみで指定してください");
   }
   return errors;
 }
@@ -975,7 +1010,7 @@ export function ensureHyperframeAuthorNameAvailable(dir: string, name: string): 
     sidecarNames: existsSync(join(dir, `hyperframe.${name}.key.json`)) ? [name] : [],
   });
   if (conflict) {
-    throw new HttpError(409, `HF カード「${name}」は既に存在します。既存カードの上書きは agent で行ってください`);
+    throw new HttpError(409, `素材「${name}」は既に存在します。別のファイル名を指定してください`);
   }
 }
 
@@ -998,9 +1033,9 @@ const jaStage = (s: HeavyJobStage): string =>
   s === "render"
     ? "レンダー"
     : s === "hyperframe-author"
-      ? "HFカード生成"
+      ? "AI素材の生成"
     : s === "hyperframe-render"
-      ? "HFカード再render"
+      ? "素材の作り直し"
     : s === "review"
       ? "比較生成"
       : s === "propose"

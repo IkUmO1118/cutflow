@@ -41,6 +41,7 @@ import { planBgm } from "./stages/planBgm.ts";
 import { authorHyperframe, renderHyperframe } from "./stages/hyperframe.ts";
 import { embedLottieHyperframe } from "./stages/hyperframeLottie.ts";
 import { formatHyperframeBackends, hyperframeBackends } from "./lib/hyperframeBackends.ts";
+import { loadHyperframeAssetInputs } from "./lib/hyperframeAssets.ts";
 import { formatPlaceReport, hyperframePlace } from "./stages/hyperframePlace.ts";
 import { learn } from "./stages/learn.ts";
 import { preview } from "./stages/preview.ts";
@@ -555,6 +556,12 @@ program
     "--embed-lottie <path>",
     "AE/bodymovin JSON と外部画像を SVG/byte Lottie composition HTML に埋め込む(render はしない)",
   )
+  .option(
+    "--asset <path>",
+    "カードへ焼き込む画像(PNG/JPEG/GIF/WebP。--from-brief 専用、複数指定可)",
+    collectFrom,
+    [],
+  )
   .option("--pattern <n>", "作図パターン番号を指定する(--from-brief 専用。省略時は LLM が選ぶ)")
   .option("--var <kv...>", "composition variables の上書き(k=v。複数指定可。render 専用)")
   .option(
@@ -578,6 +585,7 @@ program
         name: string;
         fromBrief?: boolean;
         embedLottie?: string;
+        asset: string[];
         pattern?: string;
         var?: string[];
         width?: string;
@@ -610,6 +618,7 @@ program
           ["--height", opts.height],
           ["--fps", opts.fps],
           ["--durationSec", opts.durationSec],
+          ["--asset", opts.asset.length > 0 ? opts.asset : undefined],
         ].filter((entry) => entry[1] !== undefined).map((entry) => entry[0]);
         if (rejected.length > 0) {
           throw new Error(
@@ -647,6 +656,7 @@ program
           width: parseNum(opts.width, "--width"),
           height: parseNum(opts.height, "--height"),
           durationSec: parseNum(opts.durationSec, "--durationSec"),
+          assets: loadHyperframeAssetInputs(opts.asset),
         });
         console.log(`下書きを書きました: ${result.sourcePath}(variables ${result.varCount}件)`);
         console.log(result.summary);
@@ -655,6 +665,10 @@ program
             "render してください。",
         );
         return;
+      }
+
+      if (opts.asset.length > 0) {
+        throw new Error("--asset は --from-brief と一緒に指定してください");
       }
 
       const cliVars: Record<string, unknown> = {};

@@ -41,7 +41,15 @@ import {
 } from "../lib/renderTransaction.ts";
 import type { VerifyOutcome } from "../lib/renderTransaction.ts";
 import { completeWithJsonSchema } from "../lib/llm.ts";
+import { resolveHyperframeAssetLimits } from "../lib/config.ts";
 import type { Config } from "../lib/config.ts";
+import {
+  formatHyperframeAssetPrompt,
+  replaceHyperframeAssetTokens,
+  saveHyperframeAssets,
+  validateHyperframeAssets,
+} from "../lib/hyperframeAssets.ts";
+import type { HyperframeAssetInput } from "../lib/hyperframeAssets.ts";
 import { readRules } from "./plan.ts";
 import type { HyperFrameProps } from "../../remotion/HyperFrame.tsx";
 
@@ -588,6 +596,7 @@ function parseHyperframeAuthorResponse(raw: string): HyperframeAuthorResponse {
 export interface AuthorHyperframeResult {
   sourcePath: string;
   varCount: number;
+  assetCount: number;
   summary: string;
 }
 
@@ -610,9 +619,12 @@ export function resolveHyperframeAuthorPrompt(args: {
   height: number;
   durationSec: number;
   pattern?: number;
+  /** 空文字なら従来 prompt とバイト等価。値は formatHyperframeAssetPrompt 由来。 */
+  assets?: string;
 }): string {
   let prompt = args.template
     .replaceAll("{{brief}}", () => args.brief)
+    .replaceAll("{{assets}}", () => args.assets ?? "")
     .replaceAll("{{rules}}", () => args.rules)
     .replaceAll("{{patterns}}", () => args.patterns)
     .replaceAll("{{width}}", () => String(args.width))
@@ -643,6 +655,8 @@ export async function authorHyperframe(
     height?: number;
     durationSec?: number;
     force?: boolean;
+    /** CLI / editor で読み終えた添付画像。検査後に <name>.assets/ へ保存する。 */
+    assets?: HyperframeAssetInput[];
   },
 ): Promise<AuthorHyperframeResult> {
   const template = readFileSync(join(REPO_ROOT, "prompts", "hyperframe.md"), "utf8");
@@ -664,6 +678,11 @@ export async function authorHyperframe(
   const width = opts.width ?? 1920;
   const height = opts.height ?? 1080;
   const durationSec = opts.durationSec ?? 4;
+  const assets = saveHyperframeAssets(
+    dir,
+    opts.name,
+    validateHyperframeAssets(opts.assets ?? [], resolveHyperframeAssetLimits(cfg)),
+  );
 
   const prompt = resolveHyperframeAuthorPrompt({
     template,
@@ -674,6 +693,7 @@ export async function authorHyperframe(
     height,
     durationSec,
     pattern: opts.pattern,
+    assets: formatHyperframeAssetPrompt(assets),
   });
 
   const raw = await completeWithJsonSchema(
@@ -716,7 +736,8 @@ export async function authorHyperframe(
   const parsed = parseHyperframeAuthorResponse(raw);
 
   const sourcePath = join(hyperframesDir, `${opts.name}.html`);
-  const check = checkComposition(parsed.html, { file: `hyperframes/${opts.name}.html` });
+  const html = replaceHyperframeAssetTokens(parsed.html, assets);
+  const check = checkComposition(html, { file: `hyperframes/${opts.name}.html` });
   if (check.errors.length > 0) {
     const lines = check.errors.map((e) => `  ${e.where}: ${e.message}`);
     throw new Error(
@@ -728,11 +749,12 @@ export async function authorHyperframe(
     console.log(`⚠ ${w.where}: ${w.message}`);
   }
 
-  writeFileSync(sourcePath, parsed.html);
+  writeFileSync(sourcePath, html);
 
   return {
     sourcePath,
     varCount: parsed.variables.length,
+    assetCount: assets.length,
     summary: check.summary,
   };
 }

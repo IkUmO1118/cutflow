@@ -47,6 +47,7 @@ import {
   resolveCandidatesCfg,
   resolveDescribePausesCfg,
   resolveFastPathCfg,
+  resolveHyperframeAssetLimits,
   resolveLogCfg,
   resolvePerceptionCfg,
   resolvePerceptionStatus,
@@ -56,6 +57,10 @@ import {
   resolveStyleProfileCfg,
   resolveStyleProfileStatus,
 } from "../src/lib/config.ts";
+import {
+  DEFAULT_HYPERFRAME_ASSET_MAX_BYTES,
+  DEFAULT_HYPERFRAME_ASSET_MAX_TOTAL_BYTES,
+} from "../src/lib/hyperframeAssets.ts";
 import type { Config } from "../src/lib/config.ts";
 
 /** リポジトリ既定の config.yaml を模した fixture(コメント・~ パス入り) */
@@ -350,6 +355,31 @@ test("syncEditorCfgFromYaml: null 削除で省略時の既定へ戻る", () => {
   const removed = applyConfigEdits(withColor, { render: { captionColor: null } });
   syncEditorCfgFromYaml(cfg, removed);
   assert.equal(cfg.render.captionColor, undefined);
+});
+
+test("resolveHyperframeAssetLimits: 省略時既定と config 上書きを解決する", () => {
+  const cfg = parse(RAW) as Config;
+  assert.deepEqual(resolveHyperframeAssetLimits(cfg), {
+    maxBytes: DEFAULT_HYPERFRAME_ASSET_MAX_BYTES,
+    maxTotalBytes: DEFAULT_HYPERFRAME_ASSET_MAX_TOTAL_BYTES,
+  });
+  cfg.hyperframe = { assets: { maxBytes: 1000, maxTotalBytes: 3000 } };
+  assert.deepEqual(resolveHyperframeAssetLimits(cfg), { maxBytes: 1000, maxTotalBytes: 3000 });
+});
+
+test("loadConfig: hyperframe.assets の未知キー・非正値・逆転した上限を拒否する", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = join(dir, "config.yaml");
+    writeFileSync(path, `${RAW}\nhyperframe:\n  assets:\n    maxBytes: 20\n    maxTotalBytes: 10\n`);
+    assert.throws(() => loadConfig(path), /maxTotalBytes は maxBytes 以上/);
+    writeFileSync(path, `${RAW}\nhyperframe:\n  assets:\n    maxBytes: 0\n    maxTotalBytes: 10\n`);
+    assert.throws(() => loadConfig(path), /maxBytes は正の整数/);
+    writeFileSync(path, `${RAW}\nhyperframe:\n  assets:\n    extra: 1\n`);
+    assert.throws(() => loadConfig(path), /hyperframe\.assets\.extra は未対応/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("loadConfig: whisper.wordTimestamps 未指定時は true(語タイムスタンプ既定資産化=W0)", () => {

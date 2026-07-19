@@ -1,5 +1,9 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent } from "react";
+import type {
+  DragEvent as ReactDragEvent,
+  MouseEvent as ReactMouseEvent,
+  SyntheticEvent as ReactSyntheticEvent,
+} from "react";
 import { captionTrack, captionTrackName } from "../../src/types.ts";
 import type { Interval, Overlays, Shorts, Transcript } from "../../src/types.ts";
 import { toSourceTime } from "../../src/lib/timeline.ts";
@@ -15,6 +19,27 @@ const midTrunc = (s: string, max = 18) =>
   s.length <= max
     ? s
     : `${s.slice(0, Math.ceil((max - 1) / 2))}…${s.slice(-Math.floor((max - 1) / 2))}`;
+
+/** 動画素材は先頭が黒いことが多いので、一覧では中間フレームを静止画にする。 */
+const seekVideoToMidpoint = (video: HTMLVideoElement) => {
+  if (Number.isFinite(video.duration) && video.duration > 0) video.currentTime = video.duration / 2;
+};
+
+const onVideoMetadata = (event: ReactSyntheticEvent<HTMLVideoElement>) => {
+  seekVideoToMidpoint(event.currentTarget);
+};
+
+const playTileVideo = (event: ReactMouseEvent<HTMLElement>) => {
+  const video = event.currentTarget.querySelector("video");
+  if (video) void video.play().catch(() => {});
+};
+
+const pauseTileVideo = (event: ReactMouseEvent<HTMLElement>) => {
+  const video = event.currentTarget.querySelector("video");
+  if (!video) return;
+  video.pause();
+  seekVideoToMidpoint(video);
+};
 
 /**
  * 左パネル「素材」タブ。アップロード済みの画像・動画(materials/)を
@@ -36,8 +61,10 @@ export const MaterialsPanel = ({
   onUploadFiles,
   onPlace,
   onDelete,
+  onDeleteCard,
   onRenderHyperframe,
   onNewHyperframe,
+  authorPendingName,
   onDragBegin,
   onDragEnd,
 }: {
@@ -61,15 +88,25 @@ export const MaterialsPanel = ({
   onPlace: (file: string) => void;
   /** ファイルの削除(使用中チェック・確認ダイアログは App 側) */
   onDelete: (file: string) => void;
-  /** HTML source を既存 HF stage で render / cache 再利用する */
+  /** AI 生成素材のカード単位の削除(使用中チェック・確認ダイアログは App 側) */
+  onDeleteCard: (name: string) => void;
+  /** AI 生成素材を既存の生成経路で作り直す */
   onRenderHyperframe: (name: string) => void;
   onNewHyperframe: () => void;
+  /** AI が作成中のカード名(モーダル送信後の pending 表示)。null = 作成中なし */
+  authorPendingName: string | null;
   /** カードのドラッグ開始/終了(タイムラインがドロップゴーストを出す) */
   onDragBegin: (file: string) => void;
   onDragEnd: () => void;
 }) => {
-  /** 右クリックメニュー(対象ファイルと表示位置)。null = 非表示 */
-  const [menu, setMenu] = useState<{ file: string; x: number; y: number } | null>(null);
+  /** 右クリックメニュー(対象素材と表示位置)。null = 非表示 */
+  const [menu, setMenu] = useState<{
+    file?: string;
+    generatedName?: string;
+    canRebuild?: boolean;
+    x: number;
+    y: number;
+  } | null>(null);
   /** OS ファイルのドラッグがパネル上にあるか(ドロップ受け口の枠を光らせる) */
   const [dragOver, setDragOver] = useState(false);
   const dragDepth = useRef(0); // dragenter/leave が子要素で何度も届くのを相殺
@@ -99,13 +136,16 @@ export const MaterialsPanel = ({
     const files = Array.from(e.dataTransfer.files);
     if (files.length > 0) onUploadFiles(files);
   };
-  const openMenu = (e: ReactMouseEvent, file: string) => {
+  const openMenu = (
+    e: ReactMouseEvent,
+    target: { file?: string; generatedName?: string; canRebuild?: boolean },
+  ) => {
     e.preventDefault();
     // 画面端ではみ出さないように少し内側へ寄せる
     setMenu({
-      file,
+      ...target,
       x: Math.min(e.clientX, window.innerWidth - 210),
-      y: Math.min(e.clientY, window.innerHeight - 96),
+      y: Math.min(e.clientY, window.innerHeight - 140),
     });
   };
   const onDragStart = (e: ReactDragEvent, file: string) => {
@@ -121,6 +161,7 @@ export const MaterialsPanel = ({
     requestAnimationFrame(() => chip.remove());
     onDragBegin(file);
   };
+  const materialCount = materials.length + hyperframes.length + (authorPendingName ? 1 : 0);
   return (
     <div
       className={`matPanel${dragOver ? " dragOver" : ""}`}
@@ -134,109 +175,136 @@ export const MaterialsPanel = ({
           ここにドロップして素材を追加
         </div>
       )}
-      <section className="hfSection" aria-label="HF カード">
-        <div className="panelHead">
-          <span className="dim">HF カード {hyperframes.length} 件</span>
-          {hyperframesLoading && <span className="hfLoading">更新中…</span>}
-          <span className="spacer" />
+      <div className="panelHead materialPanelHead">
+        <span className="dim">素材 {materialCount} 件</span>
+        {hyperframesLoading && <span className="materialLoading">更新中…</span>}
+        <div className="materialHeadActions">
+          <button className="icon" disabled={busy} onClick={onUploadClick}>
+            素材を読み込む…
+          </button>
           <button
             className="icon"
             disabled={busy || !!hyperframeAuthorDisabledReason}
-            title={hyperframeAuthorDisabledReason ?? "brief から新しい HF カードを生成"}
+            title={
+              authorPendingName
+                ? `AI が素材「${authorPendingName}」を作成中…`
+                : hyperframeAuthorDisabledReason ?? "AI で新しい素材を作る"
+            }
             onClick={onNewHyperframe}
           >
-            新しいカード
+            {authorPendingName && (
+              <img className="aiAuthorPendingIcon" src="/particle_loop_icon.svg" alt="" />
+            )}
+            AI で素材を作る…
           </button>
         </div>
-        {hyperframeAuthorDisabledReason && (
-          <p className="dim hint hfAuthorGate">{hyperframeAuthorDisabledReason}</p>
-        )}
-        {hyperframesError && <p className="hfError hfListError">{hyperframesError}</p>}
-        {hyperframes.length === 0 ? (
-          <p className="dim hint" style={{ padding: "0 14px" }}>
-            HF カードはまだありません。agent で hyperframes/*.html を作るとここに現れます。
-          </p>
-        ) : (
-          <div className="hfGrid">
-            {hyperframes.map((card) => {
-              const file = card.mp4Path;
-              const isRendering = hyperframeRendering === card.name;
-              const inlineError = hyperframeErrors[card.name] ?? card.error;
-              const badge = card.htmlExists && !card.rendered
-                ? "未 render"
-                : card.htmlExists && card.stale
-                  ? "要更新"
-                  : null;
-              return (
-                <article
-                  className={`hfCard${file ? " rendered" : ""}`}
-                  key={card.name}
-                  draggable={!!file && !busy}
-                  onDragStart={file ? (event) => onDragStart(event, file) : undefined}
-                  onDragEnd={file ? onDragEnd : undefined}
-                  onDoubleClick={() => file && !busy && onPlace(file)}
-                  title={file ? "ダブルクリックまたはドラッグでタイムラインへ配置" : undefined}
-                >
-                  <div className="hfPreview">
-                    {file ? (
-                      <video
-                        src={`media/${file}`}
-                        preload="metadata"
-                        muted
-                        autoPlay
-                        loop
-                        playsInline
-                      />
-                    ) : (
-                      <span>HTML</span>
-                    )}
-                    {badge && <span className="hfBadge">{badge}</span>}
-                  </div>
-                  <div className="hfCardBody">
-                    <span className="hfName" title={card.name}>{midTrunc(card.name, 24)}</span>
-                    {(card.width || card.height || card.durationSec) && (
-                      <span className="hfMeta">
-                        {card.width && card.height ? `${card.width}×${card.height}` : ""}
-                        {card.durationSec ? `${card.width && card.height ? " · " : ""}${card.durationSec}s` : ""}
-                      </span>
-                    )}
-                    <div className="hfActions">
-                      <button
-                        disabled={!file || busy}
-                        onClick={() => file && onPlace(file)}
-                      >
-                        追加
-                      </button>
-                      <button
-                        disabled={!card.htmlExists || busy || hyperframeRendering !== null}
-                        onClick={() => onRenderHyperframe(card.name)}
-                      >
-                        {isRendering ? "render中…" : card.rendered ? "再render" : "render"}
-                      </button>
-                    </div>
-                    {inlineError && <p className="hfError">{inlineError}</p>}
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </section>
-      <div className="panelHead">
-        <span className="dim">素材 {materials.length} 件</span>
-        <span className="spacer" />
-        <button className="icon" disabled={busy} onClick={onUploadClick}>
-          素材を読み込む…
-        </button>
       </div>
-      {materials.length === 0 ? (
+      {hyperframeAuthorDisabledReason && (
+        <p className="dim hint materialAuthorGate">{hyperframeAuthorDisabledReason}</p>
+      )}
+      {hyperframesError && <p className="materialError materialListError">{hyperframesError}</p>}
+      {materialCount === 0 ? (
         <p className="dim hint" style={{ padding: "0 14px" }}>
-          素材がまだありません。「素材を読み込む…」でアップロードするか、
-          収録フォルダの materials/ に画像・動画・音声(BGM 用)を置いてください。
-          ここへドラッグ&ドロップでも追加できます。
+          素材がまだありません。「素材を読み込む…」で追加するか、
+          「AI で素材を作る…」から新しく作成できます。
+          ファイルはここへドラッグ&ドロップしても追加できます。
         </p>
       ) : (
         <div className="matGrid">
+          {authorPendingName && (
+            <div
+              className="matCard aiMaterialCard"
+              aria-live="polite"
+              title={`AI が素材「${authorPendingName}」を作成中…(通常1〜2分)`}
+            >
+              <div className="materialThumbWrap">
+                <div className="matThumb aiMaterialPending" aria-hidden>
+                  <img src="/particle_loop_icon.svg" alt="" />
+                </div>
+              </div>
+              <div className="matName" title={authorPendingName}>
+                {midTrunc(authorPendingName)}
+              </div>
+            </div>
+          )}
+          {hyperframes.map((card) => {
+            const file = card.mp4Path;
+            const badCodec = file ? mediaCodecFacts[file] : undefined;
+            const isRendering = hyperframeRendering === card.name;
+            const needsUpdate = card.htmlExists && (!card.rendered || card.stale);
+            const inlineError = hyperframeErrors[card.name] ?? card.error;
+            return (
+              <div
+                className={`matCard aiMaterialCard${file ? " rendered" : ""}`}
+                key={`generated:${card.name}`}
+                draggable={!!file && !busy}
+                title={
+                  `AI で生成した素材: ${card.name}\n` +
+                  (file
+                    ? "ダブルクリックまたはドラッグでタイムラインへ配置\n"
+                    : "右クリックして作り直してください\n") +
+                  "右クリック: メニュー"
+                }
+                onDragStart={file ? (event) => onDragStart(event, file) : undefined}
+                onDragEnd={file ? onDragEnd : undefined}
+                onDoubleClick={() => file && !busy && onPlace(file)}
+                onContextMenu={(event) => openMenu(event, {
+                  ...(file ? { file } : {}),
+                  generatedName: card.name,
+                  canRebuild: card.htmlExists,
+                })}
+                onMouseEnter={playTileVideo}
+                onMouseLeave={pauseTileVideo}
+              >
+                <div className="materialThumbWrap">
+                  {file ? (
+                    badCodec ? (
+                      <div
+                        className="matThumb matThumbUnplayable"
+                        aria-label={badCodec.reason}
+                        title={badCodec.reason}
+                      >
+                        <span>プレビュー不可</span>
+                        <span className="dim">{badCodec.codec.toUpperCase()}</span>
+                      </div>
+                    ) : (
+                      <video
+                        className="matThumb"
+                        src={`media/${file}`}
+                        preload="metadata"
+                        muted
+                        playsInline
+                        onLoadedMetadata={onVideoMetadata}
+                      />
+                    )
+                  ) : (
+                    <div className="matThumb aiMaterialPlaceholder" aria-hidden>✨</div>
+                  )}
+                  <span className="aiMaterialChip" title="AI で生成した素材">AI</span>
+                  {needsUpdate && (
+                    <button
+                      className="aiMaterialUpdateBadge"
+                      disabled={!card.htmlExists || busy || hyperframeRendering !== null}
+                      title="押すと素材を作り直します"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onRenderHyperframe(card.name);
+                      }}
+                    >
+                      要更新
+                    </button>
+                  )}
+                  {isRendering && (
+                    <span className="aiMaterialBusy" role="status" aria-label="作り直し中">
+                      <span className="aiMaterialSpinner" aria-hidden />
+                    </span>
+                  )}
+                </div>
+                <div className="matName" title={card.name}>{midTrunc(card.name)}</div>
+                {inlineError && <p className="materialError">{inlineError}</p>}
+              </div>
+            );
+          })}
           {materials.map((m) => {
             const name = m.replace(/^materials\//, "");
             const isVideo = VIDEO_EXT_RE.test(m);
@@ -256,7 +324,9 @@ export const MaterialsPanel = ({
                 onDragStart={(e) => onDragStart(e, m)}
                 onDragEnd={onDragEnd}
                 onDoubleClick={() => !busy && onPlace(m)}
-                onContextMenu={(e) => openMenu(e, m)}
+                onContextMenu={(e) => openMenu(e, { file: m })}
+                onMouseEnter={playTileVideo}
+                onMouseLeave={pauseTileVideo}
               >
                 {isVideo ? (
                   badCodec ? (
@@ -273,8 +343,14 @@ export const MaterialsPanel = ({
                       <span className="dim">{badCodec.codec.toUpperCase()}</span>
                     </div>
                   ) : (
-                    // preload=metadata で先頭フレームがサムネイルになる
-                    <video className="matThumb" src={`media/${m}`} preload="metadata" muted />
+                    <video
+                      className="matThumb"
+                      src={`media/${m}`}
+                      preload="metadata"
+                      muted
+                      playsInline
+                      onLoadedMetadata={onVideoMetadata}
+                    />
                   )
                 ) : isAudio ? (
                   // 音声はサムネイルが無いので種別アイコンを出す(BGM トラックへ
@@ -301,11 +377,11 @@ export const MaterialsPanel = ({
           })}
         </div>
       )}
-      {materials.length > 0 && (
+      {materialCount > 0 && (
         <p className="dim hint" style={{ padding: "0 14px" }}>
           ダブルクリックで配置、タイムラインへドラッグでも配置できます
           (素材トラック=その位置に配置、映像トラック=インサート)。
-          削除は右クリックから。
+          通常素材の削除は右クリックから。
         </p>
       )}
       {menu && (
@@ -319,24 +395,53 @@ export const MaterialsPanel = ({
             }}
           />
           <div className="ctxMenu" style={{ left: menu.x, top: menu.y }}>
-            <button
-              disabled={busy}
-              onClick={() => {
-                setMenu(null);
-                onPlace(menu.file);
-              }}
-            >
-              再生ヘッド位置へ配置
-            </button>
-            <button
-              className="danger"
-              onClick={() => {
-                setMenu(null);
-                onDelete(menu.file);
-              }}
-            >
-              削除…
-            </button>
+            {menu.file && (
+              <button
+                disabled={busy}
+                onClick={() => {
+                  setMenu(null);
+                  onPlace(menu.file!);
+                }}
+              >
+                再生ヘッド位置へ配置
+              </button>
+            )}
+            {menu.generatedName && (
+              <button
+                disabled={!menu.canRebuild || busy || hyperframeRendering !== null}
+                onClick={() => {
+                  const name = menu.generatedName!;
+                  setMenu(null);
+                  onRenderHyperframe(name);
+                }}
+              >
+                作り直す
+              </button>
+            )}
+            {menu.file && !menu.generatedName && (
+              <button
+                className="danger"
+                onClick={() => {
+                  setMenu(null);
+                  onDelete(menu.file!);
+                }}
+              >
+                削除…
+              </button>
+            )}
+            {menu.generatedName && (
+              <button
+                className="danger"
+                disabled={busy}
+                onClick={() => {
+                  const name = menu.generatedName!;
+                  setMenu(null);
+                  onDeleteCard(name);
+                }}
+              >
+                削除…
+              </button>
+            )}
           </div>
         </>
       )}
