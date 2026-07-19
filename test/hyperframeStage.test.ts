@@ -9,15 +9,18 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseComposition, SAMPLE_HTML } from "../src/lib/hyperframe.ts";
 import type { ParsedComposition } from "../src/lib/hyperframe.ts";
 import type { HyperframeRenderProfile } from "../src/lib/hyperframeRenderProfile.ts";
 import {
+  buildRecipeInjection,
   determinismVerdict,
   hyperframeCacheKey,
   parseSignalstatsYmax,
@@ -27,6 +30,8 @@ import {
   resolveHyperframeAuthorPrompt,
   resolveHyperframeBuild,
 } from "../src/stages/hyperframe.ts";
+
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 test("resolveHyperframeAuthorBrief: 明示briefを優先し、省略時は recording briefへ後方互換", () => {
   assert.equal(resolveHyperframeAuthorBrief("editor brief", "recording brief"), "editor brief");
@@ -511,4 +516,101 @@ test("renderHyperframe: gpu-angle profile is propagated to props, producer, cach
     hardwareAcceleration: "none",
     profile: "gpu-angle",
   }));
+});
+
+/* ------------------------------------------------------------------ */
+/* buildRecipeInjection + {{recipes}} byte-equivalence (P5)           */
+/* ------------------------------------------------------------------ */
+
+test("buildRecipeInjection: pattern未指定は空文字(従来promptとバイト等価)", () => {
+  assert.equal(buildRecipeInjection(undefined), "");
+});
+
+test("buildRecipeInjection: マップ外の pattern も空文字", () => {
+  assert.equal(buildRecipeInjection(0), "");
+  assert.equal(buildRecipeInjection(99), "");
+});
+
+test("buildRecipeInjection: 実パターンは recipe名 と example pointer を含む自己完結注入", () => {
+  const inj = buildRecipeInjection(9); // comparison-split
+  assert.notEqual(inj, "");
+  assert.ok(inj.startsWith("\n\n## "), "自前ヘッダ(隣接プレースホルダー流儀)で始まる");
+  assert.match(inj, /split-tilt-cards/);
+  assert.match(inj, /docs\/hyperframes-skills\/examples\/hyperframes-animation--comparison-split-cards\.html/);
+});
+
+test("buildRecipeInjection: example が無いパターンは pointer 行を出さない", () => {
+  const inj = buildRecipeInjection(1); // chapter-title, example:""
+  assert.notEqual(inj, "");
+  assert.match(inj, /ambient-glow-bloom/);
+  assert.ok(!inj.includes("worked example"), "example:'' のときは example ブロックを省く");
+});
+
+test("resolveHyperframeAuthorPrompt: {{recipes}} を省略すると feature 導入前とバイト等価", () => {
+  // {{patterns}}{{recipes}} 隣接。recipes 省略 → "" 置換 → {{recipes}} が無い版と同一。
+  const withPlaceholder = resolveHyperframeAuthorPrompt({
+    template: "P={{patterns}}{{recipes}} D={{durationSec}}",
+    brief: "b",
+    rules: "",
+    patterns: "MENU",
+    width: 1920,
+    height: 1080,
+    durationSec: 4,
+  });
+  assert.equal(withPlaceholder, "P=MENU D=4");
+});
+
+test("resolveHyperframeAuthorPrompt: recipes 値は {{recipes}} 位置へ差し込まれる", () => {
+  const prompt = resolveHyperframeAuthorPrompt({
+    template: "P={{patterns}}{{recipes}}",
+    brief: "b",
+    rules: "",
+    patterns: "MENU",
+    width: 1920,
+    height: 1080,
+    durationSec: 4,
+    recipes: "\n\n## R\n\n- x",
+  });
+  assert.equal(prompt, "P=MENU\n\n## R\n\n- x");
+});
+
+test("HYPERFRAME_PATTERN_INJECTION: recipe名・example の参照先は全て実在する(メンテナンスガード)", () => {
+  const recipesDir = join(REPO_ROOT, "docs", "hyperframes-skills", "recipes");
+  const examplesDir = join(REPO_ROOT, "docs", "hyperframes-skills", "examples");
+  const recipeFiles = new Set(readdirSync(recipesDir));
+  const exampleFiles = new Set(readdirSync(examplesDir));
+
+  let checkedRecipes = 0;
+  let checkedExamples = 0;
+  for (let pattern = 1; pattern <= 11; pattern++) {
+    const inj = buildRecipeInjection(pattern);
+    if (inj === "") continue;
+
+    // `recipe-name` 参照(パス区切りを含まない純粋な backtick 語だけを拾う。
+    // `docs/hyperframes-skills/recipes/<name>.md` のような説明文中の backtick は
+    // "/" や "<" を含むためこのパターンにはマッチしない)。
+    for (const m of inj.matchAll(/`([a-z0-9][a-z0-9-]*)`/g)) {
+      const name = m[1];
+      const file = `${name}.md`;
+      assert.ok(
+        recipeFiles.has(file),
+        `buildRecipeInjection(${pattern}) が参照する recipe が見つからない: recipes/${file}`,
+      );
+      checkedRecipes++;
+    }
+
+    // `docs/hyperframes-skills/examples/<file>` 参照。
+    const exampleMatch = inj.match(/docs\/hyperframes-skills\/examples\/([^`]+)`/);
+    if (exampleMatch) {
+      const file = exampleMatch[1];
+      assert.ok(
+        exampleFiles.has(file),
+        `buildRecipeInjection(${pattern}) が参照する example が見つからない: examples/${file}`,
+      );
+      checkedExamples++;
+    }
+  }
+
+  assert.ok(checkedRecipes > 0, "少なくとも1件は recipe 参照を検査したはず");
+  assert.ok(checkedExamples > 0, "少なくとも1件は example 参照を検査したはず");
 });

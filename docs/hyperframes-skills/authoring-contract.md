@@ -39,6 +39,57 @@
   可視ウィンドウは適用されない(警告止まりだが実質バグなので必ず両方揃える)
 - clip の可視/不可視は framework(native interpreter)が管理する。JS 側で
   `display`/`visibility` を直接いじって clip のライフサイクルを乗っ取らない
+- 可視ウィンドウは **開始含む・終了含まない**(`t >= start && t < start+duration`)。
+  ちょうど `start+duration` の瞬間は hidden 側になる(upstream の両端含むとは違う)。
+  最終フレームまで見せたい reveal は窓をわずかに伸ばすか、着地を `duration` 手前に置く
+- clip は root の直下でなくてよい(interpreter は `.clip` を深さ無視で全走査する)。
+  upstream の「clip は root の直接の子」制約は Cutflow には無い(track が無いため)
+
+## Cutflow が honor しない upstream 機能(スコープ境界)
+
+Cutflow の native interpreter(`src/lib/hyperframe.ts` の bootstrap)は **1カード=
+1 HTML ファイルのフラットな単一 composition** を seek するだけの最小実装で、upstream
+HyperFrames の以下の機能は**実装していない**。upstream 側のドキュメント・サンプルから
+これらをコピーすると、check ゲートは 0 エラーで通っても render で黙って壊れる
+(何も出ない/常に hidden/黒画面)。**カードはこれらを使わずに書く**:
+
+- **sub-composition(`data-composition-src` / `<template>` 分割)は無い**。interpreter は
+  1つの srcdoc を1つの iframe に読むだけで、外部 composition の fetch・DOMParser・
+  `<template>` 抽出・独立 seek を一切しない(`data-composition-src` は check ゲートでは
+  remote-URL スキャンの対象にしかならない)。複数シーンは**同じ1ファイル内の
+  `class="clip"` 兄弟**(内部フェーズ div)で表現する
+- **track(`data-track-index`)は無い**。可視性は各 clip の `data-start`/`data-duration`
+  の窓だけで決まり、track 番号や「同一 track 内は重なり禁止」という概念は interpreter に
+  無い(読まれない)。重なり順は CSS `z-index` で作る
+- **相対タイミング(`data-start="<clip-id>"` / `"intro + 2"`)は無い**。interpreter は
+  `parseFloat(data-start)` で**数値秒だけ**を読む。clip-id 文字列は `NaN` になりその clip は
+  常に hidden。`data-start` は必ず数値で書く
+- **メディア clip(`<video>`/`<audio>` の駆動)は無い**。interpreter は `<video>`/`<audio>`
+  の `currentTime` を seek せず、`data-media-start`/`data-volume`/`data-has-audio` も読まない
+  (カードは無音の作図素材)。動画を見せたいときはカードにではなく本編の
+  overlays/inserts(`materials/`)に置く
+- **宣言的な変数バインドは無い**。`data-var-src`/`data-var-text`・スカラ変数の自動
+  `--{id}` CSS custom property 化は未実装。変数は既存の「typed variables」節どおり
+  `window.__hyperframes.getVariables()` で読んで script から代入する
+- **root の `data-duration` は尺の正本ではない**。interpreter/`parseComposition` は root の
+  `data-duration` を読まず、尺は clip 群の `max(data-start + data-duration)`
+  (`intrinsicDurationSec`)か CLI の `--durationSec`・props で決まる。尺を変えたいときは
+  clip の窓を伸ばすか `--durationSec` を渡す(root の `data-duration` は無視される)
+
+## 全画面モーションと複数シーン(単一ファイルでの作法)
+
+sub-composition が無いぶん、連続する背景モーションや複数シーンは1ファイル内で作る:
+
+- **共有背景レイヤー**: 全編ずっと出す背景は `class="clip"` を**付けない**素の要素にする
+  (clip を付けないので可視性管理の対象外=常時表示)。その要素を WAAPI か GSAP timeline で
+  seek 駆動し、色替え・ビネット・グレイン等の全域ステートはここ1枚に集約する。上に載せる
+  シーンは背景透過の `class="clip"` レイヤーにする
+- **複数シーン/フェーズ**: ハードカットは同一ファイル内の `class="clip"` 兄弟を
+  `data-start`/`data-duration` で並べる。連続ステートを共有するフェーズ(伸びるチャット・
+  カットをまたぐ見出し語)は、clip を分けず1つの入れ物の中の内部フェーズ div にして
+  timeline で `opacity`/`visibility` を切り替える(clip 境界を跨がない)
+- 背景・フェーズ要素の可視制御に `.clip` のライフサイクルを乗っ取らせない
+  (`display`/`visibility` の直接 tween は clip 以外の要素/ラッパーにだけ、B0 の allowlist 内で)
 
 ## determinism(seek-safe)
 

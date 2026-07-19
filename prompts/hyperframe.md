@@ -24,7 +24,7 @@ Cutflow の check ゲート(`checkComposition`)がそのまま受理できる形
 以下から**1つだけ番号で選んでください**。存在しない構造を自分で発明しては
 いけません(番号選択方式は plan-materials / plan-effects と同じ流儀です)。
 
-{{patterns}}
+{{patterns}}{{recipes}}
 
 ## 入力: 出力仕様
 

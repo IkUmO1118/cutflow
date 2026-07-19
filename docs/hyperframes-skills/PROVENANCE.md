@@ -8,22 +8,28 @@
 |---|---|
 | upstream | https://github.com/heygen-com/hyperframes |
 | path | `skills/` |
-| ref | `main` |
-| 取得日 | 2026-07-18 |
+| ref | `main` = SHA `458df4c41294655f76e551100a9b634114209bb9` |
+| 取得日 | 2026-07-18 / 2026-07-20(references 層フル抽出) |
 | license | Apache-2.0。全文は複製せず `../../remotion/vendor/hyperframes/LICENSE` を参照する |
 | 翻案した skills | `hyperframes-core` / `hyperframes-animation` / `hyperframes-keyframes`(契約+作法を精読) / `faceless-explainer` / `motion-graphics` / `pr-to-video` / `hyperframes-creative`(デザイン感性のみ採取) |
 
 ## 翻案の方針
 
 このリポジトリの native interpreter(C1: `remotion/HyperFrame.tsx` +
-`src/lib/hyperframe.ts`)は CSS アニメーション + WAAPI(`element.animate`)しか
-seek しません。GSAP ランタイムは存在しません。同様に check ゲート(C2:
-`src/lib/hyperframeCheck.ts`)はリモート URL・タイマー・非決定的 API を一律で
-禁止します。したがって上記 skills の内容は**そのまま複製できません**。次を
-取り除いた上で、Cutflow の native な作図契約に合わせて書き直しています:
+`src/lib/hyperframe.ts`)は CSS アニメーション + WAAPI(`element.animate`)を
+`document.getAnimations()` 経由で seek するのに加えて、GSAP 3.14.2 と
+Lottie 5.12.2 を pin 済み(`src/lib/hyperframeCdn.ts`)で、`window.__timelines`
+(GSAP の paused timeline)/ `window.__hfLottie`(Lottie animation)への
+登録経由で絶対時刻へ seek 駆動できます(Three.js / Anime.js / TypeGPU は
+未 pin のまま対象外)。同様に check ゲート(C2: `src/lib/hyperframeCheck.ts`)は
+リモート URL(pin 外)・タイマー・非決定的 API を一律で禁止します。したがって
+上記 skills の内容は**そのまま複製できません**。次を取り除いた上で、Cutflow の
+native な作図契約に合わせて書き直しています(seek-safe/決定論のドクトリンは
+GSAP/Lottie を pin した後も不変で、自走・壁時計依存は引き続き禁止):
 
-- GSAP をデフォルトとするアニメーション API・アダプタ群(Lottie / Three.js /
-  Anime.js / TypeGPU 等の非 CSS/WAAPI バックエンド)
+- Three.js / Anime.js / TypeGPU 等、pin 外の非 CSS/WAAPI バックエンド
+  (GSAP・Lottie は pin 済みで `data-hf-requires="gsap"`/`"lottie"` 経由で
+  利用可能)
 - `npx hyperframes` CLI(`init`/`lint`/`check`/`snapshot`/`preview`/`render`
   等)・HeyGen サインイン・`media-use` によるアセット解決
 - capture(URL キャプチャ)・registry(`npx hyperframes add <block>`)・
