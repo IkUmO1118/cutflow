@@ -4,7 +4,7 @@ import { captionTrack, captionTrackName } from "../../src/types.ts";
 import type { Interval, Overlays, Shorts, Transcript } from "../../src/types.ts";
 import { toSourceTime } from "../../src/lib/timeline.ts";
 import type { TimelineEntry } from "../../src/lib/timeline.ts";
-import type { ScriptData } from "./apiTypes.ts";
+import type { HyperframeCard, ScriptData } from "./apiTypes.ts";
 import { usePlayheadSelector } from "./playhead.ts";
 import { MATERIAL_MIME, buildScriptBlocks, scriptKeptFlags } from "./model.ts";
 import type { ScriptBlock } from "./model.ts";
@@ -25,11 +25,17 @@ const midTrunc = (s: string, max = 18) =>
 export const MaterialsPanel = ({
   materials,
   mediaCodecFacts,
+  hyperframes,
+  hyperframesLoading,
+  hyperframesError,
+  hyperframeRendering,
+  hyperframeErrors,
   busy,
   onUploadClick,
   onUploadFiles,
   onPlace,
   onDelete,
+  onRenderHyperframe,
   onDragBegin,
   onDragEnd,
 }: {
@@ -38,6 +44,11 @@ export const MaterialsPanel = ({
   /** codec 由来のブラウザ表示不可の疎な map(キー = materials の相対パス)。
    * 無い/未判定のキー = 表示可能扱い。既定 {} なら全ブランチ現状どおり */
   mediaCodecFacts: Record<string, { codec: string; reason: string }>;
+  hyperframes: HyperframeCard[];
+  hyperframesLoading: boolean;
+  hyperframesError: string | null;
+  hyperframeRendering: string | null;
+  hyperframeErrors: Record<string, string>;
   busy: boolean;
   /** 「素材を読み込む…」(App のファイル選択を開く) */
   onUploadClick: () => void;
@@ -47,6 +58,8 @@ export const MaterialsPanel = ({
   onPlace: (file: string) => void;
   /** ファイルの削除(使用中チェック・確認ダイアログは App 側) */
   onDelete: (file: string) => void;
+  /** HTML source を既存 HF stage で render / cache 再利用する */
+  onRenderHyperframe: (name: string) => void;
   /** カードのドラッグ開始/終了(タイムラインがドロップゴーストを出す) */
   onDragBegin: (file: string) => void;
   onDragEnd: () => void;
@@ -117,6 +130,82 @@ export const MaterialsPanel = ({
           ここにドロップして素材を追加
         </div>
       )}
+      <section className="hfSection" aria-label="HF カード">
+        <div className="panelHead">
+          <span className="dim">HF カード {hyperframes.length} 件</span>
+          {hyperframesLoading && <span className="hfLoading">更新中…</span>}
+        </div>
+        {hyperframesError && <p className="hfError hfListError">{hyperframesError}</p>}
+        {hyperframes.length === 0 ? (
+          <p className="dim hint" style={{ padding: "0 14px" }}>
+            HF カードはまだありません。agent で hyperframes/*.html を作るとここに現れます。
+          </p>
+        ) : (
+          <div className="hfGrid">
+            {hyperframes.map((card) => {
+              const file = card.mp4Path;
+              const isRendering = hyperframeRendering === card.name;
+              const inlineError = hyperframeErrors[card.name] ?? card.error;
+              const badge = card.htmlExists && !card.rendered
+                ? "未 render"
+                : card.htmlExists && card.stale
+                  ? "要更新"
+                  : null;
+              return (
+                <article
+                  className={`hfCard${file ? " rendered" : ""}`}
+                  key={card.name}
+                  draggable={!!file && !busy}
+                  onDragStart={file ? (event) => onDragStart(event, file) : undefined}
+                  onDragEnd={file ? onDragEnd : undefined}
+                  onDoubleClick={() => file && !busy && onPlace(file)}
+                  title={file ? "ダブルクリックまたはドラッグでタイムラインへ配置" : undefined}
+                >
+                  <div className="hfPreview">
+                    {file ? (
+                      <video
+                        src={`media/${file}`}
+                        preload="metadata"
+                        muted
+                        autoPlay
+                        loop
+                        playsInline
+                      />
+                    ) : (
+                      <span>HTML</span>
+                    )}
+                    {badge && <span className="hfBadge">{badge}</span>}
+                  </div>
+                  <div className="hfCardBody">
+                    <span className="hfName" title={card.name}>{midTrunc(card.name, 24)}</span>
+                    {(card.width || card.height || card.durationSec) && (
+                      <span className="hfMeta">
+                        {card.width && card.height ? `${card.width}×${card.height}` : ""}
+                        {card.durationSec ? `${card.width && card.height ? " · " : ""}${card.durationSec}s` : ""}
+                      </span>
+                    )}
+                    <div className="hfActions">
+                      <button
+                        disabled={!file || busy}
+                        onClick={() => file && onPlace(file)}
+                      >
+                        追加
+                      </button>
+                      <button
+                        disabled={!card.htmlExists || busy || hyperframeRendering !== null}
+                        onClick={() => onRenderHyperframe(card.name)}
+                      >
+                        {isRendering ? "render中…" : card.rendered ? "再render" : "render"}
+                      </button>
+                    </div>
+                    {inlineError && <p className="hfError">{inlineError}</p>}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
       <div className="panelHead">
         <span className="dim">素材 {materials.length} 件</span>
         <span className="spacer" />
