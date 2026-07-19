@@ -1,0 +1,14 @@
+<!doctype html>
+<html>
+<head><style>
+  html,body{margin:0;padding:0}
+  #root{position:relative;width:1920px;height:1080px;background:#0b0f1a;overflow:hidden;font-family:sans-serif}
+  #box{position:absolute;top:440px;left:200px;width:200px;height:200px;background:#22c55e;border-radius:12px;animation:slide 2s linear both;animation-play-state:paused}
+  @keyframes slide{from{transform:translateX(0)}to{transform:translateX(500px)}}
+</style></head>
+<body>
+  <div id="root" data-composition-id="root" data-width="1920" data-height="1080">
+    <div id="box" class="clip" data-start="0" data-duration="2"></div>
+  </div>
+</body>
+</html>

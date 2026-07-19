@@ -416,6 +416,28 @@ export interface Config {
      *  vision route 不在なら実行時に自動で無効になる */
     useVlm?: boolean;
   };
+  /** HyperFrames カードの render 不要な動的監査(hyperframe-check)。
+   *  headless Chrome で srcdoc を時間グリッド seek し、論理アニメーション状態
+   *  (ピクセルではない)から dead-zone / 終端未完了 / 画面外終端 / seek 無反応 /
+   *  一斉登場を検出する。決定論のみ・常に exit 0・warn/info のみ。
+   *  省略時は全て既定値(DEFAULT_HYPERFRAME_CHECK_*) */
+  hyperframeCheck?: {
+    /** サンプル間隔(秒)。省略時 DEFAULT_HYPERFRAME_CHECK_STEP_SEC(0.1) */
+    stepSec?: number;
+    /** 終端未完了とみなす、最終フレームでの完了進捗(0..1)の下限。
+     *  省略時 DEFAULT_AUDIT_THRESHOLDS.terminalProgressThreshold(0.4) */
+    terminalProgressThreshold?: number;
+    /** 「可視」とみなす opacity の下限。省略時 DEFAULT_AUDIT_THRESHOLDS.offscreenOpacityGate(0.05) */
+    offscreenOpacityGate?: number;
+    /** dead zone とみなす無変化区間の尺の比率。省略時 DEFAULT_AUDIT_THRESHOLDS.deadZoneMaxFrac(0.5) */
+    deadZoneMaxFrac?: number;
+    /** simultaneous-entry の対象とする最小要素数。省略時 DEFAULT_AUDIT_THRESHOLDS.entryMinElements(3) */
+    entryMinElements?: number;
+    /** simultaneous-entry の「同時」とみなす許容フレーム数。省略時 DEFAULT_AUDIT_THRESHOLDS.entryEpsilonFrames(2) */
+    entryEpsilonFrames?: number;
+    /** VLM 二次確認を使うか(commit 2 で実装)。省略時 DEFAULT_HYPERFRAME_CHECK_USE_VLM(true) */
+    useVlm?: boolean;
+  };
   /** E7: 演出検品(effect-check)の警告を plan-effects の再生成へ観測として
    *  戻す opt-in フラグ(§docs/plans/2026-07-11-e6-e7-effect-review-loop-design.md)。
    *  省略時 observe=false(バイト等価。plan-effects の出力は導入前と不変)。
@@ -839,6 +861,39 @@ export const DEFAULT_EFFECT_REVIEW_OBSERVE = false;
  *  書き換えない */
 export function resolveEffectReviewCfg(cfg: Config): { observe: boolean } {
   return { observe: cfg.effectReview?.observe ?? DEFAULT_EFFECT_REVIEW_OBSERVE };
+}
+
+/** hyperframeCheck.* 未指定時の既定値(src/lib/hyperframeAudit.ts の
+ *  DEFAULT_AUDIT_THRESHOLDS と同じ数値を config 未指定時の既定として重ねる) */
+export const DEFAULT_HYPERFRAME_CHECK_STEP_SEC = 0.1;
+export const DEFAULT_HYPERFRAME_CHECK_TERMINAL_PROGRESS_THRESHOLD = 0.4;
+export const DEFAULT_HYPERFRAME_CHECK_OFFSCREEN_OPACITY_GATE = 0.05;
+export const DEFAULT_HYPERFRAME_CHECK_DEAD_ZONE_MAX_FRAC = 0.5;
+export const DEFAULT_HYPERFRAME_CHECK_ENTRY_MIN_ELEMENTS = 3;
+export const DEFAULT_HYPERFRAME_CHECK_ENTRY_EPSILON_FRAMES = 2;
+export const DEFAULT_HYPERFRAME_CHECK_USE_VLM = true;
+
+/** hyperframeCheck を既定値で解決する純関数。loadConfig は cfg.hyperframeCheck を
+ *  書き換えない */
+export function resolveHyperframeAuditCfg(cfg: Config): {
+  stepSec: number;
+  terminalProgressThreshold: number;
+  offscreenOpacityGate: number;
+  deadZoneMaxFrac: number;
+  entryMinElements: number;
+  entryEpsilonFrames: number;
+  useVlm: boolean;
+} {
+  const h = cfg.hyperframeCheck ?? {};
+  return {
+    stepSec: h.stepSec ?? DEFAULT_HYPERFRAME_CHECK_STEP_SEC,
+    terminalProgressThreshold: h.terminalProgressThreshold ?? DEFAULT_HYPERFRAME_CHECK_TERMINAL_PROGRESS_THRESHOLD,
+    offscreenOpacityGate: h.offscreenOpacityGate ?? DEFAULT_HYPERFRAME_CHECK_OFFSCREEN_OPACITY_GATE,
+    deadZoneMaxFrac: h.deadZoneMaxFrac ?? DEFAULT_HYPERFRAME_CHECK_DEAD_ZONE_MAX_FRAC,
+    entryMinElements: h.entryMinElements ?? DEFAULT_HYPERFRAME_CHECK_ENTRY_MIN_ELEMENTS,
+    entryEpsilonFrames: h.entryEpsilonFrames ?? DEFAULT_HYPERFRAME_CHECK_ENTRY_EPSILON_FRAMES,
+    useVlm: h.useVlm ?? DEFAULT_HYPERFRAME_CHECK_USE_VLM,
+  };
 }
 
 /** bgmFit.* 未指定時の既定値。§docs/plans/2026-07-11-b2-b4-bgm-audio-aware-design.md */

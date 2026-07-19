@@ -51,6 +51,7 @@ import {
 } from "../lib/hyperframeAssets.ts";
 import type { HyperframeAssetInput } from "../lib/hyperframeAssets.ts";
 import { readRules } from "./plan.ts";
+import { loadFrozenSeedMenu } from "./hyperframeFreeze.ts";
 import type { HyperFrameProps } from "../../remotion/HyperFrame.tsx";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -749,6 +750,38 @@ export function buildRecipeInjection(pattern: number | undefined): string {
   return lines.join("\n");
 }
 
+/** pattern 未指定(un-steered)のとき、LLM がどのパターンを選んでも signature
+ * motion recipe が見えるよう、全11パターンの骨子を一括で注入する。
+ * pointer(recipes/<name>.md へのパス・worked example)は落とし、recipe名+gloss
+ * だけに絞ってコンパクトに保つ(11パターン分を毎回積むための bloat 回避)。 */
+export function buildAllPatternsRecipeInjection(): string {
+  const lines: string[] = [];
+  lines.push("");
+  lines.push("");
+  lines.push("## 各パターンの signature motion recipe(骨子・参考)");
+  lines.push("");
+  lines.push(
+    "どのパターンを選んでも signature が出るよう、11パターン分の atomic motion recipe を" +
+      "骨子だけ並べます(全文は注入しない。文言・色は brief に合わせて書き換える):",
+  );
+  lines.push("");
+  for (let pattern = 1; pattern <= 11; pattern++) {
+    const entry = HYPERFRAME_PATTERN_INJECTION[pattern];
+    if (entry === undefined || entry.recipes.length === 0) continue;
+    const recipeText = entry.recipes
+      .map((r) => `\`${r.name}\` — ${r.gloss}`)
+      .join("; ");
+    lines.push(`- パターン${pattern}(${entry.patternName}): ${recipeText}`);
+  }
+  return lines.join("\n");
+}
+
+/** un-steered(pattern 未指定)は buildAllPatternsRecipeInjection、
+ * steered(pattern 指定)は buildRecipeInjection(選択パターンのみ)に振り分ける。 */
+export function selectRecipeInjection(pattern: number | undefined): string {
+  return pattern === undefined ? buildAllPatternsRecipeInjection() : buildRecipeInjection(pattern);
+}
+
 /** author prompt の決定的な組み立て。brief の取得元(fs / editor request)だけを
  * 呼び出し側で解決し、その他の prompt 入力と pattern 追記は従来どおり保つ。 */
 export function resolveHyperframeAuthorPrompt(args: {
@@ -808,6 +841,9 @@ export async function authorHyperframe(
     join(REPO_ROOT, "docs", "hyperframes-skills", "card-patterns.md"),
     "utf8",
   );
+  // W3: 凍結カード(channel の hyperframe-seeds/)を番号メニュー末尾へ連結。
+  // 凍結ゼロ/store 不在なら loadFrozenSeedMenu は "" を返し patterns はバイト等価。
+  const patternsWithFrozen = patterns + loadFrozenSeedMenu(dir, patterns);
 
   const briefPath = join(dir, "brief.md");
   const recordingBrief = opts.brief === undefined && existsSync(briefPath)
@@ -830,7 +866,7 @@ export async function authorHyperframe(
 
   const prompt = resolveHyperframeAuthorPrompt({
     template,
-    patterns,
+    patterns: patternsWithFrozen,
     brief,
     rules,
     width,
@@ -838,7 +874,8 @@ export async function authorHyperframe(
     durationSec,
     pattern: opts.pattern,
     assets: formatHyperframeAssetPrompt(assets),
-    recipes: buildRecipeInjection(opts.pattern),
+    // un-steered(pattern 未指定)は全11パターンの骨子、steered は選択パターンのみ(二重注入回避)。
+    recipes: selectRecipeInjection(opts.pattern),
   });
 
   const raw = await completeWithJsonSchema(
