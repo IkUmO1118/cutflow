@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent } from "react";
+import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from "react";
 import { Player } from "@remotion/player";
 import type { CallbackListener, PlayerRef } from "@remotion/player";
 import { Main } from "../../remotion/Main.tsx";
@@ -126,6 +126,7 @@ import {
   VolumeIcon,
   VIDEO_EXT_RE,
   deleteDraft,
+  deleteHyperframe,
   deleteMaterial,
   fmtTime,
   getMediaFacts,
@@ -607,7 +608,16 @@ export const App = () => {
   const [hyperframeErrors, setHyperframeErrors] = useState<Record<string, string>>({});
   const [hyperframeAuthorOpen, setHyperframeAuthorOpen] = useState(false);
   const [hyperframeAuthorName, setHyperframeAuthorName] = useState("");
+  const [hyperframeAuthorAssets, setHyperframeAuthorAssets] = useState<File[]>([]);
+  const [hyperframeAssetLimits, setHyperframeAssetLimits] = useState<{
+    maxBytes: number;
+    maxTotalBytes: number;
+  } | null>(null);
+  const hyperframeAssetInputRef = useRef<HTMLInputElement>(null);
   const [hyperframeAuthorBusy, setHyperframeAuthorBusy] = useState(false);
+  /** 作成中カード名。モーダルは送信時に閉じ、素材グリッドの作成中タイルと
+   * ヘッダーボタンのアイコンでこの pending を見せる */
+  const [hyperframeAuthorPendingName, setHyperframeAuthorPendingName] = useState<string | null>(null);
   const [hyperframeAuthorError, setHyperframeAuthorError] = useState<string | null>(null);
   /** 現在の収録フォルダに対して /api/media-facts を取り直す。初回ロード・
    * 外部変更のホットリロード・アップロード成功後、いずれも呼ぶ
@@ -622,6 +632,7 @@ export const App = () => {
     try {
       const data = await getHyperframes();
       setHyperframes(data.hyperframes);
+      setHyperframeAssetLimits(data.assetLimits);
       const renderedPaths = data.hyperframes.flatMap((card) => card.mp4Path ? [card.mp4Path] : []);
       setProj((current) => {
         if (!current) return current;
@@ -4132,15 +4143,20 @@ export const App = () => {
       });
       addToast({
         kind: "success",
+        ttlMs: 4000,
         message: result.skipped
-          ? `HF カード「${name}」は最新です(cache hit)`
-          : `HF カード「${name}」をrenderしました`,
+          ? `素材「${name}」は最新です`
+          : `素材「${name}」を作り直しました`,
       });
       await refreshHyperframes(false);
     } catch (e) {
       const message = (e as Error).message;
       setHyperframeErrors((current) => ({ ...current, [name]: message }));
-      addToast({ kind: "error", message: `HF カード「${name}」: ${message}` });
+      addToast({
+        kind: "error",
+        ttlMs: 8000,
+        message: `素材「${name}」を作り直せませんでした: ${message}`,
+      });
       await refreshHyperframes(false);
     } finally {
       setHyperframeRendering(null);
@@ -4149,32 +4165,123 @@ export const App = () => {
 
   const openHyperframeAuthor = () => {
     setHyperframeAuthorName("");
+    setHyperframeAuthorAssets([]);
     setHyperframeAuthorError(null);
     setHyperframeAuthorOpen(true);
+  };
+
+  const addHyperframeAuthorAssets = (files: readonly File[]) => {
+    const next = [...hyperframeAuthorAssets];
+    for (const file of files) {
+      if (!/\.(png|jpe?g|gif|webp)$/i.test(file.name)) {
+        setHyperframeAuthorError(`「${file.name}」は添付できません。PNG / JPEG / GIF / WebP を選んでください`);
+        return;
+      }
+      if (hyperframeAssetLimits && file.size > hyperframeAssetLimits.maxBytes) {
+        setHyperframeAuthorError(`「${file.name}」が1ファイルの上限を超えています`);
+        return;
+      }
+      const previous = next.findIndex((item) => item.name.toLowerCase() === file.name.toLowerCase());
+      if (previous >= 0) next.splice(previous, 1, file);
+      else next.push(file);
+    }
+    if (
+      hyperframeAssetLimits &&
+      next.reduce((sum, file) => sum + file.size, 0) > hyperframeAssetLimits.maxTotalBytes
+    ) {
+      setHyperframeAuthorError("添付素材の合計サイズが上限を超えています");
+      return;
+    }
+    setHyperframeAuthorAssets(next);
+    setHyperframeAuthorError(null);
+  };
+
+  const onHyperframeAssetDrop = (event: ReactDragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    if (hyperframeAuthorBusy) return;
+    addHyperframeAuthorAssets([...event.dataTransfer.files]);
   };
 
   const runHyperframeAuthor = async (brief: string) => {
     const name = hyperframeAuthorName;
     if (!HYPERFRAME_NAME_RE.test(name)) {
-      setHyperframeAuthorError("name は英数字・.・_・- のみで指定してください");
+      setHyperframeAuthorError("ファイル名は英数字・.・_・- のみで指定してください");
       return;
     }
+    const assets = hyperframeAuthorAssets;
     setHyperframeAuthorBusy(true);
     setHyperframeAuthorError(null);
+    // 生成は1〜2分かかるためモーダルは送信時に閉じ、進行は素材グリッドの
+    // 作成中タイルで見せる。入力は失敗時の再試行に備えて成功まで消さない
+    setHyperframeAuthorPendingName(name);
+    setHyperframeAuthorOpen(false);
     try {
-      const result = await postHyperframeAuthor(name, brief);
+      const result = await postHyperframeAuthor(name, brief, assets);
       setHyperframes((cards) => {
         const rest = cards.filter((card) => card.name !== name);
         return [...rest, result.card].sort((a, b) => a.name.localeCompare(b.name));
       });
       await refreshHyperframes(false);
-      setHyperframeAuthorOpen(false);
       setHyperframeAuthorName("");
-      addToast({ kind: "success", message: `HF カード「${name}」を生成しました` });
+      setHyperframeAuthorAssets([]);
+      addToast({ kind: "success", ttlMs: 4000, message: `素材「${name}」を作りました` });
     } catch (e) {
       setHyperframeAuthorError((e as Error).message);
+      addToast({
+        kind: "error",
+        ttlMs: 8000,
+        message: `素材「${name}」を作れませんでした: ${(e as Error).message}`,
+      });
     } finally {
       setHyperframeAuthorBusy(false);
+      setHyperframeAuthorPendingName(null);
+    }
+  };
+
+  /** AI 生成素材の削除。render 済み MP4 の使用中チェックは通常素材と同じ基準で
+   * 行い、確認のうえ source(html)ごとサーバへカード単位の削除を依頼する */
+  const deleteHyperframeCard = async (name: string) => {
+    const file = `materials/hyperframes/${name}.mp4`;
+    const bgmUses = (b: Bgm | null | undefined): number =>
+      (b?.tracks ?? []).filter((t) => t.file === file).length;
+    const usedIn = (o: Overlays | null | undefined): number =>
+      (o?.overlays ?? []).filter((s) => s.file === file).length +
+      (o?.inserts ?? []).filter((s) => s.file === file).length;
+    if (usedIn(overlays) + bgmUses(bgm) > 0) {
+      setError(
+        `「${name}」はタイムラインで ${usedIn(overlays) + bgmUses(bgm)} 箇所使用中のため削除できません。` +
+          "先にクリップを削除してください",
+      );
+      return;
+    }
+    if (usedIn(proj?.overlays) + bgmUses(proj?.bgm) > 0) {
+      setError(
+        `「${name}」を使うクリップの削除がまだ保存されていません。` +
+          "⌘S で保存してから素材を削除してください",
+      );
+      return;
+    }
+    if (
+      !window.confirm(
+        `AI 素材「${name}」を削除しますか?\n` +
+          "作成した動画と、作り直しに使う元データの両方が収録フォルダから消え、" +
+          "元に戻せません(⌘Z も効きません)。",
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    try {
+      await deleteHyperframe(name);
+      setHyperframes((cards) => cards.filter((card) => card.name !== name));
+      setHyperframeErrors((errors) => {
+        const rest = { ...errors };
+        delete rest[name];
+        return rest;
+      });
+      setProj((p) => p && { ...p, dirFiles: p.dirFiles.filter((f) => f !== file) });
+    } catch (e) {
+      setError((e as Error).message);
     }
   };
 
@@ -4534,11 +4641,11 @@ export const App = () => {
             className="aiCommandBackdrop"
             onClick={() => !hyperframeAuthorBusy && setHyperframeAuthorOpen(false)}
           />
-          <section className="aiCommandModal hfAuthorModal" role="dialog" aria-label="新しい HF カード">
+          <section className="aiCommandModal hfAuthorModal" role="dialog" aria-label="AI で素材を作る">
             <div className="aiCommandModalHead">
               <div>
-                <div className="aiCommandKicker">HF カード</div>
-                <h3>brief から新しいカードを生成</h3>
+                <div className="aiCommandKicker">AI で作る</div>
+                <h3>新しい素材を作る</h3>
               </div>
               <button
                 className="icon"
@@ -4550,11 +4657,11 @@ export const App = () => {
               </button>
             </div>
             <label className="hfAuthorNameField">
-              <span>name</span>
+              <span>ファイル名</span>
               <input
                 value={hyperframeAuthorName}
                 disabled={hyperframeAuthorBusy}
-                placeholder="例: ending-card"
+                placeholder="例: next-preview"
                 autoFocus
                 onChange={(event) => {
                   setHyperframeAuthorName(event.target.value);
@@ -4569,16 +4676,67 @@ export const App = () => {
               modalStyle
               clearOnSubmit={false}
               disabledReason={hyperframeAuthorStatus.disabledReason}
-              placeholder="カードに表示したい内容・雰囲気・動きを入力"
-              submitLabel="生成"
+              placeholder="例: 「次回予告」と大きく出るタイトル素材、5秒"
+              submitLabel="作る"
               onSubmit={(brief) => void runHyperframeAuthor(brief)}
             />
+            <div
+              className={`hfAssetDrop${hyperframeAuthorBusy ? " disabled" : ""}`}
+              role="button"
+              tabIndex={hyperframeAuthorBusy ? -1 : 0}
+              onClick={() => !hyperframeAuthorBusy && hyperframeAssetInputRef.current?.click()}
+              onKeyDown={(event) => {
+                if (!hyperframeAuthorBusy && (event.key === "Enter" || event.key === " ")) {
+                  event.preventDefault();
+                  hyperframeAssetInputRef.current?.click();
+                }
+              }}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={onHyperframeAssetDrop}
+            >
+              <input
+                ref={hyperframeAssetInputRef}
+                type="file"
+                accept=".png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp"
+                multiple
+                disabled={hyperframeAuthorBusy}
+                onChange={(event) => {
+                  addHyperframeAuthorAssets([...(event.target.files ?? [])]);
+                  event.target.value = "";
+                }}
+              />
+              <strong>画像をドロップ、またはクリックして選択</strong>
+              <span>
+                PNG / JPEG / GIF / WebP
+                {hyperframeAssetLimits && (
+                  ` · 1枚 ${(hyperframeAssetLimits.maxBytes / 1024 / 1024).toFixed(1)}MB / ` +
+                  `合計 ${(hyperframeAssetLimits.maxTotalBytes / 1024 / 1024).toFixed(1)}MB まで`
+                )}
+              </span>
+            </div>
+            {hyperframeAuthorAssets.length > 0 && (
+              <ul className="hfAssetList" aria-label="添付素材">
+                {hyperframeAuthorAssets.map((file) => (
+                  <li key={file.name}>
+                    <span>{file.name} · {(file.size / 1024).toFixed(0)}KB</span>
+                    <button
+                      type="button"
+                      disabled={hyperframeAuthorBusy}
+                      aria-label={`${file.name}を外す`}
+                      onClick={() => setHyperframeAuthorAssets((items) => items.filter((item) => item !== file))}
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
             {hyperframeAuthorStatus.disabledReason && (
               <p className="hfAuthorDisabled">{hyperframeAuthorStatus.disabledReason}</p>
             )}
             {hyperframeAuthorError && <p className="hfAuthorError">{hyperframeAuthorError}</p>}
             <p className="dim hint">
-              既定は 1920×1080・4秒です。詳細調整や既存カードの上書きは agent で行ってください。
+              生成には通常1〜2分かかります。完成すると他の素材と同じように配置できます。
             </p>
           </section>
         </>
@@ -4783,8 +4941,10 @@ export const App = () => {
                   void placeMaterial(f, null, AUDIO_ONLY_RE.test(f) ? "bgm" : "overlay")
                 }
                 onDelete={(f) => void deleteMaterialFile(f)}
+                onDeleteCard={(name) => void deleteHyperframeCard(name)}
                 onRenderHyperframe={(name) => void runHyperframeRender(name)}
                 onNewHyperframe={openHyperframeAuthor}
+                authorPendingName={hyperframeAuthorPendingName}
                 onDragBegin={onMaterialDragBegin}
                 onDragEnd={onMaterialDragEnd}
               />

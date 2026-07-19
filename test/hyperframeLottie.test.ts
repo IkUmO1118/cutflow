@@ -329,7 +329,8 @@ test("CLI routes --embed-lottie without config and rejects conflicting author/re
   assert.match(success.stdout, /Lottie composition を書きました/);
   assert.equal(existsSync(join(recording, "hyperframes", "card.html")), true);
 
-  for (const extra of [["--from-brief"], ["--width", "640"], ["--var", "x=y"]]) {
+  const image = join(import.meta.dirname, "fixtures", "lottie", "source", "images", "card.jpg");
+  for (const extra of [["--from-brief"], ["--width", "640"], ["--var", "x=y"], ["--asset", image]]) {
     const args = [CLI, "hyperframe", recording, "--name", "other", "--embed-lottie", source];
     args.push(...extra);
     const failed = spawnSync(process.execPath, args, { cwd: ROOT, encoding: "utf8" });
@@ -337,4 +338,10 @@ test("CLI routes --embed-lottie without config and rejects conflicting author/re
     assert.match(failed.stderr, /同時に指定できません|指定できません/, extra.join(" "));
     assert.equal(existsSync(join(recording, "hyperframes", "other.html")), false);
   }
+
+  const assetWithoutAuthor = spawnSync(process.execPath, [
+    CLI, "hyperframe", recording, "--name", "other", "--asset", image,
+  ], { cwd: ROOT, encoding: "utf8" });
+  assert.notEqual(assetWithoutAuthor.status, 0);
+  assert.match(assetWithoutAuthor.stderr, /--asset は --from-brief/);
 });

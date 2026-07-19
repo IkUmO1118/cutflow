@@ -194,6 +194,14 @@ Remotion(native interpreter)で作る2段階コマンド。生成された HTML 
     # 生応答は常に hyperframes/<name>.raw.txt に残るが、check ゲートを通らなければ
     # composition html 自体は書き込まれない(0バイト書込み)。既存ファイルがあれば --force 必須
 
+    node src/cli.ts hyperframe <dir> --name <name> --from-brief \
+      --asset ./logo.png --asset ./product.webp
+    # PNG/JPEG/GIF/WebP は magic bytes・拡張子・サイズを検査して
+    # hyperframes/<name>.assets/ へ保存する。LLM には画像byteではなく
+    # __HF_ASSET_1__ のようなtokenと寸法だけを渡し、応答後に data: URL を
+    # 決定論的に焼き込む。存在しない番号や壊れたtokenを返した場合は失敗し、
+    # raw.txt と .assets/ は再試行用に残るが html は書き換えない。
+
     node src/cli.ts hyperframe <dir> --name <name> --embed-lottie <animation.json>
     # 人間が AE/bodymovin から書き出した JSON と同じ directory 内の外部画像を
     # animationData/data: URL として埋め込んだ canonical SVG/byte card を書く(render はしない)。
@@ -211,6 +219,19 @@ Remotion(native interpreter)で作る2段階コマンド。生成された HTML 
 1本の MP4 で、`overlays.json` の `overlays[]` / `inserts[]` へ既存の `apply`
 境界を通して配置する(このコマンド自体は cutplan/approvals には一切触れない)。
 配置候補の生成は次の `hyperframe-place` が担う。
+
+添付画像の上限は `config.yaml` で調整できる。省略時は単枚 2MiB、1回の
+author 合計 6MiB。画像は html に data URL として複製されるため、上限超過時は
+自動圧縮せずエラーにする。公開後の正は data URL を含む html であり、
+`.assets/` 内の画像だけを差し替えても html は変わらない。差し替えを反映するには
+`--from-brief --force` で再生成するか、html を直接編集する。
+
+```yaml
+hyperframe:
+  assets:
+    maxBytes: 2097152
+    maxTotalBytes: 6291456
+```
 
 composition html のルート要素には任意で `data-hf-determinism="byte"` /
 `data-hf-determinism="perceptual"` を書ける(属性が無い・不正な値のときは

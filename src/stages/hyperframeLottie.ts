@@ -12,6 +12,7 @@ import {
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { CDN_PINS } from "../lib/hyperframeCdn.ts";
 import { checkComposition } from "../lib/hyperframeCheck.ts";
+import { validateHyperframeImage } from "../lib/hyperframeAssets.ts";
 
 type JsonObject = Record<string, unknown>;
 
@@ -68,33 +69,6 @@ function requirePositiveNumber(input: JsonObject, key: "w" | "h" | "fr"): number
   }
   return value;
 }
-
-function imageMime(bytes: Buffer): string | undefined {
-  if (
-    bytes.length >= 8 &&
-    bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47 &&
-    bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a
-  ) return "image/png";
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
-    return "image/jpeg";
-  }
-  const header = bytes.subarray(0, 6).toString("ascii");
-  if (header === "GIF87a" || header === "GIF89a") return "image/gif";
-  if (
-    bytes.length >= 12 &&
-    bytes.subarray(0, 4).toString("ascii") === "RIFF" &&
-    bytes.subarray(8, 12).toString("ascii") === "WEBP"
-  ) return "image/webp";
-  return undefined;
-}
-
-const MIME_BY_EXTENSION: Readonly<Record<string, string>> = {
-  ".gif": "image/gif",
-  ".jpeg": "image/jpeg",
-  ".jpg": "image/jpeg",
-  ".png": "image/png",
-  ".webp": "image/webp",
-};
 
 function isOutside(root: string, candidate: string): boolean {
   const rel = relative(root, candidate);
@@ -153,17 +127,7 @@ function embedImageAssets(animation: JsonObject, jsonDir: string): number {
       }
       const assetPath = resolveImageAsset(jsonDir, u, asset.p);
       const bytes = readFileSync(assetPath);
-      const detected = imageMime(bytes);
-      if (!detected) {
-        throw new Error(`未対応または不明な Lottie image asset 形式です: ${u}${asset.p}`);
-      }
-      const declared = MIME_BY_EXTENSION[extname(asset.p).toLowerCase()];
-      if (declared === undefined) {
-        throw new Error(`Lottie image asset の拡張子が未対応です: ${asset.p}`);
-      }
-      if (declared !== detected) {
-        throw new Error(`Lottie image asset の拡張子と magic bytes が一致しません: ${asset.p}`);
-      }
+      const { mime: detected } = validateHyperframeImage(asset.p, bytes, { requireDimensions: false });
       dataUrl = `data:${detected};base64,${bytes.toString("base64")}`;
     }
     asset.p = dataUrl;

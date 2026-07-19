@@ -46,12 +46,22 @@ const authorProfile = (overrides: Partial<AiProfileStatus> = {}): AiProfileStatu
   ...overrides,
 });
 
-test("validateHyperframeAuthorRequest: {name,brief} だけを厳格に受理する", () => {
+test("validateHyperframeAuthorRequest: {name,brief,assets?} だけを厳格に受理する", () => {
   assert.deepEqual(validateHyperframeAuthorRequest({ name: "ending-card.v2", brief: "締めカード" }), []);
-  assert.match(validateHyperframeAuthorRequest({ name: "../x", brief: "x" }).join(" / "), /name は英数字/);
-  assert.match(validateHyperframeAuthorRequest({ name: "x", brief: "  " }).join(" / "), /brief は空でない/);
-  assert.match(validateHyperframeAuthorRequest({ name: "x", brief: "x", force: true }).join(" / "), /name \/ brief だけ/);
-  assert.match(validateHyperframeAuthorRequest(null).join(" / "), /JSON object/);
+  assert.deepEqual(validateHyperframeAuthorRequest({
+    name: "ending-card.v2",
+    brief: "ロゴ入り",
+    assets: [{ name: "logo.png", data: "YWJjZA==" }],
+  }), []);
+  assert.match(validateHyperframeAuthorRequest({ name: "../x", brief: "x" }).join(" / "), /ファイル名は英数字/);
+  assert.match(validateHyperframeAuthorRequest({ name: "x", brief: "  " }).join(" / "), /作りたい内容/);
+  assert.match(validateHyperframeAuthorRequest({ name: "x", brief: "x", force: true }).join(" / "), /指定できない項目/);
+  assert.match(validateHyperframeAuthorRequest(null).join(" / "), /形式が正しくありません/);
+  assert.match(validateHyperframeAuthorRequest({
+    name: "x",
+    brief: "x",
+    assets: [{ name: "logo.png", data: "not base64" }],
+  }).join(" / "), /データが正しくありません/);
 });
 
 test("hyperframeAuthorConflict: HTML / MP4 / sidecar のどれか1つでも同名なら conflict", () => {
@@ -70,7 +80,7 @@ test("hyperframeAuthorReadiness: structured route/profile/capability/credential 
   );
   assert.match(
     hyperframeAuthorReadiness({ structuredRoute: "missing", profiles: [authorProfile()] }).disabledReason ?? "",
-    /route が見つかりません/,
+    /設定が見つかりません/,
   );
   assert.match(
     hyperframeAuthorReadiness({
@@ -79,7 +89,7 @@ test("hyperframeAuthorReadiness: structured route/profile/capability/credential 
         capabilities: { ...authorProfile().capabilities, structuredOutput: "none" },
       })],
     }).disabledReason ?? "",
-    /structured output/,
+    /素材の生成に対応していません/,
   );
   assert.match(
     hyperframeAuthorReadiness({
@@ -159,7 +169,7 @@ test("buildHyperframeCards: 壊れた sidecar はそのカードだけ error + s
   assert.equal(cards.length, 2);
   assert.equal(cards[0].name, "broken");
   assert.equal(cards[0].stale, true);
-  assert.match(cards[0].error ?? "", /key\.json が壊れています/);
+  assert.match(cards[0].error ?? "", /生成情報が壊れています/);
   assert.equal(cards[1].stale, false);
 });
 
