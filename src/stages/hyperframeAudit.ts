@@ -7,11 +7,17 @@
 // src/lib/hyperframeAudit.ts の純関数(auditFindings)へ渡して
 // dead-zone / 終端未完了 / 画面外終端 / seek 無反応 / 一斉登場 を検出する。
 //
-// commit 1(このファイル)では still 撮影 + VLM 二次確認はスタブ(commit 2 で
-// render 済み mp4 から実装)。stills=[] / vlm.ran=false を書く。
+// still 抽出(commit 2): 決定論 findings が確定した後、render 済み
+// materials/hyperframes/<name>.mp4 が存在すれば head/mid/tail + 各 WARN
+// finding の時刻を ffmpeg で PNG 抽出する(effect-check の captureStills と
+// 同じ「失敗しても決定論レポートを巻き込まない」劣化パターン)。mp4 が無ければ
+// still 未抽出のまま note を残す(先に `hyperframe --name <name>` で render)。
+// VLM 二次確認(任意): stills が撮れ、vision route が設定され、
+// config/フラグで有効なときだけ、effect-check の runVlmReview と同じ
+// パターンで judge させる(座標は生成させない=判定専用。母艦 原則4)。
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { ensureBrowser, openBrowser } from "@remotion/renderer";
 import type { HeadlessBrowser } from "@remotion/renderer";
 import { buildIframeSrcdoc, parseComposition } from "../lib/hyperframe.ts";
@@ -24,16 +30,24 @@ import type { HyperframeRenderProfile } from "../lib/hyperframeRenderProfile.ts"
 import { compositionDurationInFrames } from "../lib/renderFrameMath.ts";
 import { resolveHyperframeAuditCfg } from "../lib/config.ts";
 import type { Config } from "../lib/config.ts";
-import { auditFindings } from "../lib/hyperframeAudit.ts";
+import { run } from "../lib/exec.ts";
+import { completeImageReview, supportsImageReview } from "../lib/llm.ts";
+import type { AiImagePart } from "../lib/ai/types.ts";
+import { auditFindings, selectStillTimes, vlmItemsToFindings } from "../lib/hyperframeAudit.ts";
 import type {
   AuditInput,
   AuditSample,
   AuditThresholds,
   DriverCounts,
   Finding,
+  VlmReviewItem,
 } from "../lib/hyperframeAudit.ts";
 
 export const HYPERFRAME_PROBE_DIR = "hyperframe.probe";
+
+/** VLM 二次確認へ渡す still の上限(1回の呼び出しに詰め込みすぎない。
+ * effect-check の MAX_VLM_STILLS と同じ考え方) */
+const MAX_HYPERFRAME_VLM_STILLS = 4;
 
 export interface HyperframeAuditOptions {
   name: string;
@@ -49,12 +63,18 @@ export interface HyperframeAuditStill {
   file: string;
 }
 
+export interface HyperframeAuditVlmItem {
+  role: string;
+  ok: boolean;
+  reason: string;
+}
+
 export interface HyperframeAuditResult {
   reportPath: string;
   findings: Finding[];
   stills: HyperframeAuditStill[];
   stillsNote: string | null;
-  vlm: { ran: boolean; note: string; items?: unknown[] };
+  vlm: { ran: boolean; note: string; items?: HyperframeAuditVlmItem[] };
   loadFailed: boolean;
 }
 
@@ -295,12 +315,99 @@ async function collectAuditSamples(
   }
 }
 
+/** カードの意図(brief)を解決する: hyperframes/<name>.assets/brief.md(将来
+ * 添付されうる per-card brief) → 収録直下 brief.md → "(no brief)" の順。
+ * VLM プロンプトの参考情報にのみ使う(判断材料であって命令ではない) */
+function resolveHyperframeCheckBrief(dir: string, name: string): string {
+  const assetBriefPath = join(dir, "hyperframes", `${name}.assets`, "brief.md");
+  if (existsSync(assetBriefPath)) return readFileSync(assetBriefPath, "utf8");
+  const recordingBriefPath = join(dir, "brief.md");
+  if (existsSync(recordingBriefPath)) return readFileSync(recordingBriefPath, "utf8");
+  return "(no brief)";
+}
+
+/** VLM 応答スキーマの検査(index は selected 配列の添字。effect-check の
+ * parseVlmItems と同型)。壊れた/幻覚の item は黙って捨てる */
+function parseHyperframeVlmRawItems(raw: string): VlmReviewItem[] {
+  const parsed = JSON.parse(raw) as { items?: unknown };
+  if (!Array.isArray(parsed.items)) return [];
+  const items: VlmReviewItem[] = [];
+  for (const it of parsed.items) {
+    if (!it || typeof it !== "object") continue;
+    const o = it as { index?: unknown; ok?: unknown; reason?: unknown };
+    if (typeof o.index !== "number" || !Number.isInteger(o.index)) continue;
+    if (typeof o.ok !== "boolean") continue;
+    const reason = typeof o.reason === "string" ? o.reason.slice(0, 300) : "";
+    items.push({ index: o.index, ok: o.ok, reason });
+  }
+  return items;
+}
+
+/** VLM(vision route)に head/mid/tail + finding still を見せ、意図に沿った
+ * 「フレーム端で切れない・終端で凍結/空でない・可読」な構図かを yes/no+
+ * 理由で判定させる。座標は一切生成させない(判定専用。母艦 原則4)。
+ * 呼び出し側(auditHyperframe)が supportsImageReview で route の有無を
+ * 確認済みの前提だが、失敗はここでは投げずそのまま呼び出し側の try/catch に
+ * 委ねる(優雅な劣化は呼び出し側の責務) */
+async function runHyperframeVlmReview(
+  dir: string,
+  cfg: Config,
+  brief: string,
+  stills: HyperframeAuditStill[],
+): Promise<VlmReviewItem[]> {
+  const selected = stills.slice(0, MAX_HYPERFRAME_VLM_STILLS);
+  if (selected.length === 0) return [];
+  const images: AiImagePart[] = selected.map((s, index) => ({
+    type: "image",
+    file: join(dir, s.file),
+    mediaType: "image/png",
+    label: `#${index} ${s.role}`,
+  }));
+  const prompt = [
+    "Each labeled still is one frame (head/mid/tail, or the moment of a flagged dynamic-audit finding) " +
+      "from a silent, self-contained motion-graphics card (no audio, no live action).",
+    `Card intent (brief): ${brief}`,
+    "For each image, judge whether the frame shows an intentional, on-screen composition that fits the brief: " +
+      "not cut off at the frame edge, not frozen/empty at the end, and legible.",
+    "Return ok(true/false) + a short reason per image, keyed by its index (matching the label's leading number).",
+    "Never return coordinates, rects, or a proposed fix. Judgment only.",
+  ].join("\n");
+  const raw = await completeImageReview(prompt, images, cfg, {
+    name: "cutflow_hyperframe_check_vlm",
+    strict: true,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["items"],
+      properties: {
+        items: {
+          type: "array",
+          maxItems: MAX_HYPERFRAME_VLM_STILLS,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["index", "ok", "reason"],
+            properties: {
+              index: { type: "integer" },
+              ok: { type: "boolean" },
+              reason: { type: "string", maxLength: 300 },
+            },
+          },
+        },
+      },
+    },
+  });
+  return parseHyperframeVlmRawItems(raw);
+}
+
 /**
  * hyperframes/<name>.html を render せずに動的監査する。手順: 読み込み →
  * build 解決(resolveHyperframeBuild。render と同じ)→ headless Chrome で
  * サンプル採取(失敗しても例外は投げず loadFailed に劣化)→
- * auditFindings(純関数)→ hyperframe.probe/<name>/index.json へ書く。
- * still 撮影/VLM は commit 2 まではスタブ(常に空・未実行)。
+ * auditFindings(純関数)→ still 抽出(render 済み mp4 があれば head/mid/tail+
+ * finding 時刻を ffmpeg で PNG 化。失敗しても決定論レポートは巻き込まない)→
+ * 任意 VLM(vision route があり有効なときだけ。ok:false は vlm-mismatch
+ * warn として findings に追加)→ hyperframe.probe/<name>/index.json へ書く。
  */
 export async function auditHyperframe(
   dir: string,
@@ -370,14 +477,70 @@ export async function auditHyperframe(
       ]
     : auditFindings(auditInput, thresholds);
 
-  // commit 2 で still 抽出(render 済み mp4 から)+ VLM 二次確認を実装する。
-  // commit 1 は常にスタブ: still は撮らない・VLM は実行しない
-  const stills: HyperframeAuditStill[] = [];
-  const stillsNote: string | null = null;
-  const vlm = { ran: false, note: "VLM lane は commit 2 で実装" };
-
   const probeDir = join(dir, HYPERFRAME_PROBE_DIR, opts.name);
   mkdirSync(probeDir, { recursive: true });
+
+  // still 抽出: render 済み mp4 が無ければ「先に render してください」と
+  // 案内するだけで、決定論 findings には一切触れない(VLM は下でスキップ)。
+  // 抽出失敗(ffmpeg 不在・壊れた mp4 等)も同様に決定論レポートを巻き込まず
+  // stills=[] + stillsNote へ劣化する(effect-check の captureStills と同じ
+  // 失敗分離パターン)
+  const mp4Path = join(dir, "materials", "hyperframes", `${opts.name}.mp4`);
+  let stills: HyperframeAuditStill[] = [];
+  let stillsNote: string | null = null;
+  if (!existsSync(mp4Path)) {
+    stillsNote =
+      `${relative(dir, mp4Path)} が無いため still 未抽出` +
+      `(先に \`hyperframe --name ${opts.name}\` で render してください)`;
+  } else {
+    try {
+      const warnFindingSecs: number[] = [];
+      for (const f of findings) {
+        if (f.level === "warn" && f.atSec !== undefined) warnFindingSecs.push(f.atSec);
+      }
+      const specs = selectStillTimes({ durationSec, fps, findingSecs: warnFindingSecs });
+      const extracted: HyperframeAuditStill[] = [];
+      for (const spec of specs) {
+        const outPng = join(probeDir, `${spec.role}.png`);
+        await run("ffmpeg", ["-v", "error", "-ss", String(spec.tSec), "-i", mp4Path, "-frames:v", "1", "-y", outPng]);
+        extracted.push({ role: spec.role, tSec: spec.tSec, file: relative(dir, outPng) });
+      }
+      stills = extracted;
+    } catch (error) {
+      stills = [];
+      stillsNote = `still 抽出に失敗しました: ${(error as Error).message}`;
+    }
+  }
+
+  // VLM 二次確認(任意): loadFailed・--no-vlm/config 無効・vision route 未設定・
+  // still 0枚のいずれかなら未実行として note を残す(exit 0 は常に維持)
+  let vlm: { ran: boolean; note: string; items?: HyperframeAuditVlmItem[] };
+  const useVlmFlag = (opts.useVlm ?? true) && auditCfg.useVlm;
+  if (collected.loadFailed) {
+    vlm = { ran: false, note: "VLM 未実行(カードの読み込みに失敗したため)" };
+  } else if (!useVlmFlag) {
+    vlm = { ran: false, note: "VLM 未実行(決定論のみ。--no-vlm または config hyperframeCheck.useVlm=false)" };
+  } else if (stills.length === 0) {
+    vlm = { ran: false, note: stillsNote ?? "VLM 未実行(still が撮れなかったため)" };
+  } else if (!supportsImageReview(cfg)) {
+    vlm = { ran: false, note: "VLM 未実行(決定論のみ。vision route が未設定です)" };
+  } else {
+    try {
+      const brief = resolveHyperframeCheckBrief(dir, opts.name);
+      const rawItems = await runHyperframeVlmReview(dir, cfg, brief, stills);
+      const stillRefs = stills.map((s) => ({ role: s.role, tSec: s.tSec }));
+      findings.push(...vlmItemsToFindings(rawItems, stillRefs));
+      const items: HyperframeAuditVlmItem[] = rawItems.map((it) => ({
+        role: stills[it.index]?.role ?? `#${it.index}`,
+        ok: it.ok,
+        reason: it.reason,
+      }));
+      vlm = { ran: true, note: `VLM 実行済み(${items.length}件を判定)`, items };
+    } catch (error) {
+      vlm = { ran: false, note: `VLM 未実行(決定論のみ。実行に失敗しました: ${(error as Error).message})` };
+    }
+  }
+
   const reportPath = join(probeDir, "index.json");
 
   writeFileSync(
@@ -441,6 +604,9 @@ export function formatHyperframeAuditReport(dir: string, r: HyperframeAuditResul
     }
   }
   lines.push(`VLM: ${r.vlm.note}`);
+  for (const item of r.vlm.items ?? []) {
+    lines.push(`  VLM判定 ${item.role}: ${item.ok ? "OK" : "NG"} - ${item.reason}`);
+  }
   if (r.stillsNote) lines.push(r.stillsNote);
   lines.push(`検品レポートを ${r.reportPath} に書きました`);
   return lines;

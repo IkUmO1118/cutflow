@@ -13,6 +13,11 @@
 // 2) 画面外判定・renderedVector・simultaneous-entry は zero-area(SVG defs/
 //    gradient/filter 等の非表示ヘルパー要素)と full-bleed(背景)要素を対象
 //    から除外する(=「実質的なコンテンツ要素」だけを見る)。
+//
+// commit 2(W2後半): still 抽出時刻の選択(selectStillTimes)+ VLM 応答の
+// item→Finding マッパー(vlmItemsToFindings)も、node/ブラウザ非依存の純関数
+// としてここに置く(fs アクセス・ffmpeg 起動・LLM 呼び出しは
+// stages/hyperframeAudit.ts の責務)。
 
 /** 1要素(#root 配下の id 持ち要素・.clip・data-start 持ち要素)のスナップショット。
  * rect は getBoundingClientRect() 由来(出力px、ビューポート座標系)。
@@ -380,4 +385,88 @@ export function auditFindings(
     ...detectDeadZone(input, t),
     ...detectSimultaneousEntry(input, t),
   ];
+}
+
+/* ------------------------------------------------------------------ */
+/* still 抽出時刻の選択 + VLM item→Finding マッパー(ともに純関数)          */
+/* ------------------------------------------------------------------ */
+
+/** still 1枚分の抽出仕様。role は "head"/"mid"/"tail"/"finding-<i>" */
+export interface StillSpec {
+  role: string;
+  tSec: number;
+}
+
+/** still 抽出の既定上限枚数(effect-check の MAX_VLM_STILLS(4)より少し広め。
+ * head/mid/tail の3枚固定 + WARN finding 由来を数枚まで許す) */
+export const DEFAULT_MAX_STILLS = 6;
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/** still 抽出時刻を選ぶ純関数: head(0) / mid(durationSec/2) / tail(最終
+ * フレーム相当) の3点に、各 WARN finding の atSec(role: "finding-<i>"。
+ * i は findingSecs 配列内の順序)を加える。同一秒(小数2桁で丸めて比較)は
+ * 先着優先で dedup し、maxStills(既定 DEFAULT_MAX_STILLS)まで先頭から切る */
+export function selectStillTimes(args: {
+  durationSec: number;
+  fps: number;
+  findingSecs: number[];
+  maxStills?: number;
+}): StillSpec[] {
+  const { durationSec, fps, findingSecs } = args;
+  const maxStills = args.maxStills ?? DEFAULT_MAX_STILLS;
+
+  const candidates: StillSpec[] = [
+    { role: "head", tSec: 0 },
+    { role: "mid", tSec: durationSec / 2 },
+    { role: "tail", tSec: Math.max(0, durationSec - 1 / fps) },
+  ];
+  findingSecs.forEach((tSec, i) => candidates.push({ role: `finding-${i}`, tSec }));
+
+  const seen = new Set<number>();
+  const deduped: StillSpec[] = [];
+  for (const c of candidates) {
+    const key = round2(c.tSec);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(c);
+  }
+  return deduped.slice(0, maxStills);
+}
+
+/** VLM 応答の生 item(index ベース。呼び出し側が JSON schema 検証済みのものを
+ * 渡す)を表す */
+export interface VlmReviewItem {
+  index: number;
+  ok: boolean;
+  reason: string;
+}
+
+/** still 側の参照(role/tSec のみ。VlmReviewItem.index → stills[index] の
+ * 対応付けに使う) */
+export interface VlmStillRef {
+  role: string;
+  tSec: number;
+}
+
+/** VLM 応答 item[] を stills と突き合わせ、ok:false のものだけ
+ * vlm-mismatch の warn Finding へ変換する純関数。index が stills の範囲外の
+ * item(壊れた/幻覚の応答)は無害に無視する */
+export function vlmItemsToFindings(items: VlmReviewItem[], stills: VlmStillRef[]): Finding[] {
+  const out: Finding[] = [];
+  for (const item of items) {
+    if (item.ok) continue;
+    const still = stills[item.index];
+    if (!still) continue;
+    out.push({
+      kind: "vlm-mismatch",
+      level: "warn",
+      target: still.role,
+      atSec: still.tSec,
+      message: item.reason,
+    });
+  }
+  return out;
 }

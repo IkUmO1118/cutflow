@@ -793,11 +793,12 @@ program
   .command("hyperframe-check <dir>")
   .description(
     "HyperFrames カードの render 不要な動的監査(終端未完了(最終フレーム完了進捗)/空終端/画面外要素/seek無反応/dead zone/一斉登場)。" +
-      "決定論のみ・常に exit 0・warn/info のみ(still/VLM は未実装。commit 2 予定)。" +
+      "決定論のみ・常に exit 0・warn/info のみ。render 済み materials/hyperframes/<name>.mp4 があれば " +
+      "head/mid/tail + WARN finding 時刻の still を抽出し、vision route があれば任意で VLM 二次確認も行う。" +
       "hyperframe.probe/<name>/index.json に書く(収録フォルダの編集ファイルは一切書かない)",
   )
   .requiredOption("--name <name>", "HyperFrames カード名(hyperframes/<name>.html の元)")
-  .option("--no-vlm", "VLM 二次確認をスキップ(commit 2 実装まではノーオペ)")
+  .option("--no-vlm", "VLM 二次確認をスキップ(決定論チェックのみ)")
   .option("--step <sec>", "サンプル間隔(秒)。省略時 config.yaml の hyperframeCheck.stepSec")
   .option("--var <kv...>", "composition variables の上書き(k=v。複数指定可)")
   .option("--width <n>", "出力幅px(composition の data-width を上書き)")
