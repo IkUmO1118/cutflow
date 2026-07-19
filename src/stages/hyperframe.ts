@@ -591,6 +591,40 @@ export interface AuthorHyperframeResult {
   summary: string;
 }
 
+/** 明示brief(editor)を優先し、省略時は recording brief.md(CLI)へ戻す。 */
+export function resolveHyperframeAuthorBrief(
+  explicitBrief: string | undefined,
+  recordingBrief: string | undefined,
+): string {
+  return explicitBrief ?? recordingBrief ?? "(見せ場リストなし)";
+}
+
+/** author prompt の決定的な組み立て。brief の取得元(fs / editor request)だけを
+ * 呼び出し側で解決し、その他の prompt 入力と pattern 追記は従来どおり保つ。 */
+export function resolveHyperframeAuthorPrompt(args: {
+  template: string;
+  patterns: string;
+  brief: string;
+  rules: string;
+  width: number;
+  height: number;
+  durationSec: number;
+  pattern?: number;
+}): string {
+  let prompt = args.template
+    .replaceAll("{{brief}}", () => args.brief)
+    .replaceAll("{{rules}}", () => args.rules)
+    .replaceAll("{{patterns}}", () => args.patterns)
+    .replaceAll("{{width}}", () => String(args.width))
+    .replaceAll("{{height}}", () => String(args.height))
+    .replaceAll("{{durationSec}}", () => String(args.durationSec));
+
+  if (args.pattern !== undefined) {
+    prompt += `\n\n## 指定パターン\n\n上記のカードパターンメニューから **パターン${args.pattern}** を使ってください。`;
+  }
+  return prompt;
+}
+
 /**
  * prompts/hyperframe.md + docs/hyperframes-skills/card-patterns.md(番号メニュー)+
  * brief.md/rules.md を注入して LLM に単一の composition HTML を書かせ、
@@ -600,7 +634,16 @@ export interface AuthorHyperframeResult {
 export async function authorHyperframe(
   dir: string,
   cfg: Config,
-  opts: { name: string; pattern?: number; width?: number; height?: number; durationSec?: number; force?: boolean },
+  opts: {
+    name: string;
+    /** editor の単発生成だけが指定する。未指定なら従来どおり brief.md を読む。 */
+    brief?: string;
+    pattern?: number;
+    width?: number;
+    height?: number;
+    durationSec?: number;
+    force?: boolean;
+  },
 ): Promise<AuthorHyperframeResult> {
   const template = readFileSync(join(REPO_ROOT, "prompts", "hyperframe.md"), "utf8");
   const patterns = readFileSync(
@@ -609,24 +652,29 @@ export async function authorHyperframe(
   );
 
   const briefPath = join(dir, "brief.md");
-  const brief = existsSync(briefPath) ? readFileSync(briefPath, "utf8") : "(見せ場リストなし)";
+  const recordingBrief = opts.brief === undefined && existsSync(briefPath)
+    ? readFileSync(briefPath, "utf8")
+    : undefined;
+  const brief = resolveHyperframeAuthorBrief(
+    opts.brief,
+    recordingBrief,
+  );
   const rules = readRules(dir);
 
   const width = opts.width ?? 1920;
   const height = opts.height ?? 1080;
   const durationSec = opts.durationSec ?? 4;
 
-  let prompt = template
-    .replaceAll("{{brief}}", () => brief)
-    .replaceAll("{{rules}}", () => rules)
-    .replaceAll("{{patterns}}", () => patterns)
-    .replaceAll("{{width}}", () => String(width))
-    .replaceAll("{{height}}", () => String(height))
-    .replaceAll("{{durationSec}}", () => String(durationSec));
-
-  if (opts.pattern !== undefined) {
-    prompt += `\n\n## 指定パターン\n\n上記のカードパターンメニューから **パターン${opts.pattern}** を使ってください。`;
-  }
+  const prompt = resolveHyperframeAuthorPrompt({
+    template,
+    patterns,
+    brief,
+    rules,
+    width,
+    height,
+    durationSec,
+    pattern: opts.pattern,
+  });
 
   const raw = await completeWithJsonSchema(
     prompt,

@@ -17,6 +17,7 @@ import type {
   AiDoctorResult,
   ConfigSaveResult,
   DraftData,
+  HyperframeAuthorResponse,
   HyperframeRenderResponse,
   HyperframesData,
   MediaFactsData,
@@ -62,6 +63,11 @@ export async function getHyperframes(): Promise<HyperframesData> {
 /** HF source を既存 stage で render する。force は渡せず cache hit を再利用する。 */
 export async function postHyperframeRender(name: string): Promise<HyperframeRenderResponse> {
   return (await request("/api/hyperframe/render", { name })) as HyperframeRenderResponse;
+}
+
+/** brief 1件から新規 HF card を author → render する。既存名は上書きしない。 */
+export async function postHyperframeAuthor(name: string, brief: string): Promise<HyperframeAuthorResponse> {
+  return (await request("/api/hyperframe/author", { name, brief })) as HyperframeAuthorResponse;
 }
 
 /** タイムラインに描く音声の波形ピーク。時刻軸はマイク = 元収録の秒、

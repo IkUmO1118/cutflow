@@ -76,6 +76,10 @@ import type {
 import type { ReviewBundle } from "../../src/stages/review.ts";
 import type { ReviewFrameRequest } from "../../src/lib/review.ts";
 import { reviewSpecOfProposalReview } from "../../src/lib/editorAiReview.ts";
+import {
+  HYPERFRAME_NAME_RE,
+  hyperframeAuthorReadiness,
+} from "../../src/lib/hyperframeAuthor.ts";
 import { buildReviewEvents, warningSummary } from "../../src/lib/reviewEvents.ts";
 import { AiCommand } from "./AiCommand.tsx";
 import { AiVisualReview } from "./AiVisualReview.tsx";
@@ -139,6 +143,7 @@ import {
   postProxy,
   postRender,
   postHyperframeRender,
+  postHyperframeAuthor,
   postReveal,
   postSave,
   probeMaterialDuration,
@@ -600,6 +605,10 @@ export const App = () => {
   const [hyperframesError, setHyperframesError] = useState<string | null>(null);
   const [hyperframeRendering, setHyperframeRendering] = useState<string | null>(null);
   const [hyperframeErrors, setHyperframeErrors] = useState<Record<string, string>>({});
+  const [hyperframeAuthorOpen, setHyperframeAuthorOpen] = useState(false);
+  const [hyperframeAuthorName, setHyperframeAuthorName] = useState("");
+  const [hyperframeAuthorBusy, setHyperframeAuthorBusy] = useState(false);
+  const [hyperframeAuthorError, setHyperframeAuthorError] = useState<string | null>(null);
   /** 現在の収録フォルダに対して /api/media-facts を取り直す。初回ロード・
    * 外部変更のホットリロード・アップロード成功後、いずれも呼ぶ
    * (新しく置かれた ProRes 等を追随して検出するため) */
@@ -4138,6 +4147,37 @@ export const App = () => {
     }
   };
 
+  const openHyperframeAuthor = () => {
+    setHyperframeAuthorName("");
+    setHyperframeAuthorError(null);
+    setHyperframeAuthorOpen(true);
+  };
+
+  const runHyperframeAuthor = async (brief: string) => {
+    const name = hyperframeAuthorName;
+    if (!HYPERFRAME_NAME_RE.test(name)) {
+      setHyperframeAuthorError("name は英数字・.・_・- のみで指定してください");
+      return;
+    }
+    setHyperframeAuthorBusy(true);
+    setHyperframeAuthorError(null);
+    try {
+      const result = await postHyperframeAuthor(name, brief);
+      setHyperframes((cards) => {
+        const rest = cards.filter((card) => card.name !== name);
+        return [...rest, result.card].sort((a, b) => a.name.localeCompare(b.name));
+      });
+      await refreshHyperframes(false);
+      setHyperframeAuthorOpen(false);
+      setHyperframeAuthorName("");
+      addToast({ kind: "success", message: `HF カード「${name}」を生成しました` });
+    } catch (e) {
+      setHyperframeAuthorError((e as Error).message);
+    } finally {
+      setHyperframeAuthorBusy(false);
+    }
+  };
+
   /** 素材パネルからドラッグ中の素材。タイムラインが実尺のゴーストを出せる
    * よう、掴んだ瞬間に尺を調べて渡す(結果は次回のために控えておく) */
   const [dragMaterial, setDragMaterial] = useState<{
@@ -4277,6 +4317,13 @@ export const App = () => {
   /* ---------------- 描画 ---------------- */
 
   if (error && !proj) return <div className="fatal">エラー: {error}</div>;
+  const hyperframeAuthorStatus = proj
+    ? hyperframeAuthorReadiness({
+        structuredRoute: proj.aiRoutes.structured,
+        profiles: proj.aiProfiles,
+      })
+    : { ready: false, disabledReason: "AI 設定を読み込み中です" };
+
   if (!proj || !built || !cutplan || !overlays || !transcript) {
     return <div className="fatal dim">読み込み中…</div>;
   }
@@ -4481,6 +4528,62 @@ export const App = () => {
         onDismissProxyStale={() => setProxyStale(false)}
       />
 
+      {hyperframeAuthorOpen && (
+        <>
+          <div
+            className="aiCommandBackdrop"
+            onClick={() => !hyperframeAuthorBusy && setHyperframeAuthorOpen(false)}
+          />
+          <section className="aiCommandModal hfAuthorModal" role="dialog" aria-label="新しい HF カード">
+            <div className="aiCommandModalHead">
+              <div>
+                <div className="aiCommandKicker">HF カード</div>
+                <h3>brief から新しいカードを生成</h3>
+              </div>
+              <button
+                className="icon"
+                aria-label="閉じる"
+                disabled={hyperframeAuthorBusy}
+                onClick={() => setHyperframeAuthorOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+            <label className="hfAuthorNameField">
+              <span>name</span>
+              <input
+                value={hyperframeAuthorName}
+                disabled={hyperframeAuthorBusy}
+                placeholder="例: ending-card"
+                autoFocus
+                onChange={(event) => {
+                  setHyperframeAuthorName(event.target.value);
+                  setHyperframeAuthorError(null);
+                }}
+              />
+            </label>
+            <AiCommand
+              disabled={!hyperframeAuthorStatus.ready}
+              busy={hyperframeAuthorBusy}
+              multiline
+              modalStyle
+              clearOnSubmit={false}
+              disabledReason={hyperframeAuthorStatus.disabledReason}
+              placeholder="カードに表示したい内容・雰囲気・動きを入力"
+              submitLabel="生成"
+              onSubmit={(brief) => void runHyperframeAuthor(brief)}
+            />
+            {hyperframeAuthorStatus.disabledReason && (
+              <p className="hfAuthorDisabled">{hyperframeAuthorStatus.disabledReason}</p>
+            )}
+            {hyperframeAuthorError && <p className="hfAuthorError">{hyperframeAuthorError}</p>}
+            <p className="dim hint">
+              既定は 1920×1080・4秒です。詳細調整や既存カードの上書きは agent で行ってください。
+            </p>
+          </section>
+        </>
+      )}
+
       {aiCommandOpen && (
         <>
           <div className="aiCommandBackdrop" onClick={() => setAiCommandOpen(false)} />
@@ -4672,7 +4775,8 @@ export const App = () => {
                 hyperframesError={hyperframesError}
                 hyperframeRendering={hyperframeRendering}
                 hyperframeErrors={hyperframeErrors}
-                busy={busy !== null || hyperframeRendering !== null}
+                hyperframeAuthorDisabledReason={hyperframeAuthorStatus.disabledReason}
+                busy={busy !== null || hyperframeRendering !== null || hyperframeAuthorBusy}
                 onUploadClick={onUploadClick}
                 onUploadFiles={(files) => void uploadOnly(files)}
                 onPlace={(f) =>
@@ -4680,6 +4784,7 @@ export const App = () => {
                 }
                 onDelete={(f) => void deleteMaterialFile(f)}
                 onRenderHyperframe={(name) => void runHyperframeRender(name)}
+                onNewHyperframe={openHyperframeAuthor}
                 onDragBegin={onMaterialDragBegin}
                 onDragEnd={onMaterialDragEnd}
               />

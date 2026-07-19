@@ -54,12 +54,18 @@ import { reviewEdit } from "../src/stages/review.ts";
 import { validateDocs } from "../src/stages/validate.ts";
 import { aiDoctor } from "../src/stages/aiDoctor.ts";
 import {
+  authorHyperframe,
   hyperframeCacheKey,
   renderHyperframe,
   resolveHyperframeBuild,
 } from "../src/stages/hyperframe.ts";
 import { parseComposition } from "../src/lib/hyperframe.ts";
 import { resolveHyperframeRenderProfile } from "../src/lib/hyperframeRenderProfile.ts";
+import {
+  HYPERFRAME_NAME_RE,
+  hyperframeAuthorConflict,
+  validateHyperframeAuthorRequest,
+} from "../src/lib/hyperframeAuthor.ts";
 import { readEditableDocs } from "../src/stages/idStamp.ts";
 import { aiProfileStatuses, profileForRoute, resolveAiReviewCfg, resolveAiRuntimeConfig, resolvePerceptionStatus } from "../src/lib/config.ts";
 import type { Config } from "../src/lib/config.ts";
@@ -88,6 +94,7 @@ import type {
   ConfigSaveResult,
   DraftData,
   HyperframeCard,
+  HyperframeAuthorRequest,
   HyperframeRenderRequest,
   AiFrameRequest,
   AiProposeRequest,
@@ -235,6 +242,8 @@ class HttpError extends Error {
 
 /** 素材アップロードの上限の既定値(config で editor.maxUploadMb 未指定のとき) */
 const DEFAULT_MAX_UPLOAD_MB = 2048;
+/** brief を含む単発 author request の JSON 上限。 */
+const HYPERFRAME_AUTHOR_MAX_BODY_BYTES = 256 * 1024;
 
 /** エディタが編集する(=外部変更を監視する)ファイル */
 const WATCHED_FILES = [
@@ -376,6 +385,30 @@ async function handle(
   }
   if (req.method === "GET" && path === "/api/hyperframes") {
     sendJson(res, 200, { hyperframes: loadHyperframeCards(dir) });
+    return;
+  }
+  if (req.method === "POST" && path === "/api/hyperframe/author") {
+    const body = await readBody(req, HYPERFRAME_AUTHOR_MAX_BODY_BYTES) as HyperframeAuthorRequest;
+    const requestErrors = validateHyperframeAuthorRequest(body);
+    if (requestErrors.length > 0) throw new HttpError(400, requestErrors.join(" / "));
+    ensureHyperframeAuthorNameAvailable(dir, body.name);
+    await runHeavyJob(
+      "hyperframe-author",
+      `hyperframe-author:${randomUUID()}`,
+      async () => {
+        // validation 後〜heavy job 獲得までに agent/別requestが生成する race も
+        // 上書きしないよう、唯一の author 実行点で再確認する。
+        ensureHyperframeAuthorNameAvailable(dir, body.name);
+        await authorHyperframe(dir, cfg, {
+          name: body.name,
+          brief: body.brief.trim(),
+        });
+        await renderHyperframe(dir, { name: body.name, cliVars: {} });
+      },
+    );
+    const card = loadHyperframeCards(dir).find((item) => item.name === body.name);
+    if (!card) throw new Error(`生成後の HF カードが見つかりません: ${body.name}`);
+    sendJson(res, 200, { ok: true, card });
     return;
   }
   if (req.method === "POST" && path === "/api/hyperframe/render") {
@@ -927,13 +960,32 @@ export function validateHyperframeRenderRequest(body: unknown): string[] {
   const errors: string[] = [];
   const unknown = Object.keys(record).filter((key) => key !== "name");
   if (unknown.length > 0) errors.push("name だけを指定してください");
-  if (typeof record.name !== "string" || !/^[A-Za-z0-9._-]+$/.test(record.name)) {
+  if (typeof record.name !== "string" || !HYPERFRAME_NAME_RE.test(record.name)) {
     errors.push("name は英数字・.・_・- のみで指定してください");
   }
   return errors;
 }
 
-type HeavyJobStage = "preview" | "render" | "review" | "propose" | "hyperframe-render";
+/** editor author は上書き不可。HTML / MP4 / sidecar のいずれかがあれば409。 */
+export function ensureHyperframeAuthorNameAvailable(dir: string, name: string): void {
+  const conflict = hyperframeAuthorConflict({
+    name,
+    htmlNames: existsSync(join(dir, "hyperframes", `${name}.html`)) ? [name] : [],
+    mp4Names: existsSync(join(dir, "materials", "hyperframes", `${name}.mp4`)) ? [name] : [],
+    sidecarNames: existsSync(join(dir, `hyperframe.${name}.key.json`)) ? [name] : [],
+  });
+  if (conflict) {
+    throw new HttpError(409, `HF カード「${name}」は既に存在します。既存カードの上書きは agent で行ってください`);
+  }
+}
+
+type HeavyJobStage =
+  | "preview"
+  | "render"
+  | "review"
+  | "propose"
+  | "hyperframe-render"
+  | "hyperframe-author";
 
 /** 実行中の重いジョブ(preview / render / review)。同時に1つだけ走らせ、
  * 同じ key の二重起動はプロミスを共有、別 key は 409 で拒否する */
@@ -945,6 +997,8 @@ const proposalStore = new Map<string, StoredProposal>();
 const jaStage = (s: HeavyJobStage): string =>
   s === "render"
     ? "レンダー"
+    : s === "hyperframe-author"
+      ? "HFカード生成"
     : s === "hyperframe-render"
       ? "HFカード再render"
     : s === "review"

@@ -9,6 +9,7 @@ export const AiCommand = ({
   disabledReason,
   placeholder = "AI に編集を提案させる",
   submitLabel = "提案",
+  clearOnSubmit = true,
   onSubmit,
 }: {
   disabled: boolean;
@@ -19,6 +20,8 @@ export const AiCommand = ({
   disabledReason?: string;
   placeholder?: string;
   submitLabel?: string;
+  /** false は失敗時に入力を保つ modal 用。既定 true で既存挙動を維持する。 */
+  clearOnSubmit?: boolean;
   onSubmit: (instruction: string) => void;
 }) => {
   const [instruction, setInstruction] = useState("");
@@ -30,7 +33,7 @@ export const AiCommand = ({
         e.preventDefault();
         if (blocked) return;
         onSubmit(instruction.trim());
-        setInstruction("");
+        if (clearOnSubmit) setInstruction("");
       }}
     >
       {!modalStyle && <span className="aiBadge">AI</span>}

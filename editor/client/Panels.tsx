@@ -30,12 +30,14 @@ export const MaterialsPanel = ({
   hyperframesError,
   hyperframeRendering,
   hyperframeErrors,
+  hyperframeAuthorDisabledReason,
   busy,
   onUploadClick,
   onUploadFiles,
   onPlace,
   onDelete,
   onRenderHyperframe,
+  onNewHyperframe,
   onDragBegin,
   onDragEnd,
 }: {
@@ -49,6 +51,7 @@ export const MaterialsPanel = ({
   hyperframesError: string | null;
   hyperframeRendering: string | null;
   hyperframeErrors: Record<string, string>;
+  hyperframeAuthorDisabledReason?: string;
   busy: boolean;
   /** 「素材を読み込む…」(App のファイル選択を開く) */
   onUploadClick: () => void;
@@ -60,6 +63,7 @@ export const MaterialsPanel = ({
   onDelete: (file: string) => void;
   /** HTML source を既存 HF stage で render / cache 再利用する */
   onRenderHyperframe: (name: string) => void;
+  onNewHyperframe: () => void;
   /** カードのドラッグ開始/終了(タイムラインがドロップゴーストを出す) */
   onDragBegin: (file: string) => void;
   onDragEnd: () => void;
@@ -134,7 +138,19 @@ export const MaterialsPanel = ({
         <div className="panelHead">
           <span className="dim">HF カード {hyperframes.length} 件</span>
           {hyperframesLoading && <span className="hfLoading">更新中…</span>}
+          <span className="spacer" />
+          <button
+            className="icon"
+            disabled={busy || !!hyperframeAuthorDisabledReason}
+            title={hyperframeAuthorDisabledReason ?? "brief から新しい HF カードを生成"}
+            onClick={onNewHyperframe}
+          >
+            新しいカード
+          </button>
         </div>
+        {hyperframeAuthorDisabledReason && (
+          <p className="dim hint hfAuthorGate">{hyperframeAuthorDisabledReason}</p>
+        )}
         {hyperframesError && <p className="hfError hfListError">{hyperframesError}</p>}
         {hyperframes.length === 0 ? (
           <p className="dim hint" style={{ padding: "0 14px" }}>
