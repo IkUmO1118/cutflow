@@ -24,3 +24,31 @@ for (const file of files) {
     assert.equal(warnings.length, 0, JSON.stringify(warnings, null, 2));
   });
 }
+
+// --- recipes/*.md: any ```html block containing data-composition-id must pass 0/0 ---
+const RECIPES_DIR = join(repoRoot, "docs/hyperframes-skills/recipes");
+const recipeFiles = readdirSync(RECIPES_DIR).filter((f) => f.endsWith(".md"));
+
+function htmlBlocksWithRoot(md: string): string[] {
+  const out: string[] = [];
+  const fence = /```html\s*\n([\s\S]*?)```/g;
+  let m: RegExpExecArray | null;
+  while ((m = fence.exec(md)) !== null) {
+    if (m[1].includes("data-composition-id")) out.push(m[1]);
+  }
+  return out;
+}
+
+for (const file of recipeFiles) {
+  const md = readFileSync(join(RECIPES_DIR, file), "utf8");
+  const blocks = htmlBlocksWithRoot(md);
+  blocks.forEach((html, i) => {
+    test(`recipes/${file} html block #${i} passes checkComposition (0/0)`, () => {
+      const { errors, warnings } = checkComposition(html, {
+        file: `docs/hyperframes-skills/recipes/${file}#${i}`,
+      });
+      assert.equal(errors.length, 0, JSON.stringify(errors, null, 2));
+      assert.equal(warnings.length, 0, JSON.stringify(warnings, null, 2));
+    });
+  });
+}
