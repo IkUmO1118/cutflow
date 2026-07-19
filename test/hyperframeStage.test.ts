@@ -20,6 +20,7 @@ import { parseComposition, SAMPLE_HTML } from "../src/lib/hyperframe.ts";
 import type { ParsedComposition } from "../src/lib/hyperframe.ts";
 import type { HyperframeRenderProfile } from "../src/lib/hyperframeRenderProfile.ts";
 import {
+  buildAllPatternsRecipeInjection,
   buildRecipeInjection,
   determinismVerdict,
   hyperframeCacheKey,
@@ -29,6 +30,7 @@ import {
   resolveHyperframeAuthorBrief,
   resolveHyperframeAuthorPrompt,
   resolveHyperframeBuild,
+  selectRecipeInjection,
 } from "../src/stages/hyperframe.ts";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -613,4 +615,72 @@ test("HYPERFRAME_PATTERN_INJECTION: recipe名・example の参照先は全て実
 
   assert.ok(checkedRecipes > 0, "少なくとも1件は recipe 参照を検査したはず");
   assert.ok(checkedExamples > 0, "少なくとも1件は example 参照を検査したはず");
+});
+
+test("buildAllPatternsRecipeInjection: 全11パターンの recipe骨子を含む", () => {
+  const injection = buildAllPatternsRecipeInjection();
+  const expectedNames = new Set<string>();
+  for (let pattern = 1; pattern <= 11; pattern++) {
+    const inj = buildRecipeInjection(pattern);
+    for (const m of inj.matchAll(/`([a-z0-9][a-z0-9-]*)`/g)) {
+      expectedNames.add(m[1]);
+    }
+  }
+  assert.ok(expectedNames.size > 0, "少なくとも1件は recipe名を抽出できたはず");
+  for (const name of expectedNames) {
+    assert.ok(
+      injection.includes(name),
+      `buildAllPatternsRecipeInjection に recipe名が含まれていない: ${name}`,
+    );
+  }
+});
+
+test("buildAllPatternsRecipeInjection: pointer パスを落とす", () => {
+  const injection = buildAllPatternsRecipeInjection();
+  assert.ok(!injection.includes("docs/hyperframes-skills/recipes/"));
+  assert.ok(!injection.includes("docs/hyperframes-skills/examples/"));
+});
+
+test("buildAllPatternsRecipeInjection: 隣接プレースホルダー流儀", () => {
+  const injection = buildAllPatternsRecipeInjection();
+  assert.ok(injection.startsWith("\n\n## "));
+});
+
+test("selectRecipeInjection: pattern指定は単一パターンのみ(二重注入なし)", () => {
+  assert.equal(selectRecipeInjection(9), buildRecipeInjection(9));
+});
+
+test("selectRecipeInjection: undefined は全11到達性", () => {
+  assert.equal(selectRecipeInjection(undefined), buildAllPatternsRecipeInjection());
+});
+
+test("un-steered 組み立て済みプロンプトに全パターンの骨子が載る", () => {
+  const prompt = resolveHyperframeAuthorPrompt({
+    template: "P={{patterns}}{{recipes}} D={{durationSec}}",
+    brief: "b",
+    rules: "",
+    patterns: "MENU",
+    width: 1920,
+    height: 1080,
+    durationSec: 4,
+    recipes: selectRecipeInjection(undefined),
+  });
+  const expectedNames = new Set<string>();
+  for (let pattern = 1; pattern <= 11; pattern++) {
+    const inj = buildRecipeInjection(pattern);
+    for (const m of inj.matchAll(/`([a-z0-9][a-z0-9-]*)`/g)) {
+      expectedNames.add(m[1]);
+    }
+  }
+  for (const name of expectedNames) {
+    assert.ok(prompt.includes(name), `組み立て済み prompt に recipe名が含まれていない: ${name}`);
+  }
+});
+
+test("buildAllPatternsRecipeInjection: token 実測", () => {
+  const chars = buildAllPatternsRecipeInjection().length;
+  const estTokens = Math.ceil(chars / 4);
+  console.log(`buildAllPatternsRecipeInjection: ${chars} chars, ~${estTokens} tokens (est)`);
+  const CEILING = 3327; // measured 2559 chars × 1.3
+  assert.ok(chars < CEILING, `chars=${chars} が CEILING=${CEILING} を超過`);
 });
