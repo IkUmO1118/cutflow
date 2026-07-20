@@ -8,7 +8,12 @@ numbered menu。`prompts/hyperframe.md` の `{{patterns}}` に差し込まれ、
 ここから**1つだけ番号で選ぶ**(番号選択方式。plan-materials / plan-effects と
 同じ流儀)。CLI・HeyGen サインイン・素材検索(media-use)・registry
 block(`npx hyperframes add`)・sub-agent 分業といった upstream の実行機構は
-一切引き継いでいない — ここにあるのはレイアウト・モーション・配色の発想だけ。
+一切引き継いでいない — ここにあるのはレイアウト・モーション・配色の発想だけ。{{#fontAssets}}
+
+今回の author 入力に WOFF2 があるため、フォント指定は総称 family に加えて、
+添付素材欄が提示する埋め込み `@font-face` / `HFAsset<n>` も選べる。ここに見える
+`fontAssets` 条件は author prompt 組み立て時に決定的に解決され、WOFF2 が無い場合は
+この追記を含め X1 導入前の文面へ戻る。{{/fontAssets}}{{^fontAssets}}{{/fontAssets}}
 
 各パターンの ```html は Cutflow の check ゲート(`checkComposition`)を
 **0エラー**で通過する(`test/hyperframeSkills.test.ts` が全パターンを機械
@@ -287,8 +292,9 @@ beat で背景を反転し文字色も反転。`discrete-text-sequence` の whol
 **レイアウト**: ターミナル風パネル(角丸+3ドットのウィンドウ装飾)+等幅
 フォントのコード行。**モーション**: 行を上から順にフェードイン、末尾に
 点滅カーソル(CSS `@keyframes` で有限回点滅。無限ループにしない=
-seek-safe doctrine)。**フォント**: 総称ファミリー `monospace` のみ
-(埋め込みフォントは使わない)。
+seek-safe doctrine)。**フォント**: {{#fontAssets}}総称ファミリー `monospace`、または
+添付素材欄で提供された埋め込み等幅 `@font-face` の family `HFAsset<n>` を使う{{/fontAssets}}{{^fontAssets}}総称ファミリー `monospace` のみ
+(埋め込みフォントは使わない){{/fontAssets}}。
 
 **コード演出の語彙(pr-to-video code-vocabulary より)**: upstream の `code-*`
 レジストリブロック(`npx hyperframes add`)は Cutflow には無いので、必要な**動きだけ**を
@@ -777,7 +783,8 @@ stroke-draw で描き(stroke-dashoffset を有限アニメで 0 へ)、中の部
 「**キャレット付きの1文字ずつタイプオン**」。`steps()` イージングの width アニメで
 文字を離散的に出す(seek-safe)。打ち終えたらキャレットが有限回点滅、その後
 行が中心へ畳まれ(`scaleX`→0)、入れ替わりに**ブランドがスプリングポップ**して締める。
-**フォント**: タイプ行は総称 `monospace`(`ch` 幅が正確に効くため)。**配色**:
+**フォント**: タイプ行は{{#fontAssets}}総称 `monospace`、または添付素材欄で提供された
+埋め込み等幅 `@font-face` の family `HFAsset<n>`{{/fontAssets}}{{^fontAssets}}総称 `monospace`{{/fontAssets}}(`ch` 幅が正確に効くため)。**配色**:
 暗背景 + アクセントのブランド。**関連 recipe**: `discrete-text-sequence`(タイプオン)/
 `context-sensitive-cursor`(キャレット点滅)/ `scale-swap-transition`(畳み→pop の
 中心ハンドオフ)/ `spring-pop-entrance`(ブランド pop)。

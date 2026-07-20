@@ -14,9 +14,10 @@ export const HYPERFRAME_RENDER_PROFILE_CONFIG: Readonly<
 };
 
 export function resolveHyperframeRenderProfile(html: string): HyperframeRenderProfile {
-  const requiresThree = readHyperframeRequires(html).tokens.includes("three");
+  const requires = readHyperframeRequires(html).tokens;
+  const requiresGpu = requires.includes("three") || requires.includes("webgpu");
   const usesHfSeek = /['"]hf-seek['"]/.test(html);
-  return usesHfSeek || requiresThree ? "gpu-angle" : "default";
+  return usesHfSeek || requiresGpu ? "gpu-angle" : "default";
 }
 
 export function isHyperframeRenderProfileWired(profile: HyperframeRenderProfile): boolean {

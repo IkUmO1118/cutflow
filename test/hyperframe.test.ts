@@ -158,12 +158,12 @@ test("P-7: buildIframeSrcdoc は決定論(同じ引数→同じ文字列)", () =
   assert.equal(out1, out2);
 });
 
-test("P-7b: default srcdoc is byte-identical to the pre-F2 baseline", () => {
+test("P-7b: default srcdoc is byte-identical to the X3 CDN-pin baseline", () => {
   const out = buildIframeSrcdoc(EXPORTED_SAMPLE_HTML, {});
-  assert.equal(out.length, 4887);
+  assert.equal(out.length, 5182);
   assert.equal(
     createHash("sha256").update(out).digest("hex"),
-    "db89d42780703020a53207ae5f3bef89f1c6c538f0b11dd49e931c86ed40073e",
+    "601a24fac9cf3271644125d53124d26847504adabfb8b5a240d0a050ef93804d",
   );
   assert.equal(buildIframeSrcdoc(EXPORTED_SAMPLE_HTML, {}, "default"), out);
   assert.doesNotMatch(out, /__hfGlStats|checkWebglContext|HTMLCanvasElement\.prototype\.getContext/);
@@ -207,11 +207,13 @@ test("P-9: 埋め込まれた JSON リテラルは渡した variables と deep-e
 
 /* ---------------- P-10 (B1: seek conventions) ---------------- */
 
-test("P-10: bootstrap は GSAP/Lottie/hf-seek/readiness/error 規約の全マーカーを含む", () => {
+test("P-10: bootstrap は GSAP/Anime/Lottie/hf-seek/readiness/error 規約の全マーカーを含む", () => {
   const out = buildIframeSrcdoc(SAMPLE_HTML, { title: "CutFlow", accent: "#22c55e" });
   assert.ok(out.includes("window.__timelines"), "GSAP window.__timelines marker missing");
   const totalTimeCount = (out.match(/\.totalTime\(/g) || []).length;
   assert.equal(totalTimeCount, 2, "expected exactly two .totalTime( calls (GSAP same-time-seek nudge)");
+  assert.ok(out.includes("window.__hfAnime"), "Anime.js window.__hfAnime marker missing");
+  assert.match(out, /ai\.pause\(\); ai\.seek\(tMs\)/, "Anime.js must pause then seek milliseconds");
   assert.ok(out.includes("window.__hfLottie"), "Lottie window.__hfLottie marker missing");
   assert.ok(out.includes("goToAndStop"), "Lottie goToAndStop marker missing");
   assert.ok(out.includes("new CustomEvent('hf-seek'"), "hf-seek CustomEvent dispatch missing");
@@ -219,6 +221,15 @@ test("P-10: bootstrap は GSAP/Lottie/hf-seek/readiness/error 規約の全マー
   assert.ok(out.includes("__failed"), "__failed marker missing");
   assert.ok(out.includes("addEventListener('error'"), "error listener missing");
   assert.ok(out.includes("typeof window["), "data-hf-requires library existence check missing");
+  assert.doesNotMatch(out, /navigator\.gpu/, "non-WebGPU cards must keep the pre-X4 bootstrap bytes");
+});
+
+test("P-10b: webgpu capability check uses navigator.gpu only for a declared webgpu card", () => {
+  const html = `<div data-composition-id="root" data-hf-requires="webgpu"></div>`;
+  const out = buildIframeSrcdoc(html, {});
+  assert.match(out, /tok === 'webgpu'/);
+  assert.match(out, /navigator\.gpu/);
+  assert.match(out, /required capability "webgpu"/);
 });
 
 /* ---------------- P-12 (B2: CSP injection) ---------------- */
@@ -241,6 +252,14 @@ test("P-12: buildIframeSrcdoc injects a CSP <meta> before the bootstrap script",
   assert.ok(
     cspTag.includes("https://cdn.jsdelivr.net/npm/lottie-web@5.12.2/build/player/lottie.min.js"),
     "CSP must include the exact Lottie pin URL",
+  );
+  assert.ok(
+    cspTag.includes("https://cdn.jsdelivr.net/npm/animejs@3.2.2/lib/anime.min.js"),
+    "CSP must include the exact Anime.js pin URL",
+  );
+  assert.ok(
+    cspTag.includes("https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"),
+    "CSP must include the exact Three.js pin URL",
   );
   assert.ok(
     !/script-src[^;]*https:\/\/cdn\.jsdelivr\.net(?:\s|;)/.test(cspTag),

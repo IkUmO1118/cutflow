@@ -4,6 +4,7 @@
 // font embedding)を代表フィクスチャで検証する。
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { checkComposition } from "../src/lib/hyperframeCheck.ts";
 import { SAMPLE_HTML } from "../src/lib/hyperframe.ts";
 
@@ -151,6 +152,28 @@ test("18: custom font-family (no @font-face) is a warning", () => {
   assert.ok(hasWarn(r, "Comic Sans Custom"));
 });
 
+test("18b: Rule 6 regression — data: WOFF2 @font-face backs a custom family at 0/0", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-width="1280" data-height="720"><span id="t">CutFlow</span></div>` +
+      `<style>@font-face{font-family:"HFAsset1";src:url("data:font/woff2;base64,d09GMg==") format("woff2");font-display:block}` +
+      `#t{font-family:"HFAsset1",sans-serif}</style>`,
+  );
+  assert.equal(r.errors.length, 0, JSON.stringify(r.errors, null, 2));
+  assert.equal(r.warnings.length, 0, JSON.stringify(r.warnings, null, 2));
+});
+
+test("18c: X1 real WOFF2 render fixture passes checkComposition at 0/0", () => {
+  const html = readFileSync(
+    new URL("./fixtures/hyperframe-fonts/embedded-woff2.html", import.meta.url),
+    "utf8",
+  );
+  const r = checkComposition(html, {
+    file: "test/fixtures/hyperframe-fonts/embedded-woff2.html",
+  });
+  assert.equal(r.errors.length, 0, JSON.stringify(r.errors, null, 2));
+  assert.equal(r.warnings.length, 0, JSON.stringify(r.warnings, null, 2));
+});
+
 test('20: data-hf-determinism="perceptual" is clean', () => {
   const r = checkComposition(
     `<div data-composition-id="root" data-hf-determinism="perceptual"></div>`,
@@ -244,6 +267,9 @@ test('31: regression — GSAP (window.__timelines) card declaring byte tier has 
 
 const GSAP_URL = "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js";
 const GSAP_INTEGRITY = "sha384-sG0Hv1tP1lZCk9KQmrIbY/XNwi+OY84GQqhMscbnsoBFqAz8KNCil1kvfL3Hbbk2";
+const ANIME_URL = "https://cdn.jsdelivr.net/npm/animejs@3.2.2/lib/anime.min.js";
+const ANIME_INTEGRITY = "sha384-oLmuahJgYYR1aWgZwdMQQ2AClE6A2eEwV2x1Z7cbIHehfkkmommQLH3wX1NDEszb";
+const ANIME_SCRIPT_TAG = `<script src="${ANIME_URL}" integrity="${ANIME_INTEGRITY}" crossorigin="anonymous"></script>`;
 
 test("32: pinned <script src> with matching integrity+crossorigin+data-hf-requires is clean (Rule 4/10)", () => {
   const r = checkComposition(
@@ -555,4 +581,291 @@ test("64: Lottie asset p/u checks ignore unrelated properties outside animationD
     `<div data-composition-id="root" data-width="1280" data-height="720" data-hf-requires="lottie"></div>${LOTTIE_SCRIPT_TAG}<script>var unrelated={p:'not-an-asset.png',u:'not-an-asset-directory/'};var DATA={v:'5.7.4',assets:[]};var anim=lottie.loadAnimation({renderer:'svg',autoplay:false,loop:false,animationData:DATA});window.__hfLottie=[];window.__hfLottie.push(anim);</script>`,
   );
   assert.equal(r.errors.length, 0, JSON.stringify(r.errors, null, 2));
+});
+
+function animeCard(script: string): string {
+  return `<div data-composition-id="root" data-width="1280" data-height="720" data-hf-requires="anime"><div id="box"></div></div>` +
+    ANIME_SCRIPT_TAG + `<script>${script}</script>`;
+}
+
+test("65: Anime.js direct factory and timeline register cleanly at byte tier", () => {
+  for (const script of [
+    `var anim=anime({targets:'#box',opacity:[0,1],duration:800,autoplay:false});window.__hfAnime=window.__hfAnime||[];window.__hfAnime.push(anim);`,
+    `var tl=anime.timeline({autoplay:false,loop:2});tl.add({targets:'#box',translateX:[0,400],duration:600});window.__hfAnime=[];__hfAnime.push(tl);`,
+    `window.__hfAnime=[];window.__hfAnime.push(anime({targets:'#box',duration:500,loop:false,autoplay:false}));`,
+  ]) {
+    const r = checkComposition(animeCard(script));
+    assert.equal(r.errors.length, 0, JSON.stringify(r.errors, null, 2));
+    assert.equal(r.warnings.length, 0, JSON.stringify(r.warnings, null, 2));
+  }
+});
+
+test("66: Anime.js every factory requires autoplay:false and registration", () => {
+  const missingAutoplay = checkComposition(animeCard(
+    `var anim=anime({targets:'#box',duration:500});window.__hfAnime=[];window.__hfAnime.push(anim);`,
+  ));
+  assert.ok(hasErr(missingAutoplay, "autoplay:false"));
+  const unregistered = checkComposition(animeCard(
+    `var anim=anime({targets:'#box',duration:500,autoplay:false});window.__hfAnime=[];`,
+  ));
+  assert.ok(hasErr(unregistered, "every anime()/anime.timeline() result"));
+});
+
+test("67: Anime.js loop and explicit infinite factory timing are rejected", () => {
+  for (const loop of ["true", "-1", "Infinity", "1.5"]) {
+    const r = checkComposition(animeCard(
+      `var anim=anime({targets:'#box',autoplay:false,loop:${loop}});window.__hfAnime=[];window.__hfAnime.push(anim);`,
+    ));
+    assert.ok(hasErr(r, "loop must be omitted"), loop);
+  }
+  for (const key of ["duration", "delay", "endDelay"]) {
+    const r = checkComposition(animeCard(
+      `var anim=anime({targets:'#box',autoplay:false,${key}:Infinity});window.__hfAnime=[];window.__hfAnime.push(anim);`,
+    ));
+    assert.ok(hasErr(r, `${key} must be finite`), key);
+  }
+});
+
+test("68: Anime.js registry must exist before push and receive a defined factory result", () => {
+  const noInit = checkComposition(animeCard(
+    `var anim=anime({targets:'#box',autoplay:false});window.__hfAnime.push(anim);`,
+  ));
+  assert.ok(hasErr(noInit, "initialized to an array"));
+  const unknown = checkComposition(animeCard(
+    `var anim=anime({targets:'#box',autoplay:false});window.__hfAnime=[];window.__hfAnime.push(missing);`,
+  ));
+  assert.ok(hasErr(unknown, "previously created anime instance"));
+});
+
+test("69: Anime.js play/restart/reverse are rejected for factory instances", () => {
+  for (const method of ["play", "restart", "reverse"]) {
+    const r = checkComposition(animeCard(
+      `var anim=anime({targets:'#box',autoplay:false});window.__hfAnime=[];window.__hfAnime.push(anim);anim.${method}();`,
+    ));
+    assert.ok(hasErr(r, "play()/restart()/reverse()"), method);
+  }
+});
+
+test("70: comments and normal/template strings containing Anime.js pseudo-calls do not trigger Rule 16", () => {
+  const r = checkComposition(animeCard(
+    `// anime({autoplay:true}).play()\n` +
+      `var a="anime({autoplay:true})";var b='anim.restart()';var c=\`anime.timeline({loop:true}).reverse()\`;`,
+  ));
+  assert.equal(r.errors.length, 0, JSON.stringify(r.errors, null, 2));
+  assert.equal(r.warnings.length, 0, JSON.stringify(r.warnings, null, 2));
+});
+
+test("71: Anime.js factory calls require the anime capability token", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-width="1280" data-height="720"><div id="box"></div></div>` +
+      `<script>var anim=anime({targets:'#box',autoplay:false});window.__hfAnime=[];window.__hfAnime.push(anim);</script>`,
+  );
+  assert.ok(hasErr(r, 'data-hf-requires="anime"'));
+});
+
+test("72: assigned Anime.js factories require distinct variable names", () => {
+  const r = checkComposition(animeCard(
+    `var anim=anime({targets:'#box',autoplay:false});` +
+      `var anim=anime.timeline({autoplay:false});` +
+      `window.__hfAnime=[];window.__hfAnime.push(anim);`,
+  ));
+  assert.ok(hasErr(r, "distinct variable name"));
+});
+
+const THREE_PIN_TAG = `<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js" integrity="sha384-qOkzR5Ke/XkQxuGVJ9hpFEpDlcoLtWwVYhnJf06cLIZa2vaIptSqaubivErzmD5O" crossorigin="anonymous"></script>`;
+
+function threeCard(script: string, requires = true, pin = true): string {
+  return `<div data-composition-id="root" data-width="640" data-height="360" data-hf-determinism="perceptual"${requires ? ` data-hf-requires="three"` : ""}>` +
+    `<canvas class="clip" data-start="0" data-duration="4"></canvas></div>` +
+    (pin ? THREE_PIN_TAG : "") + `<script>${script}</script>`;
+}
+
+const CLEAN_THREE_SCRIPT = `
+const renderer=new THREE.WebGLRenderer({antialias:false,preserveDrawingBuffer:true});
+const scene=new THREE.Scene();const camera=new THREE.PerspectiveCamera();
+window.addEventListener('hf-seek',function(event){
+  const time=Math.min(4,Math.max(0,event.detail.time));
+  scene.rotation.y=time*0.4;
+  renderer.render(scene,camera);
+});`;
+
+test("73: Three.js pinned core card with absolute hf-seek render is clean", () => {
+  const r = checkComposition(threeCard(CLEAN_THREE_SCRIPT));
+  assert.equal(r.errors.length, 0, JSON.stringify(r.errors, null, 2));
+  assert.equal(r.warnings.length, 0, JSON.stringify(r.warnings, null, 2));
+});
+
+test("74: executable THREE usage and the matched pin require the three capability token", () => {
+  assert.ok(hasErr(checkComposition(threeCard(CLEAN_THREE_SCRIPT, false, false)), 'data-hf-requires="three"'));
+  assert.ok(hasErr(checkComposition(threeCard(``, false, true)), 'data-hf-requires="three"'));
+});
+
+test("75: Three.js cards require a synchronous hf-seek listener that reads absolute seconds and renders", () => {
+  const noListener = checkComposition(threeCard(
+    `const renderer=new THREE.WebGLRenderer({preserveDrawingBuffer:true});renderer.render({},{});`,
+  ));
+  assert.ok(hasErr(noListener, "synchronously subscribe"));
+
+  const noTime = checkComposition(threeCard(
+    `const renderer=new THREE.WebGLRenderer({preserveDrawingBuffer:true});window.addEventListener('hf-seek',function(event){renderer.render({},{});});`,
+  ));
+  assert.ok(hasErr(noTime, "event.detail.time"));
+
+  const noRender = checkComposition(threeCard(
+    `new THREE.Scene();window.addEventListener('hf-seek',function(event){const time=event.detail.time;});`,
+  ));
+  assert.ok(hasErr(noRender, "renderer.render"));
+
+  const renderOutsideListener = checkComposition(threeCard(
+    `const renderer=new THREE.WebGLRenderer({preserveDrawingBuffer:true});` +
+      `renderer.render({},{});` +
+      `window.addEventListener('hf-seek',function(event){const time=event.detail.time;});`,
+  ));
+  assert.ok(hasErr(renderOutsideListener, "renderer.render"));
+});
+
+test("76: Three.js WebGLRenderer literal options require preserved frame buffers", () => {
+  for (const options of ["{}", "{preserveDrawingBuffer:false}"]) {
+    const r = checkComposition(threeCard(
+      `const renderer=new THREE.WebGLRenderer(${options});window.addEventListener('hf-seek',function(event){const time=event.detail.time;renderer.render({},{});});`,
+    ));
+    assert.ok(hasErr(r, "preserveDrawingBuffer:true"), options);
+  }
+  const dynamicOptions = checkComposition(threeCard(
+    `const options={preserveDrawingBuffer:true};const renderer=new THREE.WebGLRenderer(options);` +
+      `window.addEventListener('hf-seek',function(event){const time=event.detail.time;renderer.render({},{});});`,
+  ));
+  assert.ok(hasErr(dynamicOptions, "literal object"));
+});
+
+test("77: Three.js core-only route rejects self clocks, loaders, workers, and blob URLs", () => {
+  for (const [source, label] of [
+    ["renderer.setAnimationLoop(function(){});", "renderer.setAnimationLoop"],
+    ["const clock=new THREE.Clock();", "new THREE.Clock"],
+    ["clock.getDelta();", "Clock.getDelta/getElapsedTime"],
+    ["const loader=new THREE.TextureLoader();", "THREE loaders"],
+    ["const worker=new Worker('worker.js');", "workers"],
+    ["const url=URL.createObjectURL(new Blob());", "blob URLs"],
+  ] as const) {
+    const r = checkComposition(threeCard(`${CLEAN_THREE_SCRIPT}\n${source}`));
+    assert.ok(hasErr(r, label), label);
+  }
+});
+
+test("78: comments and normal/template strings containing Three.js pseudo-code do not trigger Rule 17", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-width="640" data-height="360"></div><script>` +
+      `// new THREE.Clock(); renderer.setAnimationLoop(fn)\n` +
+      `const a="THREE.TextureLoader";const b='window.addEventListener(\\'hf-seek\\', fn)';` +
+      `const c=\`THREE.WebGLRenderer({preserveDrawingBuffer:false})\`;` +
+      `</script>`,
+  );
+  assert.equal(r.errors.length, 0, JSON.stringify(r.errors, null, 2));
+  assert.equal(r.warnings.length, 0, JSON.stringify(r.warnings, null, 2));
+});
+
+test("79: raw WebGL hf-seek cards do not enter the Three-specific gate", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-width="640" data-height="360" data-hf-determinism="perceptual">` +
+      `<canvas class="clip" data-start="0" data-duration="4"></canvas></div>` +
+      `<script>const gl={drawArrays:function(){}};window.addEventListener('hf-seek',function(event){const time=event.detail.time;gl.drawArrays(time);});</script>`,
+  );
+  assert.equal(r.errors.length, 0, JSON.stringify(r.errors, null, 2));
+  assert.equal(r.warnings.length, 0, JSON.stringify(r.warnings, null, 2));
+});
+
+const WEBGPU_FIXTURE = readFileSync(
+  new URL("./fixtures/hyperframe-backends/raw-webgpu.html", import.meta.url),
+  "utf8",
+);
+
+test("80: formal raw WebGPU WGSL fixture passes Rule 18 at 0/0", () => {
+  const r = checkComposition(WEBGPU_FIXTURE);
+  assert.equal(r.errors.length, 0, JSON.stringify(r.errors, null, 2));
+  assert.equal(r.warnings.length, 0, JSON.stringify(r.warnings, null, 2));
+});
+
+test("81: executable navigator.gpu or literal webgpu context requires the webgpu token", () => {
+  const withoutToken = WEBGPU_FIXTURE.replace(' data-hf-requires="webgpu"', "");
+  assert.ok(hasErr(checkComposition(withoutToken), 'data-hf-requires="webgpu"'));
+
+  const contextOnly =
+    `<div data-composition-id="root"></div><script>canvas.getContext('webgpu');</script>`;
+  assert.ok(hasErr(checkComposition(contextOnly), 'data-hf-requires="webgpu"'));
+});
+
+test("82: raw WebGPU listener must be installed before the first await", () => {
+  const listener = `window.addEventListener('hf-seek',function(event){\n` +
+    `  latestTime = Math.min(DURATION_SEC,Math.max(0,event.detail.time));\n` +
+    `  if(drawFrame)drawFrame(latestTime);\n` +
+    `});\n`;
+  const afterAwait = WEBGPU_FIXTURE.replace(listener, "").replace(
+    "  const adapter = await navigator.gpu.requestAdapter();\n",
+    "  const adapter = await navigator.gpu.requestAdapter();\n" + listener,
+  );
+  assert.ok(hasErr(checkComposition(afterAwait), "before the first await"));
+});
+
+test("83: raw WebGPU listener reads absolute seconds and stays synchronous", () => {
+  const noTime = WEBGPU_FIXTURE.replace("event.detail.time", "0");
+  assert.ok(hasErr(checkComposition(noTime), "event.detail.time"));
+
+  const asyncListener = WEBGPU_FIXTURE.replace(
+    "window.addEventListener('hf-seek',function(event){",
+    "window.addEventListener('hf-seek',async function(event){await Promise.resolve();",
+  );
+  assert.ok(hasErr(checkComposition(asyncListener), "must be synchronous"));
+});
+
+test("84: raw WebGPU async setup is connected to the readiness Promise", () => {
+  const noReady = WEBGPU_FIXTURE.replace(
+    "window.__hyperframes.__ready = (async function(){",
+    "(async function(){",
+  );
+  assert.ok(hasErr(checkComposition(noReady), "window.__hyperframes.__ready"));
+
+  const functionInsteadOfPromise = WEBGPU_FIXTURE.replace(
+    "window.__hyperframes.__ready = (async function(){",
+    "window.__hyperframes.__ready = async function(){",
+  ).replace(/\}\)\(\);\s*<\/script>/, `};\n</script>`);
+  assert.ok(hasErr(checkComposition(functionInsteadOfPromise), "window.__hyperframes.__ready"));
+});
+
+test("85: raw WebGPU route requires adapter, device, and literal canvas context acquisition", () => {
+  const cases = [
+    ["navigator.gpu.requestAdapter()", "navigator.gpu.adapter()", "requestAdapter()"],
+    ["adapter.requestDevice()", "adapter.device()", "requestDevice()"],
+    ["canvas.getContext('webgpu')", "canvas.getContext(kind)", "getContext('webgpu')"],
+  ] as const;
+  for (const [from, to, expected] of cases) {
+    assert.ok(hasErr(checkComposition(WEBGPU_FIXTURE.replace(from, to)), expected), expected);
+  }
+});
+
+test("86: raw WebGPU device loss must reach the fatal error channel", () => {
+  const nonFatal = WEBGPU_FIXTURE.replace("fatal:true", "fatal:false");
+  assert.ok(hasErr(checkComposition(nonFatal), "GPUDevice.lost"));
+});
+
+test("87: raw WebGPU validates WGSL, creates a pipeline, and submits each frame", () => {
+  const cases = [
+    ["shaderModule.getCompilationInfo()", "shaderModule.info()", "getCompilationInfo()"],
+    ["device.createRenderPipeline({", "device.makePipeline({", "createRenderPipeline()"],
+    ["device.queue.submit([encoder.finish()]);", "encoder.finish();", "device.queue.submit(...)"],
+  ] as const;
+  for (const [from, to, expected] of cases) {
+    assert.ok(hasErr(checkComposition(WEBGPU_FIXTURE.replace(from, to)), expected), expected);
+  }
+});
+
+test("88: comments and normal/template strings containing WebGPU pseudo-code do not trigger Rule 18", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-width="640" data-height="360"></div><script>` +
+      `// navigator.gpu.requestAdapter(); canvas.getContext('webgpu')\n` +
+      `const a="navigator.gpu";const b='getContext(\\'webgpu\\')';` +
+      `const c=\`device.queue.submit([])\`;` +
+      `</script>`,
+  );
+  assert.equal(r.errors.length, 0, JSON.stringify(r.errors, null, 2));
+  assert.equal(r.warnings.length, 0, JSON.stringify(r.warnings, null, 2));
 });

@@ -105,11 +105,29 @@ check ゲート(C2)がエラーで止める:
 - リモート URL(`http(s)://` / `//` 始まり)は `src`/`href`/`srcset`/
   `poster`/`data-composition-src`・CSS `url()`・`@import`・`@font-face` の
   どこにあってもエラー。フォントは総称ファミリー(`system-ui`/`sans-serif`/
-  `serif`/`monospace` 等)のみを使う。**唯一の例外**: `<script src>` が
+  `serif`/`monospace` 等)、または `hyperframe --from-brief --asset <subset.woff2>`
+  が提供したローカル `@font-face` だけを使う。後者は prompt に示された family
+  `HFAsset<n>` と `__HF_FONT_<n>__` token をそのまま使い、publish 前に
+  `data:font/woff2;base64,...` へ置換される。手書きカードでも同じ data URL 形式なら
+  Rule 6 がローカル font として扱い、`document.fonts.ready` が render readiness を
+  担保する。**script の唯一の例外**: `<script src>` が
   `src/lib/hyperframeCdn.ts` の CDN ピン表に一致する URL・`integrity`
   (両方一字一句そのまま)を持ち、かつ `crossorigin="anonymous"` を持つ
   場合だけは許可される。それ以外の remote 参照(script 以外の全部)は
   この例外の対象外で常にエラーのまま
+
+WOFF2 は拡張子と先頭 magic `wOF2` を照合する。単体は固定 1MiB 以下、かつ
+`hyperframe.assets.maxBytes` と1回の `maxTotalBytes` にも従う。Cutflow は subset
+tool を同梱しない。例えば外部の fonttools を使う場合は、必要文字だけを明示する:
+
+```sh
+pyftsubset remotion/fonts/NotoSansJP.woff2 \
+  --output-file=/tmp/NotoSansJP-subset.woff2 --flavor=woff2 \
+  --text='CutFlow フォント埋め込み' --layout-features='*'
+```
+
+配布時は元フォントのライセンスも確認し、この repository の Noto Sans JP なら
+`remotion/fonts/OFL.txt` を一緒に扱う。
 
 詳しいモーションの作法(CSS/WAAPI アダプタの書き方)は
 `./motion-css-waapi.md` を見る。
@@ -132,8 +150,8 @@ check ゲート(C2)がエラーで止める:
 初期 cost 順序(実測でのみ変更する):
 
 ```text
-CSS/SVG/DOM < WAAPI < Canvas 2D < GSAP core / Lottie(既存素材あり)
-  < Raw WebGL/shader < Three.js
+CSS/SVG/DOM < WAAPI < Anime.js < Canvas 2D < GSAP core / Lottie(既存素材あり)
+  < Raw WebGL/shader < Raw WebGPU/WGSL < Three.js
 ```
 
 これは表現力の優劣ではなく、依存・起動・検査・失敗面・再現性・AI 生成難度を
@@ -148,27 +166,32 @@ CSS/SVG/DOM < WAAPI < Canvas 2D < GSAP core / Lottie(既存素材あり)
 |---|---|---|
 | fade / translate / scale / rotate / clip / simple stagger | CSS/WAAPI | 無し。原則ここで完結 |
 | text layout / diagram / UI mock / vector shape | DOM/SVG + WAAPI | pixel 単位の大量描画が必要な場合のみ Canvas |
+| 軽量な直列・並列 timeline、複数micro-animation | WAAPI、次に Anime.js | manual cardでAnime.js構文の方が明瞭な場合 |
 | 複雑な直列・並列 timeline、label、反復可能な choreography | WAAPI、次に GSAP | WAAPI が明瞭さ・生成成功率・保守性で劣る実測がある場合(B3 実測では出ていない) |
 | AE/bodymovin 素材の再生 | Lottie SVG | 有効な JSON 素材が実在する場合だけ |
 | 2D procedural drawing / 大量の同種プリミティブ | Canvas 2D | DOM/SVG の要素数・描画コストが実測で問題になる |
 | per-pixel shader / GPU particle / procedural texture | Raw WebGL/shader | Canvas/CSS で要件を満たせないことを説明できる場合 |
-| 真の3D geometry / perspective camera / lighting / depth occlusion | Three.js(`not-wired`) | 2D transform の擬似奥行きでは満たせず、three.js pin が追加された場合 |
+| WGSL / WebGPU-native pipeline | Raw WebGPU(manual) | WebGL ではなく WebGPU API/WGSL が必要で、非同期初期化を readiness に閉じられる場合 |
+| 真の3D geometry / perspective camera / lighting / depth occlusion | Three.js(manual) | 2D transform の擬似奥行きでは満たせない場合 |
 | data-driven SVG chart | 素の SVG + WAAPI | D3 は使わない |
 | 地図 | 事前取得・固定した静止画/SVG | map runtime は使わない |
 
-Raw WebGL/shader は `gpu-angle` profile で `usable`。Three.js は同じ GPU
-profile を利用できるが CDN pin が無いため `not-wired`。詳細と実測結果は
+Raw WebGL/shader、Raw WebGPU/WGSL、Three.js は `gpu-angle` profile で
+`usable`。Raw WebGPU と Three.js は manual authoring 限定で、それぞれの
+静的 gate を通す。詳細と実測結果は
 下記「GPU / WebGL / shader cards」を参照する。
 
 ### card の過剰設計
 
 - CSS transform でできるカードに Three.js scene/camera/renderer を作る。
 - 1要素の fade/slide のために GSAP をロードする。
+- CSS/WAAPIで明瞭に書ける1要素のためにAnime.jsをロードする。
 - JSON 素材が無いのに「滑らかそう」という理由で Lottie を選ぶ。
 - テキスト中心のカードを Canvas/WebGL に描き、アクセシビリティ・レイアウト・
   font readiness を自前実装する。
 - shader を使うこと自体を visual quality の根拠にする。
-- GSAP + Three.js + Lottie を同一 card へ積み、どれが時間の正本か不明にする。
+- WebGL で十分な shader を、API が新しいという理由だけで WebGPU に移す。
+- GSAP + Anime.js + Three.js + Lottie を同一 card へ積み、どれが時間の正本か不明にする。
   **1 card 1 runtime** は、外部 animation runtime と時間の正本を1つにする
   規範である。DOM/SVG/CSS は別 runtime と数えず、外部 runtime と併用できる。
 
@@ -194,6 +217,10 @@ CSS/WAAPI(`class="clip"` + Web Animations)の他に、bootstrap は以下の
   `tl.pause()` した上で `tl.totalTime(tSec, true)`(GSAP 3.x の
   same-time-seek nudge として `tSec+0.001` へ一度寄せてから `tSec` へ
   戻す二重呼び出し)する
+- **Anime.js**: `window.__hfAnime`に`anime({...})`または
+  `anime.timeline({...})`が返したinstanceを配列登録する。全factoryは
+  `autoplay:false`。bootstrapは毎シークで各instanceを`pause()`してから
+  `seek(tMs)`する(GSAPのnudgeは使わない)
 - **Lottie**: `window.__hfLottie` に Lottie アニメーションインスタンスの
   配列を登録する。bootstrap は毎シークで `an.goToAndStop(tMs, false)`
   (ミリ秒・`isFrame=false`)する
@@ -216,24 +243,25 @@ CSS/WAAPI(`class="clip"` + Web Animations)の他に、bootstrap は以下の
   `cancelRender` してレンダーを止める
 - **`data-hf-requires`**: ルート要素(または任意の要素)に
   `data-hf-requires="gsap"` のように空白/カンマ区切りで宣言する
-  (既知トークン: `gsap` / `lottie` / `three`)。bootstrap は宣言された
+  (既知トークン: `gsap` / `lottie` / `anime` / `three` / `webgpu`)。bootstrap は宣言された
   トークンごとに対応するグローバル(`window.gsap` / `window.lottie` /
-  `window.THREE`)の存在を確認し、無ければ `__failed` に積む
+  `window.anime` / `window.THREE`)を、`webgpu`だけは`navigator.gpu` capabilityを
+  確認し、無ければ `__failed` に積む
 
-**GPU/`hf-seek`/`three` カードは `data-hf-determinism="perceptual"` を
-必ず宣言する**(check ゲート Rule 9)。ANGLE の GPU/canvas 出力は driver
+**GPU/`hf-seek`/`three`/`webgpu` カードは `data-hf-determinism="perceptual"` を
+必ず宣言する**(check ゲート Rule 9)。ANGLE/WebGPU の GPU/canvas 出力は driver
 依存で byte 決定論を保証できないため、`hf-seek` イベントの購読
 (`addEventListener('hf-seek', ...)` 等クォート済みの `'hf-seek'`/
-`"hf-seek"` トークンを検出)または `data-hf-requires` に `three` を含む
+`"hf-seek"` トークンを検出)または `data-hf-requires` に `three`/`webgpu` を含む
 カードは、`data-hf-determinism` が未指定(既定 byte 相当)または
-`"byte"` のままだとエラーになる。GSAP(`window.__timelines`)・Lottie
-(`window.__hfLottie`)単独の使用は対象外(DOM スタイル書き込みなので
+`"byte"` のままだとエラーになる。GSAP(`window.__timelines`)・Anime.js
+(`window.__hfAnime`)・Lottie(`window.__hfLottie`)単独の使用は対象外(DOM スタイル書き込みなので
 byte のまま宣言してよい)。
 
 ## Pinned CDN scripts(B2)
 
 Rule 4 の唯一の例外として、バージョン固定済みの CDN `<script src>` を
-ピン表から読み込めます(既定 pin は GSAP と lottie-web)。すべて満たすこと:
+ピン表から読み込めます(既定 pin は GSAP、lottie-web、Anime.js、Three.js r160)。すべて満たすこと:
 
 - `src` の URL が `src/lib/hyperframeCdn.ts` の `CDN_PINS` に一字一句一致する
   (バージョンを上げ下げしたり、`?` 付きクエリを足すだけでも `not-in-table`
@@ -254,6 +282,11 @@ GSAP は `window.__timelines` 経由の DOM スタイル書き込みである限
 `gsap.globalTimeline` の直接利用は禁止。すべての tween を
 `data-composition-id` と同じ key で登録した `{paused:true}` timeline に追加する
 (Rule 11)。
+Anime.jsも`window.__hfAnime`経由で絶対時刻へseekする限り**byte tierのまま**でよい。
+`anime()`/`anime.timeline()`の全factoryに`autoplay:false`を指定し、返り値を
+初期化済み配列へpushする。`loop`は省略/false/有限非負整数、時間値は有限、
+`play`/`restart`/`reverse`は禁止(Rule 16)。author routeはmanualのみで、
+`prompts/hyperframe.md`/`card-patterns.md`はAnime.jsを注入しない。
 srcdoc には `connect-src 'none'` を含む CSP が張られる — ライブラリの
 読み込み・実行(script-src 経由)はできるが、そのライブラリが outbound の
 fetch/XHR/WebSocket でどこかへ送信することはできない。
@@ -395,10 +428,10 @@ canvas は生成も自動 fallback もしない。
 </html>
 ```
 
-## GPU / WebGL / shader cards(F2: `gpu-angle`)
+## GPU / WebGL / WebGPU / shader cards(F2/X4: `gpu-angle`)
 
 生 WebGL(inline fragment shader)でカードを自己描画するための規約と、
-現状の render 対応状況をまとめる。GSAP/Lottie と違い、GPU カードは
+現状の render 対応状況をまとめる。GSAP/Anime.js/Lottie と違い、生GPUカードは
 **ライブラリもCDNピンも不要**(下記)。
 
 ### hf-seek self-draw 契約
@@ -414,20 +447,20 @@ true})` を指定し、描画バッファが capture 時点まで保持される
 
 ### `data-hf-determinism="perceptual"` は必須
 
-`hf-seek` を購読する、または `data-hf-requires="three"` を宣言するカードは
+`hf-seek` を購読する、または `data-hf-requires="three"`/`"webgpu"` を宣言するカードは
 `data-hf-determinism="perceptual"` を**必ず**宣言する(Rule 9。省略または
 `"byte"` はエラー)。
 
 ### ライブラリ・CDN 不要
 
-生 WebGL・inline shader 文字列・`getContext('webgl')` はいずれも `src` 経由の
+生 WebGL/WebGPU・inline GLSL/WGSL・`getContext('webgl'|'webgpu')` はいずれも `src` 経由の
 外部フェッチではないため、composition の `default-src 'none'` CSP には
-一切ブロックされない。GSAP/Lottie のような CDN ピン留めや
-`data-hf-requires` 宣言も不要。
+一切ブロックされない。CDN pin は不要。生WebGLはtoken不要だが、生WebGPUは
+capabilityのfail-fast用に`data-hf-requires="webgpu"`を必ず宣言する。
 
 ### render 対応状況(`gpu-angle`、生 WebGL は usable)
 
-GPU/WebGL カードは Rule 9 と共有する resolver で `gpu-angle` profile に分類し、
+GPU/WebGL/WebGPU カードは Rule 9 と共有する resolver で `gpu-angle` profile に分類し、
 その card だけ `openBrowser("chrome", {chromiumOptions:{gl:"angle"}})` で
 render する。非 GPU card は従来どおり `openBrowser("chrome")` のまま。
 配線判断の根拠となった Cutflow の Remotion/Chrome(macOS)実測:
@@ -452,20 +485,58 @@ author script/readiness 後または同期 `hf-seek` dispatch 直後に既存の
 channel へ明示エラーを積み、黒画面 MP4 を成功扱いしない。profile は cache key
 と `hyperframe.<name>.key.json` に含むため、profile が変われば cache miss する。
 
-### three.js は未ピン留め(見送り)
+### Raw WebGPU/WGSL(X4)
 
-three.js は**ピン留めしない**。GPU render profile は配線済みだが、pin が無い
-ため `not-wired` であり、サポート済み作図経路ではない。
-three を後で導入するときに必要になるもの(いずれも実需要が出るまで
-見送り):
+Raw WebGPU は依存・CDN pinなしのmanual/perceptual routeで`usable`。TypeGPUは
+API/配布物を仮定してpinせず、引き続き`out`とする。Rule 18 は次を強制する:
 
-- CDN ピン(算出済みだが `CDN_PINS` には未追加): url
-  `https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js`、
-  integrity `sha384-qOkzR5Ke/XkQxuGVJ9hpFEpDlcoLtWwVYhnJf06cLIZa2vaIptSqaubivErzmD5O`、
-  lib `three`
-- CSP の緩和: three のローダー/ワーカーは `blob:` worker を生成することが
-  あり、`default-src 'none'` はこれをブロックする(`blob:`/`worker-src` の
-  緩和が要る)
+- rootへ`data-hf-requires="webgpu"`と`data-hf-determinism="perceptual"`を宣言する
+- 最初の実行可能な`await`より前に`hf-seek`を同期購読し、`event.detail.time`を
+  `latestTime`へ絶対秒として保持する。初期化中のseekを捨てず、準備完了時にも
+  `drawFrame(latestTime)`する。handler内で`await`しない
+- `navigator.gpu.requestAdapter()`→`adapter.requestDevice()`→literal
+  `canvas.getContext('webgpu')`の非同期初期化全体をPromiseにし、
+  `window.__hyperframes.__ready`へ代入する
+- `device.lost`は`window.__hyperframes.__failed.push({...,fatal:true})`へ接続し、
+  WGSLは`getCompilationInfo().messages`を検査してerrorをthrowしてから
+  `createRenderPipeline()`する
+- 各frameは絶対時刻からuniform/stateを上書きし、command encoderを新しく作って
+  `device.queue.submit(...)`する。rAF・delta積算は禁止。実例は
+  `examples/hyperframes-animation--raw-webgpu-wgsl.html`
+
+spike実測はRemotion 4.0.484 / chrome-headless-shell 149.0.7790.0(mac-arm64)。
+既存の`--enable-unsafe-webgpu`以外の追加flagなしでdefault(SwiftShader)と
+`gpu-angle`(Apple Metal)のadapter/device取得が各3/3成功し、640x360・120frameの
+独立2回renderはSHA-256完全一致、`YMAX=0`だった。ただしcross-machine保証では
+ないためtierはperceptualのまま維持する。
+
+### Three.js core-only(X3)
+
+Three.js は manual route で `usable`。classic UMD build が最後に存在する
+`three@0.160.0`(実測669884 bytes、runtime `THREE.REVISION === "160"`)を固定する。
+r160→r161 の公式 migration で classic build が削除され、現行0.181.2の
+`three.module.min.js`は`./three.core.min.js`を追加importするため1本のSRIで閉じず、
+jsDelivrの`+esm`も動的生成物でSRI非推奨を明記するため、classic 1ファイルを
+固定できるr160を採用した:
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js" integrity="sha384-qOkzR5Ke/XkQxuGVJ9hpFEpDlcoLtWwVYhnJf06cLIZa2vaIptSqaubivErzmD5O" crossorigin="anonymous"></script>
+```
+
+- root に `data-hf-requires="three"` と `data-hf-determinism="perceptual"` を宣言する
+- `hf-seek` を同期購読し、`event.detail.time` の絶対秒を明示した有限 duration
+  へ clamp して、scene の状態を毎回**代入**で再構築してから
+  `renderer.render(scene,camera)`する。`+=`/`-=`/`++`/`--` のフレーム積算を避ける
+- `new THREE.WebGLRenderer({...})` の literal options は
+  `preserveDrawingBuffer:true`、動画用 pixel ratio は `1`、fixture の
+  `antialias:false` と固定サイズを基準にする
+- `renderer.setAnimationLoop`、`new THREE.Clock()`、`getDelta()`/
+  `getElapsedTime()`、loader、Worker、blob URL は X3 core-only では禁止。
+  model/texture/HDRI/addon の読み込みはまだ対応しない
+- 実例は `examples/hyperframes-animation--three-geometry.html`、逐語 upstream は
+  `remotion/vendor/hyperframes/skills-corpus/hyperframes-animation/adapters/three.md`
+
+`html-in-canvas` は **OUT のまま**とする。上流は実験的な `layoutsubtree` / `drawElementImage` を必要とする一方、Cutflow が Chromium に渡すのは `gl:"angle"` だけで有効化 flag が無く、通常 canvas への fallback は同等機能ではないうえ、DOM→bitmap の readiness・cache key・決定論を別途設計すべき独立課題だからである。
 
 ### check と render を通る例
 

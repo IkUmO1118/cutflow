@@ -51,9 +51,12 @@ Cutflow の check ゲート(`checkComposition`)がそのまま受理できる形
 - **`<script>` 以外のリモート URL を一切使わない**。`src`(`<script>` を除く。
   `<img>`/`<video>`/`<audio>`/`<source>`/`<iframe>` 等)/`href`/`srcset`/
   `poster`/`data-composition-src`・CSS `url()`・`@import`・`@font-face` の
-  いずれにも `http(s)://` や `//` 始まりの値を書かない。フォントは
+  いずれにも `http(s)://` や `//` 始まりの値を書かない。{{#fontAssets}}フォントは
+  `system-ui, sans-serif`(または `serif` / `monospace`)などの総称フォント、または
+  添付素材欄に提示された埋め込み `@font-face` だけを使う。埋め込みを使う場合は
+  提示された family `HFAsset<n>` と `__HF_FONT_<n>__` を一字も変えない{{/fontAssets}}{{^fontAssets}}フォントは
   `system-ui, sans-serif`(または `serif` / `monospace`)などの**総称フォント
-  ファミリーのみ**を使う(埋め込みカスタムフォントも使わない)
+  ファミリーのみ**を使う(埋め込みカスタムフォントも使わない){{/fontAssets}}
 - **非決定的な駆動を一切使わない**: `Math.random`・`Date.now`・
   `performance.now`・`new Date()`・`requestAnimationFrame`・`setInterval` は
   インラインスクリプト内で禁止(検査でエラーになる)。`setTimeout` も避ける

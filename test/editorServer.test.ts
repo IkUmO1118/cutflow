@@ -51,7 +51,10 @@ test("validateHyperframeAuthorRequest: {name,brief,assets?} だけを厳格に�
   assert.deepEqual(validateHyperframeAuthorRequest({
     name: "ending-card.v2",
     brief: "ロゴ入り",
-    assets: [{ name: "logo.png", data: "YWJjZA==" }],
+    assets: [
+      { name: "logo.png", data: "YWJjZA==" },
+      { name: "subset.woff2", data: "d09GMg==" },
+    ],
   }), []);
   assert.match(validateHyperframeAuthorRequest({ name: "../x", brief: "x" }).join(" / "), /ファイル名は英数字/);
   assert.match(validateHyperframeAuthorRequest({ name: "x", brief: "  " }).join(" / "), /作りたい内容/);

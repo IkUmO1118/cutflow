@@ -254,6 +254,7 @@ export interface HyperframesData {
   assetLimits: {
     maxBytes: number;
     maxTotalBytes: number;
+    fontMaxBytes: number;
   };
 }
 

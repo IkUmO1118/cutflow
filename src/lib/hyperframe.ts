@@ -18,6 +18,7 @@
 
 import { CDN_SCRIPT_URLS } from "./hyperframeCdn.ts";
 import type { HyperframeRenderProfile } from "./hyperframeRenderProfile.ts";
+import { readHyperframeRequires } from "./hyperframeRequirements.ts";
 
 export interface VarDecl {
   id: string;
@@ -162,8 +163,8 @@ export function mergeVariables(
  * - getVariables()/__seek(tMs): 既存。__seek は .clip 要素の可視性を
  *   data-start/data-duration の窓で切り替え、Web Animations を対象フレーム
  *   時刻へ pause+シークする(CSS/WAAPI 駆動カード向け)
- * - __seek(tMs) は加えて GSAP(window.__timelines)・Lottie
- *   (window.__hfLottie)のシーク、および hf-seek CustomEvent の dispatch
+ * - __seek(tMs) は加えて GSAP(window.__timelines)・Anime.js
+ *   (window.__hfAnime)・Lottie(window.__hfLottie)のシーク、および hf-seek CustomEvent の dispatch
  *   (GPU/WebGL 自己描画カード向け。detail.time は秒)も行う(B1)
  * - __isReady(): フォント読み込み・data-hf-requires の必須ライブラリ・
  *   Lottie の読み込み完了・任意の window.__hyperframes.__ready を待つ
@@ -196,6 +197,12 @@ export function buildIframeSrcdoc(
   const cspMeta = '<meta http-equiv="Content-Security-Policy" content="' + policy + '">';
 
   const json = JSON.stringify(variables).replace(/<\//g, "<\\/");
+  const webgpuRequiresCheck = readHyperframeRequires(html).tokens.includes("webgpu")
+    ? "if (tok === 'webgpu'){" +
+      "if (!navigator.gpu) pushFail('required capability \"webgpu\" (navigator.gpu) is not available', true);" +
+      "continue;" +
+      "}"
+    : "";
   const gpuBootstrap = profile === "gpu-angle"
     ? "var __hfGlStats={requests:0,successes:0,failed:false};" +
       "var __hfGetContext=HTMLCanvasElement.prototype.getContext;" +
@@ -256,6 +263,13 @@ export function buildIframeSrcdoc(
     "tl.totalTime(tSec, true);" +
     "}catch(e){}" +
     "}" +
+    // --- Anime.js(window.__hfAnime。msで pause+seek、GSAP nudge無し) ---
+    "var aas = window.__hfAnime;" +
+    "if (aas && aas.length) for (var n=0;n<aas.length;n++){" +
+    "var ai = aas[n];" +
+    "if (!ai) continue;" +
+    "try{ ai.pause(); ai.seek(tMs); }catch(e){}" +
+    "}" +
     // --- Lottie(window.__hfLottie。ms・isFrame=false) ---
     "var las = window.__hfLottie;" +
     "if (las && las.length) for (var m=0;m<las.length;m++){" +
@@ -305,10 +319,11 @@ export function buildIframeSrcdoc(
     "var el = document.querySelector('[data-hf-requires]');" +
     "if (!el) return;" +
     "var toks = (el.getAttribute('data-hf-requires')||'').split(/[\\s,]+/);" +
-    "var g = {gsap:'gsap', three:'THREE', lottie:'lottie'};" +
+    "var g = {gsap:'gsap', anime:'anime', three:'THREE', lottie:'lottie'};" +
     "for (var i=0;i<toks.length;i++){" +
     "var tok = toks[i];" +
     "if (!tok) continue;" +
+    webgpuRequiresCheck +
     "var name = g[tok] || tok;" +
     "if (typeof window[name] === 'undefined') pushFail('required library \"'+tok+'\" (window.'+name+') is not defined', true);" +
     "}" +

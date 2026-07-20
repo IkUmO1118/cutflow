@@ -560,7 +560,7 @@ program
   )
   .option(
     "--asset <path>",
-    "カードへ焼き込む画像(PNG/JPEG/GIF/WebP。--from-brief 専用、複数指定可)",
+    "カードへ焼き込む画像(PNG/JPEG/GIF/WebP)またはフォント(WOFF2。--from-brief 専用、複数指定可)",
     collectFrom,
     [],
   )

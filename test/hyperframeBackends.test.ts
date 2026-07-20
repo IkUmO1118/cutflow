@@ -20,7 +20,7 @@ import {
 
 const ROOT = join(import.meta.dirname, "..");
 
-test("backend report has fixed schema, stable order, and the exact four-state assignment", () => {
+test("backend report has fixed schema, stable order, and the resolved status assignment", () => {
   const report = hyperframeBackends();
   assert.equal(report.schemaVersion, 1);
   assert.deepEqual(report.backends.map(({ id, status }) => [id, status]), [
@@ -32,21 +32,22 @@ test("backend report has fixed schema, stable order, and the exact four-state as
     ["gsap", "usable"],
     ["lottie", "material-routed"],
     ["raw-webgl", "usable"],
-    ["three", "not-wired"],
-    ["anime-js", "out"],
+    ["raw-webgpu", "usable"],
+    ["three", "usable"],
+    ["anime-js", "usable"],
     ["d3", "out"],
     ["typegpu", "out"],
     ["maps", "out"],
     ["dotlottie", "out"],
   ] satisfies Array<[string, HyperframeBackendStatus]>);
   assert.deepEqual(new Set(report.backends.map((backend) => backend.status)), new Set([
-    "usable", "material-routed", "not-wired", "out",
+    "usable", "material-routed", "out",
   ]));
 });
 
 test("pin metadata is derived from CDN_PINS and its version cannot drift from the URL", () => {
   const pinned = hyperframeBackends().backends.filter((backend) => backend.pin !== null);
-  assert.deepEqual(pinned.map((backend) => backend.id), ["gsap", "lottie"]);
+  assert.deepEqual(pinned.map((backend) => backend.id), ["gsap", "lottie", "three", "anime-js"]);
   for (const backend of pinned) {
     const pin = backend.pin!;
     const source = CDN_PINS.find((candidate) => candidate.lib === pin.lib);
@@ -54,7 +55,7 @@ test("pin metadata is derived from CDN_PINS and its version cannot drift from th
     assert.equal(pin.url, source.url);
     assert.equal(pin.version, /@([^/]+)\//.exec(source.url)?.[1]);
   }
-  assert.deepEqual(HYPERFRAME_REQUIRE_TOKENS, ["gsap", "lottie", "three"]);
+  assert.deepEqual(HYPERFRAME_REQUIRE_TOKENS, ["gsap", "lottie", "anime", "three", "webgpu"]);
 });
 
 test("every usable backend names an existing check-valid real render fixture", () => {
@@ -82,6 +83,7 @@ test("material-routed Lottie exposes the real imported AE fixture", () => {
 test("render profile resolver shares Rule 9's GPU predicate and F2 wires gpu-angle", () => {
   assert.equal(resolveHyperframeRenderProfile("<script>listen('hf-seek')</script>"), "gpu-angle");
   assert.equal(resolveHyperframeRenderProfile('<div data-hf-requires="three"></div>'), "gpu-angle");
+  assert.equal(resolveHyperframeRenderProfile('<div data-hf-requires="webgpu"></div>'), "gpu-angle");
   assert.equal(resolveHyperframeRenderProfile('<div data-hf-requires="gsap"></div>'), "default");
   assert.equal(isHyperframeRenderProfileWired("default"), true);
   assert.equal(isHyperframeRenderProfileWired("gpu-angle"), true);
@@ -107,7 +109,9 @@ test("text format is stable and includes status, tier, pin, authoring route, and
   assert.match(text, /^- gsap: usable; determinism=byte; pin=gsap@3\.14\.2 https:\/\//m);
   assert.match(text, /^- lottie: material-routed; determinism=byte,perceptual; .*authoring=material-import; fixture=test\/fixtures\/lottie\/hyperframes\/card\.html$/m);
   assert.match(text, /^- raw-webgl: usable; determinism=perceptual; pin=none;.*fixture=test\/fixtures\/hyperframe-backends\/raw-webgl\.html$/m);
-  assert.match(text, /^- anime-js: out; determinism=n\/a; pin=none; authoring=none;/m);
+  assert.match(text, /^- raw-webgpu: usable; determinism=perceptual; pin=none;.*fixture=test\/fixtures\/hyperframe-backends\/raw-webgpu\.html$/m);
+  assert.match(text, /^- three: usable; determinism=perceptual; pin=three@0\.160\.0 https:\/\/.*authoring=manual; fixture=test\/fixtures\/hyperframe-backends\/three\.html$/m);
+  assert.match(text, /^- anime-js: usable; determinism=byte; pin=anime@3\.2\.2 https:\/\/.*authoring=manual; fixture=test\/fixtures\/hyperframe-backends\/anime-js\.html$/m);
 });
 
 test("CLI --json needs no dir, emits pure JSON, and does not write the working directory", () => {

@@ -24,7 +24,7 @@ Every card here passes `checkComposition` (`src/lib/hyperframeCheck.ts`) with
 `test/hyperframeExamples.test.ts`, which runs the checker over every `.html` in this
 directory. The gate is **static** — it validates the composition contract (root,
 typed variables, clip discipline, remote-URL ban with the pinned-CDN exception,
-seek-safe drivers, font embedding, determinism tier, `data-hf-requires`, GSAP/Lottie
+seek-safe drivers, font embedding, determinism tier, `data-hf-requires`, GSAP/Lottie/Anime.js/Three.js/raw WebGPU
 registration). It does **not** render the card.
 
 What the conversion changed, mechanically, relative to upstream:
@@ -47,7 +47,7 @@ authoring references, and a human previews before burning anything into a final 
 Static shape-only / final-frame-static cards do render byte-identically. See the
 rulebook §7 for the measured evidence.
 
-## Font normalization
+## Font normalization and the embedded-font example
 
 Where upstream used a named webfont as the first family in a `font-family:`
 declaration (`Inter`, `Google Sans`, `Playfair Display`, `Helvetica Neue`, `Arial`,
@@ -55,8 +55,24 @@ declaration (`Inter`, `Google Sans`, `Playfair Display`, `Helvetica Neue`, `Aria
 folded to a generic so rendering does not depend on a machine having that font:
 sans → `system-ui, sans-serif`, mono → `ui-monospace, monospace`, serif →
 `ui-serif, Georgia, serif` (must lead with a generic keyword — a bare `Georgia`
-first family still warns). No card ships a bundled font file; there are no
-`@font-face` rules and no font assets in this directory.
+first family still warns).
+
+`cutflow--embedded-woff2-font.html` is the deliberate exception: it is the X1
+worked example for a user-supplied, subset WOFF2 embedded as a
+`data:font/woff2` `@font-face`. Its source, license, hashes, and reproducible
+external subsetting command are recorded in
+`test/fixtures/hyperframe-fonts/README.md`. No subsetting tool is bundled with
+CutFlow.
+
+`hyperframes-animation--three-geometry.html` is the X3 manual/core-only worked
+example: fixed 640x360 geometry, Three.js r160 exact URL+SRI, perceptual tier,
+fixed pixel ratio, and absolute-time `hf-seek` rendering with no external assets.
+
+`hyperframes-animation--raw-webgpu-wgsl.html` is the X4 native/manual worked
+example: fixed 640x360 WGSL, perceptual tier, a synchronous pre-await `hf-seek`
+listener with latest-time retention, readiness-gated device/pipeline setup,
+fatal device-loss handling, compilation checks, and per-frame queue submission.
+TypeGPU remains out; this card has no library or CDN dependency.
 
 ## CONVERT-SUBSTITUTE cards (asset removed/substituted)
 
@@ -91,18 +107,14 @@ standalone render needs an explicit length:
 static 0/0 gate (duration is not a static-contract property); the flag only affects the
 `hyperframe` render step. Cards with proper clips render without the flag.
 
-## Excluded upstream cards (vendor-only, NOT here)
+## Excluded upstream cards (not directly converted)
 
-Three upstream cards depend on a runtime that is not in the CutFlow CDN pin table
-(`src/lib/hyperframeCdn.ts` pins only GSAP and Lottie) or on GPU rasterization that
-cannot be made byte/perceptually deterministic. They stay vendor-only and are **not**
-converted:
+Three upstream cards retain self-running GPU code or extra remote dependencies and
+are therefore not directly converted. The separate X3 Three.js example above shows
+the supported absolute-time/core-only route:
 
 | upstream card | reason |
 |---|---|
-| `music-to-video/references/templates/held-message-living-field` | Loads `three.js@0.147.0` (not in the pin table) with a `requestAnimationFrame` render loop and a remote Google Fonts `<link>`. Cannot be rewritten to CSS/WAAPI trivially. |
+| `music-to-video/references/templates/held-message-living-field` | Loads legacy `three.js@0.147.0` with a `requestAnimationFrame` loop and remote Google Fonts; it has not been mechanically rewritten to the r160 `hf-seek` core-only contract. |
 | `music-to-video/references/motion-primitives/bg-flow-field` | Raw WebGL (`canvas.getContext("webgl")`) flow-field driven by `requestAnimationFrame`. GPU/ANGLE output is driver-dependent (not byte-deterministic). |
 | `music-to-video/references/motion-primitives/text-spectral-rays` | Raw WebGL + 2D-canvas compositing. Same GPU nondeterminism; excluded by policy even though the static checker passes it. |
-
-A future GPU authoring track (`data-hf-requires="three"` + `perceptual` tier +
-`hf-seek` subscription) could re-admit these.
