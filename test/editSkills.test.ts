@@ -22,7 +22,7 @@ import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { CUT_REASON_IDS } from "../src/lib/reasonIds.ts";
+import { CUT_REASON_IDS, REASON_ID_LABEL } from "../src/lib/reasonIds.ts";
 import { CUT_PATTERN_IDS, CUT_PATTERN_INJECTION, BLUEPRINT_BLOCKS } from "../src/lib/cutPatterns.ts";
 
 const EDIT_SKILLS_DIR = join(import.meta.dirname, "..", "docs", "edit-skills");
@@ -207,6 +207,33 @@ test("T-f: 相互リンクの閉包: 「紛らわしい隣」節に現れる id 
   }
   for (const id of CUT_REASON_IDS) {
     assert.ok(referenced.has(id), `${id} がどの recipe の「紛らわしい隣」からも参照されていません(孤立ノード)`);
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* T-g(P6-T6): REASON_ID_LABEL ⇔ README 13分類表の一行定義の完全一致       */
+/* ------------------------------------------------------------------ */
+
+/** README.md の「### 系: …」表から `id → 一行定義` を抽出する
+ * (`| [\`id\`](recipes/id.md) | 一行定義 | 接地 |` 形式の行だけを拾う)。 */
+function readmeLabelTable(): Map<string, string> {
+  const src = readFileSync(join(EDIT_SKILLS_DIR, "README.md"), "utf8");
+  const map = new Map<string, string>();
+  for (const m of src.matchAll(/^\| \[`([a-z][a-z0-9-]*)`\]\(recipes\/[a-z0-9-]+\.md\) \| (.+?) \| [^|]+ \|$/gm)) {
+    map.set(m[1], m[2]);
+  }
+  return map;
+}
+
+test("T-g: REASON_ID_LABEL ⇔ README 13分類表の一行定義が完全一致する", () => {
+  const table = readmeLabelTable();
+  assert.deepEqual([...table.keys()].sort(), [...CUT_REASON_IDS].sort(), "README 13分類表の id 集合が CUT_REASON_IDS と一致しません");
+  for (const id of CUT_REASON_IDS) {
+    assert.equal(
+      table.get(id),
+      REASON_ID_LABEL[id],
+      `${id}: REASON_ID_LABEL とREADME 13分類表の一行定義が一致しません`,
+    );
   }
 });
 

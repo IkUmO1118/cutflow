@@ -27,29 +27,29 @@ id 集合の単一の出所は(P2 で実装される)`src/lib/reasonIds.ts` の
 
 | id | 一行定義 | 接地 |
 |---|---|---|
-| [`restatement`](recipes/restatement.md) | 同内容を後でうまく言い直しているときの、収束前の版(未完成の言いかけを含む) | 実データ(2026-07-12) |
-| [`stumble`](recipes/stumble.md) | 内容を1つも運んでいないフィラー単独(えー/あの/まあ/なんか)・言い淀みの反復 | 実データ(言い淀み系に同居) |
-| [`duplicate-tail`](recipes/duplicate-tail.md) | 完成版を言い切った直後に残った末尾・遷移句の反復 | 実データ(2026-07-12) |
-| [`gap-trim`](recipes/gap-trim.md) | keep された発話と発話のあいだの短い無音を詰める(テンポ調整) | 実データ(2026-07-12) |
-| [`dead-air`](recipes/dead-air.md) | 本編内で、発話も画面の新情報もない長めの間(段取り・思考・移動) | 実データ(2026-07-12) + rules.md |
-| [`tangent`](recipes/tangent.md) | 本題と無関係な脱線・独り言・視聴者に向いていない発話 | 想定(実データ0件) |
-| [`slate`](recipes/slate.md) | 収録の頭/尻の段取り。本編の外(カメラ操作・締め挨拶より後の残り) | 実データ(2026-07-12) |
+| [`restatement`](recipes/restatement.md) | 同内容を後でうまく言い直す時の収束前の版(前半)。未完成の言いかけを含む | 実データ(2026-07-12) |
+| [`stumble`](recipes/stumble.md) | 内容が無いフィラー単独・言い淀みの反復(除いても意味が変わらない) | 実データ(言い淀み系に同居) |
+| [`duplicate-tail`](recipes/duplicate-tail.md) | 完成後に残った末尾・遷移句の反復(直前keepの末尾と一致する断片) | 実データ(2026-07-12) |
+| [`gap-trim`](recipes/gap-trim.md) | keep済み発話どうしの短い無音を詰める(0.1〜1.5秒・テンポ調整) | 実データ(2026-07-12) |
+| [`dead-air`](recipes/dead-air.md) | 発話も画面変化もない長めの間(段取り・思考。demo-waitと違い画面が動かない) | 実データ(2026-07-12) + rules.md |
+| [`tangent`](recipes/tangent.md) | 本題と無関係な脱線・独り言(章立て・briefのどの主題にも紐づかない) | 想定(実データ0件) |
+| [`slate`](recipes/slate.md) | 収録の頭/尻の段取り(本編の外。最初/最後のkeepより外側) | 実データ(2026-07-12) |
 
 ### 系: 残す(4)
 
 | id | 一行定義 | 接地 |
 |---|---|---|
-| [`demo-wait`](recipes/demo-wait.md) | 画面が語っている無言(実行結果の待ち・出力を読ませている数秒・結果が出る瞬間) | 実データ(反転keep) + rules.md |
-| [`failure-and-fix`](recipes/failure-and-fix.md) | エラー・失敗とその解決(セットで残す。片方だけ残さない) | 想定(実データ0件) |
-| [`hook`](recipes/hook.md) | 冒頭のフック(課題提示・つかみ)。テンポ調整の対象にしない | 実データ(2026-07-12) + rules.md |
-| [`greeting`](recipes/greeting.md) | 挨拶・お礼・締め。尺の都合で切らない | 実データ(反転keep) + rules.md |
+| [`demo-wait`](recipes/demo-wait.md) | 画面が語っている無言(結果待ち・dead-airと違い直前から画面が変化) | 実データ(反転keep) + rules.md |
+| [`failure-and-fix`](recipes/failure-and-fix.md) | エラーと解決のセット(片方だけ残さない。単一候補では判断しない) | 想定(実データ0件) |
+| [`hook`](recipes/hook.md) | 冒頭のフック(課題提示。主題提示より前。テンポ調整の対象にしない) | 実データ(2026-07-12) + rules.md |
+| [`greeting`](recipes/greeting.md) | 挨拶・お礼・締め(尺の都合で切らない。余韻の無音も含めて残す) | 実データ(反転keep) + rules.md |
 
 ### 系: 境界(2)
 
 | id | 一行定義 | 接地 |
 |---|---|---|
-| [`tail-clip`](recipes/tail-clip.md) | カット境界が語尾を食う。切らずに余白を残す側へ倒す | rules.md |
-| [`reference-orphan`](recipes/reference-orphan.md) | ここを切ると後続の指示語・接続が宙に浮く | 想定 + rules.md(ズーム節) |
+| [`tail-clip`](recipes/tail-clip.md) | 境界が語尾を食う(後ろへ倒す。語の終了時刻以降まで余白を残す) | rules.md |
+| [`reference-orphan`](recipes/reference-orphan.md) | 切ると次候補の指示語が宙に浮く(前へ倒す。単一候補では判断しない) | 想定 + rules.md(ズーム節) |
 
 ## 粒度の基準(この4条を満たさない分類は作らない・残さない)
 
