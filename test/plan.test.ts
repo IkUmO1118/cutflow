@@ -178,6 +178,69 @@ test("buildCutplan: fill 省略時は穴を埋めない(導入前とバイト等
   assert.deepEqual(cutplan.segments.map((s) => s.action), ["keep", "keep", "cut"]);
 });
 
+/* ---------------- reasonId / keeps(§4.4・T-h) ---------------- */
+
+test("T-h: buildCutplan を新引数(keeps)省略で呼ぶと、reasonId 無しの cuts では従来と deepEqual", () => {
+  const before = buildCutplan(numbered, [{ id: 3, reason: "余談カット" }]);
+  const after = buildCutplan(numbered, [{ id: 3, reason: "余談カット" }], undefined, undefined);
+  assert.deepEqual(after, before);
+  // reasonId キー自体が存在しない(undefined 値ではなくキー欠落。§I1)
+  for (const s of after.segments) assert.equal("reasonId" in s, false);
+});
+
+test("cuts[].reasonId を指定すると cut segment に reasonId が乗る", () => {
+  const cutplan = buildCutplan(numbered, [{ id: 3, reason: "余談", reasonId: "tangent" }]);
+  const cutSeg = cutplan.segments.find((s) => s.action === "cut")!;
+  assert.equal(cutSeg.reasonId, "tangent");
+});
+
+test("cuts[].reasonId 省略時は cut segment に reasonId キーが乗らない", () => {
+  const cutplan = buildCutplan(numbered, [{ id: 3, reason: "余談" }]);
+  const cutSeg = cutplan.segments.find((s) => s.action === "cut")!;
+  assert.equal("reasonId" in cutSeg, false);
+});
+
+test("keeps に載った id(cutIds に無い=keepになる id)へ reason/reasonId が乗る", () => {
+  const cutplan = buildCutplan(numbered, [], undefined, undefined, [
+    { id: 1, reason: "結果待ち", reasonId: "demo-wait" },
+  ]);
+  const seg = cutplan.segments.find((s) => s.start === 0)!;
+  assert.equal(seg.action, "keep");
+  assert.equal(seg.reason, "結果待ち");
+  assert.equal(seg.reasonId, "demo-wait");
+  // keeps に無い keep segment は従来どおり reason: ""・reasonId キー無し
+  const other = cutplan.segments.find((s) => s.start === 10)!;
+  assert.equal(other.reason, "");
+  assert.equal("reasonId" in other, false);
+});
+
+test("keeps に存在しない id を指定すると警告のうえ無視される", () => {
+  const warns: string[] = [];
+  const orig = console.warn;
+  console.warn = (msg: string) => warns.push(msg);
+  try {
+    const cutplan = buildCutplan(numbered, [], undefined, undefined, [
+      { id: 999, reason: "無効", reasonId: "demo-wait" },
+    ]);
+    for (const s of cutplan.segments) assert.equal("reasonId" in s, false);
+  } finally {
+    console.warn = orig;
+  }
+  assert.ok(warns.some((w) => w.includes("keeps") && w.includes("999")));
+});
+
+test("keeps 省略時は plan.reasonIds.enabled=false 相当(I3): 新引数無しの deepEqual を保つ", () => {
+  const withIdCtxOnly = buildCutplan(numbered, [{ id: 3, reason: "余談カット" }], undefined, { duration: 40 });
+  const withKeepsUndefinedExplicit = buildCutplan(
+    numbered,
+    [{ id: 3, reason: "余談カット" }],
+    undefined,
+    { duration: 40 },
+    undefined,
+  );
+  assert.deepEqual(withKeepsUndefinedExplicit, withIdCtxOnly);
+});
+
 test("buildChapterEntries: idCtx 省略時は id に一切触れない", () => {
   const entries = buildChapterEntries([{ startId: 1, title: "導入" }], numbered, []);
   assert.equal("id" in entries[0], false);
