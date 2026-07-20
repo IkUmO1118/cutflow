@@ -10,15 +10,24 @@
 //      reasonId が CUT_REASON_IDS に閉じる)
 // T-f: 相互リンクの閉包(「紛らわしい隣」節に現れる id が全て CUT_REASON_IDS に
 //      閉じる。加えて13分類全てが少なくとも1回参照される=孤立ノードが無い)
+// T-k: examples の内部整合(P5-3。hermetic・実収録に依存しない): 判断 JSON の
+//      id/reasonId が見出し `### #<id> <reasonId>` と一致し、`## ` セクション
+//      内で元秒(text フェンス先頭の [start-...])が単調増加、id は文書全体で
+//      重複しない
+// T-l: examples の語彙閉包 + カバレッジ表の全単射(hermetic): 全判断 JSON の
+//      reasonId が CUT_REASON_IDS に閉じ、「分類カバレッジ」節の表に挙がる
+//      id 集合と完全一致する
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { CUT_REASON_IDS } from "../src/lib/reasonIds.ts";
 import { CUT_PATTERN_IDS, CUT_PATTERN_INJECTION, BLUEPRINT_BLOCKS } from "../src/lib/cutPatterns.ts";
 
 const EDIT_SKILLS_DIR = join(import.meta.dirname, "..", "docs", "edit-skills");
 const RECIPES_DIR = join(EDIT_SKILLS_DIR, "recipes");
+const EXAMPLES_DIR = join(EDIT_SKILLS_DIR, "examples");
 
 function recipeFileNames(): string[] {
   return readdirSync(RECIPES_DIR).filter((f) => f.endsWith(".md"));
@@ -238,3 +247,165 @@ test("T-m(blueprint): BLUEPRINT_BLOCKS の key が参照される全 blueprint i
     }
   }
 });
+
+/* ------------------------------------------------------------------ */
+/* T-k / T-l(P5-3): docs/edit-skills/examples/*.md の内部整合・語彙閉包    */
+/* ------------------------------------------------------------------ */
+
+function exampleFileNames(): string[] {
+  return existsSync(EXAMPLES_DIR) ? readdirSync(EXAMPLES_DIR).filter((f) => f.endsWith(".md")) : [];
+}
+
+function exampleSource(name: string): string {
+  return readFileSync(join(EXAMPLES_DIR, name), "utf8");
+}
+
+interface ExampleEntry {
+  id: number;
+  headingReasonId: string;
+  /** この entry が属する `## ` セクションの見出し文字列 */
+  section: string;
+  /** text フェンス内で最初に現れる [start-...] の start(秒)。無ければ null */
+  start: number | null;
+  json: Record<string, unknown>;
+}
+
+/** ファイル1本を `## `(セクション)→ `### #<id> ...`(entry)の階層でパースする。
+ * entry は直後の最初の ```text フェンスと最初の ```json フェンスを持つ前提
+ * (docs/edit-skills/examples/*.md の固定節構成・§4.2 のフォーマット)。 */
+function parseExamples(src: string): ExampleEntry[] {
+  const entries: ExampleEntry[] = [];
+  let currentSection = "(不明)";
+  const lines = src.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const h2 = lines[i].match(/^## (.+)$/);
+    if (h2) {
+      currentSection = h2[1];
+      continue;
+    }
+    const h3 = lines[i].match(/^### #(\d+) ([a-z][a-z0-9-]*)/);
+    if (!h3) continue;
+    const id = Number(h3[1]);
+    const headingReasonId = h3[2];
+    const rest = lines.slice(i + 1).join("\n");
+    const textFence = rest.match(/```text\n([\s\S]*?)```/);
+    const jsonFence = rest.match(/```json\n([\s\S]*?)```/);
+    assert.ok(textFence, `#${id} に \`\`\`text フェンスがありません`);
+    assert.ok(jsonFence, `#${id} に \`\`\`json フェンスがありません`);
+    const startMatch = textFence![1].match(/\[(\d+(?:\.\d+)?)-/);
+    let json: Record<string, unknown>;
+    try {
+      json = JSON.parse(jsonFence![1]);
+    } catch (e) {
+      throw new Error(`#${id} の json フェンスがパースできません: ${(e as Error).message}`);
+    }
+    entries.push({
+      id,
+      headingReasonId,
+      section: currentSection,
+      start: startMatch ? Number(startMatch[1]) : null,
+      json,
+    });
+  }
+  return entries;
+}
+
+test("T-k: examples の内部整合(id/reasonId が見出しと判断JSONで一致・id重複なし・セクション内で元秒が単調増加)", () => {
+  for (const file of exampleFileNames()) {
+    const entries = parseExamples(exampleSource(file));
+    assert.ok(entries.length > 0, `${file} に判断エントリがありません`);
+
+    const seenIds = new Set<number>();
+    for (const e of entries) {
+      assert.equal(e.json.id, e.id, `${file} #${e.id}: json.id が見出しの id と不一致`);
+      assert.equal(
+        e.json.reasonId,
+        e.headingReasonId,
+        `${file} #${e.id}: json.reasonId が見出しの reasonId と不一致`,
+      );
+      assert.ok(!seenIds.has(e.id), `${file}: id ${e.id} が2回以上現れています`);
+      seenIds.add(e.id);
+    }
+
+    const bySection = new Map<string, ExampleEntry[]>();
+    for (const e of entries) {
+      const arr = bySection.get(e.section) ?? [];
+      arr.push(e);
+      bySection.set(e.section, arr);
+    }
+    for (const [section, es] of bySection) {
+      let prev = -Infinity;
+      for (const e of es) {
+        assert.ok(e.start !== null, `${file} #${e.id}(セクション "${section}"): text フェンスに元秒 [start-...] がありません`);
+        assert.ok(
+          e.start! >= prev,
+          `${file} #${e.id}(セクション "${section}"): 元秒が単調増加ではありません(${e.start} < ${prev})`,
+        );
+        prev = e.start!;
+      }
+    }
+  }
+});
+
+/** "## 分類カバレッジ" 節のテーブルの1列目(`` `<id>` ``)を抽出する */
+function coverageTableIds(src: string): string[] {
+  const start = src.indexOf("## 分類カバレッジ");
+  assert.ok(start >= 0, "分類カバレッジ節の見出しが見つかりません");
+  const rest = src.slice(start);
+  return [...rest.matchAll(/^\| `([a-z][a-z0-9-]*)` \|/gm)].map((m) => m[1]);
+}
+
+test("T-l: examples の語彙閉包 + カバレッジ表の全単射(全判断JSONのreasonIdがCUT_REASON_IDSに閉じ、カバレッジ表と完全一致)", () => {
+  for (const file of exampleFileNames()) {
+    const src = exampleSource(file);
+    const entries = parseExamples(src);
+    const usedIds = new Set(entries.map((e) => e.json.reasonId as string));
+    for (const id of usedIds) {
+      assert.ok(
+        (CUT_REASON_IDS as readonly string[]).includes(id),
+        `${file}: 判断 JSON の reasonId "${id}" が CUT_REASON_IDS にありません`,
+      );
+    }
+    const tableIds = new Set(coverageTableIds(src));
+    assert.deepEqual(
+      [...usedIds].sort(),
+      [...tableIds].sort(),
+      `${file}: 判断 JSON の reasonId 集合とカバレッジ表の id 集合が一致しません`,
+    );
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* 実収録との照合(任意。ローカルにこの収録が無ければ skip。落ちない)      */
+/* ------------------------------------------------------------------ */
+
+const RECORDING_2026_07_12 = join(homedir(), "Movies", "cutflow", "2026-07-12");
+
+test("実収録照合: examples/2026-07-12-tool-demo.md の抜粋が cutplan.json の実データと一致する", (t) => {
+  if (!existsSync(join(RECORDING_2026_07_12, "cutplan.json"))) {
+    t.skip(`ローカルに ${RECORDING_2026_07_12} が無いため skip(このマシン固有の任意検査)`);
+    return;
+  }
+  const cutplan = JSON.parse(readFileSync(join(RECORDING_2026_07_12, "cutplan.json"), "utf8")) as {
+    segments: { start: number; end: number; action: string; reason: string }[];
+  };
+  const src = exampleSource("2026-07-12-tool-demo.md");
+  const entries = parseExamples(src);
+  for (const e of entries) {
+    const text = exampleSourceSliceFor(src, e.id);
+    const m = text.match(/\[(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)\]/);
+    if (!m) continue; // 想定/合成の抜粋は無い(この記録は全件実データ)ので通常は必ずマッチする
+    const [start, end] = [Number(m[1]), Number(m[2])];
+    const seg = cutplan.segments.find((s) => Math.abs(s.start - start) < 0.01 && Math.abs(s.end - end) < 0.01);
+    assert.ok(seg, `#${e.id}: cutplan.json に区間 [${start}-${end}] が見つかりません`);
+  }
+});
+
+/** id の見出しから次の `### ` または `## ` までのソース断片を返す(実収録照合専用の軽量ヘルパ) */
+function exampleSourceSliceFor(src: string, id: number): string {
+  const headingIdx = src.search(new RegExp(`^### #${id} `, "m"));
+  assert.ok(headingIdx >= 0, `#${id} の見出しが見つかりません`);
+  const rest = src.slice(headingIdx);
+  const nextIdx = rest.slice(1).search(/^#{2,3} /m);
+  return nextIdx === -1 ? rest : rest.slice(0, nextIdx + 1);
+}
