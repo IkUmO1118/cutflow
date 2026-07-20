@@ -11,6 +11,7 @@ import { resolveDescribePausesCfg } from "../lib/config.ts";
 import type { Config } from "../lib/config.ts";
 import { DEFAULT_SILENCE_CUT_REASON } from "../lib/buildCutplan.ts";
 import { CUT_REASON_IDS, REASON_ID_FAMILY } from "../lib/reasonIds.ts";
+import type { FirstPlan, FirstPlanEntry } from "../lib/firstPlan.ts";
 import { pausesWithinKeeps } from "../lib/perception.ts";
 import type { KeepPause } from "../lib/perception.ts";
 import { framesFreshness } from "../lib/framesIndex.ts";
@@ -211,12 +212,26 @@ export function describe(dir: string, cfg?: Config): string {
   // 判定): reasonId を1つも持たない かつ plan.first.json も無ければ1行も足さない
   {
     const hasAnyReasonId = cutplan.segments.some((s) => s.reasonId !== undefined);
-    const hasFirstPlan = existsSync(join(dir, "plan.first.json"));
+    const firstPlanPath = join(dir, "plan.first.json");
+    const hasFirstPlan = existsSync(firstPlanPath);
     if (hasAnyReasonId || hasFirstPlan) {
       const silenceReason = cfg?.detect?.silenceCutReason ?? DEFAULT_SILENCE_CUT_REASON;
       const cov = computeReasonIdCoverage(cutplan.segments, silenceReason);
       const pct = Math.round(cov.ratio * 100);
-      lines.push(`分類: 意味カット ${cov.semanticCuts} 件中 ${cov.labeled} 件に分類 id(${pct}%)`);
+      let line = `分類: 意味カット ${cov.semanticCuts} 件中 ${cov.labeled} 件に分類 id(${pct}%)`;
+      if (hasFirstPlan) {
+        try {
+          const firstPlan = JSON.parse(readFileSync(firstPlanPath, "utf8")) as FirstPlan;
+          const fvf = computeFirstVsFinal(firstPlan, cutplan.segments);
+          const flipped =
+            fvf.flippedToKeep.reduce((a, f) => a + f.flipped, 0) +
+            fvf.flippedToCut.reduce((a, f) => a + f.flipped, 0);
+          line += ` / 初版から反転 ${flipped} 件`;
+        } catch {
+          // 壊れた plan.first.json は反転件数を省略するだけ(coverage 行は出す)
+        }
+      }
+      lines.push(line);
     }
   }
   lines.push("");
@@ -649,6 +664,52 @@ function computeReasonIdCoverage(segments: PlanSegment[], silenceReason: string)
   };
 }
 
+/** plan.first.json のエントリを、元秒(start/end)で最終 cutplan.json の
+ *  segment と突き合わせる(候補 id は detect/candidates の再実行で番号が
+ *  変わりうるため、id では join しない)。0.01秒未満の差は round2 の端数と
+ *  みなして一致とする。一致する segment が無ければ(区間が分割/統合された等)
+ *  数えない(過大/過小に倒さず、単純に集計対象から外れる)。 */
+function findFinalSegment(entry: FirstPlanEntry, finalSegments: PlanSegment[]): PlanSegment | undefined {
+  return finalSegments.find(
+    (s) => Math.abs(s.start - entry.start) < 0.01 && Math.abs(s.end - entry.end) < 0.01,
+  );
+}
+
+/** reasonId ごとに { first, flipped, rate } を集計し、CUT_REASON_IDS の
+ *  掲載順で返す(決定論・byId と同じ並びの流儀)。 */
+function groupFlips(
+  entries: FirstPlanEntry[],
+  finalSegments: PlanSegment[],
+  isFlipped: (finalAction: string) => boolean,
+): { reasonId: string; first: number; flipped: number; rate: number }[] {
+  const byId = new Map<string, { first: number; flipped: number }>();
+  for (const e of entries) {
+    if (e.reasonId === undefined) continue;
+    const g = byId.get(e.reasonId) ?? { first: 0, flipped: 0 };
+    g.first += 1;
+    const seg = findFinalSegment(e, finalSegments);
+    if (seg && isFlipped(seg.action)) g.flipped += 1;
+    byId.set(e.reasonId, g);
+  }
+  return CUT_REASON_IDS.filter((id) => byId.has(id)).map((id) => {
+    const g = byId.get(id)!;
+    return { reasonId: id, first: g.first, flipped: g.flipped, rate: g.first > 0 ? round2(g.flipped / g.first) : 0 };
+  });
+}
+
+/** plan.first.json(初版)と現在の cutplan.json(最終)を比較する(§P5-5)。
+ *  flippedToKeep: 初版で cut と判断された reasonId が、最終的に keep へ
+ *  反転した割合。flippedToCut: 初版で「切る誘惑があったが残した」(keeps)
+ *  reasonId が、最終的に cut へ反転した割合。閾値ゲートは無い(測るだけ)。 */
+function computeFirstVsFinal(firstPlan: FirstPlan, finalSegments: PlanSegment[]): FirstVsFinal {
+  return {
+    source: firstPlan.source,
+    reasonIdsEnabled: firstPlan.reasonIdsEnabled,
+    flippedToKeep: groupFlips(firstPlan.cuts, finalSegments, (a) => a === "keep"),
+    flippedToCut: groupFlips(firstPlan.keeps, finalSegments, (a) => a === "cut"),
+  };
+}
+
 /** keep 区間の配列(すでに mergeIntervals 済み)+そのタイムラインから
  * KeepEntry[] を作る。本編 keeps とショートの mergedRanges の両方が使う */
 function buildKeepEntries(keeps: Interval[], timeline: TimelineEntry[]): KeepEntry[] {
@@ -697,14 +758,23 @@ function buildProjection(inp: DescribeInputs, cfg?: Config): DescribeProjection 
 
   // reasonIds は sticky(規則C の明示的な例外と同型): reasonId を1つも持たない
   // cutplan かつ plan.first.json も無ければキー自体を出さない(I5。既存収録は
-  // 導入前と deepEqual)。plan.first.json の有無だけの判定は P5-5 の
-  // firstVsFinal(join)側が担う
+  // 導入前と deepEqual)。firstVsFinal は plan.first.json があるときだけ
+  // (§P5-5。読むだけ・plan.first.json は一切書かない)
   const hasAnyReasonId = cutplan.segments.some((s) => s.reasonId !== undefined);
   const firstPlanPath = join(dir, "plan.first.json");
   const hasFirstPlan = existsSync(firstPlanPath);
   if (hasAnyReasonId || hasFirstPlan) {
     const silenceReason = cfg?.detect?.silenceCutReason ?? DEFAULT_SILENCE_CUT_REASON;
     summary.reasonIds = { coverage: computeReasonIdCoverage(cutplan.segments, silenceReason) };
+    if (hasFirstPlan) {
+      try {
+        const firstPlan = JSON.parse(readFileSync(firstPlanPath, "utf8")) as FirstPlan;
+        summary.reasonIds.firstVsFinal = computeFirstVsFinal(firstPlan, cutplan.segments);
+      } catch {
+        // 壊れた plan.first.json は firstVsFinal を省略するだけ(coverage は出す。
+        // plan.first.json は測定専用の副産物で、壊れていても describe を止めない)
+      }
+    }
   }
 
   const keepEntries = buildKeepEntries(keeps, timeline);
