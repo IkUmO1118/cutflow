@@ -227,6 +227,16 @@ export interface Config {
      *  aggressive=テンポ最優先。省略時 balanced(D4)。rules/brief のマーカー行が優先。
      *  §docs/plans/2026-07-11-x4-editing-aggressiveness-design.md */
     editMode?: "safe" | "balanced" | "aggressive";
+    /** カット判断(plan --cuts-only)に分類 id(docs/edit-skills/recipes/<id>.md。
+     *  src/lib/reasonIds.ts の CUT_REASON_IDS)を使わせる opt-in 設定。
+     *  省略/enabled=false のとき plan --cuts-only の LLM 入力・plan.raw.txt・
+     *  cutplan.json の reasonId は本機能導入前とバイト等価(plan.perception /
+     *  plan.styleProfile と同型の不変条件)。
+     *  §docs/plans/2026-07-20-cut-knowledge-p1-p2-design.md §4.2 */
+    reasonIds?: {
+      /** 注入の有効化。省略時 false(バイト等価) */
+      enabled?: boolean;
+    };
     perception?: {
       /** 無音・間の注記(区間長 / 直前に落ちた素材秒 / 区間内無音秒)を
        *  プロンプトに添える。省略時 false。決定論・追加依存なし(推奨の opt-in) */
@@ -1074,6 +1084,12 @@ export function resolveStyleProfileCfg(cfg: Config): { enabled: boolean; profile
   return { enabled: s.enabled ?? false, profile };
 }
 
+/** plan.reasonIds を既定値で解決する純関数(省略時 enabled=false=バイト等価)。
+ *  loadConfig は cfg.plan.reasonIds を書き換えない(省略=off を守る) */
+export function resolveReasonIdsCfg(cfg: Config): { enabled: boolean } {
+  return { enabled: cfg.plan?.reasonIds?.enabled ?? false };
+}
+
 export interface StyleProfileStatus {
   explicit: boolean; // cfg.plan?.styleProfile !== undefined
   enabled: boolean;
@@ -1276,6 +1292,13 @@ function validateWorkflowConfig(cfg: Config): string[] {
     }
     if ("profile" in planStyleProfile && typeof planStyleProfile.profile !== "string") {
       errors.push("plan.styleProfile.profile は文字列で指定してください");
+    }
+  }
+  const planReasonIds = cfg.plan?.reasonIds as Record<string, unknown> | undefined;
+  if (planReasonIds) {
+    errors.push(...unknownKeys(planReasonIds, ["enabled"]).map((key) => `plan.reasonIds.${key} は未対応です`));
+    if ("enabled" in planReasonIds && typeof planReasonIds.enabled !== "boolean") {
+      errors.push("plan.reasonIds.enabled は boolean で指定してください");
     }
   }
   const log = cfg.log as Record<string, unknown> | undefined;

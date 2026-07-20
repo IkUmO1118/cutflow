@@ -948,6 +948,7 @@ export function renderPrompt(
   perception: string = "",
   editModeCfg: EditModeCfg = DEFAULT_EDIT_MODE_CFG,
   styleProfile: string = "",
+  reasonIds: string = "",
 ): string {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
   const template = readFileSync(join(repoRoot, "prompts", templateFile), "utf8");
@@ -984,6 +985,7 @@ export function renderPrompt(
     .replaceAll("{{rules}}", () => rules)
     .replaceAll("{{perception}}", () => perception)
     .replaceAll("{{styleProfile}}", () => styleProfile)
+    .replaceAll("{{reasonIds}}", () => reasonIds)
     .replaceAll("{{editMode}}", () => editModeBlock);
 }
 
