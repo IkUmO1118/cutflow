@@ -9,6 +9,8 @@ import { join } from "node:path";
 import { fmtT } from "../lib/fmt.ts";
 import { resolveDescribePausesCfg } from "../lib/config.ts";
 import type { Config } from "../lib/config.ts";
+import { DEFAULT_SILENCE_CUT_REASON } from "../lib/buildCutplan.ts";
+import { CUT_REASON_IDS, REASON_ID_FAMILY } from "../lib/reasonIds.ts";
 import { pausesWithinKeeps } from "../lib/perception.ts";
 import type { KeepPause } from "../lib/perception.ts";
 import { framesFreshness } from "../lib/framesIndex.ts";
@@ -205,6 +207,18 @@ export function describe(dir: string, cfg?: Config): string {
   lines.push(
     `approved: ${cutplan.approved} / テロップ ${transcript.segments.length}件 / BGM ${bgmDesc}`,
   );
+  // 分類(reasonId)行は sticky(buildProjection の summary.reasonIds と同じ
+  // 判定): reasonId を1つも持たない かつ plan.first.json も無ければ1行も足さない
+  {
+    const hasAnyReasonId = cutplan.segments.some((s) => s.reasonId !== undefined);
+    const hasFirstPlan = existsSync(join(dir, "plan.first.json"));
+    if (hasAnyReasonId || hasFirstPlan) {
+      const silenceReason = cfg?.detect?.silenceCutReason ?? DEFAULT_SILENCE_CUT_REASON;
+      const cov = computeReasonIdCoverage(cutplan.segments, silenceReason);
+      const pct = Math.round(cov.ratio * 100);
+      lines.push(`分類: 意味カット ${cov.semanticCuts} 件中 ${cov.labeled} 件に分類 id(${pct}%)`);
+    }
+  }
   lines.push("");
   lines.push(
     "時刻は「元 = 元収録の秒(編集ファイルに書く値)/ 出力 = カット後の秒(preview/final の再生位置)」",
@@ -399,6 +413,34 @@ export interface Summary {
   cutSec: number;
   keepCount: number;
   captionCount: number;
+  /** カット判断の分類 id(reasonId)の集計(§docs/plans/2026-07-20-cut-knowledge-p3-p5-design.md
+   *  §7)。**sticky**: `reasonId` を1つも持たない cutplan かつ `plan.first.json` も
+   *  無ければキー自体が無い(既存収録は導入前と deepEqual。I5) */
+  reasonIds?: {
+    coverage: ReasonIdCoverage;
+    /** plan.first.json がある収録だけ(§P5-5)。無ければキーごと無い */
+    firstVsFinal?: FirstVsFinal;
+  };
+}
+
+/** cut 判断の reasonId 語彙カバレッジ(§7)。分母は fillSilenceGaps が作った
+ *  穴埋め cut を除く「意味カット」(P1P2 §8注意3: 穴埋め cut に reasonId は
+ *  付かない前提の帰結。含めると永久に100%に届かない)。`byId` は cut 系
+ *  (REASON_ID_FAMILY==="cut")の分類 id 全部を固定の鍵順で持つ(未使用は0)。 */
+export interface ReasonIdCoverage {
+  semanticCuts: number;
+  labeled: number;
+  ratio: number;
+  byId: Record<string, number>;
+}
+
+/** plan.first.json(初版)と現在の cutplan.json(最終)を、切る/残す方向の
+ *  反転として比較した集計(§P5-5)。 */
+export interface FirstVsFinal {
+  source: "plan" | "plan --cuts-only";
+  reasonIdsEnabled: boolean;
+  flippedToKeep: { reasonId: string; first: number; flipped: number; rate: number }[];
+  flippedToCut: { reasonId: string; first: number; flipped: number; rate: number }[];
 }
 
 export interface KeepEntry {
@@ -582,6 +624,31 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/** cut 系(REASON_ID_FAMILY==="cut")の分類 id を CUT_REASON_IDS の掲載順で
+ *  固定した空ヒストグラム(byId の鍵順を安定させる。未使用 id は 0) */
+const CUT_FAMILY_IDS = CUT_REASON_IDS.filter((id) => REASON_ID_FAMILY[id] === "cut");
+
+/** reasonId の語彙カバレッジを計算する純関数(§7)。分母(semanticCuts)は
+ *  action:"cut" のうち reason===silenceReason(fillSilenceGaps の穴埋め)を
+ *  除いたもの。silenceReason は cfg.detect?.silenceCutReason(未設定なら
+ *  DEFAULT_SILENCE_CUT_REASON)。 */
+function computeReasonIdCoverage(segments: PlanSegment[], silenceReason: string): ReasonIdCoverage {
+  const semantic = segments.filter((s) => s.action === "cut" && s.reason !== silenceReason);
+  const byId: Record<string, number> = Object.fromEntries(CUT_FAMILY_IDS.map((id) => [id, 0]));
+  let labeled = 0;
+  for (const s of semantic) {
+    if (s.reasonId === undefined) continue;
+    labeled += 1;
+    byId[s.reasonId] = (byId[s.reasonId] ?? 0) + 1;
+  }
+  return {
+    semanticCuts: semantic.length,
+    labeled,
+    ratio: semantic.length > 0 ? round2(labeled / semantic.length) : 0,
+    byId,
+  };
+}
+
 /** keep 区間の配列(すでに mergeIntervals 済み)+そのタイムラインから
  * KeepEntry[] を作る。本編 keeps とショートの mergedRanges の両方が使う */
 function buildKeepEntries(keeps: Interval[], timeline: TimelineEntry[]): KeepEntry[] {
@@ -627,6 +694,18 @@ function buildProjection(inp: DescribeInputs, cfg?: Config): DescribeProjection 
     keepCount: keeps.length,
     captionCount: transcript.segments.length,
   };
+
+  // reasonIds は sticky(規則C の明示的な例外と同型): reasonId を1つも持たない
+  // cutplan かつ plan.first.json も無ければキー自体を出さない(I5。既存収録は
+  // 導入前と deepEqual)。plan.first.json の有無だけの判定は P5-5 の
+  // firstVsFinal(join)側が担う
+  const hasAnyReasonId = cutplan.segments.some((s) => s.reasonId !== undefined);
+  const firstPlanPath = join(dir, "plan.first.json");
+  const hasFirstPlan = existsSync(firstPlanPath);
+  if (hasAnyReasonId || hasFirstPlan) {
+    const silenceReason = cfg?.detect?.silenceCutReason ?? DEFAULT_SILENCE_CUT_REASON;
+    summary.reasonIds = { coverage: computeReasonIdCoverage(cutplan.segments, silenceReason) };
+  }
 
   const keepEntries = buildKeepEntries(keeps, timeline);
 

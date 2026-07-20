@@ -302,6 +302,54 @@ plan:
   critique 反復にはこのブロックを渡さない(生成ターンにだけ渡す)
 
 
+## plan の分類 id(reasonId)と収録タイプ(config.yaml の plan.reasonIds。既定オフ)
+
+`plan` / `plan --cuts-only` は、カット判断の各候補に **分類 id**
+(`docs/edit-skills/recipes/<id>.md` の13分類。単一の出所は
+`src/lib/reasonIds.ts` の `CUT_REASON_IDS`)を付けさせられる。既定オフで、
+オフのとき LLM 入力・`cutplan.json` の `reasonId` は導入前と1バイトも変わらない
+(`plan.perception`/`plan.styleProfile` と同じ不変条件)。
+
+```yaml
+plan:
+  reasonIds:
+    enabled: true      # 既定 false(バイト等価)
+    pattern: tool-demo # 既定 general(13分類全部)。収録タイプで部分集合+
+                        # blueprint(文脈)を選ぶ。docs/edit-skills/patterns.md 参照
+```
+
+- 有効時は本編 `plan`・単発 `plan --cuts-only`・`plan.loop` の生成/再調整
+  反復すべてに注入される(`remeta` には注入しない。v1 は cut 判断のみ)
+- `keeps` 配列(「切る誘惑があったが残した」区間だけを列挙。上限
+  `max(12, 候補数の10%)`)も同時に依頼できる。config が off のときに LLM が
+  誤って `keeps` を返しても無視される(明示ゲート)
+- 未知の `pattern`(`docs/edit-skills/patterns.md` に無い id)は警告のうえ
+  `general` へ劣化する(前提エラーで `plan` を止めない)
+
+### 語彙カバレッジを測る(`describe --json` の `summary.reasonIds`)
+
+`node src/cli.ts describe <dir> --json` の `summary.reasonIds.coverage` に、
+この収録の cut 判断のうち何%に分類 id が付いているかが出る(**sticky**:
+`reasonId` を1つも持たない cutplan で `plan.first.json` も無ければキー自体が
+無い=導入前と `describeJson` の出力が完全に同一):
+
+```jsonc
+"summary": {
+  "reasonIds": {
+    "coverage": {
+      "semanticCuts": 79,   // fillSilenceGaps の穴埋め cut を除いた「意味カット」
+      "labeled": 61,        // うち reasonId 付き
+      "ratio": 0.77,
+      "byId": { "restatement": 23, "gap-trim": 20, "...": 0 } // cut系7分類を固定鍵順で
+    }
+  }
+}
+```
+
+散文 `describe`(既定)には、このブロックが存在するときだけ1行出る:
+`分類: 意味カット 79 件中 61 件に分類 id(77%)`。閾値ゲートは無い(測るだけ。
+N=1 で閾値を切ると次の収録で無意味に落ちるため)。
+
 ## システム音声の文字起こし・keep 内の間(AI の耳の強化。既定オフ)
 
 マイク音声(あなたの声)は `transcript.json` に描画用テロップとして起こされるが、
