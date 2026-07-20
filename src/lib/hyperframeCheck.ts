@@ -10,7 +10,7 @@
 // (ライブラリのみ。呼び出し側は将来の C3/C4 が担う)。
 //
 // Rule 7(B0): data-hf-determinism の *値* だけを検証する(byte|perceptual)。
-// Rule 8(B1): data-hf-requires のトークン(gsap|lottie|anime|three)を検証する。
+// Rule 8(B1): data-hf-requires のトークン(gsap|lottie|anime|three|webgpu)を検証する。
 // Rule 9(B1): GPU 規約(hf-seek イベント購読 / data-hf-requires="three")と
 // determinism tier の整合を検証する(perceptual を要する規約を使うのに
 // byte(または未指定=既定 byte)を名乗るとエラー)。GSAP(__timelines)・
@@ -38,6 +38,8 @@
 // 初期化済み window.__hfAnime[] へ返り値を登録する。play/restart/reverse は禁止。
 // Rule 17(X3): Three.js card は hf-seek の絶対秒から同期 render し、
 // preserveDrawingBuffer:true を固定する。自己 clock・loop・loader/worker は禁止。
+// Rule 18(X4): raw WebGPU card は readiness Promise で非同期初期化を閉じ、
+// 最初の await より前に hf-seek を購読して絶対秒から同期 submit する。
 //
 // Rule 4(B2 拡張): 従来「<script src> の remote URL は常にエラー」
 // だったところを、hyperframeCdn.ts の CDN_PINS 表に一致する
@@ -439,6 +441,7 @@ interface AnimeRegistryPush {
 }
 
 interface ThreeSeekSubscription {
+  start: number;
   callback: string;
 }
 
@@ -454,11 +457,31 @@ function threeSeekSubscriptions(body: string, masked: string): ThreeSeekSubscrip
     if (end === undefined) continue;
     const args = staticArrayValues(`[${body.slice(open + 1, end - 1)}]`);
     if (/^(["'])hf-seek\1$/.test(args[0]?.trim() ?? "") && args[1]) {
-      subscriptions.push({ callback: args[1] });
+      subscriptions.push({ start: match.index, callback: args[1] });
     }
     listener.lastIndex = end;
   }
   return subscriptions;
+}
+
+function hasLiteralCallArgument(
+  body: string,
+  masked: string,
+  callPattern: RegExp,
+  literal: string,
+): boolean {
+  let match: RegExpExecArray | null;
+  while ((match = callPattern.exec(masked)) !== null) {
+    const open = masked.indexOf("(", match.index);
+    const end = balancedEnd(body, open);
+    if (end === undefined) continue;
+    const args = staticArrayValues(`[${body.slice(open + 1, end - 1)}]`);
+    if (new RegExp(`^(["'])${escapeRegExp(literal)}\\1$`).test(args[0]?.trim() ?? "")) {
+      return true;
+    }
+    callPattern.lastIndex = end;
+  }
+  return false;
 }
 
 function callbackReadsThreeSeekTime(callback: string): boolean {
@@ -471,6 +494,49 @@ function callbackReadsThreeSeekTime(callback: string): boolean {
 
 function callbackRendersThreeFrame(callback: string): boolean {
   return /\b[A-Za-z_$][\w$]*\s*\.\s*render\s*\(/.test(maskJsNonCode(callback));
+}
+
+function callbackIsSynchronous(callback: string): boolean {
+  const masked = maskJsNonCode(callback);
+  return !/^\s*async\b/.test(masked) && !/\bawait\b/.test(masked);
+}
+
+function hasWebgpuReadyPromiseAssignment(masked: string): boolean {
+  const assignment = /\b(?:window\s*\.\s*)?__hyperframes\s*\.\s*__ready\s*=\s*/g;
+  let match: RegExpExecArray | null;
+  while ((match = assignment.exec(masked)) !== null) {
+    const rhsStart = match.index + match[0].length;
+    const rhs = masked.slice(rhsStart);
+    if (/^(?:new\s+Promise\s*\(|Promise\s*\.\s*(?:resolve|all|allSettled|race|any)\s*\()/.test(rhs)) return true;
+    if (masked[rhsStart] !== "(") continue;
+    const iifeEnd = balancedEnd(masked, rhsStart);
+    if (iifeEnd === undefined) continue;
+    const iifeBody = masked.slice(rhsStart + 1, iifeEnd - 1).trim();
+    const isAsyncFunction = /^async\s+function\b/.test(iifeBody) ||
+      /^async\s*(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>/.test(iifeBody);
+    if (isAsyncFunction && /^\s*\(/.test(masked.slice(iifeEnd))) return true;
+  }
+  return false;
+}
+
+function hasWebgpuDeviceLostFatalHook(body: string, masked: string): boolean {
+  const lostThen = /\b[A-Za-z_$][\w$]*\s*\.\s*lost\s*\.\s*then\s*\(/g;
+  let match: RegExpExecArray | null;
+  while ((match = lostThen.exec(masked)) !== null) {
+    const open = masked.indexOf("(", match.index);
+    const end = balancedEnd(body, open);
+    if (end === undefined) continue;
+    const args = staticArrayValues(`[${body.slice(open + 1, end - 1)}]`);
+    const callbackMasked = maskJsNonCode(args[0] ?? "");
+    if (
+      /\b(?:window\s*\.\s*)?__hyperframes\s*\.\s*__failed\s*\.\s*push\s*\(/.test(callbackMasked) &&
+      /\bfatal\s*:\s*true\b/.test(callbackMasked)
+    ) {
+      return true;
+    }
+    lostThen.lastIndex = end;
+  }
+  return false;
 }
 
 function animeRegistryPushes(body: string, masked: string): AnimeRegistryPush[] {
@@ -1208,6 +1274,135 @@ export function checkComposition(html: string, opts?: CheckOpts): CheckResult {
     }
   }
 
+  // ---- Rule 18 (X4): raw WebGPU async setup + absolute-time submit contract ----
+  // WebGPU initialization is necessarily async, but frame control is not: the
+  // hf-seek listener must exist before the first await, retain the latest
+  // absolute time, and synchronously submit once initialization has completed.
+  // Comments and string/template literals are masked so documentation snippets
+  // cannot accidentally opt a card into this gate.
+  const webgpuBody = threeBody;
+  const webgpuMasked = threeMasked;
+  const usesNavigatorGpu = /\bnavigator\s*\.\s*gpu\b/.test(webgpuMasked);
+  const usesWebgpuContext = hasLiteralCallArgument(
+    webgpuBody,
+    webgpuMasked,
+    /\.\s*getContext\s*\(/g,
+    "webgpu",
+  );
+  const declaresWebgpu = requiresTokens.includes("webgpu");
+  const isWebgpuCard = usesNavigatorGpu || usesWebgpuContext || declaresWebgpu;
+
+  if ((usesNavigatorGpu || usesWebgpuContext) && !declaresWebgpu) {
+    errors.push({
+      file,
+      where: "data-hf-requires",
+      message:
+        'raw WebGPU usage requires data-hf-requires="webgpu" so navigator.gpu availability fails fast / raw WebGPU card は data-hf-requires="webgpu" を宣言してください',
+    });
+  }
+
+  if (isWebgpuCard) {
+    const subscriptions = threeSeekSubscriptions(webgpuBody, webgpuMasked);
+    const firstAwait = webgpuMasked.search(/\bawait\b/);
+    const earlySubscriptions = subscriptions.filter((subscription) =>
+      firstAwait < 0 || subscription.start < firstAwait
+    );
+    if (earlySubscriptions.length === 0) {
+      errors.push({
+        file,
+        where: "<script>",
+        message:
+          "raw WebGPU cards must subscribe to hf-seek before the first await so no requested frame is lost during async initialization / raw WebGPU card は最初の await より前に hf-seek を購読してください",
+      });
+    } else {
+      if (!earlySubscriptions.some((subscription) => callbackReadsThreeSeekTime(subscription.callback))) {
+        errors.push({
+          file,
+          where: "<script>",
+          message:
+            "the raw WebGPU hf-seek listener must read event.detail.time as absolute seconds / raw WebGPU の hf-seek listener は event.detail.time の絶対秒を読み取ってください",
+        });
+      }
+      if (!earlySubscriptions.every((subscription) => callbackIsSynchronous(subscription.callback))) {
+        errors.push({
+          file,
+          where: "<script>",
+          message:
+            "the raw WebGPU hf-seek listener must be synchronous and cannot await GPU work / raw WebGPU の hf-seek listener は async/await を使わず同期実行してください",
+        });
+      }
+    }
+
+    if (!hasWebgpuReadyPromiseAssignment(webgpuMasked)) {
+      errors.push({
+        file,
+        where: "<script>",
+        message:
+          "raw WebGPU async initialization must be assigned as a Promise to window.__hyperframes.__ready / raw WebGPU の非同期初期化 Promise を window.__hyperframes.__ready に代入してください",
+      });
+    }
+    if (!/\bnavigator\s*\.\s*gpu\s*\.\s*requestAdapter\s*\(/.test(webgpuMasked)) {
+      errors.push({
+        file,
+        where: "<script>",
+        message: "raw WebGPU cards must request an adapter with navigator.gpu.requestAdapter() / navigator.gpu.requestAdapter() が必要です",
+      });
+    }
+    if (!/\.\s*requestDevice\s*\(/.test(webgpuMasked)) {
+      errors.push({
+        file,
+        where: "<script>",
+        message: "raw WebGPU cards must request a GPUDevice with adapter.requestDevice() / adapter.requestDevice() が必要です",
+      });
+    }
+    if (!usesWebgpuContext) {
+      errors.push({
+        file,
+        where: "<script>",
+        message: "raw WebGPU cards must acquire a literal canvas.getContext('webgpu') / canvas.getContext('webgpu') を literal で指定してください",
+      });
+    }
+    if (!hasWebgpuDeviceLostFatalHook(webgpuBody, webgpuMasked)) {
+      errors.push({
+        file,
+        where: "<script>",
+        message:
+          "GPUDevice.lost must push a fatal failure to window.__hyperframes.__failed / GPUDevice.lost を fatal error channel へ接続してください",
+      });
+    }
+
+    const compilationIndex = webgpuMasked.search(/\.\s*getCompilationInfo\s*\(/);
+    const validatesCompilation = compilationIndex >= 0 &&
+      /\.\s*messages\s*\.\s*(?:some|filter|find)\s*\(/.test(webgpuMasked.slice(compilationIndex)) &&
+      /\bthrow\s+new\s+Error\s*\(/.test(webgpuMasked.slice(compilationIndex));
+    if (!validatesCompilation) {
+      errors.push({
+        file,
+        where: "<script>",
+        message:
+          "raw WebGPU shader modules must inspect getCompilationInfo().messages and throw on compilation errors / WGSL の getCompilationInfo().messages を検査し compile error を throw してください",
+      });
+    }
+    const pipelineIndex = webgpuMasked.search(/\.\s*createRenderPipeline\s*\(/);
+    if (pipelineIndex < 0 || (compilationIndex >= 0 && pipelineIndex < compilationIndex)) {
+      errors.push({
+        file,
+        where: "<script>",
+        message:
+          "raw WebGPU cards must create a render pipeline after validating WGSL compilation / WGSL 検査後に createRenderPipeline() してください",
+      });
+    }
+    const submitIndex = webgpuMasked.search(/\.\s*queue\s*\.\s*submit\s*\(/);
+    if (submitIndex < 0 || (pipelineIndex >= 0 && submitIndex < pipelineIndex)) {
+      errors.push({
+        file,
+        where: "<script>",
+        message:
+          "raw WebGPU frame drawing must finish with device.queue.submit(...) / raw WebGPU の各 frame は device.queue.submit(...) で描画してください",
+      });
+    }
+  }
+
   // ---- Rule 13/14 (B4): Lottie receptacle ----
   // "Lottie card" = an inline script (comment-stripped) calls loadAnimation(.
   // lottie-web の唯一のエントリポイント。宣言だけ(data-hf-requires="lottie")で
@@ -1306,7 +1501,7 @@ export function checkComposition(html: string, opts?: CheckOpts): CheckResult {
   }
 
   // ---- Rule 9(B1): GPU 規約 × determinism tier ----
-  // hf-seek(イベント駆動の GPU/canvas 自己描画)・three(data-hf-requires)は
+  // hf-seek(イベント駆動の GPU/canvas 自己描画)・three/webgpu(data-hf-requires)は
   // ANGLE の出力は GPU/driver に依存し byte 決定論を保証できない。
   // 未指定は byte と同義なので未指定もエラーにする。
   if (resolveHyperframeRenderProfile(html) === "gpu-angle") {
@@ -1315,7 +1510,7 @@ export function checkComposition(html: string, opts?: CheckOpts): CheckResult {
         file,
         where: "data-hf-determinism",
         message:
-          'hf-seek/three (event-driven GPU drawing) requires data-hf-determinism="perceptual" (ANGLE GPU output is driver-dependent and not guaranteed byte-deterministic) / ANGLE の GPU 出力はドライバ依存のため perceptual tier を宣言してください',
+          'hf-seek/three/webgpu (event-driven GPU drawing) requires data-hf-determinism="perceptual" (ANGLE/WebGPU output is driver-dependent and not guaranteed byte-deterministic) / ANGLE/WebGPU の出力はドライバ依存のため perceptual tier を宣言してください',
       });
     }
   }

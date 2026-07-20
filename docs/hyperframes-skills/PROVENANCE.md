@@ -21,15 +21,18 @@
 Lottie 5.12.2・Anime.js 3.2.2・Three.js r160 を pin 済み(`src/lib/hyperframeCdn.ts`)で、
 `window.__timelines`(GSAP の paused timeline)/ `window.__hfLottie`(Lottie
 animation)/ `window.__hfAnime`(Anime.js instance配列)への登録経由で絶対時刻へ
-seek 駆動でき、Three.js は`hf-seek`の絶対秒から同期描画できます(TypeGPU は未 pin のまま対象外)。同様に check ゲート(C2: `src/lib/hyperframeCheck.ts`)は
+seek 駆動でき、Three.js は`hf-seek`の絶対秒から同期描画できます。raw WebGPUは
+外部runtimeなしの`webgpu` capability token + readiness-gated WGSL経路として利用でき、
+TypeGPU は未 pin のまま対象外です。同様に check ゲート(C2: `src/lib/hyperframeCheck.ts`)は
 リモート URL(pin 外)・タイマー・非決定的 API を一律で禁止します。したがって
 上記 skills の内容は**そのまま複製できません**。次を取り除いた上で、Cutflow の
 native な作図契約に合わせて書き直しています(seek-safe/決定論のドクトリンは
 GSAP/Lottie/Anime.js/Three.js を pin した後も不変で、自走・壁時計依存は引き続き禁止):
 
-- TypeGPU 等、pin 外の非 CSS/WAAPI バックエンド
+- TypeGPU 等、pin 外の外部runtime
   (GSAP・Lottie・Anime.js・Three.js は pin 済みで `data-hf-requires="gsap"`/
-  `"lottie"`/`"anime"`/`"three"` 経由で利用可能)
+  `"lottie"`/`"anime"`/`"three"`、raw WebGPUはpinなしの
+  `data-hf-requires="webgpu"` 経由で利用可能)
 - `npx hyperframes` CLI(`init`/`lint`/`check`/`snapshot`/`preview`/`render`
   等)・HeyGen サインイン・`media-use` によるアセット解決
 - capture(URL キャプチャ)・registry(`npx hyperframes add <block>`)・

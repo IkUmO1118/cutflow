@@ -34,6 +34,7 @@ type BackendCapability =
   | { kind: "pinned"; token: HyperframeRequireToken }
   | { kind: "material"; token: HyperframeRequireToken }
   | { kind: "gpu" }
+  | { kind: "gpu-native"; token: HyperframeRequireToken }
   | { kind: "gpu-pinned"; token: HyperframeRequireToken }
   | { kind: "out" };
 
@@ -59,6 +60,7 @@ const BACKEND_DEFINITIONS: readonly BackendDefinition[] = [
   { id: "gsap", capability: { kind: "pinned", token: "gsap" }, determinismTiers: ["byte"], authoring: ["manual"], renderFixture: `${FIXTURE_DIR}/gsap.html` },
   { id: "lottie", capability: { kind: "material", token: "lottie" }, determinismTiers: ["byte", "perceptual"], authoring: ["material-import"], renderFixture: LOTTIE_FIXTURE },
   { id: "raw-webgl", capability: { kind: "gpu" }, determinismTiers: ["perceptual"], authoring: ["manual"], renderFixture: `${FIXTURE_DIR}/raw-webgl.html` },
+  { id: "raw-webgpu", capability: { kind: "gpu-native", token: "webgpu" }, determinismTiers: ["perceptual"], authoring: ["manual"], renderFixture: `${FIXTURE_DIR}/raw-webgpu.html` },
   { id: "three", capability: { kind: "gpu-pinned", token: "three" }, determinismTiers: ["perceptual"], authoring: ["manual"], renderFixture: `${FIXTURE_DIR}/three.html` },
   { id: "anime-js", capability: { kind: "pinned", token: "anime" }, determinismTiers: ["byte"], authoring: ["manual"], renderFixture: `${FIXTURE_DIR}/anime-js.html` },
   { id: "d3", capability: { kind: "out" }, determinismTiers: [], authoring: [], renderFixture: null },
@@ -78,7 +80,9 @@ function pinFor(token: HyperframeRequireToken): HyperframeBackendPin | null {
 function resolveBackend(definition: BackendDefinition): HyperframeBackend {
   const capability = definition.capability;
   const knownTokens = new Set<string>(HYPERFRAME_REQUIRE_TOKENS);
-  const pin = "token" in capability ? pinFor(capability.token) : null;
+  const pin = capability.kind === "pinned" || capability.kind === "material" || capability.kind === "gpu-pinned"
+    ? pinFor(capability.token)
+    : null;
   let status: HyperframeBackendStatus;
 
   switch (capability.kind) {
@@ -86,6 +90,7 @@ function resolveBackend(definition: BackendDefinition): HyperframeBackend {
     case "pinned": status = knownTokens.has(capability.token) && pin ? "usable" : "not-wired"; break;
     case "material": status = knownTokens.has(capability.token) && pin ? "material-routed" : "not-wired"; break;
     case "gpu": status = isHyperframeRenderProfileWired("gpu-angle") ? "usable" : "not-wired"; break;
+    case "gpu-native": status = knownTokens.has(capability.token) && isHyperframeRenderProfileWired("gpu-angle") ? "usable" : "not-wired"; break;
     case "gpu-pinned": status = knownTokens.has(capability.token) && pin && isHyperframeRenderProfileWired("gpu-angle") ? "usable" : "not-wired"; break;
     case "out": status = "out"; break;
   }

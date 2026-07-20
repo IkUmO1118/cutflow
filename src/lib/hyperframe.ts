@@ -18,6 +18,7 @@
 
 import { CDN_SCRIPT_URLS } from "./hyperframeCdn.ts";
 import type { HyperframeRenderProfile } from "./hyperframeRenderProfile.ts";
+import { readHyperframeRequires } from "./hyperframeRequirements.ts";
 
 export interface VarDecl {
   id: string;
@@ -196,6 +197,12 @@ export function buildIframeSrcdoc(
   const cspMeta = '<meta http-equiv="Content-Security-Policy" content="' + policy + '">';
 
   const json = JSON.stringify(variables).replace(/<\//g, "<\\/");
+  const webgpuRequiresCheck = readHyperframeRequires(html).tokens.includes("webgpu")
+    ? "if (tok === 'webgpu'){" +
+      "if (!navigator.gpu) pushFail('required capability \"webgpu\" (navigator.gpu) is not available', true);" +
+      "continue;" +
+      "}"
+    : "";
   const gpuBootstrap = profile === "gpu-angle"
     ? "var __hfGlStats={requests:0,successes:0,failed:false};" +
       "var __hfGetContext=HTMLCanvasElement.prototype.getContext;" +
@@ -316,6 +323,7 @@ export function buildIframeSrcdoc(
     "for (var i=0;i<toks.length;i++){" +
     "var tok = toks[i];" +
     "if (!tok) continue;" +
+    webgpuRequiresCheck +
     "var name = g[tok] || tok;" +
     "if (typeof window[name] === 'undefined') pushFail('required library \"'+tok+'\" (window.'+name+') is not defined', true);" +
     "}" +

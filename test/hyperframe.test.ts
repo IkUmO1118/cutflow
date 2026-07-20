@@ -221,6 +221,15 @@ test("P-10: bootstrap は GSAP/Anime/Lottie/hf-seek/readiness/error 規約の全
   assert.ok(out.includes("__failed"), "__failed marker missing");
   assert.ok(out.includes("addEventListener('error'"), "error listener missing");
   assert.ok(out.includes("typeof window["), "data-hf-requires library existence check missing");
+  assert.doesNotMatch(out, /navigator\.gpu/, "non-WebGPU cards must keep the pre-X4 bootstrap bytes");
+});
+
+test("P-10b: webgpu capability check uses navigator.gpu only for a declared webgpu card", () => {
+  const html = `<div data-composition-id="root" data-hf-requires="webgpu"></div>`;
+  const out = buildIframeSrcdoc(html, {});
+  assert.match(out, /tok === 'webgpu'/);
+  assert.match(out, /navigator\.gpu/);
+  assert.match(out, /required capability "webgpu"/);
 });
 
 /* ---------------- P-12 (B2: CSP injection) ---------------- */

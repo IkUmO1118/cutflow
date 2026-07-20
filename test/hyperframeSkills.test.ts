@@ -48,7 +48,7 @@ test("authoring contract fixes the backend selection norms and complete capabili
   assert.match(authoringContract, /## backend 選択の規範/);
   assert.match(
     authoringContract,
-    /CSS\/SVG\/DOM < WAAPI < Anime\.js < Canvas 2D < GSAP core \/ Lottie\(既存素材あり\)[\s\S]*< Raw WebGL\/shader < Three\.js/,
+    /CSS\/SVG\/DOM < WAAPI < Anime\.js < Canvas 2D < GSAP core \/ Lottie\(既存素材あり\)[\s\S]*< Raw WebGL\/shader < Raw WebGPU\/WGSL < Three\.js/,
   );
   for (const capability of [
     "fade / translate / scale / rotate / clip / simple stagger",
@@ -58,17 +58,21 @@ test("authoring contract fixes the backend selection norms and complete capabili
     "AE/bodymovin 素材の再生",
     "2D procedural drawing / 大量の同種プリミティブ",
     "per-pixel shader / GPU particle / procedural texture",
+    "WGSL / WebGPU-native pipeline",
     "真の3D geometry / perspective camera / lighting / depth occlusion",
     "data-driven SVG chart",
     "地図",
   ]) {
     assert.ok(authoringContract.includes(capability), `missing capability row: ${capability}`);
   }
-  assert.match(authoringContract, /Raw WebGL\/shader と Three\.js は `gpu-angle` profile で `usable`/);
+  assert.match(authoringContract, /Raw WebGL\/shader、Raw WebGPU\/WGSL、Three\.js は `gpu-angle` profile で[\s\S]*`usable`/);
   assert.match(authoringContract, /Three\.js\(manual\)/);
   assert.match(authoringContract, /実測669884 bytes[\s\S]*THREE\.REVISION === \"160\"/);
   assert.match(authoringContract, /three\.core\.min\.js[\s\S]*SRI非推奨/);
   assert.match(authoringContract, /layoutsubtree[\s\S]*drawElementImage[\s\S]*gl:\"angle\"/);
+  assert.match(authoringContract, /data-hf-requires=\"webgpu\"[\s\S]*最初の実行可能な`await`[\s\S]*latestTime/);
+  assert.match(authoringContract, /device\.lost[\s\S]*getCompilationInfo\(\)\.messages[\s\S]*device\.queue\.submit/);
+  assert.match(authoringContract, /TypeGPUは[\s\S]*引き続き`out`/);
   assert.match(authoringContract, /### card の過剰設計/);
   assert.match(authoringContract, /### tooling の過剰設計/);
   assert.match(authoringContract, /外部 animation runtime と時間の正本を1つ/);

@@ -32,6 +32,7 @@ test("backend report has fixed schema, stable order, and the resolved status ass
     ["gsap", "usable"],
     ["lottie", "material-routed"],
     ["raw-webgl", "usable"],
+    ["raw-webgpu", "usable"],
     ["three", "usable"],
     ["anime-js", "usable"],
     ["d3", "out"],
@@ -54,7 +55,7 @@ test("pin metadata is derived from CDN_PINS and its version cannot drift from th
     assert.equal(pin.url, source.url);
     assert.equal(pin.version, /@([^/]+)\//.exec(source.url)?.[1]);
   }
-  assert.deepEqual(HYPERFRAME_REQUIRE_TOKENS, ["gsap", "lottie", "anime", "three"]);
+  assert.deepEqual(HYPERFRAME_REQUIRE_TOKENS, ["gsap", "lottie", "anime", "three", "webgpu"]);
 });
 
 test("every usable backend names an existing check-valid real render fixture", () => {
@@ -82,6 +83,7 @@ test("material-routed Lottie exposes the real imported AE fixture", () => {
 test("render profile resolver shares Rule 9's GPU predicate and F2 wires gpu-angle", () => {
   assert.equal(resolveHyperframeRenderProfile("<script>listen('hf-seek')</script>"), "gpu-angle");
   assert.equal(resolveHyperframeRenderProfile('<div data-hf-requires="three"></div>'), "gpu-angle");
+  assert.equal(resolveHyperframeRenderProfile('<div data-hf-requires="webgpu"></div>'), "gpu-angle");
   assert.equal(resolveHyperframeRenderProfile('<div data-hf-requires="gsap"></div>'), "default");
   assert.equal(isHyperframeRenderProfileWired("default"), true);
   assert.equal(isHyperframeRenderProfileWired("gpu-angle"), true);
@@ -107,6 +109,7 @@ test("text format is stable and includes status, tier, pin, authoring route, and
   assert.match(text, /^- gsap: usable; determinism=byte; pin=gsap@3\.14\.2 https:\/\//m);
   assert.match(text, /^- lottie: material-routed; determinism=byte,perceptual; .*authoring=material-import; fixture=test\/fixtures\/lottie\/hyperframes\/card\.html$/m);
   assert.match(text, /^- raw-webgl: usable; determinism=perceptual; pin=none;.*fixture=test\/fixtures\/hyperframe-backends\/raw-webgl\.html$/m);
+  assert.match(text, /^- raw-webgpu: usable; determinism=perceptual; pin=none;.*fixture=test\/fixtures\/hyperframe-backends\/raw-webgpu\.html$/m);
   assert.match(text, /^- three: usable; determinism=perceptual; pin=three@0\.160\.0 https:\/\/.*authoring=manual; fixture=test\/fixtures\/hyperframe-backends\/three\.html$/m);
   assert.match(text, /^- anime-js: usable; determinism=byte; pin=anime@3\.2\.2 https:\/\/.*authoring=manual; fixture=test\/fixtures\/hyperframe-backends\/anime-js\.html$/m);
 });

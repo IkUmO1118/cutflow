@@ -24,7 +24,7 @@ Every card here passes `checkComposition` (`src/lib/hyperframeCheck.ts`) with
 `test/hyperframeExamples.test.ts`, which runs the checker over every `.html` in this
 directory. The gate is **static** — it validates the composition contract (root,
 typed variables, clip discipline, remote-URL ban with the pinned-CDN exception,
-seek-safe drivers, font embedding, determinism tier, `data-hf-requires`, GSAP/Lottie/Anime.js/Three.js
+seek-safe drivers, font embedding, determinism tier, `data-hf-requires`, GSAP/Lottie/Anime.js/Three.js/raw WebGPU
 registration). It does **not** render the card.
 
 What the conversion changed, mechanically, relative to upstream:
@@ -67,6 +67,12 @@ CutFlow.
 `hyperframes-animation--three-geometry.html` is the X3 manual/core-only worked
 example: fixed 640x360 geometry, Three.js r160 exact URL+SRI, perceptual tier,
 fixed pixel ratio, and absolute-time `hf-seek` rendering with no external assets.
+
+`hyperframes-animation--raw-webgpu-wgsl.html` is the X4 native/manual worked
+example: fixed 640x360 WGSL, perceptual tier, a synchronous pre-await `hf-seek`
+listener with latest-time retention, readiness-gated device/pipeline setup,
+fatal device-loss handling, compilation checks, and per-frame queue submission.
+TypeGPU remains out; this card has no library or CDN dependency.
 
 ## CONVERT-SUBSTITUTE cards (asset removed/substituted)
 

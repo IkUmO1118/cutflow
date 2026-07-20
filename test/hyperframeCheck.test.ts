@@ -773,3 +773,99 @@ test("79: raw WebGL hf-seek cards do not enter the Three-specific gate", () => {
   assert.equal(r.errors.length, 0, JSON.stringify(r.errors, null, 2));
   assert.equal(r.warnings.length, 0, JSON.stringify(r.warnings, null, 2));
 });
+
+const WEBGPU_FIXTURE = readFileSync(
+  new URL("./fixtures/hyperframe-backends/raw-webgpu.html", import.meta.url),
+  "utf8",
+);
+
+test("80: formal raw WebGPU WGSL fixture passes Rule 18 at 0/0", () => {
+  const r = checkComposition(WEBGPU_FIXTURE);
+  assert.equal(r.errors.length, 0, JSON.stringify(r.errors, null, 2));
+  assert.equal(r.warnings.length, 0, JSON.stringify(r.warnings, null, 2));
+});
+
+test("81: executable navigator.gpu or literal webgpu context requires the webgpu token", () => {
+  const withoutToken = WEBGPU_FIXTURE.replace(' data-hf-requires="webgpu"', "");
+  assert.ok(hasErr(checkComposition(withoutToken), 'data-hf-requires="webgpu"'));
+
+  const contextOnly =
+    `<div data-composition-id="root"></div><script>canvas.getContext('webgpu');</script>`;
+  assert.ok(hasErr(checkComposition(contextOnly), 'data-hf-requires="webgpu"'));
+});
+
+test("82: raw WebGPU listener must be installed before the first await", () => {
+  const listener = `window.addEventListener('hf-seek',function(event){\n` +
+    `  latestTime = Math.min(DURATION_SEC,Math.max(0,event.detail.time));\n` +
+    `  if(drawFrame)drawFrame(latestTime);\n` +
+    `});\n`;
+  const afterAwait = WEBGPU_FIXTURE.replace(listener, "").replace(
+    "  const adapter = await navigator.gpu.requestAdapter();\n",
+    "  const adapter = await navigator.gpu.requestAdapter();\n" + listener,
+  );
+  assert.ok(hasErr(checkComposition(afterAwait), "before the first await"));
+});
+
+test("83: raw WebGPU listener reads absolute seconds and stays synchronous", () => {
+  const noTime = WEBGPU_FIXTURE.replace("event.detail.time", "0");
+  assert.ok(hasErr(checkComposition(noTime), "event.detail.time"));
+
+  const asyncListener = WEBGPU_FIXTURE.replace(
+    "window.addEventListener('hf-seek',function(event){",
+    "window.addEventListener('hf-seek',async function(event){await Promise.resolve();",
+  );
+  assert.ok(hasErr(checkComposition(asyncListener), "must be synchronous"));
+});
+
+test("84: raw WebGPU async setup is connected to the readiness Promise", () => {
+  const noReady = WEBGPU_FIXTURE.replace(
+    "window.__hyperframes.__ready = (async function(){",
+    "(async function(){",
+  );
+  assert.ok(hasErr(checkComposition(noReady), "window.__hyperframes.__ready"));
+
+  const functionInsteadOfPromise = WEBGPU_FIXTURE.replace(
+    "window.__hyperframes.__ready = (async function(){",
+    "window.__hyperframes.__ready = async function(){",
+  ).replace(/\}\)\(\);\s*<\/script>/, `};\n</script>`);
+  assert.ok(hasErr(checkComposition(functionInsteadOfPromise), "window.__hyperframes.__ready"));
+});
+
+test("85: raw WebGPU route requires adapter, device, and literal canvas context acquisition", () => {
+  const cases = [
+    ["navigator.gpu.requestAdapter()", "navigator.gpu.adapter()", "requestAdapter()"],
+    ["adapter.requestDevice()", "adapter.device()", "requestDevice()"],
+    ["canvas.getContext('webgpu')", "canvas.getContext(kind)", "getContext('webgpu')"],
+  ] as const;
+  for (const [from, to, expected] of cases) {
+    assert.ok(hasErr(checkComposition(WEBGPU_FIXTURE.replace(from, to)), expected), expected);
+  }
+});
+
+test("86: raw WebGPU device loss must reach the fatal error channel", () => {
+  const nonFatal = WEBGPU_FIXTURE.replace("fatal:true", "fatal:false");
+  assert.ok(hasErr(checkComposition(nonFatal), "GPUDevice.lost"));
+});
+
+test("87: raw WebGPU validates WGSL, creates a pipeline, and submits each frame", () => {
+  const cases = [
+    ["shaderModule.getCompilationInfo()", "shaderModule.info()", "getCompilationInfo()"],
+    ["device.createRenderPipeline({", "device.makePipeline({", "createRenderPipeline()"],
+    ["device.queue.submit([encoder.finish()]);", "encoder.finish();", "device.queue.submit(...)"],
+  ] as const;
+  for (const [from, to, expected] of cases) {
+    assert.ok(hasErr(checkComposition(WEBGPU_FIXTURE.replace(from, to)), expected), expected);
+  }
+});
+
+test("88: comments and normal/template strings containing WebGPU pseudo-code do not trigger Rule 18", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-width="640" data-height="360"></div><script>` +
+      `// navigator.gpu.requestAdapter(); canvas.getContext('webgpu')\n` +
+      `const a="navigator.gpu";const b='getContext(\\'webgpu\\')';` +
+      `const c=\`device.queue.submit([])\`;` +
+      `</script>`,
+  );
+  assert.equal(r.errors.length, 0, JSON.stringify(r.errors, null, 2));
+  assert.equal(r.warnings.length, 0, JSON.stringify(r.warnings, null, 2));
+});
