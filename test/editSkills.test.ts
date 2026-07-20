@@ -15,8 +15,10 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CUT_REASON_IDS } from "../src/lib/reasonIds.ts";
+import { CUT_PATTERN_IDS, CUT_PATTERN_INJECTION } from "../src/lib/cutPatterns.ts";
 
-const RECIPES_DIR = join(import.meta.dirname, "..", "docs", "edit-skills", "recipes");
+const EDIT_SKILLS_DIR = join(import.meta.dirname, "..", "docs", "edit-skills");
+const RECIPES_DIR = join(EDIT_SKILLS_DIR, "recipes");
 
 function recipeFileNames(): string[] {
   return readdirSync(RECIPES_DIR).filter((f) => f.endsWith(".md"));
@@ -164,5 +166,50 @@ test("T-f: 相互リンクの閉包: 「紛らわしい隣」節に現れる id 
   }
   for (const id of CUT_REASON_IDS) {
     assert.ok(referenced.has(id), `${id} がどの recipe の「紛らわしい隣」からも参照されていません(孤立ノード)`);
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* T-m(pattern 部分。P3-5): CUT_PATTERN_INJECTION の recipes 閉包・        */
+/* general = 13分類全部。§docs/plans/2026-07-20-cut-knowledge-p3-p5-design.md §6 */
+/* ------------------------------------------------------------------ */
+
+test("T-m(pattern): CUT_PATTERN_INJECTION の全 recipes が CUT_REASON_IDS に閉じる", () => {
+  for (const patternId of CUT_PATTERN_IDS) {
+    for (const recipeId of CUT_PATTERN_INJECTION[patternId].recipes) {
+      assert.ok(
+        (CUT_REASON_IDS as readonly string[]).includes(recipeId),
+        `pattern "${patternId}" の recipes に未知の id "${recipeId}" があります`,
+      );
+    }
+  }
+});
+
+test("T-m(pattern): general.recipes は13分類全部(P2 とバイト等価にする制約)", () => {
+  assert.deepEqual([...CUT_PATTERN_INJECTION.general.recipes], [...CUT_REASON_IDS]);
+});
+
+test("T-m(pattern): tool-demo.recipes は tangent/failure-and-fix を含まない11分類", () => {
+  const recipes = CUT_PATTERN_INJECTION["tool-demo"].recipes;
+  assert.equal(recipes.length, 11);
+  assert.ok(!recipes.includes("tangent"));
+  assert.ok(!recipes.includes("failure-and-fix"));
+  assert.ok(recipes.includes("demo-wait"));
+  assert.ok(recipes.includes("dead-air"));
+});
+
+test("T-m(pattern): docs/edit-skills/patterns.md の見出しが CUT_PATTERN_IDS と全単射", () => {
+  const src = readFileSync(join(EDIT_SKILLS_DIR, "patterns.md"), "utf8");
+  for (const id of CUT_PATTERN_IDS) {
+    assert.match(src, new RegExp(`^## \`${id}\`$`, "m"), `patterns.md に見出し "## \`${id}\`" がありません`);
+  }
+  // 見出しに現れる `<id>` トークンのうち CUT_PATTERN_IDS に無いものが無いこと
+  // (統廃合の書き残し検知。generic な id 文法のトークンだけを拾う)
+  const headingIds = [...src.matchAll(/^## `([a-z][a-z0-9-]*)`$/gm)].map((m) => m[1]);
+  for (const id of headingIds) {
+    assert.ok(
+      (CUT_PATTERN_IDS as readonly string[]).includes(id),
+      `patterns.md の見出し "## \`${id}\`" が CUT_PATTERN_IDS に無い(統廃合の書き残しの可能性)`,
+    );
   }
 });
