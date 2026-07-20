@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CUT_REASON_IDS } from "../src/lib/reasonIds.ts";
-import { CUT_PATTERN_IDS, CUT_PATTERN_INJECTION } from "../src/lib/cutPatterns.ts";
+import { CUT_PATTERN_IDS, CUT_PATTERN_INJECTION, BLUEPRINT_BLOCKS } from "../src/lib/cutPatterns.ts";
 
 const EDIT_SKILLS_DIR = join(import.meta.dirname, "..", "docs", "edit-skills");
 const RECIPES_DIR = join(EDIT_SKILLS_DIR, "recipes");
@@ -211,5 +211,30 @@ test("T-m(pattern): docs/edit-skills/patterns.md の見出しが CUT_PATTERN_IDS
       (CUT_PATTERN_IDS as readonly string[]).includes(id),
       `patterns.md の見出し "## \`${id}\`" が CUT_PATTERN_IDS に無い(統廃合の書き残しの可能性)`,
     );
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* T-m(blueprint 部分。P4-2): CUT_PATTERN_INJECTION の非空 blueprint が    */
+/* blueprints.md の `` ## `<id>` `` 見出しと全単射                        */
+/* ------------------------------------------------------------------ */
+
+test("T-m(blueprint): 全 blueprint(空文字を除く)が docs/edit-skills/blueprints.md の見出しと全単射", () => {
+  const src = readFileSync(join(EDIT_SKILLS_DIR, "blueprints.md"), "utf8");
+  const headingIds = [...src.matchAll(/^## `([a-z][a-z0-9-]*)`$/gm)].map((m) => m[1]).sort();
+  const referenced = [...new Set(CUT_PATTERN_IDS.map((p) => CUT_PATTERN_INJECTION[p].blueprint).filter((b) => b !== ""))].sort();
+  assert.deepEqual(headingIds, referenced);
+});
+
+test("T-m(blueprint): BLUEPRINT_BLOCKS の key が参照される全 blueprint id を持ち、各ブロックが8行以内", () => {
+  for (const patternId of CUT_PATTERN_IDS) {
+    const blueprint = CUT_PATTERN_INJECTION[patternId].blueprint;
+    if (blueprint === "") continue;
+    const block = BLUEPRINT_BLOCKS[blueprint];
+    assert.ok(block, `BLUEPRINT_BLOCKS に "${blueprint}" がありません`);
+    assert.ok(block.length <= 8, `BLUEPRINT_BLOCKS["${blueprint}"] は8行以内(実際 ${block.length}行)`);
+    for (const line of block) {
+      assert.doesNotMatch(line, /\d+秒/, `blueprint "${blueprint}" は尺の秒数を書かない規約に反します: "${line}"`);
+    }
   }
 });

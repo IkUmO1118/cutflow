@@ -29,6 +29,25 @@ export interface CutPatternInjection {
 export const CUT_PATTERN_IDS = ["general", "tool-demo"] as const;
 export type CutPatternId = (typeof CUT_PATTERN_IDS)[number];
 
+/** blueprint(アーク)の注入テキスト(§3・P4-2)。key は
+ *  `CutPatternInjection.blueprint`(= docs/edit-skills/blueprints.md の
+ *  `` ## `<id>` `` 見出し)。8行以内(母艦 §4.3。長いアークは LLM を最も長い
+ *  記述へ引きずる)。尺の秒数・目標尺は書かない({{editMode}} の責務と
+ *  二重にしない)・章数は「目安」と明示する(§3 の規則)。
+ *  この記述は docs/edit-skills/blueprints.md の対応節を要約したもので、
+ *  全単射は test/editSkills.test.ts の T-m(blueprint 部分)が固定する。 */
+export const BLUEPRINT_BLOCKS: Record<string, readonly string[]> = {
+  "tool-demo-arc": [
+    "## この収録の流れ(tool-demo-arc)",
+    "判断中の候補がこの流れのどこにあるかも判断材料にしてください(目安。厳密な境界ではありません):",
+    "- フック(冒頭 ~10%): hook は切らない",
+    "- 概要(~15%): restatement/stumble の削り代が最大",
+    "- 実演(~50%): demo-wait が支配的。dead-air と取り違えない",
+    "- 設計・裏側(~20%): tangent/gap-trim",
+    "- おわりに(末尾 ~5%): greeting は切らない",
+  ],
+};
+
 export const CUT_PATTERN_INJECTION: Record<CutPatternId, CutPatternInjection> = {
   general: {
     patternName: "汎用(収録タイプを宣言しない)",

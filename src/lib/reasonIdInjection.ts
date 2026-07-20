@@ -13,7 +13,7 @@
 
 import { CUT_REASON_IDS, REASON_ID_FAMILY, REASON_ID_LABEL } from "./reasonIds.ts";
 import type { CutReasonId } from "./reasonIds.ts";
-import { CUT_PATTERN_INJECTION } from "./cutPatterns.ts";
+import { BLUEPRINT_BLOCKS, CUT_PATTERN_INJECTION } from "./cutPatterns.ts";
 import type { CutPatternId } from "./cutPatterns.ts";
 
 function idsOfFamily(
@@ -64,6 +64,12 @@ export function renderReasonIdsBlock(enabled: boolean, pattern: CutPatternId = "
     "書く、という基準です。境界系の判断も keeps に書いて構いません。",
     "上限は `max(12, 候補数の10%)` 件です。超える場合は切る誘惑が強かった順に",
     "絞ってください。",
+    // blueprint(P4-2): pattern に紐づく1本があれば末尾に連結する。""(空文字。
+    // general はここが空)なら何も足さない=バイト等価。3本目のプレースホルダは
+    // 作らず、この既存ブロックの末尾に連結する(§3「注入の形と量」)
+    ...(injection.blueprint && BLUEPRINT_BLOCKS[injection.blueprint]
+      ? ["", ...BLUEPRINT_BLOCKS[injection.blueprint]]
+      : []),
   ];
   return `\n${lines.join("\n")}\n`;
 }

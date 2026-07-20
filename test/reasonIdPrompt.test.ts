@@ -211,3 +211,24 @@ test("renderReasonIdsBlock: 未知の pattern(cutPatterns.ts に無い id)は ge
   const block = renderReasonIdsBlock(true, "nonexistent");
   assert.equal(block, renderReasonIdsBlock(true, "general"));
 });
+
+/* ------------------------------------------------------------------ */
+/* P4-2: blueprint の末尾連結                                            */
+/* ------------------------------------------------------------------ */
+
+test("renderReasonIdsBlock(true, \"general\") は P4-2 後も引き続きバイト一致(blueprint 無し)", () => {
+  const md5 = createHash("md5").update(renderReasonIdsBlock(true, "general")).digest("hex");
+  assert.equal(md5, "4d5203bf5315167ec232962a63634992");
+});
+
+test("renderReasonIdsBlock(true, \"tool-demo\") の末尾に blueprint(tool-demo-arc)が8行以内で連結される", () => {
+  const block = renderReasonIdsBlock(true, "tool-demo");
+  assert.match(block, /## この収録の流れ\(tool-demo-arc\)/);
+  assert.match(block, /demo-wait が支配的。dead-air と取り違えない/);
+  const blueprintStart = block.indexOf("## この収録の流れ");
+  assert.ok(blueprintStart > block.indexOf("## 残す判断の記録"), "blueprint は keeps 節より後ろに来る必要があります");
+  const blueprintLines = block.slice(blueprintStart).trimEnd().split("\n");
+  assert.ok(blueprintLines.length <= 8, `blueprint は8行以内(実際 ${blueprintLines.length}行)`);
+  // 尺の秒数を書かない規約(§3)
+  assert.doesNotMatch(block.slice(blueprintStart), /\d+秒/);
+});
