@@ -18,6 +18,8 @@ import { framesFreshness } from "../lib/framesIndex.ts";
 import { ID_PREFIX, ID_RE } from "../lib/ids.ts";
 import { collectIdOccurrences } from "../lib/mention.ts";
 import { defaultShortProfileName, PROFILES, profileSupportsPlain } from "../lib/profile.ts";
+import { CUT_REASON_IDS, REASON_ID_FAMILY } from "../lib/reasonIds.ts";
+import type { CutReasonId } from "../lib/reasonIds.ts";
 import { buildTimeline, playbackSegmentsOf, remapInterval } from "../lib/timeline.ts";
 import type { TimelineEntry } from "../lib/timeline.ts";
 import { transcriptHasWords } from "../lib/words.ts";
@@ -251,6 +253,28 @@ export function validateDocs(
         }
         if (typeof s.reason !== "string") {
           warn(f, w, "reason(人間が確認するための説明)がありません");
+        }
+        if (s.reasonId !== undefined) {
+          if (typeof s.reasonId !== "string") {
+            err(f, `${w}.reasonId`, "reasonId は文字列です");
+          } else if (!(CUT_REASON_IDS as readonly string[]).includes(s.reasonId)) {
+            warn(
+              f,
+              `${w}.reasonId`,
+              `未知の分類 id です(docs/edit-skills/recipes/ にある id を使ってください): "${s.reasonId}"`,
+            );
+          } else {
+            const family = REASON_ID_FAMILY[s.reasonId as CutReasonId];
+            if (family === "cut" && s.action === "keep") {
+              warn(
+                f,
+                `${w}.reasonId`,
+                `分類 "${s.reasonId}" は切る系ですが action は keep です(AI の判断を人間が戻した可能性)`,
+              );
+            } else if (family === "keep" && s.action === "cut") {
+              warn(f, `${w}.reasonId`, `分類 "${s.reasonId}" は残す系ですが action は cut です`);
+            }
+          }
         }
       });
       const segs = cutplan.segments.filter(
