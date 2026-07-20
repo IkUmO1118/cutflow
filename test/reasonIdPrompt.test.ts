@@ -85,10 +85,11 @@ test("renderReasonIdsBlock: enabled=true は前後 \\n を伴う1ブロックで
 test("renderReasonIdsBlock: golden(id+一行定義+系の並び。候補数に依存しない固定文字列)", () => {
   const block = renderReasonIdsBlock(true);
   const md5 = createHash("md5").update(block).digest("hex");
-  // P6-T6 で REASON_ID_LABEL を craft で研いだため golden を更新(§7 I9 の
-  // 予算上限は別テストで検査。ここは「固定文字列であること」の回帰検知)
-  assert.equal(md5, "c8f174ca837083ff9ac27ca8de7b0ece");
-  assert.equal(block.length, 1096);
+  // P6-T6(REASON_ID_LABEL を craft で研ぐ)+ P6-T7(紛らわしい境目の弁別行)で
+  // golden を更新(§7 I9 の予算上限1800文字は別テストで検査。ここは
+  // 「固定文字列であること」の回帰検知)
+  assert.equal(md5, "732d4a2f06550ce0b48693fafbfe77b3");
+  assert.equal(block.length, 1346);
 });
 
 /* ------------------------------------------------------------------ */
@@ -188,7 +189,7 @@ test("renderPrompt: reasonIdsOutput は ## 出力形式 節の末尾(既存の c
 test("renderReasonIdsBlock(true, \"general\") は P2 の出力(pattern省略時)とバイト一致", () => {
   assert.equal(renderReasonIdsBlock(true, "general"), renderReasonIdsBlock(true));
   const md5 = createHash("md5").update(renderReasonIdsBlock(true, "general")).digest("hex");
-  assert.equal(md5, "c8f174ca837083ff9ac27ca8de7b0ece");
+  assert.equal(md5, "732d4a2f06550ce0b48693fafbfe77b3");
 });
 
 test("renderReasonIdsBlock(true, \"tool-demo\") は11分類(tangent/failure-and-fixを落とす)+ note 1行を持つ", () => {
@@ -220,7 +221,7 @@ test("renderReasonIdsBlock: 未知の pattern(cutPatterns.ts に無い id)は ge
 
 test("renderReasonIdsBlock(true, \"general\") は P4-2 後も引き続きバイト一致(blueprint 無し)", () => {
   const md5 = createHash("md5").update(renderReasonIdsBlock(true, "general")).digest("hex");
-  assert.equal(md5, "c8f174ca837083ff9ac27ca8de7b0ece");
+  assert.equal(md5, "732d4a2f06550ce0b48693fafbfe77b3");
 });
 
 test("renderReasonIdsBlock(true, \"tool-demo\") の末尾に blueprint(tool-demo-arc)が8行以内で連結される", () => {

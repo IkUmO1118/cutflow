@@ -72,3 +72,36 @@ export const REASON_ID_LABEL: Record<CutReasonId, string> = {
   "tail-clip": "境界が語尾を食う(後ろへ倒す。語の終了時刻以降まで余白を残す)",
   "reference-orphan": "切ると次候補の指示語が宙に浮く(前へ倒す。単一候補では判断しない)",
 };
+
+/** G2 対比ペア(処置が正反対なのに表層が同じ組)の弁別行。1ペア=1行。
+ * P6-T7(docs/plans/2026-07-21-cut-knowledge-p6-design.md §1.4)——13分類の
+ * 判定シグナルを均等に注入する(却下案 c)代わりに、「最も外す境目」だけを
+ * 名指しする。ペアの選定根拠は今は §1 の設計判断(G2)。将来 `plan.first.json`
+ * の母集団が育ったら、選定根拠を実測 flip rate へ差し替える余地を残す
+ * (マップの中身が変わるだけで機構(このモジュール + renderReasonIdsBlock)は
+ * 変わらない。§1.5)。各 recipe の「紛らわしい隣」節と双方向で対応する
+ * (test/editSkills.test.ts の T-n が固定)。 */
+export interface ReasonIdDiscriminatorPair {
+  a: CutReasonId;
+  b: CutReasonId;
+  /** 「弁別子は…」から始まる1文。取れないときの既定の倒し先も含める。 */
+  discriminator: string;
+}
+
+export const REASON_ID_DISCRIMINATOR: readonly ReasonIdDiscriminatorPair[] = [
+  {
+    a: "dead-air",
+    b: "demo-wait",
+    discriminator: "弁別子は画面の変化の有無。取れないときは残す側(demo-wait)へ倒す",
+  },
+  {
+    a: "restatement",
+    b: "duplicate-tail",
+    discriminator: "弁別子は言い直しの位置(発話の途中か、完成後に残った断片か)。切る対象が逆",
+  },
+  {
+    a: "tail-clip",
+    b: "reference-orphan",
+    discriminator: "弁別子はどちらの参照を守るか。語尾を守るなら後ろへ(tail-clip)、次候補の指示語を守るなら前へ(reference-orphan)",
+  },
+];

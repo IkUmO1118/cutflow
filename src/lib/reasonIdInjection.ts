@@ -11,7 +11,7 @@
 // renderPrompt の reasonIds 引数へそのまま渡す。pattern 省略時は "general"
 // (= 13分類全注入。P2 とバイト等価)。
 
-import { CUT_REASON_IDS, REASON_ID_FAMILY, REASON_ID_LABEL } from "./reasonIds.ts";
+import { CUT_REASON_IDS, REASON_ID_FAMILY, REASON_ID_LABEL, REASON_ID_DISCRIMINATOR } from "./reasonIds.ts";
 import type { CutReasonId } from "./reasonIds.ts";
 import { BLUEPRINT_BLOCKS, CUT_PATTERN_INJECTION } from "./cutPatterns.ts";
 import type { CutPatternId } from "./cutPatterns.ts";
@@ -25,6 +25,15 @@ function idsOfFamily(
 
 function idLines(recipeSet: ReadonlySet<CutReasonId>, family: "cut" | "keep" | "boundary"): string[] {
   return idsOfFamily(recipeSet, family).map((id) => `- ${id} — ${REASON_ID_LABEL[id]}`);
+}
+
+/** pattern の recipes に**両側が含まれるペアだけ**を弁別行として出す
+ * (P6-T7・§1.4)。`tool-demo` は tangent/failure-and-fix を落とすが、
+ * どちらもペアの構成要素ではないため3ペアとも影響を受けない。 */
+function discriminatorLines(recipeSet: ReadonlySet<CutReasonId>): string[] {
+  return REASON_ID_DISCRIMINATOR.filter((p) => recipeSet.has(p.a) && recipeSet.has(p.b)).map(
+    (p) => `- ${p.a} ↔ ${p.b} — ${p.discriminator}`,
+  );
 }
 
 /** enabled=false(既定)のとき "" を返す(バイト等価の核)。true のときは
@@ -55,6 +64,11 @@ export function renderReasonIdsBlock(enabled: boolean, pattern: CutPatternId = "
     "### 境界",
     ...idLines(recipeSet, "boundary"),
     "",
+    // P6-T7: 混同ペア(G2 対比ペア)だけの弁別行。0件(両側揃うペアが無い
+    // pattern)のときは見出しごと出さない=空節を作らない
+    ...(discriminatorLines(recipeSet).length > 0
+      ? ["### 紛らわしい境目", ...discriminatorLines(recipeSet), ""]
+      : []),
     "## 残す判断の記録(keeps)",
     "",
     "上の「残す(keeps に書くもの)」に挙げた分類が当てはまる区間だけを、",
