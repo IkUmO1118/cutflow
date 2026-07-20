@@ -59,7 +59,7 @@ const BACKEND_DEFINITIONS: readonly BackendDefinition[] = [
   { id: "gsap", capability: { kind: "pinned", token: "gsap" }, determinismTiers: ["byte"], authoring: ["manual"], renderFixture: `${FIXTURE_DIR}/gsap.html` },
   { id: "lottie", capability: { kind: "material", token: "lottie" }, determinismTiers: ["byte", "perceptual"], authoring: ["material-import"], renderFixture: LOTTIE_FIXTURE },
   { id: "raw-webgl", capability: { kind: "gpu" }, determinismTiers: ["perceptual"], authoring: ["manual"], renderFixture: `${FIXTURE_DIR}/raw-webgl.html` },
-  { id: "three", capability: { kind: "gpu-pinned", token: "three" }, determinismTiers: ["perceptual"], authoring: ["manual"], renderFixture: null },
+  { id: "three", capability: { kind: "gpu-pinned", token: "three" }, determinismTiers: ["perceptual"], authoring: ["manual"], renderFixture: `${FIXTURE_DIR}/three.html` },
   { id: "anime-js", capability: { kind: "pinned", token: "anime" }, determinismTiers: ["byte"], authoring: ["manual"], renderFixture: `${FIXTURE_DIR}/anime-js.html` },
   { id: "d3", capability: { kind: "out" }, determinismTiers: [], authoring: [], renderFixture: null },
   { id: "typegpu", capability: { kind: "out" }, determinismTiers: [], authoring: [], renderFixture: null },

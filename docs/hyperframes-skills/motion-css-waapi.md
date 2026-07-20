@@ -1,16 +1,17 @@
-# モーション(CSS/WAAPI 既定 + GSAP/Lottie/Anime.js は pin 経由)
+# モーション(CSS/WAAPI 既定 + GSAP/Lottie/Anime.js/Three.js は pin 経由)
 
 > Adapted from HeyGen HyperFrames skills (Apache-2.0). See ./PROVENANCE.md.
 
 `hyperframes-animation` skill は7種類のランタイムアダプタを持つ。Cutflow の
 native interpreter(`remotion/HyperFrame.tsx` + `src/lib/hyperframe.ts`)は
 **CSS アニメーション・WAAPI(`element.animate`)を `document.getAnimations()`
-経由で seek** し、さらに **GSAP 3.14.2・Lottie 5.12.2・Anime.js 3.2.2 を pin 済み**
+経由で seek** し、さらに **GSAP 3.14.2・Lottie 5.12.2・Anime.js 3.2.2・Three.js r160 を pin 済み**
 (`src/lib/hyperframeCdn.ts`)で、GSAP は `window.__timelines["<composition-id>"]`
 へ登録した **paused timeline**、Lottie は `window.__hfLottie` 登録の
-animation、Anime.js は `window.__hfAnime` のinstance配列を、いずれも絶対時刻へ
-seekして駆動する。したがって **GSAP/Anime.js 前提の記法は使える**(pin タグ逐語+
-対応する`data-hf-requires`が条件)。Three.js/TypeGPU は未 pin で対象外。本書は CSS/WAAPI アダプタ(最も単純で
+animation、Anime.js は `window.__hfAnime` のinstance配列を絶対時刻へ seekし、
+Three.js は`hf-seek`の絶対秒で同期描画する。したがって **GSAP/Anime.js/Three.js
+前提の記法は使える**(pin タグ逐語+対応する`data-hf-requires`が条件)。TypeGPU は
+未 pin で対象外。本書は CSS/WAAPI アダプタ(最も単純で
 byte 決定的な既定経路)と `hyperframes-keyframes` の seek-safe な作法を
 Cutflow 向けに書き直す。GSAP/Anime.jsを使うときの作法は各節、Lottie は authoring-contract の B4 と下記「Lottie アダプタ」節にまとめる。
 
@@ -165,6 +166,22 @@ upstream `adapters/animejs.md` の契約をCutflowのpin/checkへ翻案した要
 5. bootstrapは登録配列の全instanceを毎frame `pause(); seek(tMs)`する(GSAPのsame-time
    nudgeは使わない)。実例は`examples/hyperframes-animation--anime-timeline.html`、逐語upstreamは
    `remotion/vendor/hyperframes/skills-corpus/hyperframes-animation/adapters/animejs.md`
+
+## Three.js アダプタ
+
+upstream `adapters/three.md` をCutflowのmanual/core-only契約へ翻案した要点:
+
+1. 真のgeometry/perspective/depthが必要なときだけ使い、`three@0.160.0`の逐語pin tag、
+   `data-hf-requires="three"`、`data-hf-determinism="perceptual"`を宣言する
+2. `hf-seek`を同期購読し、`event.detail.time`(秒)を有限durationへclampする。rotation/
+   camera/parameterはその絶対時刻の純関数として毎回代入し、前frameから積算しない
+3. `WebGLRenderer`は`preserveDrawingBuffer:true`、固定size、`setPixelRatio(1)`で作り、
+   handler内の`renderer.render(scene,camera)`で1frameを同期描画する
+4. `setAnimationLoop`、`THREE.Clock`、delta/elapsed clock、loader、worker、blob URLは
+   X3 core-onlyでは禁止。Rule 5のrAF/壁時計/乱数禁止もそのまま適用する
+5. ANGLE出力はGPU/driver依存なのでbyte一致を一般化しない。実例は
+   `examples/hyperframes-animation--three-geometry.html`、上流逐語版は
+   `remotion/vendor/hyperframes/skills-corpus/hyperframes-animation/adapters/three.md`
 
 ## Lottie アダプタ
 

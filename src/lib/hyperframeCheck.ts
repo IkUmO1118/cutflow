@@ -36,6 +36,8 @@
 // 正本が曖昧になるため warning。正常認識された pin の lib 数だけで判定する。
 // Rule 16(X2): Anime.js の全 factory は autoplay:false・有限 loop/time を持ち、
 // 初期化済み window.__hfAnime[] へ返り値を登録する。play/restart/reverse は禁止。
+// Rule 17(X3): Three.js card は hf-seek の絶対秒から同期 render し、
+// preserveDrawingBuffer:true を固定する。自己 clock・loop・loader/worker は禁止。
 //
 // Rule 4(B2 拡張): 従来「<script src> の remote URL は常にエラー」
 // だったところを、hyperframeCdn.ts の CDN_PINS 表に一致する
@@ -436,6 +438,41 @@ interface AnimeRegistryPush {
   identifiers: string[];
 }
 
+interface ThreeSeekSubscription {
+  callback: string;
+}
+
+/** Executable addEventListener calls are located in the masked source, then
+ * their literal event name/callback are read from the original source. */
+function threeSeekSubscriptions(body: string, masked: string): ThreeSeekSubscription[] {
+  const subscriptions: ThreeSeekSubscription[] = [];
+  const listener = /\b(?:window\s*\.\s*)?addEventListener\s*\(/g;
+  let match: RegExpExecArray | null;
+  while ((match = listener.exec(masked)) !== null) {
+    const open = masked.indexOf("(", match.index);
+    const end = balancedEnd(body, open);
+    if (end === undefined) continue;
+    const args = staticArrayValues(`[${body.slice(open + 1, end - 1)}]`);
+    if (/^(["'])hf-seek\1$/.test(args[0]?.trim() ?? "") && args[1]) {
+      subscriptions.push({ callback: args[1] });
+    }
+    listener.lastIndex = end;
+  }
+  return subscriptions;
+}
+
+function callbackReadsThreeSeekTime(callback: string): boolean {
+  const functionParam = /^\s*function(?:\s+[A-Za-z_$][\w$]*)?\s*\(\s*([A-Za-z_$][\w$]*)/.exec(callback)?.[1];
+  const arrow = /^\s*(?:async\s+)?(?:\(\s*([A-Za-z_$][\w$]*)|([A-Za-z_$][\w$]*))[^=]*=>/.exec(callback);
+  const parameter = functionParam ?? arrow?.[1] ?? arrow?.[2];
+  if (!parameter) return false;
+  return new RegExp(`\\b${escapeRegExp(parameter)}\\s*\\.\\s*detail\\s*\\.\\s*time\\b`).test(callback);
+}
+
+function callbackRendersThreeFrame(callback: string): boolean {
+  return /\b[A-Za-z_$][\w$]*\s*\.\s*render\s*\(/.test(maskJsNonCode(callback));
+}
+
 function animeRegistryPushes(body: string, masked: string): AnimeRegistryPush[] {
   const pushes: AnimeRegistryPush[] = [];
   const push = /\b(?:window\s*\.\s*)?__hfAnime\s*\.\s*push\s*\(/g;
@@ -617,6 +654,7 @@ export function checkComposition(html: string, opts?: CheckOpts): CheckResult {
   const stripped = stripComments(html);
   const URL_ATTR_TAGS = new Set(["script", "img", "video", "audio", "source", "iframe"]);
   const pinnedLibs = new Set<string>();
+  const matchedPinLibs = new Set<string>();
   eachOpeningTag(stripped, (tag) => {
     const name = tagName(tag);
     if (URL_ATTR_TAGS.has(name)) {
@@ -625,6 +663,7 @@ export function checkComposition(html: string, opts?: CheckOpts): CheckResult {
         if (name === "script" && isRemote(src)) {
           const match = matchCdnPin(src, firstAttr(tag, "integrity"));
           if (match.status === "match") {
+            matchedPinLibs.add(match.pin.lib);
             const crossorigin = firstAttr(tag, "crossorigin");
             if (!crossorigin || crossorigin.trim() === "") {
               errors.push({
@@ -1055,6 +1094,117 @@ export function checkComposition(html: string, opts?: CheckOpts): CheckResult {
         message:
           "Anime.js play()/restart()/reverse() use a self-running clock or relative state; Cutflow drives registered instances with absolute seek / Anime.js の play/restart/reverse は使えません",
       });
+    }
+  }
+
+  // ---- Rule 17 (X3): Three.js absolute-time render contract ----
+  // THREE usage is scanned only in executable inline JS. Raw WebGL remains
+  // governed solely by Rule 5/9 and does not enter this Three-specific gate.
+  const threeBody = inlineScripts(html).join("\n");
+  const threeMasked = maskJsNonCode(threeBody);
+  const usesThree = /\bTHREE\s*\./.test(threeMasked);
+  const hasThreePin = matchedPinLibs.has("three");
+  const declaresThree = requiresTokens.includes("three");
+  const isThreeCard = usesThree || hasThreePin || declaresThree;
+
+  if ((usesThree || hasThreePin) && !declaresThree) {
+    errors.push({
+      file,
+      where: "data-hf-requires",
+      message:
+        'Three.js usage or its pinned script requires data-hf-requires="three" / Three.js を使う card は data-hf-requires="three" を宣言してください',
+    });
+  }
+
+  if (isThreeCard) {
+    const subscriptions = threeSeekSubscriptions(threeBody, threeMasked);
+    if (subscriptions.length === 0) {
+      errors.push({
+        file,
+        where: "<script>",
+        message:
+          "Three.js cards must synchronously subscribe to the hf-seek event / Three.js card は hf-seek を同期的に購読してください",
+      });
+    } else if (!subscriptions.some((subscription) => callbackReadsThreeSeekTime(subscription.callback))) {
+      errors.push({
+        file,
+        where: "<script>",
+        message:
+          "the Three.js hf-seek listener must read event.detail.time as absolute seconds / Three.js の hf-seek listener は event.detail.time の絶対秒を読み取ってください",
+      });
+    }
+
+    if (!subscriptions.some((subscription) =>
+      callbackReadsThreeSeekTime(subscription.callback) && callbackRendersThreeFrame(subscription.callback)
+    )) {
+      errors.push({
+        file,
+        where: "<script>",
+        message:
+          "Three.js cards must synchronously call renderer.render(scene, camera) after applying seek time / Three.js card は seek 時刻を反映して renderer.render(...) を同期呼び出ししてください",
+      });
+    }
+
+    const rendererFactory = /\bnew\s+THREE\s*\.\s*WebGLRenderer\s*\(/g;
+    let rendererMatch: RegExpExecArray | null;
+    let rendererFactoryCount = 0;
+    while ((rendererMatch = rendererFactory.exec(threeMasked)) !== null) {
+      rendererFactoryCount += 1;
+      const open = threeMasked.indexOf("(", rendererMatch.index);
+      const end = balancedEnd(threeBody, open);
+      if (end === undefined) continue;
+      let optionsStart = open + 1;
+      while (/\s/.test(threeBody[optionsStart] ?? "")) optionsStart += 1;
+      if (threeBody[optionsStart] === "{") {
+        const optionsEnd = balancedEnd(threeBody, optionsStart);
+        const options = optionsEnd === undefined
+          ? []
+          : staticObjectEntries(threeBody.slice(optionsStart, optionsEnd));
+        const preserve = options.filter((entry) => entry.key === "preserveDrawingBuffer").at(-1);
+        if (!preserve || preserve.value.trim() !== "true") {
+          errors.push({
+            file,
+            where: "<script>",
+            message:
+              "THREE.WebGLRenderer literal options must set preserveDrawingBuffer:true for frame capture / THREE.WebGLRenderer の options に preserveDrawingBuffer:true が必要です",
+          });
+        }
+      } else {
+        errors.push({
+          file,
+          where: "<script>",
+          message:
+            "THREE.WebGLRenderer options must be a literal object with preserveDrawingBuffer:true / THREE.WebGLRenderer の options は preserveDrawingBuffer:true を持つ object literal にしてください",
+        });
+      }
+      rendererFactory.lastIndex = end;
+    }
+    if (rendererFactoryCount === 0) {
+      errors.push({
+        file,
+        where: "<script>",
+        message:
+          "Three.js cards must create new THREE.WebGLRenderer({...}) with literal capture options / Three.js card は literal options で new THREE.WebGLRenderer({...}) を作成してください",
+      });
+    }
+
+    const forbiddenThreeApis: Array<{ re: RegExp; label: string }> = [
+      { re: /\.\s*setAnimationLoop\s*\(/, label: "renderer.setAnimationLoop" },
+      { re: /\bnew\s+THREE\s*\.\s*Clock\b/, label: "new THREE.Clock" },
+      { re: /\.\s*(?:getDelta|getElapsedTime)\s*\(/, label: "Clock.getDelta/getElapsedTime" },
+      { re: /\b(?:new\s+)?THREE\s*\.\s*[A-Za-z_$][\w$]*Loader\b/, label: "THREE loaders" },
+      { re: /\bnew\s+(?:Shared)?Worker\s*\(/, label: "workers" },
+      { re: /\bURL\s*\.\s*createObjectURL\s*\(/, label: "blob URLs" },
+    ];
+    for (const forbidden of forbiddenThreeApis) {
+      if (forbidden.re.test(threeMasked)) {
+        errors.push({
+          file,
+          where: "<script>",
+          message:
+            `${forbidden.label} is not allowed in the X3 core-only Three.js route; derive scene state from event.detail.time and render synchronously / X3 の Three.js core-only 経路では ${forbidden.label} を使えません`,
+        });
+      }
     }
   }
 

@@ -43,7 +43,8 @@ product-launch 動画のもの。Cutflow の HyperFrames カードは**無音の
   `__ready` の裏で固定する(recipes の `measure+zoom` hazard)。
 - **重い 3D/WebGL(3D-hand gesture・portal bloom・真の Three.js)は rule library の外**。
   raw WebGL shader は `gpu-angle` profile で render 可(`perceptual` tier 必須)だが、
-  three.js は `not-wired`。無音の作図カードでは基本使わない。
+  Three.jsもmanual/core-only経路だけが`usable`。無音の作図カードでは基本使わず、
+  真のgeometry/perspective/depthが必要な場合だけ選ぶ。
 
 ## pattern 化しない2型(重要)
 

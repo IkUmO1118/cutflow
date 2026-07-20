@@ -33,6 +33,12 @@ export const CDN_PINS: readonly CdnPin[] = [
     integrity: "sha384-oLmuahJgYYR1aWgZwdMQQ2AClE6A2eEwV2x1Z7cbIHehfkkmommQLH3wX1NDEszb",
     lib: "anime",
   },
+  {
+    // Last classic UMD build; measured file size: 669884 bytes.
+    url: "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js",
+    integrity: "sha384-qOkzR5Ke/XkQxuGVJ9hpFEpDlcoLtWwVYhnJf06cLIZa2vaIptSqaubivErzmD5O",
+    lib: "three",
+  },
 ];
 
 export const CDN_SCRIPT_HOSTS: readonly string[] = [...new Set(CDN_PINS.map((p) => new URL(p.url).origin))];

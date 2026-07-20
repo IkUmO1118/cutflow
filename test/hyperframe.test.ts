@@ -158,12 +158,12 @@ test("P-7: buildIframeSrcdoc は決定論(同じ引数→同じ文字列)", () =
   assert.equal(out1, out2);
 });
 
-test("P-7b: default srcdoc is byte-identical to the X2 bootstrap baseline", () => {
+test("P-7b: default srcdoc is byte-identical to the X3 CDN-pin baseline", () => {
   const out = buildIframeSrcdoc(EXPORTED_SAMPLE_HTML, {});
-  assert.equal(out.length, 5120);
+  assert.equal(out.length, 5182);
   assert.equal(
     createHash("sha256").update(out).digest("hex"),
-    "6bf15b5a19b96007089a998eda119c5f6b80ead158b2254d26e9bfe711994589",
+    "601a24fac9cf3271644125d53124d26847504adabfb8b5a240d0a050ef93804d",
   );
   assert.equal(buildIframeSrcdoc(EXPORTED_SAMPLE_HTML, {}, "default"), out);
   assert.doesNotMatch(out, /__hfGlStats|checkWebglContext|HTMLCanvasElement\.prototype\.getContext/);
@@ -247,6 +247,10 @@ test("P-12: buildIframeSrcdoc injects a CSP <meta> before the bootstrap script",
   assert.ok(
     cspTag.includes("https://cdn.jsdelivr.net/npm/animejs@3.2.2/lib/anime.min.js"),
     "CSP must include the exact Anime.js pin URL",
+  );
+  assert.ok(
+    cspTag.includes("https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"),
+    "CSP must include the exact Three.js pin URL",
   );
   assert.ok(
     !/script-src[^;]*https:\/\/cdn\.jsdelivr\.net(?:\s|;)/.test(cspTag),

@@ -671,3 +671,105 @@ test("72: assigned Anime.js factories require distinct variable names", () => {
   ));
   assert.ok(hasErr(r, "distinct variable name"));
 });
+
+const THREE_PIN_TAG = `<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js" integrity="sha384-qOkzR5Ke/XkQxuGVJ9hpFEpDlcoLtWwVYhnJf06cLIZa2vaIptSqaubivErzmD5O" crossorigin="anonymous"></script>`;
+
+function threeCard(script: string, requires = true, pin = true): string {
+  return `<div data-composition-id="root" data-width="640" data-height="360" data-hf-determinism="perceptual"${requires ? ` data-hf-requires="three"` : ""}>` +
+    `<canvas class="clip" data-start="0" data-duration="4"></canvas></div>` +
+    (pin ? THREE_PIN_TAG : "") + `<script>${script}</script>`;
+}
+
+const CLEAN_THREE_SCRIPT = `
+const renderer=new THREE.WebGLRenderer({antialias:false,preserveDrawingBuffer:true});
+const scene=new THREE.Scene();const camera=new THREE.PerspectiveCamera();
+window.addEventListener('hf-seek',function(event){
+  const time=Math.min(4,Math.max(0,event.detail.time));
+  scene.rotation.y=time*0.4;
+  renderer.render(scene,camera);
+});`;
+
+test("73: Three.js pinned core card with absolute hf-seek render is clean", () => {
+  const r = checkComposition(threeCard(CLEAN_THREE_SCRIPT));
+  assert.equal(r.errors.length, 0, JSON.stringify(r.errors, null, 2));
+  assert.equal(r.warnings.length, 0, JSON.stringify(r.warnings, null, 2));
+});
+
+test("74: executable THREE usage and the matched pin require the three capability token", () => {
+  assert.ok(hasErr(checkComposition(threeCard(CLEAN_THREE_SCRIPT, false, false)), 'data-hf-requires="three"'));
+  assert.ok(hasErr(checkComposition(threeCard(``, false, true)), 'data-hf-requires="three"'));
+});
+
+test("75: Three.js cards require a synchronous hf-seek listener that reads absolute seconds and renders", () => {
+  const noListener = checkComposition(threeCard(
+    `const renderer=new THREE.WebGLRenderer({preserveDrawingBuffer:true});renderer.render({},{});`,
+  ));
+  assert.ok(hasErr(noListener, "synchronously subscribe"));
+
+  const noTime = checkComposition(threeCard(
+    `const renderer=new THREE.WebGLRenderer({preserveDrawingBuffer:true});window.addEventListener('hf-seek',function(event){renderer.render({},{});});`,
+  ));
+  assert.ok(hasErr(noTime, "event.detail.time"));
+
+  const noRender = checkComposition(threeCard(
+    `new THREE.Scene();window.addEventListener('hf-seek',function(event){const time=event.detail.time;});`,
+  ));
+  assert.ok(hasErr(noRender, "renderer.render"));
+
+  const renderOutsideListener = checkComposition(threeCard(
+    `const renderer=new THREE.WebGLRenderer({preserveDrawingBuffer:true});` +
+      `renderer.render({},{});` +
+      `window.addEventListener('hf-seek',function(event){const time=event.detail.time;});`,
+  ));
+  assert.ok(hasErr(renderOutsideListener, "renderer.render"));
+});
+
+test("76: Three.js WebGLRenderer literal options require preserved frame buffers", () => {
+  for (const options of ["{}", "{preserveDrawingBuffer:false}"]) {
+    const r = checkComposition(threeCard(
+      `const renderer=new THREE.WebGLRenderer(${options});window.addEventListener('hf-seek',function(event){const time=event.detail.time;renderer.render({},{});});`,
+    ));
+    assert.ok(hasErr(r, "preserveDrawingBuffer:true"), options);
+  }
+  const dynamicOptions = checkComposition(threeCard(
+    `const options={preserveDrawingBuffer:true};const renderer=new THREE.WebGLRenderer(options);` +
+      `window.addEventListener('hf-seek',function(event){const time=event.detail.time;renderer.render({},{});});`,
+  ));
+  assert.ok(hasErr(dynamicOptions, "literal object"));
+});
+
+test("77: Three.js core-only route rejects self clocks, loaders, workers, and blob URLs", () => {
+  for (const [source, label] of [
+    ["renderer.setAnimationLoop(function(){});", "renderer.setAnimationLoop"],
+    ["const clock=new THREE.Clock();", "new THREE.Clock"],
+    ["clock.getDelta();", "Clock.getDelta/getElapsedTime"],
+    ["const loader=new THREE.TextureLoader();", "THREE loaders"],
+    ["const worker=new Worker('worker.js');", "workers"],
+    ["const url=URL.createObjectURL(new Blob());", "blob URLs"],
+  ] as const) {
+    const r = checkComposition(threeCard(`${CLEAN_THREE_SCRIPT}\n${source}`));
+    assert.ok(hasErr(r, label), label);
+  }
+});
+
+test("78: comments and normal/template strings containing Three.js pseudo-code do not trigger Rule 17", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-width="640" data-height="360"></div><script>` +
+      `// new THREE.Clock(); renderer.setAnimationLoop(fn)\n` +
+      `const a="THREE.TextureLoader";const b='window.addEventListener(\\'hf-seek\\', fn)';` +
+      `const c=\`THREE.WebGLRenderer({preserveDrawingBuffer:false})\`;` +
+      `</script>`,
+  );
+  assert.equal(r.errors.length, 0, JSON.stringify(r.errors, null, 2));
+  assert.equal(r.warnings.length, 0, JSON.stringify(r.warnings, null, 2));
+});
+
+test("79: raw WebGL hf-seek cards do not enter the Three-specific gate", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-width="640" data-height="360" data-hf-determinism="perceptual">` +
+      `<canvas class="clip" data-start="0" data-duration="4"></canvas></div>` +
+      `<script>const gl={drawArrays:function(){}};window.addEventListener('hf-seek',function(event){const time=event.detail.time;gl.drawArrays(time);});</script>`,
+  );
+  assert.equal(r.errors.length, 0, JSON.stringify(r.errors, null, 2));
+  assert.equal(r.warnings.length, 0, JSON.stringify(r.warnings, null, 2));
+});
