@@ -349,6 +349,36 @@ test("plan --cuts-only: deps.complete を使い、ループ無効時は plan.loo
   });
 });
 
+test("plan --cuts-only: plan.reasonIds.enabled=true(単発 generateCutsOnce 経路)は prompt に判断の分類ブロックが乗る", async () => {
+  await withPlanDir(async (dir) => {
+    const cfg = { plan: { loop: { maxIterations: 0 }, reasonIds: { enabled: true } } } as Config;
+    let seenPrompt = "";
+    await plan(dir, cfg, { cutsOnly: true }, {
+      complete: async (prompt: string) => {
+        seenPrompt = prompt;
+        return JSON.stringify({ cuts: [] });
+      },
+    });
+    assert.match(seenPrompt, /## 判断の分類\(reasonId\)/);
+    assert.match(seenPrompt, /- restatement — /);
+  });
+});
+
+test("plan --cuts-only: plan.reasonIds 省略(既定)は prompt に判断の分類ブロックが乗らない(I2)", async () => {
+  await withPlanDir(async (dir) => {
+    const cfg = { plan: { loop: { maxIterations: 0 } } } as Config;
+    let seenPrompt = "";
+    await plan(dir, cfg, { cutsOnly: true }, {
+      complete: async (prompt: string) => {
+        seenPrompt = prompt;
+        return JSON.stringify({ cuts: [] });
+      },
+    });
+    assert.doesNotMatch(seenPrompt, /判断の分類/);
+    assert.doesNotMatch(seenPrompt, /\{\{reasonIds\}\}/);
+  });
+});
+
 test("plan --cuts-only: plan.harness.agentic=false は harness 追加前と完全にバイト等価(§SD4design 1-1)", async () => {
   await withPlanDir(async (dir) => {
     const cfg = { plan: { loop: { maxIterations: 0 }, harness: { agentic: false } } } as Config;

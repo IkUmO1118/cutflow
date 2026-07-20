@@ -18,8 +18,10 @@ import {
   resolvePlanHarnessCfg,
   resolvePlanLoopCfg,
   resolvePlanLoopSecondaryObservationCfg,
+  resolveReasonIdsCfg,
   resolveStyleProfileCfg,
 } from "../lib/config.ts";
+import { renderReasonIdsBlock } from "../lib/reasonIdInjection.ts";
 import { agenticCutTurn } from "../lib/ai/agenticCut.ts";
 import type { AgenticCtx, AgenticTraceEntry, SplitOp, SplitTraceEntry } from "../lib/ai/agenticCut.ts";
 import type { AiAdapter } from "../lib/ai/types.ts";
@@ -365,6 +367,11 @@ export async function plan(
     : null;
   const styleProfileBlock = renderStyleProfileBlock(styleProf, spc.enabled);
 
+  // plan.reasonIds(既定 off。§4.2): 単発 plan --cuts-only(generateCutsOnce)
+  // にだけ配線する。plan.loop の反復・harness(agentic)経路は本タスクの対象外
+  // (§8「実装者への注意」5・P2-7 の依存範囲)。off なら "" =バイト等価
+  const reasonIdsBlock = renderReasonIdsBlock(resolveReasonIdsCfg(cfg).enabled);
+
   if (opts.cutsOnly) {
     // H1/H2(plan.harness。既定 off): agentic 有効時だけ per-iteration complete()
     // を tool+検証ループ(agenticCutTurn)へ差し替える。off の間はこの分岐に
@@ -408,6 +415,7 @@ export async function plan(
       deps.complete ?? completeStructuredCuts,
       idCtx,
       styleProfileBlock,
+      reasonIdsBlock,
     );
   }
 
@@ -449,6 +457,7 @@ async function generateCutsOnce(
   completeFn: CompleteFn,
   idCtx?: { used: Set<string>; existingCutplanSegments: PlanSegment[] },
   styleProfile: string = "",
+  reasonIds: string = "",
 ): Promise<CutPlan> {
   const prompt = renderPrompt(
     dir,
@@ -458,6 +467,7 @@ async function generateCutsOnce(
     perception,
     buildEditModeCfg(cfg),
     styleProfile,
+    reasonIds,
   );
   const raw = await completeFn(prompt, cfg);
   // LLM の生応答は必ず残す(パース失敗時の調査と、判断過程の記録のため)

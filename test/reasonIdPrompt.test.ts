@@ -13,6 +13,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderPrompt } from "../src/stages/plan.ts";
 import type { NumberedSegment } from "../src/stages/plan.ts";
+import { renderReasonIdsBlock } from "../src/lib/reasonIdInjection.ts";
+import { CUT_REASON_IDS } from "../src/lib/reasonIds.ts";
 
 const numbered: NumberedSegment[] = [
   { id: 1, start: 0, end: 3.5, text: "こんにちは、今日はCutFlowを紹介します" },
@@ -51,6 +53,52 @@ test("T-g: renderPrompt に reasonIds を明示的に空文字で渡しても go
     const withDefault = renderPrompt(dir, "plan-cuts.md", numbered, 120);
     const withEmpty = renderPrompt(dir, "plan-cuts.md", numbered, 120, "", undefined, "", "");
     assert.equal(withDefault, withEmpty);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* P2-7: 注入ブロックの生成(renderReasonIdsBlock)                        */
+/* ------------------------------------------------------------------ */
+
+test("renderReasonIdsBlock: enabled=false は空文字(バイト等価の核)", () => {
+  assert.equal(renderReasonIdsBlock(false), "");
+});
+
+test("renderReasonIdsBlock: enabled=true は前後 \\n を伴う1ブロックで13分類全てを id + 一行定義で列挙する", () => {
+  const block = renderReasonIdsBlock(true);
+  assert.match(block, /^\n/);
+  assert.match(block, /\n$/);
+  assert.match(block, /## 判断の分類\(reasonId\)/);
+  assert.match(block, /## 残す判断の記録\(keeps\)/);
+  assert.match(block, /max\(12, 候補数の10%\)/);
+  for (const id of CUT_REASON_IDS) {
+    assert.match(block, new RegExp(`- ${id} — `), `${id} が注入ブロックに無い`);
+  }
+  // recipe 本文(判定シグナル等)は読みに行かない=注入されない(§6 却下案2)
+  assert.doesNotMatch(block, /判定シグナル/);
+  assert.doesNotMatch(block, /worked example/);
+});
+
+test("renderReasonIdsBlock: golden(id+一行定義+系の並び。候補数に依存しない固定文字列)", () => {
+  const block = renderReasonIdsBlock(true);
+  const md5 = createHash("md5").update(block).digest("hex");
+  assert.equal(md5, "4d5203bf5315167ec232962a63634992");
+  assert.equal(block.length, 1036);
+});
+
+/* ------------------------------------------------------------------ */
+/* plan.ts への配線(generateCutsOnce だけ・plan.loop/harness は対象外)     */
+/* ------------------------------------------------------------------ */
+
+test("renderPrompt: reasonIds を渡すと {{styleProfile}} 直後(区切りなし)・## カットの判断基準の直前に挿入される(plan-cuts.md)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-reasonid-wire-"));
+  try {
+    const block = renderReasonIdsBlock(true);
+    const prompt = renderPrompt(dir, "plan-cuts.md", numbered, 120, "", undefined, "", block);
+    assert.match(prompt, /## 判断の分類\(reasonId\)/);
+    assert.ok(prompt.includes(`${block}\n## カットの判断基準`));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
