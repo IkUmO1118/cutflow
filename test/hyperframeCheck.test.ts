@@ -4,6 +4,7 @@
 // font embedding)を代表フィクスチャで検証する。
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { checkComposition } from "../src/lib/hyperframeCheck.ts";
 import { SAMPLE_HTML } from "../src/lib/hyperframe.ts";
 
@@ -149,6 +150,28 @@ test("18: custom font-family (no @font-face) is a warning", () => {
   );
   assert.equal(r.errors.length, 0);
   assert.ok(hasWarn(r, "Comic Sans Custom"));
+});
+
+test("18b: Rule 6 regression — data: WOFF2 @font-face backs a custom family at 0/0", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-width="1280" data-height="720"><span id="t">CutFlow</span></div>` +
+      `<style>@font-face{font-family:"HFAsset1";src:url("data:font/woff2;base64,d09GMg==") format("woff2");font-display:block}` +
+      `#t{font-family:"HFAsset1",sans-serif}</style>`,
+  );
+  assert.equal(r.errors.length, 0, JSON.stringify(r.errors, null, 2));
+  assert.equal(r.warnings.length, 0, JSON.stringify(r.warnings, null, 2));
+});
+
+test("18c: X1 real WOFF2 render fixture passes checkComposition at 0/0", () => {
+  const html = readFileSync(
+    new URL("./fixtures/hyperframe-fonts/embedded-woff2.html", import.meta.url),
+    "utf8",
+  );
+  const r = checkComposition(html, {
+    file: "test/fixtures/hyperframe-fonts/embedded-woff2.html",
+  });
+  assert.equal(r.errors.length, 0, JSON.stringify(r.errors, null, 2));
+  assert.equal(r.warnings.length, 0, JSON.stringify(r.warnings, null, 2));
 });
 
 test('20: data-hf-determinism="perceptual" is clean', () => {

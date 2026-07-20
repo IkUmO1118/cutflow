@@ -60,6 +60,7 @@ import {
   resolveHyperframeBuild,
 } from "../src/stages/hyperframe.ts";
 import { parseComposition } from "../src/lib/hyperframe.ts";
+import { HYPERFRAME_FONT_MAX_BYTES } from "../src/lib/hyperframeAssets.ts";
 import { resolveHyperframeRenderProfile } from "../src/lib/hyperframeRenderProfile.ts";
 import {
   HYPERFRAME_NAME_RE,
@@ -386,7 +387,10 @@ async function handle(
   if (req.method === "GET" && path === "/api/hyperframes") {
     sendJson(res, 200, {
       hyperframes: loadHyperframeCards(dir),
-      assetLimits: resolveHyperframeAssetLimits(cfg),
+      assetLimits: {
+        ...resolveHyperframeAssetLimits(cfg),
+        fontMaxBytes: HYPERFRAME_FONT_MAX_BYTES,
+      },
     });
     return;
   }

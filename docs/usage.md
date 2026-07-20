@@ -195,11 +195,12 @@ Remotion(native interpreter)で作る2段階コマンド。生成された HTML 
     # composition html 自体は書き込まれない(0バイト書込み)。既存ファイルがあれば --force 必須
 
     node src/cli.ts hyperframe <dir> --name <name> --from-brief \
-      --asset ./logo.png --asset ./product.webp
-    # PNG/JPEG/GIF/WebP は magic bytes・拡張子・サイズを検査して
+      --asset ./logo.png --asset ./NotoSansJP-subset.woff2
+    # PNG/JPEG/GIF/WebP と WOFF2 は magic bytes・拡張子・サイズを検査して
     # hyperframes/<name>.assets/ へ保存する。LLM には画像byteではなく
-    # __HF_ASSET_1__ のようなtokenと寸法だけを渡し、応答後に data: URL を
-    # 決定論的に焼き込む。存在しない番号や壊れたtokenを返した場合は失敗し、
+    # __HF_ASSET_1__ のようなtokenと寸法だけを渡す。fontもbyteを渡さず、
+    # MIME/byte数、family HFAsset2、正確な @font-face と __HF_FONT_2__ tokenだけを
+    # 渡し、応答後に data: URL を決定論的に焼き込む。存在しない番号や壊れたtokenを返した場合は失敗し、
     # raw.txt と .assets/ は再試行用に残るが html は書き換えない。
 
     node src/cli.ts hyperframe <dir> --name <name> --embed-lottie <animation.json>
@@ -220,11 +221,25 @@ Remotion(native interpreter)で作る2段階コマンド。生成された HTML 
 境界を通して配置する(このコマンド自体は cutplan/approvals には一切触れない)。
 配置候補の生成は次の `hyperframe-place` が担う。
 
-添付画像の上限は `config.yaml` で調整できる。省略時は単枚 2MiB、1回の
-author 合計 6MiB。画像は html に data URL として複製されるため、上限超過時は
-自動圧縮せずエラーにする。公開後の正は data URL を含む html であり、
-`.assets/` 内の画像だけを差し替えても html は変わらない。差し替えを反映するには
+添付素材の上限は `config.yaml` で調整できる。省略時は単枚 2MiB、1回の
+author 合計 6MiB。WOFF2 はさらに固定 1MiB/枚の上限があり、設定値がそれより
+小さければ小さい方に従う。画像・font は html に data URL として複製されるため、
+上限超過時は自動圧縮/subset化せずエラーにする。CLI とエディタのカード作成UIは
+同じ検査・合計上限を使う。公開後の正は data URL を含む html であり、
+`.assets/` 内の素材だけを差し替えても html は変わらない。差し替えを反映するには
 `--from-brief --force` で再生成するか、html を直接編集する。
+
+日本語 full font は数MiBになりやすいので、Cutflowへ渡す前に外部 tool で必要文字だけを
+subset化する。tool/依存はCutflowには同梱しない。fonttoolsが別途入っている場合の例:
+
+```sh
+pyftsubset remotion/fonts/NotoSansJP.woff2 \
+  --output-file=/tmp/NotoSansJP-subset.woff2 --flavor=woff2 \
+  --text='動画で使う文字だけ' --layout-features='*'
+```
+
+元fontのライセンス条件にも従う。このrepository同梱のNoto Sans JPは
+`remotion/fonts/OFL.txt`を参照する。
 
 ```yaml
 hyperframe:

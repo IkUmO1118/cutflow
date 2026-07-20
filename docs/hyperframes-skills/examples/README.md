@@ -47,7 +47,7 @@ authoring references, and a human previews before burning anything into a final 
 Static shape-only / final-frame-static cards do render byte-identically. See the
 rulebook §7 for the measured evidence.
 
-## Font normalization
+## Font normalization and the embedded-font example
 
 Where upstream used a named webfont as the first family in a `font-family:`
 declaration (`Inter`, `Google Sans`, `Playfair Display`, `Helvetica Neue`, `Arial`,
@@ -55,8 +55,14 @@ declaration (`Inter`, `Google Sans`, `Playfair Display`, `Helvetica Neue`, `Aria
 folded to a generic so rendering does not depend on a machine having that font:
 sans → `system-ui, sans-serif`, mono → `ui-monospace, monospace`, serif →
 `ui-serif, Georgia, serif` (must lead with a generic keyword — a bare `Georgia`
-first family still warns). No card ships a bundled font file; there are no
-`@font-face` rules and no font assets in this directory.
+first family still warns).
+
+`cutflow--embedded-woff2-font.html` is the deliberate exception: it is the X1
+worked example for a user-supplied, subset WOFF2 embedded as a
+`data:font/woff2` `@font-face`. Its source, license, hashes, and reproducible
+external subsetting command are recorded in
+`test/fixtures/hyperframe-fonts/README.md`. No subsetting tool is bundled with
+CutFlow.
 
 ## CONVERT-SUBSTITUTE cards (asset removed/substituted)
 

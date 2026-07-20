@@ -784,6 +784,17 @@ export function selectRecipeInjection(pattern: number | undefined): string {
 
 /** author prompt の決定的な組み立て。brief の取得元(fs / editor request)だけを
  * 呼び出し側で解決し、その他の prompt 入力と pattern 追記は従来どおり保つ。 */
+export function resolveHyperframeFontConditionals(source: string, hasFonts: boolean): string {
+  const block = /\{\{#fontAssets\}\}([\s\S]*?)\{\{\/fontAssets\}\}\{\{\^fontAssets\}\}([\s\S]*?)\{\{\/fontAssets\}\}/g;
+  const resolved = source.replace(block, (_all, withFonts: string, withoutFonts: string) =>
+    hasFonts ? withFonts : withoutFonts
+  );
+  if (/\{\{[#/^]fontAssets\}\}/.test(resolved)) {
+    throw new Error("HyperFrames font 条件ブロックの形式が不正です");
+  }
+  return resolved;
+}
+
 export function resolveHyperframeAuthorPrompt(args: {
   template: string;
   patterns: string;
@@ -795,15 +806,19 @@ export function resolveHyperframeAuthorPrompt(args: {
   pattern?: number;
   /** 空文字なら従来 prompt とバイト等価。値は formatHyperframeAssetPrompt 由来。 */
   assets?: string;
+  /** false なら font 条件ブロックの従来文面を選び、X1 導入前とバイト等価。 */
+  hasFonts?: boolean;
   /** 空文字なら従来 prompt とバイト等価。値は buildRecipeInjection 由来。 */
   recipes?: string;
 }): string {
-  let prompt = args.template
+  const template = resolveHyperframeFontConditionals(args.template, args.hasFonts === true);
+  const patterns = resolveHyperframeFontConditionals(args.patterns, args.hasFonts === true);
+  let prompt = template
     .replaceAll("{{brief}}", () => args.brief)
     .replaceAll("{{assets}}", () => args.assets ?? "")
     .replaceAll("{{recipes}}", () => args.recipes ?? "")
     .replaceAll("{{rules}}", () => args.rules)
-    .replaceAll("{{patterns}}", () => args.patterns)
+    .replaceAll("{{patterns}}", () => patterns)
     .replaceAll("{{width}}", () => String(args.width))
     .replaceAll("{{height}}", () => String(args.height))
     .replaceAll("{{durationSec}}", () => String(args.durationSec));
@@ -832,7 +847,7 @@ export async function authorHyperframe(
     height?: number;
     durationSec?: number;
     force?: boolean;
-    /** CLI / editor で読み終えた添付画像。検査後に <name>.assets/ へ保存する。 */
+    /** CLI / editor で読み終えた添付画像/WOFF2。検査後に <name>.assets/ へ保存する。 */
     assets?: HyperframeAssetInput[];
   },
 ): Promise<AuthorHyperframeResult> {
@@ -874,6 +889,7 @@ export async function authorHyperframe(
     durationSec,
     pattern: opts.pattern,
     assets: formatHyperframeAssetPrompt(assets),
+    hasFonts: assets.some((asset) => "kind" in asset && asset.kind === "font"),
     // un-steered(pattern 未指定)は全11パターンの骨子、steered は選択パターンのみ(二重注入回避)。
     recipes: selectRecipeInjection(opts.pattern),
   });

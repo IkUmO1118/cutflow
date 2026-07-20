@@ -612,6 +612,7 @@ export const App = () => {
   const [hyperframeAssetLimits, setHyperframeAssetLimits] = useState<{
     maxBytes: number;
     maxTotalBytes: number;
+    fontMaxBytes: number;
   } | null>(null);
   const hyperframeAssetInputRef = useRef<HTMLInputElement>(null);
   const [hyperframeAuthorBusy, setHyperframeAuthorBusy] = useState(false);
@@ -4173,11 +4174,15 @@ export const App = () => {
   const addHyperframeAuthorAssets = (files: readonly File[]) => {
     const next = [...hyperframeAuthorAssets];
     for (const file of files) {
-      if (!/\.(png|jpe?g|gif|webp)$/i.test(file.name)) {
-        setHyperframeAuthorError(`「${file.name}」は添付できません。PNG / JPEG / GIF / WebP を選んでください`);
+      if (!/\.(png|jpe?g|gif|webp|woff2)$/i.test(file.name)) {
+        setHyperframeAuthorError(`「${file.name}」は添付できません。PNG / JPEG / GIF / WebP / WOFF2 を選んでください`);
         return;
       }
-      if (hyperframeAssetLimits && file.size > hyperframeAssetLimits.maxBytes) {
+      const isFont = /\.woff2$/i.test(file.name);
+      const maxBytes = hyperframeAssetLimits && isFont
+        ? Math.min(hyperframeAssetLimits.maxBytes, hyperframeAssetLimits.fontMaxBytes)
+        : hyperframeAssetLimits?.maxBytes;
+      if (maxBytes !== undefined && file.size > maxBytes) {
         setHyperframeAuthorError(`「${file.name}」が1ファイルの上限を超えています`);
         return;
       }
@@ -4697,7 +4702,7 @@ export const App = () => {
               <input
                 ref={hyperframeAssetInputRef}
                 type="file"
-                accept=".png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp"
+                accept=".png,.jpg,.jpeg,.gif,.webp,.woff2,image/png,image/jpeg,image/gif,image/webp,font/woff2"
                 multiple
                 disabled={hyperframeAuthorBusy}
                 onChange={(event) => {
@@ -4705,11 +4710,12 @@ export const App = () => {
                   event.target.value = "";
                 }}
               />
-              <strong>画像をドロップ、またはクリックして選択</strong>
+              <strong>画像・フォントをドロップ、またはクリックして選択</strong>
               <span>
-                PNG / JPEG / GIF / WebP
+                PNG / JPEG / GIF / WebP / WOFF2
                 {hyperframeAssetLimits && (
                   ` · 1枚 ${(hyperframeAssetLimits.maxBytes / 1024 / 1024).toFixed(1)}MB / ` +
+                  `font ${(Math.min(hyperframeAssetLimits.maxBytes, hyperframeAssetLimits.fontMaxBytes) / 1024 / 1024).toFixed(1)}MB / ` +
                   `合計 ${(hyperframeAssetLimits.maxTotalBytes / 1024 / 1024).toFixed(1)}MB まで`
                 )}
               </span>

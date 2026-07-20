@@ -105,11 +105,29 @@ check ゲート(C2)がエラーで止める:
 - リモート URL(`http(s)://` / `//` 始まり)は `src`/`href`/`srcset`/
   `poster`/`data-composition-src`・CSS `url()`・`@import`・`@font-face` の
   どこにあってもエラー。フォントは総称ファミリー(`system-ui`/`sans-serif`/
-  `serif`/`monospace` 等)のみを使う。**唯一の例外**: `<script src>` が
+  `serif`/`monospace` 等)、または `hyperframe --from-brief --asset <subset.woff2>`
+  が提供したローカル `@font-face` だけを使う。後者は prompt に示された family
+  `HFAsset<n>` と `__HF_FONT_<n>__` token をそのまま使い、publish 前に
+  `data:font/woff2;base64,...` へ置換される。手書きカードでも同じ data URL 形式なら
+  Rule 6 がローカル font として扱い、`document.fonts.ready` が render readiness を
+  担保する。**script の唯一の例外**: `<script src>` が
   `src/lib/hyperframeCdn.ts` の CDN ピン表に一致する URL・`integrity`
   (両方一字一句そのまま)を持ち、かつ `crossorigin="anonymous"` を持つ
   場合だけは許可される。それ以外の remote 参照(script 以外の全部)は
   この例外の対象外で常にエラーのまま
+
+WOFF2 は拡張子と先頭 magic `wOF2` を照合する。単体は固定 1MiB 以下、かつ
+`hyperframe.assets.maxBytes` と1回の `maxTotalBytes` にも従う。Cutflow は subset
+tool を同梱しない。例えば外部の fonttools を使う場合は、必要文字だけを明示する:
+
+```sh
+pyftsubset remotion/fonts/NotoSansJP.woff2 \
+  --output-file=/tmp/NotoSansJP-subset.woff2 --flavor=woff2 \
+  --text='CutFlow フォント埋め込み' --layout-features='*'
+```
+
+配布時は元フォントのライセンスも確認し、この repository の Noto Sans JP なら
+`remotion/fonts/OFL.txt` を一緒に扱う。
 
 詳しいモーションの作法(CSS/WAAPI アダプタの書き方)は
 `./motion-css-waapi.md` を見る。

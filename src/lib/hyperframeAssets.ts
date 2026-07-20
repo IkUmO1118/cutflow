@@ -4,6 +4,7 @@ import { basename, extname, join, resolve } from "node:path";
 
 export const DEFAULT_HYPERFRAME_ASSET_MAX_BYTES = 2 * 1024 * 1024;
 export const DEFAULT_HYPERFRAME_ASSET_MAX_TOTAL_BYTES = 6 * 1024 * 1024;
+export const HYPERFRAME_FONT_MAX_BYTES = 1 * 1024 * 1024;
 
 const MIME_BY_EXTENSION: Readonly<Record<string, string>> = {
   ".gif": "image/gif",
@@ -28,6 +29,23 @@ export interface HyperframeAsset {
   sha256: string;
   dataUrl: string;
   storedPath?: string;
+}
+
+export interface HyperframeFontAsset {
+  kind: "font";
+  index: number;
+  name: string;
+  bytes: Buffer;
+  mime: "font/woff2";
+  sha256: string;
+  dataUrl: string;
+  storedPath?: string;
+}
+
+export type HyperframeAuthorAsset = HyperframeAsset | HyperframeFontAsset;
+
+function isHyperframeFontAsset(asset: HyperframeAuthorAsset): asset is HyperframeFontAsset {
+  return "kind" in asset && asset.kind === "font";
 }
 
 export interface HyperframeAssetLimits {
@@ -138,7 +156,7 @@ export function validateHyperframeImage(
 export function validateHyperframeAssets(
   inputs: readonly HyperframeAssetInput[],
   limits: HyperframeAssetLimits,
-): HyperframeAsset[] {
+): HyperframeAuthorAsset[] {
   const names = new Set<string>();
   let totalBytes = 0;
   return inputs.map((input, itemIndex) => {
@@ -160,6 +178,29 @@ export function validateHyperframeAssets(
     totalBytes += input.bytes.length;
     if (totalBytes > limits.maxTotalBytes) {
       throw new Error(`添付素材の合計が上限 ${limits.maxTotalBytes} bytes を超えています`);
+    }
+    if (extname(input.name).toLowerCase() === ".woff2") {
+      if (input.bytes.length > HYPERFRAME_FONT_MAX_BYTES) {
+        throw new Error(
+          `添付フォント「${input.name}」が固定上限 ${HYPERFRAME_FONT_MAX_BYTES} bytes を超えています。` +
+            "外部ツールで必要な文字だけにサブセット化してください",
+        );
+      }
+      if (
+        input.bytes.length < 4 ||
+        input.bytes.subarray(0, 4).toString("ascii") !== "wOF2"
+      ) {
+        throw new Error(`フォントの拡張子と magic bytes が一致しません: ${input.name}`);
+      }
+      return {
+        kind: "font",
+        index,
+        name: input.name,
+        bytes: input.bytes,
+        mime: "font/woff2",
+        sha256: createHash("sha256").update(input.bytes).digest("hex"),
+        dataUrl: `data:font/woff2;base64,${input.bytes.toString("base64")}`,
+      };
     }
     const image = validateHyperframeImage(input.name, input.bytes);
     if (image.width === undefined || image.height === undefined) {
@@ -195,8 +236,8 @@ export function loadHyperframeAssetInputs(paths: readonly string[]): HyperframeA
 export function saveHyperframeAssets(
   dir: string,
   name: string,
-  assets: readonly HyperframeAsset[],
-): HyperframeAsset[] {
+  assets: readonly HyperframeAuthorAsset[],
+): HyperframeAuthorAsset[] {
   if (assets.length === 0) return [];
   const assetsDir = join(dir, "hyperframes", `${name}.assets`);
   mkdirSync(assetsDir, { recursive: true });
@@ -211,42 +252,68 @@ export function saveHyperframeAssets(
   const provenanceTempPath = join(assetsDir, `.assets.${process.pid}.tmp`);
   writeFileSync(provenanceTempPath, `${JSON.stringify({
     version: 1,
-    assets: saved.map((asset) => ({
-      index: asset.index,
-      name: asset.name,
-      mime: asset.mime,
-      width: asset.width,
-      height: asset.height,
-      bytes: asset.bytes.length,
-      sha256: asset.sha256,
-    })),
+    assets: saved.map((asset) => isHyperframeFontAsset(asset)
+      ? {
+        kind: "font",
+        index: asset.index,
+        name: asset.name,
+        mime: asset.mime,
+        bytes: asset.bytes.length,
+        sha256: asset.sha256,
+      }
+      : {
+        index: asset.index,
+        name: asset.name,
+        mime: asset.mime,
+        width: asset.width,
+        height: asset.height,
+        bytes: asset.bytes.length,
+        sha256: asset.sha256,
+      }),
   }, null, 2)}\n`);
   renameSync(provenanceTempPath, provenancePath);
   return saved;
 }
 
-export function formatHyperframeAssetPrompt(assets: readonly HyperframeAsset[]): string {
+export function formatHyperframeAssetPrompt(assets: readonly HyperframeAuthorAsset[]): string {
   if (assets.length === 0) return "";
-  const lines = assets.map((asset) =>
-    `- 添付素材${asset.index}: ${asset.name} (${asset.width}×${asset.height} ${asset.mime.slice(6).toUpperCase()})。` +
-      `使う場合は src に __HF_ASSET_${asset.index}__ とだけ書くこと`,
-  );
-  return `\n\n## 添付素材\n\n${lines.join("\n")}\n\n` +
-    "画像バイト列や data URL は自分で書かないでください。使う画像の src には、" +
-    "上記の対応するトークンを一字も変えずに書いてください。";
+  const hasFonts = assets.some(isHyperframeFontAsset);
+  const lines = assets.map((asset) => isHyperframeFontAsset(asset)
+    ? `- 添付フォント${asset.index}: ${asset.name} (${asset.mime}, ${asset.bytes.length} bytes)。` +
+      `使う場合は次を一字も変えずに書くこと: ` +
+      `@font-face { font-family: "HFAsset${asset.index}"; ` +
+      `src: url("__HF_FONT_${asset.index}__") format("woff2"); font-display: block; }`
+    : `- 添付素材${asset.index}: ${asset.name} (${asset.width}×${asset.height} ${asset.mime.slice(6).toUpperCase()})。` +
+      `使う場合は src に __HF_ASSET_${asset.index}__ とだけ書くこと`);
+  return `\n\n## 添付素材\n\n${lines.join("\n")}\n\n` + (hasFonts
+    ? "画像・フォントのバイト列や data URL は自分で書かないでください。使う素材には、" +
+      "上記の対応するトークンを一字も変えずに書いてください。"
+    : "画像バイト列や data URL は自分で書かないでください。使う画像の src には、" +
+      "上記の対応するトークンを一字も変えずに書いてください。");
 }
 
 export function replaceHyperframeAssetTokens(
   html: string,
-  assets: readonly Pick<HyperframeAsset, "index" | "dataUrl">[],
+  assets: readonly HyperframeAuthorAsset[],
 ): string {
-  const byIndex = new Map(assets.map((asset) => [asset.index, asset.dataUrl]));
+  const imagesByIndex = new Map(
+    assets.filter((asset): asset is HyperframeAsset => !isHyperframeFontAsset(asset))
+      .map((asset) => [asset.index, asset.dataUrl]),
+  );
+  const fontsByIndex = new Map(
+    assets.filter(isHyperframeFontAsset)
+      .map((asset) => [asset.index, asset.dataUrl]),
+  );
   const replaced = html.replace(/__HF_ASSET_(\d+)__/g, (token, rawIndex: string) => {
-    const dataUrl = byIndex.get(Number(rawIndex));
+    const dataUrl = imagesByIndex.get(Number(rawIndex));
     if (!dataUrl) throw new Error(`生成結果が存在しない添付素材トークンを参照しています: ${token}`);
     return dataUrl;
+  }).replace(/__HF_FONT_(\d+)__/g, (token, rawIndex: string) => {
+    const dataUrl = fontsByIndex.get(Number(rawIndex));
+    if (!dataUrl) throw new Error(`生成結果が存在しない添付フォントトークンを参照しています: ${token}`);
+    return dataUrl;
   });
-  if (replaced.includes("__HF_ASSET_")) {
+  if (replaced.includes("__HF_ASSET_") || replaced.includes("__HF_FONT_")) {
     throw new Error("生成結果に置換できない添付素材トークンが残っています");
   }
   return replaced;
