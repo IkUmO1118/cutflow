@@ -58,6 +58,10 @@ export const APPLY_FILE_NAME: Record<ApplyFileKey, string> = {
 /** `@id` 解決先(MentionTarget)の kind → { 所属ファイルのキー, 配列のプロパティ名 }。
  * "captionTrack" と "range"/"short" は file で分岐が要るため別扱い(arraySpecFor 参照) */
 const KIND_ARRAY: Partial<Record<string, { bodyKey: ApplyFileKey; arrayKey: string }>> = {
+  // set/remove は field パスに制限を持たない(§下記)ため、cutSegment 配下は
+  // start/end/action/reason に加えて reasonId(§docs/plans/2026-07-20-cut-
+  // knowledge-p1-p2-design.md §4)も set の対象にできる。approved だけが
+  // set の field として明示的に拒否される(§不変条件2。上記コメント参照)
   cutSegment: { bodyKey: "cutplan", arrayKey: "segments" },
   caption: { bodyKey: "transcript", arrayKey: "segments" },
   material: { bodyKey: "overlays", arrayKey: "overlays" },
