@@ -21,7 +21,7 @@ import {
   resolveReasonIdsCfg,
   resolveStyleProfileCfg,
 } from "../lib/config.ts";
-import { renderReasonIdsBlock } from "../lib/reasonIdInjection.ts";
+import { renderReasonIdsBlock, renderReasonIdsOutputBlock } from "../lib/reasonIdInjection.ts";
 import { agenticCutTurn } from "../lib/ai/agenticCut.ts";
 import type { AgenticCtx, AgenticTraceEntry, SplitOp, SplitTraceEntry } from "../lib/ai/agenticCut.ts";
 import type { AiAdapter } from "../lib/ai/types.ts";
@@ -367,10 +367,12 @@ export async function plan(
     : null;
   const styleProfileBlock = renderStyleProfileBlock(styleProf, spc.enabled);
 
-  // plan.reasonIds(既定 off。§4.2): 単発 plan --cuts-only(generateCutsOnce)
-  // にだけ配線する。plan.loop の反復・harness(agentic)経路は本タスクの対象外
-  // (§8「実装者への注意」5・P2-7 の依存範囲)。off なら "" =バイト等価
-  const reasonIdsBlock = renderReasonIdsBlock(resolveReasonIdsCfg(cfg).enabled);
+  // plan.reasonIds(既定 off。§4.2/穴A): カット判断を行う3経路全部
+  // (本編 plan・単発 plan --cuts-only・ループ iter0/critique)に配線する。
+  // off なら両ブロックとも "" =バイト等価
+  const rc = resolveReasonIdsCfg(cfg);
+  const reasonIdsBlock = renderReasonIdsBlock(rc.enabled);
+  const reasonIdsOutputBlock = renderReasonIdsOutputBlock(rc.enabled);
 
   if (opts.cutsOnly) {
     // H1/H2(plan.harness。既定 off): agentic 有効時だけ per-iteration complete()
@@ -390,6 +392,8 @@ export async function plan(
         durationSec: auto.originalDurationSec,
         perception,
         styleProfile: styleProfileBlock,
+        reasonIdsBlock,
+        reasonIdsOutputBlock,
         idCtx,
         harness: harnessOn,
         agenticAdapterOverride: deps.agenticAdapterOverride,
@@ -416,6 +420,7 @@ export async function plan(
       idCtx,
       styleProfileBlock,
       reasonIdsBlock,
+      reasonIdsOutputBlock,
     );
   }
 
@@ -427,17 +432,23 @@ export async function plan(
     perception,
     buildEditModeCfg(cfg),
     styleProfileBlock,
+    reasonIdsBlock,
+    reasonIdsOutputBlock,
   );
   const raw = await completeFn(prompt, cfg);
   // LLM の生応答は必ず残す(パース失敗時の調査と、判断過程の記録のため)
   writeFileSync(join(dir, "plan.raw.txt"), raw);
 
   const parsed = parseResponse(raw);
+  // config が false のときは keeps を渡さない(§4.4・I3 と同じ明示ゲート。
+  // generateCutsOnce と対称)
+  const keeps = rc.enabled ? parsed.keeps : undefined;
   const cutplan = buildCutplan(
     numbered,
     parsed.cuts,
     idCtx && { existingSegments: idCtx.existingCutplanSegments, used: idCtx.used },
     { duration: auto.originalDurationSec, reason: cfg.detect?.silenceCutReason },
+    keeps,
   );
   writeFileSync(join(dir, "cutplan.json"), JSON.stringify(cutplan, null, 2));
 
@@ -458,6 +469,7 @@ async function generateCutsOnce(
   idCtx?: { used: Set<string>; existingCutplanSegments: PlanSegment[] },
   styleProfile: string = "",
   reasonIds: string = "",
+  reasonIdsOutput: string = "",
 ): Promise<CutPlan> {
   const prompt = renderPrompt(
     dir,
@@ -468,6 +480,7 @@ async function generateCutsOnce(
     buildEditModeCfg(cfg),
     styleProfile,
     reasonIds,
+    reasonIdsOutput,
   );
   const raw = await completeFn(prompt, cfg);
   // LLM の生応答は必ず残す(パース失敗時の調査と、判断過程の記録のため)
@@ -496,6 +509,12 @@ interface RunCutsLoopArgs {
   /** SD-T4 compact style policy block(§2.5.5)。iter===0(generate)の
    * renderPrompt にだけ渡す(critique 反復には渡さない。§2.6.3・§1.5 defer) */
   styleProfile: string;
+  /** plan.reasonIds(§穴A・P3-3)。styleProfile と違い iter0 の生成プロンプトと
+   * critique の再調整プロンプトの両方に渡す(分類語彙は反復全体で一貫させたい
+   * ため。styleProfile の「generate だけ」制限とは意図的に異なる)。off なら
+   * 両方とも "" =バイト等価 */
+  reasonIdsBlock: string;
+  reasonIdsOutputBlock: string;
   idCtx?: { used: Set<string>; existingCutplanSegments: PlanSegment[] };
   complete: CompleteFn;
   observe?: ObservationProvider;
@@ -573,6 +592,8 @@ async function runCutsLoop(args: RunCutsLoopArgs): Promise<CutPlan> {
           args.perception,
           editModeCfg,
           args.styleProfile,
+          args.reasonIdsBlock,
+          args.reasonIdsOutputBlock,
         )
       : renderCritiquePrompt(
           args.dir,
@@ -582,6 +603,8 @@ async function runCutsLoop(args: RunCutsLoopArgs): Promise<CutPlan> {
           prevObservation,
           prevCuts ?? [],
           editModeCfg,
+          args.reasonIdsBlock,
+          args.reasonIdsOutputBlock,
         );
 
     let cuts: LoopCut[];
@@ -885,7 +908,11 @@ function writeChapterTelops(
 
 /** LLM 応答の期待スキーマ(prompts/plan.md の出力形式と対応) */
 interface PlanResponse {
-  cuts: { id: number; reason: string }[];
+  cuts: { id: number; reason: string; reasonId?: string }[];
+  /** 切る誘惑があったが残した区間だけを LLM に列挙させたもの(§5・§穴A P3-3)。
+   * plan.reasonIds.enabled: true のときだけプロンプトが依頼する。省略時 undefined
+   * (キー自体が無い応答からは undefined のまま=バイト等価・sticky) */
+  keeps?: { id: number; reason: string; reasonId: string }[];
   chapters: { startId: number; title: string }[];
   titles: string[];
   description: string;
@@ -1040,12 +1067,16 @@ function renderCurrentCutsBlock(currentCuts: readonly LoopCut[]): string {
 
 function parseResponse(raw: string): PlanResponse {
   const parsed = extractJsonObject(raw) as Partial<PlanResponse>;
-  return {
+  const result: PlanResponse = {
     cuts: parsed.cuts ?? [],
     chapters: parsed.chapters ?? [],
     titles: parsed.titles ?? [],
     description: parsed.description ?? "",
   };
+  // keeps はキーが応答に存在するときだけ載せる(§4.4・I3 と同じ sticky。
+  // 省略時 undefined のまま=導入前とバイト等価)
+  if (parsed.keeps !== undefined) result.keeps = parsed.keeps;
+  return result;
 }
 
 function readStageJson<T>(path: string, requiredStage: string): T {
