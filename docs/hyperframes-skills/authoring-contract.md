@@ -150,7 +150,7 @@ pyftsubset remotion/fonts/NotoSansJP.woff2 \
 初期 cost 順序(実測でのみ変更する):
 
 ```text
-CSS/SVG/DOM < WAAPI < Canvas 2D < GSAP core / Lottie(既存素材あり)
+CSS/SVG/DOM < WAAPI < Anime.js < Canvas 2D < GSAP core / Lottie(既存素材あり)
   < Raw WebGL/shader < Three.js
 ```
 
@@ -166,6 +166,7 @@ CSS/SVG/DOM < WAAPI < Canvas 2D < GSAP core / Lottie(既存素材あり)
 |---|---|---|
 | fade / translate / scale / rotate / clip / simple stagger | CSS/WAAPI | 無し。原則ここで完結 |
 | text layout / diagram / UI mock / vector shape | DOM/SVG + WAAPI | pixel 単位の大量描画が必要な場合のみ Canvas |
+| 軽量な直列・並列 timeline、複数micro-animation | WAAPI、次に Anime.js | manual cardでAnime.js構文の方が明瞭な場合 |
 | 複雑な直列・並列 timeline、label、反復可能な choreography | WAAPI、次に GSAP | WAAPI が明瞭さ・生成成功率・保守性で劣る実測がある場合(B3 実測では出ていない) |
 | AE/bodymovin 素材の再生 | Lottie SVG | 有効な JSON 素材が実在する場合だけ |
 | 2D procedural drawing / 大量の同種プリミティブ | Canvas 2D | DOM/SVG の要素数・描画コストが実測で問題になる |
@@ -182,11 +183,12 @@ profile を利用できるが CDN pin が無いため `not-wired`。詳細と実
 
 - CSS transform でできるカードに Three.js scene/camera/renderer を作る。
 - 1要素の fade/slide のために GSAP をロードする。
+- CSS/WAAPIで明瞭に書ける1要素のためにAnime.jsをロードする。
 - JSON 素材が無いのに「滑らかそう」という理由で Lottie を選ぶ。
 - テキスト中心のカードを Canvas/WebGL に描き、アクセシビリティ・レイアウト・
   font readiness を自前実装する。
 - shader を使うこと自体を visual quality の根拠にする。
-- GSAP + Three.js + Lottie を同一 card へ積み、どれが時間の正本か不明にする。
+- GSAP + Anime.js + Three.js + Lottie を同一 card へ積み、どれが時間の正本か不明にする。
   **1 card 1 runtime** は、外部 animation runtime と時間の正本を1つにする
   規範である。DOM/SVG/CSS は別 runtime と数えず、外部 runtime と併用できる。
 
@@ -212,6 +214,10 @@ CSS/WAAPI(`class="clip"` + Web Animations)の他に、bootstrap は以下の
   `tl.pause()` した上で `tl.totalTime(tSec, true)`(GSAP 3.x の
   same-time-seek nudge として `tSec+0.001` へ一度寄せてから `tSec` へ
   戻す二重呼び出し)する
+- **Anime.js**: `window.__hfAnime`に`anime({...})`または
+  `anime.timeline({...})`が返したinstanceを配列登録する。全factoryは
+  `autoplay:false`。bootstrapは毎シークで各instanceを`pause()`してから
+  `seek(tMs)`する(GSAPのnudgeは使わない)
 - **Lottie**: `window.__hfLottie` に Lottie アニメーションインスタンスの
   配列を登録する。bootstrap は毎シークで `an.goToAndStop(tMs, false)`
   (ミリ秒・`isFrame=false`)する
@@ -234,9 +240,9 @@ CSS/WAAPI(`class="clip"` + Web Animations)の他に、bootstrap は以下の
   `cancelRender` してレンダーを止める
 - **`data-hf-requires`**: ルート要素(または任意の要素)に
   `data-hf-requires="gsap"` のように空白/カンマ区切りで宣言する
-  (既知トークン: `gsap` / `lottie` / `three`)。bootstrap は宣言された
+  (既知トークン: `gsap` / `lottie` / `anime` / `three`)。bootstrap は宣言された
   トークンごとに対応するグローバル(`window.gsap` / `window.lottie` /
-  `window.THREE`)の存在を確認し、無ければ `__failed` に積む
+  `window.anime` / `window.THREE`)の存在を確認し、無ければ `__failed` に積む
 
 **GPU/`hf-seek`/`three` カードは `data-hf-determinism="perceptual"` を
 必ず宣言する**(check ゲート Rule 9)。ANGLE の GPU/canvas 出力は driver
@@ -244,14 +250,14 @@ CSS/WAAPI(`class="clip"` + Web Animations)の他に、bootstrap は以下の
 (`addEventListener('hf-seek', ...)` 等クォート済みの `'hf-seek'`/
 `"hf-seek"` トークンを検出)または `data-hf-requires` に `three` を含む
 カードは、`data-hf-determinism` が未指定(既定 byte 相当)または
-`"byte"` のままだとエラーになる。GSAP(`window.__timelines`)・Lottie
-(`window.__hfLottie`)単独の使用は対象外(DOM スタイル書き込みなので
+`"byte"` のままだとエラーになる。GSAP(`window.__timelines`)・Anime.js
+(`window.__hfAnime`)・Lottie(`window.__hfLottie`)単独の使用は対象外(DOM スタイル書き込みなので
 byte のまま宣言してよい)。
 
 ## Pinned CDN scripts(B2)
 
 Rule 4 の唯一の例外として、バージョン固定済みの CDN `<script src>` を
-ピン表から読み込めます(既定 pin は GSAP と lottie-web)。すべて満たすこと:
+ピン表から読み込めます(既定 pin は GSAP、lottie-web、Anime.js)。すべて満たすこと:
 
 - `src` の URL が `src/lib/hyperframeCdn.ts` の `CDN_PINS` に一字一句一致する
   (バージョンを上げ下げしたり、`?` 付きクエリを足すだけでも `not-in-table`
@@ -272,6 +278,11 @@ GSAP は `window.__timelines` 経由の DOM スタイル書き込みである限
 `gsap.globalTimeline` の直接利用は禁止。すべての tween を
 `data-composition-id` と同じ key で登録した `{paused:true}` timeline に追加する
 (Rule 11)。
+Anime.jsも`window.__hfAnime`経由で絶対時刻へseekする限り**byte tierのまま**でよい。
+`anime()`/`anime.timeline()`の全factoryに`autoplay:false`を指定し、返り値を
+初期化済み配列へpushする。`loop`は省略/false/有限非負整数、時間値は有限、
+`play`/`restart`/`reverse`は禁止(Rule 16)。author routeはmanualのみで、
+`prompts/hyperframe.md`/`card-patterns.md`はAnime.jsを注入しない。
 srcdoc には `connect-src 'none'` を含む CSP が張られる — ライブラリの
 読み込み・実行(script-src 経由)はできるが、そのライブラリが outbound の
 fetch/XHR/WebSocket でどこかへ送信することはできない。
@@ -416,7 +427,7 @@ canvas は生成も自動 fallback もしない。
 ## GPU / WebGL / shader cards(F2: `gpu-angle`)
 
 生 WebGL(inline fragment shader)でカードを自己描画するための規約と、
-現状の render 対応状況をまとめる。GSAP/Lottie と違い、GPU カードは
+現状の render 対応状況をまとめる。GSAP/Anime.js/Lottie と違い、GPU カードは
 **ライブラリもCDNピンも不要**(下記)。
 
 ### hf-seek self-draw 契約
@@ -440,7 +451,7 @@ true})` を指定し、描画バッファが capture 時点まで保持される
 
 生 WebGL・inline shader 文字列・`getContext('webgl')` はいずれも `src` 経由の
 外部フェッチではないため、composition の `default-src 'none'` CSP には
-一切ブロックされない。GSAP/Lottie のような CDN ピン留めや
+一切ブロックされない。GSAP/Anime.js/Lottie のような CDN ピン留めや
 `data-hf-requires` 宣言も不要。
 
 ### render 対応状況(`gpu-angle`、生 WebGL は usable)

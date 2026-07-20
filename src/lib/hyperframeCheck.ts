@@ -10,7 +10,7 @@
 // (ライブラリのみ。呼び出し側は将来の C3/C4 が担う)。
 //
 // Rule 7(B0): data-hf-determinism の *値* だけを検証する(byte|perceptual)。
-// Rule 8(B1): data-hf-requires のトークン(gsap|lottie|three)を検証する。
+// Rule 8(B1): data-hf-requires のトークン(gsap|lottie|anime|three)を検証する。
 // Rule 9(B1): GPU 規約(hf-seek イベント購読 / data-hf-requires="three")と
 // determinism tier の整合を検証する(perceptual を要する規約を使うのに
 // byte(または未指定=既定 byte)を名乗るとエラー)。GSAP(__timelines)・
@@ -34,6 +34,8 @@
 // data-hf-determinism="perceptual" の宣言を促す警告(既定 svg は byte のまま)。
 // Rule 15(F1): 異なる pinned animation runtime を同一 card に積むと時間の
 // 正本が曖昧になるため warning。正常認識された pin の lib 数だけで判定する。
+// Rule 16(X2): Anime.js の全 factory は autoplay:false・有限 loop/time を持ち、
+// 初期化済み window.__hfAnime[] へ返り値を登録する。play/restart/reverse は禁止。
 //
 // Rule 4(B2 拡張): 従来「<script src> の remote URL は常にエラー」
 // だったところを、hyperframeCdn.ts の CDN_PINS 表に一致する
@@ -121,6 +123,41 @@ function stripComments(html: string): string {
  * パーサではない=文字列リテラル内の // は残りうるが許容) */
 function stripJsComments(s: string): string {
   return s.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+}
+
+/** JS parser を増やさず、call 検出時だけ comment/通常文字列/template文字列を
+ * 同じ長さの空白へ置換する。元 source と index が揃うため、検出後の object
+ * literal 読み取りには既存 balancedEnd/staticObjectEntries をそのまま使える。 */
+function maskJsNonCode(source: string): string {
+  const chars = source.split("");
+  let i = 0;
+  const blank = (from: number, to: number) => {
+    for (let j = from; j < to; j += 1) if (chars[j] !== "\n") chars[j] = " ";
+  };
+  while (i < source.length) {
+    if (source[i] === "/" && source[i + 1] === "/") {
+      const end = source.indexOf("\n", i + 2);
+      const stop = end === -1 ? source.length : end;
+      blank(i, stop);
+      i = stop;
+      continue;
+    }
+    if (source[i] === "/" && source[i + 1] === "*") {
+      const end = source.indexOf("*/", i + 2);
+      const stop = end === -1 ? source.length : end + 2;
+      blank(i, stop);
+      i = stop;
+      continue;
+    }
+    if (source[i] === '"' || source[i] === "'" || source[i] === "`") {
+      const end = quotedEnd(source, i);
+      blank(i, end);
+      i = end;
+      continue;
+    }
+    i += 1;
+  }
+  return chars.join("");
 }
 
 function htmlUnescape(s: string): string {
@@ -353,6 +390,71 @@ function lottieAnimationDataObjects(body: string): string[] {
     loadAnimation.lastIndex = end;
   }
   return out;
+}
+
+interface AnimeFactoryCall {
+  start: number;
+  end: number;
+  options: StaticObjectEntry[];
+  assignedName?: string;
+}
+
+function animeFactoryCalls(body: string, masked: string): AnimeFactoryCall[] {
+  const calls: AnimeFactoryCall[] = [];
+  const factory = /\banime\s*(?:\.\s*timeline\s*)?\(/g;
+  let match: RegExpExecArray | null;
+  while ((match = factory.exec(masked)) !== null) {
+    const open = masked.indexOf("(", match.index);
+    const end = balancedEnd(body, open);
+    if (end === undefined) continue;
+    let valueStart = open + 1;
+    while (/\s/.test(body[valueStart] ?? "")) valueStart += 1;
+    let optionObjects: string[] = [];
+    if (body[valueStart] === "{") {
+      const optionEnd = balancedEnd(body, valueStart);
+      if (optionEnd !== undefined) optionObjects = [body.slice(valueStart, optionEnd)];
+    } else {
+      const identifier = /^[A-Za-z_$][\w$]*/.exec(body.slice(valueStart))?.[0];
+      if (identifier) optionObjects = declaredObjectLiterals(body, identifier);
+    }
+    const prefix = masked.slice(Math.max(0, match.index - 160), match.index);
+    const assignment = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*$/.exec(prefix);
+    calls.push({
+      start: match.index,
+      end,
+      options: optionObjects.flatMap(staticObjectEntries),
+      ...(assignment ? { assignedName: assignment[1] } : {}),
+    });
+    factory.lastIndex = end;
+  }
+  return calls;
+}
+
+interface AnimeRegistryPush {
+  start: number;
+  end: number;
+  identifiers: string[];
+}
+
+function animeRegistryPushes(body: string, masked: string): AnimeRegistryPush[] {
+  const pushes: AnimeRegistryPush[] = [];
+  const push = /\b(?:window\s*\.\s*)?__hfAnime\s*\.\s*push\s*\(/g;
+  let match: RegExpExecArray | null;
+  while ((match = push.exec(masked)) !== null) {
+    const open = masked.indexOf("(", match.index);
+    const end = balancedEnd(body, open);
+    if (end === undefined) continue;
+    const args = masked.slice(open + 1, end - 1);
+    pushes.push({
+      start: match.index,
+      end,
+      identifiers: args.split(",").map((arg) => arg.trim()).filter((arg) =>
+        /^[A-Za-z_$][\w$]*$/.test(arg)
+      ),
+    });
+    push.lastIndex = end;
+  }
+  return pushes;
 }
 
 export function checkComposition(html: string, opts?: CheckOpts): CheckResult {
@@ -819,6 +921,141 @@ export function checkComposition(html: string, opts?: CheckOpts): CheckResult {
       message:
         "gsap.ticker runs on wall-clock time and breaks seek determinism; drive animation via a paused window.__timelines timeline instead / gsap.ticker は壁時計で自走するため使えません",
     });
+  }
+
+  // ---- Rule 16 (X2): Anime.js seek registry ----
+  // 実 call だけを mask 後 source から拾うため、comment/通常文字列/template
+  // 文字列中の anime(...) や .play() はこの規約を発火させない。
+  const animeBody = inlineScripts(html).join("\n");
+  const animeMasked = maskJsNonCode(animeBody);
+  const animeCalls = animeFactoryCalls(animeBody, animeMasked);
+  if (animeCalls.length > 0) {
+    if (!requiresTokens.includes("anime")) {
+      errors.push({
+        file,
+        where: "<script>",
+        message:
+          'anime()/anime.timeline() requires data-hf-requires="anime" / Anime.js を使う card は data-hf-requires="anime" を宣言してください',
+      });
+    }
+    const pushes = animeRegistryPushes(animeBody, animeMasked);
+    const registryInit = /\b(?:window\s*\.\s*)?__hfAnime\s*=\s*(?:(?:window\s*\.\s*)?__hfAnime\s*\|\|\s*)?\[\s*\]/;
+    for (const push of pushes) {
+      if (!registryInit.test(animeMasked.slice(0, push.start))) {
+        errors.push({
+          file,
+          where: "<script>",
+          message:
+            "window.__hfAnime must be initialized to an array before __hfAnime.push(...) / __hfAnime.push の前に window.__hfAnime=[] で初期化してください",
+        });
+        break;
+      }
+    }
+
+    for (const call of animeCalls) {
+      const autoplay = call.options.filter((entry) => entry.key === "autoplay").at(-1);
+      if (!autoplay || autoplay.value.trim() !== "false") {
+        errors.push({
+          file,
+          where: "<script>",
+          message:
+            "every anime()/anime.timeline() factory must set autoplay:false so wall-clock playback cannot race frame seeking / Anime.js の全 factory に autoplay:false が必要です",
+        });
+      }
+      const loop = call.options.filter((entry) => entry.key === "loop").at(-1);
+      if (loop) {
+        const value = loop.value.trim();
+        const integer = /^\d+$/.test(value) ? Number(value) : NaN;
+        if (value !== "false" && (!Number.isSafeInteger(integer) || integer < 0)) {
+          errors.push({
+            file,
+            where: "<script>",
+            message:
+              "Anime.js loop must be omitted, false, or a finite non-negative integer / Anime.js の loop は省略・false・有限の非負整数だけ使えます",
+          });
+        }
+      }
+      const infiniteTime = call.options.find((entry) =>
+        ["duration", "delay", "endDelay"].includes(entry.key) &&
+        /^(?:[+-]?\s*Infinity|Number\s*\.\s*(?:POSITIVE_INFINITY|NEGATIVE_INFINITY))$/.test(entry.value.trim())
+      );
+      if (infiniteTime) {
+        errors.push({
+          file,
+          where: "<script>",
+          message:
+            `Anime.js ${infiniteTime.key} must be finite; explicit Infinity cannot be seeked / Anime.js の ${infiniteTime.key} に Infinity は使えません`,
+        });
+      }
+
+      const registeredInline = pushes.some((push) =>
+        push.start < call.start && call.end <= push.end
+      );
+      const registeredVariable = call.assignedName !== undefined && pushes.some((push) =>
+        call.end <= push.start && push.identifiers.includes(call.assignedName!)
+      );
+      if (!registeredInline && !registeredVariable) {
+        errors.push({
+          file,
+          where: "<script>",
+          message:
+            "every anime()/anime.timeline() result must be registered with window.__hfAnime.push(instance) / Anime.js の全 factory 結果を window.__hfAnime.push(instance) へ登録してください",
+        });
+      }
+    }
+
+    const assignedCalls = animeCalls.filter(
+      (call): call is AnimeFactoryCall & { assignedName: string } => call.assignedName !== undefined,
+    );
+    const duplicateAssignedNames = new Set<string>();
+    const seenAssignedNames = new Set<string>();
+    for (const call of assignedCalls) {
+      if (seenAssignedNames.has(call.assignedName)) duplicateAssignedNames.add(call.assignedName);
+      seenAssignedNames.add(call.assignedName);
+    }
+    if (duplicateAssignedNames.size > 0) {
+      errors.push({
+        file,
+        where: "<script>",
+        message:
+          "each assigned Anime.js factory needs a distinct variable name so every instance can be verified / Anime.js の各 factory 結果には重複しない変数名が必要です",
+      });
+    }
+    const assignedFactories = new Map(assignedCalls.map((call) => [call.assignedName, call] as const));
+    for (const push of pushes) {
+      const containsInlineFactory = animeCalls.some((call) =>
+        push.start < call.start && call.end <= push.end
+      );
+      const hasUnknownValue = push.identifiers.some((identifier) => {
+        const call = assignedFactories.get(identifier);
+        return !call || call.end > push.start;
+      });
+      if ((!containsInlineFactory && push.identifiers.length === 0) || hasUnknownValue) {
+        errors.push({
+          file,
+          where: "<script>",
+          message:
+            "window.__hfAnime.push(...) must receive a previously created anime instance / 未定義または未検証の値を __hfAnime へ push できません",
+        });
+        break;
+      }
+    }
+
+    const forbiddenMethod = (name: string): boolean => {
+      const escaped = escapeRegExp(name);
+      return new RegExp(`\\b${escaped}\\s*\\.\\s*(?:play|restart|reverse)\\s*\\(`).test(animeMasked);
+    };
+    const usesForbiddenControl = [...assignedFactories.keys()].some(forbiddenMethod) ||
+      /\b(?:window\s*\.\s*)?__hfAnime(?:\s*\[[^\]]+\])?\s*\.\s*(?:play|restart|reverse)\s*\(/.test(animeMasked) ||
+      animeCalls.some((call) => /^\s*\.\s*(?:play|restart|reverse)\s*\(/.test(animeMasked.slice(call.end)));
+    if (usesForbiddenControl) {
+      errors.push({
+        file,
+        where: "<script>",
+        message:
+          "Anime.js play()/restart()/reverse() use a self-running clock or relative state; Cutflow drives registered instances with absolute seek / Anime.js の play/restart/reverse は使えません",
+      });
+    }
   }
 
   // ---- Rule 13/14 (B4): Lottie receptacle ----

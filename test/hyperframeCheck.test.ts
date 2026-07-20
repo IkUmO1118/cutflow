@@ -267,6 +267,9 @@ test('31: regression — GSAP (window.__timelines) card declaring byte tier has 
 
 const GSAP_URL = "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js";
 const GSAP_INTEGRITY = "sha384-sG0Hv1tP1lZCk9KQmrIbY/XNwi+OY84GQqhMscbnsoBFqAz8KNCil1kvfL3Hbbk2";
+const ANIME_URL = "https://cdn.jsdelivr.net/npm/animejs@3.2.2/lib/anime.min.js";
+const ANIME_INTEGRITY = "sha384-oLmuahJgYYR1aWgZwdMQQ2AClE6A2eEwV2x1Z7cbIHehfkkmommQLH3wX1NDEszb";
+const ANIME_SCRIPT_TAG = `<script src="${ANIME_URL}" integrity="${ANIME_INTEGRITY}" crossorigin="anonymous"></script>`;
 
 test("32: pinned <script src> with matching integrity+crossorigin+data-hf-requires is clean (Rule 4/10)", () => {
   const r = checkComposition(
@@ -578,4 +581,93 @@ test("64: Lottie asset p/u checks ignore unrelated properties outside animationD
     `<div data-composition-id="root" data-width="1280" data-height="720" data-hf-requires="lottie"></div>${LOTTIE_SCRIPT_TAG}<script>var unrelated={p:'not-an-asset.png',u:'not-an-asset-directory/'};var DATA={v:'5.7.4',assets:[]};var anim=lottie.loadAnimation({renderer:'svg',autoplay:false,loop:false,animationData:DATA});window.__hfLottie=[];window.__hfLottie.push(anim);</script>`,
   );
   assert.equal(r.errors.length, 0, JSON.stringify(r.errors, null, 2));
+});
+
+function animeCard(script: string): string {
+  return `<div data-composition-id="root" data-width="1280" data-height="720" data-hf-requires="anime"><div id="box"></div></div>` +
+    ANIME_SCRIPT_TAG + `<script>${script}</script>`;
+}
+
+test("65: Anime.js direct factory and timeline register cleanly at byte tier", () => {
+  for (const script of [
+    `var anim=anime({targets:'#box',opacity:[0,1],duration:800,autoplay:false});window.__hfAnime=window.__hfAnime||[];window.__hfAnime.push(anim);`,
+    `var tl=anime.timeline({autoplay:false,loop:2});tl.add({targets:'#box',translateX:[0,400],duration:600});window.__hfAnime=[];__hfAnime.push(tl);`,
+    `window.__hfAnime=[];window.__hfAnime.push(anime({targets:'#box',duration:500,loop:false,autoplay:false}));`,
+  ]) {
+    const r = checkComposition(animeCard(script));
+    assert.equal(r.errors.length, 0, JSON.stringify(r.errors, null, 2));
+    assert.equal(r.warnings.length, 0, JSON.stringify(r.warnings, null, 2));
+  }
+});
+
+test("66: Anime.js every factory requires autoplay:false and registration", () => {
+  const missingAutoplay = checkComposition(animeCard(
+    `var anim=anime({targets:'#box',duration:500});window.__hfAnime=[];window.__hfAnime.push(anim);`,
+  ));
+  assert.ok(hasErr(missingAutoplay, "autoplay:false"));
+  const unregistered = checkComposition(animeCard(
+    `var anim=anime({targets:'#box',duration:500,autoplay:false});window.__hfAnime=[];`,
+  ));
+  assert.ok(hasErr(unregistered, "every anime()/anime.timeline() result"));
+});
+
+test("67: Anime.js loop and explicit infinite factory timing are rejected", () => {
+  for (const loop of ["true", "-1", "Infinity", "1.5"]) {
+    const r = checkComposition(animeCard(
+      `var anim=anime({targets:'#box',autoplay:false,loop:${loop}});window.__hfAnime=[];window.__hfAnime.push(anim);`,
+    ));
+    assert.ok(hasErr(r, "loop must be omitted"), loop);
+  }
+  for (const key of ["duration", "delay", "endDelay"]) {
+    const r = checkComposition(animeCard(
+      `var anim=anime({targets:'#box',autoplay:false,${key}:Infinity});window.__hfAnime=[];window.__hfAnime.push(anim);`,
+    ));
+    assert.ok(hasErr(r, `${key} must be finite`), key);
+  }
+});
+
+test("68: Anime.js registry must exist before push and receive a defined factory result", () => {
+  const noInit = checkComposition(animeCard(
+    `var anim=anime({targets:'#box',autoplay:false});window.__hfAnime.push(anim);`,
+  ));
+  assert.ok(hasErr(noInit, "initialized to an array"));
+  const unknown = checkComposition(animeCard(
+    `var anim=anime({targets:'#box',autoplay:false});window.__hfAnime=[];window.__hfAnime.push(missing);`,
+  ));
+  assert.ok(hasErr(unknown, "previously created anime instance"));
+});
+
+test("69: Anime.js play/restart/reverse are rejected for factory instances", () => {
+  for (const method of ["play", "restart", "reverse"]) {
+    const r = checkComposition(animeCard(
+      `var anim=anime({targets:'#box',autoplay:false});window.__hfAnime=[];window.__hfAnime.push(anim);anim.${method}();`,
+    ));
+    assert.ok(hasErr(r, "play()/restart()/reverse()"), method);
+  }
+});
+
+test("70: comments and normal/template strings containing Anime.js pseudo-calls do not trigger Rule 16", () => {
+  const r = checkComposition(animeCard(
+    `// anime({autoplay:true}).play()\n` +
+      `var a="anime({autoplay:true})";var b='anim.restart()';var c=\`anime.timeline({loop:true}).reverse()\`;`,
+  ));
+  assert.equal(r.errors.length, 0, JSON.stringify(r.errors, null, 2));
+  assert.equal(r.warnings.length, 0, JSON.stringify(r.warnings, null, 2));
+});
+
+test("71: Anime.js factory calls require the anime capability token", () => {
+  const r = checkComposition(
+    `<div data-composition-id="root" data-width="1280" data-height="720"><div id="box"></div></div>` +
+      `<script>var anim=anime({targets:'#box',autoplay:false});window.__hfAnime=[];window.__hfAnime.push(anim);</script>`,
+  );
+  assert.ok(hasErr(r, 'data-hf-requires="anime"'));
+});
+
+test("72: assigned Anime.js factories require distinct variable names", () => {
+  const r = checkComposition(animeCard(
+    `var anim=anime({targets:'#box',autoplay:false});` +
+      `var anim=anime.timeline({autoplay:false});` +
+      `window.__hfAnime=[];window.__hfAnime.push(anim);`,
+  ));
+  assert.ok(hasErr(r, "distinct variable name"));
 });

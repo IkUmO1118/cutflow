@@ -27,7 +27,7 @@ attribution)。
 
 ## 収録している skill サブツリー
 
-- `hyperframes-animation/`(`adapters/` は下記の4本を除く全 md + `examples/` の
+- `hyperframes-animation/`(`adapters/` は下記の3本を除く全 md + `examples/` の
   html 13 本。`scripts/`(mjs)は除外)
 - `music-to-video/references/motion-primitives/`(html 37 本)・
   `music-to-video/references/templates/`(html 9 本)・
@@ -53,9 +53,9 @@ attribution)。
   HyperFrames の engine/runtime そのものは持ち込まない方針 ——
   memory `hyperframes-integration-native-decision` 参照)
 - **未 pin の runtime adapter**: `hyperframes-animation/adapters/` のうち
-  `animejs.md` / `three.md` / `typegpu.md` / `html-in-canvas-patterns.md`
-  (CutFlow は GSAP 3.14.2 / Lottie 5.12.2 だけを pin 済み。Three.js /
-  Anime.js / TypeGPU は `src/lib/hyperframeCdn.ts` の CDN_PINS に無い)
+  `three.md` / `typegpu.md` / `html-in-canvas-patterns.md`
+  (CutFlow は GSAP 3.14.2 / Lottie 5.12.2 / Anime.js 3.2.2 を pin 済み。
+  Three.js / TypeGPU は `src/lib/hyperframeCdn.ts` の CDN_PINS に無い)
 - **ワークフロー/オーケストレーション系 md**: 各 skill の `SKILL.md` 本体
   (`hyperframes-keyframes` / `motion-graphics` を除く)や、上記以外の
   reference(P0 の抽出計画で対象外とされた層)

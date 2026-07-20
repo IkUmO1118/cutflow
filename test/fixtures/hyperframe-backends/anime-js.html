@@ -1,0 +1,27 @@
+<!doctype html>
+<html data-composition-variables='[]'>
+<head>
+  <style>
+    html,body{margin:0;padding:0}
+    #root{position:relative;width:640px;height:360px;overflow:hidden;background:#0b1020;font-family:system-ui,sans-serif}
+    #track{position:absolute;left:80px;top:164px;width:480px;height:32px;border-radius:16px;background:#1f2937}
+    #bar{position:absolute;left:80px;top:164px;width:120px;height:32px;border-radius:16px;background:#38bdf8;transform-origin:left center}
+    #label{position:absolute;left:80px;top:104px;color:#e5e7eb;font-size:28px;font-weight:700}
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.2/lib/anime.min.js" integrity="sha384-oLmuahJgYYR1aWgZwdMQQ2AClE6A2eEwV2x1Z7cbIHehfkkmommQLH3wX1NDEszb" crossorigin="anonymous"></script>
+</head>
+<body>
+  <div id="root" data-composition-id="root" data-width="640" data-height="360" data-hf-requires="anime">
+    <div id="label" class="clip" data-start="0" data-duration="2">Anime.js seek fixture</div>
+    <div id="track" class="clip" data-start="0" data-duration="2"></div>
+    <div id="bar" class="clip" data-start="0" data-duration="2"></div>
+    <script>
+      var timeline = anime.timeline({autoplay:false,easing:'linear'});
+      timeline.add({targets:'#bar',translateX:[0,360],duration:1000})
+        .add({targets:'#bar',scaleX:[1,0.35],duration:1000});
+      window.__hfAnime = window.__hfAnime || [];
+      window.__hfAnime.push(timeline);
+    </script>
+  </div>
+</body>
+</html>

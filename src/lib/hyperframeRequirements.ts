@@ -1,4 +1,4 @@
-export const HYPERFRAME_REQUIRE_TOKENS = ["gsap", "lottie", "three"] as const;
+export const HYPERFRAME_REQUIRE_TOKENS = ["gsap", "lottie", "anime", "three"] as const;
 
 export type HyperframeRequireToken = (typeof HYPERFRAME_REQUIRE_TOKENS)[number];
 

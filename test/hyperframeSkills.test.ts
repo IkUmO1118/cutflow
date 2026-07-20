@@ -46,11 +46,12 @@ test("authoring contract fixes the backend selection norms and complete capabili
   assert.match(authoringContract, /## backend 選択の規範/);
   assert.match(
     authoringContract,
-    /CSS\/SVG\/DOM < WAAPI < Canvas 2D < GSAP core \/ Lottie\(既存素材あり\)[\s\S]*< Raw WebGL\/shader < Three\.js/,
+    /CSS\/SVG\/DOM < WAAPI < Anime\.js < Canvas 2D < GSAP core \/ Lottie\(既存素材あり\)[\s\S]*< Raw WebGL\/shader < Three\.js/,
   );
   for (const capability of [
     "fade / translate / scale / rotate / clip / simple stagger",
     "text layout / diagram / UI mock / vector shape",
+    "軽量な直列・並列 timeline、複数micro-animation",
     "複雑な直列・並列 timeline、label、反復可能な choreography",
     "AE/bodymovin 素材の再生",
     "2D procedural drawing / 大量の同種プリミティブ",

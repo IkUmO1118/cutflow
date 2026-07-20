@@ -24,7 +24,7 @@ Every card here passes `checkComposition` (`src/lib/hyperframeCheck.ts`) with
 `test/hyperframeExamples.test.ts`, which runs the checker over every `.html` in this
 directory. The gate is **static** — it validates the composition contract (root,
 typed variables, clip discipline, remote-URL ban with the pinned-CDN exception,
-seek-safe drivers, font embedding, determinism tier, `data-hf-requires`, GSAP/Lottie
+seek-safe drivers, font embedding, determinism tier, `data-hf-requires`, GSAP/Lottie/Anime.js
 registration). It does **not** render the card.
 
 What the conversion changed, mechanically, relative to upstream:

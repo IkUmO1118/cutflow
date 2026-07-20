@@ -10,6 +10,9 @@ const GSAP_INTEGRITY = "sha384-sG0Hv1tP1lZCk9KQmrIbY/XNwi+OY84GQqhMscbnsoBFqAz8K
 const LOTTIE_URL = "https://cdn.jsdelivr.net/npm/lottie-web@5.12.2/build/player/lottie.min.js";
 const LOTTIE_INTEGRITY = "sha384-J8C0MvgX4WP58J4N2W99vCKd2J6z99ynOJ5bEfE6jeP7kVTW1drYtv/jzrxM5jbm";
 
+const ANIME_URL = "https://cdn.jsdelivr.net/npm/animejs@3.2.2/lib/anime.min.js";
+const ANIME_INTEGRITY = "sha384-oLmuahJgYYR1aWgZwdMQQ2AClE6A2eEwV2x1Z7cbIHehfkkmommQLH3wX1NDEszb";
+
 test("matchCdnPin: exact gsap url+integrity is a match", () => {
   const r = matchCdnPin(GSAP_URL, GSAP_INTEGRITY);
   assert.equal(r.status, "match");
@@ -47,10 +50,18 @@ test("matchCdnPin: lottie-web wrong version is not-in-table (B4)", () => {
   assert.equal(r.status, "not-in-table");
 });
 
+test("matchCdnPin: exact animejs 3.2.2 url+measured integrity is a match (X2)", () => {
+  assert.equal(matchCdnPin(ANIME_URL, ANIME_INTEGRITY).status, "match");
+  assert.equal(
+    matchCdnPin("https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js", ANIME_INTEGRITY).status,
+    "not-in-table",
+  );
+});
+
 test("CDN_SCRIPT_HOSTS still deep-equals [https://cdn.jsdelivr.net] after adding lottie (regression)", () => {
   assert.deepEqual(CDN_SCRIPT_HOSTS, ["https://cdn.jsdelivr.net"]);
 });
 
 test("CDN_SCRIPT_URLS contains only the exact pinned URLs used by CSP", () => {
-  assert.deepEqual(CDN_SCRIPT_URLS, [GSAP_URL, LOTTIE_URL]);
+  assert.deepEqual(CDN_SCRIPT_URLS, [GSAP_URL, LOTTIE_URL, ANIME_URL]);
 });
