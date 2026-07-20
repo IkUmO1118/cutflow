@@ -5,7 +5,7 @@ import { completeWithJsonSchema } from "../lib/llm.ts";
 import { mergeIntervals } from "../lib/timeline.ts";
 import { carryIds, ensureIds, hasAnyId, ID_PREFIX, usedIdsOf } from "../lib/ids.ts";
 import { readEditableDocs } from "./idStamp.ts";
-import { extractJsonObject, parseCutsResponse, CUTS_RESPONSE_SCHEMA } from "../lib/cutsResponse.ts";
+import { extractJsonObject, parseCutsResponse, CUTS_RESPONSE_SCHEMA, cutsResponseSchema } from "../lib/cutsResponse.ts";
 export { parseCutsResponse } from "../lib/cutsResponse.ts";
 import { buildCutplan, toCutplanIdContext } from "../lib/buildCutplan.ts";
 export { buildCutplan, fillSilenceGaps, DEFAULT_SILENCE_CUT_REASON } from "../lib/buildCutplan.ts";
@@ -1049,7 +1049,7 @@ function readAssertionsIfAny(dir: string): AssertionsDoc | null {
   return JSON.parse(readFileSync(p, "utf8")) as AssertionsDoc;
 }
 
-const PLAN_RESPONSE_SCHEMA = {
+export const PLAN_RESPONSE_SCHEMA = {
   name: "cutflow_plan_response",
   strict: true,
   schema: {
@@ -1087,10 +1087,73 @@ const PLAN_RESPONSE_SCHEMA = {
   },
 } as const;
 
+/** plan.reasonIds.enabled: true のときだけ使う変種(§穴B・P3-1)。
+ * cutsResponse.ts の CUTS_RESPONSE_SCHEMA_REASON_IDS と同型: cuts.items に
+ * 任意の reasonId、トップに任意の keeps を足す。strict:false の理由・
+ * 非対称の意図は cutsResponse.ts のコメントと同じ。 */
+export const PLAN_RESPONSE_SCHEMA_REASON_IDS = {
+  name: "cutflow_plan_response_reason_ids",
+  strict: false,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["cuts", "chapters", "titles", "description"],
+    properties: {
+      cuts: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["id", "reason"],
+          properties: {
+            id: { type: "integer" },
+            reason: { type: "string" },
+            reasonId: { type: "string" },
+          },
+        },
+      },
+      keeps: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["id", "reasonId", "reason"],
+          properties: {
+            id: { type: "integer" },
+            reasonId: { type: "string" },
+            reason: { type: "string" },
+          },
+        },
+      },
+      chapters: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["startId", "title"],
+          properties: {
+            startId: { type: "integer" },
+            title: { type: "string" },
+          },
+        },
+      },
+      titles: { type: "array", items: { type: "string" } },
+      description: { type: "string" },
+    },
+  },
+} as const;
+
+/** off(既定)は旧オブジェクトそのもの(参照同一性。I4) */
+export function planResponseSchema(
+  reasonIdsEnabled: boolean,
+): typeof PLAN_RESPONSE_SCHEMA | typeof PLAN_RESPONSE_SCHEMA_REASON_IDS {
+  return reasonIdsEnabled ? PLAN_RESPONSE_SCHEMA_REASON_IDS : PLAN_RESPONSE_SCHEMA;
+}
+
 async function completeStructuredPlan(prompt: string, cfg: Config): Promise<string> {
-  return await completeWithJsonSchema(prompt, cfg, PLAN_RESPONSE_SCHEMA, "plan");
+  return await completeWithJsonSchema(prompt, cfg, planResponseSchema(resolveReasonIdsCfg(cfg).enabled), "plan");
 }
 
 async function completeStructuredCuts(prompt: string, cfg: Config): Promise<string> {
-  return await completeWithJsonSchema(prompt, cfg, CUTS_RESPONSE_SCHEMA, "plan");
+  return await completeWithJsonSchema(prompt, cfg, cutsResponseSchema(resolveReasonIdsCfg(cfg).enabled), "plan");
 }

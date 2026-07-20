@@ -63,3 +63,60 @@ export const CUTS_RESPONSE_SCHEMA = {
     },
   },
 } as const;
+
+/** plan.reasonIds.enabled: true のときだけ使う変種(§穴B。P3-1)。
+ * `cuts.items` に任意の `reasonId`、トップに任意の `keeps` を足す。
+ * `required` は増やさない(モデルが分類できない候補で強制されないため)。
+ *
+ * `strict: false` にしているのは意図的な非対称: OpenAI 系の native structured
+ * output の `strict: true` は実装によって「additionalProperties:false の
+ * オブジェクトは properties 全部を required にしないと拒否される」ことがあり、
+ * 任意フィールド(reasonId 省略可・keeps 省略可)と両立しない。off 側の
+ * `CUTS_RESPONSE_SCHEMA` は `strict: true` のまま1バイトも変更しないため、
+ * 既定挙動(I4: 参照同一性)は完全に保存される。 */
+export const CUTS_RESPONSE_SCHEMA_REASON_IDS = {
+  name: "cutflow_plan_cuts_reason_ids",
+  strict: false,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["cuts"],
+    properties: {
+      cuts: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["id", "reason"],
+          properties: {
+            id: { type: "integer" },
+            reason: { type: "string" },
+            reasonId: { type: "string" },
+          },
+        },
+      },
+      keeps: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["id", "reasonId", "reason"],
+          properties: {
+            id: { type: "integer" },
+            reasonId: { type: "string" },
+            reason: { type: "string" },
+          },
+        },
+      },
+    },
+  },
+} as const;
+
+/** off(既定)は旧オブジェクトそのもの(参照同一性。I4)。on は
+ * CUTS_RESPONSE_SCHEMA_REASON_IDS。呼び出し側(stages/plan.ts /
+ * lib/ai/agenticCut.ts)はこの関数経由でスキーマを選ぶ。 */
+export function cutsResponseSchema(
+  reasonIdsEnabled: boolean,
+): typeof CUTS_RESPONSE_SCHEMA | typeof CUTS_RESPONSE_SCHEMA_REASON_IDS {
+  return reasonIdsEnabled ? CUTS_RESPONSE_SCHEMA_REASON_IDS : CUTS_RESPONSE_SCHEMA;
+}
