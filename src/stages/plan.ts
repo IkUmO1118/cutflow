@@ -22,6 +22,7 @@ import {
   resolveStyleProfileCfg,
 } from "../lib/config.ts";
 import { renderReasonIdsBlock, renderReasonIdsOutputBlock } from "../lib/reasonIdInjection.ts";
+import { buildFirstPlan, writeFirstPlan } from "../lib/firstPlan.ts";
 import { agenticCutTurn } from "../lib/ai/agenticCut.ts";
 import type { AgenticCtx, AgenticTraceEntry, SplitOp, SplitTraceEntry } from "../lib/ai/agenticCut.ts";
 import type { AiAdapter } from "../lib/ai/types.ts";
@@ -451,6 +452,17 @@ export async function plan(
     keeps,
   );
   writeFileSync(join(dir, "cutplan.json"), JSON.stringify(cutplan, null, 2));
+  writeFirstPlan(
+    dir,
+    buildFirstPlan({
+      source: "plan",
+      reasonIdsEnabled: rc.enabled,
+      pattern: rc.pattern,
+      numbered,
+      cuts: parsed.cuts,
+      keeps,
+    }),
+  );
 
   writeChaptersAndMeta(dir, transcript, numbered, parsed, cfg, idCtx && { used: idCtx.used });
 
@@ -486,9 +498,10 @@ async function generateCutsOnce(
   // LLM の生応答は必ず残す(パース失敗時の調査と、判断過程の記録のため)
   writeFileSync(join(dir, "plan.raw.txt"), raw);
   const parsed = parseCutsResponse(raw);
+  const rc = resolveReasonIdsCfg(cfg);
   // config が false のときは keeps を渡さない(§4.4・I3。プロンプトが依頼して
   // いない環境で LLM が誤って keeps を返しても無視する明示的なゲート)
-  const keeps = resolveReasonIdsCfg(cfg).enabled ? parsed.keeps : undefined;
+  const keeps = rc.enabled ? parsed.keeps : undefined;
   const cutplan = buildCutplan(
     numbered,
     parsed.cuts,
@@ -497,6 +510,17 @@ async function generateCutsOnce(
     keeps,
   );
   writeFileSync(join(dir, "cutplan.json"), JSON.stringify(cutplan, null, 2));
+  writeFirstPlan(
+    dir,
+    buildFirstPlan({
+      source: "plan --cuts-only",
+      reasonIdsEnabled: rc.enabled,
+      pattern: rc.pattern,
+      numbered,
+      cuts: parsed.cuts,
+      keeps,
+    }),
+  );
   return cutplan;
 }
 
@@ -651,6 +675,24 @@ async function runCutsLoop(args: RunCutsLoopArgs): Promise<CutPlan> {
     });
     lastCutplan = applyCandidateSplits(base, splits, args.words, splitCfg, args.idCtx && { used: args.idCtx.used });
     writeFileSync(join(args.dir, "cutplan.json"), JSON.stringify(lastCutplan, null, 2));
+
+    // plan.first.json は iter0(generate)の parse 直後のみ書く(§5.2)。
+    // harness/非harness どちらでも raw は生応答テキストなので、keeps だけ
+    // 追加で拾うために同じ raw をもう一度パースする(副作用なし・純関数)
+    if (iter === 0) {
+      const rc0 = resolveReasonIdsCfg(args.cfg);
+      writeFirstPlan(
+        args.dir,
+        buildFirstPlan({
+          source: "plan --cuts-only",
+          reasonIdsEnabled: rc0.enabled,
+          pattern: rc0.pattern,
+          numbered: args.numbered,
+          cuts,
+          keeps: parseCutsResponse(raw).keeps,
+        }),
+      );
+    }
 
     const observed = await observer.observe(args.dir, args.cfg);
     const obs: ObservationInput = {

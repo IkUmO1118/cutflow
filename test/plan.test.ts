@@ -759,3 +759,96 @@ test("plan --cuts-only loop: plan.reasonIds 省略(既定)は iter0/critique ど
     }
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* P5-1: plan.first.json(write-once の AI 初版記録)                      */
+/* ------------------------------------------------------------------ */
+
+test("plan.first.json: 単発 plan --cuts-only(generateCutsOnce)は source=\"plan --cuts-only\" で書く", async () => {
+  await withPlanDir(async (dir) => {
+    const cfg = { plan: { loop: { maxIterations: 0 }, reasonIds: { enabled: true, pattern: "tool-demo" } } } as Config;
+    await plan(dir, cfg, { cutsOnly: true }, {
+      complete: async () =>
+        JSON.stringify({
+          cuts: [{ id: 3, reasonId: "tangent", reason: "脱線" }],
+          keeps: [{ id: 1, reasonId: "hook", reason: "冒頭フック" }],
+        }),
+    });
+    const fp = JSON.parse(readFileSync(join(dir, "plan.first.json"), "utf8"));
+    assert.equal(fp.source, "plan --cuts-only");
+    assert.equal(fp.reasonIdsEnabled, true);
+    assert.equal(fp.pattern, "tool-demo");
+    assert.equal(fp.candidateCount, 3);
+    assert.deepEqual(fp.cuts, [{ id: 3, start: 20, end: 30, reasonId: "tangent", reason: "脱線" }]);
+    assert.deepEqual(fp.keeps, [{ id: 1, start: 0, end: 10, reasonId: "hook", reason: "冒頭フック" }]);
+  });
+});
+
+test("plan.first.json: plan.reasonIds 省略(既定)でも書かれる(reasonIdsEnabled:false・pattern既定 general)", async () => {
+  await withPlanDir(async (dir) => {
+    const cfg = { plan: { loop: { maxIterations: 0 } } } as Config;
+    await plan(dir, cfg, { cutsOnly: true }, {
+      complete: async () => JSON.stringify({ cuts: [{ id: 3, reason: "脱線" }] }),
+    });
+    const fp = JSON.parse(readFileSync(join(dir, "plan.first.json"), "utf8"));
+    assert.equal(fp.reasonIdsEnabled, false);
+    assert.equal(fp.pattern, "general");
+    assert.deepEqual(fp.keeps, []);
+  });
+});
+
+test("plan.first.json: 本編 plan()(非cutsOnly)は source=\"plan\" で書く", async () => {
+  await withPlanDir(async (dir) => {
+    const cfg = {
+      plan: { loop: { maxIterations: 0 } },
+      render: { wipeMarginPx: 24, chapterCardSec: 3 },
+    } as Config;
+    await plan(dir, cfg, {}, {
+      complete: async () =>
+        JSON.stringify({ cuts: [{ id: 3, reason: "脱線" }], chapters: [], titles: [], description: "" }),
+    });
+    const fp = JSON.parse(readFileSync(join(dir, "plan.first.json"), "utf8"));
+    assert.equal(fp.source, "plan");
+  });
+});
+
+test("plan.first.json: plan.loop は iter0(generate)のときだけ書く(critique 反復では上書きされない=write-once)", async () => {
+  await withPlanDir(async (dir) => {
+    const cfg = { plan: { loop: { maxIterations: 3 }, reasonIds: { enabled: true } } } as Config;
+    let calls = 0;
+    await plan(dir, cfg, { cutsOnly: true }, {
+      complete: async () => {
+        calls++;
+        // iter0 は #1 を tangent として切る。critique(iter1)は違う判断を返す
+        return calls === 1
+          ? JSON.stringify({ cuts: [{ id: 1, reasonId: "tangent", reason: "iter0の判断" }] })
+          : JSON.stringify({ cuts: [{ id: 2, reasonId: "gap-trim", reason: "iter1の判断" }] });
+      },
+      observe: {
+        async observe() {
+          return {
+            proj: fakeProjection(25),
+            outcomes: [{ index: 0, type: "outDuration", status: "fail", message: "too long" }],
+          };
+        },
+      },
+    });
+    assert.ok(calls >= 2, "少なくとも generate + critique の2反復は起きること");
+    const fp = JSON.parse(readFileSync(join(dir, "plan.first.json"), "utf8"));
+    // 反復が何回続いても plan.first.json は iter0(generate)の内容のまま
+    // (write-once。critique 以降の判断では一切上書きされない)
+    assert.deepEqual(fp.cuts, [{ id: 1, start: 0, end: 10, reasonId: "tangent", reason: "iter0の判断" }]);
+  });
+});
+
+test("plan.first.json: write-once — 既存ファイルは plan の再実行でも一切上書きしない", async () => {
+  await withPlanDir(async (dir) => {
+    writeFileSync(join(dir, "plan.first.json"), JSON.stringify({ marker: "original" }));
+    const cfg = { plan: { loop: { maxIterations: 0 } } } as Config;
+    await plan(dir, cfg, { cutsOnly: true }, {
+      complete: async () => JSON.stringify({ cuts: [{ id: 3, reason: "脱線" }] }),
+    });
+    const fp = JSON.parse(readFileSync(join(dir, "plan.first.json"), "utf8"));
+    assert.deepEqual(fp, { marker: "original" });
+  });
+});

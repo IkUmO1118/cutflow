@@ -161,7 +161,14 @@ composition html の sha256・variables・width/height/fps/durationSec が
 apply パッチ下書き。`material-fit.suggested.json` と同カテゴリで、次回
 `hyperframe-place` 実行で黙って上書きされる。**自分で apply しない**=適用は
 人間が確認して `apply --patch hyperframe-place.suggested.json` を叩く。詳細は
-下記「HyperFrames 素材の配置(hyperframe-place)」参照)
+下記「HyperFrames 素材の配置(hyperframe-place)」参照) / `plan.first.json`
+(`plan` / `plan --cuts-only` が最初の cuts/keeps 応答をパースした直後に書く、
+AI 初版判断の **write-once** 記録。既に存在すれば `--force` 実行時でも
+一切上書きしない。候補 id に加え元収録の秒(`start`/`end`)を併記するので、
+`detect` の再実行や `candidates` 設定変更で候補番号が変わっても最終
+`cutplan.json` と元秒で突き合わせられる。測定専用の副産物で
+`render`/承認 hash には影響しない。`clean --cache-only`/`--logs-only` の
+どちらにも含まれず、フル `clean` を実行したときだけ削除される)
 
 ## HyperFrames backend 状態(hyperframe-backends)
 

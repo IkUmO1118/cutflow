@@ -113,7 +113,16 @@ false staleness signals or gets silently discarded:
   single `add` op — `target: "overlays.overlays"` or `target:
   "overlays.inserts"` — placing a rendered `materials/hyperframes/<name>.mp4`
   card into the timeline; apply it yourself with `apply --patch`, never write
-  to `overlays.json` directly from it)
+  to `overlays.json` directly from it), `plan.first.json` (write-once record of
+  the AI's first cut judgment, written by `plan`/`plan --cuts-only` right
+  after the initial `cuts`/`keeps` response is parsed; if the file already
+  exists it is left untouched — even under `--force` — because "the AI's
+  first judgment" is a fact that must not be overwritten; carries source
+  seconds (`start`/`end`) alongside candidate ids so it can still be joined
+  against the current `cutplan.json` after `detect`/`candidates` reruns
+  change candidate numbering; not a heavy cache and not a re-derivable log,
+  so `clean --cache-only`/`--logs-only` leave it alone — only a full `clean`
+  removes it)
 - Short-name-variable generated files: `cut.<name>.mp4`,
   `cut.<name>.keeps.json`, `render.<name>.props.json`,
   `render.<name>.key.json` (one set per `shorts.json` entry), and

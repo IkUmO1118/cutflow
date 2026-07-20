@@ -21,7 +21,11 @@ export const EDITABLE_FILES = [
 ] as const;
 
 /** 中間生成物のうち、収録フォルダ直下で名前が固定のもの。CLAUDE.md の
- * 「中間生成物は編集しない」一覧(ショート名で可変にならない部分)と一致させる */
+ * 「中間生成物は編集しない」一覧(ショート名で可変にならない部分)と一致させる。
+ * `plan.first.json`(AI 初版の write-once 保存。`plan`/`plan --cuts-only` の
+ * 最初の判断を記録する測定資産。既に在れば `--force` でも上書きしない・
+ * 再生成不可能なため GENERATED_CACHE_FILES にも GENERATED_LOG_FILES にも
+ * 入れない=`clean` フルでのみ消える)は他と異なりこの性質を持つ */
 export const GENERATED_FILES = [
   "manifest.json",
   "cuts.auto.json",
@@ -50,6 +54,7 @@ export const GENERATED_FILES = [
   "bgm-fit.suggested.json",
   "style-check.json",
   "hyperframe-place.suggested.json",
+  "plan.first.json",
 ] as const;
 
 /** 中間生成物のうち、ショート名(shorts.json の name)や HyperFrame カード名
