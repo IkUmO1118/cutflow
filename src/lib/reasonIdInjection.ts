@@ -53,3 +53,30 @@ export function renderReasonIdsBlock(enabled: boolean): string {
   ];
   return `\n${lines.join("\n")}\n`;
 }
+
+/** enabled=false(既定)のとき "" を返す(バイト等価の核)。true のときは
+ * `## 出力形式` 節の**末尾**に足す差分ブロック(§穴C・P3-2)。既存の JSON 例
+ * (`{ "cuts": [...] }`)は1バイトも書き換えず、その後ろに reasonId 付きの例と
+ * keeps 配列の例を追加する。LLM が最後に見る具体例をこちらへ寄せることで、
+ * renderReasonIdsBlock の指示と `## 出力形式` の旧 JSON 例の矛盾(穴C)を解く。 */
+export function renderReasonIdsOutputBlock(enabled: boolean): string {
+  if (!enabled) return "";
+  const lines: string[] = [
+    "`reasonId` を付ける場合はこの形になります(上の例の代わりにこちらを使ってください):",
+    "",
+    "```json",
+    "{",
+    '  "cuts": [',
+    '    { "id": 3, "reasonId": "restatement", "reason": "同じ説明の言い直し(前半)" },',
+    '    { "id": 12, "reasonId": "gap-trim", "reason": "発話間の呼吸" }',
+    "  ],",
+    '  "keeps": [',
+    '    { "id": 40, "reasonId": "demo-wait", "reason": "コマンド実行の結果待ち。画面が変化している" }',
+    "  ]",
+    "}",
+    "```",
+    "",
+    "- keeps: 「残す(keeps に書くもの)」に該当する区間だけを列挙(無ければ配列ごと省略可)",
+  ];
+  return `\n${lines.join("\n")}`;
+}

@@ -965,6 +965,7 @@ export function renderPrompt(
   editModeCfg: EditModeCfg = DEFAULT_EDIT_MODE_CFG,
   styleProfile: string = "",
   reasonIds: string = "",
+  reasonIdsOutput: string = "",
 ): string {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
   const template = readFileSync(join(repoRoot, "prompts", templateFile), "utf8");
@@ -1002,6 +1003,7 @@ export function renderPrompt(
     .replaceAll("{{perception}}", () => perception)
     .replaceAll("{{styleProfile}}", () => styleProfile)
     .replaceAll("{{reasonIds}}", () => reasonIds)
+    .replaceAll("{{reasonIdsOutput}}", () => reasonIdsOutput)
     .replaceAll("{{editMode}}", () => editModeBlock);
 }
 
@@ -1013,8 +1015,20 @@ export function renderCritiquePrompt(
   observation: string,
   currentCuts: readonly LoopCut[],
   editModeCfg: EditModeCfg = DEFAULT_EDIT_MODE_CFG,
+  reasonIds: string = "",
+  reasonIdsOutput: string = "",
 ): string {
-  return renderPrompt(dir, "plan-cuts-critique.md", numbered, durationSec, perception, editModeCfg)
+  return renderPrompt(
+    dir,
+    "plan-cuts-critique.md",
+    numbered,
+    durationSec,
+    perception,
+    editModeCfg,
+    "",
+    reasonIds,
+    reasonIdsOutput,
+  )
     .replaceAll("{{observation}}", () => observation)
     .replaceAll("{{currentCuts}}", () => renderCurrentCutsBlock(currentCuts));
 }

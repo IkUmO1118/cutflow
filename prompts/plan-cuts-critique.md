@@ -20,7 +20,7 @@
 ## 見せ場リスト(絶対にカットしてはいけない内容)
 
 {{brief}}
-{{rules}}{{perception}}
+{{rules}}{{perception}}{{reasonIds}}
 {{observation}}
 
 ## 現在のカット選択
@@ -42,4 +42,4 @@
   "cuts": [{ "id": 3, "reason": "同じ説明の言い直し(前半)" }]
 }
 
-- cuts: カットする区間の id と理由。カット不要なら空配列
+- cuts: カットする区間の id と理由。カット不要なら空配列{{reasonIdsOutput}}
