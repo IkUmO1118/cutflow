@@ -473,10 +473,16 @@ async function generateCutsOnce(
   // LLM の生応答は必ず残す(パース失敗時の調査と、判断過程の記録のため)
   writeFileSync(join(dir, "plan.raw.txt"), raw);
   const parsed = parseCutsResponse(raw);
-  const cutplan = buildCutplan(numbered, parsed.cuts, cutplanIdCtx(idCtx), {
-    duration: durationSec,
-    reason: cfg.detect?.silenceCutReason,
-  });
+  // config が false のときは keeps を渡さない(§4.4・I3。プロンプトが依頼して
+  // いない環境で LLM が誤って keeps を返しても無視する明示的なゲート)
+  const keeps = resolveReasonIdsCfg(cfg).enabled ? parsed.keeps : undefined;
+  const cutplan = buildCutplan(
+    numbered,
+    parsed.cuts,
+    cutplanIdCtx(idCtx),
+    { duration: durationSec, reason: cfg.detect?.silenceCutReason },
+    keeps,
+  );
   writeFileSync(join(dir, "cutplan.json"), JSON.stringify(cutplan, null, 2));
   return cutplan;
 }
