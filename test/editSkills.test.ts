@@ -51,6 +51,38 @@ test("T-a: 全単射: CUT_REASON_IDS ⇔ docs/edit-skills/recipes/*.md のファ
 });
 
 /* ------------------------------------------------------------------ */
+/* T-b(P6): 接地行の語彙閉包                                            */
+/* ------------------------------------------------------------------ */
+
+/** front-matter の `> 接地: …` 行の許可語彙(README「craft knowledge の
+ * 扱い(P6)」の5種。P6 設計書 §4.1)。トークンは ` + ` または ` · ` で連結。 */
+const GROUND_TOKEN_RE = /^(実データ\(.+\)|rules\.md(\(.+\))?|想定(\(.+\))?|craft|観測: .+)$/;
+
+function groundingLine(src: string): string {
+  const m = src.match(/^> 接地: (.+)$/m);
+  assert.ok(m, "接地行(`> 接地: …`)が見つかりません");
+  return m![1];
+}
+
+test("T-b: 接地行の語彙閉包: 全 recipe の `> 接地:` 行が許可語彙(実データ(…)/rules.md/想定/craft/観測: …)のみで構成される", () => {
+  for (const id of CUT_REASON_IDS) {
+    const line = groundingLine(recipeSource(id));
+    const tokens = line
+      .split(/\s*[+·]\s*/)
+      .map((t) => t.trim())
+      .filter(Boolean);
+    assert.ok(tokens.length > 0, `${id}.md: 接地行が空です`);
+    for (const t of tokens) {
+      assert.match(
+        t,
+        GROUND_TOKEN_RE,
+        `${id}.md: 接地行のトークン "${t}" が許可語彙(実データ(…)/rules.md/想定/craft/観測: …)に含まれません`,
+      );
+    }
+  }
+});
+
+/* ------------------------------------------------------------------ */
 /* T-c: 必須節                                                         */
 /* ------------------------------------------------------------------ */
 
