@@ -370,8 +370,8 @@ export async function plan(
   // plan.reasonIds(既定 off。§4.2/穴A): カット判断を行う3経路全部
   // (本編 plan・単発 plan --cuts-only・ループ iter0/critique)に配線する。
   // off なら両ブロックとも "" =バイト等価
-  const rc = resolveReasonIdsCfg(cfg);
-  const reasonIdsBlock = renderReasonIdsBlock(rc.enabled);
+  const rc = resolveReasonIdsCfg(cfg, (m) => console.warn(`警告: ${m}`));
+  const reasonIdsBlock = renderReasonIdsBlock(rc.enabled, rc.pattern);
   const reasonIdsOutputBlock = renderReasonIdsOutputBlock(rc.enabled);
 
   if (opts.cutsOnly) {

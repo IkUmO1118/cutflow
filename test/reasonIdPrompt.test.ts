@@ -15,6 +15,7 @@ import { renderPrompt, renderCritiquePrompt } from "../src/stages/plan.ts";
 import type { NumberedSegment } from "../src/stages/plan.ts";
 import { renderReasonIdsBlock, renderReasonIdsOutputBlock } from "../src/lib/reasonIdInjection.ts";
 import { CUT_REASON_IDS } from "../src/lib/reasonIds.ts";
+import { CUT_PATTERN_INJECTION } from "../src/lib/cutPatterns.ts";
 
 const numbered: NumberedSegment[] = [
   { id: 1, start: 0, end: 3.5, text: "こんにちは、今日はCutFlowを紹介します" },
@@ -176,4 +177,37 @@ test("renderPrompt: reasonIdsOutput は ## 出力形式 節の末尾(既存の c
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+/* ------------------------------------------------------------------ */
+/* P3-4: pattern による選択注入(collections/cutPatterns.ts)                */
+/* ------------------------------------------------------------------ */
+
+test("renderReasonIdsBlock(true, \"general\") は P2 の出力(pattern省略時)とバイト一致", () => {
+  assert.equal(renderReasonIdsBlock(true, "general"), renderReasonIdsBlock(true));
+  const md5 = createHash("md5").update(renderReasonIdsBlock(true, "general")).digest("hex");
+  assert.equal(md5, "4d5203bf5315167ec232962a63634992");
+});
+
+test("renderReasonIdsBlock(true, \"tool-demo\") は11分類(tangent/failure-and-fixを落とす)+ note 1行を持つ", () => {
+  const block = renderReasonIdsBlock(true, "tool-demo");
+  assert.match(block, new RegExp(CUT_PATTERN_INJECTION["tool-demo"].note.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  for (const id of CUT_PATTERN_INJECTION["tool-demo"].recipes) {
+    assert.match(block, new RegExp(`- ${id} — `), `${id} が tool-demo の注入ブロックに無い`);
+  }
+  assert.doesNotMatch(block, /- tangent — /);
+  assert.doesNotMatch(block, /- failure-and-fix — /);
+  // note が先頭行(見出しより前)にあること
+  assert.ok(block.indexOf(CUT_PATTERN_INJECTION["tool-demo"].note) < block.indexOf("## 判断の分類"));
+});
+
+test("renderReasonIdsBlock(false, ...) は pattern に関わらず常に空文字(バイト等価の核)", () => {
+  assert.equal(renderReasonIdsBlock(false, "tool-demo"), "");
+  assert.equal(renderReasonIdsBlock(false, "general"), "");
+});
+
+test("renderReasonIdsBlock: 未知の pattern(cutPatterns.ts に無い id)は general へフォールバックする", () => {
+  // @ts-expect-error テスト目的で未知の pattern id を渡す(実運用は resolveReasonIdsCfg が防ぐ)
+  const block = renderReasonIdsBlock(true, "nonexistent");
+  assert.equal(block, renderReasonIdsBlock(true, "general"));
 });

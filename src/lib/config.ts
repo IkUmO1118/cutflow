@@ -4,6 +4,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 import { DEFAULT_OCR_LANGUAGES } from "./ocr.ts";
+import { CUT_PATTERN_IDS } from "./cutPatterns.ts";
+import type { CutPatternId } from "./cutPatterns.ts";
 import type { DesignConfig } from "./design.ts";
 import type { LogLevel } from "./obs.ts";
 import type { CaptionBackground, Region } from "../types.ts";
@@ -236,6 +238,12 @@ export interface Config {
     reasonIds?: {
       /** 注入の有効化。省略時 false(バイト等価) */
       enabled?: boolean;
+      /** 収録タイプ(docs/edit-skills/patterns.md・cutPatterns.ts の
+       *  CUT_PATTERN_IDS)。注入する分類の部分集合+blueprint を選ぶ。省略時
+       *  "general"(13分類全部。P2 とバイト等価)。未知の値は警告のうえ
+       *  "general" へ劣化する(前提エラーで plan を止めない)。
+       *  §docs/plans/2026-07-20-cut-knowledge-p3-p5-design.md §2 */
+      pattern?: string;
     };
     perception?: {
       /** 無音・間の注記(区間長 / 直前に落ちた素材秒 / 区間内無音秒)を
@@ -1084,10 +1092,26 @@ export function resolveStyleProfileCfg(cfg: Config): { enabled: boolean; profile
   return { enabled: s.enabled ?? false, profile };
 }
 
-/** plan.reasonIds を既定値で解決する純関数(省略時 enabled=false=バイト等価)。
- *  loadConfig は cfg.plan.reasonIds を書き換えない(省略=off を守る) */
-export function resolveReasonIdsCfg(cfg: Config): { enabled: boolean } {
-  return { enabled: cfg.plan?.reasonIds?.enabled ?? false };
+/** plan.reasonIds を既定値で解決する純関数(省略時 enabled=false・pattern="general"=
+ *  バイト等価)。loadConfig は cfg.plan.reasonIds を書き換えない(省略=off を守る)。
+ *  未知の pattern は warn(既定は no-op)して "general" へ劣化する
+ *  (前提エラーで plan を止めない=style-profile 不在時と同じ流儀)。 */
+export function resolveReasonIdsCfg(
+  cfg: Config,
+  warn: (msg: string) => void = () => {},
+): { enabled: boolean; pattern: CutPatternId } {
+  const raw = cfg.plan?.reasonIds?.pattern;
+  let pattern: CutPatternId = "general";
+  if (raw !== undefined) {
+    if ((CUT_PATTERN_IDS as readonly string[]).includes(raw)) {
+      pattern = raw as CutPatternId;
+    } else {
+      warn(
+        `未知の収録タイプです(docs/edit-skills/patterns.md にある id を使ってください): "${raw}"。"general" として扱います`,
+      );
+    }
+  }
+  return { enabled: cfg.plan?.reasonIds?.enabled ?? false, pattern };
 }
 
 export interface StyleProfileStatus {
@@ -1296,9 +1320,17 @@ function validateWorkflowConfig(cfg: Config): string[] {
   }
   const planReasonIds = cfg.plan?.reasonIds as Record<string, unknown> | undefined;
   if (planReasonIds) {
-    errors.push(...unknownKeys(planReasonIds, ["enabled"]).map((key) => `plan.reasonIds.${key} は未対応です`));
+    errors.push(
+      ...unknownKeys(planReasonIds, ["enabled", "pattern"]).map((key) => `plan.reasonIds.${key} は未対応です`),
+    );
     if ("enabled" in planReasonIds && typeof planReasonIds.enabled !== "boolean") {
       errors.push("plan.reasonIds.enabled は boolean で指定してください");
+    }
+    // pattern の値そのもの(未知の収録タイプ)はここではエラーにしない。
+    // resolveReasonIdsCfg が warn して "general" へ劣化する(前提エラーで
+    // plan を止めない設計。§docs/plans/2026-07-20-cut-knowledge-p3-p5-design.md §2)
+    if ("pattern" in planReasonIds && typeof planReasonIds.pattern !== "string") {
+      errors.push("plan.reasonIds.pattern は文字列で指定してください");
     }
   }
   const log = cfg.log as Record<string, unknown> | undefined;

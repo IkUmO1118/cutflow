@@ -54,6 +54,7 @@ import {
   resolvePlanHarnessCfg,
   resolvePlanLoopCfg,
   resolvePlanLoopSecondaryObservationCfg,
+  resolveReasonIdsCfg,
   resolveStyleProfileCfg,
   resolveStyleProfileStatus,
 } from "../src/lib/config.ts";
@@ -851,6 +852,120 @@ test("loadConfig: plan.styleProfile.profile は文字列以外を拒否する", 
   try {
     const path = writeMinimalConfigWithPlanStyleProfile(dir, "{ profile: 123 }");
     assert.throws(() => loadConfig(path), /plan\.styleProfile\.profile は文字列で指定してください/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* P3-4: plan.reasonIds.pattern(収録タイプの選択注入)                     */
+/* ------------------------------------------------------------------ */
+
+test("resolveReasonIdsCfg: plan.reasonIds 省略時は off+pattern既定 general(バイト等価)", () => {
+  assert.deepEqual(resolveReasonIdsCfg({} as Config), { enabled: false, pattern: "general" });
+});
+
+test("resolveReasonIdsCfg: pattern 明示値(tool-demo)をそのまま解決する", () => {
+  assert.deepEqual(resolveReasonIdsCfg({ plan: { reasonIds: { enabled: true, pattern: "tool-demo" } } } as Config), {
+    enabled: true,
+    pattern: "tool-demo",
+  });
+});
+
+test("resolveReasonIdsCfg: 未知の pattern は warn して general へ劣化する(前提エラーで止めない)", () => {
+  const warns: string[] = [];
+  const result = resolveReasonIdsCfg({ plan: { reasonIds: { enabled: true, pattern: "nonexistent" } } } as Config, (m) =>
+    warns.push(m),
+  );
+  assert.deepEqual(result, { enabled: true, pattern: "general" });
+  assert.ok(warns.some((w) => w.includes("nonexistent")));
+});
+
+test("resolveReasonIdsCfg: warn を渡さなければ黙って(例外を投げず)general へ劣化する", () => {
+  assert.deepEqual(resolveReasonIdsCfg({ plan: { reasonIds: { pattern: "bogus" } } } as Config), {
+    enabled: false,
+    pattern: "general",
+  });
+});
+
+function writeMinimalConfigWithPlanReasonIds(dir: string, reasonIdsYaml: string): string {
+  const path = join(dir, "config.yaml");
+  writeFileSync(
+    path,
+    `recordingsDir: ~/Movies/cutflow
+whisper:
+  bin: whisper-cli
+  model: ~/m.bin
+  language: ja
+detect: { silenceDb: -35, minSilenceSec: 0.7, padSec: 0.15, minKeepSec: 0.5 }
+preview: { width: 1280, videoEncoder: videotoolbox }
+render:
+  wipeWidthPx: 480
+  wipeMarginPx: 32
+  wipeTransitionSec: 0.3
+  cutTransition: { type: none, sec: 0.3 }
+  captionFontSizePx: 52
+  captionColor: "#fff"
+  captionOutlineColor: "#000"
+  captionFontFamily: sans-serif
+  captionFontWeight: 700
+  chapterCardSec: 3
+  targetLufs: -14
+  systemAudio: { mix: true, volumeDb: 0 }
+  denoise: { mic: false, noiseFloorDb: -25 }
+  bgm: { volumeDb: -22, fadeOutSec: 2, ducking: { duckDb: -8, fadeSec: 0.4 } }
+  hardwareAcceleration: if-possible
+  chunkSec: 15
+  zoom: { easeSec: 0.4 }
+editor: { maxUploadMb: 2048, defaultImageDurationSec: 4, defaultShortRangeSec: 10 }
+planShorts: { maxDurationSec: 60 }
+llm: { backend: claude-cli, model: x }
+plan:
+  reasonIds: ${reasonIdsYaml}
+`,
+  );
+  return path;
+}
+
+test("loadConfig: plan.reasonIds の正常系(enabled/pattern)は素通り", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = writeMinimalConfigWithPlanReasonIds(dir, "{ enabled: true, pattern: tool-demo }");
+    const cfg = loadConfig(path);
+    assert.deepEqual(resolveReasonIdsCfg(cfg), { enabled: true, pattern: "tool-demo" });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig: plan.reasonIds の未知キーは拒否される", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = writeMinimalConfigWithPlanReasonIds(dir, "{ enabled: true, foo: 1 }");
+    assert.throws(() => loadConfig(path), /plan\.reasonIds\.foo は未対応です/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig: plan.reasonIds.pattern は文字列以外を拒否する", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = writeMinimalConfigWithPlanReasonIds(dir, "{ pattern: 123 }");
+    assert.throws(() => loadConfig(path), /plan\.reasonIds\.pattern は文字列で指定してください/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig: plan.reasonIds.pattern に未知の収録タイプ文字列を書いても loadConfig 自体は止まらない(劣化は resolve 時)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = writeMinimalConfigWithPlanReasonIds(dir, "{ enabled: true, pattern: nonexistent-type }");
+    const cfg = loadConfig(path);
+    // loadConfig 自体は例外を投げない(前提エラーで止めない)。値の妥当性検査
+    // (未知の収録タイプ → "general" へ劣化)は resolveReasonIdsCfg の責務
+    assert.deepEqual(resolveReasonIdsCfg(cfg), { enabled: true, pattern: "general" });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
