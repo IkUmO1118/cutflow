@@ -1498,6 +1498,28 @@ export const App = () => {
     };
   }, [fps, videoVersion, proj?.proxyExists]);
 
+  /** Player remount(source⇄baked スワップ・proxy 再生成で videoVersion が
+   * 進むと key={videoVersion} 経由で全 remount)後、一時停止中の新しい
+   * <video> は最初の seek が来るまで現フレームをデコードせず黒を出し、再生
+   * 位置も frame 0 に戻る。remount 直後に現在の再生ヘッドへ seek し直して、
+   * 位置復元と初回デコードを同時に促す(手でスクラブすると直る症状の恒久修正)。
+   * <video> の準備を待つため rAF を2つ挟む。 */
+  useEffect(() => {
+    if (!proj?.proxyExists) return;
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        const p = playerRef.current;
+        if (!p) return;
+        p.seekTo(clamp(Math.round(playhead.get() * fps), 0, durationInFrames - 1));
+      });
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [videoVersion, proj?.proxyExists, fps, durationInFrames]);
+
   /** Player に渡す音量。0 ちょうどにすると Remotion が内部の AudioContext を
    * 破棄→再生成し、共有 audio タグの登録がずれて unregisterAudio が
    * TypeError を投げるため、聞こえない微小値(-60dB)を下限にする */
