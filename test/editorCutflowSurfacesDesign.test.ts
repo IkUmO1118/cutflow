@@ -309,7 +309,7 @@ test("P4 surface skin covers dialog, tabs, toggles, cards, focus, scroll, and na
   assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.ocSettings \.field > label/);
 });
 
-test("P4 provenance pins primitive sources, records close policies, and defers toast migration", () => {
+test("P4 provenance pins primitive and Sonner sources plus behavior adaptations", () => {
   const provenance = read("editor/client/vendor/opencut/PROVENANCE.md");
   for (const source of ["dialog", "tabs", "scroll-area", "toggle-group"]) {
     assert.match(provenance, new RegExp(`5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/${source}\\.tsx`));
@@ -320,5 +320,7 @@ test("P4 provenance pins primitive sources, records close policies, and defers t
   assert.match(provenance, /Settings outside\/non-field Escape\/cancel still rolls/);
   assert.match(provenance, /HyperFrames blocks[\s\S]*?Escape, allows outside dismissal only while idle/);
   assert.match(provenance, /Visual and diff review block Escape\/outside/);
-  assert.match(provenance, /`toastReducer\.ts` and Sonner are intentionally deferred/);
+  assert.match(provenance, /apps\/web\/src\/components\/ui\/sonner\.tsx/);
+  assert.match(provenance, /Sonner version \| OpenCut baseline `\^2\.0\.7`; CutFlow exact pin `2\.0\.7`/);
+  assert.match(provenance, /P4 checkpoint 2 replaces `toastReducer\.ts`/);
 });

@@ -104,9 +104,10 @@ import {
   usePreviewCutRebake,
   type PreviewCutRebakeState,
 } from "./previewCutRebake.ts";
-import { useToasts, ToastStack } from "./toasts.tsx";
-import { TOAST_TTL_MS } from "./toastReducer.ts";
+import { useToasts } from "./toasts.tsx";
+import { TOAST_TTL_MS } from "./toastAdapter.ts";
 import { Button } from "./components/ui/button.tsx";
+import { Toaster } from "./components/ui/sonner.tsx";
 import { restoreDialogFocus } from "./lib/dialogFocus.ts";
 import {
   Dialog,
@@ -489,7 +490,7 @@ export const App = () => {
   const [activeShortName, setActiveShortName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // 通知トースト(error / job)。要対応の継続条件はバナー行が持つ(T4)
-  const { toasts, addToast, updateToast, dismissToast } = useToasts();
+  const { addToast, updateToast, dismissToast } = useToasts();
   const [busy, setBusy] = useState<"save" | "upload" | null>(null);
   /** proxy.mp4 の生成中か。busy と分けて、生成中(初回の数十秒)も
    * 編集・保存・アップロードを普通に受け付ける */
@@ -5699,7 +5700,7 @@ export const App = () => {
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>
-      <ToastStack toasts={toasts} onDismiss={dismissToast} />
+      <Toaster />
     </div>
     </TooltipProvider>
   );

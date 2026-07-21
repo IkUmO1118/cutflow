@@ -2671,6 +2671,60 @@
   background-clip: padding-box;
 }
 
+/* P4 checkpoint 2: Sonner owns lifecycle, stacking, and the polite live region. */
+.ocToaster {
+  --normal-bg: hsl(var(--oc-popover));
+  --normal-text: hsl(var(--oc-popover-foreground));
+  --normal-border: hsl(var(--oc-border));
+  --border-radius: var(--oc-radius);
+}
+
+.ocToaster .ocToast {
+  border-color: hsl(var(--oc-border));
+  background: hsl(var(--oc-popover));
+  color: hsl(var(--oc-popover-foreground));
+  font-family: inherit;
+  font-size: var(--oc-text-xs);
+  box-shadow: 0 14px 36px hsl(var(--oc-background) / 0.5);
+}
+
+.ocToaster .ocToastTitle {
+  overflow-wrap: anywhere;
+}
+
+.ocToaster .ocToastAction {
+  border: 1px solid hsl(var(--oc-border));
+  background: hsl(var(--oc-secondary));
+  color: hsl(var(--oc-secondary-foreground));
+}
+
+.ocToaster .ocToastClose {
+  border-color: hsl(var(--oc-border));
+  background: hsl(var(--oc-card));
+  color: hsl(var(--oc-muted-foreground));
+}
+
+.ocToaster .ocToastSpinner {
+  animation: ocToastSpin 0.8s linear infinite;
+}
+
+.ocToastErrorAnnouncer {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes ocToastSpin {
+  to { transform: rotate(360deg); }
+}
+
 @media (max-width: 900px) {
   .ocAiReview {
     inset: 0.5rem;

@@ -6,11 +6,11 @@ import { join } from "node:path";
 const ROOT = process.cwd();
 const read = (path: string): string => readFileSync(join(ROOT, path), "utf8");
 
-test("P2 checkpoint 1 exact-pins only the header primitive dependencies", () => {
+test("P2 header primitives and the later P4 Sonner dependency stay exact-pinned", () => {
   const pkg = JSON.parse(read("package.json")) as { dependencies: Record<string, string> };
   assert.equal(pkg.dependencies["radix-ui"], "1.6.4");
   assert.equal(pkg.dependencies["lucide-react"], "1.25.0");
-  assert.equal(pkg.dependencies.sonner, undefined);
+  assert.equal(pkg.dependencies.sonner, "2.0.7");
 
   const tooltip = read("editor/client/components/ui/tooltip.tsx");
   const popover = read("editor/client/components/ui/popover.tsx");

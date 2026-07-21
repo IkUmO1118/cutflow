@@ -28,6 +28,9 @@ server routes, and editing behavior are not vendored.
 | Tabs source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/tabs.tsx` |
 | Scroll area source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/scroll-area.tsx` |
 | Toggle group source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/toggle-group.tsx` |
+| Sonner source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/sonner.tsx` |
+| Sonner package source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/package.json` |
+| Sonner version | OpenCut baseline `^2.0.7`; CutFlow exact pin `2.0.7` |
 | License source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/LICENSE` |
 
 ## Adaptation in CutFlow
@@ -109,7 +112,25 @@ server routes, and editing behavior are not vendored.
   continues to route through its original controlled state.
   AI propose/refine/review payloads, hunk resolution, HyperFrames file gates and
   progress/error states, config patch/save, and AI doctor flow are unchanged.
-  `toastReducer.ts` and Sonner are intentionally deferred to P4 checkpoint 2.
+- P4 checkpoint 2 replaces `toastReducer.ts`, its React reducer/timer, and the
+  custom stack renderer with the pinned OpenCut Sonner component vocabulary and
+  exact-pinned `sonner` 2.0.7. CutFlow's adapter retains stable ids for in-place
+  progress updates and progress-to-result transitions, info/success/error/progress
+  kind mapping, sticky progress, explicit TTL overrides, action callbacks, optional
+  close controls, and dismiss-by-id. Adapter revisions prevent stale lifecycle or
+  action callbacks from deleting a newer update. Actions prevent Sonner's unguarded
+  auto-delete and explicitly dismiss the current revision in `finally`, including
+  when the application callback throws. Progress uses a sticky normal toast plus a
+  loading icon because Sonner's loading type disables close and swipe dismissal;
+  every non-progress update owns `icon: undefined` so Sonner's same-id merge clears
+  that custom spinner before selecting its success/info/error type icon.
+  The Toaster remains bottom-right with at most five visible notifications, explicit
+  76px desktop/mobile bottom clearance, and Japanese container/close labels. Error
+  text is hidden only from Sonner's polite region and mirrored once into a visually
+  hidden assertive sibling announcer. Its monotonic version replaces the child node
+  even for repeated identical messages. Durable draft/conflict/proxy/warning states
+  remain separate header banners. OpenCut's `next-themes` and Hugeicons integration
+  is adapted to CutFlow's fixed dark editor shell and already-pinned Lucide icons.
 - Tailwind Preflight is deliberately excluded so the existing inline stylesheet
   remains authoritative for components that have not yet migrated.
 

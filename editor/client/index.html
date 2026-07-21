@@ -1188,48 +1188,6 @@
   }
   /* メッセージが伸びてボタンを右端へ寄せる(ヘッダーの spacer と同じ働き) */
   .banner .msg { flex: 1; min-width: 0; }
-  /* ---- トースト(通知)。右下に縦積み、新しいものを下=隅側に置く(VSCode 風)。
-     継続的な要対応(draftOffer/externalChange/proxyStale)はここではなくバナー行。
-     下端はトランスポート/タイムラインを避けて余白を取る ---- */
-  .toastStack {
-    position: fixed; right: 16px; bottom: 76px; z-index: 40;
-    display: flex; flex-direction: column; gap: 8px;
-    width: 340px; max-width: calc(100vw - 32px);
-    pointer-events: none;
-  }
-  .toast {
-    pointer-events: auto;
-    display: flex; align-items: center; gap: 8px;
-    padding: 9px 10px 9px 12px;
-    font-size: 12px; line-height: 1.4; color: var(--text);
-    background: var(--panel2);
-    border: 1px solid var(--border);
-    border-left: 3px solid var(--dim);
-    border-radius: 6px;
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
-  }
-  .toast.success { border-left-color: #22c55e; }
-  .toast.error { border-left-color: var(--danger); }
-  .toast.progress { border-left-color: var(--accent); }
-  .toast.info { border-left-color: var(--accent); }
-  .toast .msg { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-  .toast .act {
-    flex-shrink: 0; padding: 3px 8px; font-size: 12px;
-    background: none; border-color: var(--dim); color: var(--text);
-  }
-  .toast .x {
-    flex-shrink: 0; padding: 0; width: 20px; height: 20px;
-    display: inline-flex; align-items: center; justify-content: center;
-    font-size: 15px; line-height: 1; color: var(--dim);
-    background: none; border: none;
-  }
-  .toast .x:hover { color: var(--text); background: none; }
-  .toast .spin {
-    flex-shrink: 0; width: 12px; height: 12px; border-radius: 50%;
-    border: 2px solid var(--dim); border-top-color: var(--accent);
-    animation: toastspin 0.8s linear infinite;
-  }
-  @keyframes toastspin { to { transform: rotate(360deg); } }
   /* P1 shell: outer vertical(main/timeline) + inner horizontal(left/viewer/right).
      Panel children stay mounted while collapsed, preserving their local UI state. */
   .resizablePanelGroup { min-width: 0; min-height: 0; }
