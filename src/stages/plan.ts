@@ -5,7 +5,7 @@ import { completeWithJsonSchema } from "../lib/llm.ts";
 import { mergeIntervals } from "../lib/timeline.ts";
 import { carryIds, ensureIds, hasAnyId, ID_PREFIX, usedIdsOf } from "../lib/ids.ts";
 import { readEditableDocs } from "./idStamp.ts";
-import { extractJsonObject, parseCutsResponse, CUTS_RESPONSE_SCHEMA } from "../lib/cutsResponse.ts";
+import { extractJsonObject, parseCutsResponse, CUTS_RESPONSE_SCHEMA, cutsResponseSchema } from "../lib/cutsResponse.ts";
 export { parseCutsResponse } from "../lib/cutsResponse.ts";
 import { buildCutplan, toCutplanIdContext } from "../lib/buildCutplan.ts";
 export { buildCutplan, fillSilenceGaps, DEFAULT_SILENCE_CUT_REASON } from "../lib/buildCutplan.ts";
@@ -18,8 +18,11 @@ import {
   resolvePlanHarnessCfg,
   resolvePlanLoopCfg,
   resolvePlanLoopSecondaryObservationCfg,
+  resolveReasonIdsCfg,
   resolveStyleProfileCfg,
 } from "../lib/config.ts";
+import { renderReasonIdsBlock, renderReasonIdsOutputBlock } from "../lib/reasonIdInjection.ts";
+import { buildFirstPlan, writeFirstPlan } from "../lib/firstPlan.ts";
 import { agenticCutTurn } from "../lib/ai/agenticCut.ts";
 import type { AgenticCtx, AgenticTraceEntry, SplitOp, SplitTraceEntry } from "../lib/ai/agenticCut.ts";
 import type { AiAdapter } from "../lib/ai/types.ts";
@@ -365,6 +368,13 @@ export async function plan(
     : null;
   const styleProfileBlock = renderStyleProfileBlock(styleProf, spc.enabled);
 
+  // plan.reasonIds(既定 off。§4.2/穴A): カット判断を行う3経路全部
+  // (本編 plan・単発 plan --cuts-only・ループ iter0/critique)に配線する。
+  // off なら両ブロックとも "" =バイト等価
+  const rc = resolveReasonIdsCfg(cfg, (m) => console.warn(`警告: ${m}`));
+  const reasonIdsBlock = renderReasonIdsBlock(rc.enabled, rc.pattern);
+  const reasonIdsOutputBlock = renderReasonIdsOutputBlock(rc.enabled);
+
   if (opts.cutsOnly) {
     // H1/H2(plan.harness。既定 off): agentic 有効時だけ per-iteration complete()
     // を tool+検証ループ(agenticCutTurn)へ差し替える。off の間はこの分岐に
@@ -383,6 +393,8 @@ export async function plan(
         durationSec: auto.originalDurationSec,
         perception,
         styleProfile: styleProfileBlock,
+        reasonIdsBlock,
+        reasonIdsOutputBlock,
         idCtx,
         harness: harnessOn,
         agenticAdapterOverride: deps.agenticAdapterOverride,
@@ -408,6 +420,8 @@ export async function plan(
       deps.complete ?? completeStructuredCuts,
       idCtx,
       styleProfileBlock,
+      reasonIdsBlock,
+      reasonIdsOutputBlock,
     );
   }
 
@@ -419,19 +433,36 @@ export async function plan(
     perception,
     buildEditModeCfg(cfg),
     styleProfileBlock,
+    reasonIdsBlock,
+    reasonIdsOutputBlock,
   );
   const raw = await completeFn(prompt, cfg);
   // LLM の生応答は必ず残す(パース失敗時の調査と、判断過程の記録のため)
   writeFileSync(join(dir, "plan.raw.txt"), raw);
 
   const parsed = parseResponse(raw);
+  // config が false のときは keeps を渡さない(§4.4・I3 と同じ明示ゲート。
+  // generateCutsOnce と対称)
+  const keeps = rc.enabled ? parsed.keeps : undefined;
   const cutplan = buildCutplan(
     numbered,
     parsed.cuts,
     idCtx && { existingSegments: idCtx.existingCutplanSegments, used: idCtx.used },
     { duration: auto.originalDurationSec, reason: cfg.detect?.silenceCutReason },
+    keeps,
   );
   writeFileSync(join(dir, "cutplan.json"), JSON.stringify(cutplan, null, 2));
+  writeFirstPlan(
+    dir,
+    buildFirstPlan({
+      source: "plan",
+      reasonIdsEnabled: rc.enabled,
+      pattern: rc.pattern,
+      numbered,
+      cuts: parsed.cuts,
+      keeps,
+    }),
+  );
 
   writeChaptersAndMeta(dir, transcript, numbered, parsed, cfg, idCtx && { used: idCtx.used });
 
@@ -449,6 +480,8 @@ async function generateCutsOnce(
   completeFn: CompleteFn,
   idCtx?: { used: Set<string>; existingCutplanSegments: PlanSegment[] },
   styleProfile: string = "",
+  reasonIds: string = "",
+  reasonIdsOutput: string = "",
 ): Promise<CutPlan> {
   const prompt = renderPrompt(
     dir,
@@ -458,16 +491,36 @@ async function generateCutsOnce(
     perception,
     buildEditModeCfg(cfg),
     styleProfile,
+    reasonIds,
+    reasonIdsOutput,
   );
   const raw = await completeFn(prompt, cfg);
   // LLM の生応答は必ず残す(パース失敗時の調査と、判断過程の記録のため)
   writeFileSync(join(dir, "plan.raw.txt"), raw);
   const parsed = parseCutsResponse(raw);
-  const cutplan = buildCutplan(numbered, parsed.cuts, cutplanIdCtx(idCtx), {
-    duration: durationSec,
-    reason: cfg.detect?.silenceCutReason,
-  });
+  const rc = resolveReasonIdsCfg(cfg);
+  // config が false のときは keeps を渡さない(§4.4・I3。プロンプトが依頼して
+  // いない環境で LLM が誤って keeps を返しても無視する明示的なゲート)
+  const keeps = rc.enabled ? parsed.keeps : undefined;
+  const cutplan = buildCutplan(
+    numbered,
+    parsed.cuts,
+    cutplanIdCtx(idCtx),
+    { duration: durationSec, reason: cfg.detect?.silenceCutReason },
+    keeps,
+  );
   writeFileSync(join(dir, "cutplan.json"), JSON.stringify(cutplan, null, 2));
+  writeFirstPlan(
+    dir,
+    buildFirstPlan({
+      source: "plan --cuts-only",
+      reasonIdsEnabled: rc.enabled,
+      pattern: rc.pattern,
+      numbered,
+      cuts: parsed.cuts,
+      keeps,
+    }),
+  );
   return cutplan;
 }
 
@@ -480,6 +533,12 @@ interface RunCutsLoopArgs {
   /** SD-T4 compact style policy block(§2.5.5)。iter===0(generate)の
    * renderPrompt にだけ渡す(critique 反復には渡さない。§2.6.3・§1.5 defer) */
   styleProfile: string;
+  /** plan.reasonIds(§穴A・P3-3)。styleProfile と違い iter0 の生成プロンプトと
+   * critique の再調整プロンプトの両方に渡す(分類語彙は反復全体で一貫させたい
+   * ため。styleProfile の「generate だけ」制限とは意図的に異なる)。off なら
+   * 両方とも "" =バイト等価 */
+  reasonIdsBlock: string;
+  reasonIdsOutputBlock: string;
   idCtx?: { used: Set<string>; existingCutplanSegments: PlanSegment[] };
   complete: CompleteFn;
   observe?: ObservationProvider;
@@ -557,6 +616,8 @@ async function runCutsLoop(args: RunCutsLoopArgs): Promise<CutPlan> {
           args.perception,
           editModeCfg,
           args.styleProfile,
+          args.reasonIdsBlock,
+          args.reasonIdsOutputBlock,
         )
       : renderCritiquePrompt(
           args.dir,
@@ -566,6 +627,8 @@ async function runCutsLoop(args: RunCutsLoopArgs): Promise<CutPlan> {
           prevObservation,
           prevCuts ?? [],
           editModeCfg,
+          args.reasonIdsBlock,
+          args.reasonIdsOutputBlock,
         );
 
     let cuts: LoopCut[];
@@ -612,6 +675,24 @@ async function runCutsLoop(args: RunCutsLoopArgs): Promise<CutPlan> {
     });
     lastCutplan = applyCandidateSplits(base, splits, args.words, splitCfg, args.idCtx && { used: args.idCtx.used });
     writeFileSync(join(args.dir, "cutplan.json"), JSON.stringify(lastCutplan, null, 2));
+
+    // plan.first.json は iter0(generate)の parse 直後のみ書く(§5.2)。
+    // harness/非harness どちらでも raw は生応答テキストなので、keeps だけ
+    // 追加で拾うために同じ raw をもう一度パースする(副作用なし・純関数)
+    if (iter === 0) {
+      const rc0 = resolveReasonIdsCfg(args.cfg);
+      writeFirstPlan(
+        args.dir,
+        buildFirstPlan({
+          source: "plan --cuts-only",
+          reasonIdsEnabled: rc0.enabled,
+          pattern: rc0.pattern,
+          numbered: args.numbered,
+          cuts,
+          keeps: parseCutsResponse(raw).keeps,
+        }),
+      );
+    }
 
     const observed = await observer.observe(args.dir, args.cfg);
     const obs: ObservationInput = {
@@ -869,7 +950,11 @@ function writeChapterTelops(
 
 /** LLM 応答の期待スキーマ(prompts/plan.md の出力形式と対応) */
 interface PlanResponse {
-  cuts: { id: number; reason: string }[];
+  cuts: { id: number; reason: string; reasonId?: string }[];
+  /** 切る誘惑があったが残した区間だけを LLM に列挙させたもの(§5・§穴A P3-3)。
+   * plan.reasonIds.enabled: true のときだけプロンプトが依頼する。省略時 undefined
+   * (キー自体が無い応答からは undefined のまま=バイト等価・sticky) */
+  keeps?: { id: number; reason: string; reasonId: string }[];
   chapters: { startId: number; title: string }[];
   titles: string[];
   description: string;
@@ -948,6 +1033,8 @@ export function renderPrompt(
   perception: string = "",
   editModeCfg: EditModeCfg = DEFAULT_EDIT_MODE_CFG,
   styleProfile: string = "",
+  reasonIds: string = "",
+  reasonIdsOutput: string = "",
 ): string {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
   const template = readFileSync(join(repoRoot, "prompts", templateFile), "utf8");
@@ -984,6 +1071,8 @@ export function renderPrompt(
     .replaceAll("{{rules}}", () => rules)
     .replaceAll("{{perception}}", () => perception)
     .replaceAll("{{styleProfile}}", () => styleProfile)
+    .replaceAll("{{reasonIds}}", () => reasonIds)
+    .replaceAll("{{reasonIdsOutput}}", () => reasonIdsOutput)
     .replaceAll("{{editMode}}", () => editModeBlock);
 }
 
@@ -995,8 +1084,20 @@ export function renderCritiquePrompt(
   observation: string,
   currentCuts: readonly LoopCut[],
   editModeCfg: EditModeCfg = DEFAULT_EDIT_MODE_CFG,
+  reasonIds: string = "",
+  reasonIdsOutput: string = "",
 ): string {
-  return renderPrompt(dir, "plan-cuts-critique.md", numbered, durationSec, perception, editModeCfg)
+  return renderPrompt(
+    dir,
+    "plan-cuts-critique.md",
+    numbered,
+    durationSec,
+    perception,
+    editModeCfg,
+    "",
+    reasonIds,
+    reasonIdsOutput,
+  )
     .replaceAll("{{observation}}", () => observation)
     .replaceAll("{{currentCuts}}", () => renderCurrentCutsBlock(currentCuts));
 }
@@ -1008,12 +1109,16 @@ function renderCurrentCutsBlock(currentCuts: readonly LoopCut[]): string {
 
 function parseResponse(raw: string): PlanResponse {
   const parsed = extractJsonObject(raw) as Partial<PlanResponse>;
-  return {
+  const result: PlanResponse = {
     cuts: parsed.cuts ?? [],
     chapters: parsed.chapters ?? [],
     titles: parsed.titles ?? [],
     description: parsed.description ?? "",
   };
+  // keeps はキーが応答に存在するときだけ載せる(§4.4・I3 と同じ sticky。
+  // 省略時 undefined のまま=導入前とバイト等価)
+  if (parsed.keeps !== undefined) result.keeps = parsed.keeps;
+  return result;
 }
 
 function readStageJson<T>(path: string, requiredStage: string): T {
@@ -1031,7 +1136,7 @@ function readAssertionsIfAny(dir: string): AssertionsDoc | null {
   return JSON.parse(readFileSync(p, "utf8")) as AssertionsDoc;
 }
 
-const PLAN_RESPONSE_SCHEMA = {
+export const PLAN_RESPONSE_SCHEMA = {
   name: "cutflow_plan_response",
   strict: true,
   schema: {
@@ -1069,10 +1174,73 @@ const PLAN_RESPONSE_SCHEMA = {
   },
 } as const;
 
+/** plan.reasonIds.enabled: true のときだけ使う変種(§穴B・P3-1)。
+ * cutsResponse.ts の CUTS_RESPONSE_SCHEMA_REASON_IDS と同型: cuts.items に
+ * 任意の reasonId、トップに任意の keeps を足す。strict:false の理由・
+ * 非対称の意図は cutsResponse.ts のコメントと同じ。 */
+export const PLAN_RESPONSE_SCHEMA_REASON_IDS = {
+  name: "cutflow_plan_response_reason_ids",
+  strict: false,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["cuts", "chapters", "titles", "description"],
+    properties: {
+      cuts: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["id", "reason"],
+          properties: {
+            id: { type: "integer" },
+            reason: { type: "string" },
+            reasonId: { type: "string" },
+          },
+        },
+      },
+      keeps: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["id", "reasonId", "reason"],
+          properties: {
+            id: { type: "integer" },
+            reasonId: { type: "string" },
+            reason: { type: "string" },
+          },
+        },
+      },
+      chapters: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["startId", "title"],
+          properties: {
+            startId: { type: "integer" },
+            title: { type: "string" },
+          },
+        },
+      },
+      titles: { type: "array", items: { type: "string" } },
+      description: { type: "string" },
+    },
+  },
+} as const;
+
+/** off(既定)は旧オブジェクトそのもの(参照同一性。I4) */
+export function planResponseSchema(
+  reasonIdsEnabled: boolean,
+): typeof PLAN_RESPONSE_SCHEMA | typeof PLAN_RESPONSE_SCHEMA_REASON_IDS {
+  return reasonIdsEnabled ? PLAN_RESPONSE_SCHEMA_REASON_IDS : PLAN_RESPONSE_SCHEMA;
+}
+
 async function completeStructuredPlan(prompt: string, cfg: Config): Promise<string> {
-  return await completeWithJsonSchema(prompt, cfg, PLAN_RESPONSE_SCHEMA, "plan");
+  return await completeWithJsonSchema(prompt, cfg, planResponseSchema(resolveReasonIdsCfg(cfg).enabled), "plan");
 }
 
 async function completeStructuredCuts(prompt: string, cfg: Config): Promise<string> {
-  return await completeWithJsonSchema(prompt, cfg, CUTS_RESPONSE_SCHEMA, "plan");
+  return await completeWithJsonSchema(prompt, cfg, cutsResponseSchema(resolveReasonIdsCfg(cfg).enabled), "plan");
 }

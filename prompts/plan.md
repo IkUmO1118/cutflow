@@ -15,7 +15,7 @@
 ## 見せ場リスト(絶対にカットしてはいけない内容)
 
 {{brief}}
-{{rules}}{{perception}}{{styleProfile}}
+{{rules}}{{perception}}{{styleProfile}}{{reasonIds}}
 ## カットの判断基準
 
 - 同じ内容の言い直し・繰り返しは、後の方(うまく言えた方)を残して前をカット
@@ -37,4 +37,4 @@
 - cuts: カットする区間の id と理由。カット不要なら空配列
 - chapters: 各章の開始区間の id と章タイトル。2〜6章(短い動画なら少なめ)
 - titles: 検索とクリック率を意識した日本語タイトル案を3つ
-- description: 概要欄の下書き(2〜4文。この動画で何が分かるかを先頭に)
+- description: 概要欄の下書き(2〜4文。この動画で何が分かるかを先頭に){{reasonIdsOutput}}

@@ -59,6 +59,17 @@ test("cutplanApprovalHash: reason だけの変更は hash 不変", () => {
   assert.equal(a, b);
 });
 
+test("T-i: cutplanApprovalHash: reasonId の有無は hash に影響しない(承認境界を侵食しない)", () => {
+  // src/lib/approval.ts は本タスクで一切変更しない(CLAUDE.md 承認境界)。
+  // reasonId(§4)を足しても既存の不変条件(reason は無視)が破られていないことだけを確認する
+  const a = cutplanApprovalHash(cutplanOf(BASE_SEGMENTS));
+  const withReasonId = BASE_SEGMENTS.map((s) =>
+    s.action === "keep" ? { ...s, reasonId: "demo-wait" } : { ...s, reasonId: "restatement" },
+  );
+  const b = cutplanApprovalHash(cutplanOf(withReasonId));
+  assert.equal(a, b);
+});
+
 test("cutplanApprovalHash: cut セグメントの有無は hash に影響しない", () => {
   const withCuts = cutplanApprovalHash(cutplanOf(BASE_SEGMENTS));
   const keepsOnly = cutplanApprovalHash(

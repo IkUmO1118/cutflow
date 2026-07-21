@@ -36,6 +36,7 @@ import { EDITABLE_FILES, GENERATED_FILES } from "../src/lib/files.ts";
 import { ID_RE } from "../src/lib/ids.ts";
 import { APPLY_FILE_NAME } from "../src/lib/applyEdits.ts";
 import { PROFILES } from "../src/lib/profile.ts";
+import { CUT_REASON_IDS } from "../src/lib/reasonIds.ts";
 import { buildRichFixture } from "./describe.test.ts";
 
 const SCHEMAS_DIR = join(import.meta.dirname, "..", "schemas");
@@ -245,6 +246,12 @@ test("ピン留め: bgm.json トップの許可キーは tracks のみ(validate.
   const bgm = loadRegistry()["bgm.schema.json"];
   assert.equal(bgm.additionalProperties, false);
   sortedEq(Object.keys(bgm.properties ?? {}), ["tracks"]);
+});
+
+test("T-b ピン留め: cutplan.schema.json の segments[].reasonId enum === CUT_REASON_IDS(reasonIds.ts)", () => {
+  const cutplan = loadRegistry()["cutplan.schema.json"];
+  const reasonIdEnum = cutplan.properties?.segments.items?.properties?.reasonId.enum as string[];
+  sortedEq(reasonIdEnum, [...CUT_REASON_IDS]);
 });
 
 test("ピン留め: shorts の profile enum === Object.keys(PROFILES)(profile.ts)", () => {

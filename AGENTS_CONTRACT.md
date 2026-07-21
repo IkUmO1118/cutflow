@@ -38,7 +38,7 @@ your editor/validator config.
 
 | File | Schema | What it decides |
 |---|---|---|
-| `cutplan.json` | `schemas/cutplan.schema.json` | Which spans of the raw recording survive (`segments[].action: "keep"/"cut"`), each with a human-readable `reason`. Normally segments align to the candidate grid the numbered-selection prompt saw; when `plan.harness.applySplit` (opt-in, default off) is enabled, a segment can also be a word-boundary sub-span produced by the agentic loop's `split_candidate` tool, written only after `validate`+`assert` pass (rolled back otherwise) |
+| `cutplan.json` | `schemas/cutplan.schema.json` | Which spans of the raw recording survive (`segments[].action: "keep"/"cut"`), each with a human-readable `reason`. Normally segments align to the candidate grid the numbered-selection prompt saw; when `plan.harness.applySplit` (opt-in, default off) is enabled, a segment can also be a word-boundary sub-span produced by the agentic loop's `split_candidate` tool, written only after `validate`+`assert` pass (rolled back otherwise). `segments[].reasonId` (optional, sticky) tags a decision with one of the 13 classification ids in `docs/edit-skills/recipes/*.md` (single source of truth: `src/lib/reasonIds.ts`'s `CUT_REASON_IDS`); `plan.reasonIds.enabled` (config.yaml key, opt-in, default off) lets `plan --cuts-only`'s single-shot path ask the LLM for it (never the loop/harness paths) and also for a bounded `keeps` list (cut-tempting-but-kept spans only). `reasonId` never affects `render`/the approval hash (`cutplanApprovalHash` only looks at keep `[start, end]`) |
 | `transcript.json` | `schemas/transcript.schema.json` | Caption text, timing, per-caption position/style/track, and karaoke word timing |
 | `overlays.json` | `schemas/overlays.schema.json` | All visual production: material overlays, inserts, camera wipe, zooms, blurs, annotations (arrow/box/spotlight), caption track defaults, layer order, color filter |
 | `bgm.json` | `schemas/bgm.schema.json` | Background music placement per time range |
@@ -113,7 +113,16 @@ false staleness signals or gets silently discarded:
   single `add` op — `target: "overlays.overlays"` or `target:
   "overlays.inserts"` — placing a rendered `materials/hyperframes/<name>.mp4`
   card into the timeline; apply it yourself with `apply --patch`, never write
-  to `overlays.json` directly from it)
+  to `overlays.json` directly from it), `plan.first.json` (write-once record of
+  the AI's first cut judgment, written by `plan`/`plan --cuts-only` right
+  after the initial `cuts`/`keeps` response is parsed; if the file already
+  exists it is left untouched — even under `--force` — because "the AI's
+  first judgment" is a fact that must not be overwritten; carries source
+  seconds (`start`/`end`) alongside candidate ids so it can still be joined
+  against the current `cutplan.json` after `detect`/`candidates` reruns
+  change candidate numbering; not a heavy cache and not a re-derivable log,
+  so `clean --cache-only`/`--logs-only` leave it alone — only a full `clean`
+  removes it)
 - Short-name-variable generated files: `cut.<name>.mp4`,
   `cut.<name>.keeps.json`, `render.<name>.props.json`,
   `render.<name>.key.json` (one set per `shorts.json` entry), and

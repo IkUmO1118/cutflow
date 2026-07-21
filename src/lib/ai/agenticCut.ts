@@ -14,13 +14,13 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { run } from "../exec.ts";
-import { profileForRoute, resolveAiRuntimeConfig, resolveCandidatesCfg } from "../config.ts";
+import { profileForRoute, resolveAiRuntimeConfig, resolveCandidatesCfg, resolveReasonIdsCfg } from "../config.ts";
 import { adapterFor } from "./registry.ts";
 import { completeWithJsonSchema } from "../llm.ts";
 import { buildCutplan, toCutplanIdContext } from "../buildCutplan.ts";
 import { applyCandidateSplits, splitSegmentAtWords, wordsForCandidate } from "../candidateSplit.ts";
 import type { CandidateSplitCfg, SplitOp } from "../candidateSplit.ts";
-import { CUTS_RESPONSE_SCHEMA, parseCutsResponse } from "../cutsResponse.ts";
+import { cutsResponseSchema, parseCutsResponse } from "../cutsResponse.ts";
 import { describeJson } from "../../stages/describe.ts";
 import { frames } from "../../stages/frames.ts";
 import { av, formatAvSummary } from "../../stages/av.ts";
@@ -484,7 +484,7 @@ function buildToolRegistry(ctx: AgenticCtx): CutTool[] {
  * (stages/plan.ts の completeStructuredCuts と同じ経路。循環 import を避けるため
  * plan.ts は経由せず lib/llm.ts を直接使う) */
 async function completeStructuredCutsFallback(prompt: string, cfg: Config): Promise<string> {
-  return await completeWithJsonSchema(prompt, cfg, CUTS_RESPONSE_SCHEMA, "plan");
+  return await completeWithJsonSchema(prompt, cfg, cutsResponseSchema(resolveReasonIdsCfg(cfg).enabled), "plan");
 }
 
 /**
@@ -551,7 +551,7 @@ export async function agenticCutTurn(args: {
         route: "structured",
         parts: [{ type: "text", text: firstPrompt }],
         tools: tools.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })),
-        output: { kind: "json-schema", format: CUTS_RESPONSE_SCHEMA },
+        output: { kind: "json-schema", format: cutsResponseSchema(resolveReasonIdsCfg(ctx.cfg).enabled) },
         maxOutputTokens: profile.maxOutputTokens,
         maxToolCalls: ctx.budget.maxToolCalls,
         purpose: "plan",

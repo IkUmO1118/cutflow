@@ -62,14 +62,21 @@ export function fillSilenceGaps(
 
 /** LLM 応答からカット判断を反映した cutplan を組み立てる(存在しない id は無視)。
  * idCtx があれば、span(start:end)一致で旧 segments.id を運び(carryIds)、
- * 残りを採番する(ensureIds)。span が変わった segment は新 id になる(要件どおり) */
+ * 残りを採番する(ensureIds)。span が変わった segment は新 id になる(要件どおり)。
+ *
+ * `keeps`(省略時 undefined。§4.4)は「切る誘惑があったが残した区間」だけを
+ * LLM に列挙させたもの。cutIds に無い(=keep になる)id にだけ reasonId/reason を
+ * 載せる。存在しない id は cuts と同じく console.warn して無視する。
+ * `reasonId` は値がある segment にだけキーを足す(undefined のキーは出さない。
+ * sticky・§I1: 省略時は導入前と deepEqual) */
 export function buildCutplan(
   numbered: NumberedSegment[],
-  cuts: { id: number; reason: string }[],
+  cuts: { id: number; reason: string; reasonId?: string }[],
   idCtx?: CutplanIdContext,
   fill?: CutplanFill,
+  keeps?: { id: number; reason: string; reasonId: string }[],
 ): CutPlan {
-  const cutIds = new Map(cuts.map((c) => [c.id, c.reason]));
+  const cutIds = new Map(cuts.map((c) => [c.id, { reason: c.reason, reasonId: c.reasonId }]));
   for (const c of cuts) {
     if (!numbered.some((n) => n.id === c.id)) {
       console.warn(`警告: LLM が存在しない区間 id=${c.id} を指定(無視します)`);
@@ -77,12 +84,31 @@ export function buildCutplan(
     }
   }
 
-  let segments: PlanSegment[] = numbered.map((n) => ({
-    start: n.start,
-    end: n.end,
-    action: cutIds.has(n.id) ? "cut" : "keep",
-    reason: cutIds.get(n.id) ?? "",
-  }));
+  const keepIds = new Map((keeps ?? []).map((k) => [k.id, { reason: k.reason, reasonId: k.reasonId }]));
+  for (const k of keeps ?? []) {
+    if (!numbered.some((n) => n.id === k.id)) {
+      console.warn(`警告: LLM が存在しない区間 id=${k.id} を keeps に指定(無視します)`);
+      keepIds.delete(k.id);
+    }
+  }
+
+  let segments: PlanSegment[] = numbered.map((n) => {
+    const cut = cutIds.get(n.id);
+    if (cut) {
+      return {
+        start: n.start,
+        end: n.end,
+        action: "cut" as const,
+        reason: cut.reason,
+        ...(cut.reasonId !== undefined ? { reasonId: cut.reasonId } : {}),
+      };
+    }
+    const keep = keepIds.get(n.id);
+    if (keep) {
+      return { start: n.start, end: n.end, action: "keep" as const, reason: keep.reason, reasonId: keep.reasonId };
+    }
+    return { start: n.start, end: n.end, action: "keep" as const, reason: "" };
+  });
 
   // 発話候補の隙間(無音)を cut として明示記録し、元収録の全時間を連続被覆
   // させる(穴を無くして全ての映像を戻せる状態にする)。id 採番より前に埋める

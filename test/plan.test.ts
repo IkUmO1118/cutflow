@@ -70,6 +70,32 @@ test("壊れた JSON はエラーを投げる", () => {
   assert.throws(() => parseCutsResponse("{ cuts: [id: 1] "));
 });
 
+/* ---------------- P2-8: cuts[].reasonId / keeps(§4.4) ---------------- */
+
+test("T-h相当: 従来形式(reasonId/keeps 無し)の parseCutsResponse は導入前と deepEqual", () => {
+  const raw = JSON.stringify({ cuts: [{ id: 3, reason: "同じ説明の言い直し(前半)" }] });
+  const parsed = parseCutsResponse(raw);
+  assert.deepEqual(parsed, { cuts: [{ id: 3, reason: "同じ説明の言い直し(前半)" }] });
+  assert.equal("keeps" in parsed, false);
+});
+
+test("cuts[].reasonId 付き応答をパースできる", () => {
+  const raw = JSON.stringify({
+    cuts: [{ id: 3, reasonId: "restatement", reason: "言い直し前半" }],
+  });
+  const parsed = parseCutsResponse(raw);
+  assert.deepEqual(parsed.cuts, [{ id: 3, reasonId: "restatement", reason: "言い直し前半" }]);
+});
+
+test("keeps 付き応答をパースできる", () => {
+  const raw = JSON.stringify({
+    cuts: [],
+    keeps: [{ id: 40, reasonId: "demo-wait", reason: "結果待ち" }],
+  });
+  const parsed = parseCutsResponse(raw);
+  assert.deepEqual(parsed.keeps, [{ id: 40, reasonId: "demo-wait", reason: "結果待ち" }]);
+});
+
 /* ---------------- 安定 id(§docs/plans/2026-07-07-stable-ids-design.md) ---------------- */
 
 const numbered: NumberedSegment[] = [
@@ -178,6 +204,69 @@ test("buildCutplan: fill 省略時は穴を埋めない(導入前とバイト等
   assert.deepEqual(cutplan.segments.map((s) => s.action), ["keep", "keep", "cut"]);
 });
 
+/* ---------------- reasonId / keeps(§4.4・T-h) ---------------- */
+
+test("T-h: buildCutplan を新引数(keeps)省略で呼ぶと、reasonId 無しの cuts では従来と deepEqual", () => {
+  const before = buildCutplan(numbered, [{ id: 3, reason: "余談カット" }]);
+  const after = buildCutplan(numbered, [{ id: 3, reason: "余談カット" }], undefined, undefined);
+  assert.deepEqual(after, before);
+  // reasonId キー自体が存在しない(undefined 値ではなくキー欠落。§I1)
+  for (const s of after.segments) assert.equal("reasonId" in s, false);
+});
+
+test("cuts[].reasonId を指定すると cut segment に reasonId が乗る", () => {
+  const cutplan = buildCutplan(numbered, [{ id: 3, reason: "余談", reasonId: "tangent" }]);
+  const cutSeg = cutplan.segments.find((s) => s.action === "cut")!;
+  assert.equal(cutSeg.reasonId, "tangent");
+});
+
+test("cuts[].reasonId 省略時は cut segment に reasonId キーが乗らない", () => {
+  const cutplan = buildCutplan(numbered, [{ id: 3, reason: "余談" }]);
+  const cutSeg = cutplan.segments.find((s) => s.action === "cut")!;
+  assert.equal("reasonId" in cutSeg, false);
+});
+
+test("keeps に載った id(cutIds に無い=keepになる id)へ reason/reasonId が乗る", () => {
+  const cutplan = buildCutplan(numbered, [], undefined, undefined, [
+    { id: 1, reason: "結果待ち", reasonId: "demo-wait" },
+  ]);
+  const seg = cutplan.segments.find((s) => s.start === 0)!;
+  assert.equal(seg.action, "keep");
+  assert.equal(seg.reason, "結果待ち");
+  assert.equal(seg.reasonId, "demo-wait");
+  // keeps に無い keep segment は従来どおり reason: ""・reasonId キー無し
+  const other = cutplan.segments.find((s) => s.start === 10)!;
+  assert.equal(other.reason, "");
+  assert.equal("reasonId" in other, false);
+});
+
+test("keeps に存在しない id を指定すると警告のうえ無視される", () => {
+  const warns: string[] = [];
+  const orig = console.warn;
+  console.warn = (msg: string) => warns.push(msg);
+  try {
+    const cutplan = buildCutplan(numbered, [], undefined, undefined, [
+      { id: 999, reason: "無効", reasonId: "demo-wait" },
+    ]);
+    for (const s of cutplan.segments) assert.equal("reasonId" in s, false);
+  } finally {
+    console.warn = orig;
+  }
+  assert.ok(warns.some((w) => w.includes("keeps") && w.includes("999")));
+});
+
+test("keeps 省略時は plan.reasonIds.enabled=false 相当(I3): 新引数無しの deepEqual を保つ", () => {
+  const withIdCtxOnly = buildCutplan(numbered, [{ id: 3, reason: "余談カット" }], undefined, { duration: 40 });
+  const withKeepsUndefinedExplicit = buildCutplan(
+    numbered,
+    [{ id: 3, reason: "余談カット" }],
+    undefined,
+    { duration: 40 },
+    undefined,
+  );
+  assert.deepEqual(withKeepsUndefinedExplicit, withIdCtxOnly);
+});
+
 test("buildChapterEntries: idCtx 省略時は id に一切触れない", () => {
   const entries = buildChapterEntries([{ startId: 1, title: "導入" }], numbered, []);
   assert.equal("id" in entries[0], false);
@@ -283,6 +372,74 @@ test("plan --cuts-only: deps.complete を使い、ループ無効時は plan.loo
     );
     assert.equal(existsSync(join(dir, "plan.loop.json")), false);
     assert.equal(readFileSync(join(dir, "plan.raw.txt"), "utf8"), JSON.stringify({ cuts: [{ id: 3, reason: "脱線" }] }));
+  });
+});
+
+test("plan --cuts-only: plan.reasonIds.enabled=true(単発 generateCutsOnce 経路)は prompt に判断の分類ブロックが乗る", async () => {
+  await withPlanDir(async (dir) => {
+    const cfg = { plan: { loop: { maxIterations: 0 }, reasonIds: { enabled: true } } } as Config;
+    let seenPrompt = "";
+    await plan(dir, cfg, { cutsOnly: true }, {
+      complete: async (prompt: string) => {
+        seenPrompt = prompt;
+        return JSON.stringify({ cuts: [] });
+      },
+    });
+    assert.match(seenPrompt, /## 判断の分類\(reasonId\)/);
+    assert.match(seenPrompt, /- restatement — /);
+  });
+});
+
+test("plan --cuts-only: plan.reasonIds.enabled=true で LLM が cuts[].reasonId/keeps を返すと cutplan.json に反映される", async () => {
+  await withPlanDir(async (dir) => {
+    const cfg = { plan: { loop: { maxIterations: 0 }, reasonIds: { enabled: true } } } as Config;
+    const result = await plan(dir, cfg, { cutsOnly: true }, {
+      complete: async () =>
+        JSON.stringify({
+          cuts: [{ id: 3, reasonId: "tangent", reason: "脱線" }],
+          keeps: [{ id: 1, reasonId: "hook", reason: "冒頭フック" }],
+        }),
+    });
+    const cutSeg = result.segments.find((s) => s.action === "cut")!;
+    assert.equal(cutSeg.reasonId, "tangent");
+    const keepSeg = result.segments.find((s) => s.start === 0)!;
+    assert.equal(keepSeg.reasonId, "hook");
+    assert.equal(keepSeg.reason, "冒頭フック");
+  });
+});
+
+test("plan --cuts-only: plan.reasonIds 省略(既定)は LLM が keeps を返しても無視する(I3 の明示ゲート)", async () => {
+  await withPlanDir(async (dir) => {
+    const cfg = { plan: { loop: { maxIterations: 0 } } } as Config;
+    const result = await plan(dir, cfg, { cutsOnly: true }, {
+      complete: async () =>
+        JSON.stringify({
+          cuts: [{ id: 3, reasonId: "tangent", reason: "脱線" }],
+          keeps: [{ id: 1, reasonId: "hook", reason: "冒頭フック" }],
+        }),
+    });
+    // keeps は config off なので無視される(reasonId は乗らない)
+    const keepSeg = result.segments.find((s) => s.start === 0)!;
+    assert.equal("reasonId" in keepSeg, false);
+    // cuts[].reasonId 自体は LLM が返せば通る(プロンプトが依頼していないので
+    // 実際には出てこない想定だが、パーサ/buildCutplan レベルでは cuts はゲート対象外)
+    const cutSeg = result.segments.find((s) => s.action === "cut")!;
+    assert.equal(cutSeg.reasonId, "tangent");
+  });
+});
+
+test("plan --cuts-only: plan.reasonIds 省略(既定)は prompt に判断の分類ブロックが乗らない(I2)", async () => {
+  await withPlanDir(async (dir) => {
+    const cfg = { plan: { loop: { maxIterations: 0 } } } as Config;
+    let seenPrompt = "";
+    await plan(dir, cfg, { cutsOnly: true }, {
+      complete: async (prompt: string) => {
+        seenPrompt = prompt;
+        return JSON.stringify({ cuts: [] });
+      },
+    });
+    assert.doesNotMatch(seenPrompt, /判断の分類/);
+    assert.doesNotMatch(seenPrompt, /\{\{reasonIds\}\}/);
   });
 });
 
@@ -484,5 +641,214 @@ test("plan --cuts-only loop: observe が secondary/warnings を返すと log に
     assert.equal(log.iterations[0]?.secondaryObservation?.inputDigest, "abc");
     assert.deepEqual(log.iterations[0]?.secondaryWarnings, ["secondary warning"]);
     assert.match(log.iterations[0]?.observation ?? "", /画像モデルによる二次観測/);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* P3-3: 穴A配線(本編 plan()・plan.loop iter0/critique)                  */
+/* ------------------------------------------------------------------ */
+
+test("本編 plan(): plan.reasonIds.enabled=true は prompt に判断の分類ブロックが乗り、cuts[].reasonId/keeps が cutplan.json に反映される", async () => {
+  await withPlanDir(async (dir) => {
+    const cfg = {
+      plan: { loop: { maxIterations: 0 }, reasonIds: { enabled: true } },
+      render: { wipeMarginPx: 24, chapterCardSec: 3 },
+    } as Config;
+    let seenPrompt = "";
+    const result = await plan(dir, cfg, {}, {
+      complete: async (prompt: string) => {
+        seenPrompt = prompt;
+        return JSON.stringify({
+          cuts: [{ id: 3, reasonId: "tangent", reason: "脱線" }],
+          keeps: [{ id: 1, reasonId: "hook", reason: "冒頭フック" }],
+          chapters: [{ startId: 1, title: "導入" }],
+          titles: ["タイトル案1"],
+          description: "概要欄",
+        });
+      },
+    });
+    assert.match(seenPrompt, /## 判断の分類\(reasonId\)/);
+    assert.match(seenPrompt, /"reasonId": "restatement"/);
+    const cutSeg = result.segments.find((s) => s.action === "cut")!;
+    assert.equal(cutSeg.reasonId, "tangent");
+    const keepSeg = result.segments.find((s) => s.start === 0)!;
+    assert.equal(keepSeg.reasonId, "hook");
+    assert.equal(keepSeg.reason, "冒頭フック");
+    assert.equal(JSON.parse(readFileSync(join(dir, "meta.json"), "utf8")).description, "概要欄");
+  });
+});
+
+test("本編 plan(): plan.reasonIds 省略(既定)は prompt に判断の分類ブロックが乗らず(I2)、LLM が keeps を返しても無視する(I3)", async () => {
+  await withPlanDir(async (dir) => {
+    const cfg = {
+      plan: { loop: { maxIterations: 0 } },
+      render: { wipeMarginPx: 24, chapterCardSec: 3 },
+    } as Config;
+    let seenPrompt = "";
+    const result = await plan(dir, cfg, {}, {
+      complete: async (prompt: string) => {
+        seenPrompt = prompt;
+        return JSON.stringify({
+          cuts: [{ id: 3, reasonId: "tangent", reason: "脱線" }],
+          keeps: [{ id: 1, reasonId: "hook", reason: "冒頭フック" }],
+          chapters: [],
+          titles: [],
+          description: "",
+        });
+      },
+    });
+    assert.doesNotMatch(seenPrompt, /判断の分類/);
+    assert.doesNotMatch(seenPrompt, /\{\{reasonIds/);
+    const keepSeg = result.segments.find((s) => s.start === 0)!;
+    assert.equal("reasonId" in keepSeg, false);
+  });
+});
+
+test("plan --cuts-only loop: plan.reasonIds.enabled=true は iter0(generate)・critique(iter>=1)の両方の prompt に判断の分類ブロックが乗る", async () => {
+  await withPlanDir(async (dir) => {
+    const cfg = {
+      plan: { loop: { maxIterations: 3 }, reasonIds: { enabled: true } },
+    } as Config;
+    const prompts: string[] = [];
+    await plan(dir, cfg, { cutsOnly: true }, {
+      complete: async (prompt: string) => {
+        prompts.push(prompt);
+        return JSON.stringify({ cuts: [{ id: 2, reason: "重複" }] });
+      },
+      observe: {
+        async observe() {
+          return {
+            proj: fakeProjection(25),
+            outcomes: [{ index: 0, type: "outDuration", status: "fail", message: "too long" }],
+          };
+        },
+      },
+    });
+    // 同じ cuts を返し続けるため fixpoint で2反復目に停止する(既存の
+    // 「同じ cut 集合を再出力したら fixpoint で停止」テストと同じ形)
+    assert.equal(prompts.length, 2, "generate + critique の2反復であること");
+    for (const p of prompts) {
+      assert.match(p, /## 判断の分類\(reasonId\)/);
+      assert.match(p, /"reasonId": "restatement"/);
+    }
+  });
+});
+
+test("plan --cuts-only loop: plan.reasonIds 省略(既定)は iter0/critique どちらの prompt にも判断の分類ブロックが乗らない(I2')", async () => {
+  await withPlanDir(async (dir) => {
+    const cfg = { plan: { loop: { maxIterations: 3 } } } as Config;
+    const prompts: string[] = [];
+    await plan(dir, cfg, { cutsOnly: true }, {
+      complete: async (prompt: string) => {
+        prompts.push(prompt);
+        return JSON.stringify({ cuts: [{ id: 2, reason: "重複" }] });
+      },
+      observe: {
+        async observe() {
+          return {
+            proj: fakeProjection(25),
+            outcomes: [{ index: 0, type: "outDuration", status: "fail", message: "too long" }],
+          };
+        },
+      },
+    });
+    assert.equal(prompts.length, 2);
+    for (const p of prompts) {
+      assert.doesNotMatch(p, /判断の分類/);
+      assert.doesNotMatch(p, /\{\{reasonIds/);
+    }
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* P5-1: plan.first.json(write-once の AI 初版記録)                      */
+/* ------------------------------------------------------------------ */
+
+test("plan.first.json: 単発 plan --cuts-only(generateCutsOnce)は source=\"plan --cuts-only\" で書く", async () => {
+  await withPlanDir(async (dir) => {
+    const cfg = { plan: { loop: { maxIterations: 0 }, reasonIds: { enabled: true, pattern: "tool-demo" } } } as Config;
+    await plan(dir, cfg, { cutsOnly: true }, {
+      complete: async () =>
+        JSON.stringify({
+          cuts: [{ id: 3, reasonId: "tangent", reason: "脱線" }],
+          keeps: [{ id: 1, reasonId: "hook", reason: "冒頭フック" }],
+        }),
+    });
+    const fp = JSON.parse(readFileSync(join(dir, "plan.first.json"), "utf8"));
+    assert.equal(fp.source, "plan --cuts-only");
+    assert.equal(fp.reasonIdsEnabled, true);
+    assert.equal(fp.pattern, "tool-demo");
+    assert.equal(fp.candidateCount, 3);
+    assert.deepEqual(fp.cuts, [{ id: 3, start: 20, end: 30, reasonId: "tangent", reason: "脱線" }]);
+    assert.deepEqual(fp.keeps, [{ id: 1, start: 0, end: 10, reasonId: "hook", reason: "冒頭フック" }]);
+  });
+});
+
+test("plan.first.json: plan.reasonIds 省略(既定)でも書かれる(reasonIdsEnabled:false・pattern既定 general)", async () => {
+  await withPlanDir(async (dir) => {
+    const cfg = { plan: { loop: { maxIterations: 0 } } } as Config;
+    await plan(dir, cfg, { cutsOnly: true }, {
+      complete: async () => JSON.stringify({ cuts: [{ id: 3, reason: "脱線" }] }),
+    });
+    const fp = JSON.parse(readFileSync(join(dir, "plan.first.json"), "utf8"));
+    assert.equal(fp.reasonIdsEnabled, false);
+    assert.equal(fp.pattern, "general");
+    assert.deepEqual(fp.keeps, []);
+  });
+});
+
+test("plan.first.json: 本編 plan()(非cutsOnly)は source=\"plan\" で書く", async () => {
+  await withPlanDir(async (dir) => {
+    const cfg = {
+      plan: { loop: { maxIterations: 0 } },
+      render: { wipeMarginPx: 24, chapterCardSec: 3 },
+    } as Config;
+    await plan(dir, cfg, {}, {
+      complete: async () =>
+        JSON.stringify({ cuts: [{ id: 3, reason: "脱線" }], chapters: [], titles: [], description: "" }),
+    });
+    const fp = JSON.parse(readFileSync(join(dir, "plan.first.json"), "utf8"));
+    assert.equal(fp.source, "plan");
+  });
+});
+
+test("plan.first.json: plan.loop は iter0(generate)のときだけ書く(critique 反復では上書きされない=write-once)", async () => {
+  await withPlanDir(async (dir) => {
+    const cfg = { plan: { loop: { maxIterations: 3 }, reasonIds: { enabled: true } } } as Config;
+    let calls = 0;
+    await plan(dir, cfg, { cutsOnly: true }, {
+      complete: async () => {
+        calls++;
+        // iter0 は #1 を tangent として切る。critique(iter1)は違う判断を返す
+        return calls === 1
+          ? JSON.stringify({ cuts: [{ id: 1, reasonId: "tangent", reason: "iter0の判断" }] })
+          : JSON.stringify({ cuts: [{ id: 2, reasonId: "gap-trim", reason: "iter1の判断" }] });
+      },
+      observe: {
+        async observe() {
+          return {
+            proj: fakeProjection(25),
+            outcomes: [{ index: 0, type: "outDuration", status: "fail", message: "too long" }],
+          };
+        },
+      },
+    });
+    assert.ok(calls >= 2, "少なくとも generate + critique の2反復は起きること");
+    const fp = JSON.parse(readFileSync(join(dir, "plan.first.json"), "utf8"));
+    // 反復が何回続いても plan.first.json は iter0(generate)の内容のまま
+    // (write-once。critique 以降の判断では一切上書きされない)
+    assert.deepEqual(fp.cuts, [{ id: 1, start: 0, end: 10, reasonId: "tangent", reason: "iter0の判断" }]);
+  });
+});
+
+test("plan.first.json: write-once — 既存ファイルは plan の再実行でも一切上書きしない", async () => {
+  await withPlanDir(async (dir) => {
+    writeFileSync(join(dir, "plan.first.json"), JSON.stringify({ marker: "original" }));
+    const cfg = { plan: { loop: { maxIterations: 0 } } } as Config;
+    await plan(dir, cfg, { cutsOnly: true }, {
+      complete: async () => JSON.stringify({ cuts: [{ id: 3, reason: "脱線" }] }),
+    });
+    const fp = JSON.parse(readFileSync(join(dir, "plan.first.json"), "utf8"));
+    assert.deepEqual(fp, { marker: "original" });
   });
 });

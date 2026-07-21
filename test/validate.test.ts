@@ -91,6 +91,86 @@ test("keep が1つも無いとエラー(空動画)", () => {
   assert.ok(r.errors.some((e) => e.message.includes("keep 区間が1つもありません")));
 });
 
+/* -------- cutplan.json の segment.reasonId(T-j。§4.3) -------- */
+
+test("reasonId 不在の cutplan は warn/error 件数が変わらない(I1: バイト等価)", () => {
+  const withoutReasonId = validateDocs(DIR, baseDocs());
+  const r = validateDocs(DIR, baseDocs());
+  assert.deepEqual(r.errors, withoutReasonId.errors);
+  assert.deepEqual(r.warnings, withoutReasonId.warnings);
+});
+
+test("reasonId が文字列でないとエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    cutplan: {
+      approved: false,
+      segments: [{ start: 0, end: 10, action: "keep", reason: "本編", reasonId: 42 }],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.message === "reasonId は文字列です"));
+});
+
+test("未知の reasonId は警告", () => {
+  const r = validateDocs(DIR, baseDocs({
+    cutplan: {
+      approved: false,
+      segments: [{ start: 0, end: 10, action: "cut", reason: "x", reasonId: "made-up" }],
+    },
+  }));
+  assert.ok(r.warnings.some((w) => w.message.includes("未知の分類 id") && w.message.includes("made-up")));
+});
+
+test("切る系 reasonId が action:keep だと警告(人間が戻した可能性)", () => {
+  const r = validateDocs(DIR, baseDocs({
+    cutplan: {
+      approved: false,
+      segments: [{ start: 0, end: 10, action: "keep", reason: "無音", reasonId: "dead-air" }],
+    },
+  }));
+  assert.ok(r.warnings.some((w) => w.message.includes('分類 "dead-air" は切る系ですが action は keep です')));
+});
+
+test("残す系 reasonId が action:cut だと警告", () => {
+  const r = validateDocs(DIR, baseDocs({
+    cutplan: {
+      approved: false,
+      segments: [{ start: 0, end: 10, action: "cut", reason: "x", reasonId: "demo-wait" }],
+    },
+  }));
+  assert.ok(r.warnings.some((w) => w.message.includes('分類 "demo-wait" は残す系ですが action は cut です')));
+});
+
+test("境界系 reasonId(tail-clip/reference-orphan)は action どちらでも警告なし", () => {
+  const rKeep = validateDocs(DIR, baseDocs({
+    cutplan: {
+      approved: false,
+      segments: [{ start: 0, end: 10, action: "keep", reason: "x", reasonId: "tail-clip" }],
+    },
+  }));
+  assert.ok(!rKeep.warnings.some((w) => w.where.includes("reasonId")));
+  const rCut = validateDocs(DIR, baseDocs({
+    cutplan: {
+      approved: false,
+      segments: [{ start: 0, end: 10, action: "cut", reason: "x", reasonId: "reference-orphan" }],
+    },
+  }));
+  assert.ok(!rCut.warnings.some((w) => w.where.includes("reasonId")));
+});
+
+test("正しい reasonId(系整合)は警告なし", () => {
+  const r = validateDocs(DIR, baseDocs({
+    cutplan: {
+      approved: false,
+      segments: [
+        { start: 0, end: 10, action: "keep", reason: "結果待ち", reasonId: "demo-wait" },
+        { start: 10, end: 20, action: "cut", reason: "言い直し", reasonId: "restatement" },
+      ],
+    },
+  }));
+  assert.ok(!r.warnings.some((w) => w.where.includes("reasonId")));
+  assert.deepEqual(r.errors, []);
+});
+
 test("preErrors(読み込みエラー)は errors 先頭に引き継がれる", () => {
   const pre = [{ file: "cutplan.json", where: "-", message: "壊れた JSON" }];
   const r = validateDocs(DIR, baseDocs(), pre);

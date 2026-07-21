@@ -16,7 +16,7 @@
 ## 見せ場リスト(絶対にカットしてはいけない内容)
 
 {{brief}}
-{{rules}}{{perception}}{{styleProfile}}
+{{rules}}{{perception}}{{styleProfile}}{{reasonIds}}
 ## カットの判断基準
 
 - 同じ内容の言い直し・繰り返しは、後の方(うまく言えた方)を残して前をカット
@@ -32,4 +32,4 @@
   "cuts": [{ "id": 3, "reason": "同じ説明の言い直し(前半)" }]
 }
 
-- cuts: カットする区間の id と理由。カット不要なら空配列
+- cuts: カットする区間の id と理由。カット不要なら空配列{{reasonIdsOutput}}

@@ -2,9 +2,15 @@
 // LLM 応答パーサ。stages/plan.ts と lib/ai/agenticCut.ts の両方から参照される
 // ため(plan.ts → agenticCut.ts の import と循環しないよう)独立ファイルに置く。
 
-/** cuts-only 応答の期待スキーマ(prompts/plan-cuts.md の出力形式と対応) */
+/** cuts-only 応答の期待スキーマ(prompts/plan-cuts.md の出力形式と対応)。
+ * reasonId / keeps は plan.reasonIds.enabled: true のときだけプロンプトが
+ * 依頼する任意フィールド(§4.4)。省略時は従来どおり cuts だけを返す
+ * (undefined プロパティを持たせず、キー自体が無い=バイト等価・sticky) */
 export interface CutsResponse {
-  cuts: { id: number; reason: string }[];
+  cuts: { id: number; reason: string; reasonId?: string }[];
+  /** 切る誘惑があったが残した区間だけを LLM に列挙させたもの(§5)。
+   * 省略時 undefined。buildCutplan の第5引数へそのまま渡せる形 */
+  keeps?: { id: number; reason: string; reasonId: string }[];
 }
 
 /** 応答からJSONオブジェクトを取り出す。コードフェンスや前後の説明文が混ざっても拾う */
@@ -25,10 +31,13 @@ export function extractJsonObject(raw: string): Record<string, unknown> {
   }
 }
 
-/** cuts-only 応答のパース(plan --cuts-only 用。cuts だけが必須) */
+/** cuts-only 応答のパース(plan --cuts-only 用。cuts だけが必須)。
+ * keeps は応答に含まれているときだけ結果へ載せる(無ければキー自体が無い) */
 export function parseCutsResponse(raw: string): CutsResponse {
   const parsed = extractJsonObject(raw) as Partial<CutsResponse>;
-  return { cuts: parsed.cuts ?? [] };
+  const result: CutsResponse = { cuts: parsed.cuts ?? [] };
+  if (parsed.keeps !== undefined) result.keeps = parsed.keeps;
+  return result;
 }
 
 export const CUTS_RESPONSE_SCHEMA = {
@@ -54,3 +63,60 @@ export const CUTS_RESPONSE_SCHEMA = {
     },
   },
 } as const;
+
+/** plan.reasonIds.enabled: true のときだけ使う変種(§穴B。P3-1)。
+ * `cuts.items` に任意の `reasonId`、トップに任意の `keeps` を足す。
+ * `required` は増やさない(モデルが分類できない候補で強制されないため)。
+ *
+ * `strict: false` にしているのは意図的な非対称: OpenAI 系の native structured
+ * output の `strict: true` は実装によって「additionalProperties:false の
+ * オブジェクトは properties 全部を required にしないと拒否される」ことがあり、
+ * 任意フィールド(reasonId 省略可・keeps 省略可)と両立しない。off 側の
+ * `CUTS_RESPONSE_SCHEMA` は `strict: true` のまま1バイトも変更しないため、
+ * 既定挙動(I4: 参照同一性)は完全に保存される。 */
+export const CUTS_RESPONSE_SCHEMA_REASON_IDS = {
+  name: "cutflow_plan_cuts_reason_ids",
+  strict: false,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["cuts"],
+    properties: {
+      cuts: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["id", "reason"],
+          properties: {
+            id: { type: "integer" },
+            reason: { type: "string" },
+            reasonId: { type: "string" },
+          },
+        },
+      },
+      keeps: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["id", "reasonId", "reason"],
+          properties: {
+            id: { type: "integer" },
+            reasonId: { type: "string" },
+            reason: { type: "string" },
+          },
+        },
+      },
+    },
+  },
+} as const;
+
+/** off(既定)は旧オブジェクトそのもの(参照同一性。I4)。on は
+ * CUTS_RESPONSE_SCHEMA_REASON_IDS。呼び出し側(stages/plan.ts /
+ * lib/ai/agenticCut.ts)はこの関数経由でスキーマを選ぶ。 */
+export function cutsResponseSchema(
+  reasonIdsEnabled: boolean,
+): typeof CUTS_RESPONSE_SCHEMA | typeof CUTS_RESPONSE_SCHEMA_REASON_IDS {
+  return reasonIdsEnabled ? CUTS_RESPONSE_SCHEMA_REASON_IDS : CUTS_RESPONSE_SCHEMA;
+}
