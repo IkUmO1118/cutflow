@@ -1,6 +1,6 @@
 # canvas/GPU エンジン母艦 — CutFlow の Remotion+`<video>` 描画基盤を、OpenCut を設計図に canvas/GPU コンポジタへ作り替える
 
-> 状態: **START（2026-07-22）。設計・方向確定のみ。実装未着手。** 目的は
+> 状態: **START（2026-07-22）。P0 IMPLEMENTED / VERIFIED、P1/P2 未着手。** 目的は
 > CutFlow のエディタプレビューのガタつき（カット境界の `<video>` seek ヒッチ +
 > メインスレッド React 生合成）を、**手法の限界**として根治すること。手段は
 > Remotion + `<video>` の描画基盤を **OffscreenCanvas + WebCodecs（必要なら
@@ -36,18 +36,18 @@ WebGL/WebGPU の完成形。到達可能性の一次資料）/ `opencut-fork-dat
 
 ## 0. 他エージェント向け: 現在地と次の一手
 
-- **現在地（2026-07-22）**: 方向確定のみ。実装は 1 行も書いていない。この母艦は
+- **現在地（2026-07-22）**: 暫定P0を実装・実測済み。P1/P2は未着手。この母艦は
   「何を作り替え、何を絶対に触らないか」を固定するための正本。
 - **確定した方向**: CutFlow が土台のまま、描画エンジンだけを Remotion+`<video>`
   から canvas/GPU コンポジタへ作り替える。OpenCut は設計図＋部品供給元（MIT）。
   データモデル・CLI・AI の脳・承認は不変（§1・§7）。
-- **次の一手（P0 実装ゲート）**: P0 採用確定（§9）。read-only scout と設計監査を完了し、
-  P0 設計書 `docs/plans/2026-07-22-canvas-preview-p0-design.md` は **READY**。
+- **次の一手（P1 設計/実装ゲート）**: P0 設計書
+  `docs/plans/2026-07-22-canvas-preview-p0-design.md` は **IMPLEMENTED / VERIFIED**。
   結論＝**proxy から keeps-only の連続ファイルをベイク → `videoIsSource:false` で既存
   continuous 経路に流す（`remotion/Main.tsx` 無改造でシーク消滅）**。設計の Q2＝
-  **dual-path 共存**・Q6＝**short は含めない**でユーザー確定（2026-07-22）。次は設計書 §6 の
-  **C1→C4 を直列実装し、各ゲートを実測してから次へ進む**。
-  P1/P2 の残 §8 未決（mediabunny 流用/P2 射程/byte 決定性）は先送り。
+  **dual-path 共存**・Q6＝**short は含めない**で実装し、C1〜C4・frame drift是正・hardeningを完了した。
+  次はP1の設計/実装ゲート。P1/P2 の残 §8 未決（mediabunny 流用/P2 射程/byte 決定性）は
+  P1/P2着手判断で解く。
 - **触ってはいけない一線**: `cutplan.json` 等の JSON が正であること・`approvals.json`
   の承認 hash・AI の脳（plan/知覚/decision recipes/プロンプト）・CLI 契約。
   エンジン交換は**脳より下の層**で完結する（§1 の図）。
@@ -185,8 +185,8 @@ HF 出力は**事前レンダー済みの mp4**＝タイムラインには通常
 
 ## 6. フェーズ
 
-### P0（採用・確定 2026-07-22。暫定・撤去前提）— cut.mp4 bake で暫定の脱ガタつき
-- 設計書: **`docs/plans/2026-07-22-canvas-preview-p0-design.md`（READY）**。
+### P0（IMPLEMENTED / VERIFIED 2026-07-22。暫定・撤去前提）— cut.mp4 bake で暫定の脱ガタつき
+- 設計書: **`docs/plans/2026-07-22-canvas-preview-p0-design.md`（IMPLEMENTED / VERIFIED）**。
 - プレビュー用に keep 区間を連結した連続ファイルを焼き、Player を単一連続ファイルで回す。
   結論＝**`proxy.mp4` から keeps-only・proxy 解像度でベイク**し、`videoIsSource:false` で
   既存の continuous 経路（`Main.tsx:161-209`）へ流す＝`Main.tsx` 無改造でカット境界シークが消える。
@@ -194,6 +194,8 @@ HF 出力は**事前レンダー済みの mp4**＝タイムラインには通常
   承認ゲート内でしか生成されない・wipe 焼き込みで幾何が違う、の 3 点で不適。二重生成は
   「proxy からの軽量ベイク」で回避する。
 - **採用が確定（§9）**。中間の体験改善を優先。P1 landing 後に bake 経路は撤去する（撤去前提）。
+- 実装列: 設計 `414f417`、C1 `d2f012c`、C2 `e5c3a2f`、C3 `b7cec05`、C4 `3320987`、
+  frame drift `98d560c`、composition clock `0cfb429`、hardening `652fea6`。実測と環境制約は設計書 §7。
 
 ### P1（本丸）— プレビューを WebCodecs + OffscreenCanvas コンポジタへ
 - CutFlow の JSON（cutplan/transcript/overlays）→ 描画ノードグラフへの**翻訳層**を新規に
@@ -261,4 +263,7 @@ HF 出力は**事前レンダー済みの mp4**＝タイムラインには通常
   理由＝P1 到達（数週規模）までの中間の脱ガタつきを優先。P0 は撤去前提のまま（P1 landing 後に撤去）。
   次段＝P0 の設計（read-only scout → `docs/plans/` の P0 設計書 → 実装）。P1/P2 の §8 残 3 件
   （mediabunny 流用/P2 射程/byte 決定性）は P0 に影響しないため未決のまま先送り。
+- **2026-07-22（P0完了）**: C1〜C4を直列実装し、実収録コピー・Chrome CDP・props parity・全テストで検証。
+  秒trimの +0.506秒 driftを途中で検出し、composition clock / frame-index v3でexactへ是正した。
+  VideoToolboxと物理Safariの実測は実行環境制約により未完了として明記し、P0の暫定・撤去前提は維持する。
 - **未記入**: P1/P2 の着手判断・go は §8 の残る未決事項を潰してから本ログに追記する。

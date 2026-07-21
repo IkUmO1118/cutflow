@@ -1,9 +1,9 @@
 # P0 設計書 — 連続ベイク・プレビュー(エディタの脱ガタつき暫定策)
 
 > 親ドキュメント: `docs/programs/canvas-gpu-engine-program.md`(canvas/GPU エンジン母艦)の **P0**。
-> 状態: **READY(設計ゲート通過。実装未着手)。2026-07-22。**
+> 状態: **IMPLEMENTED / VERIFIED（2026-07-22）。C1〜C4 完了。**
 > 位置づけ: **暫定・撤去前提**。P1(プレビューの canvas 化)が landing したら本経路は撤去する(母艦 §5・§9)。
-> 前提事実は read-only scout + 実コード裏取りで確定済み(§1)。
+> 前提事実は read-only scout + 実コード裏取りで確定済み(§1)。実装・実測証拠は §6・§7。
 
 ---
 
@@ -179,8 +179,11 @@ Main.tsx: continuous 分岐 ─▶ 単一 <CroppedVideo>(seek 無し)= 脱ガタ
 - **競合規約**: server は同一 key のみ dedup、異 key は FIFO。client は単調増加 request generation と
   `keepSignature` を照合し、最新 keep と一致する完了だけで ready を立てる。編集した瞬間は signature 不一致により
   自動的に source 経路へ戻る。旧完了・失敗は最新 busy/ready を下げない。
-- **latency**: proxy 解像度 + 正規化済み音声のコピーなので `cutFullRes`(full-res + 2-pass loudnorm)より桁で軽く、
-  総 keep 尺・区間数に比例して**秒オーダー**の想定(§7 で実測して数値を埋める)。
+- **latency(実測)**: 実収録コピー・v3・standalone `libx264` の初回ベイクは **125.063秒**。
+  cache reuse は内部 **1.174ms** / command wall **0.167秒**。editor の自動 endpoint 実行は
+  busy バナー表示から `POST 200` まで **48,168ms** で、failure 無し・busy 解除を確認した。
+  standalone と editor は実行条件が異なるため同列比較しない。長尺・software encoder では明確に分単位であり、
+  当初の「秒オーダー」想定は過小評価として破棄する。
 
 ---
 
@@ -197,43 +200,57 @@ Main.tsx: continuous 分岐 ─▶ 単一 <CroppedVideo>(seek 無し)= 脱ガタ
 
 ---
 
-## 6. 実装の分解(コミット単位 = リレー単位)
+## 6. 実装の分解(完了コミット)
 
-Sonnet 役が 1 コミット = 1 リレーで着手できる粒度。各コミットに受け入れ基準を付す。
+設計 commit は `414f417`。以下を直列に実装し、各受け入れ基準を通して完了した。
 
-- **C1 — ベイクモジュール + キャッシュキー + generated 分類**(export 関数 + test で検証。CLI は増やさない)
+- **C1 — `d2f012c` ベイクモジュール + キャッシュキー + generated 分類**(export 関数 + test で検証。CLI は増やさない)
   - 受け入れ: 任意の承認済みでない収録で `preview-cut.mp4` が keeps-only・proxy 解像度で生成される /
     video/audio 各1 stream・speed/尺が正しい / sidecar が keep・speed・proxy・codec/algorithm 変化で失効し、
     同一入力で再利用 / failure・proxy drift で旧成果物を誤 fresh にしない / `clean` full/cache-only が2ファイルを拾い、
     logs-only は保持 / 契約 drift test・関連 test・typecheck green。
-- **C2 — editor/server.ts エンドポイント + staleness surface**
+- **C2 — `e5c3a2f` editor/server.ts エンドポイント + staleness surface**
   - 受け入れ: `POST /api/preview-cut` が未保存 cutplan を焼く / 同 key dedup・異 key FIFO / proxy 欠落・stale を採用しない /
     project load が fresh/欠落/malformed/output-stat不一致を正しく返す / 既存 `/api/proxy` に回帰なし。
-- **C3 — App.tsx で videoFile 差し替え + dual-path 共存 + remount**
+- **C3 — `b7cec05` App.tsx で videoFile 差し替え + dual-path 共存 + remount**
   - 受け入れ: ベイク存在時は continuous 経路(単一 `<CroppedVideo>`)で再生される(frames/DevTools で確認) /
     ベイク不在・陳腐・keep変更直後・short mode は現行 seek-over-proxy / caption/overlay/zoom/wipe が従来と同じ位置(§7 回帰)。
-- **C4 — 再ベイク・トリガ(debounce)+ UX バナー**
+- **C4 — `3320987` 再ベイク・トリガ(debounce)+ UX バナー**
   - 受け入れ: カット境界編集後、手が止まると数秒で滑らか経路にスワップ / 編集連打中は即時反映が死なない /
     A生成中にBへ編集してもAを採用せず、最終ファイル/PlayerはB / proxy 再生成後にも新proxyから再ベイク /
     「再ベイク中」表示が出て失敗時はsource経路のまま再試行可能。
+- **検証 hardening**: `98d560c`(区間累積driftの検出) → `0cfb429`(composition clock / frame-index v3) →
+  `652fea6`(speed/audio/EOF・回帰ゲートの強化)。秒trimで実収録に **+0.506秒** のdriftを発見し、
+  composition clockを唯一の正とするv3へ是正して exact frame数へ閉じた。
 
 ---
 
-## 7. 検証(実測必須 — メモリ `llm-command-verify-neutral-cwd` / 完了報告は実測ルール)
+## 7. 検証(完了実測 — 2026-07-22)
 
-- **絵の回帰ゼロ**: `frames` CLI は現状 base video override を持たないため、存在しない option を前提にしない。
-  同じ edit snapshot から source props と baked props を作り、同じ Remotion bundle/browserへ注入して、同一 output frame を
-  別 temporary dir に撮る test/検証 harness を使う。caption 3層継承・karaoke・zoom 連鎖・wipe・blur 下層限定・
-  annotation 最前面・colorFilter と全 cut 境界前後を対象にする。preview-cut はH.264再圧縮なので PNG byte一致は要求せず、
-  幾何/表示レイヤーの一致を目視し、全画面 SSIM 0.99 以上を暫定下限とする。1 frameずれ・要素位置ずれはSSIMに関係なく fail。
-- **脱ガタつきの実測**: エディタを起動し、カット境界を跨ぐ再生で `frameupdate` の連続性(playhead の欠落/停滞)を
-  CDP で計測、または目視。Safari(memory: chrome-headless-shell はミュート video 凍結の罠あり)は実機で確認。
-  before/after を並べて「境界ヒッチが消えたこと」を数値/録画で残す。
-- **二重生成が起きていないこと**: full-res `cut.mp4` を preview 目的で焼いていない(承認前の収録で `cut.mp4` が
-  生成されない)ことを確認。
-- **再ベイク latency**: 実収録で総 keep 尺 × 区間数に対する秒数を測って §4 の「秒オーダー」を数値で確定。
-- **競合の実測**: Aを十分長いベイクにして開始し、完了前にBへ境界変更。network応答順、sidecar key、最終Player propsを記録し、
-  A完了ではswapせずB完了だけがswapすることを確認する。
+- **実収録 artifact**: `/Users/19mo/Movies/cutflow/2026-07-12` を
+  `/private/tmp/cutflow-p0-verification.mahekj` へ複製して検証した。proxy は **2560x720**、
+  source **582.033333秒 / 17,460 frames**、`r_frame_rate=30/1`、`avg_frame_rate=29.998281…`。
+  raw keep 114件は `playbackSegmentsOf` で98件へmergeされ、v3 preview-cut は
+  **6,289 frames / 209.633333秒** exact、H.264 + AAC 48kHz、**95,341,601 bytes**。
+  inserts込みのstructural render propsは `baseSegments` **98→2**。検証コピーでは preview生成による
+  `cut.mp4` 新規生成が無いことを確認した(元の実収録には検証以前から既存 `cut.mp4` があるため、元についてabsentとはしない)。
+- **frame/画の parity**: source/bakedの同一snapshotについて、後半6境界の `n-1/n/n+1`、計18 frameを比較。
+  SSIMは **min 0.993184 / avg 0.99789678 / max 1.0**(gate 0.99)で、目視も一致した。
+  実収録に無い演出は自動props parityで caption 3層 + karaoke words、overlays、inserts、隣接zoom chain、wipe、
+  blur、annotation、colorFilter、layerOrderをdeep-equalした。`remotion/Main.tsx` は無改造。
+- **Chrome CDP再生**: 最初のmerge済み6 keep / 5境界を計測。sourceのseek overheadは
+  **22.5 / 23.4 / 19.1 / 4.3 / 16.7ms**、観測frame gapは **33.2〜33.4ms**。
+  bakedは全境界 **33.3〜33.4ms** で連続し、追加seek operation無し。観測数は source 251 frames / baked 314 frames。
+  結論は「焼き込み経路が通常30fps cadenceを維持し、境界seekを構造的に除去」。Player DOM上のmedia src swapを
+  直接観測したという主張ではなく、98→2のprops構造、API/browser busy、採用ロジックの自動テストを根拠とする。
+- **trigger/競合**: same-key dedup、different-key FIFO、A→B latest generation、1.5秒debounce、
+  reason/approvedのみではno rebake、proxy再生成、retry/failureを自動テストで固定。editor自動endpointは
+  busyバナー、`POST 200`、failure無し、busy解除まで確認した(§4 latency)。
+- **環境制約**: この実行環境の VideoToolbox は最小320x180の直接encode自体が
+  `Cannot create compression session: -12908` で失敗したため、実測時だけconfigを一時的に`libx264`へ切り替えた。
+  実装と標準設定はVideoToolboxのまま。`safaridriver`診断も利用不能で、物理Safari固有挙動は未検証。
+- **回帰ゲート**: focused **98/98**、full `npm test` **2375/2375**、`npm run typecheck` green、
+  `git diff --check` green。
 
 ---
 
@@ -250,10 +267,10 @@ P0 は P1(canvas 化)landing 後に撤去する前提。撤去を trivial に保
 ## 9. リスクと留意
 
 - **inserts 時の残存シーク**: 完全 continuous にならない(§2.3)。許容=それでも seek 点は激減。inserts 多用収録での
-  体感を §7 で確認。
+  structural propsは実収録コピーで98→2を確認したが、inserts多用時の物理Safari体感は未検証。
 - **再ベイク latency は非ゼロ**: dual-path 共存(Q2)で即時反映は守るが、滑らか化までのタイムラグは残る。P0 が
-  暫定・撤去前提である所以(母艦 §5)。
-- **Safari の `<video>` 挙動**: 連続ファイルなら false-waiting 誘発が減る想定だが、memory
-  `headless-chrome-muted-video-freeze` の罠があるため実機実測で確認する。
+  暫定・撤去前提である所以(母艦 §5)。実測はsoftware encoder・長尺条件で125.063秒であり、短時間を保証しない。
+- **Safari の `<video>` 挙動**: `safaridriver` を利用できず未完了。Chrome CDPではcadence維持とseek除去を確認したが、
+  物理Safari固有のfalse-waiting/再生挙動はP1着手前または運用時の残存確認項目とする。
 - **proxy 依存**: proxy が陳腐だと preview-cut も陳腐。staleness は proxy→preview-cut の順で伝播させる
   (proxy stat をキーに含めるので proxy 再生成→preview-cut 再ベイクが自然に連鎖する)。
