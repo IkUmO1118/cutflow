@@ -10,6 +10,9 @@ export interface ProbeStream {
   width?: number;
   height?: number;
   avg_frame_rate?: string;
+  /** MP4 などコンテナが保持する総 video frame 数。preview-cut の
+   * frame-index bake 検証で duration だけでは見逃す破損を弾く。 */
+  nb_frames?: string;
   /** ストリーム単位の尺(秒。文字列)。省略時が既存挙動(コンテナ尺
    * format.duration を使う呼び出し元には影響しない追加フィールド) */
   duration?: string;

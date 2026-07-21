@@ -15,7 +15,7 @@ export type { PreviewCutKeep } from "./previewCutSignature.ts";
 export const PREVIEW_CUT_FILE = "preview-cut.mp4";
 export const PREVIEW_CUT_KEY_FILE = "preview-cut.key.json";
 export const PREVIEW_CUT_CACHE_SCHEMA_VERSION = 1;
-export const PREVIEW_CUT_ALGORITHM_VERSION = "proxy-keeps-trim-concat-v1";
+export const PREVIEW_CUT_ALGORITHM_VERSION = "proxy-frame-keeps-concat-v2";
 export const PREVIEW_CUT_AUDIO_ARGS = ["-c:a", "aac", "-ar", "48000"] as const;
 
 export interface PreviewCutFileStat {

@@ -28,6 +28,17 @@ interface PreviewCutProbeExpectation {
   height: number;
   fps: number;
   durationSec: number;
+  videoFrames: number;
+}
+
+const AAC_FRAME_SAMPLES = 1024;
+const PREVIEW_CUT_AUDIO_SAMPLE_RATE = 48000;
+
+export interface PreviewCutFrameSegment {
+  sourceStartFrame: number;
+  sourceEndFrame: number;
+  outputFrames: number;
+  speed: number;
 }
 
 export interface PreviewCutResult {
@@ -55,8 +66,34 @@ function validateKeeps(keeps: PlaybackSegment[]): void {
   }
 }
 
-export function expectedPreviewCutDuration(keeps: PlaybackSegment[]): number {
-  return keeps.reduce((sum, keep) => sum + (keep.end - keep.start) / keep.speed, 0);
+/**
+ * source start は Main.tsx の Math.round(videoStart*fps)、output span は
+ * frameSpans と同じ累積境界の Math.round へ合わせる。各区間を最低1 frameに
+ * する規則もSequenceと同じで、秒trim由来の区間別driftを生成前に消す。
+ */
+export function previewCutFrameSegments(
+  keeps: readonly PlaybackSegment[],
+  fps: number,
+): PreviewCutFrameSegment[] {
+  let outputSec = 0;
+  return keeps.map((keep) => {
+    const sourceStartFrame = Math.round(keep.start * fps);
+    const sourceEndFrame = Math.max(sourceStartFrame + 1, Math.round(keep.end * fps));
+    const outputStartFrame = Math.round(Math.round(outputSec * 100) / 100 * fps);
+    outputSec += (keep.end - keep.start) / keep.speed;
+    const outputEndFrame = Math.round(Math.round(outputSec * 100) / 100 * fps);
+    return {
+      sourceStartFrame,
+      sourceEndFrame,
+      outputFrames: Math.max(1, outputEndFrame - outputStartFrame),
+      speed: keep.speed,
+    };
+  });
+}
+
+/** frame数を厳密検査した後のcontainer/audio量子化だけを許す。 */
+export function previewCutDurationTolerance(fps: number): number {
+  return Math.max(0.1, 2 / fps + AAC_FRAME_SAMPLES / PREVIEW_CUT_AUDIO_SAMPLE_RATE);
 }
 
 /** ffprobe 結果の評価を純粋関数に分け、stream 数・寸法・尺許容差を固定する。 */
@@ -79,11 +116,18 @@ export function evaluatePreviewCutProbe(
       reason: `proxy と解像度が一致しません(期待 ${expected.width}x${expected.height}、実測 ${video.width}x${video.height})`,
     };
   }
+  const videoFrames = Number(video.nb_frames);
+  if (!Number.isInteger(videoFrames) || videoFrames !== expected.videoFrames) {
+    return {
+      ok: false,
+      reason: `video frame 数が期待値と一致しません(期待 ${expected.videoFrames}、実測 ${video.nb_frames ?? "不明"})`,
+    };
+  }
   const duration = Number(result.format?.duration);
   if (!Number.isFinite(duration) || duration <= 0) {
     return { ok: false, reason: "正の duration を取得できませんでした" };
   }
-  const tolerance = Math.max(0.1, 2 / expected.fps);
+  const tolerance = previewCutDurationTolerance(expected.fps);
   if (Math.abs(duration - expected.durationSec) > tolerance + 1e-9) {
     return {
       ok: false,
@@ -107,31 +151,42 @@ function expectationFromProxy(
   if (!video.width || !video.height || fps <= 0) {
     throw new Error("proxy.mp4 の解像度または fps を取得できませんでした");
   }
+  const frameSegments = previewCutFrameSegments(keeps, fps);
+  const videoFrames = frameSegments.reduce((sum, segment) => sum + segment.outputFrames, 0);
   return {
     width: video.width,
     height: video.height,
     fps,
-    durationSec: expectedPreviewCutDuration(keeps),
+    durationSec: videoFrames / fps,
+    videoFrames,
   };
 }
 
-function filterGraph(keeps: PlaybackSegment[]): string {
+function filterGraph(segments: PreviewCutFrameSegment[], fps: number): string {
   const parts: string[] = [];
   const labels: string[] = [];
-  keeps.forEach((keep, index) => {
-    const setpts = keep.speed === 1 ? "PTS-STARTPTS" : `(PTS-STARTPTS)/${keep.speed}`;
+  segments.forEach((segment, index) => {
+    const setpts = segment.speed === 1
+      ? "PTS-STARTPTS"
+      : `(PTS-STARTPTS)/${segment.speed}`;
     parts.push(
-      `[0:v]trim=start=${keep.start}:end=${keep.end},setpts=${setpts}[v${index}]`,
+      `[0:v]trim=start_frame=${segment.sourceStartFrame}:end_frame=${segment.sourceEndFrame},` +
+        `setpts=${setpts},fps=${fps},tpad=stop_mode=clone:stop=${segment.outputFrames},` +
+        `trim=end_frame=${segment.outputFrames},setpts=PTS-STARTPTS[v${index}]`,
     );
-    const tempo = atempoFilters(keep.speed).map((rate) => `atempo=${rate}`).join(",");
+    const tempo = atempoFilters(segment.speed).map((rate) => `atempo=${rate}`).join(",");
+    const sourceStart = segment.sourceStartFrame / fps;
+    const sourceEnd = segment.sourceEndFrame / fps;
+    const outputDuration = segment.outputFrames / fps;
     parts.push(
-      `[0:a:0]atrim=start=${keep.start}:end=${keep.end},asetpts=PTS-STARTPTS${
+      `[0:a:0]atrim=start=${sourceStart}:end=${sourceEnd},asetpts=PTS-STARTPTS${
         tempo ? `,${tempo}` : ""
-      }[a${index}]`,
+      },apad=pad_dur=${outputDuration},atrim=duration=${outputDuration},` +
+        `asetpts=PTS-STARTPTS[a${index}]`,
     );
     labels.push(`[v${index}][a${index}]`);
   });
-  parts.push(`${labels.join("")}concat=n=${keeps.length}:v=1:a=1[vout][aout]`);
+  parts.push(`${labels.join("")}concat=n=${segments.length}:v=1:a=1[vout][aout]`);
   return parts.join(";");
 }
 
@@ -182,6 +237,7 @@ export async function buildPreviewCut(
 
   const probeFile = deps.probe ?? probe;
   const expectation = expectationFromProxy(await probeFile(proxyPath), keeps);
+  const frameSegments = previewCutFrameSegments(keeps, expectation.fps);
   const runCommand = deps.run ?? run;
   const publish = deps.publish ?? publishAsTransaction;
   const writeSidecar = deps.writeSidecar ?? writeSidecarAtomically;
@@ -192,8 +248,9 @@ export async function buildPreviewCut(
       await runCommand("ffmpeg", [
         "-y", "-v", "error",
         "-i", proxyPath,
-        "-filter_complex", filterGraph(keeps),
+        "-filter_complex", filterGraph(frameSegments, expectation.fps),
         "-map", "[vout]", "-map", "[aout]",
+        "-fps_mode", "cfr",
         ...videoArgs,
         ...PREVIEW_CUT_AUDIO_ARGS,
         tempPath,

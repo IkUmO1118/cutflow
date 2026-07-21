@@ -128,10 +128,16 @@ Main.tsx: continuous 分岐 ─▶ 単一 <CroppedVideo>(seek 無し)= 脱ガタ
 
 ### 2.6 出力検証
 - ffprobe で video/audio 各1 stream、正の duration、proxy と同じ width/height、期待尺
-  `sum((end-start)/speed)` との差が最大 `max(0.10秒, 2/fps)` 以内であることを atomic rename 前に検査する。
-- cut 境界直前/直後と speed≠1 の区間で、旧 source 経路と baked 経路のフレーム対応を実測する。
-  秒指定 `trim` と Player の frame 丸めが1 frameずれる場合は、video trim を proxy の実 fps に基づく
-  `start_frame/end_frame` へ合わせる。検証せずに丸め規則を推測で固定しない。
+  を検査する。秒指定 `trim` は区間ごとのframe量子化が累積するため使わず、proxy実fpsに対して
+  source start/endを`Math.round(sec*fps)`した`start_frame/end_frame`へ揃える。さらにPlayerの
+  `frameSpans`と同じ累積出力境界の丸めで区間ごとのoutput frame数を先に確定し、映像は
+  `fps+tpad+trim`、音声は`apad+atrim`でその尺へ揃えてからconcatする。ffprobeのvideo frame数は
+  この総frame数と厳密一致を要求し、container durationは`総frame数/fps`との差
+  `max(0.10秒, 2/fps + 1024/48000)`だけを許す。
+- 根拠: 2026-07-12 の実収録(proxy 2560x720、約582秒、114 keep、期待209.64秒)を従来の秒trimで
+  libx264ベイクすると53.65秒、ffprobe 210.146秒(+0.506秒、0.133 frame/keep相当)となった。
+  観測平均を許容係数にはせず、Playerと同じframe indexへ生成自体を量子化して区間累積を除く。
+  algorithm versionをv2へ上げ、旧sidecar/outputは再利用しない。
 
 ---
 
