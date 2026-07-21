@@ -305,7 +305,7 @@ plan:
   # 既定 false=導入前とバイト等価。true で LLM に reasonId(13分類の id)を
   # 書かせ、cutplan.json の segments[].reasonId に記録する
   reasonIds:
-    enabled: false
+    enabled: true
   # 承認済みコーパスから抽出した style profile を候補選択のソフトな prior として注入
   # (目標ショット長・積極度・字幕密度/位置・冒頭フック・CTA 有無。brief.md に劣後)
   styleProfile:
