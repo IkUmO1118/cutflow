@@ -32,6 +32,7 @@ import {
   renderEffectReasonIdsOutputBlock,
 } from "../lib/effectReasonIdInjection.ts";
 import { EFFECT_REASON_IDS } from "../lib/effectReasonIds.ts";
+import { buildFirstEffectsPlan, writeFirstEffectsPlan } from "../lib/firstEffectsPlan.ts";
 import { readRules } from "./plan.ts";
 import { validateDocs } from "./validate.ts";
 import type { LoadedDocs } from "./validate.ts";
@@ -282,6 +283,12 @@ export interface PlanEffectsResult {
   anchorCount: number;
 }
 
+type CompleteEffectsFn = (
+  prompt: string,
+  cfg: Config,
+  schema: ReturnType<typeof planEffectsResponseSchema>,
+) => Promise<string>;
+
 /**
  * cutplan(keep区間)+ transcript + frames/*.ocr.json + av.probe/motion.json
  * から番号付き演出アンカーを組み、LLM に (anchorId, effect) のペアだけを
@@ -297,7 +304,7 @@ export interface PlanEffectsResult {
 export async function planEffects(
   dir: string,
   cfg: Config,
-  opts: { observe?: boolean } = {},
+  opts: { observe?: boolean; complete?: CompleteEffectsFn } = {},
 ): Promise<PlanEffectsResult> {
   const cutplan = readStageJson<CutPlan>(join(dir, "cutplan.json"), "plan");
   const transcript = readStageJson<Transcript>(join(dir, "transcript.json"), "transcribe");
@@ -331,12 +338,10 @@ export async function planEffects(
     reasonIds.block,
     reasonIds.outputBlock,
   );
-  const raw = await completeWithJsonSchema(
-    prompt,
-    cfg,
-    planEffectsResponseSchema(reasonIds.enabled),
-    "other",
-  );
+  const responseSchema = planEffectsResponseSchema(reasonIds.enabled);
+  const raw = opts.complete
+    ? await opts.complete(prompt, cfg, responseSchema)
+    : await completeWithJsonSchema(prompt, cfg, responseSchema, "other");
   // LLM の生応答は必ず残す(パース失敗時の調査と、選定過程の記録のため)
   writeFileSync(join(dir, "plan-effects.raw.txt"), raw);
 
@@ -379,6 +384,16 @@ export async function planEffects(
   }
 
   writeFileSync(overlaysPath, JSON.stringify(merged, null, 2));
+  writeFirstEffectsPlan(
+    dir,
+    buildFirstEffectsPlan({
+      effectReasonIdsEnabled: reasonIds.enabled,
+      pattern: reasonIds.pattern,
+      anchors,
+      decisions,
+      generated,
+    }),
+  );
 
   return {
     overlays: merged,

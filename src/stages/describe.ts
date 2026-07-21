@@ -12,6 +12,8 @@ import type { Config } from "../lib/config.ts";
 import { DEFAULT_SILENCE_CUT_REASON } from "../lib/buildCutplan.ts";
 import { CUT_REASON_IDS, REASON_ID_FAMILY } from "../lib/reasonIds.ts";
 import type { FirstPlan, FirstPlanEntry } from "../lib/firstPlan.ts";
+import { EFFECT_REASON_IDS, EFFECT_REASON_ID_FAMILY } from "../lib/effectReasonIds.ts";
+import type { FirstEffectsPlan } from "../lib/firstEffectsPlan.ts";
 import { pausesWithinKeeps } from "../lib/perception.ts";
 import type { KeepPause } from "../lib/perception.ts";
 import { framesFreshness } from "../lib/framesIndex.ts";
@@ -436,6 +438,12 @@ export interface Summary {
     /** plan.first.json がある収録だけ(§P5-5)。無ければキーごと無い */
     firstVsFinal?: FirstVsFinal;
   };
+  /** 演出判断の分類集計。reasonId付き演出またはplan-effects.first.jsonが
+   *  あるときだけ出す(sticky。旧収録のdescribe --jsonを変えない)。 */
+  effectReasonIds?: {
+    coverage: EffectReasonIdCoverage;
+    firstVsFinal?: EffectFirstVsFinal;
+  };
 }
 
 /** cut 判断の reasonId 語彙カバレッジ(§7)。分母は fillSilenceGaps が作った
@@ -456,6 +464,31 @@ export interface FirstVsFinal {
   reasonIdsEnabled: boolean;
   flippedToKeep: { reasonId: string; first: number; flipped: number; rate: number }[];
   flippedToCut: { reasonId: string; first: number; flipped: number; rate: number }[];
+}
+
+export interface EffectReasonIdCoverage {
+  effects: number;
+  labeled: number;
+  ratio: number;
+  byId: Record<string, number>;
+}
+
+export type EffectDecisionType = "zoom" | "blur" | "annotation" | "none";
+
+export interface EffectFirstVsFinal {
+  source: "plan-effects";
+  effectReasonIdsEnabled: boolean;
+  pattern: string;
+  compared: number;
+  flipped: number;
+  rate: number;
+  transitions: {
+    effectReasonId?: string;
+    from: EffectDecisionType;
+    to: EffectDecisionType;
+    count: number;
+  }[];
+  added: { effect: Exclude<EffectDecisionType, "none">; count: number }[];
 }
 
 export interface KeepEntry {
@@ -566,11 +599,13 @@ export interface InsertEntry {
 
 export interface ZoomEntry extends MappedInterval {
   rect: Region;
+  reasonId?: string;
   easeSec?: number;
 }
 
 export interface BlurEntry extends MappedInterval {
   rect: Region;
+  reasonId?: string;
   strength?: number;
   keyframeCount?: number;
   keyframes?: KeyframeEntry[];
@@ -584,6 +619,7 @@ export type AnnotationEntry =
       color?: string;
       widthPx?: number;
       headPx?: number;
+      reasonId?: string;
       keyframeCount?: number;
       keyframes?: KeyframeEntry[];
     } & MappedInterval)
@@ -594,6 +630,7 @@ export type AnnotationEntry =
       widthPx?: number;
       radiusPx?: number;
       fill?: string;
+      reasonId?: string;
       keyframeCount?: number;
       keyframes?: KeyframeEntry[];
     } & MappedInterval)
@@ -604,6 +641,7 @@ export type AnnotationEntry =
       dim?: number;
       featherPx?: number;
       radiusPx?: number;
+      reasonId?: string;
       keyframeCount?: number;
       keyframes?: KeyframeEntry[];
     } & MappedInterval);
@@ -710,6 +748,185 @@ function computeFirstVsFinal(firstPlan: FirstPlan, finalSegments: PlanSegment[])
   };
 }
 
+const NON_NONE_EFFECT_REASON_IDS = EFFECT_REASON_IDS.filter(
+  (id) => EFFECT_REASON_ID_FAMILY[id] !== "none",
+);
+
+function effectItems(overlays: Overlays): {
+  effect: Exclude<EffectDecisionType, "none">;
+  start: number;
+  end: number;
+  reasonId?: string;
+}[] {
+  return [
+    ...(overlays.zooms ?? []).map((item) => ({
+      effect: "zoom" as const,
+      start: item.start,
+      end: item.end,
+      ...(item.reasonId !== undefined ? { reasonId: item.reasonId } : {}),
+    })),
+    ...(overlays.blurs ?? []).map((item) => ({
+      effect: "blur" as const,
+      start: item.start,
+      end: item.end,
+      ...(item.reasonId !== undefined ? { reasonId: item.reasonId } : {}),
+    })),
+    ...(overlays.annotations ?? []).map((item) => ({
+      effect: "annotation" as const,
+      start: item.start,
+      end: item.end,
+      ...(item.reasonId !== undefined ? { reasonId: item.reasonId } : {}),
+    })),
+  ];
+}
+
+function computeEffectReasonIdCoverage(overlays: Overlays): EffectReasonIdCoverage {
+  const effects = [overlays.zooms ?? [], overlays.blurs ?? [], overlays.annotations ?? []].flat();
+  const byId: Record<string, number> = Object.fromEntries(NON_NONE_EFFECT_REASON_IDS.map((id) => [id, 0]));
+  let labeled = 0;
+  for (const effect of effects) {
+    if (effect.reasonId === undefined) continue;
+    labeled += 1;
+    if (Object.hasOwn(byId, effect.reasonId)) byId[effect.reasonId] += 1;
+  }
+  return {
+    effects: effects.length,
+    labeled,
+    ratio: effects.length > 0 ? round2(labeled / effects.length) : 0,
+    byId,
+  };
+}
+
+function isFirstEffectsPlan(value: unknown): value is FirstEffectsPlan {
+  if (value === null || typeof value !== "object") return false;
+  const plan = value as Partial<FirstEffectsPlan>;
+  if (
+    plan.schemaVersion !== 1 ||
+    plan.source !== "plan-effects" ||
+    typeof plan.writtenAt !== "string" ||
+    typeof plan.effectReasonIdsEnabled !== "boolean" ||
+    typeof plan.pattern !== "string" ||
+    typeof plan.anchorCount !== "number" ||
+    plan.generated === null ||
+    typeof plan.generated !== "object" ||
+    !Array.isArray(plan.generated.zooms) ||
+    !Array.isArray(plan.generated.blurs) ||
+    !Array.isArray(plan.generated.annotations) ||
+    !Array.isArray(plan.none)
+  ) return false;
+  const isRegion = (region: unknown): boolean => {
+    if (region === null || typeof region !== "object") return false;
+    const r = region as Record<string, unknown>;
+    return [r.x, r.y, r.w, r.h].every((n) => typeof n === "number" && Number.isFinite(n));
+  };
+  const isTimed = (item: unknown): item is { start: number; end: number; reasonId?: string } => {
+    if (item === null || typeof item !== "object") return false;
+    const timed = item as Record<string, unknown>;
+    return typeof timed.start === "number" && Number.isFinite(timed.start) &&
+      typeof timed.end === "number" && Number.isFinite(timed.end) &&
+      (timed.reasonId === undefined || typeof timed.reasonId === "string");
+  };
+  if (!plan.generated.zooms.every((item) => isTimed(item) && isRegion(item.rect))) return false;
+  if (!plan.generated.blurs.every((item) => isTimed(item) && isRegion(item.rect))) return false;
+  if (!plan.generated.annotations.every((item) =>
+    isTimed(item) && item.type === "box" && isRegion(item.rect)
+  )) return false;
+  return plan.none.every((item) =>
+    isTimed(item) &&
+    typeof item.anchorId === "number" && Number.isFinite(item.anchorId) &&
+    typeof item.reason === "string" &&
+    (item.effectReasonId === undefined || typeof item.effectReasonId === "string") &&
+    (item as unknown as Record<string, unknown>).reasonId === undefined &&
+    (item.rect === undefined || isRegion(item.rect))
+  );
+}
+
+function computeEffectFirstVsFinal(first: FirstEffectsPlan, finalOverlays: Overlays): EffectFirstVsFinal {
+  const initial: { effect: EffectDecisionType; start: number; end: number; reasonId?: string }[] = [
+    ...effectItems(first.generated),
+    ...first.none.map((item) => ({
+      effect: "none" as const,
+      start: item.start,
+      end: item.end,
+      ...(item.effectReasonId !== undefined ? { reasonId: item.effectReasonId } : {}),
+    })),
+  ];
+  const final = effectItems(finalOverlays);
+  const consumed = new Set<number>();
+  const counts = new Map<string, {
+    effectReasonId?: string;
+    from: EffectDecisionType;
+    to: EffectDecisionType;
+    count: number;
+  }>();
+
+  const sameTime = (a: { start: number; end: number }, b: { start: number; end: number }): boolean =>
+    Math.abs(a.start - b.start) < 0.01 && Math.abs(a.end - b.end) < 0.01;
+  const addTransition = (
+    effectReasonId: string | undefined,
+    from: EffectDecisionType,
+    to: EffectDecisionType,
+  ): void => {
+    const key = JSON.stringify([effectReasonId ?? null, from, to]);
+    const current = counts.get(key);
+    if (current) {
+      current.count += 1;
+    } else {
+      counts.set(key, {
+        ...(effectReasonId !== undefined ? { effectReasonId } : {}),
+        from,
+        to,
+        count: 1,
+      });
+    }
+  };
+
+  for (const item of initial) {
+    const candidates = final
+      .map((candidate, index) => ({ candidate, index }))
+      .filter(({ candidate, index }) => !consumed.has(index) && sameTime(item, candidate));
+    const match = candidates.find(({ candidate }) => candidate.effect === item.effect) ?? candidates[0];
+    if (match) {
+      consumed.add(match.index);
+      if (match.candidate.effect !== item.effect) {
+        addTransition(item.reasonId, item.effect, match.candidate.effect);
+      }
+    } else if (item.effect !== "none") {
+      addTransition(item.reasonId, item.effect, "none");
+    }
+  }
+
+  const order: EffectDecisionType[] = ["zoom", "blur", "annotation", "none"];
+  const reasonOrder = new Map<string, number>(EFFECT_REASON_IDS.map((id, index) => [id, index]));
+  const transitions = [...counts.values()].sort((a, b) => {
+    const aReason = a.effectReasonId === undefined
+      ? Number.MAX_SAFE_INTEGER
+      : (reasonOrder.get(a.effectReasonId) ?? EFFECT_REASON_IDS.length);
+    const bReason = b.effectReasonId === undefined
+      ? Number.MAX_SAFE_INTEGER
+      : (reasonOrder.get(b.effectReasonId) ?? EFFECT_REASON_IDS.length);
+    if (aReason !== bReason) return aReason - bReason;
+    if (a.effectReasonId !== b.effectReasonId) return (a.effectReasonId ?? "").localeCompare(b.effectReasonId ?? "");
+    const fromDiff = order.indexOf(a.from) - order.indexOf(b.from);
+    return fromDiff !== 0 ? fromDiff : order.indexOf(a.to) - order.indexOf(b.to);
+  });
+  const flipped = transitions.reduce((sum, transition) => sum + transition.count, 0);
+  const added = (["zoom", "blur", "annotation"] as const).flatMap((effect) => {
+    const count = final.filter((item, index) => !consumed.has(index) && item.effect === effect).length;
+    return count > 0 ? [{ effect, count }] : [];
+  });
+  return {
+    source: first.source,
+    effectReasonIdsEnabled: first.effectReasonIdsEnabled,
+    pattern: first.pattern,
+    compared: initial.length,
+    flipped,
+    rate: initial.length > 0 ? round2(flipped / initial.length) : 0,
+    transitions,
+    added,
+  };
+}
+
 /** keep 区間の配列(すでに mergeIntervals 済み)+そのタイムラインから
  * KeepEntry[] を作る。本編 keeps とショートの mergedRanges の両方が使う */
 function buildKeepEntries(keeps: Interval[], timeline: TimelineEntry[]): KeepEntry[] {
@@ -773,6 +990,25 @@ function buildProjection(inp: DescribeInputs, cfg?: Config): DescribeProjection 
       } catch {
         // 壊れた plan.first.json は firstVsFinal を省略するだけ(coverage は出す。
         // plan.first.json は測定専用の副産物で、壊れていても describe を止めない)
+      }
+    }
+  }
+
+
+  const effects = [overlays.zooms ?? [], overlays.blurs ?? [], overlays.annotations ?? []].flat();
+  const hasAnyEffectReasonId = effects.some((effect) => effect.reasonId !== undefined);
+  const firstEffectsPath = join(dir, "plan-effects.first.json");
+  const hasFirstEffectsPlan = existsSync(firstEffectsPath);
+  if (hasAnyEffectReasonId || hasFirstEffectsPlan) {
+    summary.effectReasonIds = { coverage: computeEffectReasonIdCoverage(overlays) };
+    if (hasFirstEffectsPlan) {
+      try {
+        const parsed = JSON.parse(readFileSync(firstEffectsPath, "utf8")) as unknown;
+        if (isFirstEffectsPlan(parsed)) {
+          summary.effectReasonIds.firstVsFinal = computeEffectFirstVsFinal(parsed, overlays);
+        }
+      } catch {
+        // 壊れた初版はfirstVsFinalだけ省略し、現在のcoverageは返す。
       }
     }
   }
@@ -918,6 +1154,7 @@ function buildProjection(inp: DescribeInputs, cfg?: Config): DescribeProjection 
     end: z.end,
     out: remapInterval(z.start, z.end, timeline),
     rect: z.rect,
+    ...(z.reasonId !== undefined ? { reasonId: z.reasonId } : {}),
     ...(z.easeSec !== undefined ? { easeSec: z.easeSec } : {}),
   }));
 
@@ -927,6 +1164,7 @@ function buildProjection(inp: DescribeInputs, cfg?: Config): DescribeProjection 
     end: b.end,
     out: remapInterval(b.start, b.end, timeline),
     rect: b.rect,
+    ...(b.reasonId !== undefined ? { reasonId: b.reasonId } : {}),
     ...(b.strength !== undefined ? { strength: b.strength } : {}),
     ...projectKeyframes(b.keyframes as { at: number; easing?: string; values: Record<string, number> }[] | undefined),
   }));
@@ -937,6 +1175,7 @@ function buildProjection(inp: DescribeInputs, cfg?: Config): DescribeProjection 
       start: a.start,
       end: a.end,
       out: remapInterval(a.start, a.end, timeline),
+      ...(a.reasonId !== undefined ? { reasonId: a.reasonId } : {}),
       ...projectKeyframes(a.keyframes as { at: number; easing?: string; values: Record<string, number> }[] | undefined),
     };
     switch (a.type) {

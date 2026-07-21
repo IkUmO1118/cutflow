@@ -53,7 +53,9 @@ craft 由来はさらに `(craft)` を付ける。入力素材と反例は `text
 [`../blueprints.md`](../blueprints.md)を cut と共有する。effectReasonId のスキーマ・
 プロンプト注入とpattern選択注入はEP3まで実装済み。`general`はEP2の全7分類注入と
 バイト等価で、`tool-demo`も安全/G2閉包のため7分類を維持し、noteと演出用blueprintで
-重み付けする。実収録example・doc機械検査・測定配線はEP4の担当。
+重み付けする。EP4で[`examples/2026-07-12-tool-demo.md`](examples/2026-07-12-tool-demo.md)、
+doc機械検査、`plan-effects.first.json`と`describe --json`のcoverage/firstVsFinalまで
+配線済み。これでEP1〜EP4は完了。
 
 ## 索引
 
