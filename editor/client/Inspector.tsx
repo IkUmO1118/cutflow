@@ -48,10 +48,15 @@ import { defaultShortProfileName, PROFILES, profileSupportsPlain } from "../../s
 import type { RenderProps } from "../../remotion/props.ts";
 import type { AnnotationPatch, Selection } from "./model.ts";
 import { usePlayheadSelector } from "./playhead.ts";
+import { Input } from "./components/ui/input.tsx";
+import { NativeSelect } from "./components/ui/native-select.tsx";
+import { ColorInput } from "./components/ui/color-input.tsx";
+import { Slider } from "./components/ui/slider.tsx";
+import { Switch } from "./components/ui/switch.tsx";
+import { buildCaptionAnimPatch } from "./lib/inspectorHelpers.ts";
 import {
   NumInput,
   NumStepper,
-  PctSlider,
   Segmented,
   VIDEO_EXT_RE,
   fmtTime,
@@ -69,6 +74,36 @@ type BgmTrack = Bgm["tracks"][number];
 const round2 = (n: number) => Math.round(n * 100) / 100;
 /** 区間がゼロ幅・逆転しないための最小幅(秒)。App の MIN_SPAN と同じ */
 const MIN_SPAN = 0.01;
+
+/** Inspector-only percentage slider. Native range events stay continuous and callers
+ * retain their existing coalesce keys; this component only supplies the OpenCut skin. */
+const PercentSlider = ({
+  pct,
+  max = 100,
+  title,
+  onChange,
+}: {
+  pct: number;
+  max?: number;
+  title?: string;
+  onChange: (pct: number) => void;
+}) => (
+  <>
+    <Slider
+      className="pctSlider"
+      min={0}
+      max={max}
+      step={5}
+      value={pct}
+      title={title}
+      style={{
+        background: `linear-gradient(to right, hsl(var(--oc-primary)) ${(pct / max) * 100}%, hsl(var(--oc-muted)) ${(pct / max) * 100}%)`,
+      }}
+      onChange={(event) => onChange(Number(event.target.value))}
+    />
+    <span className="mono dim pctVal">{pct}%</span>
+  </>
+);
 
 /**
  * 右サイドの常設インスペクタ。タイムラインで選択したクリップの詳細を編集する。
@@ -288,7 +323,7 @@ export const Inspector = ({
     const r = activeShort?.ranges[selection.index];
     if (!r || !activeShort) return null;
     return (
-      <div className="insp">
+      <div className="insp ocInspector">
         <InspHead
           kind="ショート範囲"
           title={activeShort.name}
@@ -399,7 +434,7 @@ export const Inspector = ({
       setCaptionTrackDefault(track, { style: Object.keys(st).length > 0 ? st : null }, key);
     };
     return (
-      <div className="insp">
+      <div className="insp ocInspector">
         <Section
           title={`${captionTrackName(track, overlays, capTracks)}(トラック標準)`}
           className="flushTopSec"
@@ -563,9 +598,9 @@ export const Inspector = ({
       updateCaption(selection.index, { pos: { x, y } });
     };
     return (
-      <div className="insp">
+      <div className="insp ocInspector">
         <Section title={captionTrackName(track, overlays, capTracks)} className="captionTextSec">
-          <input
+          <Input
             className="capTextInput"
             type="text"
             value={s.text}
@@ -649,7 +684,7 @@ export const Inspector = ({
             <div className="capLabeledField">
               <span>In</span>
               <div className="capField noLabel">
-              <select
+              <NativeSelect
                 value={s.style?.anim?.in ?? ""}
                 title="表示され始めるときの動き。「なし(標準)」=トラック標準/既定を継承、「アニメ無し」=標準を明示的に打ち消す"
                 onChange={(e) =>
@@ -663,13 +698,13 @@ export const Inspector = ({
                     {o.label}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
               </div>
             </div>
             <div className="capLabeledField">
               <span>Out</span>
               <div className="capField noLabel">
-              <select
+              <NativeSelect
                 value={s.style?.anim?.out ?? ""}
                 title="表示が終わるときの動き"
                 onChange={(e) =>
@@ -683,7 +718,7 @@ export const Inspector = ({
                     {o.label}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
               </div>
             </div>
             {((s.style?.anim?.in ?? "") !== "" || (s.style?.anim?.out ?? "") !== "") && (
@@ -708,8 +743,7 @@ export const Inspector = ({
           <div className="capControlStack karaokeControls">
           <div className="capField wide">
             <label>カラオケ表示</label>
-            <input
-              type="checkbox"
+            <Switch
               checked={!!s.style?.karaoke}
               title="発話に同期して語の色を切り替える(このテロップの words[] を消費)"
               onChange={(e) =>
@@ -721,8 +755,7 @@ export const Inspector = ({
             <>
               <div className="capField swatchField">
                 <label>発話済み</label>
-                <input
-                  type="color"
+                <ColorInput
                   value={s.style.karaoke.activeColor ?? KARAOKE_DEFAULT_ACTIVE}
                   title="発話済み(読み終えた)語の色"
                   onChange={(e) =>
@@ -735,8 +768,7 @@ export const Inspector = ({
               </div>
               <div className="capField swatchField">
                 <label>未発話</label>
-                <input
-                  type="color"
+                <ColorInput
                   value={s.style.karaoke.inactiveColor ?? effStyle.color ?? CAPTION_DEFAULT_COLOR}
                   title="未発話(これから読む)語の色。既定はテロップの本文色"
                   onChange={(e) =>
@@ -757,7 +789,7 @@ export const Inspector = ({
               </div>
               <div className="capField wide">
                 <label>未発話の不透明度</label>
-                <PctSlider
+                <PercentSlider
                   pct={Math.round((s.style.karaoke.inactiveOpacity ?? 1) * 100)}
                   title="未発話の語の薄さ(これから読む所を薄くできる)"
                   onChange={(pct) =>
@@ -795,7 +827,7 @@ export const Inspector = ({
           <Section title="トラック">
             <div className="field">
               <label>トラック</label>
-              <select
+              <NativeSelect
                 value={track}
                 title="タイムラインのテロップトラックと連動(前面/背面はトラックの並び順)"
                 onChange={(e) => {
@@ -808,7 +840,7 @@ export const Inspector = ({
                     {captionTrackName(i + 1, overlays, capTracks)}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             </div>
           </Section>
         )}
@@ -839,7 +871,7 @@ export const Inspector = ({
     );
     const volPct = Math.round((ins.volume ?? 1) * 100);
     return (
-      <div className="insp">
+      <div className="insp ocInspector">
         <MaterialHead
           kind="挿入クリップ(インサート)"
           file={ins.file}
@@ -933,7 +965,7 @@ export const Inspector = ({
           {isVideo && (
             <div className="field">
               <label>音量</label>
-              <PctSlider
+              <PercentSlider
                 pct={volPct}
                 max={200}
                 title="挿入クリップの音量(100%=素材のまま、0%=無音)。書き出しにも効く"
@@ -993,7 +1025,7 @@ export const Inspector = ({
     const playedSec = parts.reduce((s, iv) => s + (iv.end - iv.start), 0);
     const fadeSum = (t.fadeInSec ?? 0) + (t.fadeOutSec ?? 0);
     return (
-      <div className="insp">
+      <div className="insp ocInspector">
         <Section title="BGM" className="flushTopSec">
           <div className="capControlStack">
           <div className="capField wide">
@@ -1154,7 +1186,7 @@ export const Inspector = ({
       .map((t, i) => ({ t, i }))
       .filter(({ t }) => t.end > s.start + 0.05 && t.start < s.end - 0.05);
     return (
-      <div className="insp">
+      <div className="insp ocInspector">
         <Section title={isKeep ? "映像" : "カット区間"} className="flushTopSec">
           <div className="capControlStack">
             <div className="capLabeledField">
@@ -1261,7 +1293,7 @@ export const Inspector = ({
     const patch = (p: Partial<OverlayEntry>, key?: string) =>
       updateSpan("overlays", selection.index, p, key);
     return (
-      <div className="insp">
+      <div className="insp ocInspector">
         <MaterialHead
           kind={`素材 V${overlayTrack(ov)}`}
           file={ov.file}
@@ -1290,7 +1322,7 @@ export const Inspector = ({
           {ovTracks > 1 && (
             <div className="capField wide">
               <label>トラック</label>
-              <select
+              <NativeSelect
                 value={overlayTrack(ov)}
                 title="タイムラインの素材トラックと連動(前面/背面はトラックの並び順)"
                 onChange={(e) => {
@@ -1304,7 +1336,7 @@ export const Inspector = ({
                     素材 V{i + 1}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             </div>
           )}
         </Section>
@@ -1345,7 +1377,7 @@ export const Inspector = ({
           {isVideo && (
             <div className="capField">
               <label>音量</label>
-              <PctSlider
+              <PercentSlider
                 pct={volPct}
                 max={200}
                 title="素材の音量(0%=無音が既定。マイク音声・BGM はそのまま重なる)。書き出しにも効く"
@@ -1360,7 +1392,7 @@ export const Inspector = ({
           )}
           <div className="capField wide">
             <label>不透明度</label>
-            <PctSlider
+            <PercentSlider
               pct={opacityPct}
               title="素材の透け具合(100%=不透明)"
               onChange={(pct) =>
@@ -1437,7 +1469,7 @@ export const Inspector = ({
       transitionOutSec: side === "out" ? value : transitionOutSec,
     });
     return (
-      <div className="insp">
+      <div className="insp ocInspector">
         <InspHead
           kind="ワイプ全画面"
           title={`${fmtTime(sp.start)} 〜 ${fmtTime(sp.end)}`}
@@ -1542,7 +1574,7 @@ export const Inspector = ({
     const z = (overlays.zooms ?? [])[selection.index];
     if (!z) return null;
     return (
-      <div className="insp">
+      <div className="insp ocInspector">
         <Section title="拡大範囲" className="flushTopSec">
           <ZoomRectControl
             rect={z.rect}
@@ -1595,7 +1627,7 @@ export const Inspector = ({
     if (!b) return null;
     const strengthPct = Math.round((b.strength ?? DEFAULT_BLUR_STRENGTH) * 100);
     return (
-      <div className="insp">
+      <div className="insp ocInspector">
         <Section title="隠す範囲" className="flushTopSec">
           <BlurRectControl
             rect={b.rect}
@@ -1608,7 +1640,7 @@ export const Inspector = ({
           <div className="capControlStack">
           <div className="capField wide">
             <label>強度</label>
-            <PctSlider
+            <PercentSlider
               pct={strengthPct}
               title="0=効果なし〜100=最大。省略時 50%(既定)"
               onChange={(pct) =>
@@ -1680,7 +1712,7 @@ export const Inspector = ({
     };
 
     return (
-      <div className="insp">
+      <div className="insp ocInspector">
         <Section title="種別" className="flushTopSec">
           <div className="capControlStack">
             <div className="capField wide noLabel">
@@ -1798,7 +1830,7 @@ export const Inspector = ({
             </div>
             <div className="capField wide">
               <label>外側の暗さ</label>
-              <PctSlider
+              <PercentSlider
                 pct={Math.round((a.dim ?? DEFAULT_SPOTLIGHT_DIM) * 100)}
                 title="0=効果なし〜100=真っ黒。省略時 60%(既定)"
                 onChange={(pct) =>
@@ -1947,7 +1979,7 @@ const CaptionDesignFields = ({
       <Section title="タイポグラフィ">
         <div className="capControlStack typographyControls">
           <div className="capField wide noLabel">
-            <select
+            <NativeSelect
               value={effFamily}
               title="フォント種。標準=下の層(トラック標準 → config の既定)を継承"
               onChange={(e) =>
@@ -1961,10 +1993,10 @@ const CaptionDesignFields = ({
                   {p.label}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
           <div className="capField noLabel">
-            <select
+            <NativeSelect
               value={effStyle.fontWeight ?? CAPTION_DEFAULT_FONT_WEIGHT}
               title="文字の太さ"
               onChange={(e) => patch({ fontWeight: Number(e.target.value) })}
@@ -1974,7 +2006,7 @@ const CaptionDesignFields = ({
                   {o.label}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
           <div className="capField noLabel">
             <NumStepper
@@ -1994,8 +2026,7 @@ const CaptionDesignFields = ({
         <div className="capControlStack paintControls">
           <div className="capField swatchField">
             <label>文字</label>
-            <input
-              type="color"
+            <ColorInput
               value={style?.color ?? base.color}
               title="文字色"
               onChange={(e) => patch({ color: e.target.value }, `${keyPrefix}:color`)}
@@ -2003,8 +2034,7 @@ const CaptionDesignFields = ({
           </div>
           <div className="capField swatchField">
             <label>縁</label>
-            <input
-              type="checkbox"
+            <Switch
               checked={outlineOn}
               title="文字の縁取りの有無(なし=outlineColor: none)"
               onChange={(e) =>
@@ -2021,8 +2051,7 @@ const CaptionDesignFields = ({
               }
             />
             {outlineOn && (
-              <input
-                type="color"
+              <ColorInput
                 value={
                   (style?.outlineColor !== "none" ? style?.outlineColor : undefined) ??
                   (base.outlineColor !== "none" ? base.outlineColor : CAPTION_DEFAULT_OUTLINE)
@@ -2063,8 +2092,7 @@ const CaptionDesignFields = ({
         <div className="capControlStack bandControls">
           <div className="capField swatchField">
             <label>帯</label>
-            <input
-              type="checkbox"
+            <Switch
               checked={!!effBg}
               title={
                 inheritedBg
@@ -2089,8 +2117,7 @@ const CaptionDesignFields = ({
               }
             />
             {effBg && bgColor && (
-              <input
-                type="color"
+              <ColorInput
                 value={bgColor.hex}
                 title="帯の色"
                 onChange={(e) =>
@@ -2103,7 +2130,7 @@ const CaptionDesignFields = ({
             <>
               <div className="capField wide">
                 <label>不透明度</label>
-                <PctSlider
+                <PercentSlider
                   pct={Math.round(bgColor.alpha * 100)}
                   title="帯の透け具合(rgba として保存)"
                   onChange={(pct) =>
@@ -2816,7 +2843,7 @@ const ColorField = ({
 }) => (
   <div className="capField swatchField">
     <label>{label}</label>
-    <input type="color" value={value} onChange={(e) => onChange(e.target.value)} />
+    <ColorInput value={value} onChange={(e) => onChange(e.target.value)} />
   </div>
 );
 
@@ -2833,21 +2860,19 @@ const FillField = ({
   return (
     <div className="capField wide">
       <label>塗り</label>
-      <input
-        type="checkbox"
+      <Switch
         checked={!!col}
         title="枠の内側を塗る(既定は塗りなし=枠線のみ)"
         onChange={(e) => onChange(e.target.checked ? "rgba(255, 59, 48, 0.25)" : undefined)}
       />
       {col && (
         <>
-          <input
-            type="color"
+          <ColorInput
             value={col.hex}
             title="塗りの色"
             onChange={(e) => onChange(joinColor(e.target.value, col.alpha))}
           />
-          <PctSlider
+          <PercentSlider
             pct={Math.round(col.alpha * 100)}
             title="塗りの不透明度"
             onChange={(pct) => onChange(joinColor(col.hex, pct / 100))}
@@ -2946,35 +2971,24 @@ const BatchCaptionPanel = ({
    * 引き継いで組み立て、undefined サブキーを掃除してから渡す。App の
    * updateCaptionsStyle はトップレベルしか掃除しないため、ネストの掃除は
    * ここで行う(単体パネルの patchAnim と同型) */
-  const buildAnimPatch = (full: {
-    in: CaptionAnimKind | "";
-    out: CaptionAnimKind | "";
-    durationSec: number | undefined;
-  }): Partial<CaptionStyle> => {
-    const an: CaptionAnim = {};
-    if (full.in !== "") an.in = full.in;
-    if (full.out !== "") an.out = full.out;
-    if (full.durationSec !== undefined) an.durationSec = full.durationSec;
-    return { anim: Object.keys(an).length > 0 ? an : undefined };
-  };
   const applyAnimIn = (v: CaptionAnimKind | "") =>
     updateCaptionsStyle(
       indices,
-      buildAnimPatch({ in: v, out: animOutC.value ?? "", durationSec: animDurC.value }),
+      buildCaptionAnimPatch({ in: v, out: animOutC.value ?? "", durationSec: animDurC.value }),
     );
   const applyAnimOut = (v: CaptionAnimKind | "") =>
     updateCaptionsStyle(
       indices,
-      buildAnimPatch({ in: animInC.value ?? "", out: v, durationSec: animDurC.value }),
+      buildCaptionAnimPatch({ in: animInC.value ?? "", out: v, durationSec: animDurC.value }),
     );
   const applyAnimDur = (v: number | undefined) =>
     updateCaptionsStyle(
       indices,
-      buildAnimPatch({ in: animInC.value ?? "", out: animOutC.value ?? "", durationSec: v }),
+      buildCaptionAnimPatch({ in: animInC.value ?? "", out: animOutC.value ?? "", durationSec: v }),
       `capBatch:${indices.join(".")}:animDur`,
     );
   return (
-    <div className="insp">
+    <div className="insp ocInspector">
       <InspHead kind="複数選択" title={`テロップ ${segs.length} 件`} />
       <p className="dim hint" style={{ marginTop: 0 }}>
         ⌘クリックで選択に追加/解除できます(タイムライン・テロップ一覧の両方)。
@@ -3002,8 +3016,7 @@ const BatchCaptionPanel = ({
         </div>
         <div className="field">
           <label>文字色</label>
-          <input
-            type="color"
+          <ColorInput
             value={colorC.value ?? captionDefaults.color ?? CAPTION_DEFAULT_COLOR}
             title={colorC.mixed ? "いま色はバラバラです(変更すると全件そろえます)" : undefined}
             onChange={(e) =>
@@ -3017,7 +3030,7 @@ const BatchCaptionPanel = ({
         </div>
         <div className="field">
           <label>太さ</label>
-          <select
+          <NativeSelect
             value={weightC.mixed ? "__mixed" : weightC.value ?? ""}
             onChange={(e) =>
               e.target.value !== "__mixed" &&
@@ -3037,12 +3050,11 @@ const BatchCaptionPanel = ({
                 {o.label}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </div>
         <div className="field">
           <label>座布団(背景帯)</label>
-          <input
-            type="checkbox"
+          <Switch
             checked={segs.every((s) => !!s.style?.background)}
             onChange={(e) =>
               updateCaptionsStyle(
@@ -3056,7 +3068,7 @@ const BatchCaptionPanel = ({
         </div>
         <div className="field">
           <label>登場</label>
-          <select
+          <NativeSelect
             value={animInC.mixed ? "__mixed" : animInC.value ?? ""}
             title="選択中全件の登場アニメをそろえます"
             onChange={(e) =>
@@ -3074,11 +3086,11 @@ const BatchCaptionPanel = ({
                 {o.label}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </div>
         <div className="field">
           <label>退場</label>
-          <select
+          <NativeSelect
             value={animOutC.mixed ? "__mixed" : animOutC.value ?? ""}
             title="選択中全件の退場アニメをそろえます"
             onChange={(e) =>
@@ -3096,7 +3108,7 @@ const BatchCaptionPanel = ({
                 {o.label}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </div>
         <div className="field">
           <label>アニメの速さ(秒)</label>
@@ -3110,8 +3122,7 @@ const BatchCaptionPanel = ({
         </div>
         <div className="field">
           <label>カラオケ表示</label>
-          <input
-            type="checkbox"
+          <Switch
             checked={karaokeOn}
             title="発話に同期した語の色替え(選択中全件を一括で有効/無効化。細かい色は単体編集で)"
             onChange={(e) =>
@@ -3135,7 +3146,7 @@ const BatchCaptionPanel = ({
         <Section title="トラック(一括)">
           <div className="field">
             <label>トラック</label>
-            <select
+            <NativeSelect
               value={trackC.value ?? ""}
               onChange={(e) =>
                 e.target.value !== "" &&
@@ -3148,7 +3159,7 @@ const BatchCaptionPanel = ({
                   {captionTrackName(i + 1, overlays, capTracks)}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
         </Section>
       )}
@@ -3266,9 +3277,9 @@ const ShortCaptionPanel = ({
     setShortCaptionTrackDefault(track, { pos: { x, y } });
   };
   return (
-    <div className="insp">
+    <div className="insp ocInspector">
       <Section title={captionTrackName(track, overlays, capTracks)} className="captionTextSec">
-        <input
+        <Input
           className="capTextInput"
           type="text"
           value={s.text}
@@ -3324,7 +3335,7 @@ const ShortCaptionPanel = ({
           />
         </div>
         <div className="capField wide noLabel">
-          <select
+          <NativeSelect
             value={base.fontFamily ?? CAPTION_DEFAULT_FONT_FAMILY}
             onChange={(e) => patchStyle({ fontFamily: e.target.value })}
           >
@@ -3333,10 +3344,10 @@ const ShortCaptionPanel = ({
                 {p.label}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </div>
         <div className="capField noLabel">
-          <select
+          <NativeSelect
             value={trackDef?.style?.fontWeight ?? 400}
             onChange={(e) => patchStyle({ fontWeight: Number(e.target.value) })}
           >
@@ -3345,7 +3356,7 @@ const ShortCaptionPanel = ({
                 {o.label}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </div>
         </div>
       </Section>
@@ -3353,16 +3364,14 @@ const ShortCaptionPanel = ({
         <div className="capControlStack paintControls">
         <div className="capField swatchField">
           <label>文字色</label>
-          <input
-            type="color"
+          <ColorInput
             value={base.color}
             onChange={(e) => patchStyle({ color: e.target.value })}
           />
         </div>
         <div className="capField swatchField">
           <label>縁取り</label>
-          <input
-            type="checkbox"
+          <Switch
             checked={outlineOn}
             onChange={(e) =>
               patchStyle(
@@ -3373,8 +3382,7 @@ const ShortCaptionPanel = ({
             }
           />
           {outlineOn && (
-            <input
-              type="color"
+            <ColorInput
               value={base.outlineColor !== "none" ? base.outlineColor : CAPTION_DEFAULT_OUTLINE}
               onChange={(e) => patchStyle({ outlineColor: e.target.value })}
             />
@@ -3518,7 +3526,7 @@ const ProjectPanel = ({
   const keepsN = cutplan.segments.filter((s) => s.action === "keep").length;
   const cutPct = srcDur > 0 ? Math.max(0, Math.round((1 - duration / srcDur) * 100)) : 0;
   return (
-    <div className="insp">
+    <div className="insp ocInspector">
       <InspHead
         kind="プロジェクト"
         title={project.dir.replace(/\/+$/, "").split("/").pop() ?? project.dir}

@@ -76,7 +76,7 @@ test("header migration preserves AI, layout, settings, save, approval, and expor
   assert.match(app, /setExportOpen\(false\);\s+void runExport\("preview"\);/);
 });
 
-test("P2 checkpoint 2 stays scoped away from Inspector and Timeline", () => {
+test("P2 panel scopes remain isolated from Timeline while Inspector advances at checkpoint 3", () => {
   const app = read("editor/client/App.tsx");
   const css = read("editor/client/styles.css");
   assert.match(app, /<MaterialsPanel\b/);
@@ -89,7 +89,8 @@ test("P2 checkpoint 2 stays scoped away from Inspector and Timeline", () => {
   assert.match(css, /P2 checkpoint 1: OpenCut compact header/);
   assert.match(css, /\.ocSidePanel\b/);
   assert.match(css, /\.ocTransport\b/);
-  assert.doesNotMatch(css, /\.oc(?:Inspector|Timeline)\b/);
+  assert.match(css, /\.ocInspector\b/);
+  assert.doesNotMatch(css, /\.ocTimeline\b/);
 });
 
 test("P2 checkpoint 2 mounts exactly four accessible CutFlow icon-rail tabs", () => {

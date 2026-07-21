@@ -20,6 +20,10 @@ server routes, and editing behavior are not vendored.
 | Transport button source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/button.tsx` |
 | Transport select source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/native-select.tsx` |
 | Transport slider source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/slider.tsx` |
+| Inspector input source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/input.tsx` |
+| Inspector native select source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/native-select.tsx` |
+| Inspector slider source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/slider.tsx` |
+| Inspector switch source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/switch.tsx` |
 | License source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/LICENSE` |
 
 ## Adaptation in CutFlow
@@ -62,6 +66,18 @@ server routes, and editing behavior are not vendored.
   keyboard-title semantics; only native controls and existing handlers are
   wrapped or token-skinned. A scoped 1024px multi-row rule prevents overlap while
   the dual-axis Timeline and Inspector remain untouched.
+- P2 checkpoint 3 adapts OpenCut's compact properties vocabulary for CutFlow's
+  Inspector only. `Input`, `NativeSelect`, `Slider`, `Switch`, and
+  the native color adapter retain browser-controlled values and events; the
+  Inspector's existing `NumInput`/`NumStepper` retain draft, Enter, blur,
+  Escape, empty-value, step, and preset behavior. Continuous range and color
+  events still use the original per-field coalesce keys and undo grouping.
+  The OpenCut visual vocabulary is applied under `.ocInspector`, so Settings,
+  Timeline, AI, server/API, and editor data semantics are not reskinned here.
+  All twelve CutFlow selection kinds, project/no-selection, multi-caption, and
+  short-caption branches remain mounted through their original callbacks. The
+  short approval control intentionally remains a native checkbox rather than a
+  switch because it represents a human approval boundary, not a light setting.
 - Tailwind Preflight is deliberately excluded so the existing inline stylesheet
   remains authoritative for components that have not yet migrated.
 

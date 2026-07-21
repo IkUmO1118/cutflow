@@ -644,3 +644,296 @@
 @container (max-width: 400px) {
   .ocTransport .sec { display: none; }
 }
+
+/* P2 checkpoint 3: OpenCut compact properties panel. The scope is deliberate:
+ * Settings, AI review, Timeline, and the remaining legacy surfaces keep their
+ * existing controls until their own phases. */
+.ocInspector {
+  --insp-control-h: 1.75rem;
+  min-height: 100%;
+  padding: 0.55rem 0.65rem 0.9rem;
+  color: hsl(var(--oc-foreground));
+  background: hsl(var(--oc-card));
+  font-size: var(--oc-text-xs);
+  scrollbar-color: hsl(var(--oc-muted-foreground) / 0.45) transparent;
+  scrollbar-width: thin;
+}
+
+.ocInspector::-webkit-scrollbar,
+.inspPanel .panelBody:has(> .ocInspector)::-webkit-scrollbar { width: 0.45rem; }
+.ocInspector::-webkit-scrollbar-thumb,
+.inspPanel .panelBody:has(> .ocInspector)::-webkit-scrollbar-thumb {
+  background: hsl(var(--oc-muted-foreground) / 0.38);
+  border: 0.12rem solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+.ocInspector .inspHead {
+  gap: 0.55rem;
+  min-height: 2.65rem;
+  margin: -0.1rem -0.05rem 0.25rem;
+  padding: 0.4rem 0.35rem 0.55rem;
+  border-bottom: 1px solid hsl(var(--oc-border));
+}
+
+.ocInspector .inspThumb {
+  width: 2.8rem;
+  height: 2.8rem;
+  border: 1px solid hsl(var(--oc-border));
+  border-radius: var(--oc-radius);
+  background: hsl(var(--oc-background));
+}
+
+.ocInspector .inspHeadText { gap: 0.15rem; }
+.ocInspector .inspKind {
+  color: hsl(var(--oc-muted-foreground));
+  font-size: 0.64rem;
+  font-weight: 650;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+.ocInspector .inspTitle {
+  color: hsl(var(--oc-foreground));
+  font-size: var(--oc-text-sm);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.ocInspector .inspChips { gap: 0.22rem; }
+.ocInspector .chip {
+  padding: 0.08rem 0.35rem;
+  color: hsl(var(--oc-muted-foreground));
+  border: 1px solid hsl(var(--oc-border));
+  border-radius: 999px;
+  background: hsl(var(--oc-muted) / 0.42);
+  font-size: 0.62rem;
+}
+
+.ocInspector .inspSec {
+  margin-top: 0.58rem;
+  padding-top: 0.58rem;
+  border-top-color: hsl(var(--oc-border));
+}
+.ocInspector .inspSec.flushTopSec,
+.ocInspector .inspSec.captionTextSec {
+  margin-top: 0;
+  padding-top: 0.45rem;
+  border-top: 0;
+}
+.ocInspector .inspSec > h4 {
+  margin: 0 0 0.42rem;
+  color: hsl(var(--oc-muted-foreground));
+  font-size: 0.65rem;
+  font-weight: 650;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.ocInspector .capControlStack,
+.ocInspector .capPositionGrid { gap: 0.38rem; }
+.ocInspector .field,
+.ocInspector .capField {
+  min-height: var(--insp-control-h);
+  gap: 0.4rem;
+  margin-bottom: 0.38rem;
+  padding: 0.25rem 0.38rem;
+  border-color: hsl(var(--oc-border));
+  border-radius: calc(var(--oc-radius) - 0.1rem);
+  background: hsl(var(--oc-background) / 0.44);
+}
+.ocInspector .field > label,
+.ocInspector .capField > label,
+.ocInspector .capLabeledField > span {
+  color: hsl(var(--oc-muted-foreground));
+  font-size: 0.66rem;
+  font-weight: 500;
+}
+.ocInspector .capField.noLabel { padding: 0; background: transparent; }
+
+.ocInspector :is(
+  [data-slot="input"],
+  [data-slot="textarea"],
+  [data-slot="native-select"],
+  input.num
+) {
+  min-height: var(--insp-control-h);
+  color: hsl(var(--oc-foreground));
+  border: 1px solid hsl(var(--oc-input));
+  border-radius: calc(var(--oc-radius) - 0.1rem);
+  background-color: hsl(var(--oc-card));
+  font-size: var(--oc-text-xs);
+  outline: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+}
+.ocInspector :is([data-slot="input"], [data-slot="textarea"], [data-slot="native-select"], input.num):hover:not(:disabled) {
+  border-color: hsl(var(--oc-muted-foreground) / 0.55);
+}
+.ocInspector :is([data-slot="input"], [data-slot="textarea"], [data-slot="native-select"], input.num):focus-visible {
+  border-color: hsl(var(--oc-ring));
+  box-shadow: 0 0 0 2px hsl(var(--oc-ring) / 0.24);
+}
+.ocInspector input.num.invalid {
+  border-color: hsl(var(--oc-destructive));
+  box-shadow: 0 0 0 2px hsl(var(--oc-destructive) / 0.16);
+}
+.ocInspector [data-slot="native-select"] {
+  width: 100%;
+  padding: 0 1.55rem 0 0.45rem;
+}
+.ocInspector .capTextInput { width: 100%; height: 2rem; }
+
+.ocInspector .numStepper {
+  min-height: var(--insp-control-h);
+  border-color: hsl(var(--oc-input));
+  border-radius: calc(var(--oc-radius) - 0.1rem);
+  background: hsl(var(--oc-card));
+}
+.ocInspector .numStepper:focus-within {
+  border-color: hsl(var(--oc-ring));
+  box-shadow: 0 0 0 2px hsl(var(--oc-ring) / 0.24);
+}
+.ocInspector .numStepper input.num {
+  min-height: calc(var(--insp-control-h) - 2px);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.ocInspector .numStepperUnit { color: hsl(var(--oc-muted-foreground)); }
+.ocInspector .numStepperChevron {
+  color: hsl(var(--oc-muted-foreground));
+  border-left-color: hsl(var(--oc-border));
+}
+.ocInspector .numStepperChevron:hover { color: hsl(var(--oc-foreground)); background: hsl(var(--oc-accent)); }
+.ocInspector .seg {
+  width: 100%;
+  min-height: var(--insp-control-h);
+  padding: 0.12rem;
+  gap: 0.1rem;
+  border-color: hsl(var(--oc-border));
+  border-radius: var(--oc-radius);
+  background: hsl(var(--oc-muted) / 0.42);
+}
+.ocInspector .seg button {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 1.45rem;
+  padding: 0 0.35rem;
+  color: hsl(var(--oc-muted-foreground));
+  border: 0;
+  border-radius: calc(var(--oc-radius) - 0.16rem);
+  background: transparent;
+  font-size: 0.64rem;
+}
+.ocInspector .seg button + button { border-left: 0; }
+.ocInspector .seg button:hover:not(:disabled) { color: hsl(var(--oc-foreground)); background: hsl(var(--oc-accent) / 0.62); }
+.ocInspector .seg button.on {
+  color: hsl(var(--oc-foreground));
+  background: hsl(var(--oc-card));
+  box-shadow: 0 1px 3px hsl(220 40% 2% / 0.28);
+}
+.ocInspector .seg button:focus-visible { box-shadow: 0 0 0 2px hsl(var(--oc-ring) / 0.32); }
+
+.ocInspector [data-slot="slider"] {
+  appearance: none;
+  min-width: 3.5rem;
+  height: 0.24rem;
+  border: 0;
+  border-radius: 999px;
+  outline: none;
+}
+.ocInspector [data-slot="slider"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 0.72rem;
+  height: 0.72rem;
+  border: 2px solid hsl(var(--oc-card));
+  border-radius: 999px;
+  background: hsl(var(--oc-primary));
+  box-shadow: 0 0 0 1px hsl(var(--oc-ring) / 0.6);
+}
+.ocInspector [data-slot="slider"]::-moz-range-thumb {
+  width: 0.58rem;
+  height: 0.58rem;
+  border: 2px solid hsl(var(--oc-card));
+  border-radius: 999px;
+  background: hsl(var(--oc-primary));
+}
+.ocInspector [data-slot="slider"]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px hsl(var(--oc-ring) / 0.3); }
+.ocInspector .pctVal { min-width: 2.2rem; color: hsl(var(--oc-muted-foreground)); font-size: 0.64rem; }
+
+.ocInspector [data-slot="switch"] {
+  appearance: none;
+  position: relative;
+  flex: 0 0 auto;
+  width: 1.65rem !important;
+  height: 0.92rem;
+  margin: 0;
+  border: 1px solid hsl(var(--oc-border));
+  border-radius: 999px;
+  background: hsl(var(--oc-muted));
+  cursor: pointer;
+  outline: none;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+.ocInspector [data-slot="switch"]::after {
+  content: "";
+  position: absolute;
+  top: 0.11rem;
+  left: 0.12rem;
+  width: 0.58rem;
+  height: 0.58rem;
+  border-radius: 999px;
+  background: hsl(var(--oc-muted-foreground));
+  transition: transform 120ms ease, background-color 120ms ease;
+}
+.ocInspector [data-slot="switch"]:checked { border-color: hsl(var(--oc-primary)); background: hsl(var(--oc-primary)); }
+.ocInspector [data-slot="switch"]:checked::after { transform: translateX(0.7rem); background: hsl(var(--oc-primary-foreground)); }
+.ocInspector [data-slot="switch"]:focus-visible { box-shadow: 0 0 0 2px hsl(var(--oc-ring) / 0.3); }
+
+.ocInspector [data-slot="color-input"] {
+  width: 1.6rem !important;
+  height: 1.35rem !important;
+  padding: 0.1rem;
+  border: 1px solid hsl(var(--oc-border));
+  border-radius: calc(var(--oc-radius) - 0.12rem);
+  background: hsl(var(--oc-card));
+  cursor: pointer;
+}
+.ocInspector [data-slot="color-input"]::-webkit-color-swatch-wrapper { padding: 0; }
+.ocInspector [data-slot="color-input"]::-webkit-color-swatch { border: 0; border-radius: 0.18rem; }
+.ocInspector [data-slot="color-input"]::-moz-color-swatch { border: 0; border-radius: 0.18rem; }
+.ocInspector [data-slot="color-input"]:focus-visible { box-shadow: 0 0 0 2px hsl(var(--oc-ring) / 0.28); }
+
+.ocInspector .btnRow { gap: 0.3rem; margin: 0.42rem 0; }
+.ocInspector button:not(.anchorHit) { border-radius: calc(var(--oc-radius) - 0.1rem); }
+.ocInspector button.danger {
+  color: hsl(var(--oc-destructive));
+  border-color: hsl(var(--oc-destructive) / 0.35);
+  background: hsl(var(--oc-destructive) / 0.08);
+}
+.ocInspector button.danger:hover { background: hsl(var(--oc-destructive) / 0.16); }
+.ocInspector .linkish { color: hsl(var(--oc-primary)); }
+.ocInspector .dim,
+.ocInspector .hint { color: hsl(var(--oc-muted-foreground)); }
+.ocInspector .warnText { color: hsl(38 92% 64%); }
+
+.ocInspector .inspDetails {
+  margin: 0.42rem 0 0.1rem;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid hsl(var(--oc-border));
+  border-radius: calc(var(--oc-radius) - 0.1rem);
+  background: hsl(var(--oc-background) / 0.35);
+}
+.ocInspector .inspDetails summary {
+  margin: 0;
+  color: hsl(var(--oc-muted-foreground));
+  font-size: 0.66rem;
+  outline: none;
+}
+.ocInspector .inspDetails summary:focus-visible { color: hsl(var(--oc-foreground)); box-shadow: 0 0 0 2px hsl(var(--oc-ring) / 0.25); }
+.ocInspector .projRows { gap: 0.28rem 0.5rem; }
+.ocInspector .projRows dt { color: hsl(var(--oc-muted-foreground)); }
+.ocInspector .projRows dd { color: hsl(var(--oc-foreground)); }
+.ocInspector .srcRange { background: hsl(var(--oc-muted)); }
+.ocInspector .srcRangeUse { background: hsl(var(--oc-primary)); }
+.ocInspector .anchorPoint { border-color: hsl(var(--oc-border)); background: hsl(var(--oc-background)); }
+.ocInspector .anchorPoint .anchorHit:hover { background: hsl(var(--oc-primary) / 0.12); }
