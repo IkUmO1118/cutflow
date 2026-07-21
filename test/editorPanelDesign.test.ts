@@ -76,7 +76,7 @@ test("header migration preserves AI, layout, settings, save, approval, and expor
   assert.match(app, /setExportOpen\(false\);\s+void runExport\("preview"\);/);
 });
 
-test("checkpoint 1 stays scoped away from panels, inspector, transport, and timeline", () => {
+test("P2 checkpoint 2 stays scoped away from Inspector and Timeline", () => {
   const app = read("editor/client/App.tsx");
   const css = read("editor/client/styles.css");
   assert.match(app, /<MaterialsPanel\b/);
@@ -85,9 +85,136 @@ test("checkpoint 1 stays scoped away from panels, inspector, transport, and time
   assert.match(app, /<ShortsPanel\b/);
   assert.match(app, /<Inspector\b/);
   assert.match(app, /<Timeline\b/);
-  assert.match(app, /<div className="transport">/);
+  assert.match(app, /<div className="transport ocTransport">/);
   assert.match(css, /P2 checkpoint 1: OpenCut compact header/);
-  assert.doesNotMatch(css, /\.oc(?:SidePanel|Inspector|Transport|Timeline)\b/);
+  assert.match(css, /\.ocSidePanel\b/);
+  assert.match(css, /\.ocTransport\b/);
+  assert.doesNotMatch(css, /\.oc(?:Inspector|Timeline)\b/);
+});
+
+test("P2 checkpoint 2 mounts exactly four accessible CutFlow icon-rail tabs", () => {
+  const app = read("editor/client/App.tsx");
+  const tabs = app.slice(app.indexOf("const PANEL_TABS"), app.indexOf("] as const", app.indexOf("const PANEL_TABS")));
+  for (const entry of [
+    '["materials", "素材"]',
+    '["script", "スクリプト"]',
+    '["captions", "テロップ"]',
+    '["shorts", "ショート"]',
+  ]) assert.ok(tabs.includes(entry), `missing rail capability ${entry}`);
+  assert.equal((tabs.match(/^\s*\["/gm) ?? []).length, 4);
+  assert.match(app, /<nav className="tabs ocIconRail" role="tablist" aria-label="編集パネル">/);
+  assert.match(app, /PANEL_TABS\.map\(\(\[id, label\]\) => \(\s*<Tooltip key=\{id\}>/);
+  assert.match(app, /role="tab"[\s\S]*aria-label=\{label\}[\s\S]*aria-selected=\{tab === id\}/);
+  assert.match(app, /aria-controls=\{`panel-\$\{id\}`\}/);
+  assert.match(app, /onClick=\{\(\) => setTab\(id\)\}/);
+  assert.match(app, /<TooltipContent side="right">\{label\}<\/TooltipContent>/);
+  assert.match(app, /id=\{`panel-\$\{tab\}`\}[\s\S]*role="tabpanel"/);
+
+  for (const capability of ["materials", "script", "captions", "shorts"]) {
+    assert.match(app, new RegExp(`\\{tab === "${capability}" && \\(`));
+  }
+  assert.match(app, /if \(tab !== "script" \|\| script !== null \|\| scriptFetchingRef\.current\) return;/);
+});
+
+test("Materials reskin preserves actions, cards, drag/drop, placement, and context states", () => {
+  const app = read("editor/client/App.tsx");
+  const panels = read("editor/client/Panels.tsx");
+  const css = read("editor/client/styles.css");
+
+  for (const prop of [
+    "onUploadClick={onUploadClick}",
+    "onUploadFiles={(files) => void uploadOnly(files)}",
+    "onDelete={(f) => void deleteMaterialFile(f)}",
+    "onDeleteCard={(name) => void deleteHyperframeCard(name)}",
+    "onRenderHyperframe={(name) => void runHyperframeRender(name)}",
+    "onNewHyperframe={openHyperframeAuthor}",
+    "onDragBegin={onMaterialDragBegin}",
+    "onDragEnd={onMaterialDragEnd}",
+  ]) assert.ok(app.includes(prop), `missing MaterialsPanel handler ${prop}`);
+  assert.match(app, /void placeMaterial\(f, null, AUDIO_ONLY_RE\.test\(f\) \? "bgm" : "overlay"\)/);
+
+  assert.match(panels, /className=\{`matPanel ocMaterialsPanel\$\{dragOver \? " dragOver" : ""\}`\}/);
+  assert.match(panels, /e\.dataTransfer\.types\.includes\("Files"\)/);
+  assert.match(panels, /const files = Array\.from\(e\.dataTransfer\.files\);\s+if \(files\.length > 0\) onUploadFiles\(files\);/);
+  assert.match(panels, /className="matDropOverlay"/);
+  assert.match(panels, /e\.dataTransfer\.setData\(MATERIAL_MIME, file\)/);
+  assert.match(panels, /chip\.className = "dragChip"/);
+  assert.match(panels, /e\.dataTransfer\.setDragImage\(chip, 12, 12\)/);
+  assert.match(panels, /onDragBegin\(file\)/);
+  assert.match(panels, /onDoubleClick=\{\(\) => file && !busy && onPlace\(file\)\}/);
+  assert.match(panels, /onDoubleClick=\{\(\) => !busy && onPlace\(m\)\}/);
+  assert.match(panels, /onContextMenu=\{\(event\) => openMenu/);
+  assert.match(panels, /onContextMenu=\{\(e\) => openMenu\(e, \{ file: m \}\)\}/);
+
+  for (const state of [
+    "authorPendingName &&",
+    "hyperframes.map((card)",
+    "materials.map((m)",
+    "matThumbUnplayable",
+    "hyperframesLoading",
+    "hyperframesError",
+    "hyperframeAuthorDisabledReason",
+    "materialCount === 0",
+    "inlineError",
+    "needsUpdate",
+    "isRendering",
+  ]) assert.ok(panels.includes(state), `missing material state ${state}`);
+  assert.match(panels, /disabled=\{busy\}[\s\S]*onClick=\{onUploadClick\}/);
+  assert.match(panels, /disabled=\{busy \|\| !!hyperframeAuthorDisabledReason\}/);
+  assert.match(panels, /onClick=\{onNewHyperframe\}/);
+  assert.match(panels, /onRenderHyperframe\(card\.name\)/);
+  assert.match(panels, /onPlace\(menu\.file!\)/);
+  assert.match(panels, /onDelete\(menu\.file!\)/);
+  assert.match(panels, /onDeleteCard\(name\)/);
+  for (const selector of [
+    ".ocMaterialsPanel .matCard",
+    ".ocMaterialsPanel .matThumbUnplayable",
+    ".ocMaterialsPanel .aiMaterialPending",
+    ".ocMaterialsPanel .aiMaterialPlaceholder",
+    ".ocMaterialsPanel .aiMaterialUpdateBadge",
+    ".ocMaterialsPanel .aiMaterialBusy",
+    ".ocMaterialsPanel .aiMaterialSpinner",
+    ".ocMaterialsPanel .matDropOverlay",
+    ".ocMaterialsPanel .ctxMenu",
+  ]) assert.ok(css.includes(selector), `missing token skin ${selector}`);
+});
+
+test("transport reskin preserves every playback control and shortcut title", () => {
+  const app = read("editor/client/App.tsx");
+  const start = app.indexOf('<div className="transport ocTransport">');
+  const end = app.indexOf('<ResizableHandle\n              id="right-handle"', start);
+  const transport = app.slice(start, end);
+  assert.ok(start >= 0 && end > start);
+
+  assert.match(transport, /onPointerDown=\{\(e\) => \{[\s\S]*scrubTo\(e\);/);
+  assert.match(transport, /onPointerMove=\{\(e\) => \{[\s\S]*scrubTo\(e\);/);
+  assert.match(transport, /<ScrubProgress duration=\{duration\} \/>/);
+  assert.match(transport, /<PlayheadTimecode \/>/);
+  assert.match(transport, /fmtTime\(duration\)/);
+  assert.match(transport, /title=\{`ミュート切替[\s\S]*onClick=\{toggleMute\}/);
+  assert.match(transport, /type="range"[\s\S]*value=\{volumePct\}[\s\S]*onChange=\{\(e\) => setVolumePct\(Number\(e\.target\.value\)\)\}/);
+  assert.match(transport, /onDoubleClick=\{\(\) => setVolumePct\(100\)\}/);
+  assert.match(transport, /title="先頭へ \(Home\)" onClick=\{\(\) => seekOut\(0\)\}/);
+  assert.match(transport, /title="1フレーム戻る \(←\)" onClick=\{\(\) => stepFrames\(-1\)\}/);
+  assert.match(transport, /title="再生\/停止 \(Space\)" onClick=\{togglePlay\}/);
+  assert.match(transport, /title="1フレーム進む \(→\)" onClick=\{\(\) => stepFrames\(1\)\}/);
+  assert.match(transport, /title="末尾へ \(End\)" onClick=\{\(\) => seekOut\(duration\)\}/);
+  assert.match(transport, /title="ループ再生\(プレビューのみ\)"[\s\S]*setLoop\(\(v\) => !v\)/);
+  assert.match(transport, /value=\{activeShortName \?\? ""\}[\s\S]*setActiveShortName\(e\.target\.value \|\| null\)/);
+  assert.match(transport, /value=\{playbackRate\}[\s\S]*setPlaybackRate\(Number\(e\.target\.value\)\)/);
+  assert.match(transport, /title="1秒戻る \(Shift\+←\)" onClick=\{\(\) => stepFrames\(-fps\)\}/);
+  assert.match(transport, /title="1秒進む \(Shift\+→\)" onClick=\{\(\) => stepFrames\(fps\)\}/);
+  assert.match(transport, /setMaximized\(\(v\) => !v\)/);
+  assert.match(transport, /onClick=\{toggleFullscreen\}/);
+});
+
+test("transport has a scoped deterministic 1024px wrap rule", () => {
+  const css = read("editor/client/styles.css");
+  assert.match(css, /@media \(max-width: 1024px\) \{[\s\S]*\.ocTransport \.tRow \{[\s\S]*flex-wrap: wrap;/);
+  assert.match(css, /\.ocTransport \.tCenter \{[\s\S]*order: 1;[\s\S]*width: 100%;[\s\S]*justify-content: center;/);
+  assert.match(css, /\.ocTransport \.tLeft \{ order: 2; \}/);
+  assert.match(css, /\.ocTransport \.tRight \{ order: 3; \}/);
+  assert.match(css, /\.ocTransport \.tLeft,[\s\S]*\.ocTransport \.tRight \{[\s\S]*flex: 1 1 100%;[\s\S]*width: 100%;[\s\S]*justify-content: center;[\s\S]*flex-wrap: wrap;[\s\S]*overflow: visible;/);
 });
 
 test("P2 checkpoint 1 provenance records exact header primitive sources and adaptations", () => {
@@ -99,4 +226,19 @@ test("P2 checkpoint 1 provenance records exact header primitive sources and adap
   assert.match(provenance, /`lucide-react` 1\.25\.0/);
   assert.match(provenance, /native approval\s+checkbox/);
   assert.match(provenance, /controlled\s+Popover/);
+});
+
+test("P2 checkpoint 2 provenance records assets rail and transport adaptation boundaries", () => {
+  const provenance = read("editor/client/vendor/opencut/PROVENANCE.md");
+  const revision = "5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e";
+  for (const source of [
+    "apps/web/src/styles.css",
+    "apps/web/src/components/ui/button.tsx",
+    "apps/web/src/components/ui/native-select.tsx",
+    "apps/web/src/components/ui/slider.tsx",
+  ]) assert.ok(provenance.includes(`${revision}/${source}`), `missing provenance ${source}`);
+  assert.match(provenance, /exactly CutFlow's four existing capabilities \(`materials`,\s+`script`, `captions`, `shorts`\)/);
+  assert.match(provenance, /OS-file upload, HyperFrames AI\s+authoring/);
+  assert.match(provenance, /scoped 1024px multi-row rule/);
+  assert.match(provenance, /dual-axis Timeline and Inspector remain untouched/);
 });

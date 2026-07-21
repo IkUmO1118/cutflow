@@ -125,12 +125,16 @@ import {
 } from "./components/ui/tooltip.tsx";
 import {
   ChevronDown,
+  Captions,
   Download,
+  FileText,
+  LibraryBig,
   PanelBottom,
   PanelLeft,
   PanelRight,
   Settings,
   Sparkles,
+  Smartphone,
 } from "lucide-react";
 import {
   SCRIPT_CUT_REASON,
@@ -386,6 +390,13 @@ const PANEL_TABS = [
   ["shorts", "ショート"],
 ] as const;
 type PanelTab = (typeof PANEL_TABS)[number][0];
+
+const PanelTabIcon = ({ tab }: { tab: PanelTab }) => {
+  if (tab === "materials") return <LibraryBig size={17} aria-hidden />;
+  if (tab === "script") return <FileText size={17} aria-hidden />;
+  if (tab === "captions") return <Captions size={17} aria-hidden />;
+  return <Smartphone size={17} aria-hidden />;
+};
 /** 左パネル・インスペクタ・プレビューの最小幅(px)。
  * 境界ドラッグでこれ以下には縮まない */
 const PANEL_MIN = 280;
@@ -5098,19 +5109,36 @@ export const App = () => {
               groupResizeBehavior="preserve-pixel-size"
               className="sideShellPanel"
             >
-              <aside className="sidePanel panel shellSurface">
-          <div className="tabs">
+              <aside className="sidePanel panel shellSurface ocSidePanel">
+          <nav className="tabs ocIconRail" role="tablist" aria-label="編集パネル">
             {PANEL_TABS.map(([id, label]) => (
-              <button
-                key={id}
-                className={tab === id ? "active" : ""}
-                onClick={() => setTab(id)}
-              >
-                {label}
-              </button>
+              <Tooltip key={id}>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    role="tab"
+                    className={tab === id ? "active" : ""}
+                    aria-label={label}
+                    aria-selected={tab === id}
+                    aria-controls={`panel-${id}`}
+                    title={label}
+                    onClick={() => setTab(id)}
+                  >
+                    <PanelTabIcon tab={id} />
+                    <span className="ocRailLabel">{label}</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="right">{label}</TooltipContent>
+              </Tooltip>
             ))}
-          </div>
-          <div className="panelBody">
+          </nav>
+          <div
+            className="panelBody ocAssetPane"
+            id={`panel-${tab}`}
+            role="tabpanel"
+            aria-label={PANEL_TABS.find(([id]) => id === tab)?.[1]}
+          >
             {tab === "materials" && (
               <MaterialsPanel
                 materials={materials}
@@ -5321,7 +5349,7 @@ export const App = () => {
           )}
         </div>
 
-        <div className="transport">
+        <div className="transport ocTransport">
         {/* 上段: シークバー(クリック/ドラッグでシーク) */}
         <div
           className="scrub"
@@ -5346,7 +5374,9 @@ export const App = () => {
           </span>
           {/* ホバーで音量バーが横に伸びる(YouTube 風)。普段はアイコンだけ */}
           <div className="volCtl">
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
               className="icon mute"
               title={`ミュート切替(プレビューのみ。書き出しには影響しない)。現在 ${volumePct}%`}
               onClick={toggleMute}
@@ -5355,7 +5385,7 @@ export const App = () => {
                 level={volumePct === 0 ? "mute" : volumePct < 50 ? "low" : "high"}
                 size={16}
               />
-            </button>
+            </Button>
             <input
               className="volume"
               type="range"
@@ -5365,7 +5395,7 @@ export const App = () => {
               value={volumePct}
               style={{
                 // 左側(現在値まで)をアクセント色で塗る
-                background: `linear-gradient(to right, var(--accent) ${volumePct}%, var(--border) ${volumePct}%)`,
+                background: `linear-gradient(to right, hsl(var(--oc-primary)) ${volumePct}%, hsl(var(--oc-border)) ${volumePct}%)`,
               }}
               title={`プレビューの音量 ${volumePct}%(書き出しには影響しない)。ダブルクリックで100%`}
               onChange={(e) => setVolumePct(Number(e.target.value))}
@@ -5374,28 +5404,30 @@ export const App = () => {
           </div>
         </div>
         <div className="tCenter">
-          <button className="icon jump" title="先頭へ (Home)" onClick={() => seekOut(0)}>
+          <Button variant="ghost" size="icon" className="icon jump" title="先頭へ (Home)" onClick={() => seekOut(0)}>
             <JumpIcon dir="back" />
-          </button>
-          <button className="icon" title="1フレーム戻る (←)" onClick={() => stepFrames(-1)}>
+          </Button>
+          <Button variant="ghost" size="icon" className="icon" title="1フレーム戻る (←)" onClick={() => stepFrames(-1)}>
             <StepIcon dir="back" />
-          </button>
-          <button className="play" title="再生/停止 (Space)" onClick={togglePlay}>
+          </Button>
+          <Button variant="secondary" className="play" title="再生/停止 (Space)" onClick={togglePlay}>
             <PlayPauseIcon playing={playing} size={18} />
-          </button>
-          <button className="icon" title="1フレーム進む (→)" onClick={() => stepFrames(1)}>
+          </Button>
+          <Button variant="ghost" size="icon" className="icon" title="1フレーム進む (→)" onClick={() => stepFrames(1)}>
             <StepIcon dir="fwd" />
-          </button>
-          <button className="icon jump" title="末尾へ (End)" onClick={() => seekOut(duration)}>
+          </Button>
+          <Button variant="ghost" size="icon" className="icon jump" title="末尾へ (End)" onClick={() => seekOut(duration)}>
             <JumpIcon dir="fwd" />
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
             className={`icon loop${loop ? " active" : ""}`}
             title="ループ再生(プレビューのみ)"
             onClick={() => setLoop((v) => !v)}
           >
             <LoopIcon />
-          </button>
+          </Button>
         </div>
         <div className="tRight">
           {/* 本編/各ショートの切替。プレビュー・タイムラインの表示対象を変える
@@ -5426,13 +5458,15 @@ export const App = () => {
               </option>
             ))}
           </select>
-          <button className="icon sec" title="1秒戻る (Shift+←)" onClick={() => stepFrames(-fps)}>
+          <Button variant="ghost" size="icon" className="icon sec" title="1秒戻る (Shift+←)" onClick={() => stepFrames(-fps)}>
             <StepIcon dir="back" double />
-          </button>
-          <button className="icon sec" title="1秒進む (Shift+→)" onClick={() => stepFrames(fps)}>
+          </Button>
+          <Button variant="ghost" size="icon" className="icon sec" title="1秒進む (Shift+→)" onClick={() => stepFrames(fps)}>
             <StepIcon dir="fwd" double />
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
             className={`icon${maximized ? " active" : ""}`}
             title={
               maximized
@@ -5442,8 +5476,10 @@ export const App = () => {
             onClick={() => setMaximized((v) => !v)}
           >
             <MaximizeIcon active={maximized} />
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
             className={`icon${fullscreen ? " active" : ""}`}
             title={
               fullscreen
@@ -5453,7 +5489,7 @@ export const App = () => {
             onClick={toggleFullscreen}
           >
             <FullscreenIcon active={fullscreen} />
-          </button>
+          </Button>
         </div>
         </div>
         </div>

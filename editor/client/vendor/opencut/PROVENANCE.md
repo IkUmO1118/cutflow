@@ -16,6 +16,10 @@ server routes, and editing behavior are not vendored.
 | Header composition source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/app/editor/%5Bproject_id%5D/page.tsx` |
 | Popover source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/popover.tsx` |
 | Tooltip source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/tooltip.tsx` |
+| Assets/icon-rail token source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/styles.css` |
+| Transport button source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/button.tsx` |
+| Transport select source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/native-select.tsx` |
+| Transport slider source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/slider.tsx` |
 | License source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/LICENSE` |
 
 ## Adaptation in CutFlow
@@ -46,6 +50,18 @@ server routes, and editing behavior are not vendored.
   checkbox, approval mutation, render/preview handlers, disabled gates, titles,
   save state, layout toggles, and settings flow remain CutFlow-owned and
   behaviorally unchanged.
+- P2 checkpoint 2 adapts the OpenCut token/button vocabulary into an icon rail
+  and compact transport without adopting OpenCut's project or media model. The
+  rail exposes exactly CutFlow's four existing capabilities (`materials`,
+  `script`, `captions`, `shorts`) and retains `tab`/`setTab`, script lazy-load,
+  and conditional child mounting. Materials keep OS-file upload, HyperFrames AI
+  authoring, normal/generated/pending/unplayable cards, drag ghosts, placement,
+  rebuild/delete context actions, and every gate/error/empty state. The
+  transport retains CutFlow's scrub/playhead, source/output timing, volume,
+  rate, loop, main/short mode, frame/second steps, maximize, fullscreen, and
+  keyboard-title semantics; only native controls and existing handlers are
+  wrapped or token-skinned. A scoped 1024px multi-row rule prevents overlap while
+  the dual-axis Timeline and Inspector remain untouched.
 - Tailwind Preflight is deliberately excluded so the existing inline stylesheet
   remains authoritative for components that have not yet migrated.
 

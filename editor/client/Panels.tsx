@@ -13,6 +13,8 @@ import { usePlayheadSelector } from "./playhead.ts";
 import { MATERIAL_MIME, buildScriptBlocks, scriptKeptFlags } from "./model.ts";
 import type { ScriptBlock } from "./model.ts";
 import { VIDEO_EXT_RE, fmtTime } from "./widgets.tsx";
+import { Button } from "./components/ui/button.tsx";
+import { Sparkles, Upload } from "lucide-react";
 
 /** ファイル名を中央省略する("B025_C012_0521MEbs" → "B025_C…21MEbs") */
 const midTrunc = (s: string, max = 18) =>
@@ -164,7 +166,7 @@ export const MaterialsPanel = ({
   const materialCount = materials.length + hyperframes.length + (authorPendingName ? 1 : 0);
   return (
     <div
-      className={`matPanel${dragOver ? " dragOver" : ""}`}
+      className={`matPanel ocMaterialsPanel${dragOver ? " dragOver" : ""}`}
       onDragEnter={onZoneDragEnter}
       onDragOver={onZoneDragOver}
       onDragLeave={onZoneDragLeave}
@@ -179,11 +181,20 @@ export const MaterialsPanel = ({
         <span className="dim">素材 {materialCount} 件</span>
         {hyperframesLoading && <span className="materialLoading">更新中…</span>}
         <div className="materialHeadActions">
-          <button className="icon" disabled={busy} onClick={onUploadClick}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="materialAction"
+            disabled={busy}
+            onClick={onUploadClick}
+          >
+            <Upload size={13} aria-hidden />
             素材を読み込む…
-          </button>
-          <button
-            className="icon"
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="materialAction aiMaterialAction"
             disabled={busy || !!hyperframeAuthorDisabledReason}
             title={
               authorPendingName
@@ -195,8 +206,9 @@ export const MaterialsPanel = ({
             {authorPendingName && (
               <img className="aiAuthorPendingIcon" src="/particle_loop_icon.svg" alt="" />
             )}
+            {!authorPendingName && <Sparkles size={13} aria-hidden />}
             AI で素材を作る…
-          </button>
+          </Button>
         </div>
       </div>
       {hyperframeAuthorDisabledReason && (
