@@ -11,6 +11,7 @@ import {
   watch,
   writeFileSync,
 } from "node:fs";
+import type { FSWatcher } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -21,7 +22,12 @@ import { spawn } from "node:child_process";
 import { renderCfgWithDesign } from "../src/lib/designAsset.ts";
 import { resolveDesign } from "../src/lib/design.ts";
 import { existingDesignAssets, prepareDesignAssetBundle } from "../src/lib/designStill.ts";
-import { build } from "esbuild";
+import {
+  buildEditorClientAssets,
+  createEditorClientReloader,
+  editorAssetResponse,
+} from "./clientBuild.ts";
+import type { MutableEditorClientAssets } from "./clientBuild.ts";
 import {
   clearCutplanApproval,
   clearShortApproval,
@@ -139,23 +145,21 @@ export async function startEditor(
 
   const editorDir = dirname(fileURLToPath(import.meta.url));
 
-  // クライアントは起動時に一度だけメモリ上へバンドルする(~100ms)
-  const bundle = await build({
-    entryPoints: [join(editorDir, "client/index.tsx")],
-    bundle: true,
-    write: false,
-    format: "iife",
-    jsx: "automatic",
-    define: { "process.env.NODE_ENV": '"production"' },
-    sourcemap: "inline",
-    target: "es2022",
-    // Main.tsx が同梱フォント(*.woff2)を import する。esbuild には既定の
-    // ローダーが無いので data URI に埋め込む(remotion 側は webpack の
-    // asset/resource が URL 化する)。バンドルはメモリ上のみで数MB増える程度
-    loader: { ".woff2": "dataurl", ".woff": "dataurl" },
+  // JS/CSS/HTML は起動時に全てメモリ上へ生成する。以後の client 変更も
+  // 3成果物が揃った revision だけを一括 publish し、失敗時は直前の成功版を配る。
+  const assets: MutableEditorClientAssets = {
+    current: await buildEditorClientAssets(editorDir, 1),
+  };
+  const clientReloader = createEditorClientReloader({
+    assets,
+    build: async (revision) => await buildEditorClientAssets(editorDir, revision),
+    onSwap: (next) => console.log(`エディタ UI を再ビルドしました(revision ${next.revision})`),
+    onError: (error) => console.error(
+      `エディタ UI の再ビルドに失敗しました。revision ${assets.current.revision} を継続配信します。`,
+      error,
+    ),
   });
-  const bundleJs = bundle.outputFiles[0].text;
-  const indexHtml = readFileSync(join(editorDir, "client/index.html"), "utf8");
+  let clientWatcher: FSWatcher | null = null;
 
   // 編集 JSON の外部変更(Claude Code や手編集)を検知して SSE で通知する。
   // GUI 自身の保存(/api/save)による変更は lastWrittenHash(自分が最後に
@@ -183,7 +187,7 @@ export async function startEditor(
   });
 
   const server = createServer((req, res) => {
-    handle(req, res, dir, cfg, cfgPath, { bundleJs, indexHtml }, hub).catch((err: Error) => {
+    handle(req, res, dir, cfg, cfgPath, assets, hub).catch((err: Error) => {
       // HttpError は想定内の拒否(不正な保存=400、大きすぎる素材=413 等)。
       // それ以外は想定外なのでログに残して 500 で返す
       if (err instanceof HttpError) {
@@ -209,12 +213,32 @@ export async function startEditor(
     server.listen(port, "127.0.0.1", ok);
   });
 
+  // port conflict 等で listen 自体が失敗した場合に watcher を残さないよう、
+  // client の監視は待受成功後にだけ開始する。watch 開始が同期的に失敗した
+  // 場合も active server を残さず fail fast する。
+  try {
+    clientWatcher = watch(join(editorDir, "client"), { recursive: true }, () => {
+      clientReloader.schedule();
+    });
+    clientWatcher.on("error", (error) => {
+      console.error("editor/client の監視に失敗しました。", error);
+    });
+  } catch (error) {
+    clientReloader.close();
+    await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+    throw error;
+  }
+
   // 待受情報を収録フォルダの外(~/.cutflow/editor/)へ書く。デタッチ起動でも
   // フォアグラウンド起動でも同じように書くので、`editor <dir> --status` は
   // どちらの起動でも見える。プロセスがどの経路で終わっても最終段で必ず発火する
   // "exit" で同期的に消す(framesServe と同じ判断。async は exit 中に走らない)
   writeEditorServeFile({ dir, port, pid: process.pid, startedAt: new Date().toISOString() });
-  process.on("exit", () => removeEditorServeFile(dir));
+  process.on("exit", () => {
+    clientReloader.close();
+    clientWatcher?.close();
+    removeEditorServeFile(dir);
+  });
   // シグナルで殺された場合、Node は "exit" を発火しない(既定ハンドラはプロセスを
   // そのまま終了させる)。Ctrl+C(SIGINT)と `editor --stop`(SIGTERM)を明示的に
   // 受けて process.exit を呼び、上の "exit" を必ず通して portfile を消す。
@@ -302,7 +326,7 @@ async function handle(
   dir: string,
   cfg: Config,
   cfgPath: string,
-  assets: { bundleJs: string; indexHtml: string },
+  assets: MutableEditorClientAssets,
   hub: EventHub,
 ): Promise<void> {
   const url = new URL(req.url ?? "/", "http://localhost");
@@ -322,14 +346,12 @@ async function handle(
     return;
   }
 
-  if (req.method === "GET" && path === "/") {
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    res.end(assets.indexHtml);
-    return;
-  }
-  if (req.method === "GET" && path === "/bundle.js") {
-    res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8" });
-    res.end(assets.bundleJs);
+  const clientAsset = req.method === "GET"
+    ? editorAssetResponse(path, assets.current)
+    : null;
+  if (clientAsset) {
+    res.writeHead(200, clientAsset.headers);
+    res.end(clientAsset.body);
     return;
   }
   if (req.method === "GET" && path === "/particle_loop_icon.svg") {

@@ -22,10 +22,15 @@
     "@remotion/cli": "^4.0.484",
     "@remotion/player": "^4.0.484",
     "@remotion/renderer": "^4.0.484",
+    "@tailwindcss/cli": "4.3.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "commander": "^13.1.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "remotion": "^4.0.484",
+    "tailwind-merge": "^3.6.0",
+    "tailwindcss": "4.3.3",
     "yaml": "^2.7.0"
   },
   "devDependencies": {

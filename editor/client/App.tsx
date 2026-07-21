@@ -98,6 +98,7 @@ import { Timeline } from "./Timeline.tsx";
 import { playhead, usePlayheadSelector } from "./playhead.ts";
 import { useToasts, ToastStack } from "./toasts.tsx";
 import { TOAST_TTL_MS } from "./toastReducer.ts";
+import { Button } from "./components/ui/button.tsx";
 import {
   SCRIPT_CUT_REASON,
   SHORT_TRACK_DEF,
@@ -4516,7 +4517,9 @@ export const App = () => {
         >
           {busy === "save" ? "保存中…" : anyDirty ? "● 未保存 (⌘S)" : "保存済み"}
         </span>
-        <button
+        <Button
+          variant="secondary"
+          size="sm"
           className="aiCommandLauncher"
           disabled={aiWorkflowLocked}
           title={aiWorkflowLocked ? aiWorkflowTitle : anyDirty ? "保存してから AI 一発編集" : "AI 一発編集を開く"}
@@ -4527,7 +4530,7 @@ export const App = () => {
         >
           {aiWorkflowLocked && <img className="aiCommandLauncherIcon" src="/particle_loop_icon.svg" alt="" />}
           {aiWorkflowLocked ? "編集中" : "AI編集"}
-        </button>
+        </Button>
         {/* レイアウト切替(VSCode 風)。アイコンの塗られた面 = 表示中のパネル。
             閉じてもデータ・編集状態には影響しない(表示だけの切替) */}
         <div className="layoutBtns">

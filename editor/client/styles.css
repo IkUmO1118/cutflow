@@ -1,0 +1,100 @@
+@layer theme, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+@source "./**/*.{html,ts,tsx}";
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * OpenCut-inspired tokens. The oc- prefix keeps this migration layer separate
+ * from CutFlow's legacy --accent/--border variables while both systems coexist.
+ */
+@theme inline {
+  --color-background: hsl(var(--oc-background));
+  --color-foreground: hsl(var(--oc-foreground));
+  --color-card: hsl(var(--oc-card));
+  --color-card-foreground: hsl(var(--oc-card-foreground));
+  --color-popover: hsl(var(--oc-popover));
+  --color-popover-foreground: hsl(var(--oc-popover-foreground));
+  --color-primary: hsl(var(--oc-primary));
+  --color-primary-foreground: hsl(var(--oc-primary-foreground));
+  --color-secondary: hsl(var(--oc-secondary));
+  --color-secondary-foreground: hsl(var(--oc-secondary-foreground));
+  --color-muted: hsl(var(--oc-muted));
+  --color-muted-foreground: hsl(var(--oc-muted-foreground));
+  --color-accent: hsl(var(--oc-accent));
+  --color-accent-foreground: hsl(var(--oc-accent-foreground));
+  --color-destructive: hsl(var(--oc-destructive));
+  --color-border: hsl(var(--oc-border));
+  --color-input: hsl(var(--oc-input));
+  --color-ring: hsl(var(--oc-ring));
+  --radius-sm: calc(var(--oc-radius) - 0.2rem);
+  --radius-md: calc(var(--oc-radius) - 0.1rem);
+  --radius-lg: var(--oc-radius);
+  --radius-xl: calc(var(--oc-radius) + 0.2rem);
+  --text-xs: var(--oc-text-xs);
+  --text-sm: var(--oc-text-sm);
+  --text-base: var(--oc-text-base);
+}
+
+:root {
+  --oc-background: 210 20% 98%;
+  --oc-foreground: 222 22% 13%;
+  --oc-card: 0 0% 100%;
+  --oc-card-foreground: 222 22% 13%;
+  --oc-popover: 0 0% 100%;
+  --oc-popover-foreground: 222 22% 13%;
+  --oc-primary: 200 90% 48%;
+  --oc-primary-foreground: 210 40% 98%;
+  --oc-secondary: 214 22% 92%;
+  --oc-secondary-foreground: 222 22% 16%;
+  --oc-muted: 214 18% 93%;
+  --oc-muted-foreground: 218 11% 43%;
+  --oc-accent: 210 28% 90%;
+  --oc-accent-foreground: 222 22% 16%;
+  --oc-destructive: 0 72% 51%;
+  --oc-border: 214 18% 84%;
+  --oc-input: 214 18% 84%;
+  --oc-ring: 200 90% 48%;
+  --oc-radius: 0.5rem;
+  --oc-text-xs: 0.72rem;
+  --oc-text-sm: 0.79rem;
+  --oc-text-base: 0.92rem;
+}
+
+.dark {
+  --oc-background: 222 18% 8%;
+  --oc-foreground: 210 20% 96%;
+  --oc-card: 220 17% 12%;
+  --oc-card-foreground: 210 20% 96%;
+  --oc-popover: 220 17% 12%;
+  --oc-popover-foreground: 210 20% 96%;
+  --oc-primary: 200 90% 52%;
+  --oc-primary-foreground: 222 24% 10%;
+  --oc-secondary: 218 15% 18%;
+  --oc-secondary-foreground: 210 20% 96%;
+  --oc-muted: 218 14% 17%;
+  --oc-muted-foreground: 215 12% 66%;
+  --oc-accent: 216 16% 20%;
+  --oc-accent-foreground: 210 20% 96%;
+  --oc-destructive: 0 68% 56%;
+  --oc-border: 217 15% 24%;
+  --oc-input: 217 15% 24%;
+  --oc-ring: 200 90% 52%;
+}
+
+.panel {
+  --oc-background: 210 24% 96%;
+  --oc-card: 0 0% 100%;
+  --oc-muted: 214 20% 90%;
+  --oc-border: 214 18% 81%;
+  --oc-input: 214 18% 81%;
+}
+
+.dark .panel {
+  --oc-background: 220 17% 12%;
+  --oc-card: 220 16% 15%;
+  --oc-muted: 218 14% 19%;
+  --oc-border: 217 15% 27%;
+  --oc-input: 217 15% 27%;
+}
