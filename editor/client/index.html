@@ -1230,21 +1230,55 @@
     animation: toastspin 0.8s linear infinite;
   }
   @keyframes toastspin { to { transform: rotate(360deg); } }
-  .stage { display: flex; flex: 1; min-height: 0; }
-  /* パネル最大化(⇧F)。左パネル・分割バー・タイムラインを一時的に隠して
-     プレビュー+トランスポートをウィンドウいっぱいに広げる(表示だけの
-     切替。コンポーネントは外さないのでタイムラインの状態は保たれる) */
-  .app.max .sidePanel,
-  .app.max .stage > .splitter,
-  .app.max > .splitter.h,
-  .app.max .timeline { display: none; }
-  /* パネルの開閉(ヘッダー右のレイアウト切替 / 分割バーを端へ寄せる)。
-     コンポーネントは外さず隠すだけ(タブ・スクロール位置・ズームを保つ)。
-     左右の分割バーは残す(ドラッグ・ダブルクリックで開き直せる) */
-  .app.hideL .sidePanel { display: none; }
-  .app.hideR .inspPanel { display: none; }
-  .app.hideB > .splitter.h,
-  .app.hideB .timeline { display: none; }
+  /* P1 shell: outer vertical(main/timeline) + inner horizontal(left/viewer/right).
+     Panel children stay mounted while collapsed, preserving their local UI state. */
+  .resizablePanelGroup { min-width: 0; min-height: 0; }
+  .editorShell {
+    flex: 1;
+    padding: 0 12px 12px;
+    background: hsl(var(--oc-background));
+  }
+  .stage { width: 100%; height: 100%; }
+  .mainShellPanel,
+  .sideShellPanel,
+  .viewerShellPanel,
+  .inspectorShellPanel,
+  .timelineShellPanel {
+    width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden;
+  }
+  .shellSurface {
+    width: 100%; height: 100%; min-width: 0; min-height: 0;
+    overflow: hidden;
+    background: hsl(var(--oc-card));
+    color: hsl(var(--oc-card-foreground));
+    border: 1px solid hsl(var(--oc-border));
+    border-radius: var(--oc-radius);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  }
+  .resizableHandle {
+    position: relative; z-index: 2;
+    width: 0.18rem; min-width: 0.18rem;
+    cursor: col-resize;
+    background: hsl(var(--oc-background));
+    outline: none;
+  }
+  .resizableHandle[aria-orientation="horizontal"] {
+    width: 100%; min-width: 0; height: 0.18rem; min-height: 0.18rem;
+    cursor: row-resize;
+  }
+  .resizableHandle::after {
+    content: ""; position: absolute; inset-block: 0; left: 50%; width: 8px;
+    transform: translateX(-50%); border-radius: 999px;
+    transition: background-color 0.12s ease;
+  }
+  .resizableHandle[aria-orientation="horizontal"]::after {
+    inset-inline: 0; top: 50%; left: 0; width: auto; height: 8px;
+    transform: translateY(-50%);
+  }
+  .resizableHandle:hover::after,
+  .resizableHandle[data-separator="active"]::after,
+  .resizableHandle:focus-visible::after { background: hsl(var(--oc-ring) / 0.72); }
+  .app.max .resizableHandle { display: none; }
   /* プレビューとトランスポートを縦に並べる右側カラム。トランスポートの
      段階的な畳み(下のコンテナクエリ)の基準になる */
   .viewerCol {
@@ -1301,7 +1335,7 @@
 
   /* ---- 左パネル(タブ: 素材 / テロップ / プロパティ) ---- */
   .sidePanel {
-    flex-shrink: 0; min-width: 280px;
+    min-width: 0;
     display: flex; flex-direction: column;
     background: var(--panel);
   }
@@ -1324,15 +1358,6 @@
     padding: 10px 14px;
     font-size: 12px;
   }
-  /* 分割バー(左右: 上部の幅 / 上下: タイムラインの高さをドラッグで変更) */
-  .splitter {
-    width: 5px; flex-shrink: 0;
-    cursor: col-resize;
-    background: var(--border);
-    transition: background-color 0.12s ease;
-  }
-  .splitter:hover, .splitter:active { background: var(--accent); }
-  .splitter.h { width: auto; height: 5px; cursor: row-resize; }
 
   /* ---- 素材タブ(サムネイル+名前だけのシンプルなグリッド) ---- */
   .matPanel { position: relative; } /* ドロップオーバーレイの基準 */
@@ -1655,12 +1680,11 @@
   }
   /* ---- 右側の常設インスペクタ(選択クリップのプロパティ) ---- */
   .inspPanel {
-    flex-shrink: 0; min-width: 300px;
+    min-width: 0;
     display: flex; flex-direction: column;
     background: var(--panel);
   }
   .inspPanel .panelBody { flex: 1; min-height: 0; overflow-y: auto; }
-  .app.max .inspPanel { display: none; }
   .insp { padding: 12px 14px 16px; }
   /* アイデンティティヘッダー(何を選んでいるか: サムネ+種別+名前+チップ) */
   .inspHead { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
@@ -2319,11 +2343,12 @@
 
   /* ---- タイムライン(高さは分割バーのドラッグで可変。インラインで指定) ---- */
   .timeline {
-    height: 300px; flex-shrink: 1; min-height: 140px;
+    height: 300px; min-height: 0;
     display: flex; flex-direction: column;
     background: var(--bg);
     user-select: none;
   }
+  .timelineSurface .timeline { width: 100%; height: 100% !important; }
   .tlToolbar {
     display: flex; align-items: center; gap: 6px;
     padding: 4px 14px;

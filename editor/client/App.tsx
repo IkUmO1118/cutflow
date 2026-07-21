@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from "react";
+import type { LayoutChangedMeta, PanelImperativeHandle } from "react-resizable-panels";
 import { Player } from "@remotion/player";
 import type { CallbackListener, PlayerRef } from "@remotion/player";
 import { Main } from "../../remotion/Main.tsx";
@@ -106,6 +107,11 @@ import {
 import { useToasts, ToastStack } from "./toasts.tsx";
 import { TOAST_TTL_MS } from "./toastReducer.ts";
 import { Button } from "./components/ui/button.tsx";
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "./components/ui/resizable.tsx";
 import {
   SCRIPT_CUT_REASON,
   SHORT_TRACK_DEF,
@@ -536,8 +542,12 @@ export const App = () => {
   const [timelineOpen, setTimelineOpen] = useState(
     () => localStorage.getItem("cutflow.editor.timelineOpen") !== "0",
   );
-  const stageRef = useRef<HTMLDivElement>(null);
-  /** パネル最大化(⇧F)。左パネル・タイムラインを一時的に隠してプレビューを
+  const sidePanelRef = useRef<PanelImperativeHandle>(null);
+  const inspectorPanelRef = useRef<PanelImperativeHandle>(null);
+  const timelinePanelRef = useRef<PanelImperativeHandle>(null);
+  const stageGroupRef = useRef<HTMLDivElement>(null);
+  const shellGroupRef = useRef<HTMLDivElement>(null);
+  /** パネル最大化(⇧F)。左右パネル・タイムラインを一時的に畳んでプレビューを
    * 広げる表示モード。レイアウトの切替だけでデータには一切影響しない。
    * 一時確認用なので意図的に保存しない(リロードで通常レイアウトに戻る) */
   const [maximized, setMaximized] = useState(false);
@@ -4041,72 +4051,59 @@ export const App = () => {
     localStorage.setItem("cutflow.editor.timelineOpen", timelineOpen ? "1" : "0");
   }, [timelineOpen]);
 
-  /** 分割バー共通: window にリスナーを張り、pointerup / cancel で必ず外す */
-  const beginSplitDrag = (e: ReactPointerEvent, move: (ev: PointerEvent) => void) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    const onUp = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
+  /** v4 の imperative API で論理的な開閉状態と直前の px を DOM layout へ
+   * 投影する。最大化中は論理 state を変えず3面を一時 collapse するため、
+   * 解除時には保存済みの開閉と寸法へそのまま戻せる。 */
+  useEffect(() => {
+    const syncPanel = (
+      ref: React.RefObject<PanelImperativeHandle | null>,
+      open: boolean,
+      sizePx: number,
+    ) => {
+      const panel = ref.current;
+      if (!panel) return;
+      if (maximized || !open) panel.collapse();
+      else {
+        panel.expand();
+        panel.resize(sizePx);
+      }
     };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
+    syncPanel(sidePanelRef, panelOpen, panelW);
+    syncPanel(inspectorPanelRef, inspOpen, inspW);
+    syncPanel(timelinePanelRef, timelineOpen, timelineH);
+  }, [maximized, panelOpen, panelW, inspOpen, inspW, timelineOpen, timelineH]);
+
+  /** drag / keyboard resize の完了時だけ state と既存 localStorage を更新する。
+   * 初期 layout や上の imperative collapse/resize は isUserInteraction=false
+   * なので、最大化中を含め永続 state を汚さない。 */
+  /** v4 の layout は Panel 合計を100とする確定値。callback 中の imperative
+   * getSize() は keyboard resize 直後に1つ前の値を返し得るため使わず、Group
+   * 直下の Panel 合計pxへ比率を掛けて既存のpx永続値へ戻す。 */
+  const panelPixelSpan = (group: HTMLDivElement | null, axis: "width" | "height") =>
+    group
+      ? [...group.children]
+          .filter((child): child is HTMLElement =>
+            child instanceof HTMLElement && child.hasAttribute("data-panel"))
+          .reduce((sum, panel) => sum + panel.getBoundingClientRect()[axis], 0)
+      : 0;
+
+  const onStageLayoutChanged = (layout: Record<string, number>, meta: LayoutChangedMeta) => {
+    if (!meta.isUserInteraction || maximized) return;
+    const span = panelPixelSpan(stageGroupRef.current, "width");
+    const left = layout.left ?? 0;
+    const right = layout.right ?? 0;
+    setPanelOpen(left > 0);
+    setInspOpen(right > 0);
+    if (left > 0 && span > 0) setPanelW(Math.round(span * left / 100));
+    if (right > 0 && span > 0) setInspW(Math.round(span * right / 100));
   };
 
-  /** 左右の分割バー: 左パネルの幅を変更(両側の最小幅より内側だけ)。
-   * 最小幅の半分より左へ寄せたらパネルを畳む(閉じたまま右へ引き出すと
-   * 最小幅でパッと開く)。幅は開閉と別に保持する(開き直しで元の幅) */
-  const onSplitterDown = (e: ReactPointerEvent) =>
-    beginSplitDrag(e, (ev) => {
-      const rect = stageRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const w = ev.clientX - rect.left;
-      if (w < PANEL_MIN / 2) {
-        setPanelOpen(false);
-        return;
-      }
-      setPanelOpen(true);
-      setPanelW(
-        clamp(
-          w,
-          PANEL_MIN,
-          Math.max(PANEL_MIN, rect.width - (inspOpen ? inspW : 0) - VIEWER_MIN),
-        ),
-      );
-    });
-
-  /** 右の分割バー: インスペクタの幅を変更(プレビューの最小幅は確保)。
-   * 左パネルと同じく、最小幅の半分より右へ寄せたら畳む */
-  const onInspSplitterDown = (e: ReactPointerEvent) =>
-    beginSplitDrag(e, (ev) => {
-      const rect = stageRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const w = rect.right - ev.clientX;
-      if (w < INSP_MIN / 2) {
-        setInspOpen(false);
-        return;
-      }
-      setInspOpen(true);
-      setInspW(
-        clamp(
-          w,
-          INSP_MIN,
-          Math.max(INSP_MIN, rect.width - (panelOpen ? panelW : 0) - VIEWER_MIN),
-        ),
-      );
-    });
-
-  /** 上下の分割バー: タイムラインの高さを変更(ステージの最小高さは確保) */
-  const onHSplitterDown = (e: ReactPointerEvent) => {
-    const y0 = e.clientY;
-    const h0 = timelineH;
-    const stageH0 = stageRef.current?.getBoundingClientRect().height ?? 0;
-    const max = Math.max(TIMELINE_MIN, h0 + stageH0 - STAGE_MIN);
-    beginSplitDrag(e, (ev) =>
-      setTimelineH(clamp(h0 + (y0 - ev.clientY), TIMELINE_MIN, max)),
-    );
+  const onShellLayoutChanged = (layout: Record<string, number>, meta: LayoutChangedMeta) => {
+    if (!meta.isUserInteraction || maximized) return;
+    const span = panelPixelSpan(shellGroupRef.current, "height");
+    const timeline = layout.timeline ?? 0;
+    setTimelineOpen(timeline > 0);
+    if (timeline > 0 && span > 0) setTimelineH(Math.round(span * timeline / 100));
   };
 
   // テロップを選択したら左パネルを「テロップ」タブへ(一覧の該当行へ
@@ -4566,13 +4563,8 @@ export const App = () => {
     });
   };
 
-  // 開閉はコンポーネントを外さず CSS で隠す(タイムラインのズーム等の状態を保つ)
-  const appClass =
-    "app" +
-    (maximized ? " max" : "") +
-    (panelOpen ? "" : " hideL") +
-    (inspOpen ? "" : " hideR") +
-    (timelineOpen ? "" : " hideB");
+  // 開閉・最大化でも Panel の children は常時 mount したまま保つ。
+  const appClass = "app" + (maximized ? " max" : "");
   return (
     <div className={appClass}>
       <input
@@ -5007,11 +4999,37 @@ export const App = () => {
         </>
       )}
 
-      <div className="stage" ref={stageRef}>
-        <aside
-          className="sidePanel"
-          style={{ width: panelW, maxWidth: `calc(100% - ${VIEWER_MIN}px)` }}
+      <ResizablePanelGroup
+        id="cutflow-shell"
+        orientation="vertical"
+        className="editorShell"
+        elementRef={shellGroupRef}
+        onLayoutChanged={onShellLayoutChanged}
+      >
+        <ResizablePanel
+          id="main"
+          minSize={STAGE_MIN}
+          groupResizeBehavior="preserve-relative-size"
+          className="mainShellPanel"
         >
+          <ResizablePanelGroup
+            id="cutflow-stage"
+            orientation="horizontal"
+            className="stage"
+            elementRef={stageGroupRef}
+            onLayoutChanged={onStageLayoutChanged}
+          >
+            <ResizablePanel
+              id="left"
+              panelRef={sidePanelRef}
+              defaultSize={panelOpen ? panelW : 0}
+              minSize={PANEL_MIN}
+              collapsedSize={0}
+              collapsible
+              groupResizeBehavior="preserve-pixel-size"
+              className="sideShellPanel"
+            >
+              <aside className="sidePanel panel shellSurface">
           <div className="tabs">
             {PANEL_TABS.map(([id, label]) => (
               <button
@@ -5091,18 +5109,25 @@ export const App = () => {
               />
             )}
           </div>
-        </aside>
-        <div
-          className="splitter"
-          title={
-            panelOpen
-              ? "ドラッグで幅を変更(左端まで寄せると閉じる)。ダブルクリックで開閉"
-              : "右へドラッグ(またはダブルクリック)で左パネルを開く"
-          }
-          onPointerDown={onSplitterDown}
-          onDoubleClick={() => setPanelOpen((v) => !v)}
-        />
-        <div className="viewerCol" ref={viewerColRef}>
+              </aside>
+            </ResizablePanel>
+            <ResizableHandle
+              id="left-handle"
+              disableDoubleClick
+              title={
+                panelOpen
+                  ? "ドラッグで幅を変更(左端まで寄せると閉じる)。ダブルクリックで開閉"
+                  : "右へドラッグ(またはダブルクリック)で左パネルを開く"
+              }
+              onDoubleClick={() => setPanelOpen((v) => !v)}
+            />
+            <ResizablePanel
+              id="viewer"
+              minSize={VIEWER_MIN}
+              groupResizeBehavior="preserve-relative-size"
+              className="viewerShellPanel"
+            >
+              <div className="viewerCol panel shellSurface" ref={viewerColRef}>
         <div className="viewer">
           {proj.proxyExists ? (
             <>
@@ -5343,7 +5368,7 @@ export const App = () => {
             title={
               maximized
                 ? "元のレイアウトに戻す (⇧F / Esc)"
-                : "プレビューを最大化 (⇧F)。左パネルとタイムラインを一時的に隠す(表示だけの切替で編集内容には影響しない)"
+                : "プレビューを最大化 (⇧F)。左右パネルとタイムラインを一時的に隠す(表示だけの切替で編集内容には影響しない)"
             }
             onClick={() => setMaximized((v) => !v)}
           >
@@ -5363,21 +5388,29 @@ export const App = () => {
         </div>
         </div>
         </div>
-        </div>
-        <div
-          className="splitter"
-          title={
-            inspOpen
-              ? "ドラッグで幅を変更(右端まで寄せると閉じる)。ダブルクリックで開閉"
-              : "左へドラッグ(またはダブルクリック)で右パネルを開く"
-          }
-          onPointerDown={onInspSplitterDown}
-          onDoubleClick={() => setInspOpen((v) => !v)}
-        />
-        <aside
-          className="inspPanel"
-          style={{ width: inspW, maxWidth: `calc(100% - ${VIEWER_MIN}px)` }}
-        >
+              </div>
+            </ResizablePanel>
+            <ResizableHandle
+              id="right-handle"
+              disableDoubleClick
+              title={
+                inspOpen
+                  ? "ドラッグで幅を変更(右端まで寄せると閉じる)。ダブルクリックで開閉"
+                  : "左へドラッグ(またはダブルクリック)で右パネルを開く"
+              }
+              onDoubleClick={() => setInspOpen((v) => !v)}
+            />
+            <ResizablePanel
+              id="right"
+              panelRef={inspectorPanelRef}
+              defaultSize={inspOpen ? inspW : 0}
+              minSize={INSP_MIN}
+              collapsedSize={0}
+              collapsible
+              groupResizeBehavior="preserve-pixel-size"
+              className="inspectorShellPanel"
+            >
+              <aside className="inspPanel panel shellSurface">
           <div className="panelBody">
             <AiCommand
               compact
@@ -5457,15 +5490,32 @@ export const App = () => {
               removeShort={removeShort}
             />
           </div>
-        </aside>
-      </div>
-
-      <div
-        className="splitter h"
-        title="ドラッグで高さを変更"
-        onPointerDown={onHSplitterDown}
-      />
-      <Timeline
+              </aside>
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        </ResizablePanel>
+        <ResizableHandle
+          id="timeline-handle"
+          disableDoubleClick
+          title={
+            timelineOpen
+              ? "ドラッグで高さを変更(下端まで寄せると閉じる)。ダブルクリックで開閉"
+              : "上へドラッグ(またはダブルクリック)でタイムラインを開く"
+          }
+          onDoubleClick={() => setTimelineOpen((v) => !v)}
+        />
+        <ResizablePanel
+          id="timeline"
+          panelRef={timelinePanelRef}
+          defaultSize={timelineOpen ? timelineH : 0}
+          minSize={TIMELINE_MIN}
+          collapsedSize={0}
+          collapsible
+          groupResizeBehavior="preserve-pixel-size"
+          className="timelineShellPanel"
+        >
+          <div className="timelineSurface panel shellSurface">
+            <Timeline
         height={timelineH}
         duration={duration}
         clips={clips}
@@ -5502,8 +5552,11 @@ export const App = () => {
         onToggleTrackMute={toggleTrackMute}
         hiddenLayers={hiddenLayers}
         onToggleTrackHide={toggleTrackHide}
-        defaultDurationSec={defaultImgSec}
-      />
+              defaultDurationSec={defaultImgSec}
+            />
+          </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </div>
   );

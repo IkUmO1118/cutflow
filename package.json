@@ -28,6 +28,7 @@
     "commander": "^13.1.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
+    "react-resizable-panels": "4.12.2",
     "remotion": "^4.0.484",
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "4.3.3",

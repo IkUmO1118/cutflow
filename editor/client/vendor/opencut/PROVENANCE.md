@@ -11,6 +11,8 @@ server routes, and editing behavior are not vendored.
 | Token source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/styles.css` |
 | Button source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/button.tsx` |
 | Class utility source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/lib/utils.ts` |
+| Editor layout source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/app/editor/%5Bproject_id%5D/page.tsx` |
+| Resizable wrapper source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/resizable.tsx` |
 | License source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/LICENSE` |
 
 ## Adaptation in CutFlow
@@ -24,6 +26,13 @@ server routes, and editing behavior are not vendored.
   Base UI/Radix nor polymorphic `asChild` behavior.
 - `lib/utils.ts`: retains the `clsx` plus `tailwind-merge` composition pattern and
   uses CutFlow's TypeScript/ESM import style.
+- `components/ui/resizable.tsx` and the `App.tsx` shell retain OpenCut's nested
+  vertical(main/timeline) and horizontal(left/viewer/right) panel vocabulary.
+  CutFlow pins `react-resizable-panels` 4.12.2 exactly, so the upstream v2
+  `PanelGroup`/`PanelResizeHandle` wrapper is adapted to the v4
+  `Group`/`Panel`/`Separator` API. CutFlow's existing pixel persistence,
+  collapse toggles, maximized/fullscreen behavior, and mounted editor children
+  remain authoritative.
 - Tailwind Preflight is deliberately excluded so the existing inline stylesheet
   remains authoritative for components that have not yet migrated.
 
