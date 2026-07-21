@@ -36,6 +36,18 @@ export type ToastPatch = Partial<Omit<Toast, "id" | "expiresAt">>;
 /** 同時表示の上限。超過は最古(先頭)を落とす */
 export const MAX_TOASTS = 5;
 
+/**
+ * 種別ごとの既定表示時間(ミリ秒)。呼び出し側が ttlMs を明示しないときの目安で、
+ * 表示時間を変えたいときはここ一箇所を書き換える(マジックナンバーを散らさない)。
+ * error は読み切る猶予を長めに取る。progress は作業中スピナーなので自動消滅させず、
+ * 完了時に update で success/error(=ここの ttl)へ差し替える。
+ */
+export const TOAST_TTL_MS = {
+  info: 4000,
+  success: 4000,
+  error: 8000,
+} as const;
+
 export type ToastEvent =
   | { type: "add"; toast: Toast; now: number }
   | { type: "update"; id: string; patch: ToastPatch; now: number }

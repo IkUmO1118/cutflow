@@ -97,6 +97,7 @@ import type { AiSettingsValue, CfgValues } from "./SettingsModal.tsx";
 import { Timeline } from "./Timeline.tsx";
 import { playhead, usePlayheadSelector } from "./playhead.ts";
 import { useToasts, ToastStack } from "./toasts.tsx";
+import { TOAST_TTL_MS } from "./toastReducer.ts";
 import {
   SCRIPT_CUT_REASON,
   SHORT_TRACK_DEF,
@@ -941,11 +942,13 @@ export const App = () => {
     return () => es.close();
   }, []);
 
-  // error が立ったらエラートースト(sticky・手動クローズ)を出す。error state 自体は
-  // 起動失敗の全画面(!proj)とプロキシ失敗の分岐(3178)が読むので残す(表示先だけ
-  // ヘッダーからトーストへ移す)。null→msg / msg→別msg の遷移で発火する
+  // error が立ったらエラートーストを出す。表示は TOAST_TTL_MS.error で自動消滅する
+  // (×を押さなくても消える)。error state 自体は起動失敗の全画面(!proj)とプロキシ
+  // 失敗の分岐(3178)が読むので残す(消えるのはトースト表示だけ=状態は保つ)。
+  // null→msg / msg→別msg の遷移で発火する
   useEffect(() => {
-    if (error) addToast({ kind: "error", message: `エラー: ${error}` });
+    if (error)
+      addToast({ kind: "error", message: `エラー: ${error}`, ttlMs: TOAST_TTL_MS.error });
   }, [error, addToast]);
 
   /** 必要になったピークを取りに行く(マイク・BGM・挿入クリップの動画)。
@@ -2952,19 +2955,19 @@ export const App = () => {
       updateToast(toastId, {
         kind: "success",
         message: `${files.length} 件の素材を追加しました`,
-        ttlMs: 4000,
+        ttlMs: TOAST_TTL_MS.success,
       });
     } else if (errors.length < files.length) {
       updateToast(toastId, {
         kind: "error",
         message: `${files.length - errors.length} 件成功 / ${errors.length} 件失敗: ${errors.join(" / ")}`,
-        ttlMs: 8000,
+        ttlMs: TOAST_TTL_MS.error,
       });
     } else {
       updateToast(toastId, {
         kind: "error",
         message: `アップロード失敗: ${errors.join(" / ")}`,
-        ttlMs: 8000,
+        ttlMs: TOAST_TTL_MS.error,
       });
     }
   };
@@ -3609,7 +3612,7 @@ export const App = () => {
           resolution: new Map(),
           saved: false,
         });
-        addToast({ kind: "info", message: "AI 提案に差分はありませんでした", ttlMs: 4000 });
+        addToast({ kind: "info", message: "AI 提案に差分はありませんでした", ttlMs: TOAST_TTL_MS.info });
         return;
       }
       setAiWorkflow({
@@ -3737,7 +3740,7 @@ export const App = () => {
           resolution: new Map(),
           saved: false,
         });
-        addToast({ kind: "info", message: "再提案に差分はありませんでした", ttlMs: 4000 });
+        addToast({ kind: "info", message: "再提案に差分はありませんでした", ttlMs: TOAST_TTL_MS.info });
         return;
       }
       setAiWorkflow({
@@ -4144,7 +4147,7 @@ export const App = () => {
       });
       addToast({
         kind: "success",
-        ttlMs: 4000,
+        ttlMs: TOAST_TTL_MS.success,
         message: result.skipped
           ? `素材「${name}」は最新です`
           : `素材「${name}」を作り直しました`,
@@ -4155,7 +4158,7 @@ export const App = () => {
       setHyperframeErrors((current) => ({ ...current, [name]: message }));
       addToast({
         kind: "error",
-        ttlMs: 8000,
+        ttlMs: TOAST_TTL_MS.error,
         message: `素材「${name}」を作り直せませんでした: ${message}`,
       });
       await refreshHyperframes(false);
@@ -4229,12 +4232,12 @@ export const App = () => {
       await refreshHyperframes(false);
       setHyperframeAuthorName("");
       setHyperframeAuthorAssets([]);
-      addToast({ kind: "success", ttlMs: 4000, message: `素材「${name}」を作りました` });
+      addToast({ kind: "success", ttlMs: TOAST_TTL_MS.success, message: `素材「${name}」を作りました` });
     } catch (e) {
       setHyperframeAuthorError((e as Error).message);
       addToast({
         kind: "error",
-        ttlMs: 8000,
+        ttlMs: TOAST_TTL_MS.error,
         message: `素材「${name}」を作れませんでした: ${(e as Error).message}`,
       });
     } finally {
