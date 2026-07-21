@@ -76,7 +76,7 @@ test("header migration preserves AI, layout, settings, save, approval, and expor
   assert.match(app, /setExportOpen\(false\);\s+void runExport\("preview"\);/);
 });
 
-test("P2 panel scopes remain isolated from Timeline while Inspector advances at checkpoint 3", () => {
+test("P2 panel scopes remain present while Inspector and Timeline advance in later checkpoints", () => {
   const app = read("editor/client/App.tsx");
   const css = read("editor/client/styles.css");
   assert.match(app, /<MaterialsPanel\b/);
@@ -90,7 +90,7 @@ test("P2 panel scopes remain isolated from Timeline while Inspector advances at 
   assert.match(css, /\.ocSidePanel\b/);
   assert.match(css, /\.ocTransport\b/);
   assert.match(css, /\.ocInspector\b/);
-  assert.doesNotMatch(css, /\.ocTimeline\b/);
+  assert.match(css, /\.ocTimeline\b/);
 });
 
 test("P2 checkpoint 2 mounts exactly four accessible CutFlow icon-rail tabs", () => {

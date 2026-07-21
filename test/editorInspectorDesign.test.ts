@@ -126,7 +126,7 @@ test("caption animation helper cleans inherited empty subkeys directly", () => {
   );
 });
 
-test("Inspector token skin is scoped and covers focus, sections, fields, colors, numbers, sliders, switches, and scroll", () => {
+test("Inspector token skin stays scoped while Timeline advances in P3", () => {
   const css = read("editor/client/styles.css");
   for (const selector of [
     ".ocInspector", ".ocInspector .inspSec", ".ocInspector .capField",
@@ -136,7 +136,7 @@ test("Inspector token skin is scoped and covers focus, sections, fields, colors,
   ]) assert.ok(css.includes(selector), `missing Inspector skin ${selector}`);
   assert.match(css, /\.ocInspector[\s\S]*scrollbar-color/);
   assert.match(css, /\.ocInspector[\s\S]*:focus-visible/);
-  assert.doesNotMatch(css, /\.ocTimeline\b/);
+  assert.match(css, /\.ocTimeline\b/);
 });
 
 test("P2 checkpoint 3 provenance pins sources and records adaptation boundaries", () => {

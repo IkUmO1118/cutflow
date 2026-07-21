@@ -937,3 +937,508 @@
 .ocInspector .srcRangeUse { background: hsl(var(--oc-primary)); }
 .ocInspector .anchorPoint { border-color: hsl(var(--oc-border)); background: hsl(var(--oc-background)); }
 .ocInspector .anchorPoint .anchorHit:hover { background: hsl(var(--oc-primary) / 0.12); }
+
+/* P3: OpenCut-inspired dense layered timeline. CutFlow's existing semantic
+ * classes, inline time geometry, pointer handlers, and dual-axis model remain
+ * authoritative; every override is contained by the ocTimeline root. */
+.ocTimeline {
+  --tl-head-w: 10rem;
+  --tl-ruler-h: 24px;
+  --tl-row-border: hsl(var(--oc-border) / 0.7);
+  min-width: 0;
+  color: hsl(var(--oc-foreground));
+  background: hsl(var(--oc-background));
+  font-size: var(--oc-text-xs);
+  container-type: inline-size;
+}
+
+.ocTimeline .tlToolbar {
+  min-height: 2.1rem;
+  gap: 0.18rem;
+  padding: 0.22rem 0.5rem;
+  color: hsl(var(--oc-muted-foreground));
+  border-bottom-color: hsl(var(--oc-border));
+  background: hsl(var(--oc-card) / 0.96);
+}
+
+.ocTimeline .tlToolbar :is(.tlTool, .tlSnap, .zoomBtn) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: hsl(var(--oc-muted-foreground));
+  border: 1px solid transparent;
+  border-radius: calc(var(--oc-radius) - 0.12rem);
+  background: transparent;
+  outline: none;
+  transition: color 120ms ease, background-color 120ms ease,
+    border-color 120ms ease, box-shadow 120ms ease, transform 80ms ease;
+}
+
+.ocTimeline .tlToolbar .tlTool,
+.ocTimeline .tlToolbar .tlSnap {
+  width: 1.65rem;
+  min-width: 1.65rem;
+  height: 1.65rem;
+  padding: 0;
+}
+
+.ocTimeline .tlToolbar :is(.tlTool, .tlSnap, .zoomBtn):hover:not(:disabled) {
+  color: hsl(var(--oc-foreground));
+  border-color: hsl(var(--oc-border));
+  background: hsl(var(--oc-accent));
+}
+
+.ocTimeline .tlToolbar :is(.tlTool, .tlSnap, .zoomBtn):focus-visible {
+  color: hsl(var(--oc-foreground));
+  border-color: hsl(var(--oc-ring));
+  box-shadow: 0 0 0 2px hsl(var(--oc-ring) / 0.28);
+}
+
+.ocTimeline .tlToolbar :is(.tlTool, .tlSnap, .zoomBtn):active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.ocTimeline .tlToolbar :is(.tlTool, .zoomBtn):disabled {
+  opacity: 0.32;
+}
+
+.ocTimeline .tlToolbar .tlSnap.active {
+  color: hsl(var(--oc-primary));
+  border-color: hsl(var(--oc-primary) / 0.38);
+  background: hsl(var(--oc-primary) / 0.13);
+}
+
+.ocTimeline .tlToolbar .tlSnap.active:hover {
+  color: hsl(var(--oc-primary));
+  border-color: hsl(var(--oc-primary) / 0.55);
+  background: hsl(var(--oc-primary) / 0.2);
+}
+
+.ocTimeline .tlToolbar .tlDivider {
+  height: 1.1rem;
+  margin: 0 0.22rem;
+  background: hsl(var(--oc-border));
+}
+
+.ocTimeline .addTrack .menu {
+  margin-top: 0.22rem;
+  padding: 0.25rem;
+  color: hsl(var(--oc-popover-foreground));
+  border-color: hsl(var(--oc-border));
+  border-radius: var(--oc-radius);
+  background: hsl(var(--oc-popover));
+  box-shadow: 0 10px 28px hsl(220 40% 2% / 0.5);
+}
+
+.ocTimeline .addTrack .menu button {
+  min-height: 1.75rem;
+  padding: 0 0.55rem;
+  color: hsl(var(--oc-popover-foreground));
+  border-radius: calc(var(--oc-radius) - 0.12rem);
+  font-size: var(--oc-text-xs);
+}
+
+.ocTimeline .addTrack .menu button:hover {
+  background: hsl(var(--oc-accent));
+}
+
+.ocTimeline .tlZoom {
+  gap: 0.38rem;
+  padding: 0.1rem 0.18rem;
+  border: 1px solid hsl(var(--oc-border));
+  border-radius: var(--oc-radius);
+  background: hsl(var(--oc-muted) / 0.35);
+}
+
+.ocTimeline .tlZoom .zoomBtn {
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: calc(var(--oc-radius) - 0.15rem);
+}
+
+.ocTimeline .tlZoom .zoomBtn svg {
+  width: 0.7rem;
+  height: 0.7rem;
+}
+
+.ocTimeline .tlZoom .zoomSlider {
+  width: 5.75rem;
+  height: 0.2rem;
+  border-radius: 999px;
+  outline: none;
+}
+
+.ocTimeline .tlZoom .zoomSlider::-webkit-slider-thumb {
+  width: 0.66rem;
+  height: 0.66rem;
+  border: 2px solid hsl(var(--oc-card));
+  background: hsl(var(--oc-primary));
+  box-shadow: 0 0 0 1px hsl(var(--oc-ring) / 0.55);
+}
+
+.ocTimeline .tlZoom .zoomSlider::-moz-range-thumb {
+  width: 0.54rem;
+  height: 0.54rem;
+  border: 2px solid hsl(var(--oc-card));
+  background: hsl(var(--oc-primary));
+}
+
+.ocTimeline .tlZoom .zoomSlider:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px hsl(var(--oc-ring) / 0.3);
+}
+
+.ocTimeline .tlBody {
+  min-width: 0;
+  background: hsl(var(--oc-background));
+}
+
+.ocTimeline .tlLabels {
+  width: var(--tl-head-w);
+  color: hsl(var(--oc-muted-foreground));
+  border-right-color: hsl(var(--oc-border));
+  background: hsl(var(--oc-card));
+}
+
+.ocTimeline .tlRulerSpacer {
+  height: var(--tl-ruler-h);
+  border-bottom-color: hsl(var(--oc-border));
+  background:
+    linear-gradient(to bottom, hsl(var(--oc-card)), hsl(var(--oc-background) / 0.9));
+}
+
+.ocTimeline .tlLabelScroll {
+  scrollbar-width: none;
+}
+
+.ocTimeline .tlLabel {
+  gap: 0.28rem;
+  padding: 0 0.42rem;
+  color: hsl(var(--oc-muted-foreground));
+  border-bottom-color: var(--tl-row-border);
+  background: hsl(var(--oc-card));
+  font-size: 0.66rem;
+  font-weight: 550;
+  transition: color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.ocTimeline .tlLabel:hover {
+  color: hsl(var(--oc-foreground));
+  background: hsl(var(--oc-accent) / 0.52);
+}
+
+.ocTimeline .tlLabel.reorderable:active,
+.ocTimeline .tlLabel.dragging {
+  color: hsl(var(--oc-foreground));
+  background: hsl(var(--oc-accent));
+}
+
+.ocTimeline .tlLabel.sel {
+  color: hsl(var(--oc-foreground));
+  background: hsl(var(--oc-primary) / 0.1);
+  box-shadow: inset 2px 0 0 hsl(var(--oc-primary));
+}
+
+.ocTimeline .tlLabel.dropActive {
+  color: hsl(var(--oc-foreground));
+  background: hsl(var(--oc-primary) / 0.15);
+  box-shadow: inset 0 0 0 1px hsl(var(--oc-primary) / 0.5);
+}
+
+.ocTimeline .tlLabel .tlRename {
+  height: 1.35rem;
+  padding: 0 0.28rem;
+  color: hsl(var(--oc-foreground));
+  border-color: hsl(var(--oc-ring));
+  border-radius: calc(var(--oc-radius) - 0.16rem);
+  background: hsl(var(--oc-card));
+  outline: none;
+  box-shadow: 0 0 0 2px hsl(var(--oc-ring) / 0.2);
+}
+
+.ocTimeline .tlLabel .grip {
+  color: hsl(var(--oc-muted-foreground));
+  opacity: 0.45;
+}
+
+.ocTimeline .tlLabel :is(.trackMute, .trackEye, .trackDel) {
+  width: 1.35rem;
+  height: 1.35rem;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  color: hsl(var(--oc-muted-foreground));
+  border: 1px solid transparent;
+  border-radius: calc(var(--oc-radius) - 0.16rem);
+  outline: none;
+}
+
+.ocTimeline .tlLabel :is(.trackMute, .trackEye, .trackDel):hover {
+  color: hsl(var(--oc-foreground));
+  border-color: hsl(var(--oc-border));
+  background: hsl(var(--oc-accent));
+}
+
+.ocTimeline .tlLabel :is(.trackMute, .trackEye, .trackDel):focus-visible {
+  visibility: visible;
+  border-color: hsl(var(--oc-ring));
+  box-shadow: 0 0 0 2px hsl(var(--oc-ring) / 0.28);
+}
+
+.ocTimeline .tlLabel .trackMute.muted {
+  color: hsl(var(--oc-destructive));
+  background: hsl(var(--oc-destructive) / 0.1);
+}
+
+.ocTimeline .tlLabel .trackEye.off {
+  color: hsl(38 92% 64%);
+  background: hsl(38 72% 40% / 0.12);
+}
+
+.ocTimeline .tlLabel .trackDel:hover {
+  color: hsl(var(--oc-destructive));
+  background: hsl(var(--oc-destructive) / 0.1);
+}
+
+.ocTimeline .tlLabel .tlResize:hover {
+  background: hsl(var(--oc-primary));
+  opacity: 0.72;
+}
+
+.ocTimeline .tlScroll {
+  min-width: 0;
+  color: hsl(var(--oc-foreground));
+  background: hsl(var(--oc-background));
+  scrollbar-color: hsl(var(--oc-muted-foreground) / 0.38) transparent;
+  scrollbar-width: thin;
+}
+
+.ocTimeline .tlScroll::-webkit-scrollbar {
+  width: 0.48rem;
+  height: 0.48rem;
+}
+
+.ocTimeline .tlScroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ocTimeline .tlScroll::-webkit-scrollbar-thumb {
+  border: 0.12rem solid transparent;
+  border-radius: 999px;
+  background: hsl(var(--oc-muted-foreground) / 0.4);
+  background-clip: padding-box;
+}
+
+.ocTimeline .tlScroll::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--oc-muted-foreground) / 0.62);
+  background-clip: padding-box;
+}
+
+.ocTimeline .tlRuler {
+  height: var(--tl-ruler-h);
+  color: hsl(var(--oc-muted-foreground));
+  border-bottom-color: hsl(var(--oc-border));
+  background:
+    linear-gradient(to bottom, hsl(var(--oc-card)), hsl(var(--oc-background) / 0.94));
+  box-shadow: 0 1px 0 hsl(var(--oc-border) / 0.5);
+}
+
+.ocTimeline .tlTick {
+  padding: 0.25rem 0 0 0.3rem;
+  color: hsl(var(--oc-muted-foreground));
+  border-left-color: hsl(var(--oc-border));
+  font-size: 0.61rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 550;
+  text-shadow: 0 1px 0 hsl(var(--oc-background));
+}
+
+.ocTimeline .tlTick::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  bottom: 0;
+  width: 3px;
+  height: 3px;
+  background: hsl(var(--oc-muted-foreground) / 0.65);
+}
+
+.ocTimeline .tlTrack {
+  border-bottom-color: var(--tl-row-border);
+  background: hsl(var(--oc-background) / 0.55);
+  transition: background-color 100ms ease, box-shadow 100ms ease;
+}
+
+.ocTimeline .tlTrack:nth-child(odd) {
+  background: hsl(var(--oc-card) / 0.36);
+}
+
+.ocTimeline .tlTrack:hover {
+  background: hsl(var(--oc-accent) / 0.18);
+}
+
+.ocTimeline .tlTrack.layerHidden .tlClip {
+  opacity: 0.28;
+  filter: saturate(0.45);
+}
+
+.ocTimeline .tlClip {
+  top: 0.18rem;
+  bottom: 0.18rem;
+  color: hsl(210 30% 97%);
+  border-color: hsl(210 25% 92% / 0.12);
+  border-radius: calc(var(--oc-radius) - 0.14rem);
+  box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.08), 0 1px 2px hsl(220 40% 2% / 0.22);
+  transition: border-color 100ms ease, box-shadow 100ms ease,
+    filter 100ms ease, opacity 100ms ease;
+}
+
+.ocTimeline .tlClip:hover:not(.static) {
+  border-color: hsl(0 0% 100% / 0.55);
+  filter: brightness(1.12) saturate(1.05);
+  box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.14), 0 2px 5px hsl(220 40% 2% / 0.34);
+}
+
+.ocTimeline .tlClip.sel {
+  border-color: hsl(var(--oc-primary-foreground));
+  box-shadow:
+    0 0 0 2px hsl(var(--oc-primary)),
+    inset 0 1px 0 hsl(0 0% 100% / 0.2),
+    0 2px 7px hsl(var(--oc-primary) / 0.35);
+  filter: brightness(1.1) saturate(1.08);
+  z-index: 2;
+}
+
+.ocTimeline .tlClipLabel {
+  padding: 0 0.38rem;
+  color: inherit;
+  font-size: 0.62rem;
+  font-weight: 560;
+  line-height: 1;
+  text-shadow: 0 1px 1px hsl(220 40% 2% / 0.55);
+}
+
+.ocTimeline .tlWave {
+  opacity: 0.78;
+  mix-blend-mode: screen;
+}
+
+/* Semantic colors deliberately keep every CutFlow track family distinct. */
+.ocTimeline .tlClip.cut { background: hsl(215 42% 32%); }
+.ocTimeline .tlClip.insert { background: hsl(22 72% 34%); }
+.ocTimeline .tlClip.chapter { background: hsl(43 58% 31%); }
+.ocTimeline .tlClip.caption { background: hsl(217 18% 29%); }
+.ocTimeline .tlClip.wipe { background: hsl(191 55% 26%); }
+.ocTimeline .tlClip.wipeFull { background: hsl(189 78% 30%); }
+.ocTimeline .tlClip.zoom { background: hsl(263 68% 42%); }
+.ocTimeline .tlClip.blur { background: hsl(332 70% 35%); }
+.ocTimeline .tlClip.annotation { background: hsl(1 69% 39%); }
+.ocTimeline .tlClip.bgm { background: hsl(145 38% 25%); }
+.ocTimeline .tlClip.short { background: hsl(32 78% 37%); }
+
+.ocTimeline .tlClip:is(.wipeFull, .zoom, .blur, .annotation) {
+  top: 0.3rem;
+  bottom: 0.3rem;
+}
+
+.ocTimeline .tlClip.static {
+  border-radius: 0;
+  opacity: 0.7;
+  box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.05);
+}
+
+.ocTimeline .tlClip.static .tlClipLabel {
+  color: hsl(var(--oc-muted-foreground));
+  text-shadow: none;
+}
+
+.ocTimeline .tlEdge {
+  width: 0.45rem;
+  background: transparent;
+}
+
+.ocTimeline .tlClip.sel .tlEdge,
+.ocTimeline .tlEdge:hover {
+  background: hsl(0 0% 100% / 0.24);
+}
+
+.ocTimeline .tlCutMark::before {
+  border-left-color: hsl(38 92% 60%);
+}
+
+.ocTimeline .tlCutMark::after {
+  border-top-color: hsl(38 92% 60%);
+}
+
+.ocTimeline .tlCutMark:hover::before,
+.ocTimeline .tlCutMark.sel::before {
+  border-left-color: hsl(var(--oc-foreground));
+}
+
+.ocTimeline .tlCutMark:hover::after,
+.ocTimeline .tlCutMark.sel::after {
+  border-top-color: hsl(var(--oc-foreground));
+}
+
+.ocTimeline .tlGhost,
+.ocTimeline .tlDropGhost {
+  top: 0.18rem;
+  bottom: 0.18rem;
+  border-color: hsl(var(--oc-primary-foreground) / 0.78);
+  border-radius: calc(var(--oc-radius) - 0.14rem);
+  background: hsl(var(--oc-primary) / 0.35);
+  box-shadow: 0 0 0 1px hsl(var(--oc-primary) / 0.35);
+}
+
+.ocTimeline .tlDropGhost.insert {
+  background: hsl(22 72% 34% / 0.9);
+}
+
+.ocTimeline .tlDropGhost.insert::before {
+  background: hsl(25 95% 63%);
+}
+
+.ocTimeline .tlTrack.dropOk {
+  background: hsl(var(--oc-primary) / 0.06);
+}
+
+.ocTimeline .tlTrack.dropActive {
+  background: hsl(var(--oc-primary) / 0.13);
+  box-shadow: inset 0 0 0 1px hsl(var(--oc-primary) / 0.55);
+}
+
+.ocTimeline .tlSnapLine {
+  width: 1px;
+  background: hsl(var(--oc-primary));
+  box-shadow: 0 0 0 1px hsl(var(--oc-primary) / 0.18), 0 0 6px hsl(var(--oc-primary) / 0.75);
+}
+
+.ocTimeline .tlPlayhead {
+  width: 1px;
+  background: hsl(var(--oc-foreground));
+  box-shadow: 0 0 0 1px hsl(var(--oc-background) / 0.35), 0 0 5px hsl(220 40% 2% / 0.45);
+}
+
+.ocTimeline .tlPlayheadCap {
+  top: 0;
+  width: 0.68rem;
+  height: 0.82rem;
+  background: hsl(var(--oc-foreground));
+  filter: drop-shadow(0 1px 2px hsl(220 40% 2% / 0.5));
+}
+
+@container (max-width: 1100px) {
+  .ocTimeline .tlToolbar {
+    gap: 0.1rem;
+    padding-inline: 0.35rem;
+  }
+  .ocTimeline .tlLabels { width: 8.75rem; }
+  .ocTimeline .tlZoom { gap: 0.25rem; }
+  .ocTimeline .tlZoom .zoomSlider { width: 4.5rem; }
+}
+
+@container (max-width: 760px) {
+  .ocTimeline .tlLabels { width: 7.75rem; }
+  .ocTimeline .tlLabel { padding-inline: 0.3rem; }
+  .ocTimeline .tlZoom .zoomSlider { width: 3.6rem; }
+}

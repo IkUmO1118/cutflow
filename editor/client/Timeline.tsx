@@ -843,7 +843,7 @@ export const Timeline = ({
   };
 
   return (
-    <div className="timeline" style={{ height }}>
+    <div className="timeline ocTimeline" style={{ height }}>
       <div className="tlToolbar">
         <span className="addTrack">
           <button

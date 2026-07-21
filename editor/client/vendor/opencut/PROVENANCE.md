@@ -78,6 +78,14 @@ server routes, and editing behavior are not vendored.
   short-caption branches remain mounted through their original callbacks. The
   short approval control intentionally remains a native checkbox rather than a
   switch because it represents a human approval boundary, not a light setting.
+- P3 adapts the pinned OpenCut editor-layout and token sources into a dense,
+  layered timeline skin under `.ocTimeline`: compact toolbar and zoom controls,
+  readable ruler and track headers, semantic clip colors, selected/hover/focus
+  states, playhead and snap affordances, and thin scrollbars. CutFlow's existing
+  timeline DOM, semantic classes, variable row heights, horizontal virtualization,
+  output-time geometry, raw-time write mapping, track ordering, visibility/mute
+  controls, pointer/trim/create/drop handlers, titles, and keyboard shortcuts remain
+  authoritative. No secondary-button context menu is introduced.
 - Tailwind Preflight is deliberately excluded so the existing inline stylesheet
   remains authoritative for components that have not yet migrated.
 
