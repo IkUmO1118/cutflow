@@ -320,6 +320,10 @@ test("loadProject: /api/project 相当の payload に planPerception を含む",
       systemSpeech: false,
       warnings: [],
     });
+    assert.deepEqual(project.previewCut, {
+      ready: false,
+      keepSignature: JSON.stringify([{ start: 0, end: 12 }]),
+    });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

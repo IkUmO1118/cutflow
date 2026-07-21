@@ -103,6 +103,9 @@ export interface ProjectData {
    * エンコーダ)か元収録ファイルと食い違っている(古い)か。proxyExists が
    * false のときは常に false(未生成であって陳腐化ではない) */
   proxyStale: boolean;
+  /** disk の cutplan に一致する連続 preview cache が安全に採用できるか。
+   * ready=false の間は従来の proxy(source-domain)経路を使う。 */
+  previewCut: PreviewCutState;
   renderCfg: Config["render"];
   /** server が現在の design key と全 PNG の存在を検証した静的資産 */
   designAssets?: PreparedDesignAssets;
@@ -131,6 +134,24 @@ export interface ProjectData {
 }
 
 export type PlanPerceptionStatus = PerceptionStatus;
+
+export interface PreviewCutState {
+  ready: boolean;
+  /** reason/approved を除いた keep+speed の署名。未保存編集との照合用。 */
+  keepSignature: string;
+}
+
+/** POST /api/preview-cut は保存前の cutplan snapshot だけを受け取る。 */
+export interface PreviewCutRequest {
+  cutplan: CutPlan;
+}
+
+export interface PreviewCutResponse {
+  ok: true;
+  path: string;
+  keepSignature: string;
+  reused: boolean;
+}
 
 /** GET /api/script のレスポンス。元収録の全文スクリプト(AI が編集する前の
  * ベース)。whisper の生出力(whisper-out.json。編集で変わらない)が正で、
