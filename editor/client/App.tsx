@@ -108,10 +108,30 @@ import { useToasts, ToastStack } from "./toasts.tsx";
 import { TOAST_TTL_MS } from "./toastReducer.ts";
 import { Button } from "./components/ui/button.tsx";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "./components/ui/popover.tsx";
+import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
 } from "./components/ui/resizable.tsx";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./components/ui/tooltip.tsx";
+import {
+  ChevronDown,
+  Download,
+  PanelBottom,
+  PanelLeft,
+  PanelRight,
+  Settings,
+  Sparkles,
+} from "lucide-react";
 import {
   SCRIPT_CUT_REASON,
   SHORT_TRACK_DEF,
@@ -135,7 +155,6 @@ import {
   JumpIcon,
   LoopIcon,
   MaximizeIcon,
-  PanelIcon,
   PlayPauseIcon,
   StepIcon,
   VolumeIcon,
@@ -4588,6 +4607,7 @@ export const App = () => {
   // 開閉・最大化でも Panel の children は常時 mount したまま保つ。
   const appClass = "app" + (maximized ? " max" : "");
   return (
+    <TooltipProvider delayDuration={350}>
     <div className={appClass}>
       <input
         ref={fileInputRef}
@@ -4600,87 +4620,114 @@ export const App = () => {
           e.target.value = ""; // 同じファイルを続けて選べるように
         }}
       />
-      <header>
-        <div className="brand">
-          <strong>CutFlow</strong>
-          <span className="sep" aria-hidden>
-            /
-          </span>
-          <span className="dim path" title={proj.dir}>
-            {proj.dir.replace(/\/+$/, "").split("/").pop()}
-          </span>
-        </div>
+      <header className="ocHeader">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="brand ocBreadcrumb" tabIndex={0}>
+              <strong>CutFlow</strong>
+              <span className="sep" aria-hidden>/</span>
+              <span className="dim path" title={proj.dir}>
+                {proj.dir.replace(/\/+$/, "").split("/").pop()}
+              </span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>{proj.dir}</TooltipContent>
+        </Tooltip>
         <span className="spacer" />
-        <span
-          className={anyDirty ? "saveStatus dirty" : "saveStatus"}
-          title="変更は ⌘S で保存。未保存の編集は自動退避され、閉じる前に確認が出ます"
-        >
-          {busy === "save" ? "保存中…" : anyDirty ? "● 未保存 (⌘S)" : "保存済み"}
-        </span>
-        <Button
-          variant="secondary"
-          size="sm"
-          className="aiCommandLauncher"
-          disabled={aiWorkflowLocked}
-          title={aiWorkflowLocked ? aiWorkflowTitle : anyDirty ? "保存してから AI 一発編集" : "AI 一発編集を開く"}
-          onClick={() => {
-            setAiCommandScope("global");
-            setAiCommandOpen(true);
-          }}
-        >
-          {aiWorkflowLocked && <img className="aiCommandLauncherIcon" src="/particle_loop_icon.svg" alt="" />}
-          {aiWorkflowLocked ? "編集中" : "AI編集"}
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              className={anyDirty ? "saveStatus dirty" : "saveStatus"}
+              tabIndex={0}
+              title="変更は ⌘S で保存。未保存の編集は自動退避され、閉じる前に確認が出ます"
+            >
+              {busy === "save" ? "保存中…" : anyDirty ? "● 未保存 (⌘S)" : "保存済み"}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>変更は ⌘S で保存。未保存の編集は自動退避されます</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="aiCommandLauncher"
+              disabled={aiWorkflowLocked}
+              title={aiWorkflowLocked ? aiWorkflowTitle : anyDirty ? "保存してから AI 一発編集" : "AI 一発編集を開く"}
+              onClick={() => {
+                setAiCommandScope("global");
+                setAiCommandOpen(true);
+              }}
+            >
+              {aiWorkflowLocked
+                ? <img className="aiCommandLauncherIcon" src="/particle_loop_icon.svg" alt="" />
+                : <Sparkles size={14} aria-hidden />}
+              {aiWorkflowLocked ? "編集中" : "AI編集"}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{aiWorkflowLocked ? aiWorkflowTitle : anyDirty ? "保存してから AI 一発編集" : "AI 一発編集を開く"}</TooltipContent>
+        </Tooltip>
         {/* レイアウト切替(VSCode 風)。アイコンの塗られた面 = 表示中のパネル。
             閉じてもデータ・編集状態には影響しない(表示だけの切替) */}
         <div className="layoutBtns">
-          <button
-            className="hIcon"
-            title={`左パネル(素材/テロップ)を${panelOpen ? "隠す" : "表示"}(分割バーを左端へ寄せても閉じられる)`}
-            aria-label="左パネルの表示切替"
-            onClick={() => setPanelOpen((v) => !v)}
-          >
-            <PanelIcon side="left" on={panelOpen} />
-          </button>
-          <button
-            className="hIcon"
-            title={`タイムラインを${timelineOpen ? "隠す" : "表示"}`}
-            aria-label="タイムラインの表示切替"
-            onClick={() => setTimelineOpen((v) => !v)}
-          >
-            <PanelIcon side="bottom" on={timelineOpen} />
-          </button>
-          <button
-            className="hIcon"
-            title={`右パネル(プロパティ)を${inspOpen ? "隠す" : "表示"}(分割バーを右端へ寄せても閉じられる)`}
-            aria-label="右パネルの表示切替"
-            onClick={() => setInspOpen((v) => !v)}
-          >
-            <PanelIcon side="right" on={inspOpen} />
-          </button>
+          <Tooltip><TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="hIcon"
+              data-active={panelOpen}
+              title={`左パネル(素材/テロップ)を${panelOpen ? "隠す" : "表示"}(分割バーを左端へ寄せても閉じられる)`}
+              aria-label="左パネルの表示切替"
+              onClick={() => setPanelOpen((v) => !v)}
+            ><PanelLeft size={15} aria-hidden /></Button>
+          </TooltipTrigger><TooltipContent>左パネルを{panelOpen ? "隠す" : "表示"}</TooltipContent></Tooltip>
+          <Tooltip><TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="hIcon"
+              data-active={timelineOpen}
+              title={`タイムラインを${timelineOpen ? "隠す" : "表示"}`}
+              aria-label="タイムラインの表示切替"
+              onClick={() => setTimelineOpen((v) => !v)}
+            ><PanelBottom size={15} aria-hidden /></Button>
+          </TooltipTrigger><TooltipContent>タイムラインを{timelineOpen ? "隠す" : "表示"}</TooltipContent></Tooltip>
+          <Tooltip><TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="hIcon"
+              data-active={inspOpen}
+              title={`右パネル(プロパティ)を${inspOpen ? "隠す" : "表示"}(分割バーを右端へ寄せても閉じられる)`}
+              aria-label="右パネルの表示切替"
+              onClick={() => setInspOpen((v) => !v)}
+            ><PanelRight size={15} aria-hidden /></Button>
+          </TooltipTrigger><TooltipContent>右パネルを{inspOpen ? "隠す" : "表示"}</TooltipContent></Tooltip>
         </div>
-        <button
+        <Tooltip><TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
           className={settingsOpen ? "settingsBtn active" : "settingsBtn"}
           aria-label="設定"
           title="設定 (⌘,)。ワイプ・テロップ既定・音声などの全収録共通の設定(config.yaml)"
           onClick={() => (settingsOpen ? cancelSettings() : openSettings())}
-        >
-          <svg viewBox="0 0 24 24" aria-hidden>
-            <circle cx="12" cy="12" r="3" />
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-          </svg>
-        </button>
-        <div className="exportMenu">
-          <button
-            className={exportOpen ? "active" : ""}
-            onClick={() => setExportOpen((o) => !o)}
-          >
-            書き出し ▾
-          </button>
-          {exportOpen && (
-            <>
-              <div className="menuBackdrop" onClick={() => setExportOpen(false)} />
-              <div className="menu exportPanel">
+        ><Settings size={15} aria-hidden /></Button>
+        </TooltipTrigger><TooltipContent>設定 (⌘,)</TooltipContent></Tooltip>
+        <Popover open={exportOpen} onOpenChange={setExportOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="default"
+              size="sm"
+              className="exportTrigger"
+              aria-expanded={exportOpen}
+            >
+              <Download size={14} aria-hidden />
+              書き出し
+              <ChevronDown size={12} aria-hidden />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="exportPanel" aria-label="書き出し">
                 <div className="exportTitle">書き出し</div>
                 <label
                   className="approve"
@@ -4696,8 +4743,8 @@ export const App = () => {
                   />
                   承認済み
                 </label>
-                <button
-                  className="primary"
+                <Button
+                  className="exportAction"
                   disabled={
                     !cutplan.approved || job?.status === "running" || busy !== null
                   }
@@ -4712,8 +4759,10 @@ export const App = () => {
                   }}
                 >
                   レンダー
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="outline"
+                  className="exportAction"
                   disabled={job?.status === "running" || busy !== null}
                   title="カット確認用の軽い動画(preview.mp4)を生成する。未保存の編集は自動で保存してから走る"
                   onClick={() => {
@@ -4722,11 +4771,9 @@ export const App = () => {
                   }}
                 >
                   プレビュー生成
-                </button>
-              </div>
-            </>
-          )}
-        </div>
+                </Button>
+          </PopoverContent>
+        </Popover>
       </header>
 
       {/* 要対応の継続条件(トーストにしない=時間で消えない)。header と stage の
@@ -5581,6 +5628,7 @@ export const App = () => {
       </ResizablePanelGroup>
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
     </div>
+    </TooltipProvider>
   );
 };
 

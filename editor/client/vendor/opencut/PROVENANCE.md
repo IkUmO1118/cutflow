@@ -13,6 +13,9 @@ server routes, and editing behavior are not vendored.
 | Class utility source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/lib/utils.ts` |
 | Editor layout source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/app/editor/%5Bproject_id%5D/page.tsx` |
 | Resizable wrapper source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/resizable.tsx` |
+| Header composition source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/app/editor/%5Bproject_id%5D/page.tsx` |
+| Popover source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/popover.tsx` |
+| Tooltip source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/tooltip.tsx` |
 | License source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/LICENSE` |
 
 ## Adaptation in CutFlow
@@ -33,6 +36,16 @@ server routes, and editing behavior are not vendored.
   `Group`/`Panel`/`Separator` API. CutFlow's existing pixel persistence,
   collapse toggles, maximized/fullscreen behavior, and mounted editor children
   remain authoritative.
+- P2 checkpoint 1 adapts OpenCut's compact editor-header composition and its
+  shadcn Popover/Tooltip vocabulary. CutFlow uses the `radix-ui` 1.6.4 umbrella
+  package and `lucide-react` 1.25.0, both exact-pinned. One root
+  `TooltipProvider` serves the header, while the export menu is a controlled
+  Popover backed by the existing `exportOpen` state. Its Radix trigger is the
+  sole pointer/keyboard toggle owner (no competing child `onClick`), preserving
+  Enter/Space activation plus Escape dismissal and focus return. The native approval
+  checkbox, approval mutation, render/preview handlers, disabled gates, titles,
+  save state, layout toggles, and settings flow remain CutFlow-owned and
+  behaviorally unchanged.
 - Tailwind Preflight is deliberately excluded so the existing inline stylesheet
   remains authoritative for components that have not yet migrated.
 

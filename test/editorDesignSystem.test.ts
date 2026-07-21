@@ -35,14 +35,12 @@ test("the first design-system component is a native CVA Button using cn", () => 
   assert.match(utils, /twMerge\(clsx\(inputs\)\)/);
 });
 
-test("only the header AI launcher is migrated and its behavior props stay intact", () => {
+test("the header AI launcher keeps its behavior props during the P2 header migration", () => {
   const app = read("editor/client/App.tsx");
-  const launches = app.match(/<Button\b/g) ?? [];
-  assert.equal(launches.length, 1);
   assert.match(app, /<Button\s+variant="secondary"\s+size="sm"\s+className="aiCommandLauncher"\s+disabled=\{aiWorkflowLocked\}/);
   assert.match(app, /title=\{aiWorkflowLocked \? aiWorkflowTitle : anyDirty \? "保存してから AI 一発編集" : "AI 一発編集を開く"\}/);
   assert.match(app, /setAiCommandScope\("global"\);\s+setAiCommandOpen\(true\);/);
-  assert.match(app, /\{aiWorkflowLocked \? "編集中" : "AI編集"\}\s+<\/Button>/);
+  assert.match(app, /\{aiWorkflowLocked \? "編集中" : "AI編集"\}/);
 });
 
 test("generated CSS loads after legacy inline CSS under the dark class", () => {
