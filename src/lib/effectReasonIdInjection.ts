@@ -7,43 +7,59 @@ import {
   EFFECT_REASON_ID_FAMILY,
   EFFECT_REASON_ID_LABEL,
 } from "./effectReasonIds.ts";
-import type { EffectReasonFamily } from "./effectReasonIds.ts";
+import type { EffectReasonFamily, EffectReasonId } from "./effectReasonIds.ts";
+import { EFFECT_BLUEPRINT_BLOCKS, EFFECT_PATTERN_INJECTION } from "./effectPatterns.ts";
+import type { CutPatternId } from "./effectPatterns.ts";
 
-function linesOf(family: EffectReasonFamily): string[] {
+function linesOf(recipeSet: ReadonlySet<EffectReasonId>, family: EffectReasonFamily): string[] {
   return EFFECT_REASON_IDS
-    .filter((id) => EFFECT_REASON_ID_FAMILY[id] === family)
+    .filter((id) => recipeSet.has(id) && EFFECT_REASON_ID_FAMILY[id] === family)
     .map((id) => `- ${id} — ${EFFECT_REASON_ID_LABEL[id]}`);
 }
 
-export function renderEffectReasonIdsBlock(enabled: boolean): string {
+/** recipe 集合に両側がある G2 対比だけを返す。 */
+export function effectReasonIdDiscriminatorLines(recipes: readonly EffectReasonId[]): string[] {
+  const recipeSet = new Set(recipes);
+  return EFFECT_REASON_ID_DISCRIMINATOR
+    .filter(({ a, b }) => recipeSet.has(a) && recipeSet.has(b))
+    .map(({ a, b, discriminator }) => `- ${a} ↔ ${b} — ${discriminator}`);
+}
+
+function familySection(recipeSet: ReadonlySet<EffectReasonId>, family: EffectReasonFamily, heading: string): string[] {
+  const lines = linesOf(recipeSet, family);
+  return lines.length > 0 ? [heading, ...lines, ""] : [];
+}
+
+export function renderEffectReasonIdsBlock(enabled: boolean, pattern: CutPatternId = "general"): string {
   if (!enabled) return "";
+  const injection = EFFECT_PATTERN_INJECTION[pattern] ?? EFFECT_PATTERN_INJECTION.general;
+  const recipeSet = new Set<EffectReasonId>(injection.recipes);
+  const discriminatorLines = effectReasonIdDiscriminatorLines(injection.recipes);
   const lines = [
+    ...(injection.note ? [injection.note, ""] : []),
     "## 演出判断の分類(effectReasonId)",
     "",
     "各 decision に、次の一覧から **idを1つだけ**選んで `effectReasonId` に書いてください。",
     "一覧に無いidを発明しないでください。座標・時刻・色は従来どおり書きません。",
     "",
-    "### 見せる(zoom)",
-    ...linesOf("zoom"),
-    "",
-    "### 隠す(blur)",
-    ...linesOf("blur"),
-    "",
-    "### 指す(annotation)",
-    ...linesOf("annotation"),
-    "",
-    "### 何もしない(none)",
-    ...linesOf("none"),
-    "",
-    "### 紛らわしい境目",
-    ...EFFECT_REASON_ID_DISCRIMINATOR.map(
-      ({ a, b, discriminator }) => `- ${a} ↔ ${b} — ${discriminator}`,
-    ),
-    "",
-    "秘匿情報か判断できない場合は、公開後に回復できないため blur(secret-exposure) 側へ倒してください。",
-    "`none` も『演出を検討したが置かなかった』判断として列挙してください。",
-    "ただし none は `max(12, ceil(アンカー数の10%))` 件まで(アンカー総数を上限)とし、超える場合は",
-    "演出を置くか特に迷ったものから残してください。",
+    ...familySection(recipeSet, "zoom", "### 見せる(zoom)"),
+    ...familySection(recipeSet, "blur", "### 隠す(blur)"),
+    ...familySection(recipeSet, "annotation", "### 指す(annotation)"),
+    ...familySection(recipeSet, "none", "### 何もしない(none)"),
+    ...(discriminatorLines.length > 0 ? ["### 紛らわしい境目", ...discriminatorLines, ""] : []),
+    ...(recipeSet.has("secret-exposure")
+      ? ["秘匿情報か判断できない場合は、公開後に回復できないため blur(secret-exposure) 側へ倒してください。"]
+      : []),
+    ...(linesOf(recipeSet, "none").length > 0
+      ? [
+          "`none` も『演出を検討したが置かなかった』判断として列挙してください。",
+          "ただし none は `max(12, ceil(アンカー数の10%))` 件まで(アンカー総数を上限)とし、超える場合は",
+          "演出を置くか特に迷ったものから残してください。",
+        ]
+      : []),
+    ...(injection.blueprint && EFFECT_BLUEPRINT_BLOCKS[injection.blueprint]
+      ? ["", ...EFFECT_BLUEPRINT_BLOCKS[injection.blueprint]]
+      : []),
   ];
   return `\n${lines.join("\n")}\n`;
 }

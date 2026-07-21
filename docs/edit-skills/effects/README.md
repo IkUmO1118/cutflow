@@ -13,7 +13,8 @@
 決定論検査であり、recipe の分類には含めない。
 
 id 集合の単一の出所は `src/lib/effectReasonIds.ts` の `EFFECT_REASON_IDS`。
-README・recipes・schema・validate・プロンプト注入はこの集合へ閉じる。
+README・recipes・schema・validate・プロンプト注入はこの集合へ閉じる。収録タイプの
+idはcutと共有し、演出固有の注入内容だけを`src/lib/effectPatterns.ts`に置く。
 
 ## 7分類
 
@@ -50,8 +51,9 @@ craft 由来はさらに `(craft)` を付ける。入力素材と反例は `text
 
 収録タイプは [`../patterns.md`](../patterns.md)、アークは
 [`../blueprints.md`](../blueprints.md)を cut と共有する。effectReasonId のスキーマ・
-プロンプト注入は EP2 で実装済み。pattern 選択注入は EP3、実収録 example・doc
-機械検査・測定配線は EP4 の担当であり、EP1 ではコードを変更しない。
+プロンプト注入とpattern選択注入はEP3まで実装済み。`general`はEP2の全7分類注入と
+バイト等価で、`tool-demo`も安全/G2閉包のため7分類を維持し、noteと演出用blueprintで
+重み付けする。実収録example・doc機械検査・測定配線はEP4の担当。
 
 ## 索引
 

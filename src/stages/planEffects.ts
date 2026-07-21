@@ -103,6 +103,21 @@ export function planEffectsResponseSchema(
   return reasonIdsEnabled ? PLAN_EFFECTS_RESPONSE_SCHEMA_REASON_IDS : PLAN_EFFECTS_RESPONSE_SCHEMA;
 }
 
+/** plan.reasonIds の共有 pattern を演出用注入へ伝播する純関数。 */
+export function resolveEffectReasonIdInjection(cfg: Config): {
+  enabled: boolean;
+  pattern: ReturnType<typeof resolveReasonIdsCfg>["pattern"];
+  block: string;
+  outputBlock: string;
+} {
+  const reasonIds = resolveReasonIdsCfg(cfg);
+  return {
+    ...reasonIds,
+    block: renderEffectReasonIdsBlock(reasonIds.enabled, reasonIds.pattern),
+    outputBlock: renderEffectReasonIdsOutputBlock(reasonIds.enabled),
+  };
+}
+
 /**
  * LLM 応答から JSON を取り出して演出選定に整える。plan-materials の
  * parsePlacementsResponse と同じ堅牢さ(コードフェンスや前後の説明文が
@@ -308,27 +323,25 @@ export async function planEffects(
 
   const observe = opts.observe ?? resolveEffectReviewCfg(cfg).observe;
   const observation = observe ? effectWarningsToObservation(readEffectCheckWarnings(dir)) : "";
-  const reasonIdsEnabled = resolveReasonIdsCfg(cfg).enabled;
-  const reasonIdsBlock = renderEffectReasonIdsBlock(reasonIdsEnabled);
-  const reasonIdsOutputBlock = renderEffectReasonIdsOutputBlock(reasonIdsEnabled);
+  const reasonIds = resolveEffectReasonIdInjection(cfg);
   const prompt = renderEffectsPrompt(
     dir,
     anchors,
     observation,
-    reasonIdsBlock,
-    reasonIdsOutputBlock,
+    reasonIds.block,
+    reasonIds.outputBlock,
   );
   const raw = await completeWithJsonSchema(
     prompt,
     cfg,
-    planEffectsResponseSchema(reasonIdsEnabled),
+    planEffectsResponseSchema(reasonIds.enabled),
     "other",
   );
   // LLM の生応答は必ず残す(パース失敗時の調査と、選定過程の記録のため)
   writeFileSync(join(dir, "plan-effects.raw.txt"), raw);
 
   const parsed = parseDecisionsResponse(raw);
-  const decisions = limitNoneDecisions(parsed.decisions, anchors.length, reasonIdsEnabled);
+  const decisions = limitNoneDecisions(parsed.decisions, anchors.length, reasonIds.enabled);
   const profile = resolveProfile(manifest.video.screenRegion, "default");
   const overlayCfg: EffectOverlayCfg = {
     ...placementCfg,

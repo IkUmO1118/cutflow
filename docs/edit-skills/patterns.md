@@ -2,9 +2,9 @@
 
 > 母艦: [`../programs/edit-knowledge-assets-program.md`](../programs/edit-knowledge-assets-program.md)。
 > 実装設計の正本: [`../plans/2026-07-20-cut-knowledge-p3-p5-design.md`](../plans/2026-07-20-cut-knowledge-p3-p5-design.md) §1/§2。
-> id 集合・注入内容の単一の出所は `src/lib/cutPatterns.ts` の
-> `CUT_PATTERN_IDS` / `CUT_PATTERN_INJECTION`(このファイルの記述はそこから
-> 生成される固定文字列の**説明**であって、注入の実体そのものではない)。
+> id 集合の単一の出所は `src/lib/cutPatterns.ts` の `CUT_PATTERN_IDS`。
+> 注入内容は判断トラックごとに `CUT_PATTERN_INJECTION` /
+> `EFFECT_PATTERN_INJECTION` が持つ(このファイルはその**説明**で、注入の実体ではない)。
 
 ## これは何か
 
@@ -27,10 +27,10 @@
 ゼロの想定にすぎず、統廃合前提のものをプロンプト分岐に載せる順序ではない
 (母艦 §6.1・G4 の原則)。実収録が増えるたびにここへ型を足していく。
 
-| id | 表示名 | 接地 | 注入内容 |
-|---|---|---|---|
-| [`general`](#general) | 汎用(収録タイプを宣言しない) | — (既定) | 13分類全部。`plan.reasonIds.pattern` 省略時と同じ |
-| [`tool-demo`](#tool-demo) | ツール紹介・デモ | 実データ(`~/Movies/cutflow/2026-07-12`。承認・レンダー済み) | 11/13分類 + blueprint(`tool-demo-arc`。P4) |
+| id | 表示名 | 接地 | cut 注入 | effects 注入 |
+|---|---|---|---|---|
+| [`general`](#general) | 汎用(収録タイプを宣言しない) | — (既定) | 13分類全部 | 7分類全部 |
+| [`tool-demo`](#tool-demo) | ツール紹介・デモ | 実データ(`~/Movies/cutflow/2026-07-12`。承認・レンダー済み) | 11/13分類 + blueprint(`tool-demo-arc`) | 安全/G2閉包を保つ7分類全部 + effect blueprint(`tool-demo-arc`) |
 
 ## `general`
 
@@ -42,6 +42,9 @@
 `renderReasonIdsBlock(true, "general")` は `renderReasonIdsBlock(true)` と
 完全に同じ文字列を返す。`pattern` という機構自体は P3 の追加だが、既定挙動を
 変えない(母艦の「新型追加はローカルな変更」という設計目標の裏返し)。
+
+effects でも同じ契約で、`renderEffectReasonIdsBlock(true, "general")` は
+EP2 の全7分類注入とバイト等価になる。
 
 ## `tool-demo`
 
@@ -64,6 +67,11 @@
 
 加えて blueprint `tool-demo-arc`(P4。[`blueprints.md`](blueprints.md)参照)が
 注入ブロックの末尾に連結される。
+
+effects は初版では7分類をすべて維持する。`secret-exposure` を落とさない安全閉包と、
+`tiny-target` ↔ `already-legible` / `attention-scatter` ↔ `motion-carries` の
+G2対比を分断しないためである。cut と同じ `tool-demo-arc` を参照し、演出用noteと
+「優勢な演出」の短いblueprintで実演区間へ重み付けする。
 
 **注入の形は `general` から変えない**(見出し・行フォーマット・`keeps` の
 説明文は同一)。違うのは行数と note 1行だけ(設計書 §2.2)。
