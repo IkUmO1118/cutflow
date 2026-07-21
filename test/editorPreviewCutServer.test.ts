@@ -77,6 +77,7 @@ function cacheKey(dir: string, cutplan: CutPlan): PreviewCutCacheKey {
     cutplan,
     proxyMtimeMs: proxy.mtimeMs,
     proxySize: proxy.size,
+    compositionFps: 30,
   });
 }
 
@@ -217,6 +218,16 @@ test("executePreviewCutRequest: 同じcache keyだけdedupし、reason/approved�
       previewCutRequestKey({ dir, cfg: CFG, cutplan: UNSAVED_PLAN }),
       previewCutRequestKey({ dir, cfg: CFG, cutplan: differentKeep }),
     );
+    const keyAt30 = previewCutRequestKey({ dir, cfg: CFG, cutplan: UNSAVED_PLAN });
+    const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8"));
+    manifest.video.fps = 60;
+    writeFileSync(join(dir, "manifest.json"), JSON.stringify(manifest));
+    assert.notEqual(
+      keyAt30,
+      previewCutRequestKey({ dir, cfg: CFG, cutplan: UNSAVED_PLAN }),
+    );
+    manifest.video.fps = 30;
+    writeFileSync(join(dir, "manifest.json"), JSON.stringify(manifest));
     const queue = new PreviewCutRequestQueue();
     const gate = deferred<{ path: string; reused: boolean; key: PreviewCutCacheKey }>();
     let calls = 0;
@@ -306,6 +317,17 @@ test("loadPreviewCutState: disk cutplan/key/output stat一致だけready=true、
       ready: true,
       keepSignature: signature,
     });
+
+    const manifestPath = join(dir, "manifest.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    manifest.video.fps = 60;
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+    assert.equal(
+      loadPreviewCutState(dir, CFG, DISK_PLAN, { exists: true, stale: false }).ready,
+      false,
+    );
+    manifest.video.fps = 30;
+    writeFileSync(manifestPath, JSON.stringify(manifest));
 
     writeFileSync(join(dir, "preview-cut.key.json"), "{not json");
     assert.equal(loadPreviewCutState(dir, CFG, DISK_PLAN, { exists: true, stale: false }).ready, false);

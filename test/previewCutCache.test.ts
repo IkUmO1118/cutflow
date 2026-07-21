@@ -34,6 +34,7 @@ function keyOf(overrides: {
   cutplan?: CutPlan;
   proxyMtimeMs?: number;
   proxySize?: number;
+  compositionFps?: number;
   algorithmVersion?: string;
   videoArgs?: string[];
   audioArgs?: string[];
@@ -43,6 +44,7 @@ function keyOf(overrides: {
     cutplan: overrides.cutplan ?? PLAN,
     proxyMtimeMs: overrides.proxyMtimeMs ?? 1000,
     proxySize: overrides.proxySize ?? 2000,
+    compositionFps: overrides.compositionFps ?? 30,
     algorithmVersion: overrides.algorithmVersion,
     videoArgs: overrides.videoArgs,
     audioArgs: overrides.audioArgs,
@@ -53,6 +55,7 @@ test("buildPreviewCutCacheKey: keep を時系列で正規化し schema/codec/aud
   const key = keyOf();
   assert.equal(key.schemaVersion, PREVIEW_CUT_CACHE_SCHEMA_VERSION);
   assert.equal(key.algorithmVersion, PREVIEW_CUT_ALGORITHM_VERSION);
+  assert.equal(key.compositionFps, 30);
   assert.deepEqual(key.keeps, [
     { start: 0, end: 1 },
     { start: 2, end: 4, speed: 2 },
@@ -62,7 +65,7 @@ test("buildPreviewCutCacheKey: keep を時系列で正規化し schema/codec/aud
   assert.deepEqual(key.audioArgs, PREVIEW_CUT_AUDIO_ARGS);
 });
 
-test("cache key: keep/speed/proxy/codec/audio/algorithm の変化を全て失効させる", () => {
+test("cache key: composition fps/keep/speed/proxy/codec/audio/algorithm の変化を全て失効させる", () => {
   const base = keyOf();
   const changedPlan = structuredClone(PLAN);
   changedPlan.segments[1].end = 0.9;
@@ -73,6 +76,7 @@ test("cache key: keep/speed/proxy/codec/audio/algorithm の変化を全て失効
     keyOf({ cutplan: changedSpeed }),
     keyOf({ proxyMtimeMs: 1001 }),
     keyOf({ proxySize: 2001 }),
+    keyOf({ compositionFps: 60 }),
     keyOf({ videoArgs: ["-c:v", "another-codec"] }),
     keyOf({ audioArgs: ["-c:a", "another-codec"] }),
     keyOf({ algorithmVersion: "proxy-keeps-trim-concat-v2" }),

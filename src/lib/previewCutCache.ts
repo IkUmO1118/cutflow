@@ -15,7 +15,7 @@ export type { PreviewCutKeep } from "./previewCutSignature.ts";
 export const PREVIEW_CUT_FILE = "preview-cut.mp4";
 export const PREVIEW_CUT_KEY_FILE = "preview-cut.key.json";
 export const PREVIEW_CUT_CACHE_SCHEMA_VERSION = 1;
-export const PREVIEW_CUT_ALGORITHM_VERSION = "proxy-frame-keeps-concat-v2";
+export const PREVIEW_CUT_ALGORITHM_VERSION = "proxy-composition-frame-keeps-concat-v3";
 export const PREVIEW_CUT_AUDIO_ARGS = ["-c:a", "aac", "-ar", "48000"] as const;
 
 export interface PreviewCutFileStat {
@@ -26,6 +26,7 @@ export interface PreviewCutFileStat {
 export interface PreviewCutCacheKey {
   schemaVersion: number;
   algorithmVersion: string;
+  compositionFps: number;
   keeps: PreviewCutKeep[];
   proxy: PreviewCutFileStat & { file: string };
   videoArgs: string[];
@@ -43,6 +44,7 @@ export function buildPreviewCutCacheKey(args: {
   proxyFile?: string;
   proxyMtimeMs: number;
   proxySize: number;
+  compositionFps: number;
   schemaVersion?: number;
   algorithmVersion?: string;
   videoArgs?: readonly string[];
@@ -51,6 +53,7 @@ export function buildPreviewCutCacheKey(args: {
   return {
     schemaVersion: args.schemaVersion ?? PREVIEW_CUT_CACHE_SCHEMA_VERSION,
     algorithmVersion: args.algorithmVersion ?? PREVIEW_CUT_ALGORITHM_VERSION,
+    compositionFps: args.compositionFps,
     keeps: normalizePreviewCutKeeps(args.cutplan),
     proxy: {
       file: args.proxyFile ?? "proxy.mp4",
@@ -84,7 +87,8 @@ export function parsePreviewCutSidecar(value: unknown): PreviewCutSidecar | null
   const key = sidecar.key as Partial<PreviewCutCacheKey> | undefined;
   const output = sidecar.output as Partial<PreviewCutFileStat> | undefined;
   if (!key || typeof key !== "object" || !output || typeof output !== "object") return null;
-  if (!isFiniteNumber(key.schemaVersion) || typeof key.algorithmVersion !== "string") return null;
+  if (!isFiniteNumber(key.schemaVersion) || typeof key.algorithmVersion !== "string" ||
+      !isFiniteNumber(key.compositionFps) || key.compositionFps <= 0) return null;
   if (!Array.isArray(key.keeps) || !key.keeps.every((keep) => {
     if (!keep || typeof keep !== "object") return false;
     const k = keep as Partial<PreviewCutKeep>;

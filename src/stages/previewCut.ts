@@ -1,4 +1,4 @@
-import { renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { run } from "../lib/exec.ts";
 import { parseFps, probe, type ProbeResult } from "../lib/ffmpeg.ts";
@@ -21,7 +21,7 @@ import { playbackSegmentsOf, type PlaybackSegment } from "../lib/timeline.ts";
 import { videoEncodeArgs } from "../lib/videoEncode.ts";
 import { isProxyStale } from "./proxy.ts";
 import type { Config } from "../lib/config.ts";
-import type { CutPlan } from "../types.ts";
+import { manifestCompositionFps, type CutPlan, type Manifest } from "../types.ts";
 
 interface PreviewCutProbeExpectation {
   width: number;
@@ -78,17 +78,28 @@ export function previewCutFrameSegments(
   let outputSec = 0;
   return keeps.map((keep) => {
     const sourceStartFrame = Math.round(keep.start * fps);
-    const sourceEndFrame = Math.max(sourceStartFrame + 1, Math.round(keep.end * fps));
     const outputStartFrame = Math.round(Math.round(outputSec * 100) / 100 * fps);
     outputSec += (keep.end - keep.start) / keep.speed;
     const outputEndFrame = Math.round(Math.round(outputSec * 100) / 100 * fps);
+    const outputFrames = Math.max(1, outputEndFrame - outputStartFrame);
     return {
       sourceStartFrame,
-      sourceEndFrame,
-      outputFrames: Math.max(1, outputEndFrame - outputStartFrame),
+      // Player は startFromFrames から composition frame ごとに speed 倍だけ
+      // source を進める。独立した keep.end で先に切ると端数 speed で不足する
+      // ため、実際の消費範囲に補間用の安全1 frameを加えて供給する。
+      sourceEndFrame: Math.ceil(sourceStartFrame + outputFrames * keep.speed) + 1,
+      outputFrames,
       speed: keep.speed,
     };
   });
+}
+
+export function previewCutCadenceCompatible(
+  rFrameRate: string | undefined,
+  compositionFps: number,
+): boolean {
+  const nominalFps = parseFps(rFrameRate);
+  return nominalFps > 0 && Math.abs(nominalFps - compositionFps) < 1e-6;
 }
 
 /** frame数を厳密検査した後のcontainer/audio量子化だけを許す。 */
@@ -140,6 +151,7 @@ export function evaluatePreviewCutProbe(
 function expectationFromProxy(
   proxyProbe: ProbeResult,
   keeps: PlaybackSegment[],
+  compositionFps: number,
 ): PreviewCutProbeExpectation {
   const videos = proxyProbe.streams.filter((stream) => stream.codec_type === "video");
   const audios = proxyProbe.streams.filter((stream) => stream.codec_type === "audio");
@@ -147,17 +159,21 @@ function expectationFromProxy(
     throw new Error("proxy.mp4 は video/audio stream を各1本持つ必要があります");
   }
   const video = videos[0];
-  const fps = parseFps(video.avg_frame_rate);
-  if (!video.width || !video.height || fps <= 0) {
-    throw new Error("proxy.mp4 の解像度または fps を取得できませんでした");
+  if (!video.width || !video.height) {
+    throw new Error("proxy.mp4 の解像度を取得できませんでした");
   }
-  const frameSegments = previewCutFrameSegments(keeps, fps);
+  if (!previewCutCadenceCompatible(video.r_frame_rate, compositionFps)) {
+    throw new Error(
+      `proxy.mp4 の cadence (${video.r_frame_rate ?? "不明"}) が composition fps (${compositionFps}) と互換ではありません`,
+    );
+  }
+  const frameSegments = previewCutFrameSegments(keeps, compositionFps);
   const videoFrames = frameSegments.reduce((sum, segment) => sum + segment.outputFrames, 0);
   return {
     width: video.width,
     height: video.height,
-    fps,
-    durationSec: videoFrames / fps,
+    fps: compositionFps,
+    durationSec: videoFrames / compositionFps,
     videoFrames,
   };
 }
@@ -171,15 +187,14 @@ function filterGraph(segments: PreviewCutFrameSegment[], fps: number): string {
       : `(PTS-STARTPTS)/${segment.speed}`;
     parts.push(
       `[0:v]trim=start_frame=${segment.sourceStartFrame}:end_frame=${segment.sourceEndFrame},` +
-        `setpts=${setpts},fps=${fps},tpad=stop_mode=clone:stop=${segment.outputFrames},` +
+        `setpts=${setpts},fps=${fps},tpad=stop_mode=clone:stop=-1,` +
         `trim=end_frame=${segment.outputFrames},setpts=PTS-STARTPTS[v${index}]`,
     );
     const tempo = atempoFilters(segment.speed).map((rate) => `atempo=${rate}`).join(",");
     const sourceStart = segment.sourceStartFrame / fps;
-    const sourceEnd = segment.sourceEndFrame / fps;
     const outputDuration = segment.outputFrames / fps;
     parts.push(
-      `[0:a:0]atrim=start=${sourceStart}:end=${sourceEnd},asetpts=PTS-STARTPTS${
+      `[0:a:0]atrim=start=${sourceStart},asetpts=PTS-STARTPTS${
         tempo ? `,${tempo}` : ""
       },apad=pad_dur=${outputDuration},atrim=duration=${outputDuration},` +
         `asetpts=PTS-STARTPTS[a${index}]`,
@@ -220,6 +235,10 @@ export async function buildPreviewCut(
 
   const keeps = playbackSegmentsOf(cutplan);
   validateKeeps(keeps);
+  const manifest = JSON.parse(
+    readFileSync(join(dir, "manifest.json"), "utf8"),
+  ) as Manifest;
+  const compositionFps = manifestCompositionFps(manifest);
   const proxySnapshot = captureSnapshot(proxyPath);
   const videoArgs = videoEncodeArgs(cfg);
   const key = buildPreviewCutCacheKey({
@@ -228,6 +247,7 @@ export async function buildPreviewCut(
     proxyFile: "proxy.mp4",
     proxyMtimeMs: proxySnapshot.mtimeMs,
     proxySize: proxySnapshot.size,
+    compositionFps,
     videoArgs,
     audioArgs: PREVIEW_CUT_AUDIO_ARGS,
   });
@@ -236,8 +256,8 @@ export async function buildPreviewCut(
   }
 
   const probeFile = deps.probe ?? probe;
-  const expectation = expectationFromProxy(await probeFile(proxyPath), keeps);
-  const frameSegments = previewCutFrameSegments(keeps, expectation.fps);
+  const expectation = expectationFromProxy(await probeFile(proxyPath), keeps, compositionFps);
+  const frameSegments = previewCutFrameSegments(keeps, compositionFps);
   const runCommand = deps.run ?? run;
   const publish = deps.publish ?? publishAsTransaction;
   const writeSidecar = deps.writeSidecar ?? writeSidecarAtomically;

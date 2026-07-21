@@ -128,16 +128,22 @@ Main.tsx: continuous 分岐 ─▶ 単一 <CroppedVideo>(seek 無し)= 脱ガタ
 
 ### 2.6 出力検証
 - ffprobe で video/audio 各1 stream、正の duration、proxy と同じ width/height、期待尺
-  を検査する。秒指定 `trim` は区間ごとのframe量子化が累積するため使わず、proxy実fpsに対して
-  source start/endを`Math.round(sec*fps)`した`start_frame/end_frame`へ揃える。さらにPlayerの
-  `frameSpans`と同じ累積出力境界の丸めで区間ごとのoutput frame数を先に確定し、映像は
-  `fps+tpad+trim`、音声は`apad+atrim`でその尺へ揃えてからconcatする。ffprobeのvideo frame数は
+  を検査する。clock の唯一の正は proxy の平均fpsではなく、Player/Remotion と同じ
+  `compositionFps = Math.round(manifest.video.fps) || 30`。proxy の `r_frame_rate` がこの整数cadenceと
+  一致することを先に検査し、収録終端由来で揺れる `avg_frame_rate` はframe計算に使わない。
+- 秒指定 `trim` は区間ごとのframe量子化が累積するため使わず、source startを
+  `Math.round(start*compositionFps)`、output spanをPlayerの`frameSpans`と同じ累積境界の丸めで確定する。
+  speed区間を独立した`Math.round(end*fps)`で先に切って不足分を複製せず、Playerが実際に消費する
+  `sourceStartFrame + outputFrames*speed`までと補間用の安全1 frameを映像filterへ供給する。
+  `setpts→fps`後に最終`outputFrames`でtrimし、真のproxy EOFだけは最終frameをpadする。音声も
+  `sourceStartFrame/compositionFps`から始め、atempo後に`outputFrames/compositionFps`まで
+  `apad+atrim`するので、独立keep endの丸めで末尾を欠かさない。ffprobeのvideo frame数は
   この総frame数と厳密一致を要求し、container durationは`総frame数/fps`との差
   `max(0.10秒, 2/fps + 1024/48000)`だけを許す。
 - 根拠: 2026-07-12 の実収録(proxy 2560x720、約582秒、114 keep、期待209.64秒)を従来の秒trimで
   libx264ベイクすると53.65秒、ffprobe 210.146秒(+0.506秒、0.133 frame/keep相当)となった。
   観測平均を許容係数にはせず、Playerと同じframe indexへ生成自体を量子化して区間累積を除く。
-  algorithm versionをv2へ上げ、旧sidecar/outputは再利用しない。
+  cache keyへ`compositionFps`も含め、algorithm versionをv3へ上げ、旧sidecar/outputは再利用しない。
 
 ---
 

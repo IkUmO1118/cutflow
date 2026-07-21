@@ -90,7 +90,7 @@ import {
 } from "../src/lib/configEdit.ts";
 import type { ConfigPatch } from "../src/lib/configEdit.ts";
 import { loadShorts } from "../src/lib/shorts.ts";
-import { hasCamera } from "../src/types.ts";
+import { hasCamera, manifestCompositionFps } from "../src/types.ts";
 import { applyProposalResolution, proposalDiff } from "../src/lib/docDiff.ts";
 import { snapshotOfReviewDocs, validateReviewSpec } from "../src/lib/review.ts";
 import { supportsImageReview } from "../src/lib/llm.ts";
@@ -930,6 +930,9 @@ export function previewCutRequestKey(args: {
   proxyMtimeMs?: number;
   proxySize?: number;
 }): string {
+  const manifest = JSON.parse(
+    readFileSync(join(args.dir, "manifest.json"), "utf8"),
+  ) as Manifest;
   const proxyStat = args.proxyMtimeMs === undefined || args.proxySize === undefined
     ? statSync(join(args.dir, "proxy.mp4"))
     : null;
@@ -938,6 +941,7 @@ export function previewCutRequestKey(args: {
     cutplan: args.cutplan,
     proxyMtimeMs: args.proxyMtimeMs ?? proxyStat!.mtimeMs,
     proxySize: args.proxySize ?? proxyStat!.size,
+    compositionFps: manifestCompositionFps(manifest),
   }));
 }
 
@@ -1583,11 +1587,15 @@ export function loadPreviewCutState(
     const proxyStale = proxyState?.stale ?? isProxyStale(dir, cfg);
     if (!proxyExists || proxyStale) return { ready: false, keepSignature };
     const proxyStat = statSync(join(dir, "proxy.mp4"));
+    const manifest = JSON.parse(
+      readFileSync(join(dir, "manifest.json"), "utf8"),
+    ) as Manifest;
     const currentKey = buildPreviewCutCacheKey({
       cfg,
       cutplan,
       proxyMtimeMs: proxyStat.mtimeMs,
       proxySize: proxyStat.size,
+      compositionFps: manifestCompositionFps(manifest),
     });
     return {
       ready: inspectPreviewCutFreshness({

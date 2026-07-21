@@ -10,6 +10,9 @@ export interface ProbeStream {
   width?: number;
   height?: number;
   avg_frame_rate?: string;
+  /** codec/container が宣言する nominal cadence。composition clock そのものには
+   * 使わず、preview proxy が manifest fps と互換かの検査に使う。 */
+  r_frame_rate?: string;
   /** MP4 などコンテナが保持する総 video frame 数。preview-cut の
    * frame-index bake 検証で duration だけでは見逃す破損を弾く。 */
   nb_frames?: string;
