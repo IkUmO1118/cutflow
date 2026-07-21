@@ -96,6 +96,7 @@ import { SettingsModal, buildConfigPatch, patchTouchesProxy } from "./SettingsMo
 import type { AiSettingsValue, CfgValues } from "./SettingsModal.tsx";
 import { Timeline } from "./Timeline.tsx";
 import { playhead, usePlayheadSelector } from "./playhead.ts";
+import { previewBaseVideoMountKey, previewBaseVideoOf } from "./previewCut.ts";
 import { useToasts, ToastStack } from "./toasts.tsx";
 import { TOAST_TTL_MS } from "./toastReducer.ts";
 import { Button } from "./components/ui/button.tsx";
@@ -410,10 +411,10 @@ function applySaveHashes(
  * 上=タブパネル(左: 素材/テロップ)+プレビュー(中央)+インスペクタ(右)、
  * 中=トランスポート、下=タイムライン。上部の左右比は分割バーで変えられる。
  * プレビューは最終レンダーと同じコンポジション(remotion/Main.tsx)を
- * @remotion/player で再生する。動画ソースは元収録の軽量プロキシ
- * (proxy.mp4)で、カットは焼き込まず Player が keep 区間に従って
- * 飛び飛びに再生する(本物の NLE と同じ方式)。だからカット境界の編集は
- * ファイルの作り直しなしで即プレビューに反映される。
+ * @remotion/player で再生する。本編は現在の keep と一致する連続ベイクが
+ * あれば preview-cut.mp4 を使い、無ければ元収録の軽量 proxy.mp4 を keep
+ * 区間ごとに飛び飛び再生する。後者に即座に戻れるため境界編集中も反映を
+ * 待たない。ショートは常に proxy.mp4 の source-domain 経路を使う。
  * 正のデータは cutplan / overlays / transcript の各 JSON(元収録の秒)。
  */
 export const App = () => {
@@ -1195,6 +1196,31 @@ export const App = () => {
     [shortMode, tracks],
   );
 
+  const previewBaseVideo = useMemo(
+    () =>
+      proj && cutplan
+        ? previewBaseVideoOf({
+            cutplan,
+            previewCut: proj.previewCut,
+            shortMode,
+            proxyStale,
+          })
+        : null,
+    [proj, cutplan, shortMode, proxyStale],
+  );
+  /** base video の経路が source ⇄ continuous で切り替わると、同じ Main の
+   * video 要素を使い回さず既存 videoVersion seam から Player を remount する。
+   * C4 の生成完了は proj.previewCut を更新するだけでこの経路へ収斂できる。 */
+  const mountedPreviewVideoRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!previewBaseVideo) return;
+    const key = previewBaseVideoMountKey(previewBaseVideo);
+    if (mountedPreviewVideoRef.current !== null && mountedPreviewVideoRef.current !== key) {
+      setVideoVersion((v) => v + 1);
+    }
+    mountedPreviewVideoRef.current = key;
+  }, [previewBaseVideo]);
+
   const built = useMemo(() => {
     if (!proj || !cutplan || !overlays || !transcript) return null;
     const warnings: string[] = [];
@@ -1239,10 +1265,12 @@ export const App = () => {
       renderCfg: proj.renderCfg,
       width: proj.output.w,
       height: proj.output.h,
-      // 元収録の軽量プロキシ。カットは Player 側で keep 区間ごとに
-      // 飛び飛び再生されるので(videoIsSource)、境界編集は即時反映
-      videoFile: "media/proxy.mp4",
-      videoIsSource: true,
+      // fresh な連続ベイクはカット後時刻で1本として再生する。欠落・陳腐・
+      // keep 編集直後は source proxy へ即時フォールバックする
+      ...(previewBaseVideo ?? {
+        videoFile: "media/proxy.mp4" as const,
+        videoIsSource: true,
+      }),
       // bgm.json(区間配置)を優先。無ければ収録フォルダ直下の bgm.* を
       // 全編1曲で流す(後方互換)。素材ファイルはこの後 media/ 経由に付け替える
       bgm,
@@ -1333,7 +1361,7 @@ export const App = () => {
     };
   }, [
     proj, cutplan, overlays, transcript, bgm, keeps, shortMode, activeShort, shortKeepsMerged,
-    shorts, mediaCodecFacts,
+    shorts, mediaCodecFacts, previewBaseVideo,
   ]);
 
   /** Player に渡す props。トラック別ミュート・レイヤーの一時非表示は

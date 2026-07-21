@@ -1,21 +1,22 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { playbackSegmentsOf } from "./timeline.ts";
+import { normalizePreviewCutKeeps } from "./previewCutSignature.ts";
+import type { PreviewCutKeep } from "./previewCutSignature.ts";
 import { videoEncodeArgs } from "./videoEncode.ts";
 import type { Config } from "./config.ts";
 import type { CutPlan } from "../types.ts";
+
+export {
+  normalizePreviewCutKeeps,
+  previewCutKeepSignature,
+} from "./previewCutSignature.ts";
+export type { PreviewCutKeep } from "./previewCutSignature.ts";
 
 export const PREVIEW_CUT_FILE = "preview-cut.mp4";
 export const PREVIEW_CUT_KEY_FILE = "preview-cut.key.json";
 export const PREVIEW_CUT_CACHE_SCHEMA_VERSION = 1;
 export const PREVIEW_CUT_ALGORITHM_VERSION = "proxy-keeps-trim-concat-v1";
 export const PREVIEW_CUT_AUDIO_ARGS = ["-c:a", "aac", "-ar", "48000"] as const;
-
-export interface PreviewCutKeep {
-  start: number;
-  end: number;
-  speed?: number;
-}
 
 export interface PreviewCutFileStat {
   mtimeMs: number;
@@ -34,19 +35,6 @@ export interface PreviewCutCacheKey {
 export interface PreviewCutSidecar {
   key: PreviewCutCacheKey;
   output: PreviewCutFileStat;
-}
-
-export function normalizePreviewCutKeeps(cutplan: CutPlan): PreviewCutKeep[] {
-  return playbackSegmentsOf(cutplan).map((keep) => ({
-    start: keep.start,
-    end: keep.end,
-    ...(keep.speed !== 1 ? { speed: keep.speed } : {}),
-  }));
-}
-
-/** 未保存 cutplan と server 応答を照合するための、表示理由等を含まない署名。 */
-export function previewCutKeepSignature(cutplan: CutPlan): string {
-  return JSON.stringify(normalizePreviewCutKeeps(cutplan));
 }
 
 export function buildPreviewCutCacheKey(args: {
