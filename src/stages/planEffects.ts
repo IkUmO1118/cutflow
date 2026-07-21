@@ -12,10 +12,11 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { completeWithJsonSchema } from "../lib/llm.ts";
-import { resolveEffectPlacementCfg, resolveEffectReviewCfg } from "../lib/config.ts";
+import { resolveEffectPlacementCfg, resolveEffectReviewCfg, resolveReasonIdsCfg } from "../lib/config.ts";
 import {
   buildEffectAnchors,
   decisionsToOverlays,
+  limitNoneDecisions,
 } from "../lib/effectAnchors.ts";
 import type {
   EffectAnchor,
@@ -26,6 +27,11 @@ import type {
 } from "../lib/effectAnchors.ts";
 import { effectWarningsToObservation } from "../lib/effectReview.ts";
 import type { EffectWarning } from "../lib/effectCheck.ts";
+import {
+  renderEffectReasonIdsBlock,
+  renderEffectReasonIdsOutputBlock,
+} from "../lib/effectReasonIdInjection.ts";
+import { EFFECT_REASON_IDS } from "../lib/effectReasonIds.ts";
 import { readRules } from "./plan.ts";
 import { validateDocs } from "./validate.ts";
 import type { LoadedDocs } from "./validate.ts";
@@ -36,6 +42,65 @@ import type { CutPlan, Manifest, Overlays, Region, Transcript } from "../types.t
 /** LLM 応答スキーマ(prompts/plan-effects.md の出力形式と対応) */
 export interface DecisionsSelection {
   decisions: EffectDecision[];
+}
+
+/** reasonIds off は導入前の inline schema と同じオブジェクト。 */
+export const PLAN_EFFECTS_RESPONSE_SCHEMA = {
+  name: "cutflow_plan_effects",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["decisions"],
+    properties: {
+      decisions: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["anchorId", "effect", "reason"],
+          properties: {
+            anchorId: { type: "integer" },
+            effect: { type: "string", enum: ["zoom", "blur", "annotation", "none"] },
+            reason: { type: "string" },
+          },
+        },
+      },
+    },
+  },
+} as const;
+
+/** reasonIds on は全 decision に7分類の effectReasonId を必須化できる strict schema。 */
+export const PLAN_EFFECTS_RESPONSE_SCHEMA_REASON_IDS = {
+  name: "cutflow_plan_effects_reason_ids",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["decisions"],
+    properties: {
+      decisions: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["anchorId", "effect", "effectReasonId", "reason"],
+          properties: {
+            anchorId: { type: "integer" },
+            effect: { type: "string", enum: ["zoom", "blur", "annotation", "none"] },
+            effectReasonId: { type: "string", enum: EFFECT_REASON_IDS },
+            reason: { type: "string" },
+          },
+        },
+      },
+    },
+  },
+} as const;
+
+export function planEffectsResponseSchema(
+  reasonIdsEnabled: boolean,
+): typeof PLAN_EFFECTS_RESPONSE_SCHEMA | typeof PLAN_EFFECTS_RESPONSE_SCHEMA_REASON_IDS {
+  return reasonIdsEnabled ? PLAN_EFFECTS_RESPONSE_SCHEMA_REASON_IDS : PLAN_EFFECTS_RESPONSE_SCHEMA;
 }
 
 /**
@@ -69,10 +134,16 @@ export function parseDecisionsResponse(raw: string): DecisionsSelection {
   const list = Array.isArray(parsed.decisions) ? parsed.decisions : [];
   const decisions: EffectDecision[] = list
     .map((d) => {
-      const o = (d ?? {}) as { anchorId?: unknown; effect?: unknown; reason?: unknown };
+      const o = (d ?? {}) as {
+        anchorId?: unknown;
+        effect?: unknown;
+        effectReasonId?: unknown;
+        reason?: unknown;
+      };
       return {
         anchorId: o.anchorId,
         effect: o.effect,
+        ...(typeof o.effectReasonId === "string" ? { effectReasonId: o.effectReasonId } : {}),
         reason: typeof o.reason === "string" ? o.reason : "",
       };
     })
@@ -97,7 +168,13 @@ export function parseDecisionsResponse(raw: string): DecisionsSelection {
  * 常駐する改行/空行が残ってバイト等価が崩れうるため、ここでは observation
  * が非空のときだけテンプレート出力の後ろへブロックを追記する形に変えた
  * (バイト等価をコードで機械的に保証するため。意味的な不変条件は同じ) */
-export function renderEffectsPrompt(dir: string, anchors: EffectAnchor[], observation: string = ""): string {
+export function renderEffectsPrompt(
+  dir: string,
+  anchors: EffectAnchor[],
+  observation: string = "",
+  reasonIds: string = "",
+  reasonIdsOutput: string = "",
+): string {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
   const template = readFileSync(join(repoRoot, "prompts", "plan-effects.md"), "utf8");
 
@@ -117,8 +194,9 @@ export function renderEffectsPrompt(dir: string, anchors: EffectAnchor[], observ
     .replaceAll("{{rules}}", () => rules)
     .replaceAll("{{brief}}", () => brief);
 
-  if (observation === "") return base;
-  return `${base}\n## 前回の演出検品からの観測(E7・参考情報。必ず直せという指示ではありません)\n\n${observation}\n`;
+  const classified = `${base}${reasonIds}${reasonIdsOutput}`;
+  if (observation === "") return classified;
+  return `${classified}\n## 前回の演出検品からの観測(E7・参考情報。必ず直せという指示ではありません)\n\n${observation}\n`;
 }
 
 /** effect-check.json(SD-E2)の警告一覧を読む。無い/壊れているときは空配列
@@ -230,47 +308,34 @@ export async function planEffects(
 
   const observe = opts.observe ?? resolveEffectReviewCfg(cfg).observe;
   const observation = observe ? effectWarningsToObservation(readEffectCheckWarnings(dir)) : "";
-  const prompt = renderEffectsPrompt(dir, anchors, observation);
+  const reasonIdsEnabled = resolveReasonIdsCfg(cfg).enabled;
+  const reasonIdsBlock = renderEffectReasonIdsBlock(reasonIdsEnabled);
+  const reasonIdsOutputBlock = renderEffectReasonIdsOutputBlock(reasonIdsEnabled);
+  const prompt = renderEffectsPrompt(
+    dir,
+    anchors,
+    observation,
+    reasonIdsBlock,
+    reasonIdsOutputBlock,
+  );
   const raw = await completeWithJsonSchema(
     prompt,
     cfg,
-    {
-      name: "cutflow_plan_effects",
-      strict: true,
-      schema: {
-        type: "object",
-        additionalProperties: false,
-        required: ["decisions"],
-        properties: {
-          decisions: {
-            type: "array",
-            items: {
-              type: "object",
-              additionalProperties: false,
-              required: ["anchorId", "effect", "reason"],
-              properties: {
-                anchorId: { type: "integer" },
-                effect: { type: "string", enum: ["zoom", "blur", "annotation", "none"] },
-                reason: { type: "string" },
-              },
-            },
-          },
-        },
-      },
-    },
+    planEffectsResponseSchema(reasonIdsEnabled),
     "other",
   );
   // LLM の生応答は必ず残す(パース失敗時の調査と、選定過程の記録のため)
   writeFileSync(join(dir, "plan-effects.raw.txt"), raw);
 
   const parsed = parseDecisionsResponse(raw);
+  const decisions = limitNoneDecisions(parsed.decisions, anchors.length, reasonIdsEnabled);
   const profile = resolveProfile(manifest.video.screenRegion, "default");
   const overlayCfg: EffectOverlayCfg = {
     ...placementCfg,
     outW: profile.width,
     outH: profile.height,
   };
-  const generated = decisionsToOverlays(parsed.decisions, anchors, overlayCfg);
+  const generated = decisionsToOverlays(decisions, anchors, overlayCfg);
 
   const overlaysPath = join(dir, "overlays.json");
   const existingOverlays = readJsonOrNull<Overlays>(overlaysPath) ?? {};

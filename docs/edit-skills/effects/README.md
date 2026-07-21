@@ -12,9 +12,8 @@
 シグナルで説明する。配置後の衝突・密度・caption 重なりは `effect-check` の
 決定論検査であり、recipe の分類には含めない。
 
-id 集合の単一の出所は EP2 で実装する `src/lib/effectReasonIds.ts` の
-`EFFECT_REASON_IDS` になる。EP1 時点では本 README と `recipes/*.md` の
-ファイル名一覧が id の正である。
+id 集合の単一の出所は `src/lib/effectReasonIds.ts` の `EFFECT_REASON_IDS`。
+README・recipes・schema・validate・プロンプト注入はこの集合へ閉じる。
 
 ## 7分類
 
@@ -51,7 +50,7 @@ craft 由来はさらに `(craft)` を付ける。入力素材と反例は `text
 
 収録タイプは [`../patterns.md`](../patterns.md)、アークは
 [`../blueprints.md`](../blueprints.md)を cut と共有する。effectReasonId のスキーマ・
-プロンプト注入は EP2、pattern 選択注入とG2弁別行は EP3、実収録 example・doc
+プロンプト注入は EP2 で実装済み。pattern 選択注入は EP3、実収録 example・doc
 機械検査・測定配線は EP4 の担当であり、EP1 ではコードを変更しない。
 
 ## 索引

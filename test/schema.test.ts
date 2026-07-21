@@ -37,6 +37,7 @@ import { ID_RE } from "../src/lib/ids.ts";
 import { APPLY_FILE_NAME } from "../src/lib/applyEdits.ts";
 import { PROFILES } from "../src/lib/profile.ts";
 import { CUT_REASON_IDS } from "../src/lib/reasonIds.ts";
+import { EFFECT_REASON_IDS } from "../src/lib/effectReasonIds.ts";
 import { buildRichFixture } from "./describe.test.ts";
 
 const SCHEMAS_DIR = join(import.meta.dirname, "..", "schemas");
@@ -252,6 +253,22 @@ test("T-b ピン留め: cutplan.schema.json の segments[].reasonId enum === CUT
   const cutplan = loadRegistry()["cutplan.schema.json"];
   const reasonIdEnum = cutplan.properties?.segments.items?.properties?.reasonId.enum as string[];
   sortedEq(reasonIdEnum, [...CUT_REASON_IDS]);
+});
+
+test("ピン留め: overlaysの全effect reasonId enum === EFFECT_REASON_IDS", () => {
+  const registry = loadRegistry();
+  const overlays = registry["overlays.schema.json"];
+  const enums = [
+    overlays.properties?.zooms.items?.properties?.reasonId.enum,
+    overlays.properties?.blurs.items?.properties?.reasonId.enum,
+    overlays.$defs?.ArrowAnnotation.properties?.reasonId.enum,
+    overlays.$defs?.BoxAnnotation.properties?.reasonId.enum,
+    overlays.$defs?.SpotlightAnnotation.properties?.reasonId.enum,
+    registry["common.schema.json"].$defs?.ArrowAnnotation.properties?.reasonId.enum,
+    registry["common.schema.json"].$defs?.BoxAnnotation.properties?.reasonId.enum,
+    registry["common.schema.json"].$defs?.SpotlightAnnotation.properties?.reasonId.enum,
+  ] as string[][];
+  for (const values of enums) sortedEq(values, [...EFFECT_REASON_IDS]);
 });
 
 test("ピン留め: shorts の profile enum === Object.keys(PROFILES)(profile.ts)", () => {

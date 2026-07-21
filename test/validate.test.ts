@@ -388,6 +388,43 @@ const manifestWithScreen = {
   },
 };
 
+test("effect reasonId不在は既存のwarn/errorを増やさない(sticky off)", () => {
+  const overlays = {
+    zooms: [{ start: 1, end: 5, rect: { x: 0, y: 0, w: 960, h: 540 } }],
+    blurs: [{ start: 6, end: 9, rect: { x: 0, y: 0, w: 300, h: 100 } }],
+    annotations: [{ type: "box", start: 21, end: 25, rect: { x: 0, y: 0, w: 300, h: 100 } }],
+  };
+  const before = validateDocs(DIR, baseDocs({ manifest: manifestWithScreen, overlays }));
+  const after = validateDocs(DIR, baseDocs({ manifest: manifestWithScreen, overlays: structuredClone(overlays) }));
+  assert.deepEqual(after, before);
+});
+
+test("effect reasonIdが非文字列ならerror、未知idならwarning", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      zooms: [{ start: 1, end: 5, rect: { x: 0, y: 0, w: 960, h: 540 }, reasonId: 42 }],
+      blurs: [{ start: 6, end: 9, rect: { x: 0, y: 0, w: 300, h: 100 }, reasonId: "made-up" }],
+    },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "zooms[0].reasonId" && e.message === "reasonId は文字列です"));
+  assert.ok(r.warnings.some((w) => w.where === "blurs[0].reasonId" && w.message.includes("未知の演出分類 id")));
+});
+
+test("effect reasonIdのfamilyと配置型が不一致ならwarning、正しい組合せはwarningなし", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      zooms: [{ start: 1, end: 5, rect: { x: 0, y: 0, w: 960, h: 540 }, reasonId: "secret-exposure" }],
+      blurs: [{ start: 6, end: 9, rect: { x: 0, y: 0, w: 300, h: 100 }, reasonId: "secret-exposure" }],
+      annotations: [{ type: "box", start: 21, end: 25, rect: { x: 0, y: 0, w: 300, h: 100 }, reasonId: "attention-scatter" }],
+    },
+  }));
+  assert.ok(r.warnings.some((w) => w.where === "zooms[0].reasonId" && w.message.includes("blur 系")));
+  assert.ok(!r.warnings.some((w) => w.where === "blurs[0].reasonId"));
+  assert.ok(!r.warnings.some((w) => w.where === "annotations[0].reasonId"));
+});
+
 test("zoom: rect 欠落・w/h 不正はエラー", () => {
   const r = validateDocs(DIR, baseDocs({
     manifest: manifestWithScreen,

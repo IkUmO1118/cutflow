@@ -114,6 +114,7 @@
       "type": "object",
       "properties": {
         "id": { "$ref": "common.schema.json#/$defs/id" },
+        "reasonId": { "enum": ["tiny-target", "focus-shift", "secret-exposure", "attention-scatter", "already-legible", "concept-talk", "motion-carries"] },
         "type": { "const": "arrow" },
         "start": { "type": "number" },
         "end": { "type": "number" },
@@ -132,6 +133,7 @@
       "type": "object",
       "properties": {
         "id": { "$ref": "common.schema.json#/$defs/id" },
+        "reasonId": { "enum": ["tiny-target", "focus-shift", "secret-exposure", "attention-scatter", "already-legible", "concept-talk", "motion-carries"] },
         "type": { "const": "box" },
         "start": { "type": "number" },
         "end": { "type": "number" },
@@ -150,6 +152,7 @@
       "type": "object",
       "properties": {
         "id": { "$ref": "common.schema.json#/$defs/id" },
+        "reasonId": { "enum": ["tiny-target", "focus-shift", "secret-exposure", "attention-scatter", "already-legible", "concept-talk", "motion-carries"] },
         "type": { "const": "spotlight" },
         "start": { "type": "number" },
         "end": { "type": "number" },
