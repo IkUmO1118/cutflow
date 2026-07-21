@@ -69,6 +69,7 @@ import type {
   AiSelectionContext,
   DraftData,
   HyperframeCard,
+  PreviewCutResponse,
   ProjectData,
   SaveRequest,
   ScriptData,
@@ -81,6 +82,7 @@ import {
   hyperframeAuthorReadiness,
 } from "../../src/lib/hyperframeAuthor.ts";
 import { buildReviewEvents, warningSummary } from "../../src/lib/reviewEvents.ts";
+import { previewCutKeepSignature } from "../../src/lib/previewCutSignature.ts";
 import { AiCommand } from "./AiCommand.tsx";
 import { AiVisualReview } from "./AiVisualReview.tsx";
 import { ArrowOverlay } from "./ArrowOverlay.tsx";
@@ -97,6 +99,10 @@ import type { AiSettingsValue, CfgValues } from "./SettingsModal.tsx";
 import { Timeline } from "./Timeline.tsx";
 import { playhead, usePlayheadSelector } from "./playhead.ts";
 import { previewBaseVideoMountKey, previewBaseVideoOf } from "./previewCut.ts";
+import {
+  usePreviewCutRebake,
+  type PreviewCutRebakeState,
+} from "./previewCutRebake.ts";
 import { useToasts, ToastStack } from "./toasts.tsx";
 import { TOAST_TTL_MS } from "./toastReducer.ts";
 import { Button } from "./components/ui/button.tsx";
@@ -144,6 +150,7 @@ import {
   postAiRefine,
   postAiReview,
   postPreview,
+  postPreviewCut,
   postProxy,
   postRender,
   postHyperframeRender,
@@ -553,7 +560,10 @@ export const App = () => {
         // 判定する(config.yaml が別セッション・別ツールで変わった場合も
         // 拾える)。false→true 方向だけ反映し、既にバナーが出ている
         // (このセッション中の設定保存で立てた)ものは消さない
-        if (p.proxyStale) setProxyStale(true);
+        if (p.proxyStale) {
+          setProxyStale(true);
+          setProxyStaleDismissed(false);
+        }
         // 前回のセッションが保存せずに終わっていたら(クラッシュ等)、
         // 退避された編集の復元を人間に選ばせる。中身が正のデータと同じなら
         // 復元するものが無いので黙って片付ける
@@ -597,6 +607,10 @@ export const App = () => {
   /** proxy.mp4 に焼き込まれる設定(targetLufs / systemAudio / denoise /
    * preview.width)を保存した後、プレビューへ反映するには再生成が要ることを促すバナー */
   const [proxyStale, setProxyStale] = useState(false);
+  /** 「後で」でバナーだけ閉じても stale という生成ゲートの事実は保持する。 */
+  const [proxyStaleDismissed, setProxyStaleDismissed] = useState(false);
+  /** proxy 再生成ごとに進め、同じ keep でも preview-cut を必ず作り直す。 */
+  const [previewCutSourceVersion, setPreviewCutSourceVersion] = useState(0);
   /** 動画素材ごとの codec 由来のブラウザ表示可否(非表示のものだけの疎な map)。
    * GET /api/media-facts から非同期に届く(loadProject は sync なので
    * /api/project には含まれない)。既定 {} = 全素材表示可能扱い(degrade)。
@@ -790,7 +804,10 @@ export const App = () => {
             aiReviewCfg: res.aiReviewCfg,
           },
       );
-      if (patchTouchesProxy(patch)) setProxyStale(true);
+      if (patchTouchesProxy(patch)) {
+        setProxyStale(true);
+        setProxyStaleDismissed(false);
+      }
       settingsSnapRef.current = null;
       setSettingsOpen(false);
     } catch (e) {
@@ -851,7 +868,10 @@ export const App = () => {
       if (!p.shorts?.shorts.some((s) => s.name === activeShortName)) {
         setActiveShortName(null);
       }
-      if (p.proxyStale) setProxyStale(true);
+      if (p.proxyStale) {
+        setProxyStale(true);
+        setProxyStaleDismissed(false);
+      }
       // 外部変更(手編集・Claude Code)で materials/ に新しいファイルが
       // 増えている可能性があるので、codec 判定も取り直す
       refreshMediaFacts();
@@ -887,7 +907,10 @@ export const App = () => {
     if (!merged.shorts?.shorts.some((s) => s.name === activeShortName)) {
       setActiveShortName(null);
     }
-    if (theirs.proxyStale) setProxyStale(true);
+    if (theirs.proxyStale) {
+      setProxyStale(true);
+      setProxyStaleDismissed(false);
+    }
     refreshMediaFacts();
     void refreshHyperframes(false);
     setCapMulti([]);
@@ -1195,6 +1218,31 @@ export const App = () => {
     () => (shortMode ? [SHORT_TRACK_DEF, ...tracks.filter((t) => capNum(t.id) !== null)] : tracks),
     [shortMode, tracks],
   );
+
+  const currentPreviewKeepSignature = useMemo(
+    () => (cutplan ? previewCutKeepSignature(cutplan) : ""),
+    [cutplan],
+  );
+  const requestPreviewCut = useCallback(
+    (snapshot: CutPlan) => postPreviewCut({ cutplan: snapshot }),
+    [],
+  );
+  const acceptPreviewCut = useCallback((response: PreviewCutResponse) => {
+    setProj((current) => current && {
+      ...current,
+      previewCut: { ready: true, keepSignature: response.keepSignature },
+    });
+  }, []);
+  const previewCutRebake = usePreviewCutRebake({
+    cutplan,
+    keepSignature: currentPreviewKeepSignature,
+    ready: proj?.previewCut.ready ?? false,
+    readySignature: proj?.previewCut.keepSignature ?? "",
+    enabled: !!proj?.proxyExists && !proxyStale && !shortMode,
+    sourceVersion: previewCutSourceVersion,
+    request: requestPreviewCut,
+    onReady: acceptPreviewCut,
+  });
 
   const previewBaseVideo = useMemo(
     () =>
@@ -3886,7 +3934,14 @@ export const App = () => {
     setError(null);
     try {
       await postProxy();
-      setProj((p) => p && { ...p, proxyExists: true });
+      // proxy の内容が変わった時点で旧 preview-cut は同じ keep でも採用不可。
+      // ready を落とし sourceVersion を進めると、stale gate解除後に必ず再ベイクする。
+      setProj((p) => p && {
+        ...p,
+        proxyExists: true,
+        previewCut: { ready: false, keepSignature: "" },
+      });
+      setPreviewCutSourceVersion((v) => v + 1);
       setVideoVersion((v) => v + 1);
       return true;
     } catch (e) {
@@ -3899,7 +3954,10 @@ export const App = () => {
 
   /** 設定バナーからのプロキシ再生成。成功したらバナーを下げる */
   const regenProxyForSettings = async () => {
-    if (await generateProxy()) setProxyStale(false);
+    if (await generateProxy()) {
+      setProxyStale(false);
+      setProxyStaleDismissed(false);
+    }
   };
 
   /** 書き出し(preview / render)を GUI から起動する。preview / render は
@@ -4663,15 +4721,17 @@ export const App = () => {
         draftOffer={draftOffer}
         externalChange={externalChange}
         reviewConflictCount={diffReview?.result.conflicts.length ?? 0}
-        proxyStale={proxyStale}
+        proxyStale={proxyStale && !proxyStaleDismissed}
         proxyBusy={proxyBusy}
+        previewCutRebake={previewCutRebake.state}
         warnings={built?.warnings ?? []}
         onRestore={restoreDraft}
         onDiscard={discardDraft}
         onReload={() => void reloadFromDisk()}
         onReview={() => setDiffPanelOpen(true)}
         onRegenProxy={() => void regenProxyForSettings()}
-        onDismissProxyStale={() => setProxyStale(false)}
+        onDismissProxyStale={() => setProxyStaleDismissed(true)}
+        onRetryPreviewCut={previewCutRebake.retry}
       />
 
       {hyperframeAuthorOpen && (
@@ -5450,6 +5510,7 @@ export const App = () => {
 };
 
 /** ヘッダー直下の要対応バナー行(T4)。draftOffer / externalChange / proxyStale /
+ * previewCutRebake /
  * warnings(built.warnings。hideCaption・blurs×zoom重なり・blursのショート非継承・
  * ショートprofileフォールバック等)は「ユーザーが操作するまで真であり続ける条件」で、
  * 時間で消える通知(トースト)とは寿命モデルが違うのでバナーに残す(warnings は
@@ -5462,6 +5523,7 @@ const HeaderBanners = ({
   reviewConflictCount,
   proxyStale,
   proxyBusy,
+  previewCutRebake,
   warnings,
   onRestore,
   onDiscard,
@@ -5469,12 +5531,14 @@ const HeaderBanners = ({
   onReview,
   onRegenProxy,
   onDismissProxyStale,
+  onRetryPreviewCut,
 }: {
   draftOffer: DraftData | null;
   externalChange: boolean;
   reviewConflictCount: number;
   proxyStale: boolean;
   proxyBusy: boolean;
+  previewCutRebake: PreviewCutRebakeState;
   warnings: string[];
   onRestore: () => void;
   onDiscard: () => void;
@@ -5482,8 +5546,10 @@ const HeaderBanners = ({
   onReview: () => void;
   onRegenProxy: () => void;
   onDismissProxyStale: () => void;
+  onRetryPreviewCut: () => void;
 }) => {
-  if (!draftOffer && !externalChange && !proxyStale && warnings.length === 0) return null;
+  if (!draftOffer && !externalChange && !proxyStale &&
+      previewCutRebake.status === "idle" && warnings.length === 0) return null;
   return (
     <>
       {warnings.map((w) => (
@@ -5537,6 +5603,19 @@ const HeaderBanners = ({
             {proxyBusy ? "再生成中…" : "プロキシを再生成"}
           </button>
           <button onClick={onDismissProxyStale}>後で</button>
+        </div>
+      )}
+      {(previewCutRebake.status === "waiting" || previewCutRebake.status === "building") && (
+        <div className="banner" aria-live="polite">
+          <span className="msg">プレビュー再ベイク中…</span>
+        </div>
+      )}
+      {previewCutRebake.status === "failed" && (
+        <div className="banner" role="alert">
+          <span className="msg">
+            プレビューの再ベイクに失敗しました: {previewCutRebake.error}
+          </span>
+          <button className="warn" onClick={onRetryPreviewCut}>再試行</button>
         </div>
       )}
     </>

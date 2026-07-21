@@ -22,6 +22,8 @@ import type {
   HyperframesData,
   MediaFactsData,
   PeaksData,
+  PreviewCutRequest,
+  PreviewCutResponse,
   ProjectData,
   SaveRequest,
   SaveResponse,
@@ -154,6 +156,11 @@ export async function deleteDraft(): Promise<void> {
 /** proxy.mp4(元収録の軽量プロキシ)の生成。収録ごとに1回でよい */
 export async function postProxy(): Promise<void> {
   await request("/api/proxy", {});
+}
+
+/** 未保存の cutplan snapshot から本編用の連続 preview-cut.mp4 を生成する。 */
+export async function postPreviewCut(body: PreviewCutRequest): Promise<PreviewCutResponse> {
+  return (await request("/api/preview-cut", body)) as PreviewCutResponse;
 }
 
 /** 設定画面の保存。config.yaml の該当キーを書き換え(コメント保持)、
