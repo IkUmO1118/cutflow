@@ -261,7 +261,7 @@ export function validateDocs(
             warn(
               f,
               `${w}.reasonId`,
-              `未知の分類 id です(docs/edit-skills/recipes/ にある id を使ってください): "${s.reasonId}"`,
+              `未知の分類 id です(docs/edit-skills/cut/recipes/ にある id を使ってください): "${s.reasonId}"`,
             );
           } else {
             const family = REASON_ID_FAMILY[s.reasonId as CutReasonId];

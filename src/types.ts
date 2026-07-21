@@ -305,7 +305,7 @@ export interface PlanSegment {
   /** keep: 残す / cut: 切る(確認用に候補も残しておく) */
   action: "keep" | "cut";
   reason: string;
-  /** この判断の分類 id(docs/edit-skills/recipes/<id>.md)。値の単一の出所は
+  /** この判断の分類 id(docs/edit-skills/cut/recipes/<id>.md)。値の単一の出所は
    * src/lib/reasonIds.ts の CUT_REASON_IDS。省略可=未分類。1つも持たない
    * プロジェクトは全コマンドが本機能導入前とバイト等価(opt-in・sticky。
    * src/lib/ids.ts の id と同じ流儀)。**render / 承認 hash には一切影響しない**

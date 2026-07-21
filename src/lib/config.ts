@@ -229,7 +229,7 @@ export interface Config {
      *  aggressive=テンポ最優先。省略時 balanced(D4)。rules/brief のマーカー行が優先。
      *  §docs/plans/2026-07-11-x4-editing-aggressiveness-design.md */
     editMode?: "safe" | "balanced" | "aggressive";
-    /** カット判断(plan --cuts-only)に分類 id(docs/edit-skills/recipes/<id>.md。
+    /** カット判断(plan --cuts-only)に分類 id(docs/edit-skills/cut/recipes/<id>.md。
      *  src/lib/reasonIds.ts の CUT_REASON_IDS)を使わせる opt-in 設定。
      *  省略/enabled=false のとき plan --cuts-only の LLM 入力・plan.raw.txt・
      *  cutplan.json の reasonId は本機能導入前とバイト等価(plan.perception /

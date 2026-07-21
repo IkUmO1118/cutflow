@@ -8,7 +8,7 @@
 
 ## これは何か
 
-`docs/edit-skills/recipes/*.md`(13分類)が「この候補は何か」を見分ける型
+`docs/edit-skills/cut/recipes/*.md`(13分類)が「この候補は何か」を見分ける型
 なのに対し、blueprint は「いま判断している候補が**動画のどの位置**にあるか」
 という**文脈**を与える。1つの [収録タイプ(pattern)](patterns.md) には
 **最大1本**の blueprint が紐づき、宣言された pattern の注入ブロック末尾に
