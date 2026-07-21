@@ -27,8 +27,11 @@ import { CUT_PATTERN_IDS, CUT_PATTERN_INJECTION, BLUEPRINT_BLOCKS } from "../src
 import { renderReasonIdsBlock } from "../src/lib/reasonIdInjection.ts";
 
 const EDIT_SKILLS_DIR = join(import.meta.dirname, "..", "docs", "edit-skills");
-const RECIPES_DIR = join(EDIT_SKILLS_DIR, "recipes");
-const EXAMPLES_DIR = join(EDIT_SKILLS_DIR, "examples");
+// cut トラックは対称サブフォルダ再編で cut/ 配下へ移動(2026-07-21。傘 README 参照)。
+// patterns.md / blueprints.md は収録横断の共有層なので傘直下(EDIT_SKILLS_DIR)のまま。
+const CUT_DIR = join(EDIT_SKILLS_DIR, "cut");
+const RECIPES_DIR = join(CUT_DIR, "recipes");
+const EXAMPLES_DIR = join(CUT_DIR, "examples");
 
 function recipeFileNames(): string[] {
   return readdirSync(RECIPES_DIR).filter((f) => f.endsWith(".md"));
@@ -218,7 +221,7 @@ test("T-f: 相互リンクの閉包: 「紛らわしい隣」節に現れる id 
 /** README.md の「### 系: …」表から `id → 一行定義` を抽出する
  * (`| [\`id\`](recipes/id.md) | 一行定義 | 接地 |` 形式の行だけを拾う)。 */
 function readmeLabelTable(): Map<string, string> {
-  const src = readFileSync(join(EDIT_SKILLS_DIR, "README.md"), "utf8");
+  const src = readFileSync(join(CUT_DIR, "README.md"), "utf8");
   const map = new Map<string, string>();
   for (const m of src.matchAll(/^\| \[`([a-z][a-z0-9-]*)`\]\(recipes\/[a-z0-9-]+\.md\) \| (.+?) \| [^|]+ \|$/gm)) {
     map.set(m[1], m[2]);

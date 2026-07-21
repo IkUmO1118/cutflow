@@ -305,7 +305,7 @@ plan:
 ## plan の分類 id(reasonId)と収録タイプ(config.yaml の plan.reasonIds。既定オフ)
 
 `plan` / `plan --cuts-only` は、カット判断の各候補に **分類 id**
-(`docs/edit-skills/recipes/<id>.md` の13分類。単一の出所は
+(`docs/edit-skills/cut/recipes/<id>.md` の13分類。単一の出所は
 `src/lib/reasonIds.ts` の `CUT_REASON_IDS`)を付けさせられる。既定オフで、
 オフのとき LLM 入力・`cutplan.json` の `reasonId` は導入前と1バイトも変わらない
 (`plan.perception`/`plan.styleProfile` と同じ不変条件)。

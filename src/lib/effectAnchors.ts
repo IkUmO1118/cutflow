@@ -23,7 +23,31 @@ export interface EffectAnchor {
 export interface EffectDecision {
   anchorId: number;
   effect: "zoom" | "blur" | "annotation" | "none";
+  /** 判断状況の分類。plan.reasonIds.enabled=true の応答だけが持つ(opt-in)。 */
+  effectReasonId?: string;
   reason: string;
+}
+
+/** none は配置を作らないが、判断記録が無制限に膨らまないよう別予算で絞る。
+ * disabled は入力配列そのものを返し、導入前経路の参照同一性も保つ。 */
+export function limitNoneDecisions(
+  decisions: EffectDecision[],
+  anchorCount: number,
+  enabled: boolean,
+): EffectDecision[] {
+  if (!enabled) return decisions;
+  const normalizedAnchorCount = Math.max(0, anchorCount);
+  const maxNone = Math.min(
+    normalizedAnchorCount,
+    Math.max(12, Math.ceil(normalizedAnchorCount * 0.1)),
+  );
+  let keptNone = 0;
+  return decisions.filter((decision) => {
+    if (decision.effect !== "none") return true;
+    if (keptNone >= maxNone) return false;
+    keptNone++;
+    return true;
+  });
 }
 
 export interface EffectPlacementCfg {
@@ -250,7 +274,12 @@ export function decisionsToOverlays(
       const candidate = { start: anchor.start, end: anchor.end };
       if (zooms.some((z) => overlaps(z, candidate))) continue;
       const rect = clampRect(growToMinZoom(anchor.rect, cfg.minZoomRect), cfg.outW, cfg.outH);
-      zooms.push({ start: anchor.start, end: anchor.end, rect });
+      zooms.push({
+        start: anchor.start,
+        end: anchor.end,
+        rect,
+        ...(d.effectReasonId !== undefined ? { reasonId: d.effectReasonId } : {}),
+      });
       accepted++;
     } else if (d.effect === "blur") {
       const rect = clampRect(anchor.rect, cfg.outW, cfg.outH);
@@ -259,11 +288,18 @@ export function decisionsToOverlays(
         end: anchor.end,
         rect,
         strength: cfg.defaultBlurStrength,
+        ...(d.effectReasonId !== undefined ? { reasonId: d.effectReasonId } : {}),
       });
       accepted++;
     } else if (d.effect === "annotation") {
       const rect = clampRect(anchor.rect, cfg.outW, cfg.outH);
-      annotations.push({ type: "box", start: anchor.start, end: anchor.end, rect });
+      annotations.push({
+        type: "box",
+        start: anchor.start,
+        end: anchor.end,
+        rect,
+        ...(d.effectReasonId !== undefined ? { reasonId: d.effectReasonId } : {}),
+      });
       accepted++;
     }
   }

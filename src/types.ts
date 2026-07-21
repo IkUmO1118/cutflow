@@ -305,7 +305,7 @@ export interface PlanSegment {
   /** keep: 残す / cut: 切る(確認用に候補も残しておく) */
   action: "keep" | "cut";
   reason: string;
-  /** この判断の分類 id(docs/edit-skills/recipes/<id>.md)。値の単一の出所は
+  /** この判断の分類 id(docs/edit-skills/cut/recipes/<id>.md)。値の単一の出所は
    * src/lib/reasonIds.ts の CUT_REASON_IDS。省略可=未分類。1つも持たない
    * プロジェクトは全コマンドが本機能導入前とバイト等価(opt-in・sticky。
    * src/lib/ids.ts の id と同じ流儀)。**render / 承認 hash には一切影響しない**
@@ -678,6 +678,9 @@ export interface Zoom {
    * バイト等価(opt-in・sticky。採番は `id-stamp` / 生成 / GUI 保存が行う)。
    * **render / 承認 hash には一切影響しない**(アドレッシング専用) */
   id?: string;
+  /** 演出判断の分類 id(docs/edit-skills/effects/recipes)。省略可・sticky。
+   * 描画と承認 hash には影響しない。 */
+  reasonId?: string;
   start: number;
   end: number;
   /** 全画面に拡大する矩形(出力px。テロップ pos・overlays rect と同じ座標系)。
@@ -715,6 +718,8 @@ export interface BlurRegion {
    * バイト等価(opt-in・sticky。採番は `id-stamp` / 生成 / GUI 保存が行う)。
    * **render / 承認 hash には一切影響しない**(アドレッシング専用) */
   id?: string;
+  /** 演出判断の分類 id。省略可・sticky。描画と承認 hash には影響しない。 */
+  reasonId?: string;
   start: number;
   end: number;
   /** 隠す矩形(出力px)。画面外へはみ出すと validate がエラーにする */
@@ -750,6 +755,8 @@ interface AnnotationBase {
    * バイト等価(opt-in・sticky。採番は `id-stamp` / 生成 / GUI 保存が行う)。
    * **render / 承認 hash には一切影響しない**(アドレッシング専用) */
   id?: string;
+  /** 演出判断の分類 id。省略可・sticky。描画と承認 hash には影響しない。 */
+  reasonId?: string;
   /** 元収録の秒。start < end。挿入・カットの時刻写像はツールが行う */
   start: number;
   end: number;

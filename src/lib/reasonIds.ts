@@ -1,4 +1,4 @@
-// カット判断の状況分類(docs/edit-skills/recipes/<id>.md)の id 集合の単一の出所。
+// カット判断の状況分類(docs/edit-skills/cut/recipes/<id>.md)の id 集合の単一の出所。
 // src/lib/ids.ts(@id の ID_PREFIX/ID_RE)と同じ「分類の単一の出所」の位置づけで、
 // validate / schema / プロンプト注入 / doc 全単射テストはすべてここから派生する。
 //
@@ -53,7 +53,7 @@ export const REASON_ID_FAMILY: Record<CutReasonId, "cut" | "keep" | "boundary"> 
 
 /** 一行定義。docs/edit-skills/README.md の表と同内容(§P2-7。プロンプト注入
  * (lib/reasonIdInjection.ts)と doc 検査の両方が使う想定の一次資料)。
- * P6-T6 で `docs/edit-skills/recipes/*.md` の判定シグナル(craft 由来を含む)
+ * P6-T6 で `docs/edit-skills/cut/recipes/*.md` の判定シグナル(craft 由来を含む)
  * から蒸留し、最も判別力のある識別子(特に G2 対比ペアとの弁別語)へ研いだ
  * (docs/plans/2026-07-21-cut-knowledge-p6-design.md §1.4)。意味は実データの
  * 記述を上書きしない(§5.2)——語順・語彙の圧縮のみ。 */

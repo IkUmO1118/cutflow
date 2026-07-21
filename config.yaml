@@ -301,9 +301,10 @@ plan:
   # balanced(既定・明確な冗長は切る) / aggressive(テンポ最優先)。
   # rules.md / brief.md に「編集モード: aggressive」等の行があればそちらが優先
   editMode: balanced
-  # カット判断(plan --cuts-only)に分類 id(docs/edit-skills/recipes)を使わせる。
-  # 既定 false=導入前とバイト等価。true で LLM に reasonId(13分類の id)を
-  # 書かせ、cutplan.json の segments[].reasonId に記録する
+  # カット判断と演出判断(plan-effects)に分類 id を使わせる共通スイッチ。
+  # 既定 false=導入前とバイト等価。true で cut は reasonId(13分類)を
+  # cutplan.json に、演出は effectReasonId(7分類)を生成した zoom/blur/annotation の
+  # reasonId に記録する。none 判断は plan-effects.raw.txt に上限付きで残る
   reasonIds:
     enabled: true
   # 承認済みコーパスから抽出した style profile を候補選択のソフトな prior として注入

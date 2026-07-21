@@ -61,12 +61,13 @@
   ],
   "hideCaption": [{ "id": "hc_a1b2c3", "start": 40, "end": 42 }],
   "zooms": [
-    { "id": "zm_a1b2c3", "start": 50, "end": 55, "rect": { "x": 0, "y": 0, "w": 960, "h": 540 }, "easeSec": 0.4 }
+    { "id": "zm_a1b2c3", "reasonId": "tiny-target", "start": 50, "end": 55, "rect": { "x": 0, "y": 0, "w": 960, "h": 540 }, "easeSec": 0.4 }
   ],
   "colorFilter": { "brightness": 1.1, "contrast": 1.05, "saturate": 0.95 },
   "blurs": [
     {
       "id": "bl_a1b2c3",
+      "reasonId": "secret-exposure",
       "start": 60,
       "end": 65,
       "rect": { "x": 200, "y": 200, "w": 300, "h": 100 },
@@ -79,6 +80,7 @@
   ],
   "annotations": [
     {
+      "reasonId": "attention-scatter",
       "type": "arrow",
       "start": 70,
       "end": 75,
@@ -93,6 +95,7 @@
       ]
     },
     {
+      "reasonId": "attention-scatter",
       "type": "box",
       "start": 80,
       "end": 85,
@@ -107,6 +110,7 @@
       ]
     },
     {
+      "reasonId": "attention-scatter",
       "type": "spotlight",
       "start": 90,
       "end": 95,

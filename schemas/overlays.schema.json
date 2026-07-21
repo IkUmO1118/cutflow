@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://cutflow.dev/schemas/overlays.schema.json",
-  "$comment": "src/types.ts の Overlays の射影。トップレベルの許可キーは src/stages/validate.ts の KNOWN 配列と一致させる(test/schema.test.ts がピン留め)。zooms/blurs/annotations は座標系が出力px固定(zoom には追従しない)で、ショートには継承されない(§AGENTS_CONTRACT.md 座標規約)。",
+  "$comment": "src/types.ts の Overlays の射影。トップレベルの許可キーは src/stages/validate.ts の KNOWN 配列と一致させる(test/schema.test.ts がピン留め)。zooms/blurs/annotations の reasonId は src/lib/effectReasonIds.ts の EFFECT_REASON_IDS と同順・同値。省略可・描画非影響。",
   "type": "object",
   "additionalProperties": false,
   "$defs": {
@@ -118,6 +118,7 @@
       "type": "object",
       "required": ["type", "start", "end", "from", "to"],
       "properties": {
+        "reasonId": { "enum": ["tiny-target", "focus-shift", "secret-exposure", "attention-scatter", "already-legible", "concept-talk", "motion-carries"] },
         "type": { "const": "arrow" },
         "start": { "type": "number" },
         "end": { "type": "number" },
@@ -138,6 +139,7 @@
       "type": "object",
       "required": ["type", "start", "end", "rect"],
       "properties": {
+        "reasonId": { "enum": ["tiny-target", "focus-shift", "secret-exposure", "attention-scatter", "already-legible", "concept-talk", "motion-carries"] },
         "type": { "const": "box" },
         "start": { "type": "number" },
         "end": { "type": "number" },
@@ -158,6 +160,7 @@
       "type": "object",
       "required": ["type", "start", "end", "rect"],
       "properties": {
+        "reasonId": { "enum": ["tiny-target", "focus-shift", "secret-exposure", "attention-scatter", "already-legible", "concept-talk", "motion-carries"] },
         "type": { "const": "spotlight" },
         "start": { "type": "number" },
         "end": { "type": "number" },
@@ -265,6 +268,7 @@
         "required": ["start", "end", "rect"],
         "properties": {
           "id": { "$ref": "common.schema.json#/$defs/id" },
+          "reasonId": { "enum": ["tiny-target", "focus-shift", "secret-exposure", "attention-scatter", "already-legible", "concept-talk", "motion-carries"] },
           "start": { "type": "number" },
           "end": { "type": "number" },
           "rect": { "$ref": "common.schema.json#/$defs/Region" },
@@ -289,6 +293,7 @@
         "required": ["start", "end", "rect"],
         "properties": {
           "id": { "$ref": "common.schema.json#/$defs/id" },
+          "reasonId": { "enum": ["tiny-target", "focus-shift", "secret-exposure", "attention-scatter", "already-legible", "concept-talk", "motion-carries"] },
           "start": { "type": "number" },
           "end": { "type": "number" },
           "rect": { "$ref": "common.schema.json#/$defs/Region" },

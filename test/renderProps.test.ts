@@ -12,6 +12,7 @@ import {
 } from "../src/lib/renderProps.ts";
 import { PROFILES } from "../src/lib/profile.ts";
 import { mergeIntervals } from "../src/lib/timeline.ts";
+import { cutplanApprovalHash } from "../src/lib/approval.ts";
 import { defaultProps } from "../remotion/props.ts";
 import type { Config } from "../src/lib/config.ts";
 import type { Manifest, Overlays, Transcript } from "../src/types.ts";
@@ -1513,4 +1514,45 @@ test("buildRenderProps: ショートの captionTracks は overlays.captionTracks
   assert.deepEqual(std?.pos, { x: 540, y: 1600 });
   assert.equal(std?.style?.fontSizePx, 92);
   assert.deepEqual(overridden?.pos, { x: 10, y: 20 }); // セグメント個別指定が優先
+});
+
+test("effect reasonIdはrender propsへ出ず、cut承認hash境界にも入らない", () => {
+  const rect = { x: 0, y: 0, w: 500, h: 200 };
+  const baseOverlays: Overlays = {
+    zooms: [{ start: 1, end: 3, rect }],
+    blurs: [{ start: 4, end: 6, rect }],
+    annotations: [{ type: "box", start: 7, end: 9, rect }],
+  };
+  const classified: Overlays = {
+    zooms: [{ ...baseOverlays.zooms![0], reasonId: "tiny-target" }],
+    blurs: [{ ...baseOverlays.blurs![0], reasonId: "secret-exposure" }],
+    annotations: [{ ...baseOverlays.annotations![0], reasonId: "attention-scatter" }],
+  };
+  const args = {
+    manifest,
+    keeps: [{ start: 0, end: 10 }],
+    transcript: { segments: [] } as Transcript,
+    renderCfg,
+    width: 1920,
+    height: 1080,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  };
+  assert.deepEqual(
+    buildRenderProps({ ...args, overlays: classified }),
+    buildRenderProps({ ...args, overlays: baseOverlays }),
+  );
+
+  const cutplan = {
+    approved: false,
+    segments: [{ start: 0, end: 10, action: "keep" as const, reason: "" }],
+  };
+  // approval API はoverlaysを引数に取らず、同じkeep集合だけをhashする。
+  const before = cutplanApprovalHash(cutplan);
+  void classified;
+  const after = cutplanApprovalHash(cutplan);
+  assert.equal(after, before);
 });

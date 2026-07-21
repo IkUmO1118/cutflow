@@ -229,11 +229,12 @@ export interface Config {
      *  aggressive=テンポ最優先。省略時 balanced(D4)。rules/brief のマーカー行が優先。
      *  §docs/plans/2026-07-11-x4-editing-aggressiveness-design.md */
     editMode?: "safe" | "balanced" | "aggressive";
-    /** カット判断(plan --cuts-only)に分類 id(docs/edit-skills/recipes/<id>.md。
-     *  src/lib/reasonIds.ts の CUT_REASON_IDS)を使わせる opt-in 設定。
-     *  省略/enabled=false のとき plan --cuts-only の LLM 入力・plan.raw.txt・
-     *  cutplan.json の reasonId は本機能導入前とバイト等価(plan.perception /
-     *  plan.styleProfile と同型の不変条件)。
+    /** カット判断と演出判断に分類 id を使わせる共通 opt-in 設定。
+     *  cut は docs/edit-skills/cut/recipes / src/lib/reasonIds.ts、演出は
+     *  docs/edit-skills/effects/recipes / src/lib/effectReasonIds.ts が単一の出所。
+     *  省略/enabled=false のとき plan と plan-effects の LLM 入力・応答schema・
+     *  編集JSONは本機能導入前とバイト等価(plan.perception / plan.styleProfile と
+     *  同型の不変条件)。pattern はEP3までcut側だけが使う。
      *  §docs/plans/2026-07-20-cut-knowledge-p1-p2-design.md §4.2 */
     reasonIds?: {
       /** 注入の有効化。省略時 false(バイト等価) */
@@ -1093,7 +1094,7 @@ export function resolveStyleProfileCfg(cfg: Config): { enabled: boolean; profile
 }
 
 /** plan.reasonIds を既定値で解決する純関数(省略時 enabled=false・pattern="general"=
- *  バイト等価)。loadConfig は cfg.plan.reasonIds を書き換えない(省略=off を守る)。
+ *  plan / plan-effects ともバイト等価)。loadConfig は設定を書き換えない。
  *  未知の pattern は warn(既定は no-op)して "general" へ劣化する
  *  (前提エラーで plan を止めない=style-profile 不在時と同じ流儀)。 */
 export function resolveReasonIdsCfg(

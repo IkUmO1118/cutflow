@@ -48,6 +48,7 @@ const EXPECTED_GENERATED_FILES = [
   "style-check.json",
   "hyperframe-place.suggested.json",
   "plan.first.json",
+  "plan-effects.first.json",
 ];
 
 test("GENERATED_FILES: CLAUDE.md の中間生成物一覧(固定名部分)と一致する", () => {
@@ -85,6 +86,7 @@ test("fileRole: editable / generated / approval / other を正しく判定する
   assert.equal(fileRole("render.report.json"), "generated");
   assert.equal(fileRole("material-fit.suggested.json"), "generated");
   assert.equal(fileRole("plan.first.json"), "generated");
+  assert.equal(fileRole("plan-effects.first.json"), "generated");
   assert.equal(fileRole("approvals.json"), "approval");
   assert.equal(fileRole("final.mp4"), "other");
   assert.equal(fileRole("thumbnail.png"), "other");
@@ -173,7 +175,7 @@ test("isGeneratedCache: 重いキャッシュだけ true、軽い中間生成物
   // generated だが cache ではない(軽い/再生成が高価)
   for (const g of ["manifest.json", "cuts.auto.json", "plan.raw.txt", "whisper-out.json",
     "whisper-out.srt", "effect-check.json", "style-check.json", "material-fit.suggested.json",
-    "plan.first.json"]) {
+    "plan.first.json", "plan-effects.first.json"]) {
     assert.equal(isGeneratedCache(g), false, `${g} は cache ではないはず`);
   }
   // generated 以外は常に false(belt)
@@ -201,7 +203,7 @@ test("isGeneratedLog: ログ・下書き・検品結果だけ true、最適化/p
     "transcript.system.json", "whisper-system-out.json", "cut.highlight-1.mp4",
     "render.highlight-1.key.json", "render.chunks/v001.mp4", "render.fast/captions/ab.png",
     "shorts/a.mp4", "materials.probe/index.json", "av.probe/motion.json", "render.design/dusk.jpg",
-    "hyperframe.probe/intro/index.json", "plan.first.json"]) {
+    "hyperframe.probe/intro/index.json", "plan.first.json", "plan-effects.first.json"]) {
     assert.equal(isGeneratedLog(g), false, `${g} は log ではないはず`);
   }
   // generated 以外は常に false(belt)
@@ -216,6 +218,14 @@ test("plan.first.json: generated だが cache でも log でもない(フル cle
   assert.equal(isGeneratedLog("plan.first.json"), false);
   assert.ok(!(GENERATED_CACHE_FILES as readonly string[]).includes("plan.first.json"));
   assert.ok(!(GENERATED_LOG_FILES as readonly string[]).includes("plan.first.json"));
+});
+
+test("plan-effects.first.json: generated だがcache/logではなくフルcleanだけが消す", () => {
+  assert.equal(fileRole("plan-effects.first.json"), "generated");
+  assert.equal(isGeneratedCache("plan-effects.first.json"), false);
+  assert.equal(isGeneratedLog("plan-effects.first.json"), false);
+  assert.ok(!(GENERATED_CACHE_FILES as readonly string[]).includes("plan-effects.first.json"));
+  assert.ok(!(GENERATED_LOG_FILES as readonly string[]).includes("plan-effects.first.json"));
 });
 
 test("GENERATED_LOG_FILES は GENERATED_FILES の部分集合(リレンダー最適化・proxy は含まない)", () => {

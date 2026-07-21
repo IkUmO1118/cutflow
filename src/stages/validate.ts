@@ -20,6 +20,8 @@ import { collectIdOccurrences } from "../lib/mention.ts";
 import { defaultShortProfileName, PROFILES, profileSupportsPlain } from "../lib/profile.ts";
 import { CUT_REASON_IDS, REASON_ID_FAMILY } from "../lib/reasonIds.ts";
 import type { CutReasonId } from "../lib/reasonIds.ts";
+import { EFFECT_REASON_IDS, EFFECT_REASON_ID_FAMILY } from "../lib/effectReasonIds.ts";
+import type { EffectReasonFamily, EffectReasonId } from "../lib/effectReasonIds.ts";
 import { buildTimeline, playbackSegmentsOf, remapInterval } from "../lib/timeline.ts";
 import type { TimelineEntry } from "../lib/timeline.ts";
 import { transcriptHasWords } from "../lib/words.ts";
@@ -200,6 +202,37 @@ export function validateDocs(
     warnings.push({ file, where, message });
   };
 
+  /** overlays の effectReasonId は未知/系不整合を警告に留める。
+   * 人間が型だけ戻した履歴を保持できる一方、非文字列は構造破損なので error。 */
+  const checkEffectReasonId = (
+    file: string,
+    where: string,
+    value: unknown,
+    actualFamily: Exclude<EffectReasonFamily, "none">,
+  ): void => {
+    if (value === undefined) return;
+    if (typeof value !== "string") {
+      err(file, `${where}.reasonId`, "reasonId は文字列です");
+      return;
+    }
+    if (!(EFFECT_REASON_IDS as readonly string[]).includes(value)) {
+      warn(
+        file,
+        `${where}.reasonId`,
+        `未知の演出分類 id です(docs/edit-skills/effects/recipes/ にある id を使ってください): "${value}"`,
+      );
+      return;
+    }
+    const expectedFamily = EFFECT_REASON_ID_FAMILY[value as EffectReasonId];
+    if (expectedFamily !== actualFamily) {
+      warn(
+        file,
+        `${where}.reasonId`,
+        `演出分類 "${value}" は ${expectedFamily} 系ですが配置は ${actualFamily} です(AI の判断を人間が戻した可能性)`,
+      );
+    }
+  };
+
   const { cutplan, transcript, overlays, bgm, chapters, meta, shorts, thumbnail } = docs;
   const manifest = docs.manifest as Manifest | null;
   const duration = manifest?.durationSec;
@@ -261,7 +294,7 @@ export function validateDocs(
             warn(
               f,
               `${w}.reasonId`,
-              `未知の分類 id です(docs/edit-skills/recipes/ にある id を使ってください): "${s.reasonId}"`,
+              `未知の分類 id です(docs/edit-skills/cut/recipes/ にある id を使ってください): "${s.reasonId}"`,
             );
           } else {
             const family = REASON_ID_FAMILY[s.reasonId as CutReasonId];
@@ -562,6 +595,7 @@ export function validateDocs(
     (Array.isArray(overlays.zooms) ? overlays.zooms : []).forEach((z: unknown, i: number) => {
       const w = `zooms[${i}]`;
       if (!isObj(z)) return err(f, w, "オブジェクトではありません");
+      checkEffectReasonId(f, w, z.reasonId, "zoom");
       // start<end・収録尺内はどちらもエラー(warn を渡さない。ズームは背景
       // レイヤー全体に効くため、overlays/wipeFull より厳しく扱う)
       checkSpan(f, w, z, dur, err);
@@ -625,6 +659,7 @@ export function validateDocs(
     (Array.isArray(overlays.blurs) ? overlays.blurs : []).forEach((b: unknown, i: number) => {
       const w = `blurs[${i}]`;
       if (!isObj(b)) return err(f, w, "オブジェクトではありません");
+      checkEffectReasonId(f, w, b.reasonId, "blur");
       // start<end・収録尺内はどちらもエラー(warn を渡さない。秘匿目隠しは
       // zooms と同じ厳しさで扱う)
       checkSpan(f, w, b, dur, err);
@@ -683,6 +718,7 @@ export function validateDocs(
       (a: unknown, i: number) => {
         const w = `annotations[${i}]`;
         if (!isObj(a)) return err(f, w, "オブジェクトではありません");
+        checkEffectReasonId(f, w, a.reasonId, "annotation");
         // start<end・収録尺内はどちらもエラー(warn を渡さない。blurs/zooms と
         // 同じ厳しさで扱う)
         checkSpan(f, w, a, dur, err);
