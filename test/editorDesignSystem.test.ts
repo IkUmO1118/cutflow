@@ -37,7 +37,13 @@ test("the first design-system component is a native CVA Button using cn", () => 
 
 test("the header AI launcher keeps its behavior props during the P2 header migration", () => {
   const app = read("editor/client/App.tsx");
-  assert.match(app, /<Button\s+variant="secondary"\s+size="sm"\s+className="aiCommandLauncher"\s+disabled=\{aiWorkflowLocked\}/);
+  const classAt = app.indexOf('className="aiCommandLauncher"');
+  const launcher = app.slice(app.lastIndexOf("<Button", classAt), app.indexOf("onClick=", classAt));
+  assert.match(launcher, /variant="secondary"/);
+  assert.match(launcher, /size="sm"/);
+  assert.match(launcher, /className="aiCommandLauncher"/);
+  assert.match(launcher, /ref=\{aiCommandLauncherRef\}/);
+  assert.match(launcher, /disabled=\{aiWorkflowLocked\}/);
   assert.match(app, /title=\{aiWorkflowLocked \? aiWorkflowTitle : anyDirty \? "保存してから AI 一発編集" : "AI 一発編集を開く"\}/);
   assert.match(app, /setAiCommandScope\("global"\);\s+setAiCommandOpen\(true\);/);
   assert.match(app, /\{aiWorkflowLocked \? "編集中" : "AI編集"\}/);

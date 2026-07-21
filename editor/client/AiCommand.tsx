@@ -28,7 +28,7 @@ export const AiCommand = ({
   const blocked = disabled || busy || instruction.trim().length === 0;
   return (
     <form
-      className={`aiCommand${compact ? " compact" : ""}${modalStyle ? " modalStyle" : ""}`}
+      className={`aiCommand ocAiCommand${compact ? " compact" : ""}${modalStyle ? " modalStyle" : ""}`}
       onSubmit={(e) => {
         e.preventDefault();
         if (blocked) return;

@@ -1442,3 +1442,1301 @@
   .ocTimeline .tlLabel { padding-inline: 0.3rem; }
   .ocTimeline .tlZoom .zoomSlider { width: 3.6rem; }
 }
+
+/* P4 checkpoint 1: CutFlow-owned AI, review, conflict, HyperFrames, and
+ * settings surfaces. Existing DOM, callbacks, and modal ownership remain the
+ * interaction contract; thin Radix wrappers provide the dialog/tabs/toggle/scroll
+ * mechanics while these roots adapt OpenCut's visual vocabulary. */
+.ocDialogOverlay {
+  position: fixed;
+  inset: 0;
+}
+
+.ocDialogContent {
+  outline: none;
+}
+
+.ocSrOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.ocTabsContent:focus-visible,
+.ocDialogContent:focus-visible {
+  outline: none;
+}
+
+.ocScrollArea {
+  position: relative;
+  overflow: hidden;
+}
+
+.ocScrollAreaViewport {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.ocScrollAreaScrollbar {
+  display: flex;
+  width: 8px;
+  padding: 2px;
+  touch-action: none;
+  user-select: none;
+}
+
+.ocScrollAreaThumb {
+  position: relative;
+  flex: 1;
+  border-radius: 999px;
+  background: hsl(var(--oc-muted-foreground) / 0.38);
+}
+
+.ocScrollAreaThumb::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100%;
+  min-width: 1.25rem;
+  height: 100%;
+  min-height: 1.25rem;
+  transform: translate(-50%, -50%);
+}
+
+.aiCommandBackdrop:has(+ :is(.ocAiCommandModal, .ocHyperframeAuthor)),
+.diffBackdrop:has(+ :is(.ocDiffReview, .ocAiReview)),
+.settingsBackdrop:has(+ .ocSettings) {
+  background: hsl(222 24% 5% / 0.72);
+  backdrop-filter: blur(3px);
+}
+
+.ocAiCommand,
+.ocAiCommandModal,
+.ocHyperframeAuthor,
+.ocDiffReview,
+.ocAiReview,
+.ocSettings {
+  color: hsl(var(--oc-foreground));
+  accent-color: hsl(var(--oc-primary));
+}
+
+.ocAiCommandModal,
+.ocHyperframeAuthor,
+.ocDiffReview,
+.ocAiReview,
+.ocSettings {
+  background: hsl(var(--oc-popover));
+  border-color: hsl(var(--oc-border));
+  border-radius: calc(var(--oc-radius) + 0.2rem);
+  box-shadow:
+    0 24px 80px hsl(222 35% 2% / 0.62),
+    0 0 0 1px hsl(0 0% 100% / 0.025);
+}
+
+:is(.ocAiCommandModal, .ocHyperframeAuthor, .ocDiffReview, .ocAiReview, .ocSettings)
+  :is(button, input, textarea, select):focus-visible,
+.ocAiCommand :is(button, input, textarea):focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px hsl(var(--oc-ring) / 0.42);
+}
+
+:is(.ocAiCommandModal, .ocHyperframeAuthor, .ocDiffReview, .ocAiReview, .ocSettings)
+  button:disabled,
+.ocAiCommand button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+/* AI command composer: shared by the modal, HyperFrames, and Inspector. */
+.ocAiCommand {
+  gap: 0.4rem;
+  min-width: 0;
+  padding: 0.22rem;
+  border: 1px solid hsl(var(--oc-border));
+  border-radius: var(--oc-radius);
+  background: hsl(var(--oc-muted) / 0.36);
+}
+
+.ocAiCommand .aiBadge {
+  height: 1.45rem;
+  min-width: 1.45rem;
+  padding: 0 0.3rem;
+  border: 1px solid hsl(var(--oc-primary) / 0.28);
+  border-radius: calc(var(--oc-radius) - 0.18rem);
+  color: hsl(var(--oc-primary));
+  background: hsl(var(--oc-primary) / 0.1);
+  font-size: 0.64rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+}
+
+.ocAiCommand :is(input, textarea) {
+  min-width: 0;
+  color: hsl(var(--oc-foreground));
+  background: transparent;
+  border-color: transparent;
+  font-size: var(--oc-text-xs);
+}
+
+.ocAiCommand :is(input, textarea)::placeholder {
+  color: hsl(var(--oc-muted-foreground));
+}
+
+.ocAiCommand :is(input, textarea):focus {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.ocAiCommand > button {
+  min-width: 2rem;
+  height: 1.7rem;
+  padding: 0 0.55rem;
+  border-color: hsl(var(--oc-primary) / 0.3);
+  border-radius: calc(var(--oc-radius) - 0.12rem);
+  color: hsl(var(--oc-primary-foreground));
+  background: hsl(var(--oc-primary));
+  font-size: var(--oc-text-xs);
+  font-weight: 650;
+}
+
+.ocAiCommand > button:hover:not(:disabled) {
+  border-color: hsl(var(--oc-primary) / 0.5);
+  background: hsl(var(--oc-primary) / 0.88);
+}
+
+.ocAiCommand.compact {
+  margin-bottom: 0.55rem;
+  padding: 0.18rem;
+}
+
+.ocAiCommand.modalStyle {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 2.4rem;
+  align-items: stretch;
+  gap: 0.45rem;
+  width: 100%;
+  padding: 0.45rem;
+  border-color: hsl(var(--oc-border));
+  border-radius: calc(var(--oc-radius) + 0.05rem);
+  background: hsl(var(--oc-background) / 0.64);
+}
+
+.ocAiCommand.modalStyle textarea {
+  min-height: 6.4rem;
+  padding: 0.65rem 0.7rem;
+  resize: vertical;
+  border: 0;
+  border-radius: calc(var(--oc-radius) - 0.08rem);
+  background: hsl(var(--oc-muted) / 0.3);
+  font-size: var(--oc-text-sm);
+  line-height: 1.55;
+}
+
+.ocAiCommand.modalStyle .modalSubmit {
+  width: 2.4rem;
+  height: auto;
+  min-height: 2.4rem;
+  padding: 0;
+  border-radius: calc(var(--oc-radius) - 0.06rem);
+}
+
+.ocAiCommand.modalStyle .aiCommandSubmitArrow {
+  font-size: 1.15rem;
+}
+
+/* AI command and HyperFrames authoring dialogs retain App-owned close rules. */
+.ocAiCommandModal,
+.ocHyperframeAuthor {
+  width: min(42rem, calc(100vw - 2rem));
+  max-height: min(84vh, 46rem);
+  padding: 0;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--oc-muted-foreground) / 0.4) transparent;
+}
+
+:is(.ocAiCommandModal, .ocHyperframeAuthor) .aiCommandModalHead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  min-height: 4.35rem;
+  padding: 0.9rem 1rem 0.8rem;
+  border-bottom: 1px solid hsl(var(--oc-border));
+  background: hsl(var(--oc-popover) / 0.96);
+  backdrop-filter: blur(8px);
+}
+
+:is(.ocAiCommandModal, .ocHyperframeAuthor) .aiCommandModalHead h3 {
+  margin-top: 0.14rem;
+  color: hsl(var(--oc-foreground));
+  font-size: 1rem;
+  letter-spacing: -0.012em;
+}
+
+:is(.ocAiCommandModal, .ocHyperframeAuthor) .aiCommandKicker {
+  color: hsl(var(--oc-primary));
+  font-size: 0.66rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+:is(.ocAiCommandModal, .ocHyperframeAuthor) .aiCommandModalHead .icon {
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border-color: transparent;
+  border-radius: calc(var(--oc-radius) - 0.1rem);
+  color: hsl(var(--oc-muted-foreground));
+  background: transparent;
+}
+
+:is(.ocAiCommandModal, .ocHyperframeAuthor) .aiCommandModalHead .icon:hover:not(:disabled) {
+  color: hsl(var(--oc-foreground));
+  background: hsl(var(--oc-accent));
+}
+
+.ocAiCommandModal > :not(.aiCommandModalHead),
+.ocHyperframeAuthor > :not(.aiCommandModalHead) {
+  margin-inline: 1rem;
+}
+
+.ocAiCommandModal > .ocAiCommand,
+.ocHyperframeAuthor > .ocAiCommand {
+  width: auto;
+}
+
+.ocAiCommandModal > :last-child,
+.ocHyperframeAuthor > :last-child {
+  margin-bottom: 1rem;
+}
+
+.ocAiCommandModal .aiScopeTabs {
+  gap: 0.3rem;
+  margin-block: 0.9rem 0.7rem;
+  padding: 0.22rem;
+  border: 1px solid hsl(var(--oc-border));
+  border-radius: var(--oc-radius);
+  background: hsl(var(--oc-muted) / 0.35);
+}
+
+.ocAiCommandModal .aiScopeTabs button {
+  min-width: 0;
+  min-height: 3.1rem;
+  padding: 0.45rem 0.55rem;
+  border-color: transparent;
+  border-radius: calc(var(--oc-radius) - 0.12rem);
+  color: hsl(var(--oc-muted-foreground));
+  background: transparent;
+  font-size: var(--oc-text-xs);
+}
+
+.ocAiCommandModal .aiScopeTabs button span {
+  color: hsl(var(--oc-muted-foreground));
+  font-size: 0.64rem;
+}
+
+.ocAiCommandModal .aiScopeTabs button:hover:not(:disabled) {
+  color: hsl(var(--oc-foreground));
+  background: hsl(var(--oc-accent) / 0.65);
+}
+
+.ocAiCommandModal .aiScopeTabs button.on {
+  color: hsl(var(--oc-foreground));
+  border-color: hsl(var(--oc-border));
+  background: hsl(var(--oc-secondary));
+  box-shadow: 0 1px 2px hsl(222 30% 3% / 0.28);
+}
+
+.ocAiCommandModal .aiScopePanel {
+  margin: -0.35rem 1rem 0.65rem;
+  color: hsl(var(--oc-muted-foreground));
+  font-size: 0.66rem;
+}
+
+.ocAiCommandModal > .hint,
+.ocHyperframeAuthor > .hint {
+  color: hsl(var(--oc-muted-foreground));
+  font-size: var(--oc-text-xs);
+}
+
+/* HyperFrames authoring keeps its native file input and keyboard drop target. */
+.ocHyperframeAuthor {
+  width: min(46rem, calc(100vw - 2rem));
+}
+
+.ocHyperframeAuthor .hfAuthorNameField {
+  display: grid;
+  grid-template-columns: 6.5rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.6rem;
+  margin-block: 0.9rem 0.65rem;
+  color: hsl(var(--oc-muted-foreground));
+  font-size: var(--oc-text-xs);
+}
+
+.ocHyperframeAuthor .hfAuthorNameField input {
+  height: 2rem;
+  min-width: 0;
+  padding: 0 0.6rem;
+  border: 1px solid hsl(var(--oc-input));
+  border-radius: calc(var(--oc-radius) - 0.1rem);
+  color: hsl(var(--oc-foreground));
+  background: hsl(var(--oc-background) / 0.65);
+}
+
+.ocHyperframeAuthor .hfAssetDrop {
+  gap: 0.3rem;
+  min-height: 5.25rem;
+  margin-block: 0.7rem;
+  padding: 0.8rem;
+  border: 1px dashed hsl(var(--oc-border));
+  border-radius: var(--oc-radius);
+  color: hsl(var(--oc-foreground));
+  background: hsl(var(--oc-muted) / 0.25);
+}
+
+.ocHyperframeAuthor .hfAssetDrop:hover:not(.disabled),
+.ocHyperframeAuthor .hfAssetDrop:focus-visible {
+  border-color: hsl(var(--oc-primary) / 0.72);
+  background: hsl(var(--oc-primary) / 0.07);
+  box-shadow: 0 0 0 2px hsl(var(--oc-ring) / 0.26);
+}
+
+.ocHyperframeAuthor .hfAssetDrop strong {
+  font-size: var(--oc-text-xs);
+  font-weight: 650;
+}
+
+.ocHyperframeAuthor .hfAssetDrop span {
+  color: hsl(var(--oc-muted-foreground));
+  font-size: 0.65rem;
+}
+
+.ocHyperframeAuthor .hfAssetList {
+  gap: 0.35rem;
+  max-height: 7rem;
+  margin-block: 0.5rem;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.ocHyperframeAuthor .hfAssetListScroll {
+  max-height: 7rem;
+  margin-block: 0.5rem;
+}
+
+.ocHyperframeAuthor .hfAssetListScroll .hfAssetList {
+  max-height: none;
+  margin-block: 0;
+  overflow: visible;
+}
+
+.ocHyperframeAuthor .hfAssetList li {
+  min-height: 2rem;
+  padding: 0.35rem 0.45rem 0.35rem 0.6rem;
+  border: 1px solid hsl(var(--oc-border));
+  border-radius: calc(var(--oc-radius) - 0.1rem);
+  color: hsl(var(--oc-muted-foreground));
+  background: hsl(var(--oc-muted) / 0.25);
+  font-size: var(--oc-text-xs);
+}
+
+.ocHyperframeAuthor .hfAssetList li button {
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: calc(var(--oc-radius) - 0.15rem);
+  color: hsl(var(--oc-muted-foreground));
+  background: transparent;
+}
+
+.ocHyperframeAuthor .hfAssetList li button:hover:not(:disabled) {
+  color: hsl(var(--oc-destructive));
+  background: hsl(var(--oc-destructive) / 0.1);
+}
+
+.ocHyperframeAuthor :is(.hfAuthorDisabled, .hfAuthorError) {
+  margin-block: 0.55rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: calc(var(--oc-radius) - 0.08rem);
+  font-size: var(--oc-text-xs);
+  line-height: 1.45;
+}
+
+.ocHyperframeAuthor .hfAuthorDisabled {
+  color: hsl(40 92% 70%);
+  border: 1px solid hsl(40 80% 50% / 0.28);
+  background: hsl(40 80% 50% / 0.08);
+}
+
+.ocHyperframeAuthor .hfAuthorError {
+  color: hsl(0 86% 78%);
+  border: 1px solid hsl(var(--oc-destructive) / 0.3);
+  background: hsl(var(--oc-destructive) / 0.08);
+}
+
+/* Conflict review: preserve mine/theirs resolution semantics and callbacks. */
+.ocDiffReview {
+  width: min(64rem, calc(100vw - 2rem));
+  max-width: none;
+  top: 1rem;
+  bottom: 1rem;
+  overflow: hidden;
+  scrollbar-width: thin;
+}
+
+.ocDiffReview .diffHead {
+  padding: 1rem 1.15rem;
+  background: hsl(var(--oc-popover) / 0.96);
+  border-color: hsl(var(--oc-border));
+  backdrop-filter: blur(8px);
+}
+
+.ocDiffReview .diffCount,
+.ocAiReview .diffCount {
+  margin-bottom: 0.4rem;
+  padding: 0.16rem 0.45rem;
+  color: hsl(40 92% 70%);
+  border-color: hsl(40 80% 50% / 0.34);
+  background: hsl(40 80% 50% / 0.09);
+  font-size: 0.65rem;
+  font-weight: 650;
+}
+
+.ocDiffReview .diffHead h3 {
+  margin-bottom: 0.3rem;
+  font-size: 1.05rem;
+  letter-spacing: -0.012em;
+}
+
+.ocDiffReview .diffHead p {
+  color: hsl(var(--oc-muted-foreground));
+  font-size: var(--oc-text-xs);
+  line-height: 1.5;
+}
+
+.ocDiffReview .diffWarnings {
+  margin-top: 0.65rem;
+  padding: 0.6rem 0.7rem;
+  border-color: hsl(40 80% 50% / 0.28);
+  border-radius: var(--oc-radius);
+  color: hsl(40 92% 72%);
+  background: hsl(40 80% 50% / 0.07);
+  font-size: var(--oc-text-xs);
+}
+
+.ocDiffReview .diffList {
+  flex: 1 1 auto;
+  gap: 0.7rem;
+  padding: 0.8rem;
+  overflow: hidden;
+  background: hsl(var(--oc-background) / 0.78);
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--oc-muted-foreground) / 0.38) transparent;
+}
+
+.ocDiffReview .diffListContent {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.ocDiffReview .diffBulk {
+  padding: 0.45rem 0.55rem;
+  border-color: hsl(var(--oc-border));
+  border-radius: var(--oc-radius);
+  background: hsl(var(--oc-card));
+}
+
+.ocDiffReview :is(.diffBulk, .diffFoot) button {
+  min-height: 1.8rem;
+  padding: 0.25rem 0.6rem;
+  border-color: hsl(var(--oc-border));
+  border-radius: calc(var(--oc-radius) - 0.1rem);
+  color: hsl(var(--oc-foreground));
+  background: hsl(var(--oc-secondary) / 0.7);
+  font-size: var(--oc-text-xs);
+}
+
+.ocDiffReview :is(.diffBulk, .diffFoot) button:hover:not(:disabled) {
+  background: hsl(var(--oc-accent));
+}
+
+.ocDiffReview :is(.diffBulk, .diffFoot) button.primary {
+  border-color: hsl(var(--oc-primary) / 0.3);
+  color: hsl(var(--oc-primary-foreground));
+  background: hsl(var(--oc-primary));
+}
+
+.ocDiffReview .diffHunk {
+  border-color: hsl(var(--oc-border));
+  border-radius: var(--oc-radius);
+  background: hsl(var(--oc-card));
+  box-shadow: 0 1px 2px hsl(222 28% 3% / 0.24);
+}
+
+.ocDiffReview .diffConflictHead {
+  padding: 0.65rem 0.75rem;
+  border-color: hsl(var(--oc-border));
+  background: hsl(var(--oc-muted) / 0.22);
+}
+
+.ocDiffReview .diffConflictTitle {
+  margin-bottom: 0.15rem;
+  font-size: var(--oc-text-sm);
+  font-weight: 650;
+}
+
+.ocDiffReview .diffConflictHelp {
+  color: hsl(var(--oc-muted-foreground));
+  font-size: 0.67rem;
+}
+
+.ocDiffReview .diffConflictHead code {
+  padding: 0.25rem 0.4rem;
+  color: hsl(var(--oc-muted-foreground));
+  border-color: hsl(var(--oc-border));
+  border-radius: calc(var(--oc-radius) - 0.12rem);
+  background: hsl(var(--oc-background));
+  font-size: 0.64rem;
+}
+
+.ocDiffReview .diffValue + .diffValue {
+  border-color: hsl(var(--oc-border));
+}
+
+.ocDiffReview button.diffValue {
+  min-height: 10rem;
+  padding: 0.75rem;
+  color: hsl(var(--oc-foreground));
+  background: transparent;
+}
+
+.ocDiffReview button.diffValue:hover {
+  background: hsl(var(--oc-accent) / 0.34);
+}
+
+.ocDiffReview button.diffValue.on {
+  background: hsl(var(--oc-primary) / 0.08);
+  box-shadow: inset 0 0 0 1px hsl(var(--oc-primary) / 0.78);
+}
+
+.ocDiffReview .diffValueTitle {
+  font-size: var(--oc-text-xs);
+}
+
+.ocDiffReview .diffValueTitle strong,
+.ocDiffReview .diffValueNote {
+  color: hsl(var(--oc-muted-foreground));
+  font-size: 0.66rem;
+}
+
+.ocDiffReview .diffValue.on .diffValueTitle strong {
+  color: hsl(var(--oc-primary));
+}
+
+.ocDiffReview .diffValue pre {
+  padding: 0.6rem;
+  color: hsl(var(--oc-foreground));
+  border-color: hsl(var(--oc-border));
+  border-radius: calc(var(--oc-radius) - 0.1rem);
+  background: hsl(var(--oc-background));
+  font-size: 0.68rem;
+  scrollbar-width: thin;
+}
+
+.ocDiffReview .diffFoot {
+  padding: 0.65rem 0.85rem;
+  border-color: hsl(var(--oc-border));
+  background: hsl(var(--oc-popover) / 0.96);
+  backdrop-filter: blur(8px);
+}
+
+/* Visual review: dense three-pane workspace with CutFlow decision semantics. */
+.ocAiReview {
+  inset: 1rem;
+  max-height: calc(100vh - 2rem);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+
+.ocAiReview .aiReviewHead,
+.ocAiReview .aiReviewFoot {
+  padding: 0.75rem 0.9rem;
+  border-color: hsl(var(--oc-border));
+  background: hsl(var(--oc-popover));
+}
+
+.ocAiReview .aiReviewHeadCopy {
+  gap: 0.2rem;
+}
+
+.ocAiReview .aiReviewHead h3 {
+  margin-bottom: 0.15rem;
+  font-size: 1.02rem;
+  letter-spacing: -0.012em;
+}
+
+.ocAiReview .aiReviewHead p {
+  color: hsl(var(--oc-muted-foreground));
+  font-size: var(--oc-text-xs);
+  line-height: 1.45;
+}
+
+.ocAiReview .aiReviewDescToggle {
+  color: hsl(var(--oc-primary));
+  font-size: var(--oc-text-xs);
+}
+
+.ocAiReview :is(.aiReviewHeadActions, .aiReviewBulkActions, .aiReviewInspectorActions, .aiReviewFoot) button,
+.ocAiReview .aiReviewInspectorSection > button {
+  min-height: 1.8rem;
+  padding: 0.25rem 0.58rem;
+  border-color: hsl(var(--oc-border));
+  border-radius: calc(var(--oc-radius) - 0.1rem);
+  color: hsl(var(--oc-foreground));
+  background: hsl(var(--oc-secondary) / 0.68);
+  font-size: var(--oc-text-xs);
+}
+
+.ocAiReview :is(.aiReviewHeadActions, .aiReviewBulkActions, .aiReviewInspectorActions, .aiReviewFoot) button:hover:not(:disabled),
+.ocAiReview .aiReviewInspectorSection > button:hover:not(:disabled) {
+  background: hsl(var(--oc-accent));
+}
+
+.ocAiReview .aiReviewFoot button.primary {
+  border-color: hsl(var(--oc-primary) / 0.3);
+  color: hsl(var(--oc-primary-foreground));
+  background: hsl(var(--oc-primary));
+}
+
+.ocAiReview .aiReviewWarningSummary {
+  padding: 0.55rem 0.9rem;
+  color: hsl(40 92% 70%);
+  border-color: hsl(var(--oc-border));
+  background: linear-gradient(90deg, hsl(40 80% 50% / 0.1), transparent), hsl(var(--oc-popover));
+  font-size: var(--oc-text-xs);
+}
+
+.ocAiReview .aiReviewWarningSummaryCopy strong,
+.ocAiReview .aiReviewWarningSummary span {
+  color: hsl(40 92% 70%);
+}
+
+.ocAiReview .aiReviewGrid {
+  grid-template-columns: minmax(11rem, 14rem) minmax(20rem, 1fr) minmax(15rem, 19rem);
+}
+
+.ocAiReview .aiReviewGrid.noList {
+  grid-template-columns: minmax(22rem, 1fr) minmax(17rem, 23rem);
+}
+
+.ocAiReview :is(.aiReviewEventList, .aiReviewPreview, .aiReviewInspector) {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--oc-muted-foreground) / 0.38) transparent;
+}
+
+.ocAiReview .aiReviewEventList {
+  gap: 0.4rem;
+  padding: 0.6rem;
+  border-color: hsl(var(--oc-border));
+  background: hsl(var(--oc-background) / 0.72);
+}
+
+.ocAiReview .aiReviewEventListContent {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.ocAiReview :is(.aiReviewPreviewContent, .aiReviewInspectorContent) {
+  min-width: 0;
+  min-height: 100%;
+}
+
+.ocAiReview .aiReviewEventCard {
+  gap: 0.3rem;
+  padding: 0.6rem;
+  border-color: hsl(var(--oc-border));
+  border-radius: var(--oc-radius);
+  color: hsl(var(--oc-foreground));
+  background: hsl(var(--oc-card));
+}
+
+.ocAiReview .aiReviewEventCard:hover:not(:disabled) {
+  background: hsl(var(--oc-accent) / 0.45);
+}
+
+.ocAiReview .aiReviewEventCard.on {
+  border-color: hsl(var(--oc-primary) / 0.74);
+  background: hsl(var(--oc-primary) / 0.08);
+  box-shadow: inset 0 0 0 1px hsl(var(--oc-primary) / 0.45);
+}
+
+.ocAiReview .aiReviewEventCard strong {
+  font-size: var(--oc-text-xs);
+}
+
+.ocAiReview .aiReviewEventCard :is(span, time) {
+  color: hsl(var(--oc-muted-foreground));
+  font-size: 0.66rem;
+}
+
+.ocAiReview .aiReviewBadge {
+  padding: 0.12rem 0.38rem;
+  color: hsl(var(--oc-muted-foreground));
+  border-color: hsl(var(--oc-border));
+  background: hsl(var(--oc-muted) / 0.35);
+  font-size: 0.62rem;
+}
+
+.ocAiReview .aiReviewBadge.pending { color: hsl(40 92% 70%); border-color: hsl(40 80% 50% / 0.34); background: hsl(40 80% 50% / 0.09); }
+.ocAiReview .aiReviewBadge.use { color: hsl(145 68% 70%); border-color: hsl(145 55% 45% / 0.32); background: hsl(145 55% 45% / 0.1); }
+.ocAiReview .aiReviewBadge.skip { color: hsl(0 86% 78%); border-color: hsl(var(--oc-destructive) / 0.32); background: hsl(var(--oc-destructive) / 0.09); }
+.ocAiReview .aiReviewBadge.mixed { color: hsl(215 92% 78%); border-color: hsl(var(--oc-primary) / 0.32); background: hsl(var(--oc-primary) / 0.09); }
+
+.ocAiReview .aiReviewPreview {
+  padding: 0.75rem;
+  background: hsl(222 22% 7%);
+}
+
+.ocAiReview .aiReviewPreviewCard {
+  gap: 0.65rem;
+  padding: 0.75rem;
+  border-color: hsl(var(--oc-border));
+  border-radius: var(--oc-radius);
+  background: hsl(var(--oc-card));
+}
+
+.ocAiReview .aiReviewPreviewLabel {
+  color: hsl(var(--oc-muted-foreground));
+  font-size: 0.65rem;
+  font-weight: 650;
+}
+
+.ocAiReview .aiReviewModeSwitch,
+.ocAiReview .aiReviewDecisionToggle {
+  gap: 0.12rem;
+  padding: 0.14rem;
+  border: 1px solid hsl(var(--oc-border));
+  border-radius: var(--oc-radius);
+  background: hsl(var(--oc-muted) / 0.34);
+}
+
+.ocAiReview .aiReviewModeSwitch button,
+.ocAiReview .aiReviewDecisionToggle button {
+  min-height: 1.65rem;
+  padding: 0.2rem 0.48rem;
+  border: 0;
+  border-radius: calc(var(--oc-radius) - 0.14rem);
+  color: hsl(var(--oc-muted-foreground));
+  background: transparent;
+  font-size: 0.67rem;
+}
+
+.ocAiReview .aiReviewModeSwitch button:hover:not(:disabled),
+.ocAiReview .aiReviewDecisionToggle button:hover:not(:disabled) {
+  color: hsl(var(--oc-foreground));
+  background: hsl(var(--oc-accent) / 0.65);
+}
+
+.ocAiReview .aiReviewModeSwitch button.on {
+  color: hsl(var(--oc-foreground));
+  border-color: hsl(var(--oc-border));
+  background: hsl(var(--oc-secondary));
+  box-shadow: 0 1px 2px hsl(222 28% 3% / 0.24);
+}
+
+.ocAiReview .aiReviewStillStage {
+  min-height: 15rem;
+  gap: 0.6rem;
+  padding: 0.55rem;
+  border-color: hsl(var(--oc-border));
+  border-radius: calc(var(--oc-radius) - 0.05rem);
+  background: hsl(222 25% 4%);
+}
+
+.ocAiReview .aiReviewStillPane img,
+.ocAiReview .aiReviewVideo {
+  min-height: 12rem;
+  border-radius: calc(var(--oc-radius) - 0.12rem);
+}
+
+.ocAiReview .aiReviewStillPane figcaption,
+.ocAiReview :is(.aiReviewStillMeta, .aiReviewMeta, .aiReviewFrameChecks, .aiReviewPending) {
+  color: hsl(var(--oc-muted-foreground));
+  font-size: 0.66rem;
+}
+
+.ocAiReview .aiReviewMiniTimeline {
+  height: 1.65rem;
+  border-color: hsl(var(--oc-border));
+  border-radius: calc(var(--oc-radius) - 0.08rem);
+  background: hsl(var(--oc-muted) / 0.28);
+}
+
+.ocAiReview .aiReviewTimelineMarker {
+  top: 0.27rem;
+  height: 1rem;
+  border-color: hsl(var(--oc-primary) / 0.4);
+  border-radius: 0.2rem;
+  background: hsl(var(--oc-primary) / 0.2);
+}
+
+.ocAiReview .aiReviewTimelineMarker.on {
+  border-color: hsl(var(--oc-primary));
+  background: hsl(var(--oc-primary) / 0.5);
+}
+
+.ocAiReview .aiReviewTimelineMarker.warn {
+  border-color: hsl(40 80% 50% / 0.7);
+  background: hsl(40 80% 50% / 0.3);
+}
+
+.ocAiReview .aiReviewPreviewPlaceholder {
+  min-height: 13rem;
+  padding: 0.8rem;
+  border-color: hsl(var(--oc-border));
+  border-radius: var(--oc-radius);
+  background: hsl(var(--oc-muted) / 0.2);
+}
+
+.ocAiReview .aiReviewPreviewPlaceholder span {
+  color: hsl(var(--oc-muted-foreground));
+  font-size: var(--oc-text-xs);
+}
+
+.ocAiReview .aiReviewWarningGroup,
+.ocAiReview .aiReviewJsonCard {
+  padding: 0.55rem 0.65rem;
+  border-color: hsl(var(--oc-border));
+  border-radius: var(--oc-radius);
+  color: hsl(var(--oc-muted-foreground));
+  background: hsl(var(--oc-muted) / 0.22);
+}
+
+.ocAiReview .aiReviewWarningGroup.tone-warn {
+  color: hsl(40 92% 70%);
+  border-color: hsl(40 80% 50% / 0.3);
+  background: hsl(40 80% 50% / 0.08);
+}
+
+.ocAiReview .aiReviewInspector {
+  padding: 0.8rem;
+  border-color: hsl(var(--oc-border));
+  background: hsl(var(--oc-background) / 0.72);
+}
+
+.ocAiReview .aiReviewInspectorHead h4 {
+  font-size: 0.95rem;
+  letter-spacing: -0.01em;
+}
+
+.ocAiReview :is(.aiReviewInspectorSub, .aiReviewInspectorMeta, .aiReviewDecisionLabel) {
+  color: hsl(var(--oc-muted-foreground));
+  font-size: 0.67rem;
+}
+
+.ocAiReview .aiReviewInspectorSection {
+  margin-top: 0.8rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid hsl(var(--oc-border));
+}
+
+.ocAiReview .aiReviewInspectorSection h5 {
+  color: hsl(var(--oc-muted-foreground));
+  font-size: 0.66rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ocAiReview .aiReviewInspectorSection ul {
+  font-size: var(--oc-text-xs);
+  line-height: 1.5;
+}
+
+.ocAiReview .aiReviewDecisionToggle button.on.use {
+  color: hsl(145 68% 70%);
+  background: hsl(145 55% 45% / 0.14);
+  box-shadow: inset 0 0 0 1px hsl(145 55% 45% / 0.38);
+}
+
+.ocAiReview .aiReviewDecisionToggle button.on.skip {
+  color: hsl(0 86% 78%);
+  background: hsl(var(--oc-destructive) / 0.12);
+  box-shadow: inset 0 0 0 1px hsl(var(--oc-destructive) / 0.36);
+}
+
+.ocAiReview .aiReviewRefinePanel textarea {
+  width: 100%;
+  min-height: 5rem;
+  padding: 0.55rem;
+  border: 1px solid hsl(var(--oc-input));
+  border-radius: calc(var(--oc-radius) - 0.1rem);
+  color: hsl(var(--oc-foreground));
+  background: hsl(var(--oc-card));
+  font-size: var(--oc-text-xs);
+}
+
+.ocAiReview .aiReviewJsonDetails {
+  border-color: hsl(var(--oc-border));
+}
+
+.ocAiReview .aiReviewJsonDetails summary,
+.ocAiReview .aiReviewJsonToggle,
+.ocAiReview .aiReviewJsonCard code,
+.ocAiReview .aiReviewJsonPair h6 {
+  color: hsl(var(--oc-muted-foreground));
+  font-size: 0.65rem;
+}
+
+.ocAiReview .aiReviewJsonPair pre {
+  color: hsl(var(--oc-foreground));
+  border-color: hsl(var(--oc-border));
+  background: hsl(var(--oc-background));
+  scrollbar-width: thin;
+}
+
+/* Settings keeps native controls and App-owned cancel/save snapshot behavior. */
+.ocSettings {
+  width: min(45rem, calc(100vw - 2rem));
+  max-width: none;
+  max-height: min(88vh, 48rem);
+  padding: 1rem 1.05rem 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--oc-muted-foreground) / 0.4) transparent;
+}
+
+.ocSettings .settingsTabsRoot {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.ocSettings .settingsBody {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding-right: 0.35rem;
+}
+
+.ocSettings .settingsTabPanel {
+  min-height: 100%;
+}
+
+.ocSettings h3 {
+  color: hsl(var(--oc-foreground));
+  font-size: 1rem;
+  letter-spacing: -0.01em;
+}
+
+.ocSettings > .hint {
+  color: hsl(var(--oc-muted-foreground));
+  font-size: var(--oc-text-xs);
+  line-height: 1.45;
+}
+
+.ocSettings .settingsTabs {
+  gap: 0.18rem;
+  margin: 0.75rem 0;
+  padding: 0.2rem;
+  border-color: hsl(var(--oc-border));
+  border-radius: var(--oc-radius);
+  background: hsl(var(--oc-muted) / 0.34);
+}
+
+.ocSettings .settingsTabs button {
+  min-height: 1.85rem;
+  padding: 0.3rem 0.5rem;
+  border-color: transparent;
+  border-radius: calc(var(--oc-radius) - 0.12rem);
+  color: hsl(var(--oc-muted-foreground));
+  background: transparent;
+  font-size: var(--oc-text-xs);
+}
+
+.ocSettings .settingsTabs button:hover {
+  color: hsl(var(--oc-foreground));
+  background: hsl(var(--oc-accent) / 0.58);
+}
+
+.ocSettings .settingsTabs button.active {
+  color: hsl(var(--oc-foreground));
+  border-color: hsl(var(--oc-border));
+  background: hsl(var(--oc-secondary));
+  box-shadow: 0 1px 2px hsl(222 28% 3% / 0.26);
+}
+
+.ocSettings h4 {
+  margin: 0.85rem 0 0.45rem;
+  padding-bottom: 0.35rem;
+  color: hsl(var(--oc-muted-foreground));
+  border-color: hsl(var(--oc-border));
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ocSettings .field {
+  gap: 0.55rem;
+  min-height: 2.25rem;
+  margin: 0;
+  padding: 0.38rem 0;
+  border-bottom: 1px solid hsl(var(--oc-border) / 0.58);
+}
+
+.ocSettings .field > label {
+  width: 12rem;
+  color: hsl(var(--oc-muted-foreground));
+  font-size: var(--oc-text-xs);
+}
+
+.ocSettings :is(input:not([type="checkbox"]), select, textarea) {
+  min-height: 1.9rem;
+  padding: 0.3rem 0.5rem;
+  color: hsl(var(--oc-foreground));
+  border: 1px solid hsl(var(--oc-input));
+  border-radius: calc(var(--oc-radius) - 0.1rem);
+  background: hsl(var(--oc-background) / 0.68);
+  font-size: var(--oc-text-xs);
+}
+
+.ocSettings input[type="checkbox"] {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.ocSettings .hint {
+  color: hsl(var(--oc-muted-foreground));
+  font-size: 0.66rem;
+}
+
+.ocSettings .warnText {
+  color: hsl(40 92% 70%);
+}
+
+.ocSettings .settingsCardGrid {
+  gap: 0.55rem;
+  margin-top: 0.65rem;
+}
+
+.ocSettings .settingsCard {
+  padding: 0.65rem;
+  border-color: hsl(var(--oc-border));
+  border-radius: var(--oc-radius);
+  background: hsl(var(--oc-muted) / 0.22);
+}
+
+.ocSettings .settingsCardHead {
+  margin-bottom: 0.5rem;
+  font-size: var(--oc-text-xs);
+}
+
+.ocSettings .statusPill {
+  padding: 0.12rem 0.4rem;
+  color: hsl(var(--oc-muted-foreground));
+  border-color: hsl(var(--oc-border));
+  background: hsl(var(--oc-muted) / 0.4);
+  font-size: 0.61rem;
+}
+
+.ocSettings .statusPill.ok {
+  color: hsl(var(--oc-primary));
+  border-color: hsl(var(--oc-primary) / 0.32);
+  background: hsl(var(--oc-primary) / 0.08);
+}
+
+.ocSettings .settingsKv {
+  gap: 0.3rem;
+}
+
+.ocSettings .settingsKv div {
+  color: hsl(var(--oc-muted-foreground));
+  font-size: 0.65rem;
+}
+
+.ocSettings .settingsKv strong {
+  color: hsl(var(--oc-foreground));
+}
+
+.ocSettings .providerList {
+  gap: 0.4rem;
+}
+
+.ocSettings .providerRow {
+  gap: 0.3rem;
+  padding: 0.5rem;
+  border: 1px solid hsl(var(--oc-border) / 0.7);
+  border-radius: calc(var(--oc-radius) - 0.1rem);
+  background: hsl(var(--oc-card));
+}
+
+.ocSettings .providerRow span {
+  color: hsl(var(--oc-muted-foreground));
+  font-size: 0.64rem;
+}
+
+.ocSettings :is(.providerCaps span, .doctorRow span) {
+  color: hsl(var(--oc-muted-foreground));
+  background: hsl(var(--oc-muted) / 0.48);
+  font-size: 0.58rem;
+}
+
+.ocSettings .settingsActions button,
+.ocSettings .foot button {
+  min-height: 1.8rem;
+  padding: 0.25rem 0.62rem;
+  border-color: hsl(var(--oc-border));
+  border-radius: calc(var(--oc-radius) - 0.1rem);
+  color: hsl(var(--oc-foreground));
+  background: hsl(var(--oc-secondary) / 0.68);
+  font-size: var(--oc-text-xs);
+}
+
+.ocSettings .settingsActions button:hover:not(:disabled),
+.ocSettings .foot button:hover:not(:disabled) {
+  background: hsl(var(--oc-accent));
+}
+
+.ocSettings .doctorGrid {
+  gap: 0.35rem;
+}
+
+.ocSettings .doctorRow {
+  padding: 0.4rem 0.5rem;
+  border-color: hsl(var(--oc-border));
+  border-radius: calc(var(--oc-radius) - 0.1rem);
+}
+
+.ocSettings .doctorRow.ok { border-color: hsl(145 55% 45% / 0.32); background: hsl(145 55% 45% / 0.08); }
+.ocSettings .doctorRow.warn { border-color: hsl(40 80% 50% / 0.32); background: hsl(40 80% 50% / 0.08); }
+.ocSettings .doctorRow.error { border-color: hsl(var(--oc-destructive) / 0.32); background: hsl(var(--oc-destructive) / 0.08); }
+
+.ocSettings .linkish {
+  color: hsl(var(--oc-primary));
+}
+
+.ocSettings .foot {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  min-height: 3.2rem;
+  margin: 0.8rem -1.05rem 0;
+  padding: 0.65rem 1.05rem;
+  border-top: 1px solid hsl(var(--oc-border));
+  background: hsl(var(--oc-popover) / 0.96);
+  backdrop-filter: blur(8px);
+}
+
+.ocSettings .foot .error {
+  color: hsl(0 86% 78%);
+}
+
+.ocSettings .foot button.primary {
+  border-color: hsl(var(--oc-primary) / 0.3);
+  color: hsl(var(--oc-primary-foreground));
+  background: hsl(var(--oc-primary));
+}
+
+:is(.ocAiCommandModal, .ocHyperframeAuthor, .ocDiffReview, .ocSettings)::-webkit-scrollbar,
+.ocAiReview :is(.aiReviewEventList, .aiReviewPreview, .aiReviewInspector, .aiReviewWarnings)::-webkit-scrollbar,
+.ocDiffReview :is(.diffList, pre)::-webkit-scrollbar,
+.ocHyperframeAuthor .hfAssetList::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+:is(.ocAiCommandModal, .ocHyperframeAuthor, .ocDiffReview, .ocSettings)::-webkit-scrollbar-thumb,
+.ocAiReview :is(.aiReviewEventList, .aiReviewPreview, .aiReviewInspector, .aiReviewWarnings)::-webkit-scrollbar-thumb,
+.ocDiffReview :is(.diffList, pre)::-webkit-scrollbar-thumb,
+.ocHyperframeAuthor .hfAssetList::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: hsl(var(--oc-muted-foreground) / 0.38);
+  background-clip: padding-box;
+}
+
+@media (max-width: 900px) {
+  .ocAiReview {
+    inset: 0.5rem;
+    max-height: calc(100vh - 1rem);
+  }
+
+  .ocAiReview .aiReviewGrid,
+  .ocAiReview .aiReviewGrid.noList {
+    grid-template-columns: 1fr;
+  }
+
+  .ocAiReview .aiReviewEventList {
+    max-height: 11rem;
+  }
+
+  .ocAiReview .aiReviewStillStage {
+    min-height: 12rem;
+  }
+}
+
+@media (max-width: 720px) {
+  .ocAiCommandModal,
+  .ocHyperframeAuthor,
+  .ocDiffReview,
+  .ocSettings {
+    width: calc(100vw - 1rem);
+    max-width: none;
+  }
+
+  .ocAiCommandModal .aiScopeTabs {
+    grid-template-columns: 1fr;
+  }
+
+  .ocHyperframeAuthor .hfAuthorNameField {
+    grid-template-columns: 1fr;
+  }
+
+  .ocDiffReview {
+    top: 0.5rem;
+    bottom: 0.5rem;
+  }
+
+  .ocDiffReview .diffValues {
+    grid-template-columns: 1fr;
+  }
+
+  .ocDiffReview .diffValue + .diffValue {
+    border-left: 0;
+    border-top: 1px solid hsl(var(--oc-border));
+  }
+
+  .ocSettings {
+    max-height: calc(100vh - 1rem);
+  }
+
+  .ocSettings .settingsTabs,
+  .ocSettings .settingsCardGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .ocSettings .field {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .ocSettings .field > label {
+    width: 100%;
+  }
+}

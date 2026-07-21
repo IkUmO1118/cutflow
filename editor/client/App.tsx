@@ -107,6 +107,15 @@ import {
 import { useToasts, ToastStack } from "./toasts.tsx";
 import { TOAST_TTL_MS } from "./toastReducer.ts";
 import { Button } from "./components/ui/button.tsx";
+import { restoreDialogFocus } from "./lib/dialogFocus.ts";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "./components/ui/dialog.tsx";
+import { ScrollArea } from "./components/ui/scroll-area.tsx";
 import {
   Popover,
   PopoverContent,
@@ -123,6 +132,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "./components/ui/tooltip.tsx";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs.tsx";
 import {
   ChevronDown,
   Captions,
@@ -631,6 +641,7 @@ export const App = () => {
   const [aiWorkflow, setAiWorkflow] = useState<AiWorkflowState | null>(null);
   const [aiCommandOpen, setAiCommandOpen] = useState(false);
   const [aiCommandScope, setAiCommandScope] = useState<AiScope>("global");
+  const aiCommandLauncherRef = useRef<HTMLButtonElement | null>(null);
   /** 前回のセッションの未保存編集(自動退避)。復元するか人間が選ぶまで保持 */
   const [draftOffer, setDraftOffer] = useState<DraftData | null>(null);
   /** ヘッダー右の「書き出し」ポップオーバー(preview / 承認 / render)の開閉 */
@@ -664,6 +675,7 @@ export const App = () => {
   const [hyperframeRendering, setHyperframeRendering] = useState<string | null>(null);
   const [hyperframeErrors, setHyperframeErrors] = useState<Record<string, string>>({});
   const [hyperframeAuthorOpen, setHyperframeAuthorOpen] = useState(false);
+  const hyperframeAuthorReturnFocusRef = useRef<HTMLElement | null>(null);
   const [hyperframeAuthorName, setHyperframeAuthorName] = useState("");
   const [hyperframeAuthorAssets, setHyperframeAuthorAssets] = useState<File[]>([]);
   const [hyperframeAssetLimits, setHyperframeAssetLimits] = useState<{
@@ -4304,6 +4316,8 @@ export const App = () => {
   };
 
   const openHyperframeAuthor = () => {
+    hyperframeAuthorReturnFocusRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setHyperframeAuthorName("");
     setHyperframeAuthorAssets([]);
     setHyperframeAuthorError(null);
@@ -4479,7 +4493,9 @@ export const App = () => {
       }
       if ((e.metaKey || e.ctrlKey) && e.key === ",") {
         e.preventDefault();
-        if (settingsOpen) cancelSettings();
+        if (settingsOpen) {
+          if (!settingsSaving) cancelSettings();
+        }
         else openSettings();
         return;
       }
@@ -4487,16 +4503,13 @@ export const App = () => {
       const inField = ["INPUT", "SELECT", "TEXTAREA"].includes(t.tagName);
       if (settingsOpen) {
         // モーダル表示中は再生・削除などのグローバルショートカットを止める。
-        // Escape で閉じる(入力欄の中は NumInput の入力破棄が先なので閉じない)
-        if (e.key === "Escape" && !inField && !settingsSaving) cancelSettings();
+        // Escape の dismissal は Dialog が一度だけ処理する。入力欄では
+        // SettingsModal が dismissal を止め、NumInput の入力破棄を優先する。
         return;
       }
       if (aiCommandOpen) {
-        // AI コマンドパネル表示中は再生・削除などを止める。入力中でも Esc で閉じる。
-        if (e.key === "Escape") {
-          e.preventDefault();
-          setAiCommandOpen(false);
-        }
+        // Dialog が Escape dismissal と launcher への focus return を一度だけ処理する。
+        // ここでは再生・削除などのグローバルショートカットだけを止める。
         return;
       }
       // 入力欄の中はブラウザ標準の undo/redo に任せる(下の guard で除外)
@@ -4660,6 +4673,7 @@ export const App = () => {
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
+              ref={aiCommandLauncherRef}
               variant="secondary"
               size="sm"
               className="aiCommandLauncher"
@@ -4807,25 +4821,35 @@ export const App = () => {
       />
 
       {hyperframeAuthorOpen && (
-        <>
-          <div
-            className="aiCommandBackdrop"
-            onClick={() => !hyperframeAuthorBusy && setHyperframeAuthorOpen(false)}
-          />
-          <section className="aiCommandModal hfAuthorModal" role="dialog" aria-label="AI で素材を作る">
+        <Dialog
+          open
+          onOpenChange={(open) => !open && !hyperframeAuthorBusy && setHyperframeAuthorOpen(false)}
+        >
+          <DialogContent
+            asChild
+            overlayClassName="aiCommandBackdrop"
+            onEscapeKeyDown={(event) => event.preventDefault()}
+            onPointerDownOutside={(event) => hyperframeAuthorBusy && event.preventDefault()}
+            onCloseAutoFocus={(event) => {
+              restoreDialogFocus(event, hyperframeAuthorReturnFocusRef.current);
+              hyperframeAuthorReturnFocusRef.current = null;
+            }}
+          >
+          <section className="aiCommandModal hfAuthorModal ocHyperframeAuthor" aria-label="AI で素材を作る">
             <div className="aiCommandModalHead">
               <div>
                 <div className="aiCommandKicker">AI で作る</div>
-                <h3>新しい素材を作る</h3>
+                <DialogTitle asChild><h3>新しい素材を作る</h3></DialogTitle>
               </div>
-              <button
-                className="icon"
-                aria-label="閉じる"
-                disabled={hyperframeAuthorBusy}
-                onClick={() => setHyperframeAuthorOpen(false)}
-              >
-                ×
-              </button>
+              <DialogClose asChild>
+                <button
+                  className="icon"
+                  aria-label="閉じる"
+                  disabled={hyperframeAuthorBusy}
+                >
+                  ×
+                </button>
+              </DialogClose>
             </div>
             <label className="hfAuthorNameField">
               <span>ファイル名</span>
@@ -4887,6 +4911,7 @@ export const App = () => {
               </span>
             </div>
             {hyperframeAuthorAssets.length > 0 && (
+              <ScrollArea className="hfAssetListScroll">
               <ul className="hfAssetList" aria-label="添付素材">
                 {hyperframeAuthorAssets.map((file) => (
                   <li key={file.name}>
@@ -4902,55 +4927,71 @@ export const App = () => {
                   </li>
                 ))}
               </ul>
+              </ScrollArea>
             )}
             {hyperframeAuthorStatus.disabledReason && (
               <p className="hfAuthorDisabled">{hyperframeAuthorStatus.disabledReason}</p>
             )}
             {hyperframeAuthorError && <p className="hfAuthorError">{hyperframeAuthorError}</p>}
-            <p className="dim hint">
-              生成には通常1〜2分かかります。完成すると他の素材と同じように配置できます。
-            </p>
+            <DialogDescription asChild>
+              <p className="dim hint">
+                生成には通常1〜2分かかります。完成すると他の素材と同じように配置できます。
+              </p>
+            </DialogDescription>
           </section>
-        </>
+          </DialogContent>
+        </Dialog>
       )}
 
       {aiCommandOpen && (
-        <>
-          <div className="aiCommandBackdrop" onClick={() => setAiCommandOpen(false)} />
-          <section className="aiCommandModal" role="dialog" aria-label="AI 一発編集">
+        <Dialog open onOpenChange={(open) => !open && setAiCommandOpen(false)}>
+          <DialogContent
+            asChild
+            overlayClassName="aiCommandBackdrop"
+            onCloseAutoFocus={(event) => restoreDialogFocus(event, aiCommandLauncherRef.current)}
+          >
+          <section className="aiCommandModal ocAiCommandModal" aria-label="AI 一発編集">
             <div className="aiCommandModalHead">
               <div>
                 <div className="aiCommandKicker">AI 一発編集</div>
-                <h3>どの範囲を編集するか選んで指示</h3>
+                <DialogTitle asChild><h3>どの範囲を編集するか選んで指示</h3></DialogTitle>
               </div>
-              <button className="icon" aria-label="閉じる" onClick={() => setAiCommandOpen(false)}>
-                ×
-              </button>
+              <DialogClose asChild>
+                <button className="icon" aria-label="閉じる">×</button>
+              </DialogClose>
             </div>
-            <div className="aiScopeTabs" role="tablist" aria-label="AI 編集の対象範囲">
-              <button
+            <Tabs
+              value={aiCommandScope}
+              onValueChange={(value) => setAiCommandScope(value as AiScope)}
+            >
+            <TabsList className="aiScopeTabs" aria-label="AI 編集の対象範囲">
+              <TabsTrigger
+                value="global"
                 className={aiCommandScope === "global" ? "on" : ""}
-                onClick={() => setAiCommandScope("global")}
               >
                 全体
                 <span>構成・テンポ・全体調整</span>
-              </button>
-              <button
+              </TabsTrigger>
+              <TabsTrigger
+                value="playhead"
                 className={aiCommandScope === "playhead" ? "on" : ""}
-                onClick={() => setAiCommandScope("playhead")}
               >
                 現在位置
                 <span>再生ヘッド周辺</span>
-              </button>
-              <button
+              </TabsTrigger>
+              <TabsTrigger
+                value="selection"
                 className={aiCommandScope === "selection" ? "on" : ""}
                 disabled={!selection}
-                onClick={() => setAiCommandScope("selection")}
               >
                 選択中
                 <span>{selection ? "選択要素だけ" : "未選択"}</span>
-              </button>
-            </div>
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="global" className="aiScopePanel">プロジェクト全体を対象にします。</TabsContent>
+            <TabsContent value="playhead" className="aiScopePanel">現在の再生位置周辺を対象にします。</TabsContent>
+            <TabsContent value="selection" className="aiScopePanel">現在選択している要素を対象にします。</TabsContent>
+            </Tabs>
             <AiCommand
               disabled={anyDirty || aiWorkflowLocked}
               busy={aiBusy}
@@ -4976,12 +5017,15 @@ export const App = () => {
                 void startAiWorkflow(aiCommandScope, instruction);
               }}
             />
-            <p className="dim hint">
-              全体はプロジェクト要約を、現在位置と選択中は周辺文脈を使います。
-              提案はすぐ保存せず、差分レビューで確認します。
-            </p>
+            <DialogDescription asChild>
+              <p className="dim hint">
+                全体はプロジェクト要約を、現在位置と選択中は周辺文脈を使います。
+                提案はすぐ保存せず、差分レビューで確認します。
+              </p>
+            </DialogDescription>
           </section>
-        </>
+          </DialogContent>
+        </Dialog>
       )}
 
       {diffReview && diffPanelOpen && (
@@ -5057,12 +5101,6 @@ export const App = () => {
       )}
 
       {settingsOpen && (
-        <>
-          {/* backdrop クリック = キャンセル(未保存の設定編集を復元して閉じる) */}
-          <div
-            className="settingsBackdrop"
-            onClick={() => !settingsSaving && cancelSettings()}
-          />
           <SettingsModal
             cfg={cfgValuesOf(proj)}
             planPerception={proj.planPerception}
@@ -5076,7 +5114,6 @@ export const App = () => {
             aiDoctorBusy={aiDoctorBusy}
             onAiDoctor={(route) => void runAiDoctor(route)}
           />
-        </>
       )}
 
       <ResizablePanelGroup

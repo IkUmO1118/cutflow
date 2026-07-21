@@ -1,4 +1,14 @@
+import { useRef } from "react";
 import type { Hunk } from "../../src/lib/docDiff.ts";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "./components/ui/dialog.tsx";
+import { ScrollArea } from "./components/ui/scroll-area.tsx";
+import { restoreDialogFocus } from "./lib/dialogFocus.ts";
 
 type Side = "theirs" | "mine";
 
@@ -26,17 +36,32 @@ export const DiffReview = ({
   warnings?: string[];
 }) => {
   const groups = warnings.length > 0 ? [{ label: "確認事項", items: warnings }] : [];
+  const returnFocusRef = useRef<HTMLElement | null>(
+    typeof document !== "undefined" && document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null,
+  );
   return (
-    <>
-      <div className="diffBackdrop" />
-      <section className="diffModal" role="dialog" aria-label="外部変更の差分レビュー">
+    <Dialog open onOpenChange={(open) => !open && onCancel()}>
+      <DialogContent
+        asChild
+        overlayClassName="diffBackdrop"
+        onEscapeKeyDown={(event) => event.preventDefault()}
+        onPointerDownOutside={(event) => event.preventDefault()}
+        onCloseAutoFocus={(event) => restoreDialogFocus(event, returnFocusRef.current)}
+      >
+        <section className="diffModal ocDiffReview" aria-label="外部変更の差分レビュー">
         <div className="diffHead">
           <div>
             <div className="diffCount">{countLabel ?? defaultCountLabel(hunks.length)}</div>
-            <h3>{title ?? "外部変更と競合しています"}</h3>
-            <p>
-              {description ?? "エディタの未保存編集と、ディスク上の変更が同じ場所を変えました。残す内容を選んでください。"}
-            </p>
+            <DialogTitle asChild>
+              <h3>{title ?? "外部変更と競合しています"}</h3>
+            </DialogTitle>
+            <DialogDescription asChild>
+              <p>
+                {description ?? "エディタの未保存編集と、ディスク上の変更が同じ場所を変えました。残す内容を選んでください。"}
+              </p>
+            </DialogDescription>
             {groups.length > 0 && (
               <div className="diffWarnings">
                 {groups.map((group) => (
@@ -53,7 +78,8 @@ export const DiffReview = ({
             )}
           </div>
         </div>
-        <div className="diffList">
+        <ScrollArea className="diffList">
+          <div className="diffListContent">
           {hunks.length > 1 && (
             <div className="diffBulk">
               <span>一括選択</span>
@@ -92,14 +118,18 @@ export const DiffReview = ({
               </article>
             );
           })}
-        </div>
+          </div>
+        </ScrollArea>
         <div className="diffFoot">
-          <button onClick={onCancel}>キャンセル</button>
+          <DialogClose asChild>
+            <button>キャンセル</button>
+          </DialogClose>
           <div className="spacer" />
           <button className="primary" onClick={onApply}>選んだ内容を適用</button>
         </div>
-      </section>
-    </>
+        </section>
+      </DialogContent>
+    </Dialog>
   );
 };
 

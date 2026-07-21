@@ -24,6 +24,10 @@ server routes, and editing behavior are not vendored.
 | Inspector native select source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/native-select.tsx` |
 | Inspector slider source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/slider.tsx` |
 | Inspector switch source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/switch.tsx` |
+| Dialog source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/dialog.tsx` |
+| Tabs source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/tabs.tsx` |
+| Scroll area source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/scroll-area.tsx` |
+| Toggle group source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/toggle-group.tsx` |
 | License source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/LICENSE` |
 
 ## Adaptation in CutFlow
@@ -86,6 +90,26 @@ server routes, and editing behavior are not vendored.
   output-time geometry, raw-time write mapping, track ordering, visibility/mute
   controls, pointer/trim/create/drop handlers, titles, and keyboard shortcuts remain
   authoritative. No secondary-button context menu is introduced.
+- P4 checkpoint 1 adapts the pinned Dialog, Tabs, ScrollArea, and ToggleGroup
+  wrappers through the existing exact-pinned `radix-ui` umbrella package, then
+  mounts them on CutFlow-owned surfaces under `.ocAiCommand`, `.ocAiCommandModal`,
+  `.ocAiReview`, `.ocDiffReview`, `.ocHyperframeAuthor`, and `.ocSettings`.
+  Radix owns focus trapping, the close-auto-focus lifecycle, Escape/outside
+  interaction, tab arrow-key navigation, toggle roving focus, and scroll-area
+  mechanics. CutFlow explicitly returns focus to each launcher (or the previously
+  focused element for review dialogs) when controlled conditional mounting removes
+  a dialog. CutFlow remains the
+  controlled-state owner: Settings outside/non-field Escape/cancel still rolls
+  back to its snapshot unless saving, while field Escape remains available to
+  discard the active input draft without dismissing the modal. HyperFrames blocks
+  Escape, allows outside dismissal only while idle, and blocks every explicit
+  dismiss control while authoring. Visual and diff review block Escape/outside
+  dismissal and close only through their explicit cancel controls; visual-review
+  actions, including cancel, are disabled while refining. AI command dismissal
+  continues to route through its original controlled state.
+  AI propose/refine/review payloads, hunk resolution, HyperFrames file gates and
+  progress/error states, config patch/save, and AI doctor flow are unchanged.
+  `toastReducer.ts` and Sonner are intentionally deferred to P4 checkpoint 2.
 - Tailwind Preflight is deliberately excluded so the existing inline stylesheet
   remains authoritative for components that have not yet migrated.
 
