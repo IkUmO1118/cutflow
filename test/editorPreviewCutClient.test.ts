@@ -86,6 +86,9 @@ const renderCfg: Config["render"] = {
   wipeWidthPx: 480,
   wipeMarginPx: 32,
   captionFontSizePx: 52,
+  captionColor: "#f5f5f5",
+  captionOutlineColor: "#111111",
+  captionBackground: { color: "rgba(0, 0, 0, 0.7)", paddingPx: 12 },
   chapterCardSec: 3,
   targetLufs: -14,
   bgm: { volumeDb: -22, fadeOutSec: 2 },
@@ -94,8 +97,24 @@ const renderCfg: Config["render"] = {
 
 const transcript: Transcript = {
   segments: [
-    { start: 2, end: 5, text: "first caption" },
-    { start: 22, end: 25, text: "second caption" },
+    {
+      start: 2,
+      end: 5,
+      text: "first caption",
+      style: { color: "#ff66cc", fontWeight: 900 },
+      words: [
+        { start: 2, end: 3, text: "first" },
+        { start: 3, end: 5, text: "caption" },
+      ],
+    },
+    {
+      start: 22,
+      end: 25,
+      text: "second caption",
+      track: 2,
+      pos: { x: 1440, y: 180 },
+      style: { background: "none" },
+    },
   ],
 };
 
@@ -108,14 +127,65 @@ const overlays: Overlays = {
       rect: { x: 100, y: 80, w: 640, h: 360 },
     },
   ],
-  wipeFull: [{ start: 3, end: 8 }],
+  wipeFull: [{ start: 3, end: 8, transitionInSec: 0.2, transitionOutSec: 0.45 }],
+  captionTracks: [
+    {
+      track: 1,
+      x: 960,
+      y: 900,
+      style: {
+        fontSizePx: 68,
+        color: "#44ddff",
+        karaoke: {
+          activeColor: "#ffe14d",
+          inactiveOpacity: 0.45,
+          mode: "fill",
+        },
+      },
+    },
+    {
+      track: 2,
+      x: 960,
+      y: 160,
+      anchor: "topLeft",
+      style: { fontSizePx: 44, background: { color: "#223344" } },
+    },
+  ],
   zooms: [
     {
       start: 22,
-      end: 28,
+      end: 25,
       rect: { x: 480, y: 270, w: 960, h: 540 },
     },
+    {
+      start: 25,
+      end: 28,
+      rect: { x: 800, y: 360, w: 960, h: 540 },
+      easeSec: 0.25,
+      easeOutSec: 0.6,
+    },
   ],
+  colorFilter: { brightness: 1.05, contrast: 1.12, saturate: 0.9 },
+  blurs: [
+    {
+      start: 21,
+      end: 27,
+      rect: { x: 40, y: 50, w: 320, h: 120 },
+      strength: 0.8,
+    },
+  ],
+  annotations: [
+    {
+      type: "box",
+      start: 23,
+      end: 27,
+      rect: { x: 760, y: 300, w: 360, h: 220 },
+      color: "#ff3344",
+      widthPx: 8,
+      radiusPx: 18,
+    },
+  ],
+  layerOrder: ["ov1", "wipe", "caption", "cap2"],
 };
 
 const build = (baseVideo: typeof SOURCE_VIDEO | typeof BAKED_VIDEO) =>
@@ -152,8 +222,36 @@ test("preview base video: bakedはbaseSegmentsを連続化し、演出propsはso
   assert.equal(bakedFile, "media/preview-cut.mp4");
   assert.ok(sourceBase.length > bakedBase.length);
   assert.deepEqual(bakedPresentation, sourcePresentation);
+
+  // 3-level caption inheritance: config defaults remain on caption, track style
+  // fills missing fields, and the segment wins for color/fontWeight. Karaoke words
+  // survive the same source→output remap in both base-video modes.
+  assert.deepEqual(source.caption, {
+    fontSizePx: 52,
+    color: "#f5f5f5",
+    outlineColor: "#111111",
+    background: { color: "rgba(0, 0, 0, 0.7)", paddingPx: 12 },
+  });
+  assert.deepEqual(source.captions[0].style, {
+    fontSizePx: 68,
+    color: "#ff66cc",
+    karaoke: { activeColor: "#ffe14d", inactiveOpacity: 0.45, mode: "fill" },
+    fontWeight: 900,
+  });
+  assert.deepEqual(source.captions[0].words, [
+    { text: "first", start: 1, end: 1.5 },
+    { text: "caption", start: 1.5, end: 2.5 },
+  ]);
+  assert.equal(source.zooms?.length, 2, "adjacent zoom chain");
+  assert.equal(source.zooms?.[0].end, source.zooms?.[1].start);
+  assert.equal(source.blurs?.length, 1, "base映像側のlower-layer blur");
+  assert.equal(source.annotations?.length, 1, "常に最前面のannotation");
+  assert.deepEqual(source.colorFilter, overlays.colorFilter);
+  assert.deepEqual(source.layerOrder, ["ov1", "wipe", "caption", "cap2"]);
   assert.deepEqual(baked.captions, source.captions);
   assert.deepEqual(baked.overlays, source.overlays);
   assert.deepEqual(baked.zooms, source.zooms);
   assert.deepEqual(baked.wipeFull, source.wipeFull);
+  assert.deepEqual(baked.blurs, source.blurs);
+  assert.deepEqual(baked.annotations, source.annotations);
 });

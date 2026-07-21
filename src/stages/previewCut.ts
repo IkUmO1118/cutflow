@@ -235,8 +235,10 @@ export async function buildPreviewCut(
 
   const keeps = playbackSegmentsOf(cutplan);
   validateKeeps(keeps);
+  const manifestPath = join(dir, "manifest.json");
+  const manifestSnapshot = captureSnapshot(manifestPath);
   const manifest = JSON.parse(
-    readFileSync(join(dir, "manifest.json"), "utf8"),
+    readFileSync(manifestPath, "utf8"),
   ) as Manifest;
   const compositionFps = manifestCompositionFps(manifest);
   const proxySnapshot = captureSnapshot(proxyPath);
@@ -263,7 +265,7 @@ export async function buildPreviewCut(
   const writeSidecar = deps.writeSidecar ?? writeSidecarAtomically;
   await publish({
     finalPath: outputPath,
-    inputs: [proxySnapshot],
+    inputs: [proxySnapshot, manifestSnapshot],
     produce: async (tempPath) => {
       await runCommand("ffmpeg", [
         "-y", "-v", "error",
