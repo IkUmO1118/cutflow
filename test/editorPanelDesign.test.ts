@@ -92,6 +92,14 @@ test("P2 panel scopes remain present while Inspector and Timeline advance in lat
   assert.match(css, /\.ocTransport\b/);
   assert.match(css, /\.ocInspector\b/);
   assert.match(css, /\.ocTimeline\b/);
+
+  // P6.3 left inspector: rail chrome loses its left-bar and tightens to Classic sizing.
+  assert.match(css, /\.ocSidePanel \.ocIconRail \[role="tab"\]\s*\{[^}]*width:\s*2rem;/s);
+  assert.doesNotMatch(css, /\.ocIconRail \[role="tab"\]::before/);
+  assert.match(css, /\.ocSidePanel \.ocPaneAction\s*\{/);
+
+  // P6.3 left inspector: captions tab gains a left-side track-add entry reusing addTrack.
+  assert.match(app, /onClick=\{\(\) => addTrack\("caption"\)\}/);
 });
 
 test("P2 checkpoint 2 mounts exactly four accessible CutFlow icon-rail tabs", () => {

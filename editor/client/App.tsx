@@ -153,6 +153,7 @@ import {
   PanelBottom,
   PanelLeft,
   PanelRight,
+  Plus,
   Settings,
   Sparkles,
   Smartphone,
@@ -5316,20 +5317,33 @@ export const App = () => {
               />
             )}
             {tab === "captions" && (
-              <CaptionsPanel
-                transcript={transcript}
-                overlays={overlays}
-                capTracks={capTracks}
-                selectedIndex={selection?.kind === "caption" ? selection.index : null}
-                multiSelected={capMulti}
-                onRowClick={(i) => selectCaption(i, true)}
-                onRowToggle={toggleCaptionMulti}
-                onRowFocus={(i) => selectCaption(i, false)}
-                // 一覧の textarea は文字入力なので undo をまとめる
-                updateCaption={(i, patch) =>
-                  updateCaption(i, patch, `caption:${i}:text`)
-                }
-              />
+              <>
+                <div className="ocPaneAction">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => addTrack("caption")}
+                    title="テロップトラックを追加"
+                  >
+                    <Plus size={13} aria-hidden />
+                    テロップトラックを追加
+                  </Button>
+                </div>
+                <CaptionsPanel
+                  transcript={transcript}
+                  overlays={overlays}
+                  capTracks={capTracks}
+                  selectedIndex={selection?.kind === "caption" ? selection.index : null}
+                  multiSelected={capMulti}
+                  onRowClick={(i) => selectCaption(i, true)}
+                  onRowToggle={toggleCaptionMulti}
+                  onRowFocus={(i) => selectCaption(i, false)}
+                  // 一覧の textarea は文字入力なので undo をまとめる
+                  updateCaption={(i, patch) =>
+                    updateCaption(i, patch, `caption:${i}:text`)
+                  }
+                />
+              </>
             )}
             {tab === "shorts" && (
               <ShortsPanel
