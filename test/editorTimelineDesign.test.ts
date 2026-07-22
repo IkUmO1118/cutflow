@@ -129,3 +129,11 @@ test("P6.6 timeline parity: playhead primary+round, clip rounded-sm + single pri
   assert.match(css, /\.ocTimeline \.tlClip\.sel \{[\s\S]*box-shadow: 0 0 0 1\.5px hsl\(var\(--oc-primary\)\)/);
   assert.match(css, /\.ocTimeline \.tlZoom \{[\s\S]*border: none/);
 });
+
+test("P7.4c material overlays with volume>0 get an in-clip waveform", () => {
+  const app = read("editor/client/App.tsx");
+  // audible video material contributes a wave in the clip build
+  assert.match(app, /\(sp\.volume \?\? 0\) > 0 && VIDEO_EXT_RE\.test\(sp\.file\)\s*\?\s*\{ wave: \{ src: sp\.file, startSec: sp\.startFrom \?\? 0 \} \}/);
+  // and its peaks are prefetched
+  assert.match(app, /for \(const sp of overlays\?\.overlays \?\? \[\]\)[\s\S]*requestPeaks\(sp\.file\)/);
+});

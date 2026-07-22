@@ -1114,6 +1114,10 @@ export const App = () => {
     for (const ins of overlays?.inserts ?? []) {
       if (VIDEO_EXT_RE.test(ins.file)) requestPeaks(ins.file);
     }
+    // 音声つき動画素材(volume>0)のピークも取る(素材オーバーレイの波形用)
+    for (const sp of overlays?.overlays ?? []) {
+      if ((sp.volume ?? 0) > 0 && VIDEO_EXT_RE.test(sp.file)) requestPeaks(sp.file);
+    }
   }, [proj, overlays, bgm]);
 
   /* ---------------- 編集履歴(undo / redo) ---------------- */
@@ -1779,6 +1783,10 @@ export const App = () => {
           kind: "overlays", index: i, track,
           outStart: iv.start, outEnd: iv.end, label, editable: true,
           noTrimStart: j > 0, noTrimEnd: j < parts.length - 1,
+          // 音声つき動画素材(volume>0)は最終ミックスに音が乗るので波形も出す
+          ...((sp.volume ?? 0) > 0 && VIDEO_EXT_RE.test(sp.file)
+            ? { wave: { src: sp.file, startSec: sp.startFrom ?? 0 } }
+            : {}),
         });
       });
     });
