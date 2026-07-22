@@ -120,3 +120,12 @@ test("P3 provenance records the visual-only boundary and no context menu", () =>
   assert.match(provenance, /output-time geometry, raw-time write mapping/);
   assert.match(provenance, /No secondary-button context menu is introduced/);
 });
+
+test("P6.6 timeline parity: playhead primary+round, clip rounded-sm + single primary ring, zoom de-pilled", () => {
+  const css = read("editor/client/styles.css");
+  assert.match(css, /\.ocTimeline \.tlPlayhead \{[\s\S]*background: hsl\(var\(--oc-primary\)\)/);
+  assert.match(css, /\.ocTimeline \.tlPlayheadCap \{[\s\S]*border-radius: 50%[\s\S]*clip-path: none/);
+  assert.match(css, /\.ocTimeline \.tlClip \{[\s\S]*border-radius: 0\.2rem/);
+  assert.match(css, /\.ocTimeline \.tlClip\.sel \{[\s\S]*box-shadow: 0 0 0 1\.5px hsl\(var\(--oc-primary\)\)/);
+  assert.match(css, /\.ocTimeline \.tlZoom \{[\s\S]*border: none/);
+});
