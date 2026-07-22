@@ -644,6 +644,24 @@ export const SplitIcon = ({ size = 16 }: { size?: number }) => (
   </svg>
 );
 
+/** 複製(コピー2枚重ね)アイコン(線画 SVG)。選択中クリップの複製(⌘D)用 */
+export const DuplicateIcon = ({ size = 16 }: { size?: number }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden
+  >
+    <rect x="9" y="9" width="11" height="11" rx="2" />
+    <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+  </svg>
+);
+
 /** 削除(ゴミ箱)アイコン(線画 SVG)。選択中クリップの削除用 */
 export const TrashIcon = ({ size = 16 }: { size?: number }) => (
   <svg

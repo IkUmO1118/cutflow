@@ -13,7 +13,17 @@ import type {
 } from "./model.ts";
 import { MATERIAL_MIME, ROW_H } from "./model.ts";
 import { playhead, usePlayheadSelector } from "./playhead.ts";
-import { AUDIO_EXT_RE, EyeIcon, MagnetIcon, SplitIcon, TrashIcon, UndoIcon, VolumeIcon, fmtTime } from "./widgets.tsx";
+import {
+  AUDIO_EXT_RE,
+  DuplicateIcon,
+  EyeIcon,
+  MagnetIcon,
+  SplitIcon,
+  TrashIcon,
+  UndoIcon,
+  VolumeIcon,
+  fmtTime,
+} from "./widgets.tsx";
 import type { Peaks } from "./widgets.tsx";
 
 /** 再生ヘッドの縦線(ルーラーのつまみ・トラック上の線)。再生中の毎フレーム
@@ -173,6 +183,8 @@ export const Timeline = ({
   getSplitDisabled,
   onDelete,
   deleteDisabled,
+  onDuplicate,
+  dupDisabled,
   onRemoveTrack,
   onRenameTrack,
   onSelectCaptionTrack,
@@ -228,6 +240,9 @@ export const Timeline = ({
    * deleteDisabled = 選択なし */
   onDelete: () => void;
   deleteDisabled: boolean;
+  /** 選択中のクリップを直後へ複製(⌘D)。dupDisabled = 選択なし/複製非対応 kind */
+  onDuplicate: () => void;
+  dupDisabled: boolean;
   /** 空の素材/テロップトラックを削除する(番号は詰め直される) */
   onRemoveTrack: (id: TrackId) => void;
   /** テロップトラックの名前を変更(空文字で自動ラベルに戻す)。
@@ -897,6 +912,15 @@ export const Timeline = ({
           <UndoIcon dir="redo" size={14} />
         </button>
         <SplitButton getDisabled={getSplitDisabled} onSplit={onSplit} />
+        <button
+          className="tlTool"
+          aria-label="複製"
+          title="選択中のクリップを直後へ複製 (⌘D)"
+          disabled={dupDisabled}
+          onClick={onDuplicate}
+        >
+          <DuplicateIcon size={14} />
+        </button>
         <button
           className="tlTool"
           aria-label="削除"

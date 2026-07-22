@@ -313,3 +313,20 @@ test("P7.3b-e launcher/picker tabs route to existing add/place handlers at playh
   assert.match(panels, /export const EffectsPanel = \(/);
   assert.match(panels, /export const AssetPickerPanel = \(/);
 });
+
+test("P7.4b duplicate (⌘D) reuses the vetted paste clone path and adds insert", () => {
+  const app = read("editor/client/App.tsx");
+  const timeline = read("editor/client/Timeline.tsx");
+  // shared clone+place path
+  assert.match(app, /const insertClipAt = \(clip: Clipboard, base: number\)/);
+  assert.match(app, /const pasteClipboard = \(\) => \{[\s\S]*insertClipAt\(clip, base\)/);
+  // duplicate places immediately after the original (source end) via the same path
+  assert.match(app, /insertClipAt\(clip, clip\.entry\.end\)/);
+  // insert branch (Clipboard-unsupported) duplicates via at+durationSec
+  assert.match(app, /at: round2\(ins\.at \+ ins\.durationSec\), id: undefined/);
+  // ⌘D keybind
+  assert.match(app, /e\.key\.toLowerCase\(\) === "d"[\s\S]*duplicateSelected\(\)/);
+  // toolbar button, no context menu
+  assert.match(timeline, /aria-label="複製"[\s\S]*onClick=\{onDuplicate\}/);
+  assert.doesNotMatch(timeline, /onContextMenu=/);
+});

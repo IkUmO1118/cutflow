@@ -191,6 +191,7 @@ import type {
   Clip,
   CutMark,
   DragMode,
+  SelKind,
   Selection,
   TrackId,
 } from "./model.ts";
@@ -308,6 +309,10 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), h
 const MIN_SPAN = 0.01;
 /** 左レール Effects/Transitions タブが再生ヘッドに区間を足すときの既定尺(秒) */
 const DEFAULT_ADD_SEC = 3;
+/** ⌘D(duplicateSelected)で複製できる選択 kind。caption/overlays/zoom/blur/
+ * annotation/bgm は buildClip+insertClipAt 経由、insert は専用分岐(at+durationSec)。
+ * wipe / 映像 keep(cut) / ショート範囲(short) / captionTrack は対象外 */
+const DUPLICABLE = new Set<string>(["caption", "overlays", "zoom", "blur", "annotation", "bgm", "insert"]);
 /** プレビュー表示倍率のプリセット(Fit を除く)。プレビューのみに効く */
 const PREVIEW_ZOOMS: readonly number[] = [0.25, 0.5, 0.75, 1, 1.5, 2];
 
@@ -3690,49 +3695,48 @@ export const App = () => {
 
   /* ---------------- クリップのコピー&ペースト(標準 NLE の a) ---------------- */
 
+  /** 指定した選択(kind/index)の中身を Clipboard スナップショットへ複製する。
+   * copySelected(⌘C)と duplicateSelected(⌘D)の共通経路。複製できる中身を
+   * 持たない選択(insert / wipe / 映像 keep / ショート範囲)は null */
+  const buildClip = (kind: SelKind, index: number): Clipboard | null => {
+    if (kind === "caption") {
+      const s = transcript?.segments[index];
+      return s ? { kind, entry: structuredClone(s) } : null;
+    } else if (kind === "overlays") {
+      const s = overlays?.overlays?.[index];
+      return s ? { kind, entry: structuredClone(s) } : null;
+    } else if (kind === "zoom") {
+      const s = overlays?.zooms?.[index];
+      return s ? { kind, entry: structuredClone(s) } : null;
+    } else if (kind === "blur") {
+      const s = overlays?.blurs?.[index];
+      return s ? { kind, entry: structuredClone(s) } : null;
+    } else if (kind === "annotation") {
+      const s = overlays?.annotations?.[index];
+      return s ? { kind, entry: structuredClone(s) } : null;
+    } else if (kind === "bgm") {
+      const s = bgm?.tracks?.[index];
+      return s ? { kind, entry: structuredClone(s) } : null;
+    }
+    return null;
+  };
+
   /** 選択中クリップの中身をクリップボードへ控える(⌘C)。複製できる中身を
    * 持たない選択(insert / wipe / 映像 keep / ショート範囲)は対象外 */
   const copySelected = () => {
     if (!selection) return;
-    const { kind, index } = selection;
-    let clip: Clipboard | null = null;
-    if (kind === "caption") {
-      const s = transcript?.segments[index];
-      if (s) clip = { kind, entry: structuredClone(s) };
-    } else if (kind === "overlays") {
-      const s = overlays?.overlays?.[index];
-      if (s) clip = { kind, entry: structuredClone(s) };
-    } else if (kind === "zoom") {
-      const s = overlays?.zooms?.[index];
-      if (s) clip = { kind, entry: structuredClone(s) };
-    } else if (kind === "blur") {
-      const s = overlays?.blurs?.[index];
-      if (s) clip = { kind, entry: structuredClone(s) };
-    } else if (kind === "annotation") {
-      const s = overlays?.annotations?.[index];
-      if (s) clip = { kind, entry: structuredClone(s) };
-    } else if (kind === "bgm") {
-      const s = bgm?.tracks?.[index];
-      if (s) clip = { kind, entry: structuredClone(s) };
-    }
+    const clip = buildClip(selection.kind, selection.index);
     // 複製できる中身が無い選択(insert / wipe / 映像 keep / ショート範囲)は無反応
     if (!clip) return;
     clipboardRef.current = clip;
   };
 
-  /** クリップボードの中身を再生ヘッド位置へ複製する(⌘V)。ペースト起点は
-   * 標準 NLE と同じく再生ヘッド(出力秒 → 元収録の秒へ変換)。控えた start から
-   * の平行移動で start/end と入れ子の時刻(caption の words・blur の keyframes)を
-   * ずらし、トラックは保ったまま、複製先で id/内部 layer は剥がす(@id は
-   * 一意なので splitAtPlayhead と同じ流儀) */
-  const pasteClipboard = () => {
-    const clip = clipboardRef.current;
-    if (!clip) return;
-    // ショートモードは本編クリップの座標系と別なので今は貼らせない(範囲だけ扱う)
-    if (shortMode) return;
-    // 再生ヘッドが keep 区間の外(カット/挿入クリップ上)なら貼り付け先が無い
-    const base = srcAt(playhead.get());
-    if (base === null) return;
+  /** clip を元収録の秒 base へ配置する(paste と duplicate の共通経路)。
+   * 控えた start からの平行移動で start/end と入れ子の時刻(caption の words・
+   * blur の keyframes)をずらし、トラックは保ったまま、複製先で id/内部 layer は
+   * 剥がす(@id は一意なので splitAtPlayhead と同じ流儀)。
+   * pasteClipboard の旧本体をそのまま抽出したもの(挙動は不変) */
+  const insertClipAt = (clip: Clipboard, base: number) => {
     if (clip.kind === "caption") {
       if (!transcript) return;
       const src = clip.entry;
@@ -3822,6 +3826,43 @@ export const App = () => {
         setSelection({ kind: "annotation", index: list.length - 1 });
       }
     }
+  };
+
+  /** クリップボードの中身を再生ヘッド位置へ複製する(⌘V)。ペースト起点は
+   * 標準 NLE と同じく再生ヘッド(出力秒 → 元収録の秒へ変換)。実体は
+   * insertClipAt(paste/duplicate 共通の複製経路) */
+  const pasteClipboard = () => {
+    const clip = clipboardRef.current;
+    if (!clip) return;
+    // ショートモードは本編クリップの座標系と別なので今は貼らせない(範囲だけ扱う)
+    if (shortMode) return;
+    // 再生ヘッドが keep 区間の外(カット/挿入クリップ上)なら貼り付け先が無い
+    const base = srcAt(playhead.get());
+    if (base === null) return;
+    insertClipAt(clip, base);
+  };
+
+  /** 選択中クリップを直後(尺ぶん後ろ)へ複製する(⌘D)。paste と同じクローン経路
+   * (insertClipAt)を base=元 end で再利用するので dual-axis 変換は paste と共通。
+   * insert は Clipboard 非対応なので専用分岐(at+durationSec で直後へ)。 */
+  const duplicateSelected = () => {
+    if (!selection || shortMode) return;
+    const { kind, index } = selection;
+    if (kind === "insert") {
+      const ins = overlays?.inserts?.[index];
+      if (!ins || !overlays) return;
+      pushHistory();
+      const list = [
+        ...(overlays.inserts ?? []),
+        { ...ins, at: round2(ins.at + ins.durationSec), id: undefined },
+      ];
+      setOverlays({ ...overlays, inserts: list });
+      setSelection({ kind: "insert", index: list.length - 1 });
+      return;
+    }
+    const clip = buildClip(kind, index);
+    if (!clip) return; // 複製非対応 kind(wipe / 映像 keep / ショート範囲)は無反応
+    insertClipAt(clip, clip.entry.end); // 元の直後(元収録の秒)へ
   };
 
   /* ---------------- 保存・下書き退避・プロキシ生成 ---------------- */
@@ -4793,6 +4834,15 @@ export const App = () => {
         if (clipboardRef.current) {
           e.preventDefault();
           pasteClipboard();
+        }
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "d") {
+        // 選択中クリップを直後へ複製(標準 NLE の a)。選択が無ければ
+        // 素通し(ブラウザのブックマーク追加に任せる)
+        if (selection) {
+          e.preventDefault(); // ブックマーク追加を抑止
+          duplicateSelected();
         }
         return;
       }
@@ -6044,6 +6094,8 @@ export const App = () => {
         onDelete={removeSelected}
         // トラック標準の選択は「消せるクリップ」ではない(Delete は何もしない)
         deleteDisabled={!selection || selection.kind === "captionTrack"}
+        onDuplicate={duplicateSelected}
+        dupDisabled={!selection || !DUPLICABLE.has(selection.kind)}
         onRemoveTrack={removeTrack}
         onRenameTrack={setCaptionTrackName}
         onSelectCaptionTrack={(track) => setSelection({ kind: "captionTrack", index: track })}
