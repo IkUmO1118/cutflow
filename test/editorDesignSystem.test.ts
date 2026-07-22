@@ -72,14 +72,15 @@ test("server integrates the recursive client watcher without reusing the JSON wa
 
 test("OpenCut provenance pins exact sources, adaptation, and the MIT notice", () => {
   const provenance = read("editor/client/vendor/opencut/PROVENANCE.md");
-  assert.match(provenance, /5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/);
-  const revisionUrl = "https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/";
-  assert.ok(provenance.includes(`${revisionUrl}apps/web/src/styles.css`));
+  assert.match(provenance, /cf5e79e919144200294fb9fed22a222592a0aeea/);
+  const revisionUrl =
+    "https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/";
+  assert.ok(provenance.includes(`${revisionUrl}apps/web/src/app/globals.css`));
   assert.ok(provenance.includes(`${revisionUrl}apps/web/src/components/ui/button.tsx`));
   assert.ok(provenance.includes(`${revisionUrl}apps/web/src/lib/utils.ts`));
   assert.ok(provenance.includes(`${revisionUrl}LICENSE`));
   assert.match(provenance, /## Adaptation in CutFlow/);
-  assert.match(provenance, /Copyright 2026 OpenCut/);
+  assert.match(provenance, /Copyright 2025-2026 OpenCut/);
   assert.match(provenance, /Permission is hereby granted/);
   assert.doesNotMatch(provenance, /verbatim/i);
 });

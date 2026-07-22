@@ -312,7 +312,7 @@ test("P4 surface skin covers dialog, tabs, toggles, cards, focus, scroll, and na
 test("P4 provenance pins primitive and Sonner sources plus behavior adaptations", () => {
   const provenance = read("editor/client/vendor/opencut/PROVENANCE.md");
   for (const source of ["dialog", "tabs", "scroll-area", "toggle-group"]) {
-    assert.match(provenance, new RegExp(`5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/${source}\\.tsx`));
+    assert.match(provenance, new RegExp(`cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/src/components/ui/${source}\\.tsx`));
   }
   assert.match(provenance, /P4 checkpoint 1 adapts the pinned Dialog, Tabs, ScrollArea, and ToggleGroup/);
   assert.match(provenance, /Radix owns focus trapping, the close-auto-focus lifecycle/);

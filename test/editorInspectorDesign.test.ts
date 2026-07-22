@@ -141,7 +141,7 @@ test("Inspector token skin stays scoped while Timeline advances in P3", () => {
 
 test("P2 checkpoint 3 provenance pins sources and records adaptation boundaries", () => {
   const provenance = read("editor/client/vendor/opencut/PROVENANCE.md");
-  const revision = "5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e";
+  const revision = "cf5e79e919144200294fb9fed22a222592a0aeea";
   for (const source of ["input", "native-select", "slider", "switch"]) {
     assert.ok(provenance.includes(`${revision}/apps/web/src/components/ui/${source}.tsx`));
   }

@@ -6,39 +6,45 @@ server routes, and editing behavior are not vendored.
 
 | Item | Value |
 |---|---|
-| Upstream | `https://github.com/OpenCut-app/OpenCut` |
-| Commit | `5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e` |
-| Token source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/styles.css` |
-| Button source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/button.tsx` |
-| Class utility source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/lib/utils.ts` |
-| Editor layout source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/app/editor/%5Bproject_id%5D/page.tsx` |
-| Resizable wrapper source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/resizable.tsx` |
-| Header composition source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/app/editor/%5Bproject_id%5D/page.tsx` |
-| Popover source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/popover.tsx` |
-| Tooltip source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/tooltip.tsx` |
-| Assets/icon-rail token source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/styles.css` |
-| Transport button source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/button.tsx` |
-| Transport select source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/native-select.tsx` |
-| Transport slider source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/slider.tsx` |
-| Inspector input source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/input.tsx` |
-| Inspector native select source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/native-select.tsx` |
-| Inspector slider source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/slider.tsx` |
-| Inspector switch source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/switch.tsx` |
-| Dialog source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/dialog.tsx` |
-| Tabs source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/tabs.tsx` |
-| Scroll area source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/scroll-area.tsx` |
-| Toggle group source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/toggle-group.tsx` |
-| Sonner source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/src/components/ui/sonner.tsx` |
-| Sonner package source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/apps/web/package.json` |
+| Upstream | `https://github.com/OpenCut-app/OpenCut-classic` |
+| Commit | `cf5e79e919144200294fb9fed22a222592a0aeea` |
+| Token source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/src/app/globals.css` |
+| Button source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/src/components/ui/button.tsx` |
+| Class utility source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/src/lib/utils.ts` |
+| Editor layout source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/src/app/editor/%5Bproject_id%5D/page.tsx` |
+| Resizable wrapper source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/src/components/ui/resizable.tsx` |
+| Header composition source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/src/app/editor/%5Bproject_id%5D/page.tsx` |
+| Popover source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/src/components/ui/popover.tsx` |
+| Tooltip source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/src/components/ui/tooltip.tsx` |
+| Assets/icon-rail token source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/src/app/globals.css` |
+| Transport button source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/src/components/ui/button.tsx` |
+| Transport select source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/src/components/ui/native-select.tsx` |
+| Transport slider source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/src/components/ui/slider.tsx` |
+| Inspector input source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/src/components/ui/input.tsx` |
+| Inspector native select source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/src/components/ui/native-select.tsx` |
+| Inspector slider source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/src/components/ui/slider.tsx` |
+| Inspector switch source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/src/components/ui/switch.tsx` |
+| Dialog source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/src/components/ui/dialog.tsx` |
+| Tabs source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/src/components/ui/tabs.tsx` |
+| Scroll area source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/src/components/ui/scroll-area.tsx` |
+| Toggle group source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/src/components/ui/toggle-group.tsx` |
+| Sonner source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/src/components/ui/sonner.tsx` |
+| Sonner package source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/package.json` |
 | Sonner version | OpenCut baseline `^2.0.7`; CutFlow exact pin `2.0.7` |
-| License source | `https://github.com/OpenCut-app/OpenCut/blob/5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e/LICENSE` |
+| License source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/LICENSE` |
 
 ## Adaptation in CutFlow
 
-- `styles.css`: keeps the Tailwind 4 token mapping and light/dark structure,
+- `app/globals.css` (classic's token source; adapted into CutFlow's
+  `styles.css`): keeps the Tailwind 4 token mapping and light/dark structure,
   adds the requested panel contexts and compact type scale, converts the palette
   to CutFlow's HSL blue language, and prefixes source variables with `--oc-`.
   P5 retires the temporary legacy palette and makes these tokens authoritative.
+  (P6.0 corrects an earlier mis-pin to modern OpenCut `5e0696bc` — an
+  editor-less rewrite scaffold whose token source lived at `apps/web/src/styles.css`
+  — to the real reference, OpenCut classic `cf5e79e9`, whose token source is
+  `apps/web/src/app/globals.css`. The P0-P5 adaptation notes below were
+  verified to match classic and remain unchanged.)
 - `components/ui/button.tsx`: keeps the CVA variant/size vocabulary and compact
   interaction treatment, but uses a native `<button>` because P0 needs neither
   Base UI/Radix nor polymorphic `asChild` behavior.
@@ -155,7 +161,7 @@ server routes, and editing behavior are not vendored.
 
 ## MIT notice
 
-Copyright 2026 OpenCut
+Copyright 2025-2026 OpenCut
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in

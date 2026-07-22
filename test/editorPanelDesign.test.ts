@@ -221,7 +221,7 @@ test("transport has a scoped deterministic 1024px wrap rule", () => {
 
 test("P2 checkpoint 1 provenance records exact header primitive sources and adaptations", () => {
   const provenance = read("editor/client/vendor/opencut/PROVENANCE.md");
-  const revision = "5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e";
+  const revision = "cf5e79e919144200294fb9fed22a222592a0aeea";
   assert.ok(provenance.includes(`${revision}/apps/web/src/components/ui/popover.tsx`));
   assert.ok(provenance.includes(`${revision}/apps/web/src/components/ui/tooltip.tsx`));
   assert.match(provenance, /`radix-ui` 1\.6\.4/);
@@ -232,9 +232,9 @@ test("P2 checkpoint 1 provenance records exact header primitive sources and adap
 
 test("P2 checkpoint 2 provenance records assets rail and transport adaptation boundaries", () => {
   const provenance = read("editor/client/vendor/opencut/PROVENANCE.md");
-  const revision = "5e0696bc9b921dcbaf2f42bdf3e96891a30c1e9e";
+  const revision = "cf5e79e919144200294fb9fed22a222592a0aeea";
   for (const source of [
-    "apps/web/src/styles.css",
+    "apps/web/src/app/globals.css",
     "apps/web/src/components/ui/button.tsx",
     "apps/web/src/components/ui/native-select.tsx",
     "apps/web/src/components/ui/slider.tsx",
