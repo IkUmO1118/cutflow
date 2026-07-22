@@ -49,9 +49,12 @@ test("the header AI launcher keeps its behavior props during the P2 header migra
   assert.match(app, /\{aiWorkflowLocked \? "編集中" : "AI編集"\}/);
 });
 
-test("editor HTML serves one generated stylesheet and no inline style under the dark class", () => {
+test("editor HTML bootstraps the resolved theme before one generated stylesheet", () => {
   const html = read("editor/client/index.html");
-  assert.match(html, /<html lang="ja" class="dark">/);
+  assert.match(html, /<html lang="ja">/);
+  assert.doesNotMatch(html, /<html[^>]+class="dark"/);
+  assert.match(html, /<meta name="color-scheme" content="light dark"/);
+  assert.ok(html.indexOf("data-cutflow-theme-bootstrap") < html.indexOf('href="/styles.css"'));
   assert.equal((html.match(/<link rel="stylesheet" href="\/styles\.css" \/>/g) ?? []).length, 1);
   assert.doesNotMatch(html, /<style\b|<link[^>]+stylesheet[^>]+href=(?!"\/styles\.css")/);
 });

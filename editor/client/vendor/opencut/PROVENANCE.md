@@ -130,13 +130,26 @@ server routes, and editing behavior are not vendored.
   hidden assertive sibling announcer. Its monotonic version replaces the child node
   even for repeated identical messages. Durable draft/conflict/proxy/warning states
   remain separate header banners. OpenCut's `next-themes` and Hugeicons integration
-  is adapted to CutFlow's fixed dark editor shell and already-pinned Lucide icons.
+  was initially adapted to CutFlow's then-fixed dark shell and already-pinned Lucide
+  icons; P5 checkpoint 2 replaces that temporary fixed choice with a local provider.
 - P5 checkpoint 1 moves the former `index.html` stylesheet into the single
   Tailwind input while retaining cascade order: imports and tokens, native shell
   fallbacks, scoped P2-P4 skins, then responsive overrides. The temporary palette
   and verified dead selectors are removed. Shared EmptyState and AppStateView
   presentation adds onboarding for empty panels and initial load/error without
   changing callbacks, disabled gates, project data, or editor APIs.
+- P5 checkpoint 2 adds a CutFlow-owned system/light/dark provider. A pre-CSS
+  bootstrap and the provider share the same storage key, invalid-value fallback,
+  OS media-query resolution, root `.dark`, and `colorScheme` contract; media and
+  cross-tab storage changes remain live, while Sonner receives the resolved theme.
+  The header uses the existing Radix Popover and native radios, preserving browser
+  keyboard behavior, dismissal, and focus return. The first-run Radix Dialog writes
+  only its local seen key and waits behind loading/error, draft restore, and external
+  conflict resolution. At widths below 1024px, `MobileGate` keeps the complete App
+  subtree unmounted. Expanding the viewport unlocks only the current mounted session;
+  only the explicit Japanese CTA persists acknowledgement, and the one-way latch never
+  tears down an already-mounted editor after a later resize. None of these surfaces
+  read or write recording JSON or alter server/API/render semantics.
 - Tailwind Preflight remains deliberately excluded so native editor fallback rules
   stay authoritative for components not yet expressed as scoped primitives.
 

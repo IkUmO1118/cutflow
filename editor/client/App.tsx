@@ -109,6 +109,13 @@ import { TOAST_TTL_MS } from "./toastAdapter.ts";
 import { Button } from "./components/ui/button.tsx";
 import { Toaster } from "./components/ui/sonner.tsx";
 import { AppStateView } from "./components/EmptyState.tsx";
+import { OnboardingDialog } from "./OnboardingDialog.tsx";
+import {
+  ONBOARDING_STORAGE_KEY,
+  shouldShowOnboarding,
+} from "./onboardingRules.ts";
+import { themePreferenceLabel, useTheme } from "./theme.tsx";
+import type { ThemePreference } from "./theme.tsx";
 import { restoreDialogFocus } from "./lib/dialogFocus.ts";
 import {
   Dialog,
@@ -141,12 +148,15 @@ import {
   Download,
   FileText,
   LibraryBig,
+  Monitor,
+  Moon,
   PanelBottom,
   PanelLeft,
   PanelRight,
   Settings,
   Sparkles,
   Smartphone,
+  Sun,
 } from "lucide-react";
 import {
   SCRIPT_CUT_REASON,
@@ -409,6 +419,13 @@ const PanelTabIcon = ({ tab }: { tab: PanelTab }) => {
   if (tab === "captions") return <Captions size={17} aria-hidden />;
   return <Smartphone size={17} aria-hidden />;
 };
+
+const THEME_PREFERENCES: ThemePreference[] = ["system", "light", "dark"];
+const ThemeChoiceIcon = ({ preference }: { preference: ThemePreference }) => {
+  if (preference === "light") return <Sun size={15} aria-hidden />;
+  if (preference === "dark") return <Moon size={15} aria-hidden />;
+  return <Monitor size={15} aria-hidden />;
+};
 /** 左パネル・インスペクタ・プレビューの最小幅(px)。
  * 境界ドラッグでこれ以下には縮まない */
 const PANEL_MIN = 280;
@@ -473,6 +490,7 @@ function applySaveHashes(
  * 正のデータは cutplan / overlays / transcript の各 JSON(元収録の秒)。
  */
 export const App = () => {
+  const { preference: themePreference, effectiveTheme, setPreference: setThemePreference } = useTheme();
   const [proj, setProj] = useState<ProjectData | null>(null);
   const [cutplan, setCutplan] = useState<CutPlan | null>(null);
   const [overlays, setOverlays] = useState<Overlays | null>(null);
@@ -648,6 +666,7 @@ export const App = () => {
   const [draftOffer, setDraftOffer] = useState<DraftData | null>(null);
   /** ヘッダー右の「書き出し」ポップオーバー(preview / 承認 / render)の開閉 */
   const [exportOpen, setExportOpen] = useState(false);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
 
   /* ---------------- 設定モーダル ---------------- */
 
@@ -1519,6 +1538,30 @@ export const App = () => {
     aiWorkflow !== null &&
     ["proposing", "reviewing", "refining", "applying", "saving", "verifying"].includes(aiWorkflow.phase);
   const aiWorkflowReview = isAiWorkflowReviewState(aiWorkflow) ? aiWorkflow : null;
+  const onboardingProjectReady = !!proj && !!built && !!cutplan && !!overlays && !!transcript;
+  const onboardingEligible =
+    onboardingProjectReady && draftOffer === null && !externalChange && !diffPanelOpen;
+  useEffect(() => {
+    if (!onboardingEligible) return;
+    let stored: string | null = null;
+    try {
+      stored = localStorage.getItem(ONBOARDING_STORAGE_KEY);
+    } catch {
+      // Treat unavailable storage like a first visit for this session.
+    }
+    if (
+      shouldShowOnboarding(
+        stored,
+        onboardingProjectReady,
+        draftOffer !== null,
+        externalChange,
+        diffPanelOpen,
+      )
+    ) {
+      setOnboardingOpen(true);
+    }
+  }, [onboardingEligible, onboardingProjectReady, draftOffer, externalChange, diffPanelOpen]);
+  const onboardingVisible = onboardingOpen && onboardingEligible;
   // SSE ハンドラ(マウント時に固定)から最新の dirty 状態を見るための控え
   dirtyRef.current = anyDirty;
 
@@ -4514,6 +4557,16 @@ export const App = () => {
         // ここでは再生・削除などのグローバルショートカットだけを止める。
         return;
       }
+      if (
+        hyperframeAuthorOpen ||
+        (diffReview !== null && diffPanelOpen) ||
+        aiWorkflowReview !== null ||
+        onboardingVisible
+      ) {
+        // Modal review/authoring/onboarding owns Space, Escape, and its focus
+        // lifecycle. Do not let those keys reach the player or editor actions.
+        return;
+      }
       // 入力欄の中はブラウザ標準の undo/redo に任せる(下の guard で除外)
       if (inField) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
@@ -4543,6 +4596,9 @@ export const App = () => {
         }
         return;
       }
+      // Focused buttons (including the theme Popover trigger) keep native
+      // Enter/Space activation instead of toggling playback behind the control.
+      if (t.closest("button,[role=button]")) return;
       if (!e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === "f") {
         e.preventDefault();
         if (e.shiftKey) setMaximized((v) => !v);
@@ -4705,6 +4761,7 @@ export const App = () => {
               size="icon"
               className="hIcon"
               data-active={panelOpen}
+              aria-pressed={panelOpen}
               title={`左パネル(素材/テロップ)を${panelOpen ? "隠す" : "表示"}(分割バーを左端へ寄せても閉じられる)`}
               aria-label="左パネルの表示切替"
               onClick={() => setPanelOpen((v) => !v)}
@@ -4716,6 +4773,7 @@ export const App = () => {
               size="icon"
               className="hIcon"
               data-active={timelineOpen}
+              aria-pressed={timelineOpen}
               title={`タイムラインを${timelineOpen ? "隠す" : "表示"}`}
               aria-label="タイムラインの表示切替"
               onClick={() => setTimelineOpen((v) => !v)}
@@ -4727,6 +4785,7 @@ export const App = () => {
               size="icon"
               className="hIcon"
               data-active={inspOpen}
+              aria-pressed={inspOpen}
               title={`右パネル(プロパティ)を${inspOpen ? "隠す" : "表示"}(分割バーを右端へ寄せても閉じられる)`}
               aria-label="右パネルの表示切替"
               onClick={() => setInspOpen((v) => !v)}
@@ -4739,10 +4798,42 @@ export const App = () => {
           size="icon"
           className={settingsOpen ? "settingsBtn active" : "settingsBtn"}
           aria-label="設定"
+          aria-pressed={settingsOpen}
           title="設定 (⌘,)。ワイプ・テロップ既定・音声などの全収録共通の設定(config.yaml)"
           onClick={() => (settingsOpen ? cancelSettings() : openSettings())}
         ><Settings size={15} aria-hidden /></Button>
         </TooltipTrigger><TooltipContent>設定 (⌘,)</TooltipContent></Tooltip>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="themeBtn"
+              aria-label={`テーマ: ${themePreferenceLabel(themePreference)}`}
+              title={`テーマ: ${themePreferenceLabel(themePreference)}`}
+            >
+              <ThemeChoiceIcon preference={themePreference} />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="themePanel" aria-label="テーマ設定">
+            <fieldset>
+              <legend>テーマ</legend>
+              {THEME_PREFERENCES.map((choice) => (
+                <label key={choice} className="themeChoice">
+                  <input
+                    type="radio"
+                    name="cutflow-theme"
+                    value={choice}
+                    checked={themePreference === choice}
+                    onChange={() => setThemePreference(choice)}
+                  />
+                  <ThemeChoiceIcon preference={choice} />
+                  <span>{themePreferenceLabel(choice)}</span>
+                </label>
+              ))}
+            </fieldset>
+          </PopoverContent>
+        </Popover>
         <Popover open={exportOpen} onOpenChange={setExportOpen}>
           <PopoverTrigger asChild>
             <Button
@@ -4823,6 +4914,10 @@ export const App = () => {
         onDismissProxyStale={() => setProxyStaleDismissed(true)}
         onRetryPreviewCut={previewCutRebake.retry}
       />
+
+      {onboardingVisible && (
+        <OnboardingDialog open onDismiss={() => setOnboardingOpen(false)} />
+      )}
 
       {hyperframeAuthorOpen && (
         <Dialog
@@ -5703,7 +5798,7 @@ export const App = () => {
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>
-      <Toaster />
+      <Toaster theme={effectiveTheme} />
     </div>
     </TooltipProvider>
   );

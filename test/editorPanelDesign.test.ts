@@ -31,7 +31,8 @@ test("header owns one TooltipProvider and lets the controlled Radix Popover own 
   assert.match(app, /<PopoverContent className="exportPanel" aria-label="書き出し">/);
   assert.match(app, /aria-expanded=\{exportOpen\}/);
 
-  const triggerStart = app.indexOf("<PopoverTrigger asChild>");
+  const exportPopoverStart = app.indexOf("<Popover open={exportOpen} onOpenChange={setExportOpen}>");
+  const triggerStart = app.indexOf("<PopoverTrigger asChild>", exportPopoverStart);
   const triggerEnd = app.indexOf("</PopoverTrigger>", triggerStart);
   const trigger = app.slice(triggerStart, triggerEnd);
   assert.ok(triggerStart >= 0 && triggerEnd > triggerStart);

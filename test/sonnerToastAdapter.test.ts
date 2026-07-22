@@ -264,7 +264,7 @@ test("client mounts actual Sonner without the custom reducer, timer, or stack", 
   assert.match(a11y, /className: "ocToastMessage", "aria-hidden": true/);
   assert.match(a11y, /key: announcement\.version/);
   assert.match(css, /\.ocToastErrorAnnouncer \{[\s\S]*clip-path: inset\(50%\)/);
-  assert.match(app, /<Toaster \/>/);
+  assert.match(app, /<Toaster theme=\{effectiveTheme\} \/>/);
   assert.match(app, /<HeaderBanners/);
   assert.doesNotMatch(app, /ToastStack|const \{\s*toasts[,}]/);
   assert.equal(existsSync(join(root, "editor/client/toastReducer.ts")), false);

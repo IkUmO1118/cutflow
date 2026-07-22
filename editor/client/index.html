@@ -1,9 +1,22 @@
 <!doctype html>
-<html lang="ja" class="dark">
+<html lang="ja">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="light dark" />
 <title>CutFlow editor</title>
+<script data-cutflow-theme-bootstrap>
+(() => {
+  const key = "cutflow.editor.theme";
+  const media = "(prefers-color-scheme: dark)";
+  let value = null;
+  try { value = localStorage.getItem(key); } catch {}
+  const preference = value === "light" || value === "dark" || value === "system" ? value : "system";
+  const dark = preference === "dark" || (preference === "system" && matchMedia(media).matches);
+  document.documentElement.classList.toggle("dark", dark);
+  document.documentElement.style.colorScheme = dark ? "dark" : "light";
+})();
+</script>
 <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
