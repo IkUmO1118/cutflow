@@ -15,15 +15,18 @@
   --color-card-foreground: hsl(var(--oc-card-foreground));
   --color-popover: hsl(var(--oc-popover));
   --color-popover-foreground: hsl(var(--oc-popover-foreground));
+  --color-popover-hover: hsl(var(--oc-popover-hover));
   --color-primary: hsl(var(--oc-primary));
   --color-primary-foreground: hsl(var(--oc-primary-foreground));
   --color-secondary: hsl(var(--oc-secondary));
   --color-secondary-foreground: hsl(var(--oc-secondary-foreground));
+  --color-secondary-border: hsl(var(--oc-secondary-border));
   --color-muted: hsl(var(--oc-muted));
   --color-muted-foreground: hsl(var(--oc-muted-foreground));
   --color-accent: hsl(var(--oc-accent));
   --color-accent-foreground: hsl(var(--oc-accent-foreground));
   --color-destructive: hsl(var(--oc-destructive));
+  --color-destructive-foreground: hsl(var(--oc-destructive-foreground));
   --color-info: hsl(var(--oc-info));
   --color-warning: hsl(var(--oc-warning));
   --color-warning-foreground: hsl(var(--oc-warning-foreground));
@@ -32,39 +35,42 @@
   --color-border: hsl(var(--oc-border));
   --color-input: hsl(var(--oc-input));
   --color-ring: hsl(var(--oc-ring));
-  --radius-sm: calc(var(--oc-radius) - 0.2rem);
-  --radius-md: calc(var(--oc-radius) - 0.1rem);
-  --radius-lg: var(--oc-radius);
-  --radius-xl: calc(var(--oc-radius) + 0.2rem);
+  --radius-sm: 0.35rem;
+  --radius-md: 0.65rem;
+  --radius-lg: 0.82rem;
+  --radius-xl: 1.02rem;
   --text-xs: var(--oc-text-xs);
   --text-sm: var(--oc-text-sm);
   --text-base: var(--oc-text-base);
 }
 
 :root {
-  --oc-background: 210 20% 98%;
-  --oc-foreground: 222 22% 13%;
+  --oc-background: 0 0% 100%;
+  --oc-foreground: 0 0% 11%;
   --oc-card: 0 0% 100%;
-  --oc-card-foreground: 222 22% 13%;
+  --oc-card-foreground: 0 0% 11%;
   --oc-popover: 0 0% 100%;
-  --oc-popover-foreground: 222 22% 13%;
-  --oc-primary: 200 90% 48%;
-  --oc-primary-foreground: 210 40% 98%;
-  --oc-secondary: 214 22% 92%;
-  --oc-secondary-foreground: 222 22% 16%;
-  --oc-muted: 214 18% 93%;
-  --oc-muted-foreground: 218 11% 43%;
-  --oc-accent: 210 28% 90%;
-  --oc-accent-foreground: 222 22% 16%;
+  --oc-popover-foreground: 0 0% 2%;
+  --oc-popover-hover: 0 0% 96%;
+  --oc-primary: 200 90% 52%;
+  --oc-primary-foreground: 0 0% 100%;
+  --oc-secondary: 204 100% 97%;
+  --oc-secondary-border: 204 100% 94%;
+  --oc-secondary-foreground: 200 98% 39%;
+  --oc-muted: 0 0% 85.1%;
+  --oc-muted-foreground: 0 0% 50%;
+  --oc-accent: 0 0% 96%;
+  --oc-accent-foreground: 0 0% 2%;
   --oc-destructive: 0 72% 45%;
+  --oc-destructive-foreground: 0 0% 100%;
   --oc-info: 215 75% 42%;
   --oc-warning: 35 92% 30%;
   --oc-warning-foreground: 0 0% 100%;
   --oc-success: 145 70% 26%;
   --oc-success-foreground: 0 0% 100%;
-  --oc-border: 214 18% 84%;
-  --oc-input: 214 18% 84%;
-  --oc-ring: 200 90% 48%;
+  --oc-border: 0 0% 91%;
+  --oc-input: 0 0% 100%;
+  --oc-ring: 0 0% 55%;
   --oc-radius: 0.5rem;
   --oc-text-xs: 0.72rem;
   --oc-text-sm: 0.79rem;
@@ -72,45 +78,63 @@
 }
 
 .dark {
-  --oc-background: 222 18% 8%;
-  --oc-foreground: 210 20% 96%;
-  --oc-card: 220 17% 12%;
-  --oc-card-foreground: 210 20% 96%;
-  --oc-popover: 220 17% 12%;
-  --oc-popover-foreground: 210 20% 96%;
-  --oc-primary: 200 90% 52%;
-  --oc-primary-foreground: 222 24% 10%;
-  --oc-secondary: 218 15% 18%;
-  --oc-secondary-foreground: 210 20% 96%;
-  --oc-muted: 218 14% 17%;
-  --oc-muted-foreground: 215 12% 66%;
-  --oc-accent: 216 16% 20%;
-  --oc-accent-foreground: 210 20% 96%;
-  --oc-destructive: 0 68% 66%;
+  --oc-background: 0 0% 5%;
+  --oc-foreground: 0 0% 87%;
+  --oc-card: 0 0% 5%;
+  --oc-card-foreground: 0 0% 87%;
+  --oc-popover: 0 0% 5%;
+  --oc-popover-foreground: 0 0% 95%;
+  --oc-popover-hover: 0 0% 13%;
+  --oc-secondary: 204 100% 12%;
+  --oc-secondary-border: 204 100% 15%;
+  --oc-secondary-foreground: 200 98% 61%;
+  --oc-muted: 0 0% 20%;
+  --oc-accent: 0 0% 14%;
+  --oc-accent-foreground: 0 0% 95%;
   --oc-info: 215 92% 72%;
   --oc-warning: 38 92% 58%;
   --oc-warning-foreground: 222 24% 10%;
   --oc-success: 142 70% 48%;
   --oc-success-foreground: 222 24% 10%;
-  --oc-border: 217 15% 24%;
-  --oc-input: 217 15% 24%;
-  --oc-ring: 200 90% 52%;
+  --oc-destructive: 0 68% 66%;
+  --oc-border: 0 0% 16%;
+  --oc-input: 0 0% 5%;
+  --oc-ring: 0 0% 50%;
 }
 
 .panel {
-  --oc-background: 210 24% 96%;
-  --oc-card: 0 0% 100%;
-  --oc-muted: 214 20% 90%;
-  --oc-border: 214 18% 81%;
-  --oc-input: 214 18% 81%;
+  --oc-background: 210 20% 98%;
+  --oc-foreground: 0 0% 13%;
+  --oc-card: 0 0% 98%;
+  --oc-card-foreground: 0 0% 13%;
+  --oc-primary-foreground: 0 0% 98%;
+  --oc-secondary: 204 100% 95%;
+  --oc-secondary-border: 204 100% 92%;
+  --oc-secondary-foreground: 200 98% 37%;
+  --oc-muted: 0 0% 83.1%;
+  --oc-muted-foreground: 0 0% 48%;
+  --oc-accent: 0 0% 93%;
+  --oc-accent-foreground: 0 0% 5%;
+  --oc-destructive-foreground: 0 0% 98%;
+  --oc-border: 0 0% 87%;
+  --oc-input: 0 0% 93%;
+  --oc-ring: 0 0% 53%;
 }
 
 .dark .panel {
-  --oc-background: 220 17% 12%;
-  --oc-card: 220 16% 15%;
-  --oc-muted: 218 14% 19%;
-  --oc-border: 217 15% 27%;
-  --oc-input: 217 15% 27%;
+  --oc-background: 0 0% 10%;
+  --oc-foreground: 0 0% 85%;
+  --oc-card: 0 0% 10%;
+  --oc-card-foreground: 0 0% 85%;
+  --oc-secondary: 204 67% 9%;
+  --oc-secondary-border: 204 100% 14%;
+  --oc-secondary-foreground: 200 98% 63%;
+  --oc-muted: 0 0% 22%;
+  --oc-accent: 0 0% 15%;
+  --oc-accent-foreground: 0 0% 93%;
+  --oc-border: 0 0% 18%;
+  --oc-input: 0 0% 22%;
+  --oc-ring: 0 0% 52%;
 }
 
 /* Native fallback and shell structure migrated from index.html in P5. */
