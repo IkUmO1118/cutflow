@@ -93,6 +93,10 @@ test("P2 panel scopes remain present while Inspector and Timeline advance in lat
   assert.match(css, /\.ocInspector\b/);
   assert.match(css, /\.ocTimeline\b/);
 
+  // P6.5: timecode reads as classic (font-mono + tabular-nums, muted)
+  assert.match(css, /\.ocTransport \.tcode \{[\s\S]*font-family:\s*ui-monospace[\s\S]*font-variant-numeric:\s*tabular-nums/);
+  assert.match(css, /\.ocTransport \.tRight \{ gap: 0\.45rem; \}/);
+
   // P6.3 left inspector: rail chrome loses its left-bar and tightens to Classic sizing.
   assert.match(css, /\.ocSidePanel \.ocIconRail \[role="tab"\]\s*\{[^}]*width:\s*2rem;/s);
   assert.doesNotMatch(css, /\.ocIconRail \[role="tab"\]::before/);

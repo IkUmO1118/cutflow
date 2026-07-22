@@ -3255,8 +3255,8 @@
   gap: 0.45rem;
 }
 
-.ocTransport .tLeft,
-.ocTransport .tRight { gap: 0.35rem; }
+.ocTransport .tLeft { gap: 0.35rem; }
+.ocTransport .tRight { gap: 0.45rem; }
 .ocTransport .tCenter { gap: 0.1rem; }
 .ocTransport .tCenter .loop { margin-left: 0.35rem; }
 
@@ -3300,6 +3300,8 @@
 .ocTransport .tcode {
   color: hsl(var(--oc-muted-foreground));
   font-size: var(--oc-text-xs);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
 }
 .ocTransport .tcode:not(.dim) b { color: hsl(var(--oc-foreground)); }
 
