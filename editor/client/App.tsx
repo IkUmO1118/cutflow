@@ -55,6 +55,7 @@ import type {
   Bgm,
   CaptionPos,
   CaptionStyle,
+  ColorFilter,
   CutPlan,
   LayerId,
   Overlays,
@@ -94,7 +95,13 @@ import { DiffReview } from "./DiffReview.tsx";
 import { MaterialOverlay } from "./MaterialOverlay.tsx";
 import type { OverlayRect } from "./MaterialOverlay.tsx";
 import { Inspector } from "./Inspector.tsx";
-import { CaptionsPanel, MaterialsPanel, ScriptPanel, ShortsPanel } from "./Panels.tsx";
+import {
+  AdjustmentPanel,
+  CaptionsPanel,
+  MaterialsPanel,
+  ScriptPanel,
+  ShortsPanel,
+} from "./Panels.tsx";
 import { SettingsModal, buildConfigPatch, patchTouchesProxy } from "./SettingsModal.tsx";
 import type { AiSettingsValue, CfgValues } from "./SettingsModal.tsx";
 import { Timeline } from "./Timeline.tsx";
@@ -158,6 +165,7 @@ import {
   Settings,
   Sparkles,
   Smartphone,
+  SlidersHorizontal,
   Sun,
 } from "lucide-react";
 import {
@@ -415,6 +423,7 @@ const PANEL_TABS = [
   ["script", "スクリプト"],
   ["captions", "テロップ"],
   ["shorts", "ショート"],
+  ["adjust", "色調整"],
 ] as const;
 type PanelTab = (typeof PANEL_TABS)[number][0];
 
@@ -422,6 +431,7 @@ const PanelTabIcon = ({ tab }: { tab: PanelTab }) => {
   if (tab === "materials") return <LibraryBig size={17} aria-hidden />;
   if (tab === "script") return <FileText size={17} aria-hidden />;
   if (tab === "captions") return <Captions size={17} aria-hidden />;
+  if (tab === "adjust") return <SlidersHorizontal size={17} aria-hidden />;
   return <Smartphone size={17} aria-hidden />;
 };
 
@@ -3317,6 +3327,33 @@ export const App = () => {
     setOverlays((prev) => prev && { ...prev, [kind]: (prev[kind] ?? []).filter((_, j) => j !== i) });
     setSelection(null);
   };
+  /** 全編一律カラー調整(overlays.colorFilter)を部分更新する。updateZoom と同じ流儀。
+   *  各キー既定 1.0。undefined か 1.0 のキーは持たない・全キー既定に戻れば
+   *  colorFilter ごと落とす(JSON を汚さない → overlaysDirty が自動でクリーンに戻る)。
+   *  coalesceKey で連続スライダー操作を undo 1回にまとめる。 */
+  const updateColorFilter = (patch: Partial<ColorFilter>, coalesceKey?: string) => {
+    pushHistory(coalesceKey ?? null);
+    setOverlays((prev) => {
+      if (!prev) return prev;
+      const merged: ColorFilter = { ...(prev.colorFilter ?? {}), ...patch };
+      for (const k of Object.keys(merged) as (keyof ColorFilter)[]) {
+        if (merged[k] === undefined || merged[k] === 1) delete merged[k];
+      }
+      if (Object.keys(merged).length === 0) {
+        const { colorFilter: _drop, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, colorFilter: merged };
+    });
+  };
+  const resetColorFilter = () => {
+    pushHistory();
+    setOverlays((prev) => {
+      if (!prev || !prev.colorFilter) return prev;
+      const { colorFilter: _drop, ...rest } = prev;
+      return rest;
+    });
+  };
   /** ズーム区間の start/end/rect/easeSec を部分更新。coalesceKey は
    * プレビュー上のドラッグ・スライダーの連続変更を undo 1回にまとめる用 */
   const updateZoom = (
@@ -5359,6 +5396,13 @@ export const App = () => {
                 onAdd={addShort}
                 onRemove={removeShort}
                 onRename={renameShort}
+              />
+            )}
+            {tab === "adjust" && (
+              <AdjustmentPanel
+                colorFilter={overlays?.colorFilter}
+                onChange={updateColorFilter}
+                onReset={resetColorFilter}
               />
             )}
           </div>

@@ -106,7 +106,7 @@ test("P2 panel scopes remain present while Inspector and Timeline advance in lat
   assert.match(app, /onClick=\{\(\) => addTrack\("caption"\)\}/);
 });
 
-test("P2 checkpoint 2 mounts exactly four accessible CutFlow icon-rail tabs", () => {
+test("P2 checkpoint 2 mounts exactly five accessible CutFlow icon-rail tabs", () => {
   const app = read("editor/client/App.tsx");
   const tabs = app.slice(app.indexOf("const PANEL_TABS"), app.indexOf("] as const", app.indexOf("const PANEL_TABS")));
   for (const entry of [
@@ -114,8 +114,9 @@ test("P2 checkpoint 2 mounts exactly four accessible CutFlow icon-rail tabs", ()
     '["script", "スクリプト"]',
     '["captions", "テロップ"]',
     '["shorts", "ショート"]',
+    '["adjust", "色調整"]',
   ]) assert.ok(tabs.includes(entry), `missing rail capability ${entry}`);
-  assert.equal((tabs.match(/^\s*\["/gm) ?? []).length, 4);
+  assert.equal((tabs.match(/^\s*\["/gm) ?? []).length, 5);
   assert.match(app, /<nav className="tabs ocIconRail" role="tablist" aria-label="編集パネル">/);
   assert.match(app, /PANEL_TABS\.map\(\(\[id, label\]\) => \(\s*<Tooltip key=\{id\}>/);
   assert.match(app, /role="tab"[\s\S]*aria-label=\{label\}[\s\S]*aria-selected=\{tab === id\}/);
@@ -124,7 +125,7 @@ test("P2 checkpoint 2 mounts exactly four accessible CutFlow icon-rail tabs", ()
   assert.match(app, /<TooltipContent side="right">\{label\}<\/TooltipContent>/);
   assert.match(app, /id=\{`panel-\$\{tab\}`\}[\s\S]*role="tabpanel"/);
 
-  for (const capability of ["materials", "script", "captions", "shorts"]) {
+  for (const capability of ["materials", "script", "captions", "shorts", "adjust"]) {
     assert.match(app, new RegExp(`\\{tab === "${capability}" && \\(`));
   }
   assert.match(app, /if \(tab !== "script" \|\| script !== null \|\| scriptFetchingRef\.current\) return;/);
@@ -265,4 +266,18 @@ test("P7.2 adds click-to-edit timecode and a preview-only zoom control", () => {
   assert.match(app, /className="viewerScale"[\s\S]*transform: `scale\(\$\{previewZoom\}\)`/);
   assert.match(css, /\.viewer \.viewerTools \.zoomSel/);
   assert.match(css, /\.ocTransport \.tSlash \{[\s\S]*padding: 0 0\.4rem;/);
+});
+
+test("P7.3a Adjustment tab is the first colorFilter UI, global and cleaned to undefined", () => {
+  const app = read("editor/client/App.tsx");
+  const panels = read("editor/client/Panels.tsx");
+  const tabsStart = app.indexOf("const PANEL_TABS");
+  const tabs = app.slice(tabsStart, app.indexOf("] as const", tabsStart));
+  assert.ok(tabs.includes('["adjust", "色調整"]'), "missing adjust PANEL_TABS entry");
+  assert.match(app, /const updateColorFilter = \(patch: Partial<ColorFilter>/);
+  assert.match(app, /Object\.keys\(merged\)\.length === 0/); // all-default -> drop colorFilter
+  assert.match(app, /const resetColorFilter = \(\)/);
+  assert.match(app, /<AdjustmentPanel[\s\S]*onChange=\{updateColorFilter\}[\s\S]*onReset=\{resetColorFilter\}/);
+  assert.match(panels, /export const AdjustmentPanel = \(/);
+  assert.match(panels, /"overlays:colorFilter"/); // coalesce key collapses drag to one undo
 });

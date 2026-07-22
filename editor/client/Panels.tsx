@@ -14,6 +14,7 @@ import { MATERIAL_MIME, buildScriptBlocks, scriptKeptFlags } from "./model.ts";
 import type { ScriptBlock } from "./model.ts";
 import { VIDEO_EXT_RE, fmtTime } from "./widgets.tsx";
 import { Button } from "./components/ui/button.tsx";
+import { Slider } from "./components/ui/slider.tsx";
 import { EmptyState } from "./components/EmptyState.tsx";
 import { Captions, FileText, Images, Plus, Scissors, Sparkles, Upload } from "lucide-react";
 
@@ -1046,6 +1047,50 @@ export const ScriptPanel = ({
           手編集の影響を受けます)。
         </p>
       )}
+    </div>
+  );
+};
+
+/** 左パネル: 全編一律カラー調整(overlays.colorFilter)。P7.3a で追加した
+ * この機能の最初の UI。かかるのはベース映像(画面+カメラ)だけで、
+ * 素材・挿入には効かない */
+export const AdjustmentPanel = ({
+  colorFilter,
+  onChange,
+  onReset,
+}: {
+  colorFilter: { brightness?: number; contrast?: number; saturate?: number } | undefined;
+  onChange: (patch: { brightness?: number; contrast?: number; saturate?: number }, coalesceKey?: string) => void;
+  onReset: () => void;
+}) => {
+  const rows = [
+    ["brightness", "明るさ"],
+    ["contrast", "コントラスト"],
+    ["saturate", "彩度"],
+  ] as const;
+  return (
+    <div className="panelBody ocAdjustPanel">
+      <p className="ocPaneNote">
+        全編一律の色調整。かかるのはベース映像(画面+カメラ)だけで、素材・挿入には効きません。
+      </p>
+      {rows.map(([k, label]) => (
+        <label key={k} className="ocAdjustRow">
+          <span>{label}</span>
+          <Slider
+            min={0}
+            max={2}
+            step={0.01}
+            value={colorFilter?.[k] ?? 1}
+            onChange={(e) => onChange({ [k]: Number(e.currentTarget.value) }, "overlays:colorFilter")}
+          />
+          <output>{(colorFilter?.[k] ?? 1).toFixed(2)}</output>
+        </label>
+      ))}
+      <div className="ocPaneAction">
+        <Button variant="secondary" size="sm" disabled={!colorFilter} onClick={onReset}>
+          リセット
+        </Button>
+      </div>
     </div>
   );
 };
