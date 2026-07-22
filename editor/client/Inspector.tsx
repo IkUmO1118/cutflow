@@ -54,6 +54,7 @@ import { ColorInput } from "./components/ui/color-input.tsx";
 import { Slider } from "./components/ui/slider.tsx";
 import { Switch } from "./components/ui/switch.tsx";
 import { buildCaptionAnimPatch } from "./lib/inspectorHelpers.ts";
+import { ChevronDown } from "lucide-react";
 import {
   NumInput,
   NumStepper,
@@ -2197,16 +2198,39 @@ const Section = ({
   title,
   children,
   className,
+  collapsible = false,
 }: {
   title: string;
   children: ReactNode;
   className?: string;
-}) => (
-  <div className={`inspSec${className ? ` ${className}` : ""}`}>
-    {title !== "" && <h4>{title}</h4>}
-    {children}
-  </div>
-);
+  collapsible?: boolean;
+}) => {
+  const [open, setOpen] = useState(true);
+  const canCollapse = collapsible && title !== "";
+  const cls =
+    `inspSec${className ? ` ${className}` : ""}` +
+    `${canCollapse ? " inspSecCollapsible" : ""}` +
+    `${canCollapse && !open ? " isClosed" : ""}`;
+  return (
+    <div className={cls}>
+      {title !== "" &&
+        (canCollapse ? (
+          <button
+            type="button"
+            className="inspSecHead"
+            aria-expanded={open}
+            onClick={() => setOpen((v) => !v)}
+          >
+            <ChevronDown className="inspSecChevron" aria-hidden="true" />
+            <h4>{title}</h4>
+          </button>
+        ) : (
+          <h4>{title}</h4>
+        ))}
+      {(!canCollapse || open) && children}
+    </div>
+  );
+};
 
 const AnchorPointControl = ({
   onPick,

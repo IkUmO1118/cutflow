@@ -3444,21 +3444,56 @@
   padding-top: 0.45rem;
   border-top: 0;
 }
-.ocInspector .inspSec > h4 {
-  margin: 0 0 0.42rem;
+.ocInspector .inspSec > h4,
+.ocInspector .inspSecHead > h4 {
+  display: flex;
+  align-items: center;
+  min-height: 1.55rem;
+  margin: 0 0 0.5rem;
+  color: hsl(var(--oc-foreground));
+  font-size: var(--oc-text-sm);
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  text-transform: none;
+}
+.ocInspector .inspSecHead > h4 { margin: 0; }   /* header row owns the spacing when collapsible */
+
+.ocInspector .inspSecHead {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  width: 100%;
+  min-height: 1.7rem;
+  margin: 0 0 0.4rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ocInspector .inspSecChevron {
+  width: 0.85rem;
+  height: 0.85rem;
+  flex: none;
   color: hsl(var(--oc-muted-foreground));
-  font-size: 0.65rem;
-  font-weight: 650;
-  letter-spacing: 0.035em;
-  text-transform: uppercase;
+  transition: transform 120ms ease;
+}
+.ocInspector .inspSec.isClosed .inspSecChevron { transform: rotate(-90deg); }
+.ocInspector .inspSecHead:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px hsl(var(--oc-ring) / 0.25);
+  border-radius: calc(var(--oc-radius) - 0.1rem);
 }
 
 .ocInspector .capControlStack,
 .ocInspector .capPositionGrid { gap: 0.5rem; }
 .ocInspector .field,
 .ocInspector .capField {
+  flex-wrap: wrap;          /* P7.1: label wraps to its own line -> label-above */
+  align-items: center;
   min-height: var(--insp-control-h);
-  gap: 0.5rem;
+  gap: 0.28rem 0.5rem;      /* row-gap tightens the label->control stack */
   margin-bottom: 0.5rem;
   padding: 0;
   border: 0;
@@ -3472,6 +3507,8 @@
   font-size: var(--oc-text-xs);
   font-weight: 500;
   line-height: 1;
+  width: auto;         /* P7.1: defeat base `.insp .field label { width:96px }` */
+  flex-basis: 100%;    /* P7.1: force the label onto its own row (stack) */
 }
 .ocInspector .capField.noLabel { padding: 0; background: transparent; }
 

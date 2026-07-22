@@ -137,6 +137,13 @@ test("Inspector token skin stays scoped while Timeline advances in P3", () => {
   assert.match(css, /\.ocInspector[\s\S]*scrollbar-color/);
   assert.match(css, /\.ocInspector[\s\S]*:focus-visible/);
   assert.match(css, /\.ocTimeline\b/);
+  // P7.1: stacked label-above (label wraps to its own row)
+  assert.match(css, /\.ocInspector \.field,\s*\n\s*\.ocInspector \.capField \{[\s\S]*?flex-wrap: wrap;[\s\S]*?\}/);
+  assert.match(css, /\.ocInspector \.field > label,[\s\S]*?flex-basis: 100%;/);
+  // P7.1: taller, non-uppercase, text-sm section header
+  assert.match(css, /\.ocInspector \.inspSec > h4[\s\S]*?font-size: var\(--oc-text-sm\);[\s\S]*?text-transform: none;/);
+  // P7.1: collapsible Section chrome
+  assert.ok(css.includes(".ocInspector .inspSecChevron"));
 });
 
 test("P6.4 Inspector fields are borderless with classic label typography", () => {
@@ -156,4 +163,14 @@ test("P2 checkpoint 3 provenance pins sources and records adaptation boundaries"
   assert.match(provenance, /All twelve CutFlow selection kinds/);
   assert.match(provenance, /short approval control intentionally remains a native checkbox/);
   assert.match(provenance, /Settings,[\s\S]*Timeline,[\s\S]*AI,[\s\S]*server\/API/);
+});
+
+test("P7.1 Section supports opt-in collapsible chrome without dropping the h4 default", () => {
+  const inspector = read("editor/client/Inspector.tsx");
+  assert.match(inspector, /import \{ ChevronDown \} from "lucide-react"/);
+  assert.match(inspector, /collapsible\?: boolean/);
+  assert.match(inspector, /className="inspSecHead"/);
+  assert.match(inspector, /<ChevronDown className="inspSecChevron"/);
+  // non-collapsible path still renders a bare <h4> title
+  assert.match(inspector, /\) : \(\s*<h4>\{title\}<\/h4>\s*\)\)/);
 });
