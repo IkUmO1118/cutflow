@@ -422,7 +422,7 @@ export const PctSlider = ({
       value={pct}
       title={title}
       style={{
-        background: `linear-gradient(to right, var(--accent) ${(pct / max) * 100}%, var(--border) ${(pct / max) * 100}%)`,
+        background: `linear-gradient(to right, hsl(var(--oc-primary)) ${(pct / max) * 100}%, hsl(var(--oc-border)) ${(pct / max) * 100}%)`,
       }}
       onChange={(e) => onChange(Number(e.target.value))}
     />

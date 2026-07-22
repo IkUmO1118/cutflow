@@ -14,7 +14,8 @@ import { MATERIAL_MIME, buildScriptBlocks, scriptKeptFlags } from "./model.ts";
 import type { ScriptBlock } from "./model.ts";
 import { VIDEO_EXT_RE, fmtTime } from "./widgets.tsx";
 import { Button } from "./components/ui/button.tsx";
-import { Sparkles, Upload } from "lucide-react";
+import { EmptyState } from "./components/EmptyState.tsx";
+import { Captions, FileText, Images, Plus, Scissors, Sparkles, Upload } from "lucide-react";
 
 /** ファイル名を中央省略する("B025_C012_0521MEbs" → "B025_C…21MEbs") */
 const midTrunc = (s: string, max = 18) =>
@@ -216,11 +217,38 @@ export const MaterialsPanel = ({
       )}
       {hyperframesError && <p className="materialError materialListError">{hyperframesError}</p>}
       {materialCount === 0 ? (
-        <p className="dim hint" style={{ padding: "0 14px" }}>
-          素材がまだありません。「素材を読み込む…」で追加するか、
-          「AI で素材を作る…」から新しく作成できます。
-          ファイルはここへドラッグ&ドロップしても追加できます。
-        </p>
+        <EmptyState
+          icon={<Images size={20} />}
+          title="最初の素材を追加"
+          description="ファイルを読み込むか、AI で新しい素材を作成できます。ここへドラッグ&ドロップしても追加できます。"
+          actions={(
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={onUploadClick}
+              >
+                <Upload size={13} aria-hidden />
+                素材を読み込む…
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={busy || !!hyperframeAuthorDisabledReason}
+                title={
+                  authorPendingName
+                    ? `AI が素材「${authorPendingName}」を作成中…`
+                    : hyperframeAuthorDisabledReason ?? "AI で新しい素材を作る"
+                }
+                onClick={onNewHyperframe}
+              >
+                <Sparkles size={13} aria-hidden />
+                AI で素材を作る…
+              </Button>
+            </>
+          )}
+        />
       ) : (
         <div className="matGrid">
           {authorPendingName && (
@@ -501,10 +529,11 @@ export const CaptionsPanel = ({
 
   if (transcript.segments.length === 0) {
     return (
-      <p className="dim hint" style={{ padding: "14px" }}>
-        テロップがまだありません。タイムラインのテロップトラックの空きを
-        ドラッグすると追加できます。
-      </p>
+      <EmptyState
+        icon={<Captions size={20} />}
+        title="テロップはまだありません"
+        description="タイムラインのテロップトラックの空きをドラッグすると追加できます。"
+      />
     );
   }
   return (
@@ -580,10 +609,17 @@ export const ShortsPanel = ({
         </button>
       </div>
       {list.length === 0 ? (
-        <p className="dim hint" style={{ padding: "0 14px" }}>
-          ショートがまだありません。「＋ ショートを追加」で作成すると、
-          プレビュー下のセレクタが自動でそのショートに切り替わります。
-        </p>
+        <EmptyState
+          icon={<Scissors size={20} />}
+          title="最初のショートを作成"
+          description="作成すると、プレビュー下のセレクタが自動でそのショートに切り替わります。"
+          actions={(
+            <Button variant="secondary" size="sm" onClick={onAdd}>
+              <Plus size={13} aria-hidden />
+              ショートを追加
+            </Button>
+          )}
+        />
       ) : (
         <div className="capList">
           {list.map((s) => {
@@ -944,9 +980,11 @@ export const ScriptPanel = ({
   }
   if (rows.length === 0) {
     return (
-      <p className="dim hint" style={{ padding: "14px" }}>
-        スクリプトがありません(文字起こし(whisper)が未実行の収録かもしれません)。
-      </p>
+      <EmptyState
+        icon={<FileText size={20} />}
+        title="スクリプトがありません"
+        description="文字起こし（whisper）が未実行の収録かもしれません。"
+      />
     );
   }
   return (

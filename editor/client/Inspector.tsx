@@ -3531,6 +3531,10 @@ const ProjectPanel = ({
         kind="プロジェクト"
         title={project.dir.replace(/\/+$/, "").split("/").pop() ?? project.dir}
       />
+      <div className="projectIntro">
+        <strong>編集の全体像</strong>
+        <span>クリップを選ぶと、ここで時間・見た目・配置を調整できます。</span>
+      </div>
       {shortSection}
       <Section title="概要" className={shortSection ? undefined : "flushTopSec"}>
         <dl className="projRows">

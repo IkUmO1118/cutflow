@@ -88,17 +88,17 @@ test("P1 collapse and maximize synchronize through panel refs without persistenc
 });
 
 test("P1 shell styling uses OpenCut's compact separator gap, px-3 padding, rounded token surfaces, and token handles", () => {
-  const html = read("editor/client/index.html");
+  const css = read("editor/client/styles.css");
 
-  assert.match(html, /\.editorShell\s*\{[^}]*padding:\s*0 12px 12px;/s);
-  assert.match(html, /\.resizableHandle\s*\{[^}]*width:\s*0\.18rem;[^}]*background:\s*hsl\(var\(--oc-background\)\);/s);
-  assert.match(html, /\.resizableHandle\[aria-orientation="horizontal"\]\s*\{[^}]*height:\s*0\.18rem;/s);
-  assert.match(html, /\.shellSurface\s*\{[^}]*background:\s*hsl\(var\(--oc-card\)\);/s);
-  assert.match(html, /border-radius:\s*var\(--oc-radius\);/);
-  assert.match(html, /\.resizableHandle\[data-separator="active"\]::after/);
-  assert.match(html, /\.resizableHandle:hover::after[^{]*\{\s*background:\s*hsl\(var\(--oc-ring\) \/ 0\.72\);/s);
-  assert.match(html, /\.app\.max \.resizableHandle \{ display: none; \}/);
-  assert.doesNotMatch(html, /\.splitter(?:\s|\.|\{|,)/);
+  assert.match(css, /\.editorShell\s*\{[^}]*padding:\s*0 12px 12px;/s);
+  assert.match(css, /\.resizableHandle\s*\{[^}]*width:\s*0\.18rem;[^}]*background:\s*hsl\(var\(--oc-background\)\);/s);
+  assert.match(css, /\.resizableHandle\[aria-orientation="horizontal"\]\s*\{[^}]*height:\s*0\.18rem;/s);
+  assert.match(css, /\.shellSurface\s*\{[^}]*background:\s*hsl\(var\(--oc-card\)\);/s);
+  assert.match(css, /border-radius:\s*var\(--oc-radius\);/);
+  assert.match(css, /\.resizableHandle\[data-separator="active"\]::after/);
+  assert.match(css, /\.resizableHandle:hover::after[^{]*\{\s*background:\s*hsl\(var\(--oc-ring\) \/ 0\.72\);/s);
+  assert.match(css, /\.app\.max \.resizableHandle \{ display: none; \}/);
+  assert.doesNotMatch(css, /\.splitter(?:\s|\.|\{|,)/);
 });
 
 test("P1 provenance records OpenCut layout and resizable sources plus the v4 adaptation", () => {

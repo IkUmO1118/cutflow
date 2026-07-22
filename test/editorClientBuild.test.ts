@@ -45,7 +45,11 @@ test("editor client build returns non-empty JS/CSS/HTML without writing build ar
   assert.match(built.stylesCss, /--oc-background/);
   assert.match(built.stylesCss, /\.bg-primary/);
   assert.match(built.stylesCss, /\.dark/);
-  assert.doesNotMatch(built.stylesCss, /box-sizing:border-box/);
+  assert.match(built.stylesCss, /\*\{box-sizing:border-box\}/);
+  assert.doesNotMatch(
+    built.stylesCss,
+    /\*,:after,:before,::backdrop\{box-sizing:border-box;border:0 solid;margin:0;padding:0/,
+  );
   assert.deepEqual(after, before);
 });
 

@@ -108,6 +108,7 @@ import { useToasts } from "./toasts.tsx";
 import { TOAST_TTL_MS } from "./toastAdapter.ts";
 import { Button } from "./components/ui/button.tsx";
 import { Toaster } from "./components/ui/sonner.tsx";
+import { AppStateView } from "./components/EmptyState.tsx";
 import { restoreDialogFocus } from "./lib/dialogFocus.ts";
 import {
   Dialog,
@@ -4581,7 +4582,9 @@ export const App = () => {
 
   /* ---------------- 描画 ---------------- */
 
-  if (error && !proj) return <div className="fatal">エラー: {error}</div>;
+  if (error && !proj) {
+    return <AppStateView kind="error" title="プロジェクトを開けません" description={error} />;
+  }
   const hyperframeAuthorStatus = proj
     ? hyperframeAuthorReadiness({
         structuredRoute: proj.aiRoutes.structured,
@@ -4590,7 +4593,7 @@ export const App = () => {
     : { ready: false, disabledReason: "AI 設定を読み込み中です" };
 
   if (!proj || !built || !cutplan || !overlays || !transcript) {
-    return <div className="fatal dim">読み込み中…</div>;
+    return <AppStateView kind="loading" title="プロジェクトを読み込み中" />;
   }
 
   const aiWorkflowTitle = aiWorkflow

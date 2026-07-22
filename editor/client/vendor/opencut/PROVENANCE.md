@@ -37,8 +37,8 @@ server routes, and editing behavior are not vendored.
 
 - `styles.css`: keeps the Tailwind 4 token mapping and light/dark structure,
   adds the requested panel contexts and compact type scale, converts the palette
-  to CutFlow's HSL blue language, and prefixes source variables with `--oc-` so
-  the staged migration cannot overwrite legacy `--accent` or `--border`.
+  to CutFlow's HSL blue language, and prefixes source variables with `--oc-`.
+  P5 retires the temporary legacy palette and makes these tokens authoritative.
 - `components/ui/button.tsx`: keeps the CVA variant/size vocabulary and compact
   interaction treatment, but uses a native `<button>` because P0 needs neither
   Base UI/Radix nor polymorphic `asChild` behavior.
@@ -131,8 +131,14 @@ server routes, and editing behavior are not vendored.
   even for repeated identical messages. Durable draft/conflict/proxy/warning states
   remain separate header banners. OpenCut's `next-themes` and Hugeicons integration
   is adapted to CutFlow's fixed dark editor shell and already-pinned Lucide icons.
-- Tailwind Preflight is deliberately excluded so the existing inline stylesheet
-  remains authoritative for components that have not yet migrated.
+- P5 checkpoint 1 moves the former `index.html` stylesheet into the single
+  Tailwind input while retaining cascade order: imports and tokens, native shell
+  fallbacks, scoped P2-P4 skins, then responsive overrides. The temporary palette
+  and verified dead selectors are removed. Shared EmptyState and AppStateView
+  presentation adds onboarding for empty panels and initial load/error without
+  changing callbacks, disabled gates, project data, or editor APIs.
+- Tailwind Preflight remains deliberately excluded so native editor fallback rules
+  stay authoritative for components not yet expressed as scoped primitives.
 
 ## MIT notice
 

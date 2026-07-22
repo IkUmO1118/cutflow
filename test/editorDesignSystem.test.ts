@@ -49,10 +49,11 @@ test("the header AI launcher keeps its behavior props during the P2 header migra
   assert.match(app, /\{aiWorkflowLocked \? "編集中" : "AI編集"\}/);
 });
 
-test("generated CSS loads after legacy inline CSS under the dark class", () => {
+test("editor HTML serves one generated stylesheet and no inline style under the dark class", () => {
   const html = read("editor/client/index.html");
   assert.match(html, /<html lang="ja" class="dark">/);
-  assert.ok(html.indexOf("</style>") < html.indexOf('href="/styles.css"'));
+  assert.equal((html.match(/<link rel="stylesheet" href="\/styles\.css" \/>/g) ?? []).length, 1);
+  assert.doesNotMatch(html, /<style\b|<link[^>]+stylesheet[^>]+href=(?!"\/styles\.css")/);
 });
 
 test("server integrates the recursive client watcher without reusing the JSON watcher", () => {

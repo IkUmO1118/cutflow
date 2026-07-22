@@ -940,7 +940,7 @@ export const Timeline = ({
             title={`ズーム ${Math.round(zoom * 100)}%(ダブルクリックで全体表示)`}
             style={{
               // 左端から現在のズーム位置までをアクセント色で塗る(音量スライダーと同じ流儀)
-              background: `linear-gradient(to right, var(--accent) ${(Math.log2(zoom) / Math.log2(maxZoom)) * 100}%, var(--border) ${(Math.log2(zoom) / Math.log2(maxZoom)) * 100}%)`,
+              background: `linear-gradient(to right, hsl(var(--oc-primary)) ${(Math.log2(zoom) / Math.log2(maxZoom)) * 100}%, hsl(var(--oc-border)) ${(Math.log2(zoom) / Math.log2(maxZoom)) * 100}%)`,
             }}
             onChange={(e) => setZoomTo(2 ** Number(e.target.value))}
             onDoubleClick={() => applyZoom(0)}
