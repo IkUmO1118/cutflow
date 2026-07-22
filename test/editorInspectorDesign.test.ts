@@ -139,6 +139,14 @@ test("Inspector token skin stays scoped while Timeline advances in P3", () => {
   assert.match(css, /\.ocTimeline\b/);
 });
 
+test("P6.4 Inspector fields are borderless with classic label typography", () => {
+  const css = read("editor/client/styles.css");
+  // P6.4 borderless fields + classic label typography parity
+  assert.match(css, /\.ocInspector \.field,\s*\n\s*\.ocInspector \.capField \{[\s\S]*?background: transparent;[\s\S]*?\}/);
+  assert.match(css, /\.ocInspector \.field,\s*\n\s*\.ocInspector \.capField \{[\s\S]*?border: 0;[\s\S]*?\}/);
+  assert.match(css, /\.ocInspector \.field > label,[\s\S]*?font-size: var\(--oc-text-xs\);[\s\S]*?line-height: 1;/);
+});
+
 test("P2 checkpoint 3 provenance pins sources and records adaptation boundaries", () => {
   const provenance = read("editor/client/vendor/opencut/PROVENANCE.md");
   const revision = "cf5e79e919144200294fb9fed22a222592a0aeea";
