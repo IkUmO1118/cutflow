@@ -182,6 +182,7 @@ import {
   cutSourceRange,
   fitZoomSpan,
   restoreSourceRange,
+  splitSpanAt,
 } from "./model.ts";
 import type {
   AddKind,
@@ -1945,16 +1946,141 @@ export const App = () => {
     return sp ? sp.index : -1;
   };
 
+  /** 選択中スパンの {start,end}(元収録の秒)。cut/insert/wipe/short/captionTrack は null。 */
+  const selectedSpanInterval = (): { start: number; end: number } | null => {
+    if (!selection) return null;
+    const { kind, index } = selection;
+    if (kind === "caption") { const s = transcript?.segments[index]; return s ? { start: s.start, end: s.end } : null; }
+    if (kind === "bgm") { const t = bgm?.tracks?.[index]; return t ? { start: t.start, end: t.end } : null; }
+    if (kind === "overlays") { const o = overlays?.overlays?.[index]; return o ? { start: o.start, end: o.end } : null; }
+    if (kind === "zoom") { const z = overlays?.zooms?.[index]; return z ? { start: z.start, end: z.end } : null; }
+    if (kind === "blur") { const b = overlays?.blurs?.[index]; return b ? { start: b.start, end: b.end } : null; }
+    if (kind === "annotation") { const a = overlays?.annotations?.[index]; return a ? { start: a.start, end: a.end } : null; }
+    return null;
+  };
+
+  /** 再生ヘッド位置(出力秒)がスパン分割として有効か。分割ボタンの非活性
+   * 判定(getSplitDisabled)がスパン選択時にも点灯するように使う */
+  const spanSplittableAt = (outT: number): boolean => {
+    const span = selectedSpanInterval();
+    if (span === null || shortMode) return false;
+    const at = toSourceTime(clamp(outT, 0, Math.max(0, duration - 0.01)), curTimeline);
+    return at !== null && at > span.start + MIN_SPAN && at < span.end - MIN_SPAN;
+  };
+
   /** 分割ボタンの非活性判定。Timeline 側がボタン単体で再生ヘッドを購読して
    * 評価する(App を毎フレーム再レンダーしないため関数で渡す) */
   const getSplitDisabled = (outT: number): boolean =>
-    shortMode || (splitIndexAt(outT) === -1 && splitInsertIndexAt(outT) === -1);
+    shortMode || (splitIndexAt(outT) === -1 && splitInsertIndexAt(outT) === -1 && !spanSplittableAt(outT));
+
+  /** 選択中のスパンを再生ヘッド位置で2つに割る(⌘K がスパン選択時に使う)。
+   * 左が元 id を保持・右は id を落とす(splitAtPlayhead と同じ規約)。元収録の秒で
+   * 書くので dual-axis 写像は不変。承認 hash は cut 集合に束縛されるため失効しない。
+   * 割れたら true(呼び出し側は return)、対象外/範囲外は false(既存の分割へ委譲)。 */
+  const splitSelectedSpan = (): boolean => {
+    if (!selection || shortMode) return false;
+    const { kind, index } = selection;
+    const at = srcAt(playhead.get());
+    if (at === null) return false;
+
+    const partByMid = <T extends { start: number; end: number },>(xs: T[] | undefined): [T[], T[]] => {
+      const l: T[] = [], r: T[] = [];
+      for (const w of xs ?? []) ((w.start + w.end) / 2 < at ? l : r).push(w);
+      return [l, r];
+    };
+    const partByAt = <T extends { at: number },>(xs: T[] | undefined): [T[], T[]] => {
+      const l: T[] = [], r: T[] = [];
+      for (const k of xs ?? []) (k.at < at ? l : r).push(k);
+      return [l, r];
+    };
+
+    if (kind === "caption") {
+      const seg = transcript?.segments[index]; if (!seg) return false;
+      const sp = splitSpanAt(seg.start, seg.end, at, MIN_SPAN); if (!sp) return false;
+      const [lw, rw] = partByMid(seg.words);
+      pushHistory();
+      const segs = [...transcript!.segments];
+      segs.splice(index, 1,
+        { ...seg, ...sp.left, ...(seg.words ? { words: lw } : {}) },
+        { ...seg, ...sp.right, id: undefined, ...(seg.words ? { words: rw } : {}) });
+      setTranscript({ ...transcript!, segments: segs });
+      setSelection({ kind, index: index + 1 });
+      return true;
+    }
+    if (kind === "bgm") {
+      const t = bgm?.tracks?.[index]; if (!t) return false;
+      const sp = splitSpanAt(t.start, t.end, at, MIN_SPAN); if (!sp) return false;
+      const advance = round2((t.startFrom ?? 0) + (at - t.start));
+      pushHistory();
+      const tracks = [...bgm!.tracks];
+      const { fadeOutSec: _fo, ...lRest } = t;
+      const { fadeInSec: _fi, id: _id, ...rRest } = t;
+      tracks.splice(index, 1,
+        { ...lRest, ...sp.left },
+        { ...rRest, ...sp.right, startFrom: advance });
+      setBgm({ ...bgm!, tracks });
+      setSelection({ kind, index: index + 1 });
+      return true;
+    }
+    if (!overlays) return false;
+    const writeOv = (field: keyof Overlays, list: unknown[]) => {
+      pushHistory();
+      setOverlays({ ...overlays, [field]: list });
+      setSelection({ kind, index: index + 1 });
+    };
+    if (kind === "overlays") {
+      const ov = overlays.overlays?.[index]; if (!ov) return false;
+      const sp = splitSpanAt(ov.start, ov.end, at, MIN_SPAN); if (!sp) return false;
+      const [lk, rk] = partByAt(ov.keyframes);
+      const advance = round2((ov.startFrom ?? 0) + (at - ov.start));
+      const arr = [...(overlays.overlays ?? [])];
+      arr.splice(index, 1,
+        { ...ov, ...sp.left, ...(ov.keyframes ? { keyframes: lk } : {}) },
+        { ...ov, ...sp.right, id: undefined, startFrom: advance || undefined, ...(ov.keyframes ? { keyframes: rk } : {}) });
+      writeOv("overlays", arr); return true;
+    }
+    if (kind === "zoom") {
+      const z = overlays.zooms?.[index]; if (!z) return false;
+      const sp = splitSpanAt(z.start, z.end, at, MIN_SPAN); if (!sp) return false;
+      const { easeSec: _e, id: _id, ...rRest } = z;
+      const arr = [...(overlays.zooms ?? [])];
+      arr.splice(index, 1, { ...z, ...sp.left }, { ...rRest, ...sp.right });
+      writeOv("zooms", arr); return true;
+    }
+    if (kind === "blur") {
+      const b = overlays.blurs?.[index]; if (!b) return false;
+      const sp = splitSpanAt(b.start, b.end, at, MIN_SPAN); if (!sp) return false;
+      const [lk, rk] = partByAt(b.keyframes);
+      const arr = [...(overlays.blurs ?? [])];
+      arr.splice(index, 1,
+        { ...b, ...sp.left, ...(b.keyframes ? { keyframes: lk } : {}) },
+        { ...b, ...sp.right, id: undefined, ...(b.keyframes ? { keyframes: rk } : {}) });
+      writeOv("blurs", arr); return true;
+    }
+    if (kind === "annotation") {
+      const an = overlays.annotations?.[index]; if (!an) return false;
+      const sp = splitSpanAt(an.start, an.end, at, MIN_SPAN); if (!sp) return false;
+      // annotation の keyframes は Arrow/Box/Spotlight で別型の union のため
+      // partByAt の総称推論が通らない。at だけで分割し(lk/rk は元の keyframe を
+      // そのまま含むので実体は正当)、結果を Annotation へ明示キャストする
+      const [lk, rk] = partByAt(an.keyframes as { at: number }[] | undefined);
+      const arr = [...(overlays.annotations ?? [])];
+      arr.splice(index, 1,
+        { ...an, ...sp.left, ...(an.keyframes ? { keyframes: lk } : {}) } as unknown as Annotation,
+        { ...an, ...sp.right, id: undefined, ...(an.keyframes ? { keyframes: rk } : {}) } as unknown as Annotation);
+      writeOv("annotations", arr); return true;
+    }
+    return false;
+  };
 
   /** 再生ヘッド位置で keep 区間を2つに割る(⌘K)。割っただけでは映像は
    * 変わらない(隣接 keep はカット後も連続)。割ってから端をトリムして
    * 隙間を作る・片側を Delete でカットする、が「真ん中を抜く」手順になる。
-   * 再生ヘッドが挿入クリップの上にあるときはそちらを分割する */
+   * 再生ヘッドが挿入クリップの上にあるときはそちらを分割する。選択中に
+   * スパン(caption/overlays/zoom/blur/annotation/bgm)があればそちらを
+   * 優先して2分割する(cut/insert の分割は選択が無い/対象外のときのみ) */
   const splitAtPlayhead = () => {
+    if (splitSelectedSpan()) return;
     if (!cutplan || shortMode) return;
     const outT = playhead.get();
     const splitIndex = splitIndexAt(outT);

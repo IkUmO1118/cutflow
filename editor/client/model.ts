@@ -821,3 +821,18 @@ export function fitZoomSpan(
   if (end - start < minSpan) return null;
   return { start: r2(start), end: r2(end) };
 }
+
+/** 選択スパンを元収録の秒 at で2分割する。at が [start,end] の内側(両端から
+ * minSpan 以上)でなければ null(no-op)。返す秒は round2 済み。時刻はすべて
+ * 元収録の秒(呼び出し側が playhead→srcAt で変換して渡す)。 */
+export function splitSpanAt(
+  start: number,
+  end: number,
+  at: number,
+  minSpan: number,
+): { left: { start: number; end: number }; right: { start: number; end: number } } | null {
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const s = r2(start), e = r2(end), a = r2(at);
+  if (a <= s + minSpan || a >= e - minSpan) return null;
+  return { left: { start: s, end: a }, right: { start: a, end: e } };
+}
