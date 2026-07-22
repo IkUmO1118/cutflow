@@ -1094,3 +1094,79 @@ export const AdjustmentPanel = ({
     </div>
   );
 };
+
+/** 左レール「エフェクト」タブ。既存の zoom/blur/annotation 追加(addByKind)を
+ * 再生ヘッド位置へ薄く呼び出すだけの起動ボタン群。座標・尺の詳細調整は
+ * 追加後にインスペクタで行う */
+export const EffectsPanel = ({
+  onAdd,
+}: {
+  onAdd: (kind: "zoom" | "blur" | "annotation") => void;
+}) => (
+  <div className="panelBody ocLauncherPanel">
+    <div className="ocPaneAction ocPaneStack">
+      <Button variant="secondary" size="sm" onClick={() => onAdd("zoom")}>ズームを追加</Button>
+      <Button variant="secondary" size="sm" onClick={() => onAdd("blur")}>ぼかしを追加</Button>
+      <Button variant="secondary" size="sm" onClick={() => onAdd("annotation")}>注釈を追加</Button>
+    </div>
+    <p className="ocPaneNote">
+      位置・種別・サイズは追加後にインスペクタで調整します。AI にまとめて演出させるには
+      ターミナルで <code>node src/cli.ts plan-effects &lt;dir&gt;</code>。
+    </p>
+  </div>
+);
+
+/** 左レール「トランジション」タブ。既存の wipeFull 追加を再生ヘッド位置へ
+ * 薄く呼び出すだけの起動ボタン */
+export const TransitionsPanel = ({
+  onAddWipe,
+}: {
+  onAddWipe: () => void;
+}) => (
+  <div className="panelBody ocLauncherPanel">
+    <div className="ocPaneAction">
+      <Button variant="secondary" size="sm" onClick={onAddWipe}>ワイプを再生位置に追加</Button>
+    </div>
+    <p className="ocPaneNote">
+      入り/戻りの遷移秒はインスペクタで調整。フェードは各素材・挿入クリップの
+      fadeIn/Out で設定します。
+    </p>
+  </div>
+);
+
+/** 左レール「サウンド」/「ステッカー」タブ。既存の materials(素材一覧)を
+ * 音声/非音声で絞り込んだだけの薄いピッカー。配置は既存 placeMaterial を使う */
+export const AssetPickerPanel = ({
+  files,
+  onPlace,
+  emptyHint,
+  note,
+}: {
+  files: string[];
+  onPlace: (file: string) => void;
+  emptyHint: string;
+  note: string;
+}) => (
+  <div className="panelBody ocAssetPanel">
+    {files.length === 0 ? (
+      <p className="ocPaneNote">{emptyHint}</p>
+    ) : (
+      <ul className="ocAssetList">
+        {files.map((f) => (
+          <li key={f}>
+            <button
+              type="button"
+              className="ocAssetItem"
+              onDoubleClick={() => onPlace(f)}
+              onClick={() => onPlace(f)}
+              title="クリックで再生位置に配置"
+            >
+              <span className="ocAssetName">{f.split("/").pop()}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    )}
+    <p className="ocPaneNote">{note}</p>
+  </div>
+);

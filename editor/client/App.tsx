@@ -97,10 +97,13 @@ import type { OverlayRect } from "./MaterialOverlay.tsx";
 import { Inspector } from "./Inspector.tsx";
 import {
   AdjustmentPanel,
+  AssetPickerPanel,
   CaptionsPanel,
+  EffectsPanel,
   MaterialsPanel,
   ScriptPanel,
   ShortsPanel,
+  TransitionsPanel,
 } from "./Panels.tsx";
 import { SettingsModal, buildConfigPatch, patchTouchesProxy } from "./SettingsModal.tsx";
 import type { AiSettingsValue, CfgValues } from "./SettingsModal.tsx";
@@ -151,6 +154,8 @@ import {
 } from "./components/ui/tooltip.tsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs.tsx";
 import {
+  AudioLines,
+  Blend,
   ChevronDown,
   Captions,
   Download,
@@ -166,7 +171,9 @@ import {
   Sparkles,
   Smartphone,
   SlidersHorizontal,
+  Sticker,
   Sun,
+  Wand2,
 } from "lucide-react";
 import {
   SCRIPT_CUT_REASON,
@@ -298,6 +305,8 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), h
 /** ドラッグで区間がゼロ幅・逆転しないための最小幅(秒)。round2 の量子(0.01)
  * まで刻めるように最小幅もそこに合わせる(手動カットの粒度) */
 const MIN_SPAN = 0.01;
+/** 左レール Effects/Transitions タブが再生ヘッドに区間を足すときの既定尺(秒) */
+const DEFAULT_ADD_SEC = 3;
 /** プレビュー表示倍率のプリセット(Fit を除く)。プレビューのみに効く */
 const PREVIEW_ZOOMS: readonly number[] = [0.25, 0.5, 0.75, 1, 1.5, 2];
 
@@ -424,6 +433,10 @@ const PANEL_TABS = [
   ["captions", "テロップ"],
   ["shorts", "ショート"],
   ["adjust", "色調整"],
+  ["effects", "エフェクト"],
+  ["transitions", "トランジション"],
+  ["sounds", "サウンド"],
+  ["stickers", "ステッカー"],
 ] as const;
 type PanelTab = (typeof PANEL_TABS)[number][0];
 
@@ -432,6 +445,10 @@ const PanelTabIcon = ({ tab }: { tab: PanelTab }) => {
   if (tab === "script") return <FileText size={17} aria-hidden />;
   if (tab === "captions") return <Captions size={17} aria-hidden />;
   if (tab === "adjust") return <SlidersHorizontal size={17} aria-hidden />;
+  if (tab === "effects") return <Wand2 size={17} aria-hidden />;
+  if (tab === "transitions") return <Blend size={17} aria-hidden />;
+  if (tab === "sounds") return <AudioLines size={17} aria-hidden />;
+  if (tab === "stickers") return <Sticker size={17} aria-hidden />;
   return <Smartphone size={17} aria-hidden />;
 };
 
@@ -2943,6 +2960,19 @@ export const App = () => {
     else if (kind === "short") addShortRange(start, end);
     else addCaption(start, end, track);
   };
+  /** 再生ヘッド位置に既定尺の区間を1つ足す(左レール Effects/Transitions タブの共通入口)。
+   *  playhead は出力(カット後)秒。srcAt で元収録秒へ写像してから既存の addByKind
+   *  (元秒を取る)へ渡す。addByKind が pushHistory・選択・エラー報告を行う。 */
+  const addAtPlayhead = (kind: AddKind) => {
+    const outT = playhead.get();
+    const s = srcAt(outT);
+    const e = srcAt(Math.min(duration, outT + DEFAULT_ADD_SEC));
+    if (s === null || e === null || e - s < MIN_SPAN / 2) {
+      setError("再生ヘッドを keep 区間の中へ置いてから追加してください");
+      return;
+    }
+    addByKind(kind, round2(s), round2(e));
+  };
 
   const onCreate = (track: TrackId, outStart: number, outEnd: number) => {
     const s = srcAt(outStart);
@@ -5403,6 +5433,26 @@ export const App = () => {
                 colorFilter={overlays?.colorFilter}
                 onChange={updateColorFilter}
                 onReset={resetColorFilter}
+              />
+            )}
+            {tab === "effects" && <EffectsPanel onAdd={addAtPlayhead} />}
+            {tab === "transitions" && (
+              <TransitionsPanel onAddWipe={() => addAtPlayhead("wipeFull")} />
+            )}
+            {tab === "sounds" && (
+              <AssetPickerPanel
+                files={materials.filter((f) => AUDIO_ONLY_RE.test(f))}
+                onPlace={(f) => void placeMaterial(f, null, "bgm")}
+                emptyHint="materials/ に音源(mp3/m4a/wav 等)がありません。"
+                note="ダブルクリックで再生位置に BGM として配置します。"
+              />
+            )}
+            {tab === "stickers" && (
+              <AssetPickerPanel
+                files={materials.filter((f) => !AUDIO_ONLY_RE.test(f))}
+                onPlace={(f) => void placeMaterial(f, null, "overlay")}
+                emptyHint="materials/ に画像・動画素材がありません。"
+                note="ダブルクリックで再生位置にオーバーレイ素材として配置します。"
               />
             )}
           </div>

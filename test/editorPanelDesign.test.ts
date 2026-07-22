@@ -106,7 +106,7 @@ test("P2 panel scopes remain present while Inspector and Timeline advance in lat
   assert.match(app, /onClick=\{\(\) => addTrack\("caption"\)\}/);
 });
 
-test("P2 checkpoint 2 mounts exactly five accessible CutFlow icon-rail tabs", () => {
+test("P2 checkpoint 2 mounts exactly nine accessible CutFlow icon-rail tabs", () => {
   const app = read("editor/client/App.tsx");
   const tabs = app.slice(app.indexOf("const PANEL_TABS"), app.indexOf("] as const", app.indexOf("const PANEL_TABS")));
   for (const entry of [
@@ -115,8 +115,12 @@ test("P2 checkpoint 2 mounts exactly five accessible CutFlow icon-rail tabs", ()
     '["captions", "テロップ"]',
     '["shorts", "ショート"]',
     '["adjust", "色調整"]',
+    '["effects", "エフェクト"]',
+    '["transitions", "トランジション"]',
+    '["sounds", "サウンド"]',
+    '["stickers", "ステッカー"]',
   ]) assert.ok(tabs.includes(entry), `missing rail capability ${entry}`);
-  assert.equal((tabs.match(/^\s*\["/gm) ?? []).length, 5);
+  assert.equal((tabs.match(/^\s*\["/gm) ?? []).length, 9);
   assert.match(app, /<nav className="tabs ocIconRail" role="tablist" aria-label="編集パネル">/);
   assert.match(app, /PANEL_TABS\.map\(\(\[id, label\]\) => \(\s*<Tooltip key=\{id\}>/);
   assert.match(app, /role="tab"[\s\S]*aria-label=\{label\}[\s\S]*aria-selected=\{tab === id\}/);
@@ -125,8 +129,18 @@ test("P2 checkpoint 2 mounts exactly five accessible CutFlow icon-rail tabs", ()
   assert.match(app, /<TooltipContent side="right">\{label\}<\/TooltipContent>/);
   assert.match(app, /id=\{`panel-\$\{tab\}`\}[\s\S]*role="tabpanel"/);
 
-  for (const capability of ["materials", "script", "captions", "shorts", "adjust"]) {
-    assert.match(app, new RegExp(`\\{tab === "${capability}" && \\(`));
+  for (const capability of [
+    "materials",
+    "script",
+    "captions",
+    "shorts",
+    "adjust",
+    "effects",
+    "transitions",
+    "sounds",
+    "stickers",
+  ]) {
+    assert.match(app, new RegExp(`\\{tab === "${capability}" && `));
   }
   assert.match(app, /if \(tab !== "script" \|\| script !== null \|\| scriptFetchingRef\.current\) return;/);
 });
@@ -280,4 +294,22 @@ test("P7.3a Adjustment tab is the first colorFilter UI, global and cleaned to un
   assert.match(app, /<AdjustmentPanel[\s\S]*onChange=\{updateColorFilter\}[\s\S]*onReset=\{resetColorFilter\}/);
   assert.match(panels, /export const AdjustmentPanel = \(/);
   assert.match(panels, /"overlays:colorFilter"/); // coalesce key collapses drag to one undo
+});
+
+test("P7.3b-e launcher/picker tabs route to existing add/place handlers at playhead", () => {
+  const app = read("editor/client/App.tsx");
+  const panels = read("editor/client/Panels.tsx");
+  const tabsStart = app.indexOf("const PANEL_TABS");
+  const tabs = app.slice(tabsStart, app.indexOf("] as const", tabsStart));
+  for (const e of ['["effects", "エフェクト"]', '["transitions", "トランジション"]', '["sounds", "サウンド"]', '["stickers", "ステッカー"]'])
+    assert.ok(tabs.includes(e), `missing tab ${e}`);
+  // shared add-at-playhead converts OUTPUT->SOURCE then reuses addByKind
+  assert.match(app, /const addAtPlayhead = \(kind: AddKind\) => \{[\s\S]*srcAt\(outT\)[\s\S]*addByKind\(kind, round2\(s\), round2\(e\)\)/);
+  assert.match(app, /<EffectsPanel onAdd=\{[\s\S]*addAtPlayhead/);
+  assert.match(app, /addAtPlayhead\("wipeFull"\)/);
+  // pickers reuse the existing placeMaterial path with forced kind + audio filter
+  assert.match(app, /files=\{materials\.filter\(\(f\) => AUDIO_ONLY_RE\.test\(f\)\)\}[\s\S]*placeMaterial\(f, null, "bgm"\)/);
+  assert.match(app, /files=\{materials\.filter\(\(f\) => !AUDIO_ONLY_RE\.test\(f\)\)\}[\s\S]*placeMaterial\(f, null, "overlay"\)/);
+  assert.match(panels, /export const EffectsPanel = \(/);
+  assert.match(panels, /export const AssetPickerPanel = \(/);
 });
