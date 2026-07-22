@@ -91,12 +91,11 @@ test("P1 shell styling uses OpenCut's compact separator gap, px-3 padding, round
   const css = read("editor/client/styles.css");
 
   assert.match(css, /\.editorShell\s*\{[^}]*padding:\s*0 12px 12px;/s);
-  assert.match(css, /\.resizableHandle\s*\{[^}]*width:\s*0\.18rem;[^}]*background:\s*hsl\(var\(--oc-background\)\);/s);
+  assert.match(css, /\.resizableHandle\s*\{[^}]*width:\s*0\.18rem;[^}]*background:\s*transparent;/s);
   assert.match(css, /\.resizableHandle\[aria-orientation="horizontal"\]\s*\{[^}]*height:\s*0\.18rem;/s);
   assert.match(css, /\.shellSurface\s*\{[^}]*background:\s*hsl\(var\(--oc-card\)\);/s);
   assert.match(css, /border-radius:\s*var\(--oc-radius\);/);
-  assert.match(css, /\.resizableHandle\[data-separator="active"\]::after/);
-  assert.match(css, /\.resizableHandle:hover::after[^{]*\{\s*background:\s*hsl\(var\(--oc-ring\) \/ 0\.72\);/s);
+  assert.match(css, /\.resizableHandle:focus-visible\s*\{[^}]*box-shadow:[^}]*hsl\(var\(--oc-ring\)\)/s);
   assert.match(css, /\.app\.max \.resizableHandle \{ display: none; \}/);
   assert.doesNotMatch(css, /\.splitter(?:\s|\.|\{|,)/);
 });
