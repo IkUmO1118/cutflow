@@ -107,6 +107,7 @@ import {
 import { useToasts } from "./toasts.tsx";
 import { TOAST_TTL_MS } from "./toastAdapter.ts";
 import { Button } from "./components/ui/button.tsx";
+import { NativeSelect } from "./components/ui/native-select.tsx";
 import { Toaster } from "./components/ui/sonner.tsx";
 import { AppStateView } from "./components/EmptyState.tsx";
 import { OnboardingDialog } from "./OnboardingDialog.tsx";
@@ -190,6 +191,7 @@ import {
   deleteHyperframe,
   deleteMaterial,
   fmtTime,
+  parseTimecode,
   getMediaFacts,
   getHyperframes,
   getPeaks,
@@ -288,6 +290,8 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), h
 /** ドラッグで区間がゼロ幅・逆転しないための最小幅(秒)。round2 の量子(0.01)
  * まで刻めるように最小幅もそこに合わせる(手動カットの粒度) */
 const MIN_SPAN = 0.01;
+/** プレビュー表示倍率のプリセット(Fit を除く)。プレビューのみに効く */
+const PREVIEW_ZOOMS: readonly number[] = [0.25, 0.5, 0.75, 1, 1.5, 2];
 
 /** ショートの profile 名 → Profile。src/lib/profile.ts の resolveProfile と
  * 同じ規則(省略時 defaultShortProfileName(hasCamera)。render.ts / frames.ts と
@@ -557,6 +561,8 @@ export const App = () => {
   /** 取得済み(進行中含む)のピークのキー。二重リクエストを避ける */
   const peaksRequestedRef = useRef(new Set<string>());
   const playerRef = useRef<PlayerRef>(null);
+  /** プレビューの表示倍率(プレビューのみ。書き出し・合成には影響しない) */
+  const [previewZoom, setPreviewZoom] = useState<"fit" | number>("fit");
   const [tab, setTab] = useState<PanelTab>("materials");
   /** スクリプトタブの元データ(元収録の全文文字起こし)。タブを初めて
    * 開いたときに取得する遅延ロード(whisper-out.json 由来で大きいため)。
@@ -5376,8 +5382,28 @@ export const App = () => {
             >
               <div className="viewerCol panel shellSurface" ref={viewerColRef}>
         <div className="viewer">
+          {proj.proxyExists && (
+            <div className="viewerTools">
+              <NativeSelect
+                className="zoomSel"
+                value={previewZoom === "fit" ? "fit" : String(previewZoom)}
+                title="プレビューの表示倍率(プレビューのみ。書き出し・合成には影響しない)"
+                onChange={(e) =>
+                  setPreviewZoom(e.target.value === "fit" ? "fit" : Number(e.target.value))
+                }
+              >
+                <option value="fit">Fit</option>
+                {PREVIEW_ZOOMS.map((z) => (
+                  <option key={z} value={z}>{Math.round(z * 100)}%</option>
+                ))}
+              </NativeSelect>
+            </div>
+          )}
           {proj.proxyExists ? (
-            <>
+            <div
+              className="viewerScale"
+              style={previewZoom === "fit" ? undefined : { transform: `scale(${previewZoom})` }}
+            >
               <Player
                 key={videoVersion}
                 ref={playerRef}
@@ -5477,7 +5503,7 @@ export const App = () => {
                 // 編集中はプレビューを止めてボックス(=表示中テロップ)を固定する
                 onEditStart={() => playerRef.current?.pause()}
               />
-            </>
+            </div>
           ) : (
             <div className="noPreview">
               {proxyBusy || !error ? (
@@ -5519,8 +5545,9 @@ export const App = () => {
         <div className="tRow">
         <div className="tLeft">
           <span className="tcode">
-            <PlayheadTimecode />
-            <span className="dim tDur"> / {fmtTime(duration)}</span>
+            <EditableTimecode seekOut={seekOut} duration={duration} />
+            <span className="tSlash" aria-hidden="true">/</span>
+            <span className="dim tDur">{fmtTime(duration)}</span>
           </span>
           {/* ホバーで音量バーが横に伸びる(YouTube 風)。普段はアイコンだけ */}
           <div className="volCtl">
@@ -5935,10 +5962,79 @@ const HeaderBanners = ({
  * 再生中の毎フレーム更新をこれらの小さな要素に閉じ込める(App 全体は
  * 再レンダーしない)。詳しい理由は playhead.ts のコメント参照 */
 
-/** トランスポートの現在時刻表示 */
-const PlayheadTimecode = () => {
+/** トランスポートの現在時刻表示。onActivate があればクリック/Enter/Space で編集モードへ */
+const PlayheadTimecode = ({ onActivate }: { onActivate?: () => void } = {}) => {
   const text = usePlayheadSelector(fmtTime);
-  return <b className="mono">{text}</b>;
+  if (!onActivate) return <b className="mono">{text}</b>;
+  return (
+    <b
+      className="mono tcEdit"
+      role="button"
+      tabIndex={0}
+      title="クリックで時刻を入力してシーク(M:SS.ss または 秒)"
+      onClick={onActivate}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onActivate();
+        }
+      }}
+    >
+      {text}
+    </b>
+  );
+};
+
+/** クリックで編集欄になる現在時刻。Enter/blur で parseTimecode → seekOut、Escape で取消 */
+const EditableTimecode = ({
+  seekOut,
+  duration,
+}: {
+  seekOut: (outT: number) => void;
+  duration: number;
+}) => {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editing]);
+
+  const begin = () => {
+    setText(fmtTime(playhead.get()));
+    setEditing(true);
+  };
+  const commit = () => {
+    const sec = parseTimecode(text);
+    if (sec !== null) seekOut(clamp(sec, 0, duration));
+    setEditing(false);
+  };
+
+  if (!editing) return <PlayheadTimecode onActivate={begin} />;
+  return (
+    <input
+      ref={inputRef}
+      className="mono tcInput"
+      value={text}
+      inputMode="decimal"
+      aria-label="再生位置(時刻を入力してシーク)"
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit();
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          setEditing(false);
+        }
+      }}
+    />
+  );
 };
 
 /** シークバーの塗りとつまみ */

@@ -1433,7 +1433,19 @@
     background: black;
     display: flex; align-items: center; justify-content: center;
     position: relative;
+    overflow: hidden;
   }
+  .viewerScale {
+    position: relative;
+    width: 100%; height: 100%;
+    transform-origin: center center;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .viewer .viewerTools {
+    position: absolute; top: 8px; right: 8px; z-index: 5;
+    display: flex; gap: 0.4rem;
+  }
+  .viewer .viewerTools .zoomSel { width: 5.5rem; }
 
   /* ---- 左パネル(タブ: 素材 / テロップ / プロパティ) ---- */
   .sidePanel {
@@ -3304,6 +3316,22 @@
   font-variant-numeric: tabular-nums;
 }
 .ocTransport .tcode:not(.dim) b { color: hsl(var(--oc-foreground)); }
+.ocTransport .tSlash {
+  padding: 0 0.4rem;
+  color: hsl(var(--oc-muted-foreground));
+}
+.ocTransport .tcEdit { cursor: text; border-radius: 3px; }
+.ocTransport .tcEdit:hover { background: hsl(var(--oc-secondary)); }
+.ocTransport .tcInput {
+  width: 5.5em;
+  font: inherit;
+  color: hsl(var(--oc-foreground));
+  background: hsl(var(--oc-card));
+  border: 1px solid hsl(var(--oc-ring));
+  border-radius: 3px;
+  padding: 0 0.25rem;
+  outline: none;
+}
 
 .ocTransport select {
   height: 1.7rem;

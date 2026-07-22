@@ -203,7 +203,7 @@ test("transport reskin preserves every playback control and shortcut title", () 
   assert.match(transport, /onPointerDown=\{\(e\) => \{[\s\S]*scrubTo\(e\);/);
   assert.match(transport, /onPointerMove=\{\(e\) => \{[\s\S]*scrubTo\(e\);/);
   assert.match(transport, /<ScrubProgress duration=\{duration\} \/>/);
-  assert.match(transport, /<PlayheadTimecode \/>/);
+  assert.match(transport, /<EditableTimecode seekOut=\{seekOut\} duration=\{duration\} \/>/);
   assert.match(transport, /fmtTime\(duration\)/);
   assert.match(transport, /title=\{`ミュート切替[\s\S]*onClick=\{toggleMute\}/);
   assert.match(transport, /type="range"[\s\S]*value=\{volumePct\}[\s\S]*onChange=\{\(e\) => setVolumePct\(Number\(e\.target\.value\)\)\}/);
@@ -255,4 +255,14 @@ test("P2 checkpoint 2 provenance records assets rail and transport adaptation bo
   assert.match(provenance, /OS-file upload, HyperFrames AI\s+authoring/);
   assert.match(provenance, /scoped 1024px multi-row rule/);
   assert.match(provenance, /dual-axis Timeline and Inspector remain untouched/);
+});
+
+test("P7.2 adds click-to-edit timecode and a preview-only zoom control", () => {
+  const app = read("editor/client/App.tsx");
+  const css = read("editor/client/styles.css");
+
+  assert.match(app, /<NativeSelect[\s\S]*className="zoomSel"[\s\S]*setPreviewZoom\(/);
+  assert.match(app, /className="viewerScale"[\s\S]*transform: `scale\(\$\{previewZoom\}\)`/);
+  assert.match(css, /\.viewer \.viewerTools \.zoomSel/);
+  assert.match(css, /\.ocTransport \.tSlash \{[\s\S]*padding: 0 0\.4rem;/);
 });

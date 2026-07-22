@@ -811,12 +811,7 @@ export const PlayPauseIcon = ({
   </svg>
 );
 
-/** 秒を「分:秒.xx」で表示する(生の秒数は編集欄で見えるので表示用) */
-export function fmtTime(t: number): string {
-  const m = Math.floor(t / 60);
-  const s = (t - m * 60).toFixed(2).padStart(5, "0");
-  return `${m}:${s}`;
-}
+export { fmtTime, parseTimecode } from "./timecode.ts";
 
 /**
  * 秒数の編集欄。入力中はローカルのテキストを保持し、blur / Enter で確定する
