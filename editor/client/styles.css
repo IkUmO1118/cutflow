@@ -1357,13 +1357,13 @@
   }
   .resizableHandle {
     position: relative; z-index: 2;
-    width: 0.18rem; min-width: 0.18rem;
+    width: 0.35rem; min-width: 0.35rem;
     cursor: col-resize;
     background: transparent;
     outline: none;
   }
   .resizableHandle[aria-orientation="horizontal"] {
-    width: 100%; min-width: 0; height: 0.18rem; min-height: 0.18rem;
+    width: 100%; min-width: 0; height: 0.35rem; min-height: 0.35rem;
     cursor: row-resize;
   }
   .resizableHandle::after {
@@ -1441,12 +1441,6 @@
     transform-origin: center center;
     display: flex; align-items: center; justify-content: center;
   }
-  .viewer .viewerTools {
-    position: absolute; top: 8px; right: 8px; z-index: 5;
-    display: flex; gap: 0.4rem;
-  }
-  .viewer .viewerTools .zoomSel { width: 5.5rem; }
-
   /* ---- 左パネル(タブ: 素材 / テロップ / プロパティ) ---- */
   .sidePanel {
     min-width: 0;
@@ -1476,15 +1470,7 @@
   /* ---- 素材タブ(サムネイル+名前だけのシンプルなグリッド) ---- */
   .matPanel { position: relative; } /* ドロップオーバーレイの基準 */
   .matPanel.dragOver { outline: 2px dashed hsl(var(--oc-primary)); outline-offset: -2px; }
-  .materialPanelHead { flex-wrap: wrap; }
   .materialLoading { margin-left: auto; color: hsl(var(--oc-muted-foreground)); font-size: 11px; }
-  .materialHeadActions {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 7px;
-    width: 100%;
-  }
-  .materialHeadActions button {
-    min-width: 0; padding: 5px 7px; font-size: 11px; white-space: nowrap;
-  }
   .materialAuthorGate { margin: -3px 14px 10px; color: hsl(var(--oc-warning)); }
   .materialError {
     margin: 4px 0 0;
@@ -1633,10 +1619,6 @@
   .capRowMeta {
     display: flex; align-items: center; gap: 8px;
     font-size: 11px; margin-bottom: 5px;
-  }
-  .capTrackBadge {
-    font-size: 10px; padding: 0 6px; border-radius: 4px;
-    background: hsl(var(--oc-background)); border: 1px solid hsl(var(--oc-border)); color: hsl(var(--oc-muted-foreground));
   }
   .capRow .capEdit {
     display: block; width: 100%;
@@ -1799,7 +1781,6 @@
     background: hsl(var(--oc-card));
   }
   .inspPanel .panelBody { flex: 1; min-height: 0; overflow-y: auto; }
-  .insp { padding: 12px 14px 16px; }
   /* アイデンティティヘッダー(何を選んでいるか: サムネ+種別+名前+チップ) */
   .inspHead { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
   .inspThumb {
@@ -1819,16 +1800,12 @@
     white-space: nowrap;
   }
   /* セクション(小見出し+区切り線)。使用頻度・役割で項目をグループ化する */
-  .inspSec { margin-top: 12px; padding-top: 10px; border-top: 1px solid hsl(var(--oc-secondary)); }
+  .inspSec { border-top: 1px solid hsl(var(--oc-secondary)); }
   .inspSec.captionTextSec,
   .inspSec.flushTopSec {
     margin-top: 0;
     padding-top: 0;
     border-top: none;
-  }
-  .inspSec > h4 {
-    margin: 0 0 8px; font-size: 11px; color: hsl(var(--oc-muted-foreground));
-    font-weight: 600; letter-spacing: 0.04em;
   }
   /* 生の秒などの低頻度項目の折りたたみ */
   .inspDetails { margin: 6px 0 2px; }
@@ -2270,41 +2247,6 @@
     background: hsl(var(--oc-primary)); border-radius: 2px; opacity: 0.8;
   }
   .warnText { color: hsl(var(--oc-warning)); }
-  /* 未選択時のプロジェクト要約 */
-  .projRows {
-    display: grid; grid-template-columns: auto 1fr; gap: 5px 14px;
-    font-size: 12px; margin: 10px 0;
-  }
-  .projRows dt { color: hsl(var(--oc-muted-foreground)); }
-  .projRows dd { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  .projectIntro {
-    display: grid;
-    gap: 4px;
-    margin: 10px 12px 0;
-    padding: 10px 11px;
-    border: 1px solid hsl(var(--oc-border));
-    border-radius: var(--oc-radius);
-    background: hsl(var(--oc-accent) / 0.45);
-  }
-  .projectIntro strong { color: hsl(var(--oc-foreground)); font-size: var(--oc-text-xs); }
-  .projectIntro span {
-    color: hsl(var(--oc-muted-foreground));
-    font-size: var(--oc-text-xs);
-    line-height: 1.5;
-  }
-  /* 操作ガイド(未選択時のインスペクタ)。小見出し+箇条書き */
-  .guide h5 { margin: 10px 0 4px; font-size: 11px; color: hsl(var(--oc-foreground)); font-weight: 600; }
-  .guide ul {
-    margin: 0; padding-left: 16px;
-    font-size: 11px; line-height: 1.7; color: hsl(var(--oc-muted-foreground));
-  }
-  .guide li { margin: 2px 0; }
-  .guide kbd {
-    font-family: inherit; font-size: 10px;
-    padding: 0 4px; border-radius: 3px;
-    background: hsl(var(--oc-background)); border: 1px solid hsl(var(--oc-border));
-    white-space: nowrap;
-  }
   /* 映像クリップの「この区間の発言」(transcript の抜粋) */
   .speechList {
     max-height: 200px; overflow-y: auto;
@@ -2516,22 +2458,6 @@
   .tlZoom .zoomSlider::-moz-range-track {
     height: 2px; border-radius: 2px; background: transparent;
   }
-  /* トラック追加の＋ボタンとその種類メニュー */
-  .addTrack { position: relative; display: inline-flex; }
-  .addTrack .menuBackdrop { position: fixed; inset: 0; z-index: 19; }
-  .addTrack .menu {
-    position: absolute; top: 100%; left: 0; z-index: 20;
-    margin-top: 2px; padding: 3px;
-    display: flex; flex-direction: column; gap: 1px;
-    background: hsl(var(--oc-secondary)); border: 1px solid hsl(var(--oc-border)); border-radius: 6px;
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
-    white-space: nowrap;
-  }
-  .addTrack .menu button {
-    padding: 4px 12px; font-size: 11px; text-align: left;
-    background: none; border: none; border-radius: 4px;
-  }
-  .addTrack .menu button:hover { background: hsl(var(--oc-card)); }
   .tlBody { display: flex; flex: 1; min-height: 0; }
   .tlLabels {
     width: 170px; flex-shrink: 0;
@@ -2539,7 +2465,7 @@
     border-right: 1px solid hsl(var(--oc-border));
     font-size: 11px; color: hsl(var(--oc-muted-foreground));
   }
-  .tlRulerSpacer { height: 24px; flex-shrink: 0; border-bottom: 1px solid hsl(var(--oc-border)); }
+  .tlRulerSpacer { height: 22px; flex-shrink: 0; border-bottom: 1px solid hsl(var(--oc-border)); }
   /* 縦スクロールは tlScroll 側が持ち、scrollTop をここへ同期する */
   .tlLabelScroll { flex: 1; min-height: 0; overflow: hidden; }
   /* tlScroll に横スクロールバーが出たぶんの同期ずれを吸収する余白 */
@@ -2547,7 +2473,7 @@
   .tlLabel {
     height: 26px; padding: 0 8px;
     display: flex; align-items: center; gap: 6px;
-    border-bottom: 1px solid hsl(var(--oc-border));
+    margin-bottom: 6px;
     overflow: hidden; white-space: nowrap;
     position: relative;
   }
@@ -2616,26 +2542,24 @@
   .tlContent { position: relative; min-height: 100%; }
   /* 縦スクロールしてもルーラーは上に貼り付く */
   .tlRuler {
-    position: sticky; top: 0; z-index: 2; height: 24px;
+    position: sticky; top: 0; z-index: 2; height: 22px;
     border-bottom: 1px solid hsl(var(--oc-border));
     cursor: col-resize;
     background: hsl(var(--oc-card));
   }
   .tlTick {
     position: absolute; top: 0; height: 100%;
-    border-left: 1px solid hsl(var(--oc-border));
     padding: 4px 0 0 4px;
     font-size: 10px; color: hsl(var(--oc-muted-foreground));
     pointer-events: none;
   }
   .tlTrack {
     position: relative; height: 26px;
-    border-bottom: 1px solid hsl(var(--oc-border));
+    margin-bottom: 6px;
   }
-  .tlTrack:nth-child(odd) { background: hsl(var(--oc-muted) / 0.35); }
   .tlClip {
     position: absolute; top: 3px; bottom: 3px;
-    border-radius: 4px;
+    border-radius: 2px;
     overflow: hidden;
     display: flex; align-items: center;
     cursor: grab;
@@ -2656,17 +2580,17 @@
     position: relative; z-index: 1;
   }
   /* クリップ色: 種別ベース(素材はトラック番号ごとにインラインで色分け) */
-  .tlClip.cut { background: #31435f; }
+  .tlClip.cut { background: #3a4658; }
   .tlClip.insert { background: #9a3412; }
   .tlClip.chapter { background: #7a5a12; }
-  .tlClip.caption { background: #3b3f4d; }
-  .tlClip.overlays { background: #14532d; }
-  .tlClip.wipe { background: #123a46; }
-  .tlClip.wipeFull { background: #0e7490; top: 5px; bottom: 5px; }
-  .tlClip.zoom { background: #6d28d9; top: 5px; bottom: 5px; }
-  .tlClip.blur { background: #9d174d; top: 5px; bottom: 5px; }
-  .tlClip.annotation { background: #b91c1c; top: 5px; bottom: 5px; }
-  .tlClip.bgm { background: #1d4029; }
+  .tlClip.caption { background: #5DBAA0; }
+  .tlClip.overlays { background: #BA5D7A; }
+  .tlClip.wipe { background: #BA5D7A; }
+  .tlClip.wipeFull { background: #BA5D7A; top: 5px; bottom: 5px; }
+  .tlClip.zoom { background: #5d93ba; top: 5px; bottom: 5px; }
+  .tlClip.blur { background: #5d93ba; top: 5px; bottom: 5px; }
+  .tlClip.annotation { background: #5d93ba; top: 5px; bottom: 5px; }
+  .tlClip.bgm { background: #8F5DBA; }
   .tlClip.short { background: hsl(var(--oc-warning)); }
   /* ワイプ本体・BGM は背景レイヤー表示(ポインタ素通し・選択不可) */
   .tlClip.static { pointer-events: none; border-radius: 0; opacity: 0.8; }
@@ -2744,7 +2668,7 @@
     position: fixed; top: -100px; left: -100px;
     max-width: 180px;
     padding: 4px 10px;
-    background: #14532d;
+    background: #BA5D7A;
     border: 1px solid hsl(var(--oc-foreground) / 0.6);
     border-radius: 4px;
     font-size: 11px; color: hsl(var(--oc-foreground));
@@ -2992,10 +2916,18 @@
   align-items: center;
   gap: 0.125rem;
   min-width: 0;
+  min-height: 0;
   padding: 0.25rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
   border-right: 1px solid hsl(var(--oc-border));
   border-bottom: 0;
   background: hsl(var(--oc-background) / 0.62);
+}
+
+.ocSidePanel .ocIconRail::-webkit-scrollbar {
+  display: none;
 }
 
 .ocSidePanel .ocIconRail [role="tab"] {
@@ -3004,21 +2936,20 @@
   width: 2rem;
   height: 2rem;
   padding: 0;
-  color: hsl(var(--oc-muted-foreground)) !important;
+  color: hsl(var(--oc-muted-foreground) / 0.72) !important;
   border: 0 !important;
   border-radius: var(--radius-sm);
   background: transparent !important;
 }
 
 .ocSidePanel .ocIconRail [role="tab"]:hover {
-  color: hsl(var(--oc-foreground)) !important;
-  background: hsl(var(--oc-accent)) !important;
+  color: hsl(var(--oc-muted-foreground) / 0.95) !important;
+  background: hsl(var(--oc-muted)) !important;
 }
 
 .ocSidePanel .ocIconRail [role="tab"].active {
-  color: hsl(var(--oc-secondary-foreground)) !important;
-  background: hsl(var(--oc-secondary)) !important;
-  box-shadow: inset 0 0 0 1px hsl(var(--oc-secondary-border));
+  color: hsl(var(--oc-primary)) !important;
+  background: hsl(var(--oc-primary) / 0.14) !important;
 }
 
 .ocSidePanel .ocIconRail [role="tab"]:focus-visible {
@@ -3046,6 +2977,32 @@
   outline: none;
 }
 
+/* OpenCut PanelView ヘッダー帯。全左タブ共通。 */
+.ocPanelHead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  height: 2.75rem;
+  padding: 0 0.5rem 0 0.75rem;
+  border-bottom: 1px solid hsl(var(--oc-border));
+  background: hsl(var(--oc-card));
+}
+
+.ocPanelHeadTitle {
+  font-size: var(--oc-text-sm);
+  color: hsl(var(--oc-muted-foreground));
+}
+
+.ocPanelHeadActions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
 .ocSidePanel .ocPaneAction {
   display: flex;
   justify-content: flex-end;
@@ -3061,6 +3018,39 @@
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
+}
+
+.ocSidePanel .ocSettingsPanel {
+  padding: 0.6rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.ocSettingsRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 1.75rem;
+  font-size: var(--oc-text-xs);
+}
+
+.ocSettingsLabel {
+  color: hsl(var(--oc-muted-foreground));
+}
+
+.ocSettingsValue {
+  max-width: 60%;
+  overflow: hidden;
+  color: hsl(var(--oc-foreground));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ocSettingsValue.mono {
+  font-family: ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
 }
 
 .ocSidePanel .ocAdjustRow {
@@ -3102,6 +3092,43 @@
 
 .ocSidePanel .ocPaneStack > button {
   justify-content: flex-start;
+}
+
+.ocSidePanel .ocLauncherList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.ocSidePanel .ocLauncherItem {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border: 0;
+  border-radius: calc(var(--oc-radius) - 0.1rem);
+  background: transparent;
+  color: hsl(var(--oc-foreground));
+  font-size: var(--oc-text-xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ocSidePanel .ocLauncherItem svg {
+  flex-shrink: 0;
+  color: hsl(var(--oc-muted-foreground));
+}
+
+.ocSidePanel .ocLauncherItem:hover {
+  background: hsl(var(--oc-secondary));
+}
+
+.ocSidePanel .ocLauncherItem:hover svg {
+  color: hsl(var(--oc-foreground));
 }
 
 .ocSidePanel .ocAssetPanel {
@@ -3157,7 +3184,7 @@
 /* Materials behavior remains in Panels.tsx; only its existing states are skinned. */
 .ocSidePanel .ocMaterialsPanel {
   position: relative;
-  min-height: 100%;
+  min-height: 0;
   color: hsl(var(--oc-foreground));
 }
 
@@ -3166,39 +3193,89 @@
   outline-offset: -3px;
 }
 
-.ocSidePanel .ocMaterialsPanel .materialPanelHead {
-  gap: 0.4rem;
-  padding: 0.6rem 0.65rem;
-  min-height: 2.75rem;
-  align-items: center;
-  border-bottom: 1px solid hsl(var(--oc-border));
+.ocSidePanel .ocMaterialsPanel .ocPanelHead {
+  padding-left: 0.75rem;
+  background: hsl(var(--oc-background));
 }
 
 .ocSidePanel .ocMaterialsPanel .materialLoading {
   color: hsl(var(--oc-muted-foreground));
 }
 
-.ocSidePanel .ocMaterialsPanel .materialHeadActions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.35rem;
-  width: 100%;
-}
-
-.ocSidePanel .ocMaterialsPanel .materialAction {
-  width: 100%;
-  min-width: 0;
-  height: 1.75rem;
+.ocSidePanel .ocMaterialsPanel .ocPanelHeadActions {
   gap: 0.3rem;
-  padding: 0 0.45rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.ocSidePanel .ocMaterialsPanel .aiMaterialAction {
-  color: hsl(var(--oc-primary)) !important;
-  background: hsl(var(--oc-primary) / 0.1) !important;
-  border-color: hsl(var(--oc-primary) / 0.24) !important;
+.ocSidePanel .ocMaterialsPanel .ocMaterialHeaderIcon {
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: hsl(var(--oc-foreground));
+  border: 0;
+  border-radius: 0.25rem;
+  background: transparent;
+}
+
+.ocSidePanel .ocMaterialsPanel .ocMaterialHeaderIcon:hover,
+.ocSidePanel .ocMaterialsPanel .ocMaterialHeaderIcon.active {
+  background: hsl(var(--oc-muted));
+}
+
+.ocSidePanel .ocMaterialsPanel .ocMaterialSortWrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.ocSidePanel .ocMaterialsPanel .ocMaterialSortMenu {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: -0.35rem;
+  z-index: 6;
+  min-width: 7.9rem;
+  padding: 0.55rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  color: hsl(var(--oc-popover-foreground));
+  border: 1px solid hsl(var(--oc-border));
+  border-radius: 0.5rem;
+  background: hsl(var(--oc-popover));
+  box-shadow: 0 0.55rem 1.25rem hsl(220 30% 8% / 0.16);
+}
+
+.ocSidePanel .ocMaterialsPanel .ocMaterialSortMenu button {
+  width: 100%;
+  min-height: 1.8rem;
+  padding: 0 0.8rem;
+  color: inherit;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: var(--oc-text-sm);
+  text-align: left;
+}
+
+.ocSidePanel .ocMaterialsPanel .ocMaterialSortMenu button:hover {
+  background: hsl(var(--oc-muted));
+}
+
+.ocSidePanel .ocMaterialsPanel .ocMaterialImport {
+  height: 1.55rem;
+  gap: 0.28rem;
+  padding: 0 0.5rem;
+  color: hsl(var(--oc-foreground));
+  border-color: hsl(var(--oc-border));
+  border-radius: 0.3rem;
+  background: hsl(var(--oc-background));
+  font-size: var(--oc-text-xs);
+  font-weight: 500;
+}
+
+.ocSidePanel .ocMaterialsPanel .ocMaterialImport:hover:not(:disabled) {
+  background: hsl(var(--oc-muted));
 }
 
 .ocSidePanel .ocMaterialsPanel .materialAuthorGate,
@@ -3210,6 +3287,34 @@
 
 .ocSidePanel .ocMaterialsPanel .materialAuthorGate { color: hsl(var(--oc-warning)); }
 .ocSidePanel .ocMaterialsPanel .materialError { color: hsl(var(--oc-destructive)); }
+
+.ocSidePanel .ocMaterialsPanel .ocMaterialEmptyDrop {
+  width: calc(100% - 1.5rem);
+  min-height: 8.375rem;
+  margin: 0.75rem;
+  padding: 1.5rem 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  color: hsl(var(--oc-muted-foreground));
+  border: 0;
+  border-radius: 0.75rem;
+  background: hsl(var(--oc-muted));
+  font-size: var(--oc-text-sm);
+  font-weight: 400;
+  text-align: center;
+}
+
+.ocSidePanel .ocMaterialsPanel .ocMaterialEmptyDrop svg {
+  color: hsl(var(--oc-foreground));
+}
+
+.ocSidePanel .ocMaterialsPanel .ocMaterialEmptyDrop:hover:not(:disabled),
+.ocSidePanel .ocMaterialsPanel .ocMaterialEmptyDrop:focus-visible {
+  background: hsl(var(--oc-muted) / 0.82);
+}
 
 .ocSidePanel .ocMaterialsPanel .matDropOverlay {
   inset: 0.35rem;
@@ -3224,34 +3329,113 @@
 }
 
 .ocSidePanel .ocMaterialsPanel .matGrid {
-  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 1rem;
+  padding: 0.75rem;
+}
+
+.ocSidePanel .ocMaterialsPanel .matGrid.list {
+  grid-template-columns: 1fr;
+  gap: 0.05rem;
+  padding: 0.35rem 0.45rem;
+}
+
+.ocSidePanel .ocMaterialsPanel .matGrid.list .matCard {
+  display: grid;
+  grid-template-columns: 1.5rem minmax(0, 1fr);
+  align-items: center;
   gap: 0.5rem;
-  padding: 0.65rem;
+  min-height: 1.85rem;
+  padding: 0 2.25rem 0 0.4rem;
+  position: relative;
+  border-radius: 0.35rem;
+  content-visibility: visible;
+  contain-intrinsic-size: auto 0;
+}
+
+.ocSidePanel .ocMaterialsPanel .matGrid.list .materialThumbWrap {
+  position: static;
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.ocSidePanel .ocMaterialsPanel .matGrid.list .matThumb {
+  width: 1.5rem;
+  height: 1.5rem;
+  aspect-ratio: auto;
+  border-radius: 0.25rem;
+  object-fit: cover;
+}
+
+.ocSidePanel .ocMaterialsPanel .matGrid.list .matName {
+  padding: 0;
+  text-align: left;
+}
+
+.ocSidePanel .ocMaterialsPanel .matGrid.list .matAddBtn {
+  top: 50%;
+  right: 0.45rem;
+  bottom: auto;
+  transform: translateY(-50%);
+  opacity: 1;
+  box-shadow: none;
+  background: transparent;
+}
+
+.ocSidePanel .ocMaterialsPanel .matGrid.list .matCard:hover {
+  background: hsl(var(--oc-muted) / 0.72);
 }
 
 .ocSidePanel .ocMaterialsPanel .matCard {
   min-width: 0;
-  padding: 0.28rem;
-  border: 1px solid hsl(var(--oc-border));
-  border-radius: var(--oc-radius);
-  background: hsl(var(--oc-background) / 0.42);
-  transition: border-color 120ms ease, background-color 120ms ease, transform 120ms ease;
+  padding: 0;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  transition: none;
 }
 
 .ocSidePanel .ocMaterialsPanel .matCard:hover {
-  border-color: hsl(var(--oc-ring) / 0.55);
-  background: hsl(var(--oc-accent) / 0.65);
-  transform: translateY(-1px);
+  background: transparent;
+  transform: none;
+}
+
+.ocSidePanel .ocMaterialsPanel .matAddBtn {
+  position: absolute;
+  right: 0.4rem;
+  bottom: 0.4rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: hsl(var(--oc-foreground));
+  border: 0;
+  border-radius: 0.375rem;
+  background: hsl(var(--oc-background));
+  box-shadow: 0 1px 2px hsl(0 0% 0% / 0.28);
+  opacity: 0;
+  transition: opacity 120ms ease, background-color 120ms ease;
+}
+
+.ocSidePanel .ocMaterialsPanel .matCard:hover .matAddBtn,
+.ocSidePanel .ocMaterialsPanel .matAddBtn:focus-visible {
+  opacity: 1;
+}
+
+.ocSidePanel .ocMaterialsPanel .matAddBtn:hover {
+  background: hsl(var(--oc-muted));
 }
 
 .ocSidePanel .ocMaterialsPanel .matThumb {
-  border-radius: calc(var(--oc-radius) - 0.1rem);
+  border-radius: 0.5rem;
   outline-color: transparent;
-  background: hsl(var(--oc-background));
+  background: hsl(var(--oc-muted));
 }
 
 .ocSidePanel .ocMaterialsPanel .matCard:hover .matThumb {
-  outline-color: hsl(var(--oc-ring) / 0.45);
+  outline-color: transparent;
 }
 
 .ocSidePanel .ocMaterialsPanel .matName {
@@ -3263,7 +3447,7 @@
 }
 
 .ocSidePanel .ocMaterialsPanel .matCard:hover .matName {
-  color: hsl(var(--oc-foreground));
+  color: hsl(var(--oc-muted-foreground));
 }
 
 .ocSidePanel .ocMaterialsPanel .matThumbUnplayable {
@@ -3385,15 +3569,15 @@
   width: 2.75rem;
   height: 1.75rem;
   padding: 0;
-  color: hsl(var(--oc-secondary-foreground)) !important;
-  background: hsl(var(--oc-secondary)) !important;
-  border-color: hsl(var(--oc-border)) !important;
+  color: hsl(var(--oc-muted-foreground)) !important;
+  background: transparent !important;
+  border-color: transparent !important;
   border-radius: 999px;
 }
 
 .ocTransport .play:hover:not(:disabled) {
+  color: hsl(var(--oc-foreground)) !important;
   background: hsl(var(--oc-accent)) !important;
-  border-color: hsl(var(--oc-ring) / 0.45) !important;
 }
 
 .ocTransport .tcode {
@@ -3437,6 +3621,7 @@
 }
 
 .ocTransport .modeSwitch select { max-width: 10rem; }
+.ocTransport select.zoomSel { width: 5.5rem; }
 .ocTransport select.rate { padding: 0 0.4rem; }
 
 .ocTransport .volume {
@@ -3488,9 +3673,10 @@
  * Settings, AI review, Timeline, and the remaining legacy surfaces keep their
  * existing controls until their own phases. */
 .ocInspector {
-  --insp-control-h: 1.75rem;
-  min-height: 100%;
-  padding: 0.55rem 0.65rem 0.9rem;
+  --insp-control-h: 2.25rem;   /* OpenCut input h-9 (36px) */
+  height: 100%;
+  display: flex;
+  flex-direction: column;
   color: hsl(var(--oc-foreground));
   background: hsl(var(--oc-card));
   font-size: var(--oc-text-xs);
@@ -3509,6 +3695,7 @@
 }
 
 .ocInspector .inspHead {
+  flex-shrink: 0;
   gap: 0.55rem;
   min-height: 2.65rem;
   margin: -0.1rem -0.05rem 0.25rem;
@@ -3522,6 +3709,41 @@
   border: 1px solid hsl(var(--oc-border));
   border-radius: var(--oc-radius);
   background: hsl(var(--oc-background));
+}
+
+/* 未選択時のプレースホルダー(OpenCut PropertiesPanel の empty state 相当) */
+.ocInspector .inspEmpty {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  text-align: center;
+}
+.ocInspector .inspEmptyIcon {
+  display: grid;
+  place-items: center;
+  width: 3.25rem;
+  height: 3.25rem;
+  margin-bottom: 1.1rem;
+  border: 1px solid hsl(var(--oc-border));
+  border-radius: calc(var(--oc-radius) + 0.2rem);
+  color: hsl(var(--oc-muted-foreground));
+}
+.ocInspector .inspEmpty h3 {
+  margin: 0 0 0.45rem;
+  color: hsl(var(--oc-foreground));
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+.ocInspector .inspEmpty p {
+  margin: 0;
+  max-width: 15rem;
+  color: hsl(var(--oc-muted-foreground));
+  font-size: var(--oc-text-xs);
+  line-height: 1.55;
 }
 
 .ocInspector .inspHeadText { gap: 0.15rem; }
@@ -3549,30 +3771,14 @@
 }
 
 .ocInspector .inspSec {
-  margin-top: 0.58rem;
-  padding-top: 0.58rem;
   border-top-color: hsl(var(--oc-border));
 }
 .ocInspector .inspSec.flushTopSec,
 .ocInspector .inspSec.captionTextSec {
   margin-top: 0;
-  padding-top: 0.45rem;
+  padding-top: 0;
   border-top: 0;
 }
-.ocInspector .inspSec > h4,
-.ocInspector .inspSecHead > h4 {
-  display: flex;
-  align-items: center;
-  min-height: 1.55rem;
-  margin: 0 0 0.5rem;
-  color: hsl(var(--oc-foreground));
-  font-size: var(--oc-text-sm);
-  font-weight: 600;
-  letter-spacing: -0.005em;
-  text-transform: none;
-}
-.ocInspector .inspSecHead > h4 { margin: 0; }   /* header row owns the spacing when collapsible */
-
 .ocInspector .inspSecHead {
   display: flex;
   align-items: center;
@@ -3602,14 +3808,50 @@
 }
 
 .ocInspector .capControlStack,
-.ocInspector .capPositionGrid { gap: 0.5rem; }
+.ocInspector .capPositionGrid,
+.ocInspector .capRow3 { row-gap: 0.875rem; column-gap: 0.5rem; }
+/* 上の row-gap がタブ内の要素間の縦gap(14px)を担う。中の .field/.capField
+   自身の margin-bottom(同じ0.875rem)まで足すと二重になるので、グリッドの
+   最終行以外はゼロにする。最終行の margin-bottom はあえて残す
+   (capFlat/capFlatNoGap なタブは inspSec 自身の余白が無い/薄く、次の
+   Section との区切りをこの最終行の margin だけで作っているため、
+   ここまでゼロにすると Section 間の隙間が消えてしまう) */
+.ocInspector .capControlStack > .capField:not(:last-child),
+.ocInspector .capControlStack > .capLabeledField:not(:last-child),
+.ocInspector .capPositionGrid > .capField:not(:last-child),
+.ocInspector .capPositionGrid > .capLabeledField:not(:last-child),
+.ocInspector .capRow3 > .capField:not(:last-child),
+.ocInspector .capRow3 > .capLabeledField:not(:last-child) {
+  margin-bottom: 0;
+}
+/* capLabeledField(ラベルが外側の <span> にある noLabel な capField を包む形)
+   自身にも .field/.capField と同じ縦gapを持たせ、内側の capField は常に
+   ゼロにして二重加算を防ぐ。最終行かどうかは外側の capLabeledField 側で
+   上のルールが判定する */
+.ocInspector .capLabeledField { margin-bottom: 0.875rem; }
+.ocInspector .capLabeledField > .capField { margin-bottom: 0; }
+/* BGM の頭出し/開始/終了のように3項目を横一列に並べたいときの行グリッド */
+.ocInspector .capRow3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.ocInspector .bgmRegionStack {
+  grid-template-columns: 1fr;
+}
+
+/* OpenCut-style single-column properties (P7.5): テロップ要素の
+   テキスト/配置/アニメの3タブだけに絞ったスコープ。他タブの2列グリッド・
+   セクション区切り線はここでは変えない */
+.ocInspector .capFlat .inspSec { border-top: 0; }
+.ocInspector .capFlat .capControlStack,
+.ocInspector .capFlat .capPositionGrid { grid-template-columns: 1fr; }
 .ocInspector .field,
 .ocInspector .capField {
   flex-wrap: wrap;          /* P7.1: label wraps to its own line -> label-above */
   align-items: center;
   min-height: var(--insp-control-h);
-  gap: 0.28rem 0.5rem;      /* row-gap tightens the label->control stack */
-  margin-bottom: 0.5rem;
+  gap: 0.5rem 0.5rem;       /* OpenCut SectionField: gap-2 label->control */
+  margin-bottom: 0.875rem;  /* OpenCut SectionFields: gap-3.5 between rows */
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -3634,10 +3876,11 @@
   input.num
 ) {
   min-height: var(--insp-control-h);
+  padding-inline: 0.75rem;   /* OpenCut input px-3 */
   color: hsl(var(--oc-foreground));
-  border: 1px solid hsl(var(--oc-input));
+  border: 1px solid hsl(var(--oc-border));
   border-radius: calc(var(--oc-radius) - 0.1rem);
-  background-color: hsl(var(--oc-card));
+  background-color: hsl(var(--oc-input));   /* OpenCut filled bg-input surface */
   font-size: var(--oc-text-xs);
   outline: none;
   transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
@@ -3655,15 +3898,31 @@
 }
 .ocInspector [data-slot="native-select"] {
   width: 100%;
-  padding: 0 1.55rem 0 0.45rem;
+  padding: 0 1.55rem 0 0.75rem;
 }
-.ocInspector .capTextInput { width: 100%; height: 2rem; }
+.ocInspector .capTextInput,
+.ocInspector .capEdit {
+  width: 100%;
+  padding: 0.4rem 0.75rem;
+  color: hsl(var(--oc-foreground));
+  border: 1px solid hsl(var(--oc-border));
+  border-radius: calc(var(--oc-radius) - 0.1rem);
+  background: hsl(var(--oc-input));   /* OpenCut filled bg-input surface */
+  font-size: var(--oc-text-xs);
+}
+.ocInspector .capTextInput { min-height: var(--insp-control-h); height: auto; }
+.ocInspector .capTextInput:focus,
+.ocInspector .capEdit:focus {
+  outline: none;
+  border-color: hsl(var(--oc-ring));
+  box-shadow: 0 0 0 2px hsl(var(--oc-ring) / 0.24);
+}
 
 .ocInspector .numStepper {
   min-height: var(--insp-control-h);
-  border-color: hsl(var(--oc-input));
+  border-color: hsl(var(--oc-border));
   border-radius: calc(var(--oc-radius) - 0.1rem);
-  background: hsl(var(--oc-card));
+  background: hsl(var(--oc-input));   /* OpenCut filled bg-input surface */
 }
 .ocInspector .numStepper:focus-within {
   border-color: hsl(var(--oc-ring));
@@ -3684,6 +3943,7 @@
 .ocInspector .seg {
   width: 100%;
   min-height: var(--insp-control-h);
+  align-items: center;   /* buttons are shorter than min-height; without this they hug the top */
   padding: 0.12rem;
   gap: 0.1rem;
   border-color: hsl(var(--oc-border));
@@ -3741,29 +4001,29 @@
   appearance: none;
   position: relative;
   flex: 0 0 auto;
-  width: 1.65rem !important;
-  height: 0.92rem;
+  width: 2.25rem !important;   /* OpenCut Switch: h-5 w-9 (20x36px) */
+  height: 1.25rem;
   margin: 0;
-  border: 1px solid hsl(var(--oc-border));
+  border: 2px solid transparent;   /* inset the thumb without extra offset math */
   border-radius: 999px;
   background: hsl(var(--oc-muted));
   cursor: pointer;
   outline: none;
-  transition: border-color 120ms ease, background-color 120ms ease;
+  transition: background-color 120ms ease;
 }
 .ocInspector [data-slot="switch"]::after {
   content: "";
   position: absolute;
-  top: 0.11rem;
-  left: 0.12rem;
-  width: 0.58rem;
-  height: 0.58rem;
+  top: 0;
+  left: 0;
+  width: 1rem;                 /* OpenCut Switch Thumb: size-4 (16px) */
+  height: 1rem;
   border-radius: 999px;
   background: hsl(var(--oc-muted-foreground));
   transition: transform 120ms ease, background-color 120ms ease;
 }
-.ocInspector [data-slot="switch"]:checked { border-color: hsl(var(--oc-primary)); background: hsl(var(--oc-primary)); }
-.ocInspector [data-slot="switch"]:checked::after { transform: translateX(0.7rem); background: hsl(var(--oc-primary-foreground)); }
+.ocInspector [data-slot="switch"]:checked { background: hsl(var(--oc-primary)); }
+.ocInspector [data-slot="switch"]:checked::after { transform: translateX(1rem); background: hsl(var(--oc-primary-foreground)); }
 .ocInspector [data-slot="switch"]:focus-visible { box-shadow: 0 0 0 2px hsl(var(--oc-ring) / 0.3); }
 
 .ocInspector [data-slot="color-input"] {
@@ -3779,6 +4039,43 @@
 .ocInspector [data-slot="color-input"]::-webkit-color-swatch { border: 0; border-radius: 0.18rem; }
 .ocInspector [data-slot="color-input"]::-moz-color-swatch { border: 0; border-radius: 0.18rem; }
 .ocInspector [data-slot="color-input"]:focus-visible { box-shadow: 0 0 0 2px hsl(var(--oc-ring) / 0.28); }
+
+.ocInspector .colorPill {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 2.05rem;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid hsl(var(--oc-border));
+  border-radius: calc(var(--oc-radius) - 0.05rem);
+  background: hsl(var(--oc-muted) / 0.42);
+  color: hsl(var(--oc-foreground));
+}
+.ocInspector .colorPill [data-slot="color-input"] {
+  width: 1.15rem !important;
+  height: 1.15rem !important;
+  padding: 0;
+  border: 0;
+  border-radius: 0.28rem;
+  background: transparent;
+  flex: none;
+}
+.ocInspector .colorPill [data-slot="color-input"]::-webkit-color-swatch {
+  border: 1px solid hsl(var(--oc-border));
+  border-radius: 0.28rem;
+}
+.ocInspector .colorPill [data-slot="color-input"]::-moz-color-swatch {
+  border: 1px solid hsl(var(--oc-border));
+  border-radius: 0.28rem;
+}
+.ocInspector .colorPill .colorHexVal {
+  margin-left: 0;
+  color: hsl(var(--oc-foreground));
+  font-size: var(--oc-text-sm);
+  font-family: inherit;
+  letter-spacing: 0;
+}
 
 .ocInspector .btnRow { gap: 0.3rem; margin: 0.42rem 0; }
 .ocInspector button:not(.anchorHit) { border-radius: calc(var(--oc-radius) - 0.1rem); }
@@ -3807,21 +4104,86 @@
   outline: none;
 }
 .ocInspector .inspDetails summary:focus-visible { color: hsl(var(--oc-foreground)); box-shadow: 0 0 0 2px hsl(var(--oc-ring) / 0.25); }
-.ocInspector .projRows { gap: 0.28rem 0.5rem; }
-.ocInspector .projRows dt { color: hsl(var(--oc-muted-foreground)); }
-.ocInspector .projRows dd { color: hsl(var(--oc-foreground)); }
 .ocInspector .srcRange { background: hsl(var(--oc-muted)); }
 .ocInspector .srcRangeUse { background: hsl(var(--oc-primary)); }
 .ocInspector .anchorPoint { border-color: hsl(var(--oc-border)); background: hsl(var(--oc-background)); }
 .ocInspector .anchorPoint .anchorHit:hover { background: hsl(var(--oc-primary) / 0.12); }
+
+/* OpenCut properties: 左アイコンレール + 右スクロール本体 */
+.ocInspector .inspTabbed {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: 0;
+}
+.ocInspector .inspTabRail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;                 /* OpenCut gap-0.5 */
+  flex-shrink: 0;
+  padding: 4px;             /* OpenCut p-1 */
+  border-right: 1px solid hsl(var(--oc-border));
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.ocInspector .inspTabRail::-webkit-scrollbar { display: none; }
+.ocInspector .inspTabBtn { width: 32px; height: 32px; }   /* OpenCut h-8 w-8 */
+.ocInspector .inspTabBtn svg {
+  width: 16px !important; height: 16px !important;   /* OpenCut size-4, lighter stroke */
+  flex: none;              /* button is display:inline-flex row — don't let the icon shrink on the main axis */
+  stroke-width: 1.75px;
+}
+/* inactive tabs are muted — override the ghost variant's forced text-foreground */
+.ocInspector .inspTabBtn.inspTabBtnIdle { color: hsl(var(--oc-muted-foreground)) !important; }
+.ocInspector .inspTabBtn.inspTabBtnIdle:hover { color: hsl(var(--oc-foreground)) !important; }
+.ocInspector .inspTabBody { flex: 1; min-width: 0; min-height: 0; padding: 16px; }
+/* タブ本体いっぱいまで一覧を伸ばして自前スクロールさせたいケース(例: 発言
+   タブ)向け。Radix の table-div(既に display:block へ上書き済み)へ
+   height:100% を通し、下の .fillHeightSec が高さを引き継げるようにする */
+.ocInspector .inspTabBody .ocScrollAreaViewport > div { height: 100%; }
+.ocInspector .inspSec.fillHeightSec {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.ocInspector .speechList.speechListFill {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+/* footer(削除ボタン)は本体の下に全幅で固定表示 */
+.ocInspector .inspTabbed + .inspSec { border-top: 1px solid hsl(var(--oc-border)); }
+/* header の主操作ボタン(例: カット跡の「動画に戻す」)。タブ切替に関係なく
+   常に最上部に出す=そのパネルを開く最大の目的をタブへ埋もれさせない */
+.ocInspector .inspActionHead {
+  flex-shrink: 0;
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid hsl(var(--oc-border));
+}
+.ocInspector .inspActionHead button {
+  width: 100%;
+}
+
+/* OpenCut-style color field: swatch + hex value to its right */
+.ocInspector .colorHexVal {
+  margin-left: 0.4rem;
+  color: hsl(var(--oc-muted-foreground));
+  font-size: var(--oc-text-xs);
+  font-family: ui-monospace, monospace;
+  letter-spacing: 0.02em;
+}
+
+/* アニメタブは capFlat の余白も詰めて完全フラットにする */
+.ocInspector .capFlat.capFlatNoGap .inspSec { margin-top: 0; padding-top: 0; }
 
 /* P3: OpenCut-inspired dense layered timeline. CutFlow's existing semantic
  * classes, inline time geometry, pointer handlers, and dual-axis model remain
  * authoritative; every override is contained by the ocTimeline root. */
 .ocTimeline {
   --tl-head-w: 10rem;
-  --tl-ruler-h: 24px;
-  --tl-row-border: hsl(var(--oc-border) / 0.7);
+  --tl-ruler-h: 22px;
+  --tl-track-gap: 6px;
   min-width: 0;
   color: hsl(var(--oc-foreground));
   background: hsl(var(--oc-background));
@@ -3899,28 +4261,6 @@
   background: hsl(var(--oc-border));
 }
 
-.ocTimeline .addTrack .menu {
-  margin-top: 0.22rem;
-  padding: 0.25rem;
-  color: hsl(var(--oc-popover-foreground));
-  border-color: hsl(var(--oc-border));
-  border-radius: var(--oc-radius);
-  background: hsl(var(--oc-popover));
-  box-shadow: 0 10px 28px hsl(220 40% 2% / 0.5);
-}
-
-.ocTimeline .addTrack .menu button {
-  min-height: 1.75rem;
-  padding: 0 0.55rem;
-  color: hsl(var(--oc-popover-foreground));
-  border-radius: calc(var(--oc-radius) - 0.12rem);
-  font-size: var(--oc-text-xs);
-}
-
-.ocTimeline .addTrack .menu button:hover {
-  background: hsl(var(--oc-accent));
-}
-
 .ocTimeline .tlZoom {
   gap: 0.25rem;
   padding: 0;
@@ -3980,9 +4320,8 @@
 
 .ocTimeline .tlRulerSpacer {
   height: var(--tl-ruler-h);
-  border-bottom-color: hsl(var(--oc-border));
-  background:
-    linear-gradient(to bottom, hsl(var(--oc-card)), hsl(var(--oc-background) / 0.9));
+  border-bottom: none;
+  background: hsl(var(--oc-card));
 }
 
 .ocTimeline .tlLabelScroll {
@@ -3992,8 +4331,8 @@
 .ocTimeline .tlLabel {
   gap: 0.28rem;
   padding: 0 0.42rem;
+  margin-bottom: var(--tl-track-gap);
   color: hsl(var(--oc-muted-foreground));
-  border-bottom-color: var(--tl-row-border);
   background: hsl(var(--oc-card));
   font-size: 0.66rem;
   font-weight: 550;
@@ -4115,40 +4454,47 @@
 .ocTimeline .tlRuler {
   height: var(--tl-ruler-h);
   color: hsl(var(--oc-muted-foreground));
-  border-bottom-color: hsl(var(--oc-border));
-  background:
-    linear-gradient(to bottom, hsl(var(--oc-card)), hsl(var(--oc-background) / 0.94));
-  box-shadow: 0 1px 0 hsl(var(--oc-border) / 0.5);
+  border-bottom: none;
+  background: hsl(var(--oc-card));
 }
 
 .ocTimeline .tlTick {
-  padding: 0.25rem 0 0 0.3rem;
+  padding: 0;
   color: hsl(var(--oc-muted-foreground) / 0.85);
-  border-left-color: hsl(var(--oc-muted-foreground) / 0.25);
   font-size: 0.625rem;
   font-variant-numeric: tabular-nums;
   font-weight: 550;
   text-shadow: 0 1px 0 hsl(var(--oc-background));
 }
 
+.ocTimeline .tlTick .tlTickLabel {
+  position: absolute;
+  top: 0.25rem;
+  left: 0.25rem;
+  white-space: nowrap;
+}
+
 .ocTimeline .tlTick::after {
   content: "";
   position: absolute;
-  left: -1px;
-  top: 0.35rem;
+  left: 0;
+  top: 0.375rem;
   width: 1px;
-  height: 0.35rem;
-  background: hsl(var(--oc-muted-foreground) / 0.35);
+  height: 0.375rem;
+  background: hsl(var(--oc-muted-foreground) / 0.25);
+}
+
+/* 補助目盛り: ラベル無しの短い目盛り線だけ(主目盛りより控えめ) */
+.ocTimeline .tlTick.tlTickMinor::after {
+  top: 0.4375rem;
+  height: 0.25rem;
+  background: hsl(var(--oc-muted-foreground) / 0.16);
 }
 
 .ocTimeline .tlTrack {
-  border-bottom-color: var(--tl-row-border);
-  background: hsl(var(--oc-background) / 0.55);
+  margin-bottom: var(--tl-track-gap);
+  background: transparent;
   transition: background-color 100ms ease, box-shadow 100ms ease;
-}
-
-.ocTimeline .tlTrack:nth-child(odd) {
-  background: hsl(var(--oc-card) / 0.22);
 }
 
 .ocTimeline .tlTrack:hover {
@@ -4165,7 +4511,7 @@
   bottom: 0.18rem;
   color: hsl(210 30% 97%);
   border-color: hsl(210 25% 92% / 0.12);
-  border-radius: 0.2rem;
+  border-radius: 0.125rem;
   box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.08), 0 1px 2px hsl(220 40% 2% / 0.22);
   transition: border-color 100ms ease, box-shadow 100ms ease,
     filter 100ms ease, opacity 100ms ease;
@@ -4195,17 +4541,18 @@
   mix-blend-mode: screen;
 }
 
-/* Semantic colors deliberately keep every CutFlow track family distinct. */
-.ocTimeline .tlClip.cut { background: hsl(215 42% 32%); }
-.ocTimeline .tlClip.insert { background: hsl(22 72% 34%); }
-.ocTimeline .tlClip.chapter { background: hsl(43 58% 31%); }
-.ocTimeline .tlClip.caption { background: hsl(217 18% 29%); }
-.ocTimeline .tlClip.wipe { background: hsl(191 55% 26%); }
-.ocTimeline .tlClip.wipeFull { background: hsl(189 78% 30%); }
-.ocTimeline .tlClip.zoom { background: hsl(263 68% 42%); }
-.ocTimeline .tlClip.blur { background: hsl(332 70% 35%); }
-.ocTimeline .tlClip.annotation { background: hsl(1 69% 39%); }
-.ocTimeline .tlClip.bgm { background: hsl(145 38% 25%); }
+/* OpenCut classic type colors with CutFlow-only families preserved. */
+.ocTimeline .tlClip.cut { background: #3a4658; }
+.ocTimeline .tlClip.insert { background: #9a3412; }
+.ocTimeline .tlClip.chapter { background: #7a5a12; }
+.ocTimeline .tlClip.caption { background: #5DBAA0; }
+.ocTimeline .tlClip.overlays { background: #BA5D7A; }
+.ocTimeline .tlClip.wipe { background: #BA5D7A; }
+.ocTimeline .tlClip.wipeFull { background: #BA5D7A; }
+.ocTimeline .tlClip.zoom { background: #5d93ba; }
+.ocTimeline .tlClip.blur { background: #5d93ba; }
+.ocTimeline .tlClip.annotation { background: #5d93ba; }
+.ocTimeline .tlClip.bgm { background: #8F5DBA; }
 .ocTimeline .tlClip.short { background: hsl(32 78% 37%); }
 
 .ocTimeline .tlClip:is(.wipeFull, .zoom, .blur, .annotation) {
@@ -4357,6 +4704,13 @@
   width: 100%;
   height: 100%;
   border-radius: inherit;
+}
+/* Radix は Viewport の直下の子を display:table(高さ無指定)でラップする。
+   フレックス列の中では table 要素の shrink-to-fit がこの子の高さを潰し、
+   固定ヘッダー+スクロール本体のレイアウトが成立しない。block へ戻す
+   (Radix が inline style で display:table を当てるので !important が必要) */
+.ocScrollAreaViewport > div {
+  display: block !important;
 }
 
 .ocScrollAreaScrollbar {

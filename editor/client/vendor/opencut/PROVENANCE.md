@@ -32,6 +32,8 @@ server routes, and editing behavior are not vendored.
 | Sonner package source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/package.json` |
 | Sonner version | OpenCut baseline `^2.0.7`; CutFlow exact pin `2.0.7` |
 | License source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/LICENSE` |
+| Properties tab rail source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/src/components/editor/panels/properties/index.tsx` |
+| Properties tab registry source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/src/components/editor/panels/properties/registry.tsx` |
 
 ## Adaptation in CutFlow
 
@@ -158,6 +160,15 @@ server routes, and editing behavior are not vendored.
   read or write recording JSON or alter server/API/render semantics.
 - Tailwind Preflight remains deliberately excluded so native editor fallback rules
   stay authoritative for components not yet expressed as scoped primitives.
+- The right-panel Inspector adapts OpenCut's per-element properties tab rail
+  (left icon rail + `ScrollArea` body, active tab remembered per selection type
+  via `activeTabPerType`) into a shared `InspectorTabs` component. Tabs that
+  CutFlow's data model has no field for (Speed/Masks/blendMode/rotate/scale)
+  are not shown; only tabs CutFlow actually has values for are surfaced
+  (transform=rect/fit, blending=opacity/fade, audio=volume/start-from,
+  text=caption copy/typography). Aggregate/special views (multi-selection,
+  short-only caption, cut segment, no selection, short range) remain a single
+  sheet, matching CutFlow's existing behavior for those branches.
 
 ## MIT notice
 

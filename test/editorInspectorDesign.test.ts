@@ -26,7 +26,10 @@ test("Inspector retains all twelve selection kinds and every special rendering b
   assert.match(inspector, /if \(selection === null\) \{[\s\S]*<ProjectPanel/);
   assert.match(inspector, /selection\.kind === "caption" && capMulti\.length > 1[\s\S]*<BatchCaptionPanel/);
   assert.match(inspector, /selection\.kind === "caption" && shortMode[\s\S]*<ShortCaptionPanel/);
-  assert.ok((inspector.match(/className="insp ocInspector"/g) ?? []).length >= 14);
+  // タブ化で `insp ocInspector` は共有 InspectorTabs に集約。共有土台＋特殊ブランチが残る
+  assert.match(inspector, /const InspectorTabs = \(/);
+  assert.ok((inspector.match(/<InspectorTabs\b/g) ?? []).length >= 9, "9 tabbed kinds use InspectorTabs");
+  assert.ok((inspector.match(/className="insp ocInspector"/g) ?? []).length >= 5, "special single-sheet branches + shared shell keep the shell class");
 });
 
 test("App-to-Inspector callback surface and write destinations remain complete", () => {

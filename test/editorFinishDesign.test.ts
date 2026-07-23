@@ -48,13 +48,11 @@ test("shared empty and app states preserve panel callbacks and state boundaries"
   assert.match(app, /<AppStateView kind="error"[^>]+description=\{error\}/);
   assert.match(app, /<AppStateView kind="loading"/);
 
-  const materialEmpty = panels.slice(panels.indexOf("materialCount === 0"), panels.indexOf("<div className=\"matGrid\""));
-  assert.match(materialEmpty, /<EmptyState/);
+  const materialEmpty = panels.slice(panels.indexOf("materialCount === 0"), panels.indexOf("sortedHyperframes.map"));
+  assert.match(materialEmpty, /className="ocMaterialEmptyDrop"/);
   assert.match(materialEmpty, /disabled=\{busy\}/);
   assert.match(materialEmpty, /onClick=\{onUploadClick\}/);
-  assert.match(materialEmpty, /disabled=\{busy \|\| !!hyperframeAuthorDisabledReason\}/);
-  assert.match(materialEmpty, /authorPendingName[\s\S]*hyperframeAuthorDisabledReason/);
-  assert.match(materialEmpty, /onClick=\{onNewHyperframe\}/);
+  assert.match(materialEmpty, /Drag and drop videos, photos, and audio files here/);
 
   const captionsEmpty = panels.slice(panels.indexOf("transcript.segments.length === 0"), panels.indexOf('return (\n    <div className="capList">'));
   assert.match(captionsEmpty, /<EmptyState/);
@@ -67,16 +65,15 @@ test("shared empty and app states preserve panel callbacks and state boundaries"
   assert.match(panels.slice(scriptEmptyAt, panels.indexOf('className="scriptPanel"')), /<EmptyState/);
 });
 
-test("ProjectPanel onboarding keeps summaries, guide, approval/config sections, and short injection", () => {
+test("ProjectPanel shows the OpenCut-style empty state and still injects the short section", () => {
   const inspector = read("editor/client/Inspector.tsx");
   const at = inspector.indexOf("const ProjectPanel");
   const project = inspector.slice(at, inspector.indexOf("export const Inspector", at));
-  assert.match(project, /className="projectIntro"/);
   assert.match(project, /\{shortSection\}/);
-  assert.ok((project.match(/className="projRows"/g) ?? []).length >= 2);
-  assert.match(project, /操作ガイド/);
-  assert.match(project, /project\.approved/);
-  assert.match(project, /project\.bgmTracks/);
+  assert.match(project, /className="inspEmpty"/);
+  assert.match(project, /className="inspEmptyIcon"/);
+  assert.match(project, /<SlidersHorizontal /);
+  assert.match(project, /<h3>ここには何もありません<\/h3>/);
 });
 
 test("P5 theme bootstrap, provider, picker, and Toaster use one resolved contract", () => {

@@ -2,9 +2,10 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type {
   DragEvent as ReactDragEvent,
   MouseEvent as ReactMouseEvent,
+  ReactNode,
   SyntheticEvent as ReactSyntheticEvent,
 } from "react";
-import { captionTrack, captionTrackName } from "../../src/types.ts";
+import { captionTrack } from "../../src/types.ts";
 import type { Interval, Overlays, Shorts, Transcript } from "../../src/types.ts";
 import { toSourceTime } from "../../src/lib/timeline.ts";
 import type { TimelineEntry } from "../../src/lib/timeline.ts";
@@ -16,7 +17,35 @@ import { VIDEO_EXT_RE, fmtTime } from "./widgets.tsx";
 import { Button } from "./components/ui/button.tsx";
 import { Slider } from "./components/ui/slider.tsx";
 import { EmptyState } from "./components/EmptyState.tsx";
-import { Captions, FileText, Images, Plus, Scissors, Sparkles, Upload } from "lucide-react";
+import {
+  ArrowDownUp,
+  ArrowLeftRight,
+  Captions,
+  EyeOff,
+  FileText,
+  LayoutGrid,
+  List,
+  MessageSquareText,
+  Plus,
+  Scissors,
+  UploadCloud,
+  ZoomIn,
+} from "lucide-react";
+
+/** OpenCut の PanelView ヘッダー相当(高さ44px・薄タイトル・下境界・右アクション)。
+ * 各左タブの先頭に置く。スクロールで消えないよう sticky。 */
+export const PanelHeader = ({
+  title,
+  actions,
+}: {
+  title: string;
+  actions?: ReactNode;
+}) => (
+  <div className="ocPanelHead">
+    <span className="ocPanelHeadTitle">{title}</span>
+    {actions ? <div className="ocPanelHeadActions">{actions}</div> : null}
+  </div>
+);
 
 /** ファイル名を中央省略する("B025_C012_0521MEbs" → "B025_C…21MEbs") */
 const midTrunc = (s: string, max = 18) =>
@@ -44,6 +73,99 @@ const pauseTileVideo = (event: ReactMouseEvent<HTMLElement>) => {
   video.pause();
   seekVideoToMidpoint(video);
 };
+
+/** OpenCut の DraggableItem 相当(`apps/web/src/components/editor/panels/assets/draggable-item.tsx`)。
+ * 左タブのアセット1件を「サムネ + 名前 + ホバーの `+` + ドラッグ」という
+ * 同じ語彙で描く共有シェル。素材カード3種(生成待ち / HyperFrames / 通常素材)
+ * から抽出したもので、DOM とクラス名は抽出前と同一(styles.css と
+ * test/editorPanelDesign.test.ts の `.ocMaterialsPanel .matCard` がそのまま効く)。
+ *
+ * OpenCut からの改変: ドラッグ像は React ポータルのゴーストではなく CutFlow 既存の
+ * `dragChip`(呼び出し側の onDragStart が setDragImage する)のままにする=タイムラインの
+ * ドロップゴーストと二重に出さないため。配置先の時刻は App 側の再生ヘッドが持つので
+ * `onAdd` は引数を取らない(OpenCut は `onAddToTimeline({currentTime})`)。 */
+export const DraggableItem = ({
+  className,
+  title,
+  name,
+  nameTitle,
+  preview,
+  overlay,
+  footer,
+  draggable,
+  onAdd,
+  addTitle = "再生ヘッド位置へ配置",
+  addLabel,
+  onDragStart,
+  onDragEnd,
+  onDoubleClick,
+  onContextMenu,
+  ariaLive,
+}: {
+  /** カードのクラス(`matCard` を含める。バリアントは呼び出し側が足す) */
+  className: string;
+  /** カード全体の title(改行区切りの操作説明) */
+  title?: string;
+  /** サムネ下の表示名。省略時は名前行を出さない */
+  name?: ReactNode;
+  /** 名前行の title(省略なしの原文) */
+  nameTitle?: string;
+  /** サムネ本体(video / img / プレースホルダ) */
+  preview: ReactNode;
+  /** サムネに重ねるバッジ類(AI チップ・要更新・スピナー等)。`+` の手前に入る */
+  overlay?: ReactNode;
+  /** 名前行の後ろに続ける要素(インラインエラー等) */
+  footer?: ReactNode;
+  draggable?: boolean;
+  /** 省略すると `+` ボタン自体を出さない(配置できないカード) */
+  onAdd?: () => void;
+  addTitle?: string;
+  addLabel?: string;
+  onDragStart?: (e: ReactDragEvent) => void;
+  onDragEnd?: () => void;
+  onDoubleClick?: () => void;
+  onContextMenu?: (e: ReactMouseEvent) => void;
+  /** 生成待ちカードのように、状態変化を読み上げたいときだけ指定する */
+  ariaLive?: "polite" | "assertive";
+}) => (
+  <div
+    className={className}
+    title={title}
+    aria-live={ariaLive}
+    draggable={draggable}
+    onDragStart={onDragStart}
+    onDragEnd={onDragEnd}
+    onDoubleClick={onDoubleClick}
+    onContextMenu={onContextMenu}
+    onMouseEnter={playTileVideo}
+    onMouseLeave={pauseTileVideo}
+  >
+    <div className="materialThumbWrap">
+      {preview}
+      {overlay}
+      {onAdd && (
+        <button
+          type="button"
+          className="matAddBtn"
+          title={addTitle}
+          aria-label={addLabel}
+          onClick={(e) => {
+            e.stopPropagation();
+            onAdd();
+          }}
+        >
+          <Plus size={13} aria-hidden />
+        </button>
+      )}
+    </div>
+    {name !== undefined && (
+      <div className="matName" title={nameTitle}>
+        {name}
+      </div>
+    )}
+    {footer}
+  </div>
+);
 
 /**
  * 左パネル「素材」タブ。アップロード済みの画像・動画(materials/)を
@@ -113,6 +235,12 @@ export const MaterialsPanel = ({
   } | null>(null);
   /** OS ファイルのドラッグがパネル上にあるか(ドロップ受け口の枠を光らせる) */
   const [dragOver, setDragOver] = useState(false);
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
+  const [sortKey, setSortKey] = useState<"name" | "type" | "duration" | "size">("name");
+  const [sortAsc, setSortAsc] = useState(true);
+  const [fileSizes, setFileSizes] = useState<Record<string, number>>({});
+  const [fileDurations, setFileDurations] = useState<Record<string, number>>({});
   const dragDepth = useRef(0); // dragenter/leave が子要素で何度も届くのを相殺
 
   const onZoneDragOver = (e: ReactDragEvent) => {
@@ -166,6 +294,105 @@ export const MaterialsPanel = ({
     onDragBegin(file);
   };
   const materialCount = materials.length + hyperframes.length + (authorPendingName ? 1 : 0);
+  const materialFiles = useMemo(
+    () => [
+      ...materials,
+      ...hyperframes.flatMap((card) => (card.mp4Path ? [card.mp4Path] : [])),
+    ],
+    [hyperframes, materials],
+  );
+  useEffect(() => {
+    let cancelled = false;
+    const missingSizes = materialFiles.filter((file) => fileSizes[file] === undefined);
+    if (missingSizes.length > 0) {
+      void Promise.all(
+        missingSizes.map(async (file) => {
+          const res = await fetch(`media/${file}`, { method: "HEAD" }).catch(() => null);
+          const size = Number(res?.headers.get("content-length") ?? NaN);
+          return Number.isFinite(size) ? [file, size] as const : null;
+        }),
+      ).then((entries) => {
+        if (cancelled) return;
+        const next: Record<string, number> = {};
+        for (const entry of entries) if (entry) next[entry[0]] = entry[1];
+        if (Object.keys(next).length > 0) setFileSizes((prev) => ({ ...prev, ...next }));
+      });
+    }
+    const missingDurations = materialFiles.filter((file) => fileDurations[file] === undefined);
+    if (missingDurations.length > 0) {
+      void Promise.all(
+        missingDurations.map(
+          (file) =>
+            new Promise<readonly [string, number] | null>((resolve) => {
+              const media = document.createElement(/\.(mp3|m4a|wav|aac|ogg|flac)$/i.test(file) ? "audio" : "video");
+              media.preload = "metadata";
+              media.onloadedmetadata = () =>
+                resolve(Number.isFinite(media.duration) ? [file, media.duration] as const : null);
+              media.onerror = () => resolve(null);
+              media.src = `media/${file}`;
+            }),
+        ),
+      ).then((entries) => {
+        if (cancelled) return;
+        const next: Record<string, number> = {};
+        for (const entry of entries) if (entry) next[entry[0]] = entry[1];
+        if (Object.keys(next).length > 0) setFileDurations((prev) => ({ ...prev, ...next }));
+      });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [fileDurations, fileSizes, materialFiles]);
+  const compareName = (a: string, b: string) =>
+    a.replace(/^materials\//, "").localeCompare(b.replace(/^materials\//, ""));
+  const fileTypeRank = (file: string) => {
+    if (/\.(mp3|m4a|wav|aac|ogg|flac)$/i.test(file)) return 2;
+    if (VIDEO_EXT_RE.test(file)) return 1;
+    return 0;
+  };
+  const sortedHyperframes = useMemo(
+    () =>
+      [...hyperframes].sort((a, b) => {
+        const direction = sortAsc ? 1 : -1;
+        const fileA = a.mp4Path ?? "";
+        const fileB = b.mp4Path ?? "";
+        const primary =
+          sortKey === "duration"
+            ? (fileDurations[fileA] ?? 0) - (fileDurations[fileB] ?? 0)
+            : sortKey === "size"
+              ? (fileSizes[fileA] ?? 0) - (fileSizes[fileB] ?? 0)
+              : sortKey === "type"
+                ? fileTypeRank(fileA) - fileTypeRank(fileB)
+                : a.name.localeCompare(b.name);
+        return (primary || a.name.localeCompare(b.name)) * direction;
+      }),
+    [fileDurations, fileSizes, hyperframes, sortAsc, sortKey],
+  );
+  const sortedMaterials = useMemo(
+    () => {
+      const direction = sortAsc ? 1 : -1;
+      return [...materials].sort((a, b) => {
+        const primary =
+          sortKey === "type"
+            ? fileTypeRank(a) - fileTypeRank(b)
+            : sortKey === "duration"
+              ? (fileDurations[a] ?? 0) - (fileDurations[b] ?? 0)
+              : sortKey === "size"
+                ? (fileSizes[a] ?? 0) - (fileSizes[b] ?? 0)
+            : compareName(a, b);
+        return (primary || compareName(a, b)) * direction;
+      });
+    },
+    [fileDurations, fileSizes, materials, sortAsc, sortKey],
+  );
+  const sortLabel =
+    sortKey === "type"
+      ? "Type"
+      : sortKey === "duration"
+        ? "Duration"
+        : sortKey === "size"
+          ? "File size"
+          : "Name";
   return (
     <div
       className={`matPanel ocMaterialsPanel${dragOver ? " dragOver" : ""}`}
@@ -179,103 +406,114 @@ export const MaterialsPanel = ({
           ここにドロップして素材を追加
         </div>
       )}
-      <div className="panelHead materialPanelHead">
-        <span className="dim">素材 {materialCount} 件</span>
-        {hyperframesLoading && <span className="materialLoading">更新中…</span>}
-        <div className="materialHeadActions">
-          <Button
-            variant="outline"
-            size="sm"
-            className="materialAction"
-            disabled={busy}
-            onClick={onUploadClick}
-          >
-            <Upload size={13} aria-hidden />
-            素材を読み込む…
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            className="materialAction aiMaterialAction"
-            disabled={busy || !!hyperframeAuthorDisabledReason}
-            title={
-              authorPendingName
-                ? `AI が素材「${authorPendingName}」を作成中…`
-                : hyperframeAuthorDisabledReason ?? "AI で新しい素材を作る"
-            }
-            onClick={onNewHyperframe}
-          >
-            {authorPendingName && (
-              <img className="aiAuthorPendingIcon" src="/particle_loop_icon.svg" alt="" />
-            )}
-            {!authorPendingName && <Sparkles size={13} aria-hidden />}
-            AI で素材を作る…
-          </Button>
-        </div>
-      </div>
+      <PanelHeader
+        title="素材"
+        actions={
+          <>
+            {hyperframesLoading && <span className="materialLoading">更新中…</span>}
+            <button
+              type="button"
+              className="ocMaterialHeaderIcon"
+              aria-label={viewMode === "grid" ? "リスト表示に切り替え" : "グリッド表示に切り替え"}
+              title={viewMode === "grid" ? "リスト表示" : "グリッド表示"}
+              aria-pressed={viewMode === "list"}
+              onClick={() => setViewMode((mode) => (mode === "grid" ? "list" : "grid"))}
+            >
+              {viewMode === "grid" ? (
+                <LayoutGrid size={14} strokeWidth={1.75} aria-hidden />
+              ) : (
+                <List size={14} strokeWidth={1.75} aria-hidden />
+              )}
+            </button>
+            <div className="ocMaterialSortWrap">
+              <button
+                type="button"
+                className="ocMaterialHeaderIcon"
+                aria-label="並び替え"
+                title="並び替え"
+                aria-expanded={sortMenuOpen}
+                onClick={() => setSortMenuOpen((v) => !v)}
+              >
+                <ArrowDownUp size={14} strokeWidth={1.75} aria-hidden />
+              </button>
+              {sortMenuOpen && (
+                <div className="ocMaterialSortMenu" role="menu">
+                  {([
+                    ["name", `Name ${sortKey === "name" && sortAsc ? "↑" : ""}`],
+                    ["type", "Type"],
+                    ["duration", "Duration"],
+                    ["size", "File size"],
+                  ] as const).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        if (sortKey === key) setSortAsc((v) => !v);
+                        else {
+                          setSortKey(key);
+                          setSortAsc(true);
+                        }
+                        setSortMenuOpen(false);
+                      }}
+                    >
+                      {sortKey === key && key !== "name" ? `${label}${sortAsc ? " ↑" : " ↓"}` : label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="ocMaterialImport"
+              disabled={busy}
+              onClick={onUploadClick}
+            >
+              <UploadCloud size={13} strokeWidth={1.75} aria-hidden />
+              Import
+            </Button>
+          </>
+        }
+      />
       {hyperframeAuthorDisabledReason && (
         <p className="dim hint materialAuthorGate">{hyperframeAuthorDisabledReason}</p>
       )}
       {hyperframesError && <p className="materialError materialListError">{hyperframesError}</p>}
       {materialCount === 0 ? (
-        <EmptyState
-          icon={<Images size={20} />}
-          title="最初の素材を追加"
-          description="ファイルを読み込むか、AI で新しい素材を作成できます。ここへドラッグ&ドロップしても追加できます。"
-          actions={(
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={busy}
-                onClick={onUploadClick}
-              >
-                <Upload size={13} aria-hidden />
-                素材を読み込む…
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={busy || !!hyperframeAuthorDisabledReason}
-                title={
-                  authorPendingName
-                    ? `AI が素材「${authorPendingName}」を作成中…`
-                    : hyperframeAuthorDisabledReason ?? "AI で新しい素材を作る"
-                }
-                onClick={onNewHyperframe}
-              >
-                <Sparkles size={13} aria-hidden />
-                AI で素材を作る…
-              </Button>
-            </>
-          )}
-        />
+        <button
+          type="button"
+          className="ocMaterialEmptyDrop"
+          disabled={busy}
+          onClick={onUploadClick}
+        >
+          <UploadCloud size={34} strokeWidth={1.75} aria-hidden />
+          <span>Drag and drop videos, photos, and audio files here</span>
+        </button>
       ) : (
-        <div className="matGrid">
+        <div className={`matGrid ${viewMode}`} aria-label={`${sortLabel}${sortAsc ? " ascending" : " descending"}`}>
           {authorPendingName && (
-            <div
+            <DraggableItem
               className="matCard aiMaterialCard"
-              aria-live="polite"
+              ariaLive="polite"
               title={`AI が素材「${authorPendingName}」を作成中…(通常1〜2分)`}
-            >
-              <div className="materialThumbWrap">
+              preview={
                 <div className="matThumb aiMaterialPending" aria-hidden>
                   <img src="/particle_loop_icon.svg" alt="" />
                 </div>
-              </div>
-              <div className="matName" title={authorPendingName}>
-                {midTrunc(authorPendingName)}
-              </div>
-            </div>
+              }
+              name={midTrunc(authorPendingName)}
+              nameTitle={authorPendingName}
+            />
           )}
-          {hyperframes.map((card) => {
+          {sortedHyperframes.map((card) => {
             const file = card.mp4Path;
             const badCodec = file ? mediaCodecFacts[file] : undefined;
             const isRendering = hyperframeRendering === card.name;
             const needsUpdate = card.htmlExists && (!card.rendered || card.stale);
             const inlineError = hyperframeErrors[card.name] ?? card.error;
             return (
-              <div
+              <DraggableItem
                 className={`matCard aiMaterialCard${file ? " rendered" : ""}`}
                 key={`generated:${card.name}`}
                 draggable={!!file && !busy}
@@ -294,11 +532,8 @@ export const MaterialsPanel = ({
                   generatedName: card.name,
                   canRebuild: card.htmlExists,
                 })}
-                onMouseEnter={playTileVideo}
-                onMouseLeave={pauseTileVideo}
-              >
-                <div className="materialThumbWrap">
-                  {file ? (
+                preview={
+                  file ? (
                     badCodec ? (
                       <div
                         className="matThumb matThumbUnplayable"
@@ -320,39 +555,48 @@ export const MaterialsPanel = ({
                     )
                   ) : (
                     <div className="matThumb aiMaterialPlaceholder" aria-hidden>✨</div>
-                  )}
-                  <span className="aiMaterialChip" title="AI で生成した素材">AI</span>
-                  {needsUpdate && (
-                    <button
-                      className="aiMaterialUpdateBadge"
-                      disabled={!card.htmlExists || busy || hyperframeRendering !== null}
-                      title="押すと素材を作り直します"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onRenderHyperframe(card.name);
-                      }}
-                    >
-                      要更新
-                    </button>
-                  )}
-                  {isRendering && (
-                    <span className="aiMaterialBusy" role="status" aria-label="作り直し中">
-                      <span className="aiMaterialSpinner" aria-hidden />
-                    </span>
-                  )}
-                </div>
-                <div className="matName" title={card.name}>{midTrunc(card.name)}</div>
-                {inlineError && <p className="materialError">{inlineError}</p>}
-              </div>
+                  )
+                }
+                overlay={
+                  <>
+                    <span className="aiMaterialChip" title="AI で生成した素材">AI</span>
+                    {needsUpdate && (
+                      <button
+                        className="aiMaterialUpdateBadge"
+                        disabled={!card.htmlExists || busy || hyperframeRendering !== null}
+                        title="押すと素材を作り直します"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onRenderHyperframe(card.name);
+                        }}
+                      >
+                        要更新
+                      </button>
+                    )}
+                    {isRendering && (
+                      <span className="aiMaterialBusy" role="status" aria-label="作り直し中">
+                        <span className="aiMaterialSpinner" aria-hidden />
+                      </span>
+                    )}
+                  </>
+                }
+                onAdd={file ? () => {
+                  if (!busy) onPlace(file);
+                } : undefined}
+                addLabel={`${card.name} を配置`}
+                name={midTrunc(card.name)}
+                nameTitle={card.name}
+                footer={inlineError ? <p className="materialError">{inlineError}</p> : undefined}
+              />
             );
           })}
-          {materials.map((m) => {
+          {sortedMaterials.map((m) => {
             const name = m.replace(/^materials\//, "");
             const isVideo = VIDEO_EXT_RE.test(m);
             const isAudio = /\.(mp3|m4a|wav|aac|ogg|flac)$/i.test(m);
             const badCodec = mediaCodecFacts[m]; // undefined = 表示可能 or 未判定
             return (
-              <div
+              <DraggableItem
                 className="matCard"
                 key={m}
                 draggable
@@ -366,54 +610,57 @@ export const MaterialsPanel = ({
                 onDragEnd={onDragEnd}
                 onDoubleClick={() => !busy && onPlace(m)}
                 onContextMenu={(e) => openMenu(e, { file: m })}
-                onMouseEnter={playTileVideo}
-                onMouseLeave={pauseTileVideo}
-              >
-                {isVideo ? (
-                  badCodec ? (
-                    // codec が非対応=<video> は空のまま映る(ブラウザに
-                    // デコーダが無い)ので、空サムネの代わりに明示プレースホルダ。
-                    // ドラッグ・配置は従来どおり可能(最終レンダーには
-                    // 問題なく使える素材=disabled にはしない)
+                preview={
+                  isVideo ? (
+                    badCodec ? (
+                      // codec が非対応=<video> は空のまま映る(ブラウザに
+                      // デコーダが無い)ので、空サムネの代わりに明示プレースホルダ。
+                      // ドラッグ・配置は従来どおり可能(最終レンダーには
+                      // 問題なく使える素材=disabled にはしない)
+                      <div
+                        className="matThumb matThumbUnplayable"
+                        aria-label={badCodec.reason}
+                        title={badCodec.reason}
+                      >
+                        <span>プレビュー不可</span>
+                        <span className="dim">{badCodec.codec.toUpperCase()}</span>
+                      </div>
+                    ) : (
+                      <video
+                        className="matThumb"
+                        src={`media/${m}`}
+                        preload="metadata"
+                        muted
+                        playsInline
+                        onLoadedMetadata={onVideoMetadata}
+                      />
+                    )
+                  ) : isAudio ? (
+                    // 音声はサムネイルが無いので種別アイコンを出す(BGM トラックへ
+                    // ドラッグして使う)
                     <div
-                      className="matThumb matThumbUnplayable"
-                      aria-label={badCodec.reason}
-                      title={badCodec.reason}
+                      className="matThumb"
+                      aria-label="音声ファイル"
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 22,
+                        opacity: 0.5,
+                      }}
                     >
-                      <span>プレビュー不可</span>
-                      <span className="dim">{badCodec.codec.toUpperCase()}</span>
+                      ♪
                     </div>
                   ) : (
-                    <video
-                      className="matThumb"
-                      src={`media/${m}`}
-                      preload="metadata"
-                      muted
-                      playsInline
-                      onLoadedMetadata={onVideoMetadata}
-                    />
+                    <img className="matThumb" src={`media/${m}`} alt={name} loading="lazy" />
                   )
-                ) : isAudio ? (
-                  // 音声はサムネイルが無いので種別アイコンを出す(BGM トラックへ
-                  // ドラッグして使う)
-                  <div
-                    className="matThumb"
-                    aria-label="音声ファイル"
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: 22,
-                      opacity: 0.5,
-                    }}
-                  >
-                    ♪
-                  </div>
-                ) : (
-                  <img className="matThumb" src={`media/${m}`} alt={name} loading="lazy" />
-                )}
-                <div className="matName">{midTrunc(name)}</div>
-              </div>
+                }
+                onAdd={() => {
+                  if (!busy) onPlace(m);
+                }}
+                addLabel={`${name} を配置`}
+                name={midTrunc(name)}
+              />
             );
           })}
         </div>
@@ -498,7 +745,6 @@ export const MaterialsPanel = ({
 export const CaptionsPanel = ({
   transcript,
   overlays,
-  capTracks,
   selectedIndex,
   multiSelected,
   onRowClick,
@@ -508,8 +754,6 @@ export const CaptionsPanel = ({
 }: {
   transcript: Transcript;
   overlays: Overlays;
-  /** テロップトラックの本数(2本以上のときだけトラック名を出す) */
-  capTracks: number;
   /** 選択中のテロップ(transcript.segments の添字)。テロップ以外の選択は null */
   selectedIndex: number | null;
   /** 複数選択中のテロップ(2件以上のときだけ) */
@@ -528,7 +772,15 @@ export const CaptionsPanel = ({
     selRef.current?.scrollIntoView({ block: "nearest" });
   }, [selectedIndex]);
 
-  if (transcript.segments.length === 0) {
+  // 「章」トラック(overlays.captionTracks の name === "章")は章タイトルの
+  // カード専用で、通常のテロップとは役割が別なのでこのタブには出さない
+  // (章の内容は「設定」→章、または chapters.json で編集する)
+  const chapterTrack = overlays.captionTracks?.find((t) => t.name === "章")?.track;
+  const rows = transcript.segments
+    .map((s, i) => ({ s, i }))
+    .filter(({ s }) => captionTrack(s) !== chapterTrack);
+
+  if (rows.length === 0) {
     return (
       <EmptyState
         icon={<Captions size={20} />}
@@ -539,7 +791,7 @@ export const CaptionsPanel = ({
   }
   return (
     <div className="capList">
-      {transcript.segments.map((s, i) => {
+      {rows.map(({ s, i }) => {
         const sel = i === selectedIndex || multiSelected.includes(i);
         return (
           <div
@@ -553,11 +805,6 @@ export const CaptionsPanel = ({
             <div className="capRowMeta mono">
               <span>{fmtTime(s.start)}</span>
               <span className="dim">→ {fmtTime(s.end)}</span>
-              {capTracks > 1 && (
-                <span className="capTrackBadge">
-                  {captionTrackName(captionTrack(s), overlays, capTracks)}
-                </span>
-              )}
             </div>
             <textarea
               className="capEdit"
@@ -602,13 +849,10 @@ export const ShortsPanel = ({
   const list = shorts?.shorts ?? [];
   return (
     <div className="shortsPanel">
-      <div className="panelHead">
-        <span className="dim">ショート {list.length} 件</span>
-        <span className="spacer" />
-        <button className="icon" onClick={onAdd}>
-          ＋ ショートを追加
-        </button>
-      </div>
+      <PanelHeader
+        title={`${list.length} 件`}
+        actions={<button className="icon" onClick={onAdd}>＋ ショートを追加</button>}
+      />
       {list.length === 0 ? (
         <EmptyState
           icon={<Scissors size={20} />}
@@ -1051,6 +1295,63 @@ export const ScriptPanel = ({
   );
 };
 
+/** 左レール「設定」タブ。OpenCut の Settings(Project info)相当。ただし本編の
+ * 解像度・アスペクト比・fps は収録で決まるため読み取り専用で表示する
+ * (縦・別アスペクトはショートで作る)。詳細な編集は既存の設定モーダルを開く。 */
+export const SettingsPanel = ({
+  projectName,
+  output,
+  fps,
+  shortsCount,
+  onOpenFullSettings,
+  onGoShorts,
+}: {
+  /** プロジェクト名(収録フォルダ名) */
+  projectName: string;
+  /** 最終レンダー出力の解像度(px) */
+  output: { w: number; h: number };
+  /** 合成 fps(整数) */
+  fps: number;
+  /** 定義済みショート数(縦動画への導線用) */
+  shortsCount: number;
+  /** 既存の設定モーダルを開く */
+  onOpenFullSettings: () => void;
+  /** ショートタブへ切り替える */
+  onGoShorts: () => void;
+}) => {
+  const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+  const g = output.w > 0 && output.h > 0 ? gcd(output.w, output.h) : 1;
+  const ratio = g > 0 ? `${Math.round(output.w / g)}:${Math.round(output.h / g)}` : "—";
+  return (
+    <div className="panelBody ocSettingsPanel">
+      <div className="ocSettingsRow">
+        <span className="ocSettingsLabel">プロジェクト名</span>
+        <span className="ocSettingsValue" title={projectName}>{projectName}</span>
+      </div>
+      <div className="ocSettingsRow">
+        <span className="ocSettingsLabel">解像度</span>
+        <span className="ocSettingsValue mono">{output.w}×{output.h}</span>
+      </div>
+      <div className="ocSettingsRow">
+        <span className="ocSettingsLabel">アスペクト比</span>
+        <span className="ocSettingsValue mono">{ratio}</span>
+      </div>
+      <div className="ocSettingsRow">
+        <span className="ocSettingsLabel">フレームレート</span>
+        <span className="ocSettingsValue mono">{fps} fps</span>
+      </div>
+      <p className="ocPaneNote">
+        解像度・アスペクト比・fps は収録(録画)で決まり、本編では変更できません。
+        縦動画や別アスペクトは「ショート」で作成します({shortsCount} 件)。
+      </p>
+      <div className="ocPaneStack">
+        <Button variant="outline" size="sm" onClick={onGoShorts}>ショートを開く</Button>
+        <Button variant="outline" size="sm" onClick={onOpenFullSettings}>詳細設定を開く…</Button>
+      </div>
+    </div>
+  );
+};
+
 /** 左パネル: 全編一律カラー調整(overlays.colorFilter)。P7.3a で追加した
  * この機能の最初の UI。かかるのはベース映像(画面+カメラ)だけで、
  * 素材・挿入には効かない */
@@ -1104,11 +1405,26 @@ export const EffectsPanel = ({
   onAdd: (kind: "zoom" | "blur" | "annotation") => void;
 }) => (
   <div className="panelBody ocLauncherPanel">
-    <div className="ocPaneAction ocPaneStack">
-      <Button variant="secondary" size="sm" onClick={() => onAdd("zoom")}>ズームを追加</Button>
-      <Button variant="secondary" size="sm" onClick={() => onAdd("blur")}>ぼかしを追加</Button>
-      <Button variant="secondary" size="sm" onClick={() => onAdd("annotation")}>注釈を追加</Button>
-    </div>
+    <ul className="ocLauncherList">
+      <li>
+        <button type="button" className="ocLauncherItem" onClick={() => onAdd("zoom")}>
+          <ZoomIn size={15} strokeWidth={1.75} />
+          <span>ズームを追加</span>
+        </button>
+      </li>
+      <li>
+        <button type="button" className="ocLauncherItem" onClick={() => onAdd("blur")}>
+          <EyeOff size={15} strokeWidth={1.75} />
+          <span>ぼかしを追加</span>
+        </button>
+      </li>
+      <li>
+        <button type="button" className="ocLauncherItem" onClick={() => onAdd("annotation")}>
+          <MessageSquareText size={15} strokeWidth={1.75} />
+          <span>注釈を追加</span>
+        </button>
+      </li>
+    </ul>
     <p className="ocPaneNote">
       位置・種別・サイズは追加後にインスペクタで調整します。AI にまとめて演出させるには
       ターミナルで <code>node src/cli.ts plan-effects &lt;dir&gt;</code>。
@@ -1117,16 +1433,21 @@ export const EffectsPanel = ({
 );
 
 /** 左レール「トランジション」タブ。既存の wipeFull 追加を再生ヘッド位置へ
- * 薄く呼び出すだけの起動ボタン */
+ * 薄く呼び出すだけの起動リスト */
 export const TransitionsPanel = ({
   onAddWipe,
 }: {
   onAddWipe: () => void;
 }) => (
   <div className="panelBody ocLauncherPanel">
-    <div className="ocPaneAction">
-      <Button variant="secondary" size="sm" onClick={onAddWipe}>ワイプを再生位置に追加</Button>
-    </div>
+    <ul className="ocLauncherList">
+      <li>
+        <button type="button" className="ocLauncherItem" onClick={onAddWipe}>
+          <ArrowLeftRight size={15} strokeWidth={1.75} />
+          <span>ワイプを再生位置に追加</span>
+        </button>
+      </li>
+    </ul>
     <p className="ocPaneNote">
       入り/戻りの遷移秒はインスペクタで調整。フェードは各素材・挿入クリップの
       fadeIn/Out で設定します。

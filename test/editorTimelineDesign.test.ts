@@ -13,7 +13,7 @@ test("P3 adds one scoped root while preserving Timeline semantic hooks", () => {
     "tlToolbar", "tlTool", "tlSnap", "tlZoom", "zoomSlider", "tlBody",
     "tlLabels", "tlRulerSpacer", "tlLabelScroll", "tlLabel", "tlResize",
     "tlRename", "trackEye", "trackMute", "trackDel", "grip", "tlScroll",
-    "tlContent", "tlRuler", "tlTick", "tlTrack", "tlClip", "tlWave",
+    "tlContent", "tlRuler", "tlTick", "tlTickLabel", "tlTrack", "tlClip", "tlWave",
     "tlEdge", "tlClipLabel", "tlCutMark", "tlGhost", "tlDropGhost",
     "tlSnapLine", "tlPlayhead", "tlPlayheadCap",
   ]) assert.ok(timeline.includes(hook), `lost Timeline semantic hook ${hook}`);
@@ -25,8 +25,10 @@ test("P3 preserves output-time geometry, ruler math, row geometry, and virtualiz
     "const pps = fitPps * zoom",
     "const totalW = Math.max(viewW, Math.ceil(duration * pps))",
     "return Math.min(Math.max(x / pps, 0), duration)",
-    "const RULER_H = 24",
-    "Math.min(ROW_H_MAX, Math.max(ROW_H_MIN, trackHeights[id] ?? ROW_H))",
+    "const RULER_H = 22",
+    "const TRACK_GAP = 6",
+    "const base = trackHeightFor(id)",
+    "Math.min(ROW_H_MAX, Math.max(base, trackHeights[id] ?? base))",
     "left: clip.outStart * pps",
     "width: Math.max(6, (clip.outEnd - clip.outStart) * pps)",
     "left: m.out * pps + m.stack * 10",
@@ -69,18 +71,19 @@ test("P3 preserves pointer, drag, resize, create, select, drop, and keyboard han
 test("P3 keeps toolbar actions, state affordances, and their titles", () => {
   const timeline = read("editor/client/Timeline.tsx");
   for (const action of [
-    "onAddTrack(kind)", "onUndo", "onRedo", "onSplit", "onDelete",
+    "onUndo", "onRedo", "onSplit", "onDelete",
     "setSnapOn((v) => !v)", "applyZoom(1 / 1.5)", "setZoomTo(2 ** Number(e.target.value))",
     "applyZoom(0)", "applyZoom(1.5)", "onToggleTrackHide(t.layer as LayerId)",
     "onToggleTrackMute(audio)", "onRemoveTrack(t.id)", "onRenameTrack(t.renamableCaption as number, renaming.value)",
     "onSelectCaptionTrack(t.renamableCaption)",
   ]) assert.ok(timeline.includes(action), `lost action ${action}`);
   for (const title of [
-    "トラックを追加(種類を選択)", "元に戻す (⌘Z)", "やり直す (⇧⌘Z)",
+    "元に戻す (⌘Z)", "やり直す (⇧⌘Z)",
     "再生ヘッド位置でクリップを分割", "選択中のクリップを削除",
     "吸着(ドロップ・クリップの移動・左右トリムで", "縮小(⌘+スクロールでも可)",
     "拡大(⌘+スクロールでも可)", "ドラッグでトラックの高さを変更",
   ]) assert.ok(timeline.includes(title), `lost title ${title}`);
+  assert.doesNotMatch(timeline, /onAddTrack|addMenuOpen|トラックを追加\(種類を選択\)/);
 });
 
 test("P3 styles every CutFlow clip family and all timeline states inside its scope", () => {
@@ -89,9 +92,10 @@ test("P3 styles every CutFlow clip family and all timeline states inside its sco
     "cut", "insert", "caption", "wipe", "wipeFull", "zoom", "blur",
     "annotation", "bgm", "short",
   ]) assert.ok(css.includes(`.ocTimeline .tlClip.${kind}`), `missing clip skin ${kind}`);
-  // Overlay clips retain the existing per-track inline OV_COLORS mapping.
+  // Overlay clips use the OpenCut graphic type color, not per-track inline OV_COLORS.
   const timeline = read("editor/client/Timeline.tsx");
-  assert.match(timeline, /clip\.kind === "overlays"[\s\S]*background: ovColor\(clip\.track\)/);
+  assert.doesNotMatch(timeline, /ovColor|OV_COLORS|background: ovColor/);
+  assert.ok(css.includes(".ocTimeline .tlClip.overlays { background: #BA5D7A; }"));
   for (const state of [
     ".tlClip:hover:not(.static)", ".tlClip.sel", ".tlLabel:hover", ".tlLabel.sel",
     ".tlLabel .trackMute.muted", ".tlLabel .trackEye.off", ".tlTrack.layerHidden .tlClip",
@@ -125,9 +129,26 @@ test("P6.6 timeline parity: playhead primary+round, clip rounded-sm + single pri
   const css = read("editor/client/styles.css");
   assert.match(css, /\.ocTimeline \.tlPlayhead \{[\s\S]*background: hsl\(var\(--oc-primary\)\)/);
   assert.match(css, /\.ocTimeline \.tlPlayheadCap \{[\s\S]*border-radius: 50%[\s\S]*clip-path: none/);
-  assert.match(css, /\.ocTimeline \.tlClip \{[\s\S]*border-radius: 0\.2rem/);
+  assert.match(css, /\.ocTimeline \.tlClip \{[\s\S]*border-radius: 0\.125rem/);
   assert.match(css, /\.ocTimeline \.tlClip\.sel \{[\s\S]*box-shadow: 0 0 0 1\.5px hsl\(var\(--oc-primary\)\)/);
   assert.match(css, /\.ocTimeline \.tlZoom \{[\s\S]*border: none/);
+});
+
+test("P6.6 timeline parity uses OpenCut row/ruler constants and content-gated tracks", () => {
+  const app = read("editor/client/App.tsx");
+  const model = read("editor/client/model.ts");
+  const timeline = read("editor/client/Timeline.tsx");
+  const css = read("editor/client/styles.css");
+
+  assert.match(model, /TRACK_H = \{ video: 65, audio: 50, text: 25, effect: 25 \}/);
+  assert.match(model, /export const trackHeightFor = \(id: TrackId\): number =>/);
+  assert.match(app, /const visibleTracks = useMemo\(\(\) => \{[\s\S]*t\.id === "cut"[\s\S]*occupied\.has\(t\.id\)/);
+  assert.match(app, /tracks=\{visibleTracks\}/);
+  assert.match(timeline, /const RULER_H = 22/);
+  assert.match(timeline, /const TRACK_GAP = 6/);
+  assert.match(css, /--tl-ruler-h: 22px;/);
+  assert.match(css, /--tl-track-gap: 6px;/);
+  assert.doesNotMatch(css, /\.ocTimeline \.tlTrack:nth-child\(odd\)/);
 });
 
 test("P7.4c material overlays with volume>0 get an in-clip waveform", () => {

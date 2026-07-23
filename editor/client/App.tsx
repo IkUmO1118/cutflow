@@ -46,6 +46,8 @@ import {
   captionStyleOf,
   captionTrack,
   captionTrackName,
+  defaultLayerOrder,
+  manifestCompositionFps,
   ovId,
   ovNum,
   overlayTrack,
@@ -101,7 +103,9 @@ import {
   CaptionsPanel,
   EffectsPanel,
   MaterialsPanel,
+  PanelHeader,
   ScriptPanel,
+  SettingsPanel,
   ShortsPanel,
   TransitionsPanel,
 } from "./Panels.tsx";
@@ -154,24 +158,23 @@ import {
 } from "./components/ui/tooltip.tsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs.tsx";
 import {
-  AudioLines,
-  Blend,
   ChevronDown,
+  ChevronsRight,
   Captions,
   Download,
   FileText,
-  LibraryBig,
+  Folder,
+  Headphones,
   Monitor,
   Moon,
   PanelBottom,
   PanelLeft,
   PanelRight,
-  Plus,
   Settings,
   Sparkles,
   Smartphone,
   SlidersHorizontal,
-  Sticker,
+  Smile,
   Sun,
   Wand2,
 } from "lucide-react";
@@ -435,27 +438,30 @@ const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
  * ライブラリとインスペクタで枠を奪い合わない) */
 const PANEL_TABS = [
   ["materials", "素材"],
+  ["sounds", "サウンド"],
   ["script", "スクリプト"],
   ["captions", "テロップ"],
-  ["shorts", "ショート"],
-  ["adjust", "色調整"],
+  ["stickers", "ステッカー"],
   ["effects", "エフェクト"],
   ["transitions", "トランジション"],
-  ["sounds", "サウンド"],
-  ["stickers", "ステッカー"],
+  ["adjust", "色調整"],
+  ["shorts", "ショート"],
+  ["settings", "設定"],
 ] as const;
 type PanelTab = (typeof PANEL_TABS)[number][0];
 
 const PanelTabIcon = ({ tab }: { tab: PanelTab }) => {
-  if (tab === "materials") return <LibraryBig size={17} aria-hidden />;
-  if (tab === "script") return <FileText size={17} aria-hidden />;
-  if (tab === "captions") return <Captions size={17} aria-hidden />;
-  if (tab === "adjust") return <SlidersHorizontal size={17} aria-hidden />;
-  if (tab === "effects") return <Wand2 size={17} aria-hidden />;
-  if (tab === "transitions") return <Blend size={17} aria-hidden />;
-  if (tab === "sounds") return <AudioLines size={17} aria-hidden />;
-  if (tab === "stickers") return <Sticker size={17} aria-hidden />;
-  return <Smartphone size={17} aria-hidden />;
+  const p = { size: 16, strokeWidth: 1.5, "aria-hidden": true } as const;
+  if (tab === "materials") return <Folder {...p} />;
+  if (tab === "sounds") return <Headphones {...p} />;
+  if (tab === "script") return <FileText {...p} />;
+  if (tab === "captions") return <Captions {...p} />;
+  if (tab === "stickers") return <Smile {...p} />;
+  if (tab === "effects") return <Wand2 {...p} />;
+  if (tab === "transitions") return <ChevronsRight {...p} />;
+  if (tab === "adjust") return <SlidersHorizontal {...p} />;
+  if (tab === "shorts") return <Smartphone {...p} />;
+  return <Settings {...p} />;
 };
 
 const THEME_PREFERENCES: ThemePreference[] = ["system", "light", "dark"];
@@ -1911,6 +1917,21 @@ export const App = () => {
     shortMode, activeShort, shortTimelineMemo,
   ]);
 
+  /** タイムラインに実際に見せるトラック。映像(cut)は常時、他は要素が1つでもある
+   * または「今インスペクタで編集中のテロップトラック」だけ表示(OpenCut 流)。 */
+  const visibleTracks = useMemo(() => {
+    if (shortMode) return timelineTracks;
+    const occupied = new Set(clips.map((c) => c.track));
+    return timelineTracks.filter(
+      (t) =>
+        t.id === "cut" ||
+        occupied.has(t.id) ||
+        (t.renamableCaption !== undefined &&
+          selection?.kind === "captionTrack" &&
+          selection.index === t.renamableCaption),
+    );
+  }, [timelineTracks, clips, shortMode, selection]);
+
   /* ---------------- カット編集(分割・keep⇄cut・復元) ----------------
    * cut 区間は削除せず記録として残す(plan の候補と同じ扱い)。だから
    * どの操作も可逆で、映像トラックの継ぎ目の印からいつでも戻せる。 */
@@ -2987,7 +3008,21 @@ export const App = () => {
       ...(overlays.overlays ?? []),
       { start, end, file: f, ...(track > 1 ? { track } : {}) },
     ];
-    setOverlays({ ...overlays, overlays: list });
+    if (track > ovTracks) {
+      const order = !overlays.layerOrder || overlays.layerOrder.length === 0
+        ? defaultLayerOrder(track)
+        : [...layerOrder];
+      if (overlays.layerOrder && overlays.layerOrder.length > 0) {
+        const topIdx = order.reduce((top, id, i) => (ovNum(id) !== null ? i : top), 0);
+        for (let n = ovTracks + 1; n <= track; n++) {
+          const id = ovId(n);
+          if (!order.includes(id)) order.splice(topIdx + n - ovTracks, 0, id);
+        }
+      }
+      setOverlays(withLayerOrder({ ...overlays, overlays: list }, order));
+    } else {
+      setOverlays({ ...overlays, overlays: list });
+    }
     setSelection({ kind: "overlays", index: list.length - 1 });
   };
   /** BGM 区間を1つ追加(元収録の秒)。file 省略時は既存の BGM /
@@ -4491,6 +4526,7 @@ export const App = () => {
     file: string,
     at: { track: TrackId; outT: number } | null,
     mode: "overlay" | "insert" | "bgm",
+    options?: { createOverlayTrack?: boolean },
   ) => {
     const dur = await probeMaterialDuration(file);
     if (mode === "insert") {
@@ -4512,7 +4548,10 @@ export const App = () => {
     const outT = at?.outT ?? playhead.get();
     const s = srcAt(outT);
     if (s === null) return;
-    const track = (at ? ovNum(at.track) : null) ?? ovTracks; // 既定は一番手前
+    const nextOccupiedOverlayTrack = Math.max(0, ...(overlays?.overlays ?? []).map(overlayTrack)) + 1;
+    const track = options?.createOverlayTrack && !at
+      ? nextOccupiedOverlayTrack
+      : (at ? ovNum(at.track) : null) ?? ovTracks; // 既定は一番手前
     addOverlaySpan(round2(s), round2(Math.min(s + (dur ?? defaultImgSec), srcDur)), track, file);
   };
 
@@ -5509,7 +5548,7 @@ export const App = () => {
               <Tooltip key={id}>
                 <TooltipTrigger asChild>
                   <Button
-                    variant="ghost"
+                    variant={tab === id ? "secondary" : "ghost"}
                     size="icon"
                     role="tab"
                     className={tab === id ? "active" : ""}
@@ -5547,7 +5586,12 @@ export const App = () => {
                 onUploadClick={onUploadClick}
                 onUploadFiles={(files) => void uploadOnly(files)}
                 onPlace={(f) =>
-                  void placeMaterial(f, null, AUDIO_ONLY_RE.test(f) ? "bgm" : "overlay")
+                  void placeMaterial(
+                    f,
+                    null,
+                    AUDIO_ONLY_RE.test(f) ? "bgm" : "overlay",
+                    AUDIO_ONLY_RE.test(f) ? undefined : { createOverlayTrack: true },
+                  )
                 }
                 onDelete={(f) => void deleteMaterialFile(f)}
                 onDeleteCard={(name) => void deleteHyperframeCard(name)}
@@ -5559,37 +5603,29 @@ export const App = () => {
               />
             )}
             {tab === "script" && (
-              <ScriptPanel
-                script={script}
-                error={scriptError}
-                keeps={shortMode ? shortKeepsMerged : keeps}
-                silences={silenceEvidence}
-                noBridgeSpans={scriptCutSpans}
-                timeline={curTimeline}
-                playing={playing}
-                editable={!shortMode}
-                onSeekSrc={seekToSrc}
-                onCutRange={cutScriptRange}
-                onRestoreRange={restoreScriptRange}
-              />
+              <>
+                <PanelHeader title="スクリプト" />
+                <ScriptPanel
+                  script={script}
+                  error={scriptError}
+                  keeps={shortMode ? shortKeepsMerged : keeps}
+                  silences={silenceEvidence}
+                  noBridgeSpans={scriptCutSpans}
+                  timeline={curTimeline}
+                  playing={playing}
+                  editable={!shortMode}
+                  onSeekSrc={seekToSrc}
+                  onCutRange={cutScriptRange}
+                  onRestoreRange={restoreScriptRange}
+                />
+              </>
             )}
             {tab === "captions" && (
               <>
-                <div className="ocPaneAction">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => addTrack("caption")}
-                    title="テロップトラックを追加"
-                  >
-                    <Plus size={13} aria-hidden />
-                    テロップトラックを追加
-                  </Button>
-                </div>
+                <PanelHeader title="テロップ" />
                 <CaptionsPanel
                   transcript={transcript}
                   overlays={overlays}
-                  capTracks={capTracks}
                   selectedIndex={selection?.kind === "caption" ? selection.index : null}
                   multiSelected={capMulti}
                   onRowClick={(i) => selectCaption(i, true)}
@@ -5613,31 +5649,61 @@ export const App = () => {
               />
             )}
             {tab === "adjust" && (
-              <AdjustmentPanel
-                colorFilter={overlays?.colorFilter}
-                onChange={updateColorFilter}
-                onReset={resetColorFilter}
-              />
+              <>
+                <PanelHeader title="色調整" />
+                <AdjustmentPanel
+                  colorFilter={overlays?.colorFilter}
+                  onChange={updateColorFilter}
+                  onReset={resetColorFilter}
+                />
+              </>
             )}
-            {tab === "effects" && <EffectsPanel onAdd={addAtPlayhead} />}
+            {tab === "effects" && (
+              <>
+                <PanelHeader title="エフェクト" />
+                <EffectsPanel onAdd={addAtPlayhead} />
+              </>
+            )}
             {tab === "transitions" && (
-              <TransitionsPanel onAddWipe={() => addAtPlayhead("wipeFull")} />
+              <>
+                <PanelHeader title="トランジション" />
+                <TransitionsPanel onAddWipe={() => addAtPlayhead("wipeFull")} />
+              </>
             )}
             {tab === "sounds" && (
-              <AssetPickerPanel
-                files={materials.filter((f) => AUDIO_ONLY_RE.test(f))}
-                onPlace={(f) => void placeMaterial(f, null, "bgm")}
-                emptyHint="materials/ に音源(mp3/m4a/wav 等)がありません。"
-                note="ダブルクリックで再生位置に BGM として配置します。"
-              />
+              <>
+                <PanelHeader title="サウンド" />
+                <AssetPickerPanel
+                  files={materials.filter((f) => AUDIO_ONLY_RE.test(f))}
+                  onPlace={(f) => void placeMaterial(f, null, "bgm")}
+                  emptyHint="materials/ に音源(mp3/m4a/wav 等)がありません。"
+                  note="ダブルクリックで再生位置に BGM として配置します。"
+                />
+              </>
             )}
             {tab === "stickers" && (
-              <AssetPickerPanel
-                files={materials.filter((f) => !AUDIO_ONLY_RE.test(f))}
-                onPlace={(f) => void placeMaterial(f, null, "overlay")}
-                emptyHint="materials/ に画像・動画素材がありません。"
-                note="ダブルクリックで再生位置にオーバーレイ素材として配置します。"
-              />
+              <>
+                <PanelHeader title="ステッカー" />
+                <AssetPickerPanel
+                  files={materials.filter((f) => !AUDIO_ONLY_RE.test(f))}
+                  onPlace={(f) => void placeMaterial(f, null, "overlay")}
+                  emptyHint="materials/ に画像・動画素材がありません。"
+                  note="ダブルクリックで再生位置にオーバーレイ素材として配置します。"
+                />
+              </>
+            )}
+            {tab === "settings" && (
+              <>
+                <PanelHeader title="設定" />
+                <SettingsPanel
+                  projectName={proj.dir.replace(/\/+$/, "").split("/").pop() ?? proj.dir}
+                  output={proj.output}
+                  fps={manifestCompositionFps(proj.manifest)}
+                  shortsCount={shorts?.shorts.length ?? 0}
+                  onOpenFullSettings={openSettings}
+                  onGoShorts={() => setTab("shorts")}
+                />
+              </>
             )}
           </div>
               </aside>
@@ -5660,23 +5726,6 @@ export const App = () => {
             >
               <div className="viewerCol panel shellSurface" ref={viewerColRef}>
         <div className="viewer">
-          {proj.proxyExists && (
-            <div className="viewerTools">
-              <NativeSelect
-                className="zoomSel"
-                value={previewZoom === "fit" ? "fit" : String(previewZoom)}
-                title="プレビューの表示倍率(プレビューのみ。書き出し・合成には影響しない)"
-                onChange={(e) =>
-                  setPreviewZoom(e.target.value === "fit" ? "fit" : Number(e.target.value))
-                }
-              >
-                <option value="fit">Fit</option>
-                {PREVIEW_ZOOMS.map((z) => (
-                  <option key={z} value={z}>{Math.round(z * 100)}%</option>
-                ))}
-              </NativeSelect>
-            </div>
-          )}
           {proj.proxyExists ? (
             <div
               className="viewerScale"
@@ -5819,7 +5868,7 @@ export const App = () => {
         >
           <ScrubProgress duration={duration} />
         </div>
-        {/* 下段: 左=時刻・音量 / 中央=再生まわり / 右=元収録の秒・秒送り */}
+        {/* 下段: 左=時刻・音量 / 中央=再生まわり / 右=表示切替 */}
         <div className="tRow">
         <div className="tLeft">
           <span className="tcode">
@@ -5901,6 +5950,19 @@ export const App = () => {
               ))}
             </select>
           </span>
+          <NativeSelect
+            className="zoomSel"
+            value={previewZoom === "fit" ? "fit" : String(previewZoom)}
+            title="プレビューの表示倍率(プレビューのみ。書き出し・合成には影響しない)"
+            onChange={(e) =>
+              setPreviewZoom(e.target.value === "fit" ? "fit" : Number(e.target.value))
+            }
+          >
+            <option value="fit">Fit</option>
+            {PREVIEW_ZOOMS.map((z) => (
+              <option key={z} value={z}>{Math.round(z * 100)}%</option>
+            ))}
+          </NativeSelect>
           <select
             className="rate"
             value={playbackRate}
@@ -5913,12 +5975,6 @@ export const App = () => {
               </option>
             ))}
           </select>
-          <Button variant="ghost" size="icon" className="icon sec" title="1秒戻る (Shift+←)" onClick={() => stepFrames(-fps)}>
-            <StepIcon dir="back" double />
-          </Button>
-          <Button variant="ghost" size="icon" className="icon sec" title="1秒進む (Shift+→)" onClick={() => stepFrames(fps)}>
-            <StepIcon dir="fwd" double />
-          </Button>
           <Button
             variant="ghost"
             size="icon"
@@ -5972,21 +6028,6 @@ export const App = () => {
             >
               <aside className="inspPanel panel shellSurface">
           <div className="panelBody">
-            <AiCommand
-              compact
-              disabled={anyDirty || aiWorkflowLocked}
-              busy={aiBusy}
-              disabledReason={
-                anyDirty
-                  ? "保存してから AI 一発編集"
-                  : aiWorkflowLocked
-                    ? "AI 一発編集を確認中"
-                    : undefined
-              }
-              placeholder={selection ? "選択中の内容を AI で編集" : "現在位置を AI で編集"}
-              submitLabel="実行"
-              onSubmit={(instruction) => startAiWorkflow(selection ? "selection" : "playhead", instruction)}
-            />
             <Inspector
               // 選択が変わったら編集欄ごと作り直す(未確定の入力を持ち越さない)
               key={
@@ -6081,7 +6122,7 @@ export const App = () => {
         clips={clips}
         cutMarks={cutMarks}
         peaks={peaksMap}
-        tracks={timelineTracks}
+        tracks={visibleTracks}
         selection={selection}
         multiCaption={capMulti}
         onToggleCaptionSel={toggleCaptionMulti}
@@ -6092,7 +6133,6 @@ export const App = () => {
         onDragEnd={onDragEnd}
         onCreate={onCreate}
         onReorderTrack={onReorderTrack}
-        onAddTrack={addTrack}
         canUndo={undoRef.current.length > 0}
         canRedo={redoRef.current.length > 0}
         onUndo={undoEdit}

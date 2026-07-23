@@ -222,8 +222,19 @@ export type AnnotationPatch = {
   shape?: SpotlightShape;
 };
 
-/** タイムラインの1行の高さ(px)。上下ドラッグのトラック判定にも使う */
+/** タイムラインの1行の高さ(px)。旧保存値・互換用の既定値 */
 export const ROW_H = 26;
+
+/** OpenCut classic の型別トラック行高(px)。apps/web/src/timeline/components/layout.ts */
+export const TRACK_H = { video: 65, audio: 50, text: 25, effect: 25 } as const;
+
+/** トラック id → 既定の行高(px)。素材/映像/short=video, bgm=audio, テロップ=text, 演出=effect */
+export const trackHeightFor = (id: TrackId): number => {
+  if (id === "cut" || id === "short" || ovNum(id) !== null) return TRACK_H.video;
+  if (id === "bgm") return TRACK_H.audio;
+  if (id === "caption" || capNum(id) !== null) return TRACK_H.text;
+  return TRACK_H.effect;
+};
 
 /** 素材パネル → タイムラインへのドラッグで使う dataTransfer の型
  * (値はプロジェクト相対パス "materials/..."。OS のファイルドロップと区別する) */

@@ -42,7 +42,7 @@ import type {
   SpotlightShape,
   Transcript,
 } from "../../src/types.ts";
-import { insertSpans, remapInterval } from "../../src/lib/timeline.ts";
+import { remapInterval } from "../../src/lib/timeline.ts";
 import type { TimelineEntry } from "../../src/lib/timeline.ts";
 import { defaultShortProfileName, PROFILES, profileSupportsPlain } from "../../src/lib/profile.ts";
 import type { RenderProps } from "../../remotion/props.ts";
@@ -55,6 +55,11 @@ import { Slider } from "./components/ui/slider.tsx";
 import { Switch } from "./components/ui/switch.tsx";
 import { buildCaptionAnimPatch } from "./lib/inspectorHelpers.ts";
 import { ChevronDown } from "lucide-react";
+import { Type, Move, Sparkles, Blend, Music, Clock, AudioWaveform, Scan, SquareDashed, SlidersHorizontal, Shapes, Palette, Layers, MessageSquare } from "lucide-react";
+import { Button } from "./components/ui/button.tsx";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./components/ui/tooltip.tsx";
+import { ScrollArea } from "./components/ui/scroll-area.tsx";
+import { cn } from "./lib/utils.ts";
 import {
   NumInput,
   NumStepper,
@@ -105,6 +110,92 @@ const PercentSlider = ({
     <span className="mono dim pctVal">{pct}%</span>
   </>
 );
+
+const ColorPillInput = ({
+  value,
+  title,
+  onChange,
+}: {
+  value: string;
+  title?: string;
+  onChange: (value: string) => void;
+}) => (
+  <div className="colorPill" title={title}>
+    <ColorInput
+      value={value}
+      title={title}
+      onChange={(e) => onChange(e.target.value)}
+    />
+    <span className="colorHexVal">{value.replace(/^#/, "").toUpperCase()}</span>
+  </div>
+);
+
+/** タブ1枚の定義(OpenCut PropertiesTabDef 相当) */
+type InspTab = { id: string; label: string; icon: ReactNode; content: () => ReactNode };
+
+/** 選択種別ごとにアクティブタブを記憶(remount を跨いで保持。OpenCut の
+ * properties-store.activeTabPerType 相当)。groupKey = "caption" / "overlays" 等 */
+const inspTabMemory = new Map<string, string>();
+
+/** レール(左の縦アイコン)＋ ScrollArea(右の本体)。OpenCut index.tsx の移植。
+ * header は全幅で上に、footer は全幅で下に固定(削除ボタンをどのタブからも押せる) */
+const InspectorTabs = ({
+  groupKey,
+  defaultTab,
+  tabs,
+  header,
+  footer,
+}: {
+  groupKey: string;
+  defaultTab: string;
+  tabs: InspTab[];
+  header?: ReactNode;
+  footer?: ReactNode;
+}) => {
+  const stored = inspTabMemory.get(groupKey);
+  const [activeId, setActiveId] = useState<string>(() =>
+    tabs.some((t) => t.id === stored) ? (stored as string) : defaultTab,
+  );
+  // アクティブタブが消えた場合(例: 動画→画像で音タブが無くなる)は既定へフォールバック
+  const active =
+    tabs.find((t) => t.id === activeId) ??
+    tabs.find((t) => t.id === defaultTab) ??
+    tabs[0];
+  if (!active) return null;
+  const select = (id: string) => {
+    inspTabMemory.set(groupKey, id);
+    setActiveId(id);
+  };
+  return (
+    <div className="insp ocInspector">
+      {header}
+      <div className="inspTabbed">
+        <TooltipProvider delayDuration={0}>
+          <div className="inspTabRail">
+            {tabs.map((tab) => (
+              <Tooltip key={tab.id}>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={tab.id === active.id ? "secondary" : "ghost"}
+                    size="icon"
+                    aria-label={tab.label}
+                    className={cn("inspTabBtn", tab.id !== active.id && "inspTabBtnIdle")}
+                    onClick={() => select(tab.id)}
+                  >
+                    {tab.icon}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="right">{tab.label}</TooltipContent>
+              </Tooltip>
+            ))}
+          </div>
+        </TooltipProvider>
+        <ScrollArea className="inspTabBody">{active.content()}</ScrollArea>
+      </div>
+      {footer}
+    </div>
+  );
+};
 
 /**
  * 右サイドの常設インスペクタ。タイムラインで選択したクリップの詳細を編集する。
@@ -291,19 +382,9 @@ export const Inspector = ({
   /** ショートを1本削除する(確認はこのパネル側で挟む) */
   removeShort: (name: string) => void;
 }) => {
-  /** 再生ヘッドが映像クリップの上にあるか(「ここへ」系ボタンの活性)。
-   * boolean に落として購読するので、境界をまたいだ時だけ再レンダーされる
-   * (元収録の秒そのものを購読すると毎フレーム再レンダーに戻ってしまう) */
-  const playheadOnClip = usePlayheadSelector(() => getPlayheadSrc() !== null);
   if (selection === null) {
     return (
       <ProjectPanel
-        cutplan={cutplan}
-        transcript={transcript}
-        materials={materials}
-        srcDur={srcDur}
-        duration={duration}
-        project={project}
         shortSection={
           activeShort && (
             <ShortPropertiesSection
@@ -435,79 +516,88 @@ export const Inspector = ({
       setCaptionTrackDefault(track, { style: Object.keys(st).length > 0 ? st : null }, key);
     };
     return (
-      <div className="insp ocInspector">
-        <Section
-          title={`${captionTrackName(track, overlays, capTracks)}(トラック標準)`}
-          className="flushTopSec"
-        >
-          <p className="dim hint">
-            このトラックのテロップ全部に効く既定。個々のテロップで指定した項目が
-            あればそちらが優先されます
-          </p>
-        </Section>
-        <Section title="標準位置">
-          <div className="capPositionGrid">
-            <div className="capField">
-              <label>X</label>
-              <NumStepper
-                value={trackDef?.x}
-                allowEmpty
-                unit="px"
-                placeholder={String(stdCaptionPos.x)}
-                title="このトラックの標準 X(出力px)。↑↓ で1ずつ(Shift で10)。空欄=下部中央"
-                onCommit={(v) =>
-                  setCaptionTrackDefault(track, {
-                    pos:
-                      v !== undefined
-                        ? { x: Math.round(v), y: trackDef?.y ?? stdCaptionPos.y }
-                        : null,
-                  })
-                }
+      <InspectorTabs
+        groupKey="captionTrack"
+        defaultTab="text"
+        tabs={[
+          {
+            id: "text",
+            label: "テキスト",
+            icon: <Type size={16} />,
+            content: () => (
+              <CaptionDesignFields
+                style={trackDef?.style}
+                base={base}
+                patch={patchTrackStyle}
+                keyPrefix={`captrack:${track}`}
+                belowLabel="config.yaml の既定"
               />
-            </div>
-            <div className="capField">
-              <label>Y</label>
-              <NumStepper
-                value={trackDef?.y}
-                allowEmpty
-                unit="px"
-                placeholder={String(stdCaptionPos.y)}
-                title="このトラックの標準 Y(出力px)。↑↓ で1ずつ(Shift で10)。空欄=下部中央"
-                onCommit={(v) =>
-                  setCaptionTrackDefault(track, {
-                    pos:
-                      v !== undefined
-                        ? { x: trackDef?.x ?? stdCaptionPos.x, y: Math.round(v) }
-                        : null,
-                  })
-                }
-              />
-            </div>
-            <div className="capField wide">
-              <label>座標基準</label>
-              <Segmented
-                value={anchor}
-                options={[
-                  { value: "center", label: "中心", title: "pos をテキストの中心と見る(既定)" },
-                  {
-                    value: "topLeft",
-                    label: "左上",
-                    title: "pos をテキストボックスの左上と見る(章タイトルなどの左寄せ配置向け)",
-                  },
-                ]}
-                onChange={(v) => setCaptionTrackDefault(track, { anchor: v })}
-              />
-            </div>
-          </div>
-        </Section>
-        <CaptionDesignFields
-          style={trackDef?.style}
-          base={base}
-          patch={patchTrackStyle}
-          keyPrefix={`captrack:${track}`}
-          belowLabel="config.yaml の既定"
-        />
-      </div>
+            ),
+          },
+          {
+            id: "transform",
+            label: "配置",
+            icon: <Move size={16} />,
+            content: () => (
+              <Section title="標準位置">
+                <div className="capPositionGrid">
+                  <div className="capField">
+                    <label>X</label>
+                    <NumStepper
+                      value={trackDef?.x}
+                      allowEmpty
+                      unit="px"
+                      placeholder={String(stdCaptionPos.x)}
+                      title="このトラックの標準 X(出力px)。↑↓ で1ずつ(Shift で10)。空欄=下部中央"
+                      onCommit={(v) =>
+                        setCaptionTrackDefault(track, {
+                          pos:
+                            v !== undefined
+                              ? { x: Math.round(v), y: trackDef?.y ?? stdCaptionPos.y }
+                              : null,
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="capField">
+                    <label>Y</label>
+                    <NumStepper
+                      value={trackDef?.y}
+                      allowEmpty
+                      unit="px"
+                      placeholder={String(stdCaptionPos.y)}
+                      title="このトラックの標準 Y(出力px)。↑↓ で1ずつ(Shift で10)。空欄=下部中央"
+                      onCommit={(v) =>
+                        setCaptionTrackDefault(track, {
+                          pos:
+                            v !== undefined
+                              ? { x: trackDef?.x ?? stdCaptionPos.x, y: Math.round(v) }
+                              : null,
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="capField wide">
+                    <label>座標基準</label>
+                    <Segmented
+                      value={anchor}
+                      options={[
+                        { value: "center", label: "中心", title: "pos をテキストの中心と見る(既定)" },
+                        {
+                          value: "topLeft",
+                          label: "左上",
+                          title: "pos をテキストボックスの左上と見る(章タイトルなどの左寄せ配置向け)",
+                        },
+                      ]}
+                      onChange={(v) => setCaptionTrackDefault(track, { anchor: v })}
+                    />
+                  </div>
+                </div>
+              </Section>
+            ),
+          },
+        ]}
+      />
     );
   }
 
@@ -599,264 +689,290 @@ export const Inspector = ({
       updateCaption(selection.index, { pos: { x, y } });
     };
     return (
-      <div className="insp ocInspector">
-        <Section title={captionTrackName(track, overlays, capTracks)} className="captionTextSec">
-          <Input
-            className="capTextInput"
-            type="text"
-            value={s.text}
-            onChange={(e) =>
-              updateCaption(
-                selection.index,
-                { text: e.target.value },
-                `caption:${selection.index}:text`,
-              )
-            }
-          />
-        </Section>
-        <Section title="配置">
-          <div className="capPositionGrid">
-              <div className="capField">
-                <label>X</label>
-                <NumStepper
-                  value={s.pos?.x}
-                  allowEmpty
-                  unit="px"
-                  placeholder={String(eff.x)}
-                  title={`${posLabel}の出力px。↑↓ で1ずつ(Shift で10)。空欄=標準位置。プレビュー上のドラッグでも動かせる`}
-                  onCommit={(v) =>
-                    updateCaption(selection.index, {
-                      pos: v !== undefined ? { ...eff, x: Math.round(v) } : undefined,
-                    })
-                  }
+      <InspectorTabs
+        groupKey="caption"
+        defaultTab="text"
+        tabs={[
+          {
+            id: "text",
+            label: "テキスト",
+            icon: <Type size={16} />,
+            content: () => (
+              <div className="capFlat">
+                <Section title={captionTrackName(track, overlays, capTracks)} className="captionTextSec">
+                  <div className="field">
+                    <label>本文</label>
+                    <Input
+                      className="capTextInput"
+                      type="text"
+                      value={s.text}
+                      onChange={(e) =>
+                        updateCaption(
+                          selection.index,
+                          { text: e.target.value },
+                          `caption:${selection.index}:text`,
+                        )
+                      }
+                    />
+                  </div>
+                </Section>
+                <CaptionDesignFields
+                  style={s.style}
+                  base={base}
+                  patch={patchStyle}
+                  keyPrefix={`caption:${selection.index}`}
+                  belowLabel={trackDef?.style ? `トラック T${track} の標準` : "config.yaml の既定"}
                 />
-              </div>
-              <div className="capField">
-                <label>Y</label>
-                <NumStepper
-                  value={s.pos?.y}
-                  allowEmpty
-                  unit="px"
-                  placeholder={String(eff.y)}
-                  title={`${posLabel}の出力px。↑↓ で1ずつ(Shift で10)。空欄=標準位置。プレビュー上のドラッグでも動かせる`}
-                  onCommit={(v) =>
-                    updateCaption(selection.index, {
-                      pos: v !== undefined ? { ...eff, y: Math.round(v) } : undefined,
-                    })
-                  }
-                />
-              </div>
-              <div className="anchorWide">
-                <AnchorPointControl onPick={applyPosPreset} />
-              </div>
-          </div>
-          {trackDef?.x !== undefined && (
-            <p className="dim hint">
-              トラック T{track} の標準位置: X {trackDef.x} / Y {trackDef.y}{" "}
-              <button
-                className="linkish"
-                onClick={() => setCaptionTrackDefault(track, { pos: null })}
-              >
-                解除
-              </button>
-            </p>
-          )}
-        </Section>
-        <CaptionDesignFields
-          style={s.style}
-          base={base}
-          patch={patchStyle}
-          keyPrefix={`caption:${selection.index}`}
-          belowLabel={trackDef?.style ? `トラック T${track} の標準` : "config.yaml の既定"}
-        />
-        {trackDef?.style && (
-          <p className="dim hint">
-            トラック T{track} の標準スタイル: {fmtStyle(trackDef.style)}{" "}
-            <button
-              className="linkish"
-              onClick={() => setCaptionTrackDefault(track, { style: null })}
-            >
-              解除
-            </button>
-          </p>
-        )}
-        <Section title="アニメーション">
-          <div className="capControlStack animationControls">
-            <div className="capLabeledField">
-              <span>In</span>
-              <div className="capField noLabel">
-              <NativeSelect
-                value={s.style?.anim?.in ?? ""}
-                title="表示され始めるときの動き。「なし(標準)」=トラック標準/既定を継承、「アニメ無し」=標準を明示的に打ち消す"
-                onChange={(e) =>
-                  patchAnim({
-                    in: e.target.value === "" ? undefined : (e.target.value as CaptionAnimKind),
-                  })
-                }
-              >
-                {CAPTION_ANIM_OPTIONS.map((o) => (
-                  <option key={o.value === "" ? "__inherit__" : o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </NativeSelect>
-              </div>
-            </div>
-            <div className="capLabeledField">
-              <span>Out</span>
-              <div className="capField noLabel">
-              <NativeSelect
-                value={s.style?.anim?.out ?? ""}
-                title="表示が終わるときの動き"
-                onChange={(e) =>
-                  patchAnim({
-                    out: e.target.value === "" ? undefined : (e.target.value as CaptionAnimKind),
-                  })
-                }
-              >
-                {CAPTION_ANIM_OPTIONS.map((o) => (
-                  <option key={o.value === "" ? "__inherit__" : o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </NativeSelect>
-              </div>
-            </div>
-            {((s.style?.anim?.in ?? "") !== "" || (s.style?.anim?.out ?? "") !== "") && (
-              <div className="capLabeledField">
-                <span>速さ</span>
-                <div className="capField noLabel">
-                <NumInput
-                  value={s.style?.anim?.durationSec}
-                  allowEmpty
-                  placeholder={String(DEFAULT_CAPTION_ANIM_SEC)}
-                  title="登場/退場それぞれの遷移秒(共通)。空欄=標準"
-                  onCommit={(v) =>
-                    patchAnim({ durationSec: v !== undefined && v >= 0 ? round2(v) : undefined })
-                  }
-                />
-                </div>
-              </div>
-            )}
-          </div>
-        </Section>
-        <Section title="カラオケ">
-          <div className="capControlStack karaokeControls">
-          <div className="capField wide">
-            <label>カラオケ表示</label>
-            <Switch
-              checked={!!s.style?.karaoke}
-              title="発話に同期して語の色を切り替える(このテロップの words[] を消費)"
-              onChange={(e) =>
-                patchStyle(e.target.checked ? { karaoke: {} } : { karaoke: undefined })
-              }
-            />
-          </div>
-          {s.style?.karaoke && (
-            <>
-              <div className="capField swatchField">
-                <label>発話済み</label>
-                <ColorInput
-                  value={s.style.karaoke.activeColor ?? KARAOKE_DEFAULT_ACTIVE}
-                  title="発話済み(読み終えた)語の色"
-                  onChange={(e) =>
-                    patchKaraoke(
-                      { activeColor: e.target.value },
-                      `caption:${selection.index}:karaokeActive`,
-                    )
-                  }
-                />
-              </div>
-              <div className="capField swatchField">
-                <label>未発話</label>
-                <ColorInput
-                  value={s.style.karaoke.inactiveColor ?? effStyle.color ?? CAPTION_DEFAULT_COLOR}
-                  title="未発話(これから読む)語の色。既定はテロップの本文色"
-                  onChange={(e) =>
-                    patchKaraoke(
-                      { inactiveColor: e.target.value },
-                      `caption:${selection.index}:karaokeInactive`,
-                    )
-                  }
-                />
-                {s.style.karaoke.inactiveColor && (
-                  <button
-                    className="linkish"
-                    onClick={() => patchKaraoke({ inactiveColor: undefined })}
-                  >
-                    本文色に戻す
-                  </button>
+                {trackDef?.style && (
+                  <p className="dim hint">
+                    トラック T{track} の標準スタイル: {fmtStyle(trackDef.style)}{" "}
+                    <button
+                      className="linkish"
+                      onClick={() => setCaptionTrackDefault(track, { style: null })}
+                    >
+                      解除
+                    </button>
+                  </p>
                 )}
+                <Section title="トラック">
+                  <div className="field">
+                    <label>トラック</label>
+                    <NativeSelect
+                      value={track}
+                      title="タイムラインのテロップトラックと連動(前面/背面はトラックの並び順)"
+                      onChange={(e) => {
+                        if (e.target.value === "__new") {
+                          updateCaption(selection.index, { track: capTracks + 1 });
+                          return;
+                        }
+                        const n = Number(e.target.value);
+                        updateCaption(selection.index, { track: n > 1 ? n : undefined });
+                      }}
+                    >
+                      {Array.from({ length: capTracks }, (_, i) => (
+                        <option key={i + 1} value={i + 1}>
+                          {captionTrackName(i + 1, overlays, capTracks)}
+                        </option>
+                      ))}
+                      <option value="__new">＋ 新規トラック</option>
+                    </NativeSelect>
+                  </div>
+                </Section>
               </div>
-              <div className="capField wide">
-                <label>未発話の不透明度</label>
-                <PercentSlider
-                  pct={Math.round((s.style.karaoke.inactiveOpacity ?? 1) * 100)}
-                  title="未発話の語の薄さ(これから読む所を薄くできる)"
-                  onChange={(pct) =>
-                    patchKaraoke(
-                      { inactiveOpacity: pct < 100 ? pct / 100 : undefined },
-                      `caption:${selection.index}:karaokeOpacity`,
-                    )
-                  }
-                />
+            ),
+          },
+          {
+            id: "transform",
+            label: "配置",
+            icon: <Move size={16} />,
+            content: () => (
+              <div className="capFlat capFlatNoGap">
+                <Section title="配置">
+                  <div className="capPositionGrid">
+                      <div className="capField">
+                        <label>X</label>
+                        <NumStepper
+                          value={s.pos?.x}
+                          allowEmpty
+                          unit="px"
+                          placeholder={String(eff.x)}
+                          title={`${posLabel}の出力px。↑↓ で1ずつ(Shift で10)。空欄=標準位置。プレビュー上のドラッグでも動かせる`}
+                          onCommit={(v) =>
+                            updateCaption(selection.index, {
+                              pos: v !== undefined ? { ...eff, x: Math.round(v) } : undefined,
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="capField">
+                        <label>Y</label>
+                        <NumStepper
+                          value={s.pos?.y}
+                          allowEmpty
+                          unit="px"
+                          placeholder={String(eff.y)}
+                          title={`${posLabel}の出力px。↑↓ で1ずつ(Shift で10)。空欄=標準位置。プレビュー上のドラッグでも動かせる`}
+                          onCommit={(v) =>
+                            updateCaption(selection.index, {
+                              pos: v !== undefined ? { ...eff, y: Math.round(v) } : undefined,
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="anchorWide">
+                        <AnchorPointControl onPick={applyPosPreset} />
+                      </div>
+                  </div>
+                  {trackDef?.x !== undefined && (
+                    <p className="dim hint">
+                      トラック T{track} の標準位置: X {trackDef.x} / Y {trackDef.y}{" "}
+                      <button
+                        className="linkish"
+                        onClick={() => setCaptionTrackDefault(track, { pos: null })}
+                      >
+                        解除
+                      </button>
+                    </p>
+                  )}
+                </Section>
               </div>
-              <div className="capField wide">
-                <label>塗りの進み方</label>
-                <Segmented
-                  value={s.style.karaoke.mode ?? "word"}
-                  options={[
-                    { value: "word", label: "語単位" },
-                    { value: "fill", label: "塗り進み" },
-                  ]}
-                  onChange={(v) => patchKaraoke({ mode: v === "word" ? undefined : v })}
-                />
+            ),
+          },
+          {
+            id: "anim",
+            label: "アニメ",
+            icon: <Sparkles size={16} />,
+            content: () => (
+              <div className="capFlat capFlatNoGap">
+                <Section title="アニメーション">
+                  <div className="capControlStack animationControls">
+                    <div className="capLabeledField">
+                      <span>In</span>
+                      <div className="capField noLabel">
+                      <NativeSelect
+                        value={s.style?.anim?.in ?? ""}
+                        title="表示され始めるときの動き。「なし(標準)」=トラック標準/既定を継承、「アニメ無し」=標準を明示的に打ち消す"
+                        onChange={(e) =>
+                          patchAnim({
+                            in: e.target.value === "" ? undefined : (e.target.value as CaptionAnimKind),
+                          })
+                        }
+                      >
+                        {CAPTION_ANIM_OPTIONS.map((o) => (
+                          <option key={o.value === "" ? "__inherit__" : o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </NativeSelect>
+                      </div>
+                    </div>
+                    <div className="capLabeledField">
+                      <span>Out</span>
+                      <div className="capField noLabel">
+                      <NativeSelect
+                        value={s.style?.anim?.out ?? ""}
+                        title="表示が終わるときの動き"
+                        onChange={(e) =>
+                          patchAnim({
+                            out: e.target.value === "" ? undefined : (e.target.value as CaptionAnimKind),
+                          })
+                        }
+                      >
+                        {CAPTION_ANIM_OPTIONS.map((o) => (
+                          <option key={o.value === "" ? "__inherit__" : o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </NativeSelect>
+                      </div>
+                    </div>
+                    {((s.style?.anim?.in ?? "") !== "" || (s.style?.anim?.out ?? "") !== "") && (
+                      <div className="capLabeledField">
+                        <span>速さ</span>
+                        <div className="capField noLabel">
+                        <NumInput
+                          value={s.style?.anim?.durationSec}
+                          allowEmpty
+                          placeholder={String(DEFAULT_CAPTION_ANIM_SEC)}
+                          title="登場/退場それぞれの遷移秒(共通)。空欄=標準"
+                          onCommit={(v) =>
+                            patchAnim({ durationSec: v !== undefined && v >= 0 ? round2(v) : undefined })
+                          }
+                        />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </Section>
+                <Section title="カラオケ">
+                  <div className="capControlStack karaokeControls">
+                  <div className="capField wide">
+                    <label>カラオケ表示</label>
+                    <Switch
+                      checked={!!s.style?.karaoke}
+                      title="発話に同期して語の色を切り替える(このテロップの words[] を消費)"
+                      onChange={(e) =>
+                        patchStyle(e.target.checked ? { karaoke: {} } : { karaoke: undefined })
+                      }
+                    />
+                  </div>
+                  {s.style?.karaoke && (
+                    <>
+                      <div className="capField swatchField">
+                        <label>発話済み</label>
+                        <ColorInput
+                          value={s.style.karaoke.activeColor ?? KARAOKE_DEFAULT_ACTIVE}
+                          title="発話済み(読み終えた)語の色"
+                          onChange={(e) =>
+                            patchKaraoke(
+                              { activeColor: e.target.value },
+                              `caption:${selection.index}:karaokeActive`,
+                            )
+                          }
+                        />
+                      </div>
+                      <div className="capField swatchField">
+                        <label>未発話</label>
+                        <ColorInput
+                          value={s.style.karaoke.inactiveColor ?? effStyle.color ?? CAPTION_DEFAULT_COLOR}
+                          title="未発話(これから読む)語の色。既定はテロップの本文色"
+                          onChange={(e) =>
+                            patchKaraoke(
+                              { inactiveColor: e.target.value },
+                              `caption:${selection.index}:karaokeInactive`,
+                            )
+                          }
+                        />
+                        {s.style.karaoke.inactiveColor && (
+                          <button
+                            className="linkish"
+                            onClick={() => patchKaraoke({ inactiveColor: undefined })}
+                          >
+                            本文色に戻す
+                          </button>
+                        )}
+                      </div>
+                      <div className="capField wide">
+                        <label>未発話の不透明度</label>
+                        <PercentSlider
+                          pct={Math.round((s.style.karaoke.inactiveOpacity ?? 1) * 100)}
+                          title="未発話の語の薄さ(これから読む所を薄くできる)"
+                          onChange={(pct) =>
+                            patchKaraoke(
+                              { inactiveOpacity: pct < 100 ? pct / 100 : undefined },
+                              `caption:${selection.index}:karaokeOpacity`,
+                            )
+                          }
+                        />
+                      </div>
+                      <div className="capField wide">
+                        <label>塗りの進み方</label>
+                        <Segmented
+                          value={s.style.karaoke.mode ?? "word"}
+                          options={[
+                            { value: "word", label: "語単位" },
+                            { value: "fill", label: "塗り進み" },
+                          ]}
+                          onChange={(v) => patchKaraoke({ mode: v === "word" ? undefined : v })}
+                        />
+                      </div>
+                      {!(s.words && s.words.length > 0) && (
+                        <p className="dim hint">
+                          このテロップには語タイミング(words)が無いため、カラオケは
+                          表示されず通常表示になります(config.yaml の
+                          whisper.wordTimestamps を有効にして再文字起こしすると
+                          付きます)
+                        </p>
+                      )}
+                    </>
+                  )}
+                  </div>
+                </Section>
               </div>
-              {!(s.words && s.words.length > 0) && (
-                <p className="dim hint">
-                  このテロップには語タイミング(words)が無いため、カラオケは
-                  表示されず通常表示になります(config.yaml の
-                  whisper.wordTimestamps を有効にして再文字起こしすると
-                  付きます)
-                </p>
-              )}
-            </>
-          )}
-          </div>
-        </Section>
-        {capTracks > 1 && (
-          <Section title="トラック">
-            <div className="field">
-              <label>トラック</label>
-              <NativeSelect
-                value={track}
-                title="タイムラインのテロップトラックと連動(前面/背面はトラックの並び順)"
-                onChange={(e) => {
-                  const n = Number(e.target.value);
-                  updateCaption(selection.index, { track: n > 1 ? n : undefined });
-                }}
-              >
-                {Array.from({ length: capTracks }, (_, i) => (
-                  <option key={i + 1} value={i + 1}>
-                    {captionTrackName(i + 1, overlays, capTracks)}
-                  </option>
-                ))}
-              </NativeSelect>
-            </div>
-          </Section>
-        )}
-        <Section title="">
-          <button className="danger" onClick={() => removeCaption(selection.index)}>
-            このテロップを削除
-          </button>
-          <p className="dim hint">
-            プレビュー上のテロップはドラッグで移動できます。幅はテキストに自動で
-            合い、折り返したい位置には文言に改行を入れます。⌘クリックで複数選択
-            して一括でスタイルを変えられます。変更は transcript.json に保存されます
-            (whisper の誤認識もここで直す)。
-          </p>
-        </Section>
-      </div>
+            ),
+          },
+        ]}
+      />
     );
   }
 
@@ -866,152 +982,123 @@ export const Inspector = ({
     const ins = (overlays.inserts ?? [])[selection.index];
     if (!ins) return null;
     const isVideo = VIDEO_EXT_RE.test(ins.file);
-    const keeps = cutplan.segments.filter((s) => s.action === "keep");
-    const span = insertSpans(keeps, overlays.inserts ?? []).find(
-      (sp) => sp.index === selection.index,
-    );
     const volPct = Math.round((ins.volume ?? 1) * 100);
     return (
-      <div className="insp ocInspector">
-        <MaterialHead
-          kind="挿入クリップ(インサート)"
-          file={ins.file}
-          startFrom={ins.startFrom}
-          chips={[`尺 ${fmtTime(ins.durationSec)}`]}
-          materials={materials}
-          onReplace={(f) => updateInsert(selection.index, { file: f })}
-        />
-        <p className="dim hint" style={{ marginTop: 0 }}>
-          この位置に素材を差し込み、後続の映像・テロップ・章・素材を
-          尺のぶんだけ後ろへずらします(音声込みで全面に出ます)。
-        </p>
-        <Section title="タイミング">
-          <div className="field">
-            <label>挿入位置</label>
-            <span className="mono">{span ? fmtTime(span.start) : "—"}</span>
-            <span className="dim hint">(出力の時刻)</span>
-          </div>
-          <div className="btnRow">
-            <button
-              disabled={!playheadOnClip}
-              title={
-                !playheadOnClip
-                  ? "再生ヘッドが映像クリップの上にあるときだけ移動できます"
-                  : "挿入位置を再生ヘッドの位置へ移動する"
-              }
-              onClick={() => {
-                const p = getPlayheadSrc();
-                if (p !== null) updateInsert(selection.index, { at: round2(p) });
-              }}
-            >
-              再生ヘッド位置へ移動
-            </button>
-            <button
-              title="この挿入クリップの頭へ再生ヘッドを移動"
-              onClick={() => span && seekOut(span.start)}
-            >
-              頭から再生
-            </button>
-          </div>
-          <div className="field">
-            <label>尺(秒)</label>
-            <NumInput
-              value={ins.durationSec}
-              title="挿入する長さ。素材の実尺より長いと最後のフレームで止まる。右端ドラッグでも調整できる"
-              onCommit={(v) =>
-                v !== undefined &&
-                updateInsert(selection.index, { durationSec: Math.max(MIN_SPAN, round2(v)) })
-              }
-            />
-          </div>
-          {isVideo && (
-            <div className="field">
-              <label>頭出し(秒)</label>
-              <NumInput
-                value={ins.startFrom ?? 0}
-                title="素材ファイル内の再生開始位置。0=頭から。左端ドラッグでも調整できる"
-                onCommit={(v) =>
-                  v !== undefined &&
-                  updateInsert(selection.index, { startFrom: Math.max(0, round2(v)) })
-                }
-              />
-            </div>
-          )}
-          {isVideo && (
-            <SourceRangeBar
-              file={ins.file}
-              startFrom={ins.startFrom ?? 0}
-              usedSec={ins.durationSec}
-            />
-          )}
-          <details className="inspDetails">
-            <summary>詳細(元収録の秒)</summary>
-            <div className="field">
-              <label>挿入位置 at</label>
-              <NumInput
-                value={ins.at}
-                title="挿入位置のアンカー(元収録の秒)。この時刻の手前に挿入される"
-                onCommit={(v) => v !== undefined && updateInsert(selection.index, { at: round2(v) })}
-              />
-            </div>
-          </details>
-        </Section>
-        <Section title="見た目と音">
-          <FitControl
-            fit={ins.fit ?? "contain"}
-            file={ins.file}
-            box={{ w: output.w, h: output.h }}
-            onChange={(v) => updateInsert(selection.index, { fit: v })}
-          />
-          {isVideo && (
-            <div className="field">
-              <label>音量</label>
-              <PercentSlider
-                pct={volPct}
-                max={200}
-                title="挿入クリップの音量(100%=素材のまま、0%=無音)。書き出しにも効く"
-                onChange={(pct) =>
-                  updateInsert(
-                    selection.index,
-                    { volume: pct === 100 ? undefined : pct / 100 },
-                    `insert:${selection.index}:volume`,
-                  )
-                }
-              />
-            </div>
-          )}
-          <div className="field">
-            <label>フェード(秒)</label>
-            <NumInput
-              value={ins.fadeInSec}
-              allowEmpty
-              placeholder="0"
-              title="イン(黒からの明転。音量も連動)"
-              onCommit={(v) =>
-                updateInsert(selection.index, {
-                  fadeInSec: v !== undefined && v > 0 ? round2(v) : undefined,
-                })
-              }
-            />
-            <NumInput
-              value={ins.fadeOutSec}
-              allowEmpty
-              placeholder="0"
-              title="アウト(黒への暗転。音量も連動)"
-              onCommit={(v) =>
-                updateInsert(selection.index, {
-                  fadeOutSec: v !== undefined && v > 0 ? round2(v) : undefined,
-                })
-              }
-            />
-          </div>
-        </Section>
-        <Section title="">
-          <button className="danger" onClick={() => removeInsert(selection.index)}>
-            この挿入を削除
-          </button>
-        </Section>
-      </div>
+      <InspectorTabs
+        groupKey="insert"
+        defaultTab="timing"
+        tabs={[
+          {
+            id: "timing",
+            label: "タイミング",
+            icon: <Clock size={16} />,
+            content: () => (
+              <div className="capFlat capFlatNoGap">
+                <Section title="タイミング">
+                  <div className="capControlStack">
+                  <div className="capField wide">
+                    <label>尺(秒)</label>
+                    <NumInput
+                      value={ins.durationSec}
+                      title="挿入する長さ。素材の実尺より長いと最後のフレームで止まる。右端ドラッグでも調整できる"
+                      onCommit={(v) =>
+                        v !== undefined &&
+                        updateInsert(selection.index, { durationSec: Math.max(MIN_SPAN, round2(v)) })
+                      }
+                    />
+                  </div>
+                  {isVideo && (
+                    <div className="capField wide">
+                      <label>頭出し(秒)</label>
+                      <NumInput
+                        value={ins.startFrom ?? 0}
+                        title="素材ファイル内の再生開始位置。0=頭から。左端ドラッグでも調整できる"
+                        onCommit={(v) =>
+                          v !== undefined &&
+                          updateInsert(selection.index, { startFrom: Math.max(0, round2(v)) })
+                        }
+                      />
+                    </div>
+                  )}
+                  <details className="inspDetails wideGridItem">
+                    <summary>詳細(元収録の秒)</summary>
+                    <div className="field">
+                      <label>挿入位置 at</label>
+                      <NumInput
+                        value={ins.at}
+                        title="挿入位置のアンカー(元収録の秒)。この時刻の手前に挿入される"
+                        onCommit={(v) => v !== undefined && updateInsert(selection.index, { at: round2(v) })}
+                      />
+                    </div>
+                  </details>
+                  </div>
+                </Section>
+              </div>
+            ),
+          },
+          {
+            id: "audio",
+            label: "音",
+            icon: <Music size={16} />,
+            content: () => (
+              <div className="capFlat capFlatNoGap">
+                <Section title="見た目と音">
+                  <div className="capControlStack">
+                  <FitControl
+                    fit={ins.fit ?? "contain"}
+                    file={ins.file}
+                    box={{ w: output.w, h: output.h }}
+                    onChange={(v) => updateInsert(selection.index, { fit: v })}
+                  />
+                  {isVideo && (
+                    <div className="capField wide">
+                      <label>音量</label>
+                      <PercentSlider
+                        pct={volPct}
+                        max={200}
+                        title="挿入クリップの音量(100%=素材のまま、0%=無音)。書き出しにも効く"
+                        onChange={(pct) =>
+                          updateInsert(
+                            selection.index,
+                            { volume: pct === 100 ? undefined : pct / 100 },
+                            `insert:${selection.index}:volume`,
+                          )
+                        }
+                      />
+                    </div>
+                  )}
+                  <div className="capField wide">
+                    <label>フェード(秒)</label>
+                    <NumInput
+                      value={ins.fadeInSec}
+                      allowEmpty
+                      placeholder="0"
+                      title="イン(黒からの明転。音量も連動)"
+                      onCommit={(v) =>
+                        updateInsert(selection.index, {
+                          fadeInSec: v !== undefined && v > 0 ? round2(v) : undefined,
+                        })
+                      }
+                    />
+                    <NumInput
+                      value={ins.fadeOutSec}
+                      allowEmpty
+                      placeholder="0"
+                      title="アウト(黒への暗転。音量も連動)"
+                      onCommit={(v) =>
+                        updateInsert(selection.index, {
+                          fadeOutSec: v !== undefined && v > 0 ? round2(v) : undefined,
+                        })
+                      }
+                    />
+                  </div>
+                  </div>
+                </Section>
+              </div>
+            ),
+          },
+        ]}
+      />
     );
   }
 
@@ -1020,139 +1107,136 @@ export const Inspector = ({
   if (selection.kind === "bgm") {
     const t = bgm?.tracks[selection.index];
     if (!t) return null;
-    const name = t.file.replace(/^materials\//, "");
     const parts = remapInterval(t.start, t.end, timeline);
-    const outStart = parts[0]?.start ?? null;
     const playedSec = parts.reduce((s, iv) => s + (iv.end - iv.start), 0);
     const fadeSum = (t.fadeInSec ?? 0) + (t.fadeOutSec ?? 0);
     return (
-      <div className="insp ocInspector">
-        <Section title="BGM" className="flushTopSec">
-          <div className="capControlStack">
-          <div className="capField wide">
-            <label>ファイル</label>
-            <span className="truncateText" title={name}>{name}</span>
-          </div>
-          <div className="capField">
-            <label>長さ</label>
-            <span className="mono">{fmtTime(t.end - t.start)}</span>
-          </div>
-          <div className="capField">
-            <button
-              className="inlineAction"
-              disabled={outStart === null}
-              title="この区間の頭へ再生ヘッドを移動"
-              onClick={() => outStart !== null && seekOut(outStart)}
-            >
-              頭から再生
-            </button>
-          </div>
-          <div className="capLabeledField">
-            <span>頭出し</span>
-            <div className="capField noLabel">
-            <NumInput
-              value={t.startFrom ?? 0}
-              title="BGM ファイル内の再生開始位置。0=頭から"
-              onCommit={(v) =>
-                v !== undefined &&
-                updateBgm(selection.index, { startFrom: Math.max(0, round2(v)) })
-              }
-            />
-            </div>
-          </div>
-          <div className="capLabeledField">
-            <span>開始</span>
-            <div className="capField noLabel">
-              <NumInput
-                value={t.start}
-                title="BGM を流し始める時刻(元収録の秒)。左端ドラッグでも調整できる"
-                onCommit={(v) =>
-                  v !== undefined &&
-                  updateBgm(selection.index, {
-                    start: Math.max(0, Math.min(round2(v), round2(t.end - MIN_SPAN))),
-                  })
-                }
-              />
-            </div>
-          </div>
-          <div className="capLabeledField">
-            <span>終了</span>
-            <div className="capField noLabel">
-              <NumInput
-                value={t.end}
-                title="BGM を流し終わる時刻(元収録の秒)。右端ドラッグでも調整できる"
-                onCommit={(v) =>
-                  v !== undefined &&
-                  updateBgm(selection.index, { end: Math.max(round2(t.start + MIN_SPAN), round2(v)) })
-                }
-              />
-            </div>
-          </div>
-          {playedSec < t.end - t.start - 0.05 && (
-            <p className="dim hint wideGridItem" style={{ margin: 0 }}>一部がカット区間です</p>
-          )}
-          </div>
-        </Section>
-        <Section title="音">
-          <div className="capControlStack">
-          <div className="capLabeledField wideGridItem">
-            <span>音量(dB)</span>
-            <div className="capField noLabel">
-            <NumInput
-              value={t.volumeDb}
-              allowEmpty
-              placeholder="既定"
-              title="0=原音量。空欄で config の既定(render.bgm.volumeDb)。声より 20dB 前後小さめが目安"
-              onCommit={(v) =>
-                updateBgm(selection.index, { volumeDb: v }, `bgm:${selection.index}:vol`)
-              }
-            />
-            </div>
-          </div>
-          <div className="capLabeledField wideGridItem">
-            <span>フェード</span>
-            <div className="capControlStack">
-            <div className="capField">
-              <label>IN</label>
-            <NumInput
-              value={t.fadeInSec}
-              allowEmpty
-              placeholder="0"
-              title="イン(区間の頭で 0→音量へ)"
-              onCommit={(v) =>
-                updateBgm(selection.index, {
-                  fadeInSec: v !== undefined && v > 0 ? round2(v) : undefined,
-                })
-              }
-            />
-            </div>
-            <div className="capField">
-              <label>OUT</label>
-            <NumInput
-              value={t.fadeOutSec}
-              allowEmpty
-              placeholder="0"
-              title="アウト(区間の末尾で 音量→0へ。終端を動画の終わりに合わせると従来の終端フェード)"
-              onCommit={(v) =>
-                updateBgm(selection.index, {
-                  fadeOutSec: v !== undefined && v > 0 ? round2(v) : undefined,
-                })
-              }
-            />
-            </div>
-            </div>
-          </div>
-          {fadeSum > playedSec + 0.005 && (
-            <p className="warnText wideGridItem">フェードが再生時間より長く、途中までしか鳴りません</p>
-          )}
-          </div>
-        </Section>
-        <Section title="">
-          <button className="danger" onClick={() => removeBgm(selection.index)}>
-            この BGM 区間を削除
-          </button>
-        </Section>
-      </div>
+      <InspectorTabs
+        groupKey="bgm"
+        defaultTab="region"
+        tabs={[
+          {
+            id: "region",
+            label: "区間",
+            icon: <AudioWaveform size={16} />,
+            content: () => (
+              <Section title="BGM" className="flushTopSec">
+                <div className="capControlStack">
+                <div className="capControlStack bgmRegionStack wideGridItem">
+                  <div className="capLabeledField">
+                    <span>頭出し</span>
+                    <div className="capField noLabel">
+                    <NumInput
+                      value={t.startFrom ?? 0}
+                      title="BGM ファイル内の再生開始位置。0=頭から"
+                      onCommit={(v) =>
+                        v !== undefined &&
+                        updateBgm(selection.index, { startFrom: Math.max(0, round2(v)) })
+                      }
+                    />
+                    </div>
+                  </div>
+                  <div className="capLabeledField">
+                    <span>開始</span>
+                    <div className="capField noLabel">
+                      <NumInput
+                        value={t.start}
+                        title="BGM を流し始める時刻(元収録の秒)。左端ドラッグでも調整できる"
+                        onCommit={(v) =>
+                          v !== undefined &&
+                          updateBgm(selection.index, {
+                            start: Math.max(0, Math.min(round2(v), round2(t.end - MIN_SPAN))),
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="capLabeledField">
+                    <span>終了</span>
+                    <div className="capField noLabel">
+                      <NumInput
+                        value={t.end}
+                        title="BGM を流し終わる時刻(元収録の秒)。右端ドラッグでも調整できる"
+                        onCommit={(v) =>
+                          v !== undefined &&
+                          updateBgm(selection.index, { end: Math.max(round2(t.start + MIN_SPAN), round2(v)) })
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+                {playedSec < t.end - t.start - 0.05 && (
+                  <p className="dim hint wideGridItem" style={{ margin: 0 }}>一部がカット区間です</p>
+                )}
+                </div>
+              </Section>
+            ),
+          },
+          {
+            id: "audio",
+            label: "音",
+            icon: <Music size={16} />,
+            content: () => (
+              <div className="capFlat capFlatNoGap">
+                <Section title="音">
+                <div className="capControlStack">
+                <div className="capLabeledField wideGridItem">
+                  <span>音量(dB)</span>
+                  <div className="capField noLabel">
+                  <NumInput
+                    value={t.volumeDb}
+                    allowEmpty
+                    placeholder="既定"
+                    title="0=原音量。空欄で config の既定(render.bgm.volumeDb)。声より 20dB 前後小さめが目安"
+                    onCommit={(v) =>
+                      updateBgm(selection.index, { volumeDb: v }, `bgm:${selection.index}:vol`)
+                    }
+                  />
+                  </div>
+                </div>
+                <div className="capLabeledField wideGridItem">
+                  <span>フェード</span>
+                  <div className="capControlStack">
+                  <div className="capField">
+                    <label>IN</label>
+                  <NumInput
+                    value={t.fadeInSec}
+                    allowEmpty
+                    placeholder="0"
+                    title="イン(区間の頭で 0→音量へ)"
+                    onCommit={(v) =>
+                      updateBgm(selection.index, {
+                        fadeInSec: v !== undefined && v > 0 ? round2(v) : undefined,
+                      })
+                    }
+                  />
+                  </div>
+                  <div className="capField">
+                    <label>OUT</label>
+                  <NumInput
+                    value={t.fadeOutSec}
+                    allowEmpty
+                    placeholder="0"
+                    title="アウト(区間の末尾で 音量→0へ。終端を動画の終わりに合わせると従来の終端フェード)"
+                    onCommit={(v) =>
+                      updateBgm(selection.index, {
+                        fadeOutSec: v !== undefined && v > 0 ? round2(v) : undefined,
+                      })
+                    }
+                  />
+                  </div>
+                  </div>
+                </div>
+                {fadeSum > playedSec + 0.005 && (
+                  <p className="warnText wideGridItem">フェードが再生時間より長く、途中までしか鳴りません</p>
+                )}
+                </div>
+                </Section>
+              </div>
+            ),
+          },
+        ]}
+      />
     );
   }
 
@@ -1187,98 +1271,118 @@ export const Inspector = ({
       .map((t, i) => ({ t, i }))
       .filter(({ t }) => t.end > s.start + 0.05 && t.start < s.end - 0.05);
     return (
-      <div className="insp ocInspector">
-        <Section title={isKeep ? "映像" : "カット区間"} className="flushTopSec">
-          <div className="capControlStack">
-            <div className="capLabeledField">
-              <span>開始</span>
-              <div className="capField noLabel">
-                <NumInput
-                  value={s.start}
-                  title="開始時刻(元収録の秒)。左端ドラッグでも調整できる"
-                  onCommit={(v) =>
-                    v !== undefined &&
-                    updateCutSeg(selection.index, {
-                      start: round2(Math.min(Math.max(v, lo), s.end - MIN_SPAN)),
-                    })
-                  }
-                />
-              </div>
-            </div>
-            <div className="capLabeledField">
-              <span>終了</span>
-              <div className="capField noLabel">
-                <NumInput
-                  value={s.end}
-                  title="終了時刻(元収録の秒)。右端ドラッグでも調整できる"
-                  onCommit={(v) =>
-                    v !== undefined &&
-                    updateCutSeg(selection.index, {
-                      end: round2(Math.max(Math.min(v, hi), s.start + MIN_SPAN)),
-                    })
-                  }
-                />
-              </div>
-            </div>
-            <div className="capField">
-              <label>長さ</label>
-              <span className="mono">{fmtTime(Math.max(0, s.end - s.start))}</span>
-            </div>
-            <div className="capField">
-              <label>状態</label>
-              <span>{isKeep ? "表示" : "非表示"}</span>
-            </div>
-            {isKeep && (gapBefore > 0.05 || gapAfter > 0.05) && (
-              <p className="dim hint wideGridItem" style={{ margin: 0 }}>
-                {gapBefore > 0.05 ? `直前に ${gapBefore.toFixed(1)}秒カット` : ""}
-                {gapBefore > 0.05 && gapAfter > 0.05 ? " / " : ""}
-                {gapAfter > 0.05 ? `直後に ${gapAfter.toFixed(1)}秒カット` : ""}
-              </p>
+      <InspectorTabs
+        groupKey="cut"
+        defaultTab="timing"
+        header={
+          <div className="inspActionHead">
+            {isKeep ? (
+              <button
+                className="danger"
+                title="削除ではなく記録として残る。映像トラックの ▼ 印からいつでも戻せる (Delete)"
+                onClick={() => cutKeepSeg(selection.index)}
+              >
+                この区間をカットする
+              </button>
+            ) : (
+              <button
+                className="primary"
+                title="この区間を動画に戻す(隣のクリップと重なる分は縮めて戻る)"
+                onClick={() => restoreCutSeg(selection.index)}
+              >
+                この区間を動画に戻す
+              </button>
             )}
-            {s.reason && <p className="dim hint wideGridItem" style={{ margin: 0 }}>plan の理由: {s.reason}</p>}
           </div>
-        </Section>
-        {speech.length > 0 && (
-          <Section title="この区間の発言">
-            <div className="speechList">
-              {speech.map(({ t, i }) => (
-                <div
-                  key={i}
-                  className="speechRow"
-                  title="クリックでこの発言の位置へ再生ヘッドを移動"
-                  onClick={() => seekToSrc(Math.max(t.start, s.start))}
-                >
-                  <span className="t mono">{fmtTime(t.start)}</span>
-                  <span>{t.text}</span>
+        }
+        tabs={[
+          {
+            id: "timing",
+            label: "タイミング",
+            icon: <Clock size={16} />,
+            content: () => (
+              <Section title={isKeep ? "映像" : "カット区間"} className="flushTopSec">
+                <div className="capControlStack">
+                  <div className="capLabeledField">
+                    <span>開始</span>
+                    <div className="capField noLabel">
+                      <NumInput
+                        value={s.start}
+                        title="開始時刻(元収録の秒)。左端ドラッグでも調整できる"
+                        onCommit={(v) =>
+                          v !== undefined &&
+                          updateCutSeg(selection.index, {
+                            start: round2(Math.min(Math.max(v, lo), s.end - MIN_SPAN)),
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="capLabeledField">
+                    <span>終了</span>
+                    <div className="capField noLabel">
+                      <NumInput
+                        value={s.end}
+                        title="終了時刻(元収録の秒)。右端ドラッグでも調整できる"
+                        onCommit={(v) =>
+                          v !== undefined &&
+                          updateCutSeg(selection.index, {
+                            end: round2(Math.max(Math.min(v, hi), s.start + MIN_SPAN)),
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="capField">
+                    <label>長さ</label>
+                    <span className="mono">{fmtTime(Math.max(0, s.end - s.start))}</span>
+                  </div>
+                  <div className="capField">
+                    <label>状態</label>
+                    <span>{isKeep ? "表示" : "非表示"}</span>
+                  </div>
+                  {isKeep && (gapBefore > 0.05 || gapAfter > 0.05) && (
+                    <p className="dim hint wideGridItem" style={{ margin: 0 }}>
+                      {gapBefore > 0.05 ? `直前に ${gapBefore.toFixed(1)}秒カット` : ""}
+                      {gapBefore > 0.05 && gapAfter > 0.05 ? " / " : ""}
+                      {gapAfter > 0.05 ? `直後に ${gapAfter.toFixed(1)}秒カット` : ""}
+                    </p>
+                  )}
+                  {s.reason && (
+                    <p className="dim hint wideGridItem" style={{ margin: 0 }}>plan の理由: {s.reason}</p>
+                  )}
                 </div>
-              ))}
-            </div>
-          </Section>
-        )}
-        <Section title="">
-          {isKeep ? (
-            <button
-              className="danger"
-              title="削除ではなく記録として残る。映像トラックの ▼ 印からいつでも戻せる (Delete)"
-              onClick={() => cutKeepSeg(selection.index)}
-            >
-              この区間をカットする
-            </button>
-          ) : (
-            <button
-              className="primary"
-              title="この区間を動画に戻す(隣のクリップと重なる分は縮めて戻る)"
-              onClick={() => restoreCutSeg(selection.index)}
-            >
-              この区間を動画に戻す
-            </button>
-          )}
-          <p className="dim hint">
-            カット境界の変更は即プレビューに反映されます。
-            ⌘K で再生ヘッド位置のクリップを分割できます。
-          </p>
-        </Section>
-      </div>
+              </Section>
+            ),
+          },
+          ...(speech.length > 0
+            ? [
+                {
+                  id: "speech",
+                  label: "発言",
+                  icon: <MessageSquare size={16} />,
+                  content: () => (
+                    <Section title="この区間の発言" className="flushTopSec fillHeightSec">
+                      <div className="speechList speechListFill">
+                        {speech.map(({ t, i }) => (
+                          <div
+                            key={i}
+                            className="speechRow"
+                            title="クリックでこの発言の位置へ再生ヘッドを移動"
+                            onClick={() => seekToSrc(Math.max(t.start, s.start))}
+                          >
+                            <span className="t mono">{fmtTime(t.start)}</span>
+                            <span>{t.text}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </Section>
+                  ),
+                },
+              ]
+            : []),
+        ]}
+      />
     );
   }
 
@@ -1294,159 +1398,175 @@ export const Inspector = ({
     const patch = (p: Partial<OverlayEntry>, key?: string) =>
       updateSpan("overlays", selection.index, p, key);
     return (
-      <div className="insp ocInspector">
-        <MaterialHead
-          kind={`素材 V${overlayTrack(ov)}`}
-          file={ov.file}
-          startFrom={ov.startFrom}
-          chips={[
-            `長さ ${fmtTime(Math.max(0, ov.end - ov.start))}`,
-            ov.rect ? "部分配置" : "全画面",
-          ]}
-          materials={materials}
-          onReplace={(f) => patch({ file: f })}
-        />
-        <Section title="配置">
-          <RectControl
-            rect={ov.rect}
-            file={ov.file}
-            output={output}
-            marginPx={marginPx}
-            onChange={(rect) => patch({ rect })}
-          />
-          <FitControl
-            fit={ov.fit ?? "contain"}
-            file={ov.file}
-            box={{ w: box.w, h: box.h }}
-            onChange={(v) => patch({ fit: v })}
-          />
-          {ovTracks > 1 && (
-            <div className="capField wide">
-              <label>トラック</label>
-              <NativeSelect
-                value={overlayTrack(ov)}
-                title="タイムラインの素材トラックと連動(前面/背面はトラックの並び順)"
-                onChange={(e) => {
-                  const n = Number(e.target.value);
-                  // 旧式の layer 指定はここで track へ移行する
-                  patch({ track: n > 1 ? n : undefined, layer: undefined });
-                }}
-              >
-                {Array.from({ length: ovTracks }, (_, i) => (
-                  <option key={i + 1} value={i + 1}>
-                    素材 V{i + 1}
-                  </option>
-                ))}
-              </NativeSelect>
-            </div>
-          )}
-        </Section>
-        <Section title="見た目と音">
-          <div className="capControlStack materialAppearanceControls">
-          {isVideo && (
-            <div className="capLabeledField">
-              <span>頭出し</span>
-              <div className="capField noLabel">
-              <NumInput
-                value={ov.startFrom ?? 0}
-                title="素材ファイル内の再生開始位置。0=頭から"
-                onCommit={(v) =>
-                  v !== undefined &&
-                  patch({ startFrom: v > 0 ? Math.max(0, round2(v)) : undefined })
-                }
-              />
+      <InspectorTabs
+        groupKey="overlays"
+        defaultTab="transform"
+        tabs={[
+          {
+            id: "transform",
+            label: "配置",
+            icon: <Move size={16} />,
+            content: () => (
+              <div className="capFlat">
+                <Section title="配置">
+                  <RectControl
+                    rect={ov.rect}
+                    file={ov.file}
+                    output={output}
+                    marginPx={marginPx}
+                    onChange={(rect) => patch({ rect })}
+                  />
+                  <FitControl
+                    fit={ov.fit ?? "contain"}
+                    file={ov.file}
+                    box={{ w: box.w, h: box.h }}
+                    onChange={(v) => patch({ fit: v })}
+                  />
+                  <div className="capField wide">
+                    <label>トラック</label>
+                    <NativeSelect
+                      value={overlayTrack(ov)}
+                      title="タイムラインの素材トラックと連動(前面/背面はトラックの並び順)"
+                      onChange={(e) => {
+                        if (e.target.value === "__new") {
+                          patch({ track: ovTracks + 1, layer: undefined });
+                          return;
+                        }
+                        const n = Number(e.target.value);
+                        // 旧式の layer 指定はここで track へ移行する
+                        patch({ track: n > 1 ? n : undefined, layer: undefined });
+                      }}
+                    >
+                      {Array.from({ length: ovTracks }, (_, i) => (
+                        <option key={i + 1} value={i + 1}>
+                          素材 V{i + 1}
+                        </option>
+                      ))}
+                      <option value="__new">＋ 新規トラック</option>
+                    </NativeSelect>
+                  </div>
+                </Section>
               </div>
-            </div>
-          )}
-          {isVideo && (
-            <div className="wideGridItem">
-            <SourceRangeBar
-              file={ov.file}
-              startFrom={ov.startFrom ?? 0}
-              // 素材の実消費はカット後に実際に映る秒数(途中がカットされて
-              // いれば区間長より短い)。元収録の区間長で描くと「末尾で静止」を
-              // 誤って警告する
-              usedSec={round2(
-                remapInterval(ov.start, ov.end, timeline).reduce(
-                  (a, iv) => a + (iv.end - iv.start),
-                  0,
-                ),
-              )}
-            />
-            </div>
-          )}
-          {isVideo && (
-            <div className="capField">
-              <label>音量</label>
-              <PercentSlider
-                pct={volPct}
-                max={200}
-                title="素材の音量(0%=無音が既定。マイク音声・BGM はそのまま重なる)。書き出しにも効く"
-                onChange={(pct) =>
-                  patch(
-                    { volume: pct > 0 ? pct / 100 : undefined },
-                    `ov:${selection.index}:volume`,
-                  )
-                }
-              />
-            </div>
-          )}
-          <div className="capField wide">
-            <label>不透明度</label>
-            <PercentSlider
-              pct={opacityPct}
-              title="素材の透け具合(100%=不透明)"
-              onChange={(pct) =>
-                patch(
-                  { opacity: pct < 100 ? pct / 100 : undefined },
-                  `ov:${selection.index}:opacity`,
-                )
-              }
-            />
-          </div>
-          <div className="capLabeledField wideGridItem">
-            <span>フェード</span>
-            <div className="capControlStack">
-              <div className="capField">
-                <label>IN</label>
-                <NumInput
-                  value={ov.fadeInSec}
-                  allowEmpty
-                  placeholder="0"
-                  title="イン(表示区間の頭でふわっと出す。音量も連動)"
-                  onCommit={(v) =>
-                    patch({ fadeInSec: v !== undefined && v > 0 ? round2(v) : undefined })
-                  }
-                />
+            ),
+          },
+          {
+            id: "blending",
+            label: "見た目",
+            icon: <Blend size={16} />,
+            content: () => (
+              <div className="capFlat">
+                <Section title="見た目">
+                <div className="capControlStack materialAppearanceControls">
+                <div className="capField wide">
+                  <label>不透明度</label>
+                  <PercentSlider
+                    pct={opacityPct}
+                    title="素材の透け具合(100%=不透明)"
+                    onChange={(pct) =>
+                      patch(
+                        { opacity: pct < 100 ? pct / 100 : undefined },
+                        `ov:${selection.index}:opacity`,
+                      )
+                    }
+                  />
+                </div>
+                <div className="capLabeledField wideGridItem">
+                  <span>フェード</span>
+                  <div className="capControlStack">
+                    <div className="capField">
+                      <label>IN</label>
+                      <NumInput
+                        value={ov.fadeInSec}
+                        allowEmpty
+                        placeholder="0"
+                        title="イン(表示区間の頭でふわっと出す。音量も連動)"
+                        onCommit={(v) =>
+                          patch({ fadeInSec: v !== undefined && v > 0 ? round2(v) : undefined })
+                        }
+                      />
+                    </div>
+                    <div className="capField">
+                      <label>OUT</label>
+                      <NumInput
+                        value={ov.fadeOutSec}
+                        allowEmpty
+                        placeholder="0"
+                        title="アウト(表示区間の末尾でふわっと消す。音量も連動)"
+                        onCommit={(v) =>
+                          patch({ fadeOutSec: v !== undefined && v > 0 ? round2(v) : undefined })
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+                {!isVideo && (
+                  <p className="dim hint wideGridItem" style={{ margin: 0 }}>
+                    画像素材です(音はありません)。音声込みで全面に出したいときは
+                    インサート(映像トラックへドロップ)を使います。
+                  </p>
+                )}
+                </div>
+                </Section>
               </div>
-              <div className="capField">
-                <label>OUT</label>
-                <NumInput
-                  value={ov.fadeOutSec}
-                  allowEmpty
-                  placeholder="0"
-                  title="アウト(表示区間の末尾でふわっと消す。音量も連動)"
-                  onCommit={(v) =>
-                    patch({ fadeOutSec: v !== undefined && v > 0 ? round2(v) : undefined })
-                  }
-                />
-              </div>
-            </div>
-          </div>
-          {!isVideo && (
-            <p className="dim hint wideGridItem" style={{ margin: 0 }}>
-              画像素材です(音はありません)。音声込みで全面に出したいときは
-              インサート(映像トラックへドロップ)を使います。
-            </p>
-          )}
-          </div>
-        </Section>
-        <Section title="">
-          <button className="danger" onClick={() => removeSpan("overlays", selection.index)}>
-            この素材を削除
-          </button>
-        </Section>
-      </div>
+            ),
+          },
+          ...(isVideo
+            ? [
+                {
+                  id: "audio",
+                  label: "音",
+                  icon: <Music size={16} />,
+                  content: () => (
+                    <div className="capControlStack materialAppearanceControls">
+                        <div className="capLabeledField wideGridItem">
+                          <span>頭出し</span>
+                          <div className="capField noLabel">
+                          <NumInput
+                            value={ov.startFrom ?? 0}
+                            title="素材ファイル内の再生開始位置。0=頭から"
+                            onCommit={(v) =>
+                              v !== undefined &&
+                              patch({ startFrom: v > 0 ? Math.max(0, round2(v)) : undefined })
+                            }
+                          />
+                          </div>
+                        </div>
+                        <div className="wideGridItem">
+                        <SourceRangeBar
+                          file={ov.file}
+                          startFrom={ov.startFrom ?? 0}
+                          // 素材の実消費はカット後に実際に映る秒数(途中がカットされて
+                          // いれば区間長より短い)。元収録の区間長で描くと「末尾で静止」を
+                          // 誤って警告する
+                          usedSec={round2(
+                            remapInterval(ov.start, ov.end, timeline).reduce(
+                              (a, iv) => a + (iv.end - iv.start),
+                              0,
+                            ),
+                          )}
+                        />
+                        </div>
+                        <div className="capField wide">
+                          <label>音量</label>
+                          <PercentSlider
+                            pct={volPct}
+                            max={200}
+                            title="素材の音量(0%=無音が既定。マイク音声・BGM はそのまま重なる)。書き出しにも効く"
+                            onChange={(pct) =>
+                              patch(
+                                { volume: pct > 0 ? pct / 100 : undefined },
+                                `ov:${selection.index}:volume`,
+                              )
+                            }
+                          />
+                        </div>
+                    </div>
+                  ),
+                },
+              ]
+            : []),
+        ]}
+      />
     );
   }
 
@@ -1470,102 +1590,103 @@ export const Inspector = ({
       transitionOutSec: side === "out" ? value : transitionOutSec,
     });
     return (
-      <div className="insp ocInspector">
-        <InspHead
-          kind="ワイプ全画面"
-          title={`${fmtTime(sp.start)} 〜 ${fmtTime(sp.end)}`}
-          chips={[`長さ ${fmtTime(Math.max(0, sp.end - sp.start))}`]}
-        />
-        <Section title="演出" className="flushTopSec">
-          <div className="capControlStack">
-            <div className="capField wide">
-              <label>入り方</label>
-              <Segmented
-                value={transitionInMode}
-                onChange={(v: "instant" | "zoom") =>
-                  updateSpan(
-                    "wipeFull",
-                    selection.index,
-                    transitionPatch("in", v === "instant" ? 0 : undefined),
-                  )
-                }
-                options={[
-                  { value: "zoom", label: "ズームイン", title: "右下ワイプから全画面へ広げる" },
-                  { value: "instant", label: "即全画面", title: "区間の先頭から全画面にする" },
-                ]}
-              />
-            </div>
-            {transitionInMode === "zoom" && (
-              <div className="capField wide">
-                <label>入る速さ</label>
-                <NumStepper
-                  value={transitionInSec}
-                  allowEmpty
-                  min={0}
-                  unit="秒"
-                  placeholder={String(DEFAULT_WIPE_TRANSITION_SEC)}
-                  title="全画面へ広がる秒数。空欄=設定の「ワイプ全画面の遷移」"
-                  onCommit={(v) =>
-                    updateSpan(
-                      "wipeFull",
-                      selection.index,
-                      transitionPatch(
-                        "in",
-                        v !== undefined ? Math.max(0, round2(v)) : undefined,
-                      ),
-                    )
-                  }
-                />
-              </div>
-            )}
-            <div className="capField wide">
-              <label>戻り方</label>
-              <Segmented
-                value={transitionOutMode}
-                onChange={(v: "instant" | "zoom") =>
-                  updateSpan(
-                    "wipeFull",
-                    selection.index,
-                    transitionPatch("out", v === "instant" ? 0 : undefined),
-                  )
-                }
-                options={[
-                  { value: "zoom", label: "ズームアウト", title: "全画面から右下ワイプへ戻す" },
-                  { value: "instant", label: "即ワイプ", title: "区間の末尾で右下ワイプへ戻す" },
-                ]}
-              />
-            </div>
-            {transitionOutMode === "zoom" && (
-              <div className="capField wide">
-                <label>戻る速さ</label>
-                <NumStepper
-                  value={transitionOutSec}
-                  allowEmpty
-                  min={0}
-                  unit="秒"
-                  placeholder={String(DEFAULT_WIPE_TRANSITION_SEC)}
-                  title="右下ワイプへ戻る秒数。空欄=設定の「ワイプ全画面の遷移」"
-                  onCommit={(v) =>
-                    updateSpan(
-                      "wipeFull",
-                      selection.index,
-                      transitionPatch(
-                        "out",
-                        v !== undefined ? Math.max(0, round2(v)) : undefined,
-                      ),
-                    )
-                  }
-                />
-              </div>
-            )}
-          </div>
-        </Section>
-        <Section title="">
-          <button className="danger" onClick={() => removeSpan("wipeFull", selection.index)}>
-            この区間を削除
-          </button>
-        </Section>
-      </div>
+      <InspectorTabs
+        groupKey="wipeFull"
+        defaultTab="staging"
+        tabs={[
+          {
+            id: "staging",
+            label: "演出",
+            icon: <Layers size={16} />,
+            content: () => (
+              <Section title="演出" className="flushTopSec">
+                <div className="capControlStack">
+                  <div className="capField wide">
+                    <label>入り方</label>
+                    <Segmented
+                      value={transitionInMode}
+                      onChange={(v: "instant" | "zoom") =>
+                        updateSpan(
+                          "wipeFull",
+                          selection.index,
+                          transitionPatch("in", v === "instant" ? 0 : undefined),
+                        )
+                      }
+                      options={[
+                        { value: "zoom", label: "ズームイン", title: "右下ワイプから全画面へ広げる" },
+                        { value: "instant", label: "即全画面", title: "区間の先頭から全画面にする" },
+                      ]}
+                    />
+                  </div>
+                  {transitionInMode === "zoom" && (
+                    <div className="capField wide">
+                      <label>入る速さ</label>
+                      <NumStepper
+                        value={transitionInSec}
+                        allowEmpty
+                        min={0}
+                        unit="秒"
+                        placeholder={String(DEFAULT_WIPE_TRANSITION_SEC)}
+                        title="全画面へ広がる秒数。空欄=設定の「ワイプ全画面の遷移」"
+                        onCommit={(v) =>
+                          updateSpan(
+                            "wipeFull",
+                            selection.index,
+                            transitionPatch(
+                              "in",
+                              v !== undefined ? Math.max(0, round2(v)) : undefined,
+                            ),
+                          )
+                        }
+                      />
+                    </div>
+                  )}
+                  <div className="capField wide">
+                    <label>戻り方</label>
+                    <Segmented
+                      value={transitionOutMode}
+                      onChange={(v: "instant" | "zoom") =>
+                        updateSpan(
+                          "wipeFull",
+                          selection.index,
+                          transitionPatch("out", v === "instant" ? 0 : undefined),
+                        )
+                      }
+                      options={[
+                        { value: "zoom", label: "ズームアウト", title: "全画面から右下ワイプへ戻す" },
+                        { value: "instant", label: "即ワイプ", title: "区間の末尾で右下ワイプへ戻す" },
+                      ]}
+                    />
+                  </div>
+                  {transitionOutMode === "zoom" && (
+                    <div className="capField wide">
+                      <label>戻る速さ</label>
+                      <NumStepper
+                        value={transitionOutSec}
+                        allowEmpty
+                        min={0}
+                        unit="秒"
+                        placeholder={String(DEFAULT_WIPE_TRANSITION_SEC)}
+                        title="右下ワイプへ戻る秒数。空欄=設定の「ワイプ全画面の遷移」"
+                        onCommit={(v) =>
+                          updateSpan(
+                            "wipeFull",
+                            selection.index,
+                            transitionPatch(
+                              "out",
+                              v !== undefined ? Math.max(0, round2(v)) : undefined,
+                            ),
+                          )
+                        }
+                      />
+                    </div>
+                  )}
+                </div>
+              </Section>
+            ),
+          },
+        ]}
+      />
     );
   }
 
@@ -1575,50 +1696,67 @@ export const Inspector = ({
     const z = (overlays.zooms ?? [])[selection.index];
     if (!z) return null;
     return (
-      <div className="insp ocInspector">
-        <Section title="拡大範囲" className="flushTopSec">
-          <ZoomRectControl
-            rect={z.rect}
-            output={output}
-            onChange={(rect) =>
-              updateZoom(selection.index, { rect }, `zoom:${selection.index}:rect`)
-            }
-          />
-        </Section>
-        <Section title="遷移">
-          <div className="capControlStack">
-            <div className="capField">
-              <label>In</label>
-              <NumStepper
-                value={z.easeSec}
-                allowEmpty
-                min={0}
-                unit="秒"
-                placeholder={String(DEFAULT_ZOOM_EASE_SEC)}
-                title="区間の頭でズームインする秒数。空欄=config の既定(render.zoom.easeSec)"
-                onCommit={(v) => updateZoom(selection.index, { easeSec: v })}
-              />
-            </div>
-            <div className="capField">
-              <label>Out</label>
-              <NumStepper
-                value={z.easeOutSec}
-                allowEmpty
-                min={0}
-                unit="秒"
-                placeholder={String(z.easeSec ?? DEFAULT_ZOOM_EASE_SEC)}
-                title="区間の末尾でズームアウトする秒数。空欄=In と同じ"
-                onCommit={(v) => updateZoom(selection.index, { easeOutSec: v })}
-              />
-            </div>
-          </div>
-        </Section>
-        <Section title="">
-          <button className="danger" onClick={() => removeZoom(selection.index)}>
-            このズームを削除
-          </button>
-        </Section>
-      </div>
+      <InspectorTabs
+        groupKey="zoom"
+        defaultTab="range"
+        tabs={[
+          {
+            id: "range",
+            label: "範囲",
+            icon: <Scan size={16} />,
+            content: () => (
+              <div className="capFlat">
+                <Section title="拡大範囲" className="flushTopSec">
+                  <ZoomRectControl
+                    rect={z.rect}
+                    output={output}
+                    onChange={(rect) =>
+                      updateZoom(selection.index, { rect }, `zoom:${selection.index}:rect`)
+                    }
+                  />
+                </Section>
+              </div>
+            ),
+          },
+          {
+            id: "timing",
+            label: "遷移",
+            icon: <Clock size={16} />,
+            content: () => (
+              <div className="capFlat capFlatNoGap">
+                <Section title="遷移">
+                  <div className="capControlStack">
+                    <div className="capField">
+                      <label>In</label>
+                      <NumStepper
+                        value={z.easeSec}
+                        allowEmpty
+                        min={0}
+                        unit="秒"
+                        placeholder={String(DEFAULT_ZOOM_EASE_SEC)}
+                        title="区間の頭でズームインする秒数。空欄=config の既定(render.zoom.easeSec)"
+                        onCommit={(v) => updateZoom(selection.index, { easeSec: v })}
+                      />
+                    </div>
+                    <div className="capField">
+                      <label>Out</label>
+                      <NumStepper
+                        value={z.easeOutSec}
+                        allowEmpty
+                        min={0}
+                        unit="秒"
+                        placeholder={String(z.easeSec ?? DEFAULT_ZOOM_EASE_SEC)}
+                        title="区間の末尾でズームアウトする秒数。空欄=In と同じ"
+                        onCommit={(v) => updateZoom(selection.index, { easeOutSec: v })}
+                      />
+                    </div>
+                  </div>
+                </Section>
+              </div>
+            ),
+          },
+        ]}
+      />
     );
   }
   /* ---------------- ぼかし ---------------- */
@@ -1628,39 +1766,56 @@ export const Inspector = ({
     if (!b) return null;
     const strengthPct = Math.round((b.strength ?? DEFAULT_BLUR_STRENGTH) * 100);
     return (
-      <div className="insp ocInspector">
-        <Section title="隠す範囲" className="flushTopSec">
-          <BlurRectControl
-            rect={b.rect}
-            onChange={(rect) =>
-              updateBlur(selection.index, { rect }, `blur:${selection.index}:rect`)
-            }
-          />
-        </Section>
-        <Section title="効果">
-          <div className="capControlStack">
-          <div className="capField wide">
-            <label>強度</label>
-            <PercentSlider
-              pct={strengthPct}
-              title="0=効果なし〜100=最大。省略時 50%(既定)"
-              onChange={(pct) =>
-                updateBlur(
-                  selection.index,
-                  { strength: pct === Math.round(DEFAULT_BLUR_STRENGTH * 100) ? undefined : pct / 100 },
-                  `blur:${selection.index}:strength`,
-                )
-              }
-            />
-          </div>
-          </div>
-        </Section>
-        <Section title="">
-          <button className="danger" onClick={() => removeBlur(selection.index)}>
-            このぼかしを削除
-          </button>
-        </Section>
-      </div>
+      <InspectorTabs
+        groupKey="blur"
+        defaultTab="range"
+        tabs={[
+          {
+            id: "range",
+            label: "範囲",
+            icon: <SquareDashed size={16} />,
+            content: () => (
+              <div className="capFlat capFlatNoGap">
+                <Section title="隠す範囲">
+                  <BlurRectControl
+                    rect={b.rect}
+                    onChange={(rect) =>
+                      updateBlur(selection.index, { rect }, `blur:${selection.index}:rect`)
+                    }
+                  />
+                </Section>
+              </div>
+            ),
+          },
+          {
+            id: "effect",
+            label: "効果",
+            icon: <SlidersHorizontal size={16} />,
+            content: () => (
+              <div className="capFlat capFlatNoGap">
+                <Section title="効果">
+                  <div className="capControlStack">
+                  <div className="capField wide">
+                    <label>強度</label>
+                    <PercentSlider
+                      pct={strengthPct}
+                      title="0=効果なし〜100=最大。省略時 50%(既定)"
+                      onChange={(pct) =>
+                        updateBlur(
+                          selection.index,
+                          { strength: pct === Math.round(DEFAULT_BLUR_STRENGTH * 100) ? undefined : pct / 100 },
+                          `blur:${selection.index}:strength`,
+                        )
+                      }
+                    />
+                  </div>
+                  </div>
+                </Section>
+              </div>
+            ),
+          },
+        ]}
+      />
     );
   }
 
@@ -1713,160 +1868,175 @@ export const Inspector = ({
     };
 
     return (
-      <div className="insp ocInspector">
-        <Section title="種別" className="flushTopSec">
-          <div className="capControlStack">
-            <div className="capField wide noLabel">
-                <Segmented
-                  value={a.type}
-                  onChange={(v: AnnotationType) => changeType(v)}
-                  options={[
-                    { value: "arrow", label: "矢印", title: "arrow: from→to へ矢印" },
-                    { value: "box", label: "囲み", title: "box: 矩形の枠(任意で塗り)" },
-                    { value: "spotlight", label: "スポット", title: "spotlight: 矩形以外を暗くする" },
-                  ]}
-                />
-            </div>
-          </div>
-        </Section>
+      <InspectorTabs
+        groupKey="annotation"
+        defaultTab="shape"
+        tabs={[
+          {
+            id: "shape",
+            label: "形",
+            icon: <Shapes size={16} />,
+            content: () => (
+              <div className="capFlat capFlatNoGap">
+                <Section title="種別">
+                  <div className="capControlStack">
+                    <div className="capField wide noLabel">
+                        <Segmented
+                          value={a.type}
+                          onChange={(v: AnnotationType) => changeType(v)}
+                          options={[
+                            { value: "arrow", label: "矢印", title: "arrow: from→to へ矢印" },
+                            { value: "box", label: "囲み", title: "box: 矩形の枠(任意で塗り)" },
+                            { value: "spotlight", label: "スポット", title: "spotlight: 矩形以外を暗くする" },
+                          ]}
+                        />
+                    </div>
+                  </div>
+                </Section>
 
-        {a.type === "arrow" ? (
-          <Section title="始点 / 終点">
-            <ArrowPointControl
-              from={a.from}
-              to={a.to}
-              onChange={(patch) => updateAnnotation(i, patch, `annotation:${i}:pt`)}
-            />
-          </Section>
-        ) : (
-          <Section title={a.type === "spotlight" ? "明るく残す範囲" : "囲む範囲"}>
-            <AnnotationRectControl
-              rect={a.rect}
-              onChange={(rect) => updateAnnotation(i, { rect }, `annotation:${i}:rect`)}
-            />
-          </Section>
-        )}
-
-        {a.type === "arrow" && (
-          <Section title="見た目">
-            <div className="capControlStack">
-            <ColorField
-              label="色"
-              value={a.color ?? DEFAULT_ANNOTATION_COLOR}
-              onChange={(c) =>
-                updateAnnotation(
-                  i,
-                  { color: c === DEFAULT_ANNOTATION_COLOR ? undefined : c },
-                  `annotation:${i}:color`,
-                )
-              }
-            />
-            <NumField
-              label="線の太さ"
-              value={a.widthPx}
-              placeholder={DEFAULT_ARROW_WIDTH_PX}
-              onCommit={(v) => updateAnnotation(i, { widthPx: v })}
-            />
-            <NumField
-              label="矢尻サイズ"
-              value={a.headPx}
-              placeholder={DEFAULT_ARROW_HEAD_PX}
-              onCommit={(v) => updateAnnotation(i, { headPx: v })}
-            />
-            </div>
-          </Section>
-        )}
-        {a.type === "box" && (
-          <Section title="見た目">
-            <div className="capControlStack">
-            <ColorField
-              label="枠の色"
-              value={a.color ?? DEFAULT_ANNOTATION_COLOR}
-              onChange={(c) =>
-                updateAnnotation(
-                  i,
-                  { color: c === DEFAULT_ANNOTATION_COLOR ? undefined : c },
-                  `annotation:${i}:color`,
-                )
-              }
-            />
-            <NumField
-              label="枠の太さ"
-              value={a.widthPx}
-              placeholder={DEFAULT_BOX_WIDTH_PX}
-              onCommit={(v) => updateAnnotation(i, { widthPx: v })}
-            />
-            <NumField
-              label="角丸"
-              value={a.radiusPx}
-              placeholder={DEFAULT_BOX_RADIUS_PX}
-              onCommit={(v) => updateAnnotation(i, { radiusPx: v })}
-            />
-            <FillField
-              value={a.fill}
-              onChange={(fill) => updateAnnotation(i, { fill }, `annotation:${i}:fill`)}
-            />
-            </div>
-          </Section>
-        )}
-        {a.type === "spotlight" && (
-          <Section title="見た目">
-            <div className="capControlStack">
-            <div className="capLabeledField wideGridItem">
-              <span>形状</span>
-              <div className="capField noLabel">
-              <Segmented
-                value={a.shape ?? DEFAULT_SPOTLIGHT_SHAPE}
-                onChange={(v: SpotlightShape) =>
-                  updateAnnotation(i, {
-                    shape: v === DEFAULT_SPOTLIGHT_SHAPE ? undefined : v,
-                  })
-                }
-                options={[
-                  { value: "rect", label: "矩形", title: "rect(既定)" },
-                  { value: "ellipse", label: "楕円", title: "ellipse" },
-                ]}
-              />
+                {a.type === "arrow" ? (
+                  <Section title="始点 / 終点">
+                    <ArrowPointControl
+                      from={a.from}
+                      to={a.to}
+                      onChange={(patch) => updateAnnotation(i, patch, `annotation:${i}:pt`)}
+                    />
+                  </Section>
+                ) : (
+                  <Section title={a.type === "spotlight" ? "明るく残す範囲" : "囲む範囲"}>
+                    <AnnotationRectControl
+                      rect={a.rect}
+                      onChange={(rect) => updateAnnotation(i, { rect }, `annotation:${i}:rect`)}
+                    />
+                  </Section>
+                )}
               </div>
-            </div>
-            <div className="capField wide">
-              <label>外側の暗さ</label>
-              <PercentSlider
-                pct={Math.round((a.dim ?? DEFAULT_SPOTLIGHT_DIM) * 100)}
-                title="0=効果なし〜100=真っ黒。省略時 60%(既定)"
-                onChange={(pct) =>
-                  updateAnnotation(
-                    i,
-                    { dim: pct === Math.round(DEFAULT_SPOTLIGHT_DIM * 100) ? undefined : pct / 100 },
-                    `annotation:${i}:dim`,
-                  )
-                }
-              />
-            </div>
-            <NumField
-              label="縁のぼかし"
-              value={a.featherPx}
-              placeholder={DEFAULT_SPOTLIGHT_FEATHER_PX}
-              onCommit={(v) => updateAnnotation(i, { featherPx: v })}
-            />
-            {(a.shape ?? DEFAULT_SPOTLIGHT_SHAPE) === "rect" && (
-              <NumField
-                label="角丸"
-                value={a.radiusPx}
-                placeholder={0}
-                onCommit={(v) => updateAnnotation(i, { radiusPx: v })}
-              />
-            )}
-            </div>
-          </Section>
-        )}
-
-        <Section title="">
-          <button className="danger" onClick={() => removeAnnotation(i)}>
-            この注釈を削除
-          </button>
-        </Section>
-      </div>
+            ),
+          },
+          {
+            id: "look",
+            label: "見た目",
+            icon: <Palette size={16} />,
+            content: () => (
+              <div className="capFlat capFlatNoGap">
+                {a.type === "arrow" && (
+                  <Section title="見た目">
+                    <div className="capControlStack">
+                    <ColorField
+                      label="色"
+                      value={a.color ?? DEFAULT_ANNOTATION_COLOR}
+                      onChange={(c) =>
+                        updateAnnotation(
+                          i,
+                          { color: c === DEFAULT_ANNOTATION_COLOR ? undefined : c },
+                          `annotation:${i}:color`,
+                        )
+                      }
+                    />
+                    <NumField
+                      label="線の太さ"
+                      value={a.widthPx}
+                      placeholder={DEFAULT_ARROW_WIDTH_PX}
+                      onCommit={(v) => updateAnnotation(i, { widthPx: v })}
+                    />
+                    <NumField
+                      label="矢尻サイズ"
+                      value={a.headPx}
+                      placeholder={DEFAULT_ARROW_HEAD_PX}
+                      onCommit={(v) => updateAnnotation(i, { headPx: v })}
+                    />
+                    </div>
+                  </Section>
+                )}
+                {a.type === "box" && (
+                  <Section title="見た目">
+                    <div className="capControlStack">
+                    <ColorField
+                      label="枠の色"
+                      value={a.color ?? DEFAULT_ANNOTATION_COLOR}
+                      onChange={(c) =>
+                        updateAnnotation(
+                          i,
+                          { color: c === DEFAULT_ANNOTATION_COLOR ? undefined : c },
+                          `annotation:${i}:color`,
+                        )
+                      }
+                    />
+                    <NumField
+                      label="枠の太さ"
+                      value={a.widthPx}
+                      placeholder={DEFAULT_BOX_WIDTH_PX}
+                      onCommit={(v) => updateAnnotation(i, { widthPx: v })}
+                    />
+                    <NumField
+                      label="角丸"
+                      value={a.radiusPx}
+                      placeholder={DEFAULT_BOX_RADIUS_PX}
+                      onCommit={(v) => updateAnnotation(i, { radiusPx: v })}
+                    />
+                    <FillField
+                      value={a.fill}
+                      onChange={(fill) => updateAnnotation(i, { fill }, `annotation:${i}:fill`)}
+                    />
+                    </div>
+                  </Section>
+                )}
+                {a.type === "spotlight" && (
+                  <Section title="見た目">
+                    <div className="capControlStack">
+                    <div className="capLabeledField wideGridItem">
+                      <span>形状</span>
+                      <div className="capField noLabel">
+                      <Segmented
+                        value={a.shape ?? DEFAULT_SPOTLIGHT_SHAPE}
+                        onChange={(v: SpotlightShape) =>
+                          updateAnnotation(i, {
+                            shape: v === DEFAULT_SPOTLIGHT_SHAPE ? undefined : v,
+                          })
+                        }
+                        options={[
+                          { value: "rect", label: "矩形", title: "rect(既定)" },
+                          { value: "ellipse", label: "楕円", title: "ellipse" },
+                        ]}
+                      />
+                      </div>
+                    </div>
+                    <div className="capField wide">
+                      <label>外側の暗さ</label>
+                      <PercentSlider
+                        pct={Math.round((a.dim ?? DEFAULT_SPOTLIGHT_DIM) * 100)}
+                        title="0=効果なし〜100=真っ黒。省略時 60%(既定)"
+                        onChange={(pct) =>
+                          updateAnnotation(
+                            i,
+                            { dim: pct === Math.round(DEFAULT_SPOTLIGHT_DIM * 100) ? undefined : pct / 100 },
+                            `annotation:${i}:dim`,
+                          )
+                        }
+                      />
+                    </div>
+                    <NumField
+                      label="縁のぼかし"
+                      value={a.featherPx}
+                      placeholder={DEFAULT_SPOTLIGHT_FEATHER_PX}
+                      onCommit={(v) => updateAnnotation(i, { featherPx: v })}
+                    />
+                    {(a.shape ?? DEFAULT_SPOTLIGHT_SHAPE) === "rect" && (
+                      <NumField
+                        label="角丸"
+                        value={a.radiusPx}
+                        placeholder={0}
+                        onCommit={(v) => updateAnnotation(i, { radiusPx: v })}
+                      />
+                    )}
+                    </div>
+                  </Section>
+                )}
+              </div>
+            ),
+          },
+        ]}
+      />
     );
   }
 
@@ -1956,6 +2126,9 @@ const CaptionDesignFields = ({
       : []),
   ];
   const outlineOn = (effStyle.outlineColor ?? CAPTION_DEFAULT_OUTLINE) !== "none";
+  const effOutlineColor =
+    (style?.outlineColor !== "none" ? style?.outlineColor : undefined) ??
+    (base.outlineColor && base.outlineColor !== "none" ? base.outlineColor : CAPTION_DEFAULT_OUTLINE);
   /** この層自身の帯指定。"none" = 下の層の帯を明示的に打ち消している */
   const ownBg = style?.background;
   /** 下の層から継承される帯 */
@@ -1963,8 +2136,6 @@ const CaptionDesignFields = ({
   /** いま実際に描かれる帯 */
   const effBg = resolveCaptionBackground(ownBg, base.background);
   const bgColor = effBg ? splitColor(effBg.color) : null;
-  /** 帯を下から継承していて、この層は何も言っていない状態 */
-  const bgInherited = ownBg === undefined && !!inheritedBg;
   /** 帯の項目を更新。継承中の帯を編集したらこの層へ実体化する
    * (effBg を土台にするので継承値がそのまま引き継がれる) */
   const patchBg = (p: Partial<CaptionBackground>, key?: string) => {
@@ -1979,7 +2150,8 @@ const CaptionDesignFields = ({
     <>
       <Section title="タイポグラフィ">
         <div className="capControlStack typographyControls">
-          <div className="capField wide noLabel">
+          <div className="capField wide">
+            <label>フォント</label>
             <NativeSelect
               value={effFamily}
               title="フォント種。標準=下の層(トラック標準 → config の既定)を継承"
@@ -1996,7 +2168,8 @@ const CaptionDesignFields = ({
               ))}
             </NativeSelect>
           </div>
-          <div className="capField noLabel">
+          <div className="capField">
+            <label>太さ</label>
             <NativeSelect
               value={effStyle.fontWeight ?? CAPTION_DEFAULT_FONT_WEIGHT}
               title="文字の太さ"
@@ -2009,7 +2182,8 @@ const CaptionDesignFields = ({
               ))}
             </NativeSelect>
           </div>
-          <div className="capField noLabel">
+          <div className="capField">
+            <label>サイズ</label>
             <NumStepper
               value={style?.fontSizePx}
               allowEmpty
@@ -2025,15 +2199,15 @@ const CaptionDesignFields = ({
       </Section>
       <Section title="塗り(文字)">
         <div className="capControlStack paintControls">
-          <div className="capField swatchField">
-            <label>文字</label>
-            <ColorInput
-              value={style?.color ?? base.color}
+          <div className="capLabeledField wideGridItem">
+            <span>文字の色</span>
+            <ColorPillInput
+              value={style?.color ?? base.color ?? CAPTION_DEFAULT_COLOR}
               title="文字色"
-              onChange={(e) => patch({ color: e.target.value }, `${keyPrefix}:color`)}
+              onChange={(value) => patch({ color: value }, `${keyPrefix}:color`)}
             />
           </div>
-          <div className="capField swatchField">
+          <div className="capField wide">
             <label>縁</label>
             <Switch
               checked={outlineOn}
@@ -2051,19 +2225,19 @@ const CaptionDesignFields = ({
                 )
               }
             />
-            {outlineOn && (
-              <ColorInput
-                value={
-                  (style?.outlineColor !== "none" ? style?.outlineColor : undefined) ??
-                  (base.outlineColor !== "none" ? base.outlineColor : CAPTION_DEFAULT_OUTLINE)
-                }
+          </div>
+          {outlineOn && (
+            <div className="capLabeledField wideGridItem">
+              <span>縁の色</span>
+              <ColorPillInput
+                value={effOutlineColor}
                 title="縁取り色"
-                onChange={(e) =>
-                  patch({ outlineColor: e.target.value }, `${keyPrefix}:outlineColor`)
+                onChange={(value) =>
+                  patch({ outlineColor: value }, `${keyPrefix}:outlineColor`)
                 }
               />
-            )}
-          </div>
+            </div>
+          )}
           {outlineOn && (
             <div className="capField">
               <label>縁太さ</label>
@@ -2091,7 +2265,7 @@ const CaptionDesignFields = ({
       </Section>
       <Section title="帯(テキストの背景)">
         <div className="capControlStack bandControls">
-          <div className="capField swatchField">
+          <div className="capField wide">
             <label>帯</label>
             <Switch
               checked={!!effBg}
@@ -2117,18 +2291,19 @@ const CaptionDesignFields = ({
                 )
               }
             />
-            {effBg && bgColor && (
-              <ColorInput
-                value={bgColor.hex}
-                title="帯の色"
-                onChange={(e) =>
-                  patchBg({ color: joinColor(e.target.value, bgColor.alpha) }, `${keyPrefix}:bgColor`)
-                }
-              />
-            )}
           </div>
           {effBg && bgColor && (
             <>
+              <div className="capLabeledField wideGridItem">
+                <span>帯の色</span>
+                <ColorPillInput
+                  value={bgColor.hex}
+                  title="帯の色"
+                  onChange={(value) =>
+                    patchBg({ color: joinColor(value, bgColor.alpha) }, `${keyPrefix}:bgColor`)
+                  }
+                />
+              </div>
               <div className="capField wide">
                 <label>不透明度</label>
                 <PercentSlider
@@ -2176,11 +2351,6 @@ const CaptionDesignFields = ({
             </>
           )}
         </div>
-        {bgInherited && (
-          <p className="dim hint">
-            帯は{belowLabel}から継承中。ここで値を変えるとこの層だけの帯になります
-          </p>
-        )}
         {ownBg === "none" && (
           <p className="dim hint">
             この層だけ帯なし(<code>"none"</code> で{belowLabel}の帯を打ち消し中){" "}
@@ -2213,20 +2383,17 @@ const Section = ({
     `${canCollapse && !open ? " isClosed" : ""}`;
   return (
     <div className={cls}>
-      {title !== "" &&
-        (canCollapse ? (
-          <button
-            type="button"
-            className="inspSecHead"
-            aria-expanded={open}
-            onClick={() => setOpen((v) => !v)}
-          >
-            <ChevronDown className="inspSecChevron" aria-hidden="true" />
-            <h4>{title}</h4>
-          </button>
-        ) : (
-          <h4>{title}</h4>
-        ))}
+      {canCollapse && (
+        <button
+          type="button"
+          className="inspSecHead"
+          aria-expanded={open}
+          aria-label={title}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <ChevronDown className="inspSecChevron" aria-hidden="true" />
+        </button>
+      )}
       {(!canCollapse || open) && children}
     </div>
   );
@@ -2865,9 +3032,9 @@ const ColorField = ({
   value: string;
   onChange: (c: string) => void;
 }) => (
-  <div className="capField swatchField">
-    <label>{label}</label>
-    <ColorInput value={value} onChange={(e) => onChange(e.target.value)} />
+  <div className="capLabeledField wideGridItem">
+    <span>{label}</span>
+    <ColorPillInput value={value} onChange={onChange} />
   </div>
 );
 
@@ -2882,28 +3049,36 @@ const FillField = ({
 }) => {
   const col = value ? splitColor(value) : null;
   return (
-    <div className="capField wide">
-      <label>塗り</label>
-      <Switch
-        checked={!!col}
-        title="枠の内側を塗る(既定は塗りなし=枠線のみ)"
-        onChange={(e) => onChange(e.target.checked ? "rgba(255, 59, 48, 0.25)" : undefined)}
-      />
+    <>
+      <div className="capField wide">
+        <label>塗り</label>
+        <Switch
+          checked={!!col}
+          title="枠の内側を塗る(既定は塗りなし=枠線のみ)"
+          onChange={(e) => onChange(e.target.checked ? "rgba(255, 59, 48, 0.25)" : undefined)}
+        />
+      </div>
       {col && (
         <>
-          <ColorInput
-            value={col.hex}
-            title="塗りの色"
-            onChange={(e) => onChange(joinColor(e.target.value, col.alpha))}
-          />
-          <PercentSlider
-            pct={Math.round(col.alpha * 100)}
-            title="塗りの不透明度"
-            onChange={(pct) => onChange(joinColor(col.hex, pct / 100))}
-          />
+          <div className="capLabeledField wideGridItem">
+            <span>塗りの色</span>
+            <ColorPillInput
+              value={col.hex}
+              title="塗りの色"
+              onChange={(value) => onChange(joinColor(value, col.alpha))}
+            />
+          </div>
+          <div className="capField wide">
+            <label>不透明度</label>
+            <PercentSlider
+              pct={Math.round(col.alpha * 100)}
+              title="塗りの不透明度"
+              onChange={(pct) => onChange(joinColor(col.hex, pct / 100))}
+            />
+          </div>
         </>
       )}
-    </div>
+    </>
   );
 };
 
@@ -3521,129 +3696,23 @@ const ShortPropertiesSection = ({
 /* ================= 未選択時: プロジェクトの要約 ================= */
 
 const ProjectPanel = ({
-  cutplan,
-  transcript,
-  materials,
-  srcDur,
-  duration,
-  project,
   shortSection,
 }: {
-  cutplan: CutPlan;
-  transcript: Transcript;
-  materials: string[];
-  srcDur: number;
-  duration: number;
-  project: {
-    dir: string;
-    approved: boolean;
-    bgmFile: string | null;
-    bgmTracks: number;
-    /** カメラ(ワイプ)を持つレイアウトか。plain のショート profile ピッカーの
-     * 絞り込みに使う(vertical を非表示にする) */
-    hasCamera: boolean;
-  };
   /** ショートモード中(activeShort が非 null)に上部へ差し込む「ショート」節。
-   * 本編モードでは undefined(#5/T5: ヘッダーの shortBar を右インスペクタへ移設) */
+   * 本編モードでは undefined */
   shortSection?: ReactNode;
-}) => {
-  const keepsN = cutplan.segments.filter((s) => s.action === "keep").length;
-  const cutPct = srcDur > 0 ? Math.max(0, Math.round((1 - duration / srcDur) * 100)) : 0;
-  return (
-    <div className="insp ocInspector">
-      <InspHead
-        kind="プロジェクト"
-        title={project.dir.replace(/\/+$/, "").split("/").pop() ?? project.dir}
-      />
-      <div className="projectIntro">
-        <strong>編集の全体像</strong>
-        <span>クリップを選ぶと、ここで時間・見た目・配置を調整できます。</span>
+}) => (
+  <div className="insp ocInspector">
+    {shortSection}
+    <div className="inspEmpty">
+      <div className="inspEmptyIcon">
+        <SlidersHorizontal size={24} aria-hidden="true" />
       </div>
-      {shortSection}
-      <Section title="概要" className={shortSection ? undefined : "flushTopSec"}>
-        <dl className="projRows">
-          <dt>収録</dt>
-          <dd className="mono">{fmtTime(srcDur)}</dd>
-          <dt>出力</dt>
-          <dd className="mono">{fmtTime(duration)}</dd>
-          <dt>カット</dt>
-          <dd>{cutPct}%</dd>
-          <dt>承認</dt>
-          <dd>{project.approved ? "承認済み" : <span className="warnText">未承認</span>}</dd>
-        </dl>
-      </Section>
-      <Section title="構成">
-        <dl className="projRows">
-          <dt>映像</dt>
-          <dd>{keepsN}</dd>
-          <dt>カット記録</dt>
-          <dd>{cutplan.segments.length - keepsN}</dd>
-          <dt>テロップ</dt>
-          <dd>{transcript.segments.length}</dd>
-          <dt>素材</dt>
-          <dd>{materials.length}</dd>
-          <dt>カメラ</dt>
-          <dd>{project.hasCamera ? "あり" : "なし"}</dd>
-          <dt>BGM</dt>
-          <dd>
-            {project.bgmTracks > 0
-              ? `bgm.json(${project.bgmTracks} 区間)`
-              : project.bgmFile ?? <span className="dim">なし</span>}
-          </dd>
-        </dl>
-      </Section>
-      <details className="inspDetails">
-        <summary>操作ガイド</summary>
-        <div className="guide">
-          <h5>タイムラインの見方</h5>
-          <ul>
-            <li>横軸はカット後の時間(書き出される動画と同じ時間軸)</li>
-            <li>上のトラックほど前面に表示</li>
-            <li>
-              映像トラックの ▼ 印 = カットされた区間
-              (クリックで選択 → プロパティから戻せる)
-            </li>
-          </ul>
-          <h5>クリップの編集</h5>
-          <ul>
-            <li>ドラッグで移動 / 端をつまんでトリム / 上下のトラックへ移動</li>
-            <li>トラックの空きをドラッグしてテロップ・素材を追加</li>
-            <li>
-              <kbd>⌘K</kbd> 再生ヘッド位置でクリップを分割
-              (割ってから端をトリム / Delete でカット)
-            </li>
-            <li>
-              <kbd>Delete</kbd> 削除(映像クリップはカットに倒れ、▼ 印から戻せる)
-            </li>
-            <li>テロップは ⌘クリックで複数選択 → 一括でスタイル変更</li>
-          </ul>
-          <h5>トラック</h5>
-          <ul>
-            <li>ラベルの上下ドラッグで並べ替え(重なり順が変わる)</li>
-            <li>ラベル下端のドラッグで高さを変更(ダブルクリックで既定)</li>
-            <li>
-              目のアイコンでトラックを一時非表示(プレビュー専用。
-              書き出しには影響せず、リロードで全トラック表示に戻る)
-            </li>
-          </ul>
-          <h5>再生・表示</h5>
-          <ul>
-            <li>
-              <kbd>Space</kbd> 再生 / <kbd>← →</kbd> 1フレーム送り(Shift で1秒)
-            </li>
-            <li>⌘+スクロール(ピンチ)でズーム、ダブルクリックで全体表示に戻る</li>
-            <li>
-              <kbd>⇧F</kbd> プレビュー最大化 / <kbd>F</kbd> フルスクリーン
-            </li>
-            <li>
-              <kbd>⌘Z</kbd> 元に戻す / <kbd>⌘S</kbd> 保存 / <kbd>⌘,</kbd> 設定
-            </li>
-          </ul>
-        </div>
-      </details>
+      <h3>ここには何もありません</h3>
+      <p>タイムラインの要素をクリックすると、プロパティを編集できます</p>
     </div>
-  );
-};
+  </div>
+);
 
 /** フォント種のプリセット(macOS 標準の日本語フォント)。
  * 値はそのまま CSS font-family として使う(設定モーダルとも共有) */

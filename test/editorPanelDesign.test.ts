@@ -102,25 +102,28 @@ test("P2 panel scopes remain present while Inspector and Timeline advance in lat
   assert.doesNotMatch(css, /\.ocIconRail \[role="tab"\]::before/);
   assert.match(css, /\.ocSidePanel \.ocPaneAction\s*\{/);
 
-  // P6.3 left inspector: captions tab gains a left-side track-add entry reusing addTrack.
-  assert.match(app, /onClick=\{\(\) => addTrack\("caption"\)\}/);
+  // P6.6 timeline parity: no explicit add-track button remains in the left pane.
+  assert.doesNotMatch(app, /onClick=\{\(\) => addTrack\("caption"\)\}/);
+  assert.doesNotMatch(app, /テロップトラックを追加/);
 });
 
-test("P2 checkpoint 2 mounts exactly nine accessible CutFlow icon-rail tabs", () => {
+test("P2 checkpoint 2 mounts exactly ten accessible CutFlow icon-rail tabs", () => {
   const app = read("editor/client/App.tsx");
+  const panels = read("editor/client/Panels.tsx");
   const tabs = app.slice(app.indexOf("const PANEL_TABS"), app.indexOf("] as const", app.indexOf("const PANEL_TABS")));
   for (const entry of [
     '["materials", "素材"]',
+    '["sounds", "サウンド"]',
     '["script", "スクリプト"]',
     '["captions", "テロップ"]',
-    '["shorts", "ショート"]',
-    '["adjust", "色調整"]',
+    '["stickers", "ステッカー"]',
     '["effects", "エフェクト"]',
     '["transitions", "トランジション"]',
-    '["sounds", "サウンド"]',
-    '["stickers", "ステッカー"]',
+    '["adjust", "色調整"]',
+    '["shorts", "ショート"]',
+    '["settings", "設定"]',
   ]) assert.ok(tabs.includes(entry), `missing rail capability ${entry}`);
-  assert.equal((tabs.match(/^\s*\["/gm) ?? []).length, 9);
+  assert.equal((tabs.match(/^\s*\["/gm) ?? []).length, 10);
   assert.match(app, /<nav className="tabs ocIconRail" role="tablist" aria-label="編集パネル">/);
   assert.match(app, /PANEL_TABS\.map\(\(\[id, label\]\) => \(\s*<Tooltip key=\{id\}>/);
   assert.match(app, /role="tab"[\s\S]*aria-label=\{label\}[\s\S]*aria-selected=\{tab === id\}/);
@@ -131,17 +134,21 @@ test("P2 checkpoint 2 mounts exactly nine accessible CutFlow icon-rail tabs", ()
 
   for (const capability of [
     "materials",
+    "sounds",
     "script",
     "captions",
-    "shorts",
-    "adjust",
+    "stickers",
     "effects",
     "transitions",
-    "sounds",
-    "stickers",
+    "adjust",
+    "shorts",
+    "settings",
   ]) {
     assert.match(app, new RegExp(`\\{tab === "${capability}" && `));
   }
+  assert.match(panels, /export const PanelHeader = \(/);
+  assert.match(panels, /export const SettingsPanel = \(/);
+  assert.match(app, /<SettingsPanel[\s\S]*onOpenFullSettings=\{openSettings\}[\s\S]*onGoShorts=\{\(\) => setTab\("shorts"\)\}/);
   assert.match(app, /if \(tab !== "script" \|\| script !== null \|\| scriptFetchingRef\.current\) return;/);
 });
 
@@ -172,13 +179,31 @@ test("Materials reskin preserves actions, cards, drag/drop, placement, and conte
   assert.match(panels, /onDragBegin\(file\)/);
   assert.match(panels, /onDoubleClick=\{\(\) => file && !busy && onPlace\(file\)\}/);
   assert.match(panels, /onDoubleClick=\{\(\) => !busy && onPlace\(m\)\}/);
+  assert.match(panels, /title="素材"/);
+  assert.match(panels, /const \[viewMode, setViewMode\] = useState<"grid" \| "list">\("grid"\)/);
+  assert.match(panels, /const \[sortMenuOpen, setSortMenuOpen\] = useState\(false\)/);
+  assert.match(panels, /const \[sortKey, setSortKey\] = useState<"name" \| "type" \| "duration" \| "size">\("name"\)/);
+  assert.match(panels, /onClick=\{\(\) => setViewMode\(\(mode\) => \(mode === "grid" \? "list" : "grid"\)\)\}/);
+  assert.match(panels, /viewMode === "grid" \? \(\s*<List size=\{14\}/);
+  assert.match(panels, /onClick=\{\(\) => setSortMenuOpen\(\(v\) => !v\)\}/);
+  assert.match(panels, /className="ocMaterialSortMenu" role="menu"/);
+  assert.match(panels, /\["name", `Name \$\{sortKey === "name" && sortAsc \? "↑" : ""\}`\]/);
+  assert.match(panels, /className="ocMaterialImport"[\s\S]*onClick=\{onUploadClick\}[\s\S]*Import/);
+  assert.match(panels, /className="ocMaterialEmptyDrop"[\s\S]*onClick=\{onUploadClick\}[\s\S]*Drag and drop videos, photos, and audio files here/);
+  assert.match(panels, /className=\{`matGrid \$\{viewMode\}`\}/);
+  assert.match(panels, /sortedHyperframes\.map\(\(card\) =>/);
+  assert.match(panels, /sortedMaterials\.map\(\(m\) =>/);
+  // 配置ボタンは共有 DraggableItem 側に1つだけあり、ラベルと配置先は各カードが渡す
+  // (旧: カードごとに matAddBtn を直書き。DOM とクラス名は抽出前と同一)
+  assert.match(panels, /className="matAddBtn"[\s\S]*aria-label=\{addLabel\}/);
+  assert.match(panels, /if \(!busy\) onPlace\(m\);[\s\S]*addLabel=\{`\$\{name\} を配置`\}/);
   assert.match(panels, /onContextMenu=\{\(event\) => openMenu/);
   assert.match(panels, /onContextMenu=\{\(e\) => openMenu\(e, \{ file: m \}\)\}/);
 
   for (const state of [
     "authorPendingName &&",
-    "hyperframes.map((card)",
-    "materials.map((m)",
+    "sortedHyperframes.map((card)",
+    "sortedMaterials.map((m)",
     "matThumbUnplayable",
     "hyperframesLoading",
     "hyperframesError",
@@ -189,8 +214,6 @@ test("Materials reskin preserves actions, cards, drag/drop, placement, and conte
     "isRendering",
   ]) assert.ok(panels.includes(state), `missing material state ${state}`);
   assert.match(panels, /disabled=\{busy\}[\s\S]*onClick=\{onUploadClick\}/);
-  assert.match(panels, /disabled=\{busy \|\| !!hyperframeAuthorDisabledReason\}/);
-  assert.match(panels, /onClick=\{onNewHyperframe\}/);
   assert.match(panels, /onRenderHyperframe\(card\.name\)/);
   assert.match(panels, /onPlace\(menu\.file!\)/);
   assert.match(panels, /onDelete\(menu\.file!\)/);
@@ -203,9 +226,51 @@ test("Materials reskin preserves actions, cards, drag/drop, placement, and conte
     ".ocMaterialsPanel .aiMaterialUpdateBadge",
     ".ocMaterialsPanel .aiMaterialBusy",
     ".ocMaterialsPanel .aiMaterialSpinner",
+    ".ocMaterialsPanel .ocMaterialHeaderIcon",
+    ".ocMaterialsPanel .ocMaterialSortMenu",
+    ".ocMaterialsPanel .ocMaterialImport",
+    ".ocMaterialsPanel .ocMaterialEmptyDrop",
+    ".ocMaterialsPanel .matGrid.list",
+    ".ocMaterialsPanel .matAddBtn",
     ".ocMaterialsPanel .matDropOverlay",
     ".ocMaterialsPanel .ctxMenu",
   ]) assert.ok(css.includes(selector), `missing token skin ${selector}`);
+});
+
+test("DraggableItem is the one shared asset-card shell for every materials card", () => {
+  const panels = read("editor/client/Panels.tsx");
+
+  // 共有シェルは1つだけ。素材カード3種(生成待ち / HyperFrames / 通常素材)が
+  // 別々に組み立てていた DOM をここへ寄せた
+  assert.equal(panels.match(/export const DraggableItem = \(/g)?.length, 1);
+  assert.equal(panels.match(/<DraggableItem\b/g)?.length, 3);
+  // 抽出前と同じ DOM 骨格(styles.css と .ocMaterialsPanel のトークン皮膚が効く条件)
+  assert.match(
+    panels,
+    /<div className="materialThumbWrap">\s*\{preview\}\s*\{overlay\}\s*\{onAdd && \(/,
+  );
+  assert.match(panels, /\{name !== undefined && \(\s*<div className="matName" title=\{nameTitle\}>/);
+  // OpenCut のポータル製ドラッグゴーストは採らず、CutFlow の dragChip を呼び出し側に残す
+  // (タイムラインのドロップゴーストと二重に出さないため)
+  assert.ok(!panels.includes("createPortal"), "DraggableItem must not adopt OpenCut's portal ghost");
+  // 配置先の時刻は App の再生ヘッドが持つので onAdd は引数を取らない
+  assert.match(panels, /onAdd\?: \(\) => void;/);
+  // 生成待ちカードだけが読み上げ対象。配置もドラッグもできない(+ ボタンを出さない)
+  assert.match(panels, /ariaLive\?: "polite" \| "assertive";/);
+  assert.match(panels, /className="matCard aiMaterialCard"\s*ariaLive="polite"/);
+});
+
+test("P6.6 track creation is preserved through Inspector track selects, not add-track buttons", () => {
+  const app = read("editor/client/App.tsx");
+  const inspector = read("editor/client/Inspector.tsx");
+  const timeline = read("editor/client/Timeline.tsx");
+
+  assert.match(app, /const addTrack = \(kind: "caption" \| "overlay"\) =>/);
+  assert.doesNotMatch(app, /onAddTrack=\{addTrack\}/);
+  assert.doesNotMatch(timeline, /onAddTrack|addMenuOpen|トラックを追加\(種類を選択\)/);
+  assert.match(inspector, /<option value="__new">＋ 新規トラック<\/option>/);
+  assert.match(inspector, /updateCaption\(selection\.index, \{ track: capTracks \+ 1 \}\)/);
+  assert.match(inspector, /patch\(\{ track: ovTracks \+ 1, layer: undefined \}\)/);
 });
 
 test("transport reskin preserves every playback control and shortcut title", () => {
