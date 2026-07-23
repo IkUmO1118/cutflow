@@ -3170,6 +3170,65 @@
   white-space: nowrap;
 }
 
+/* ステッカー/エフェクト タブ(presets.ts のプリセット・ライブラリ)。
+   カードは .matGrid/.matCard/.matThumb を再利用し、SVG サムネだけ専用クラス */
+.ocSidePanel .ocPresetPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding-top: 0.5rem;
+}
+
+.ocSidePanel .ocPresetCard.disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.ocSidePanel .ocPresetCard.disabled .matThumb {
+  cursor: default;
+}
+
+.ocPresetThumb {
+  background: hsl(var(--oc-muted) / 0.4);
+}
+
+.ocPresetThumbBg {
+  fill: hsl(var(--oc-muted) / 0.55);
+}
+
+.ocPresetThumbShape {
+  fill: none;
+  stroke: hsl(var(--oc-primary));
+  stroke-width: 3;
+}
+
+.ocPresetThumbAccent {
+  fill: hsl(var(--oc-primary) / 0.35);
+  stroke: hsl(var(--oc-primary));
+  stroke-width: 2;
+}
+
+.ocPresetThumbArrowHead {
+  fill: hsl(var(--oc-primary));
+}
+
+.ocPresetThumbDim {
+  fill: hsl(var(--oc-foreground) / 0.55);
+}
+
+.ocPresetThumbLight {
+  fill: hsl(var(--oc-background));
+  stroke: hsl(var(--oc-primary));
+  stroke-width: 2;
+}
+
+.ocPresetThumbBlur {
+  fill: hsl(var(--oc-primary) / 0.3);
+  stroke: hsl(var(--oc-primary));
+  stroke-width: 2;
+  stroke-dasharray: 3 2;
+}
+
 .ocSidePanel .shortsPanel .panelHead {
   min-height: 2.75rem;
   padding: 0 0.65rem;

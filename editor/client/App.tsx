@@ -104,6 +104,7 @@ import {
   EffectsPanel,
   MaterialsPanel,
   PanelHeader,
+  PresetPanel,
   ScriptPanel,
   SettingsPanel,
   ShortsPanel,
@@ -187,6 +188,8 @@ import {
   restoreSourceRange,
   splitSpanAt,
 } from "./model.ts";
+import { ANNOTATION_PRESETS, EFFECT_PRESETS } from "./presets.ts";
+import type { EditorPreset, PresetPatch } from "./presets.ts";
 import type {
   AddKind,
   AnnotationPatch,
@@ -3148,6 +3151,93 @@ export const App = () => {
     addByKind(kind, round2(s), round2(e));
   };
 
+  /** プリセットの比率パッチを、この案件の出力 px へ落とす。プレビュー用の
+   * サムネ描画(PresetThumb)にも同じ比率を使うので必ず共通化する。
+   * px 指定の見た目フィールド(widthPx/headPx/radiusPx/featherPx)は 1920 幅
+   * 基準で書かれている前提で出力幅にスケールする(解像度非依存化) */
+  const resolvePresetPatch = (p: PresetPatch, out: { w: number; h: number }): AnnotationPatch => {
+    const resolved: AnnotationPatch = {};
+    if (p.type) resolved.type = p.type;
+    if (p.rectRatio) {
+      resolved.rect = {
+        x: Math.round(p.rectRatio.x * out.w),
+        y: Math.round(p.rectRatio.y * out.h),
+        w: Math.round(p.rectRatio.w * out.w),
+        h: Math.round(p.rectRatio.h * out.h),
+      };
+    }
+    if (p.fromRatio) resolved.from = { x: Math.round(p.fromRatio.x * out.w), y: Math.round(p.fromRatio.y * out.h) };
+    if (p.toRatio) resolved.to = { x: Math.round(p.toRatio.x * out.w), y: Math.round(p.toRatio.y * out.h) };
+    if (p.style) {
+      const scalePx = (v: number) => Math.max(1, Math.round((v * out.w) / 1920));
+      for (const [k, v] of Object.entries(p.style)) {
+        if (v === undefined) continue;
+        const scaled =
+          k === "widthPx" || k === "headPx" || k === "radiusPx" || k === "featherPx"
+            ? scalePx(v as number)
+            : v;
+        (resolved as Record<string, unknown>)[k] = scaled;
+      }
+    }
+    return resolved;
+  };
+
+  /** 左レール ステッカー/エフェクト タブのプリセットを1つ追加する。
+   * `addAtPlayhead` を置き換えず隣に置く(§6.4)。addByKind が
+   * pushHistory・選択・重なりエラーを担当し、patch は末尾要素へ直後の
+   * 関数形 setOverlays で重ねる(add してから index を引く方式は React の
+   * バッチングでズレうるので使わない)。beforeLen による「本当に今足した
+   * ものか」の確認で、zoom の重なり拒否(addByKind が何もしなかった)時に
+   * 既存の別要素を誤って書き換えないようにする。layerOrder /
+   * createOverlayTrack には一切触れない(§8.1.1: zoom/blur/annotation は
+   * layerOrder に存在しない常在トラックなので、追加のトラック作成は不要) */
+  const addPresetAt = (preset: EditorPreset, outT: number) => {
+    const s = srcAt(outT);
+    const e = srcAt(Math.min(duration, outT + DEFAULT_ADD_SEC));
+    if (s === null || e === null || e - s < MIN_SPAN / 2) {
+      setError("再生ヘッドを keep 区間の中へ置いてから追加してください");
+      return;
+    }
+    const beforeLen =
+      preset.kind === "zoom"
+        ? (overlays?.zooms ?? []).length
+        : preset.kind === "blur"
+          ? (overlays?.blurs ?? []).length
+          : preset.kind === "annotation"
+            ? (overlays?.annotations ?? []).length
+            : 0;
+    addByKind(preset.kind, round2(s), round2(e));
+    if (!preset.patch || !proj) return;
+    const resolved = resolvePresetPatch(preset.patch, proj.output);
+    setOverlays((prev) => {
+      if (!prev) return prev;
+      if (preset.kind === "annotation") {
+        const list = [...(prev.annotations ?? [])];
+        if (list.length !== beforeLen + 1) return prev;
+        const entry: Record<string, unknown> = { ...(list[list.length - 1] as object) };
+        for (const [k, v] of Object.entries(resolved)) {
+          if (v === undefined) delete entry[k];
+          else entry[k] = v;
+        }
+        list[list.length - 1] = entry as unknown as Annotation;
+        return { ...prev, annotations: list };
+      }
+      if (preset.kind === "zoom" && resolved.rect) {
+        const list = [...(prev.zooms ?? [])];
+        if (list.length !== beforeLen + 1) return prev;
+        list[list.length - 1] = { ...list[list.length - 1], rect: resolved.rect };
+        return { ...prev, zooms: list };
+      }
+      if (preset.kind === "blur" && resolved.rect) {
+        const list = [...(prev.blurs ?? [])];
+        if (list.length !== beforeLen + 1) return prev;
+        list[list.length - 1] = { ...list[list.length - 1], rect: resolved.rect };
+        return { ...prev, blurs: list };
+      }
+      return prev;
+    });
+  };
+
   const onCreate = (track: TrackId, outStart: number, outEnd: number) => {
     const s = srcAt(outStart);
     const e = srcAt(outEnd);
@@ -5684,11 +5774,10 @@ export const App = () => {
             {tab === "stickers" && (
               <>
                 <PanelHeader title="ステッカー" />
-                <AssetPickerPanel
-                  files={materials.filter((f) => !AUDIO_ONLY_RE.test(f))}
-                  onPlace={(f) => void placeMaterial(f, null, "overlay")}
-                  emptyHint="materials/ に画像・動画素材がありません。"
-                  note="ダブルクリックで再生位置にオーバーレイ素材として配置します。"
+                <PresetPanel
+                  presets={ANNOTATION_PRESETS}
+                  onAdd={(p) => addPresetAt(p, playhead.get())}
+                  note="位置・サイズは追加後にインスペクタで調整します。AI にまとめて演出させるにはターミナルで node src/cli.ts plan-effects <dir>。"
                 />
               </>
             )}

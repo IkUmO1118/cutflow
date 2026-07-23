@@ -13,6 +13,7 @@ import type { HyperframeCard, ScriptData } from "./apiTypes.ts";
 import { usePlayheadSelector } from "./playhead.ts";
 import { MATERIAL_MIME, buildScriptBlocks, scriptKeptFlags } from "./model.ts";
 import type { ScriptBlock } from "./model.ts";
+import type { EditorPreset } from "./presets.ts";
 import { VIDEO_EXT_RE, fmtTime } from "./widgets.tsx";
 import { Button } from "./components/ui/button.tsx";
 import { Slider } from "./components/ui/slider.tsx";
@@ -1488,6 +1489,130 @@ export const AssetPickerPanel = ({
         ))}
       </ul>
     )}
+    <p className="ocPaneNote">{note}</p>
+  </div>
+);
+
+/** プリセットの矩形/矢印比率が省略されたとき使う既定表示(App.tsx の
+ * add*Span 既定値と揃えた「中央に置かれる」見た目。実際の配置値は
+ * App.tsx の addPresetAt/addByKind が持つのでここは表示専用) */
+const PRESET_DEFAULT_RECT_RATIO: Record<"annotation" | "zoom" | "blur", { x: number; y: number; w: number; h: number }> = {
+  annotation: { x: 1 / 3, y: 3 / 8, w: 1 / 3, h: 1 / 4 },
+  zoom: { x: 0.25, y: 0.25, w: 0.5, h: 0.5 },
+  blur: { x: 1 / 3, y: 5 / 12, w: 1 / 3, h: 1 / 6 },
+};
+
+/** ステッカー/エフェクト タブのカード・サムネ。比率は presets.ts の `patch`
+ * からそのまま読む(表と絵が二重管理にならないように)。素材のサムネでは
+ * なく、追加される図形/矩形を 160×90 の SVG で描く */
+export const PresetThumb = ({ preset }: { preset: EditorPreset }) => {
+  const patch = preset.patch;
+  const toPx = (r: { x: number; y: number; w?: number; h?: number }) => ({
+    x: r.x * 160,
+    y: r.y * 90,
+    w: (r.w ?? 0) * 160,
+    h: (r.h ?? 0) * 90,
+  });
+  if (preset.kind === "wipeFull") {
+    return (
+      <svg className="matThumb ocPresetThumb" viewBox="0 0 160 90" aria-hidden>
+        <rect x={0} y={0} width={160} height={90} rx={4} className="ocPresetThumbBg" />
+        <rect x={14} y={14} width={132} height={62} rx={3} className="ocPresetThumbShape" />
+        <rect x={100} y={54} width={46} height={26} rx={2} className="ocPresetThumbAccent" />
+      </svg>
+    );
+  }
+  const type = patch?.type ?? (preset.kind === "annotation" ? "box" : undefined);
+  if (type === "arrow" && patch?.fromRatio && patch?.toRatio) {
+    const from = toPx(patch.fromRatio);
+    const to = toPx(patch.toRatio);
+    return (
+      <svg className="matThumb ocPresetThumb" viewBox="0 0 160 90" aria-hidden>
+        <rect x={0} y={0} width={160} height={90} rx={4} className="ocPresetThumbBg" />
+        <defs>
+          <marker id={`pt-arrow-${preset.id}`} markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+            <path d="M0,0 L8,4 L0,8 Z" className="ocPresetThumbArrowHead" />
+          </marker>
+        </defs>
+        <line
+          x1={from.x}
+          y1={from.y}
+          x2={to.x}
+          y2={to.y}
+          className="ocPresetThumbShape"
+          markerEnd={`url(#pt-arrow-${preset.id})`}
+        />
+      </svg>
+    );
+  }
+  const rect = toPx(patch?.rectRatio ?? PRESET_DEFAULT_RECT_RATIO[preset.kind === "annotation" || preset.kind === "zoom" || preset.kind === "blur" ? preset.kind : "annotation"]);
+  if (type === "spotlight") {
+    return (
+      <svg className="matThumb ocPresetThumb" viewBox="0 0 160 90" aria-hidden>
+        <rect x={0} y={0} width={160} height={90} className="ocPresetThumbDim" />
+        {patch?.style?.shape === "ellipse" ? (
+          <ellipse
+            cx={rect.x + rect.w / 2}
+            cy={rect.y + rect.h / 2}
+            rx={rect.w / 2}
+            ry={rect.h / 2}
+            className="ocPresetThumbLight"
+          />
+        ) : (
+          <rect x={rect.x} y={rect.y} width={rect.w} height={rect.h} rx={4} className="ocPresetThumbLight" />
+        )}
+      </svg>
+    );
+  }
+  return (
+    <svg className="matThumb ocPresetThumb" viewBox="0 0 160 90" aria-hidden>
+      <rect x={0} y={0} width={160} height={90} rx={4} className="ocPresetThumbBg" />
+      <rect
+        x={rect.x}
+        y={rect.y}
+        width={rect.w}
+        height={rect.h}
+        rx={preset.kind === "zoom" ? 2 : 3}
+        className={preset.kind === "blur" ? "ocPresetThumbBlur" : "ocPresetThumbShape"}
+        fill={patch?.style?.fill}
+      />
+    </svg>
+  );
+};
+
+/** 左レール「ステッカー」「エフェクト」タブ共通のプリセット・ライブラリ。
+ * カードは共有 DraggableItem で描き、`+` は再生ヘッド位置へ追加する。
+ * disabledIds はカメラ無し収録での wipe プリセット等、追加不可なカードの id */
+export const PresetPanel = ({
+  presets,
+  onAdd,
+  note,
+  disabledIds,
+}: {
+  presets: EditorPreset[];
+  onAdd: (preset: EditorPreset) => void;
+  note: string;
+  disabledIds?: string[];
+}) => (
+  <div className="panelBody ocPresetPanel">
+    <div className="matGrid grid">
+      {presets.map((p) => {
+        const disabled = disabledIds?.includes(p.id) ?? false;
+        return (
+          <DraggableItem
+            key={p.id}
+            className={`matCard ocPresetCard${disabled ? " disabled" : ""}`}
+            title={`${p.label}\n${p.hint}\n+ : 再生ヘッド位置へ`}
+            preview={<PresetThumb preset={p} />}
+            onAdd={disabled ? undefined : () => onAdd(p)}
+            addTitle="再生ヘッド位置へ配置"
+            addLabel={`${p.label} を追加`}
+            name={p.label}
+            nameTitle={p.hint}
+          />
+        );
+      })}
+    </div>
     <p className="ocPaneNote">{note}</p>
   </div>
 );
