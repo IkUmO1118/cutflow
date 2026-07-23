@@ -1911,8 +1911,18 @@ export const App = () => {
     shortMode, activeShort, shortTimelineMemo,
   ]);
 
+  /** ステッカー/エフェクト タブからドラッグ中のプリセット。null = ドラッグしていない。
+   * zoom/blur/annotation/wipe は永続データを持たない常在トラックなので(§8.1.1)、
+   * ドラッグ中だけ visibleTracks に対象トラックを足して「行が見える」ようにする
+   * だけでよく、トラック作成処理(onAddTrack/createOverlayTrack/layerOrder)は
+   * 一切呼ばない */
+  const [presetDrag, setPresetDrag] = useState<EditorPreset | null>(null);
+  const onPresetDragBegin = (preset: EditorPreset) => setPresetDrag(preset);
+  const onPresetDragEnd = () => setPresetDrag(null);
+
   /** タイムラインに実際に見せるトラック。映像(cut)は常時、他は要素が1つでもある
-   * または「今インスペクタで編集中のテロップトラック」だけ表示(OpenCut 流)。 */
+   * または「今インスペクタで編集中のテロップトラック」、またはプリセットの
+   * ドラッグ中でその行が対象トラックのときだけ表示(OpenCut 流)。 */
   const visibleTracks = useMemo(() => {
     if (shortMode) return timelineTracks;
     const occupied = new Set(clips.map((c) => c.track));
@@ -1920,11 +1930,12 @@ export const App = () => {
       (t) =>
         t.id === "cut" ||
         occupied.has(t.id) ||
+        t.id === presetDrag?.track ||
         (t.renamableCaption !== undefined &&
           selection?.kind === "captionTrack" &&
           selection.index === t.renamableCaption),
     );
-  }, [timelineTracks, clips, shortMode, selection]);
+  }, [timelineTracks, clips, shortMode, selection, presetDrag]);
 
   /* ---------------- カット編集(分割・keep⇄cut・復元) ----------------
    * cut 区間は削除せず記録として残す(plan の候補と同じ扱い)。だから
@@ -4649,6 +4660,15 @@ export const App = () => {
     else if (ovNum(track) !== null) void placeMaterial(file, { track, outT }, "overlay");
   };
 
+  /** ステッカー/エフェクト タブのプリセットをタイムラインへドロップ(§8)。
+   * トラックの決定は Timeline 側が presetDragTrack(このドラッグの対象トラック)
+   * で固定しているので、ここでは id → EditorPreset を引いて addPresetAt を
+   * +ボタンと完全に共有するだけ(時刻の出所が違うだけ) */
+  const onDropPreset = (outT: number, presetId: string) => {
+    const preset = [...ANNOTATION_PRESETS, ...EFFECT_PRESETS].find((p) => p.id === presetId);
+    if (preset) addPresetAt(preset, outT);
+  };
+
   /** 素材ファイルの削除(素材タブの右クリックメニュー)。参照が残ったまま
    * ファイルを消すと validate の実在チェックに落ちて保存もレンダーも
    * できなくなるので、編集中の状態とディスク(最後に保存した状態)の両方で
@@ -5745,6 +5765,8 @@ export const App = () => {
                 <PresetPanel
                   presets={EFFECT_PRESETS}
                   onAdd={(p) => addPresetAt(p, playhead.get())}
+                  onDragBegin={onPresetDragBegin}
+                  onDragEnd={onPresetDragEnd}
                   disabledIds={proj?.hasCamera === false ? ["wipe-full"] : undefined}
                   note="位置・サイズは追加後にインスペクタで調整します。AI にまとめて演出させるにはターミナルで node src/cli.ts plan-effects <dir>。"
                 />
@@ -5756,6 +5778,8 @@ export const App = () => {
                 <PresetPanel
                   presets={ANNOTATION_PRESETS}
                   onAdd={(p) => addPresetAt(p, playhead.get())}
+                  onDragBegin={onPresetDragBegin}
+                  onDragEnd={onPresetDragEnd}
                   note="位置・サイズは追加後にインスペクタで調整します。AI にまとめて演出させるにはターミナルで node src/cli.ts plan-effects <dir>。"
                 />
               </>
@@ -6218,6 +6242,8 @@ export const App = () => {
         onDropFile={onDropFile}
         onDropMaterial={onDropMaterial}
         dragMaterial={dragMaterial}
+        presetDragTrack={presetDrag?.track ?? null}
+        onDropPreset={onDropPreset}
         trackMuted={trackMuted}
         onToggleTrackMute={toggleTrackMute}
         hiddenLayers={hiddenLayers}

@@ -11,7 +11,7 @@ import type {
   TrackDef,
   TrackId,
 } from "./model.ts";
-import { MATERIAL_MIME, trackHeightFor } from "./model.ts";
+import { MATERIAL_MIME, PRESET_MIME, trackHeightFor } from "./model.ts";
 import { playhead, usePlayheadSelector } from "./playhead.ts";
 import {
   AUDIO_EXT_RE,
@@ -183,6 +183,8 @@ export const Timeline = ({
   onDropFile,
   onDropMaterial,
   dragMaterial,
+  presetDragTrack,
+  onDropPreset,
   trackMuted,
   onToggleTrackMute,
   hiddenLayers,
@@ -248,6 +250,15 @@ export const Timeline = ({
   /** 素材パネルからドラッグ中の素材(ドロップゴーストの幅・ラベルに使う)。
    * null = ドラッグしていない/OS のファイルドラッグ(尺は不明なので既定幅) */
   dragMaterial: { file: string; durationSec: number | null } | null;
+  /** ステッカー/エフェクト タブからドラッグ中のプリセットの対象トラック
+   * (App の visibleTracks がこのトラックを一時的に可視化する)。
+   * null = プリセットをドラッグしていない */
+  presetDragTrack: TrackId | null;
+  /** プリセットのドロップ(presetId = presets.ts の EditorPreset.id)。
+   * 行の決定は dropTrackAt(素材の音声/映像ヒューリスティック)を使わず
+   * presetDragTrack をそのまま使う(getData は drop イベントでしか読めない
+   * ため、行の決定に使えない) */
+  onDropPreset: (outT: number, presetId: string) => void;
   /** 音声トラック(映像・BGM)のプレビューミュート状態 */
   trackMuted: Record<AudioTrackId, boolean>;
   onToggleTrackMute: (id: AudioTrackId) => void;
@@ -689,11 +700,11 @@ export const Timeline = ({
 
   // ドラッグがキャンセルされた・パネル側で終わったときの消し忘れ防止
   useEffect(() => {
-    if (!dragMaterial) {
+    if (!dragMaterial && !presetDragTrack) {
       setDrop(null);
       setDropAudio(null);
     }
-  }, [dragMaterial]);
+  }, [dragMaterial, presetDragTrack]);
 
   /** ゴーストの幅に使う尺(秒)。画像・不明は配置時の既定と同じ */
   const dragDurSec = dragMaterial?.durationSec ?? defaultDurationSec;
@@ -811,9 +822,29 @@ export const Timeline = ({
 
   const onDragOverTimeline = (e: ReactDragEvent) => {
     const types = e.dataTransfer.types;
-    if (!types.includes("Files") && !types.includes(MATERIAL_MIME)) return;
+    const isPreset = types.includes(PRESET_MIME);
+    if (!types.includes("Files") && !types.includes(MATERIAL_MIME) && !isPreset) return;
     e.preventDefault();
     dragAutoScroll(e.clientX, e.clientY);
+    // プリセットは音声/映像ヒューリスティック(dropTrackAt)を使わず、
+    // ドラッグ開始時に App が確定させた presetDragTrack をそのまま行として使う
+    // (getData は drop イベントでしか読めないので dragover では判定できない)
+    if (isPreset) {
+      setDropAudio((cur) => (cur === null ? cur : null));
+      if (!presetDragTrack) {
+        e.dataTransfer.dropEffect = "none";
+        setDrop(null);
+        return;
+      }
+      e.dataTransfer.dropEffect = "copy";
+      const { t, snapLine } = snapDropT(posToT(e.clientX));
+      setDrop((cur) =>
+        cur && cur.track === presetDragTrack && cur.t === t && cur.snapLine === snapLine
+          ? cur
+          : { track: presetDragTrack, t, snapLine },
+      );
+      return;
+    }
     const audio = dragIsAudioOnly(e);
     setDropAudio((cur) => (cur === audio ? cur : audio));
     const track = dropTrackAt(e.clientY, audio);
@@ -839,6 +870,15 @@ export const Timeline = ({
   };
   const onDropTimeline = (e: ReactDragEvent) => {
     e.preventDefault();
+    // プリセットは MATERIAL_MIME の判定より前に見る(§8.2 手順5)
+    const presetId = e.dataTransfer.getData(PRESET_MIME);
+    if (presetId) {
+      const t = drop?.t ?? posToT(e.clientX);
+      setDrop(null);
+      setDropAudio(null);
+      onDropPreset(t, presetId);
+      return;
+    }
     // ゴーストの位置に落とす(dragover を経ていない場合はその場で計算)
     const track = drop?.track ?? dropTrackAt(e.clientY, dragIsAudioOnly(e))?.id;
     const t = drop?.t ?? posToT(e.clientX);
@@ -1100,6 +1140,8 @@ export const Timeline = ({
                       : isDropTrack(track, dropAudio)
                         ? " dropOk"
                         : ""
+                }${
+                  presetDragTrack === track.id && !byTrack.get(track.id) ? " ocTrackDropLane" : ""
                 }`}
                 key={track.id}
                 style={{ height: rowH(track.id) }}

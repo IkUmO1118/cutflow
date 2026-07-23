@@ -11,7 +11,7 @@ import { toSourceTime } from "../../src/lib/timeline.ts";
 import type { TimelineEntry } from "../../src/lib/timeline.ts";
 import type { HyperframeCard, ScriptData } from "./apiTypes.ts";
 import { usePlayheadSelector } from "./playhead.ts";
-import { MATERIAL_MIME, buildScriptBlocks, scriptKeptFlags } from "./model.ts";
+import { MATERIAL_MIME, PRESET_MIME, buildScriptBlocks, scriptKeptFlags } from "./model.ts";
 import type { ScriptBlock } from "./model.ts";
 import type { EditorPreset } from "./presets.ts";
 import { VIDEO_EXT_RE, fmtTime } from "./widgets.tsx";
@@ -1483,14 +1483,35 @@ export const PresetThumb = ({ preset }: { preset: EditorPreset }) => {
 /** 左レール「ステッカー」「エフェクト」タブ共通のプリセット・ライブラリ。
  * カードは共有 DraggableItem で描き、`+` は再生ヘッド位置へ追加する。
  * disabledIds はカメラ無し収録での wipe プリセット等、追加不可なカードの id */
+const onPresetDragStart = (
+  e: ReactDragEvent,
+  preset: EditorPreset,
+  onDragBegin: (preset: EditorPreset) => void,
+) => {
+  e.dataTransfer.setData(PRESET_MIME, preset.id);
+  e.dataTransfer.effectAllowed = "copy";
+  const chip = document.createElement("div");
+  chip.className = "dragChip";
+  chip.textContent = preset.label;
+  document.body.appendChild(chip);
+  e.dataTransfer.setDragImage(chip, 12, 12);
+  requestAnimationFrame(() => chip.remove());
+  onDragBegin(preset);
+};
+
 export const PresetPanel = ({
   presets,
   onAdd,
+  onDragBegin,
+  onDragEnd,
   note,
   disabledIds,
 }: {
   presets: EditorPreset[];
   onAdd: (preset: EditorPreset) => void;
+  /** ドラッグ開始(タイムライン側が対象トラックを一時的に可視化する) */
+  onDragBegin?: (preset: EditorPreset) => void;
+  onDragEnd?: () => void;
   note: string;
   disabledIds?: string[];
 }) => (
@@ -1502,7 +1523,12 @@ export const PresetPanel = ({
           <DraggableItem
             key={p.id}
             className={`matCard ocPresetCard${disabled ? " disabled" : ""}`}
-            title={`${p.label}\n${p.hint}\n+ : 再生ヘッド位置へ`}
+            title={`${p.label}\n${p.hint}\nドラッグ: タイムラインの好きな位置へ\n+ : 再生ヘッド位置へ`}
+            draggable={!disabled && onDragBegin !== undefined}
+            onDragStart={
+              disabled || !onDragBegin ? undefined : (e) => onPresetDragStart(e, p, onDragBegin)
+            }
+            onDragEnd={onDragEnd}
             preview={<PresetThumb preset={p} />}
             onAdd={disabled ? undefined : () => onAdd(p)}
             addTitle="再生ヘッド位置へ配置"

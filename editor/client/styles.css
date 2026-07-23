@@ -4685,6 +4685,15 @@
   box-shadow: inset 0 0 0 1px hsl(var(--oc-primary) / 0.55);
 }
 
+/* プリセット(ステッカー/エフェクト タブ)のドラッグ中だけ現れる空トラックの
+   一時的な行(§8.1.1)。ドロップすると要素が入り占有行として残り、
+   ドロップせずドラッグをやめると visibleTracks から再び消える */
+.ocTimeline .tlTrack.ocTrackDropLane {
+  background: hsl(var(--oc-muted) / 0.22);
+  outline: 1px dashed hsl(var(--oc-muted-foreground) / 0.55);
+  outline-offset: -1px;
+}
+
 .ocTimeline .tlSnapLine {
   width: 2px;
   background: hsl(var(--oc-primary));
