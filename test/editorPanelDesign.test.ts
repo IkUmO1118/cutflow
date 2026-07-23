@@ -107,23 +107,23 @@ test("P2 panel scopes remain present while Inspector and Timeline advance in lat
   assert.doesNotMatch(app, /テロップトラックを追加/);
 });
 
-test("P2 checkpoint 2 mounts exactly ten accessible CutFlow icon-rail tabs", () => {
+test("P2 checkpoint 2 mounts exactly eight accessible CutFlow icon-rail tabs", () => {
   const app = read("editor/client/App.tsx");
   const panels = read("editor/client/Panels.tsx");
   const tabs = app.slice(app.indexOf("const PANEL_TABS"), app.indexOf("] as const", app.indexOf("const PANEL_TABS")));
   for (const entry of [
     '["materials", "素材"]',
-    '["sounds", "サウンド"]',
     '["script", "スクリプト"]',
     '["captions", "テロップ"]',
     '["stickers", "ステッカー"]',
     '["effects", "エフェクト"]',
-    '["transitions", "トランジション"]',
     '["adjust", "色調整"]',
     '["shorts", "ショート"]',
     '["settings", "設定"]',
   ]) assert.ok(tabs.includes(entry), `missing rail capability ${entry}`);
-  assert.equal((tabs.match(/^\s*\["/gm) ?? []).length, 10);
+  assert.ok(!tabs.includes('["sounds"'), "sounds tab should be removed (P1)");
+  assert.ok(!tabs.includes('["transitions"'), "transitions tab should be removed (P2)");
+  assert.equal((tabs.match(/^\s*\["/gm) ?? []).length, 8);
   assert.match(app, /<nav className="tabs ocIconRail" role="tablist" aria-label="編集パネル">/);
   assert.match(app, /PANEL_TABS\.map\(\(\[id, label\]\) => \(\s*<Tooltip key=\{id\}>/);
   assert.match(app, /role="tab"[\s\S]*aria-label=\{label\}[\s\S]*aria-selected=\{tab === id\}/);
@@ -134,12 +134,10 @@ test("P2 checkpoint 2 mounts exactly ten accessible CutFlow icon-rail tabs", () 
 
   for (const capability of [
     "materials",
-    "sounds",
     "script",
     "captions",
     "stickers",
     "effects",
-    "transitions",
     "adjust",
     "shorts",
     "settings",
@@ -237,13 +235,13 @@ test("Materials reskin preserves actions, cards, drag/drop, placement, and conte
   ]) assert.ok(css.includes(selector), `missing token skin ${selector}`);
 });
 
-test("DraggableItem is the one shared asset-card shell for every materials card", () => {
+test("DraggableItem is the one shared asset-card shell for every asset card", () => {
   const panels = read("editor/client/Panels.tsx");
 
-  // 共有シェルは1つだけ。素材カード3種(生成待ち / HyperFrames / 通常素材)が
-  // 別々に組み立てていた DOM をここへ寄せた
+  // 共有シェルは1つだけ。素材カード3種(生成待ち / HyperFrames / 通常素材)+
+  // PresetPanel(ステッカー/エフェクト)が別々に組み立てていた DOM をここへ寄せた
   assert.equal(panels.match(/export const DraggableItem = \(/g)?.length, 1);
-  assert.equal(panels.match(/<DraggableItem\b/g)?.length, 3);
+  assert.equal(panels.match(/<DraggableItem\b/g)?.length, 4);
   // 抽出前と同じ DOM 骨格(styles.css と .ocMaterialsPanel のトークン皮膚が効く条件)
   assert.match(
     panels,
@@ -361,22 +359,70 @@ test("P7.3a Adjustment tab is the first colorFilter UI, global and cleaned to un
   assert.match(panels, /"overlays:colorFilter"/); // coalesce key collapses drag to one undo
 });
 
-test("P7.3b-e launcher/picker tabs route to existing add/place handlers at playhead", () => {
+test("left rail presets add at playhead and drop onto a revealed track", () => {
   const app = read("editor/client/App.tsx");
   const panels = read("editor/client/Panels.tsx");
+  const presets = read("editor/client/presets.ts");
+  const model = read("editor/client/model.ts");
+  const timeline = read("editor/client/Timeline.tsx");
+
   const tabsStart = app.indexOf("const PANEL_TABS");
   const tabs = app.slice(tabsStart, app.indexOf("] as const", tabsStart));
-  for (const e of ['["effects", "エフェクト"]', '["transitions", "トランジション"]', '["sounds", "サウンド"]', '["stickers", "ステッカー"]'])
-    assert.ok(tabs.includes(e), `missing tab ${e}`);
-  // shared add-at-playhead converts OUTPUT->SOURCE then reuses addByKind
-  assert.match(app, /const addAtPlayhead = \(kind: AddKind\) => \{[\s\S]*srcAt\(outT\)[\s\S]*addByKind\(kind, round2\(s\), round2\(e\)\)/);
-  assert.match(app, /<EffectsPanel onAdd=\{[\s\S]*addAtPlayhead/);
-  assert.match(app, /addAtPlayhead\("wipeFull"\)/);
-  // pickers reuse the existing placeMaterial path with forced kind + audio filter
-  assert.match(app, /files=\{materials\.filter\(\(f\) => AUDIO_ONLY_RE\.test\(f\)\)\}[\s\S]*placeMaterial\(f, null, "bgm"\)/);
-  assert.match(app, /files=\{materials\.filter\(\(f\) => !AUDIO_ONLY_RE\.test\(f\)\)\}[\s\S]*placeMaterial\(f, null, "overlay"\)/);
-  assert.match(panels, /export const EffectsPanel = \(/);
-  assert.match(panels, /export const AssetPickerPanel = \(/);
+  assert.equal((tabs.match(/^\s*\["/gm) ?? []).length, 8);
+  assert.ok(!tabs.includes('["sounds"'));
+  assert.ok(!tabs.includes('["transitions"'));
+
+  // old launcher/picker panels are gone; PresetPanel is the one shared library UI
+  assert.match(panels, /export const PresetPanel = \(/);
+  for (const removed of ["export const AssetPickerPanel", "export const EffectsPanel", "export const TransitionsPanel"])
+    assert.ok(!panels.includes(removed), `${removed} should have been removed`);
+
+  // presets.ts covers all three annotation shapes and all effect kinds
+  assert.match(presets, /export const ANNOTATION_PRESETS: EditorPreset\[\] = \[/);
+  assert.match(presets, /export const EFFECT_PRESETS: EditorPreset\[\] = \[/);
+  for (const kind of ['type: "arrow"', 'type: "box"', 'type: "spotlight"'])
+    assert.ok(presets.includes(kind) || presets.includes('kind: "annotation"'), `annotation presets missing ${kind}`);
+  assert.match(presets, /"ann-box"/);
+  assert.match(presets, /"ann-arrow-right"/);
+  assert.match(presets, /"ann-spotlight"/);
+  for (const kind of ['kind: "zoom"', 'kind: "blur"', 'kind: "wipeFull"'])
+    assert.ok(presets.includes(kind), `effect presets missing ${kind}`);
+
+  // addPresetAt: srcAt -> addByKind order, shared with the + button and DnD
+  const addPresetAtStart = app.indexOf("const addPresetAt = (preset: EditorPreset, outT: number)");
+  assert.ok(addPresetAtStart >= 0);
+  const addPresetAtEnd = app.indexOf("\n  };", addPresetAtStart);
+  const addPresetAtBody = app.slice(addPresetAtStart, addPresetAtEnd);
+  assert.match(addPresetAtBody, /srcAt\(outT\)/);
+  assert.match(addPresetAtBody, /addByKind\(preset\.kind, round2\(s\), round2\(e\)\)/);
+  // §8.1.1 regression pin: the preset add path never touches layerOrder/track creation
+  assert.ok(!addPresetAtBody.includes("layerOrder"), "addPresetAt must not touch layerOrder");
+  assert.ok(!addPresetAtBody.includes("createOverlayTrack"), "addPresetAt must not create tracks");
+  assert.ok(!addPresetAtBody.includes("onAddTrack"), "addPresetAt must not call onAddTrack");
+
+  assert.match(app, /<PresetPanel[\s\S]*presets=\{ANNOTATION_PRESETS\}[\s\S]*onAdd=\{\(p\) => addPresetAt\(p, playhead\.get\(\)\)\}/);
+  assert.match(app, /<PresetPanel[\s\S]*presets=\{EFFECT_PRESETS\}[\s\S]*onAdd=\{\(p\) => addPresetAt\(p, playhead\.get\(\)\)\}/);
+  assert.match(app, /disabledIds=\{proj\?\.hasCamera === false \? \["wipe-full"\] : undefined\}/);
+
+  // §2 regression pin: visibleTracks reveals the preset's target track while dragging
+  assert.match(app, /t\.id === presetDrag\?\.track \|\|/);
+
+  // DnD: PRESET_MIME checked before MATERIAL_MIME in onDropTimeline, and
+  // accepted (alongside Files/MATERIAL_MIME) in onDragOverTimeline
+  assert.match(model, /export const PRESET_MIME = "application\/x-cutflow-preset";/);
+  assert.match(timeline, /types\.includes\(PRESET_MIME\)/);
+  const dropStart = timeline.indexOf("const onDropTimeline = (e: ReactDragEvent) => {");
+  const dropEnd = timeline.indexOf("\n  };", dropStart);
+  const dropBody = timeline.slice(dropStart, dropEnd);
+  assert.ok(dropBody.indexOf("getData(PRESET_MIME)") < dropBody.indexOf("getData(MATERIAL_MIME)"));
+  assert.match(timeline, /presetDragTrack: TrackId \| null;/);
+  assert.match(timeline, /onDropPreset: \(outT: number, presetId: string\) => void;/);
+  assert.match(timeline, /ocTrackDropLane/);
+
+  // CSS pins for the preset panel/card shell and the drop-lane row styling
+  const css = read("editor/client/styles.css");
+  for (const selector of [".ocPresetPanel", ".ocPresetCard", ".ocTrackDropLane"])
+    assert.ok(css.includes(selector), `missing CSS pin ${selector}`);
 });
 
 test("P7.4b duplicate (⌘D) reuses the vetted paste clone path and adds insert", () => {
