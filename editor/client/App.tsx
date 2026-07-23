@@ -99,16 +99,13 @@ import type { OverlayRect } from "./MaterialOverlay.tsx";
 import { Inspector } from "./Inspector.tsx";
 import {
   AdjustmentPanel,
-  AssetPickerPanel,
   CaptionsPanel,
-  EffectsPanel,
   MaterialsPanel,
   PanelHeader,
   PresetPanel,
   ScriptPanel,
   SettingsPanel,
   ShortsPanel,
-  TransitionsPanel,
 } from "./Panels.tsx";
 import { SettingsModal, buildConfigPatch, patchTouchesProxy } from "./SettingsModal.tsx";
 import type { AiSettingsValue, CfgValues } from "./SettingsModal.tsx";
@@ -160,12 +157,10 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs.tsx";
 import {
   ChevronDown,
-  ChevronsRight,
   Captions,
   Download,
   FileText,
   Folder,
-  Headphones,
   Monitor,
   Moon,
   PanelBottom,
@@ -441,12 +436,10 @@ const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
  * ライブラリとインスペクタで枠を奪い合わない) */
 const PANEL_TABS = [
   ["materials", "素材"],
-  ["sounds", "サウンド"],
   ["script", "スクリプト"],
   ["captions", "テロップ"],
   ["stickers", "ステッカー"],
   ["effects", "エフェクト"],
-  ["transitions", "トランジション"],
   ["adjust", "色調整"],
   ["shorts", "ショート"],
   ["settings", "設定"],
@@ -456,12 +449,10 @@ type PanelTab = (typeof PANEL_TABS)[number][0];
 const PanelTabIcon = ({ tab }: { tab: PanelTab }) => {
   const p = { size: 16, strokeWidth: 1.5, "aria-hidden": true } as const;
   if (tab === "materials") return <Folder {...p} />;
-  if (tab === "sounds") return <Headphones {...p} />;
   if (tab === "script") return <FileText {...p} />;
   if (tab === "captions") return <Captions {...p} />;
   if (tab === "stickers") return <Smile {...p} />;
   if (tab === "effects") return <Wand2 {...p} />;
-  if (tab === "transitions") return <ChevronsRight {...p} />;
   if (tab === "adjust") return <SlidersHorizontal {...p} />;
   if (tab === "shorts") return <Smartphone {...p} />;
   return <Settings {...p} />;
@@ -5756,23 +5747,6 @@ export const App = () => {
                   onAdd={(p) => addPresetAt(p, playhead.get())}
                   disabledIds={proj?.hasCamera === false ? ["wipe-full"] : undefined}
                   note="位置・サイズは追加後にインスペクタで調整します。AI にまとめて演出させるにはターミナルで node src/cli.ts plan-effects <dir>。"
-                />
-              </>
-            )}
-            {tab === "transitions" && (
-              <>
-                <PanelHeader title="トランジション" />
-                <TransitionsPanel onAddWipe={() => addAtPlayhead("wipeFull")} />
-              </>
-            )}
-            {tab === "sounds" && (
-              <>
-                <PanelHeader title="サウンド" />
-                <AssetPickerPanel
-                  files={materials.filter((f) => AUDIO_ONLY_RE.test(f))}
-                  onPlace={(f) => void placeMaterial(f, null, "bgm")}
-                  emptyHint="materials/ に音源(mp3/m4a/wav 等)がありません。"
-                  note="ダブルクリックで再生位置に BGM として配置します。"
                 />
               </>
             )}

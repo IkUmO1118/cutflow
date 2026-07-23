@@ -20,17 +20,13 @@ import { Slider } from "./components/ui/slider.tsx";
 import { EmptyState } from "./components/EmptyState.tsx";
 import {
   ArrowDownUp,
-  ArrowLeftRight,
   Captions,
-  EyeOff,
   FileText,
   LayoutGrid,
   List,
-  MessageSquareText,
   Plus,
   Scissors,
   UploadCloud,
-  ZoomIn,
 } from "lucide-react";
 
 /** OpenCut の PanelView ヘッダー相当(高さ44px・薄タイトル・下境界・右アクション)。
@@ -1396,102 +1392,6 @@ export const AdjustmentPanel = ({
     </div>
   );
 };
-
-/** 左レール「エフェクト」タブ。既存の zoom/blur/annotation 追加(addByKind)を
- * 再生ヘッド位置へ薄く呼び出すだけの起動ボタン群。座標・尺の詳細調整は
- * 追加後にインスペクタで行う */
-export const EffectsPanel = ({
-  onAdd,
-}: {
-  onAdd: (kind: "zoom" | "blur" | "annotation") => void;
-}) => (
-  <div className="panelBody ocLauncherPanel">
-    <ul className="ocLauncherList">
-      <li>
-        <button type="button" className="ocLauncherItem" onClick={() => onAdd("zoom")}>
-          <ZoomIn size={15} strokeWidth={1.75} />
-          <span>ズームを追加</span>
-        </button>
-      </li>
-      <li>
-        <button type="button" className="ocLauncherItem" onClick={() => onAdd("blur")}>
-          <EyeOff size={15} strokeWidth={1.75} />
-          <span>ぼかしを追加</span>
-        </button>
-      </li>
-      <li>
-        <button type="button" className="ocLauncherItem" onClick={() => onAdd("annotation")}>
-          <MessageSquareText size={15} strokeWidth={1.75} />
-          <span>注釈を追加</span>
-        </button>
-      </li>
-    </ul>
-    <p className="ocPaneNote">
-      位置・種別・サイズは追加後にインスペクタで調整します。AI にまとめて演出させるには
-      ターミナルで <code>node src/cli.ts plan-effects &lt;dir&gt;</code>。
-    </p>
-  </div>
-);
-
-/** 左レール「トランジション」タブ。既存の wipeFull 追加を再生ヘッド位置へ
- * 薄く呼び出すだけの起動リスト */
-export const TransitionsPanel = ({
-  onAddWipe,
-}: {
-  onAddWipe: () => void;
-}) => (
-  <div className="panelBody ocLauncherPanel">
-    <ul className="ocLauncherList">
-      <li>
-        <button type="button" className="ocLauncherItem" onClick={onAddWipe}>
-          <ArrowLeftRight size={15} strokeWidth={1.75} />
-          <span>ワイプを再生位置に追加</span>
-        </button>
-      </li>
-    </ul>
-    <p className="ocPaneNote">
-      入り/戻りの遷移秒はインスペクタで調整。フェードは各素材・挿入クリップの
-      fadeIn/Out で設定します。
-    </p>
-  </div>
-);
-
-/** 左レール「サウンド」/「ステッカー」タブ。既存の materials(素材一覧)を
- * 音声/非音声で絞り込んだだけの薄いピッカー。配置は既存 placeMaterial を使う */
-export const AssetPickerPanel = ({
-  files,
-  onPlace,
-  emptyHint,
-  note,
-}: {
-  files: string[];
-  onPlace: (file: string) => void;
-  emptyHint: string;
-  note: string;
-}) => (
-  <div className="panelBody ocAssetPanel">
-    {files.length === 0 ? (
-      <p className="ocPaneNote">{emptyHint}</p>
-    ) : (
-      <ul className="ocAssetList">
-        {files.map((f) => (
-          <li key={f}>
-            <button
-              type="button"
-              className="ocAssetItem"
-              onDoubleClick={() => onPlace(f)}
-              onClick={() => onPlace(f)}
-              title="クリックで再生位置に配置"
-            >
-              <span className="ocAssetName">{f.split("/").pop()}</span>
-            </button>
-          </li>
-        ))}
-      </ul>
-    )}
-    <p className="ocPaneNote">{note}</p>
-  </div>
-);
 
 /** プリセットの矩形/矢印比率が省略されたとき使う既定表示(App.tsx の
  * add*Span 既定値と揃えた「中央に置かれる」見た目。実際の配置値は
