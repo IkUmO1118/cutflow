@@ -88,7 +88,8 @@ false staleness signals or gets silently discarded:
   effective concurrency, an input-snapshot hash, an output probe, and an
   overall ok/failed status; a pure local side artifact that is never
   transmitted anywhere; covers the main render only — shorts are future
-  work), `preview.mp4`, `proxy.mp4`, `proxy.key.json`,
+  work), `preview.mp4`, `preview-cut.mp4`, `preview-cut.key.json`, `proxy.mp4`,
+  `proxy.key.json`,
   `material-fit.suggested.json` (a disposable draft written by
   `material-fit`; an `apply`-compatible patch of `set`/`remove` ops for
   material duration-fit and dangling-reference fixes — apply it yourself
@@ -385,7 +386,7 @@ without `--force`; with `--force`, hand-edited files are moved to
 | `approve <dir>` | Approve the cutplan (or `--short <name>`) into `approvals.json` (interactive; requires `--yes` non-interactively) |
 | `unapprove <dir>` | Revoke an approval record |
 | `render <dir>` | Final render; requires a valid approval record (`--short <name>` / `--shorts` for short-form outputs) |
-| `clean <dir>` | Delete a recording folder's generated intermediates/caches. Classification derives solely from `src/lib/files.ts` (`GENERATED_FILES` / `fileRole`): only top-level entries whose role is `generated` are removed. Never touches editable files, `approvals.json`, the human `materials/` folder, raw recordings, or products (`final.mp4`/`thumbnail.png`). `--dry-run` lists without deleting; `--cache-only` removes only heavy re-derivable caches (`proxy.mp4`/`cut*.mp4`/`render.chunks/`/`frames/`/`shorts/`/`*.probe/`) and keeps small/expensive-to-regenerate intermediates (`manifest.json`/`cuts.auto.json`/`whisper-out.*`); `--logs-only` removes only logs, disposable drafts, and inspection results (`*.raw.txt`/`plan.loop.json`/`cuts.auto.json`/`*-fit.suggested.json`/`effect-check.json`/`bgm-fit.json`/`style-check.json`/`preview.mp4`/`frames/`) and keeps re-render optimization caches (`cut*.mp4`/`render.*`), `proxy.*`, expensive perceptions (`whisper-out.*`/`transcript.system.json`/`*.probe/`), `manifest.json`, and products (`shorts/`) — mutually exclusive with `--cache-only`; `--json` emits the machine-readable plan (idempotent; always exit 0) |
+| `clean <dir>` | Delete a recording folder's generated intermediates/caches. Classification derives solely from `src/lib/files.ts` (`GENERATED_FILES` / `fileRole`): only top-level entries whose role is `generated` are removed. Never touches editable files, `approvals.json`, the human `materials/` folder, raw recordings, or products (`final.mp4`/`thumbnail.png`). `--dry-run` lists without deleting; `--cache-only` removes only heavy re-derivable caches (`proxy.mp4`/`preview-cut.*`/`cut*.mp4`/`render.chunks/`/`frames/`/`shorts/`/`*.probe/`) and keeps small/expensive-to-regenerate intermediates (`manifest.json`/`cuts.auto.json`/`whisper-out.*`); `--logs-only` removes only logs, disposable drafts, and inspection results (`*.raw.txt`/`plan.loop.json`/`cuts.auto.json`/`*-fit.suggested.json`/`effect-check.json`/`bgm-fit.json`/`style-check.json`/`preview.mp4`/`frames/`) and keeps re-render optimization caches (`preview-cut.*`/`cut*.mp4`/`render.*`), `proxy.*`, expensive perceptions (`whisper-out.*`/`transcript.system.json`/`*.probe/`), `manifest.json`, and products (`shorts/`) — mutually exclusive with `--cache-only`; `--json` emits the machine-readable plan (idempotent; always exit 0) |
 | `editor <dir>` | Launch the GUI editor |
 | `mcp <dir>` | Launch a Model Context Protocol server over stdio, bound to this one recording folder (§11) |
 | `run <dir>` | First-time bulk pipeline: ingest → transcribe → detect → plan (§9: do not re-run casually) |

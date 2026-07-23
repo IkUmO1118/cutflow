@@ -222,12 +222,29 @@ export type AnnotationPatch = {
   shape?: SpotlightShape;
 };
 
-/** タイムラインの1行の高さ(px)。上下ドラッグのトラック判定にも使う */
+/** タイムラインの1行の高さ(px)。旧保存値・互換用の既定値 */
 export const ROW_H = 26;
+
+/** OpenCut classic の型別トラック行高(px)。apps/web/src/timeline/components/layout.ts */
+export const TRACK_H = { video: 65, audio: 50, text: 25, effect: 25 } as const;
+
+/** トラック id → 既定の行高(px)。素材/映像/short=video, bgm=audio, テロップ=text, 演出=effect */
+export const trackHeightFor = (id: TrackId): number => {
+  if (id === "cut" || id === "short" || ovNum(id) !== null) return TRACK_H.video;
+  if (id === "bgm") return TRACK_H.audio;
+  if (id === "caption" || capNum(id) !== null) return TRACK_H.text;
+  return TRACK_H.effect;
+};
 
 /** 素材パネル → タイムラインへのドラッグで使う dataTransfer の型
  * (値はプロジェクト相対パス "materials/..."。OS のファイルドロップと区別する) */
 export const MATERIAL_MIME = "application/x-cutflow-material";
+
+/** ステッカー/エフェクト タブのプリセット → タイムラインへのドラッグで使う
+ * dataTransfer の型(値は presets.ts の EditorPreset.id)。MATERIAL_MIME と
+ * 同じ語彙だが別 MIME にして、onDropTimeline が素材ドロップの分岐(音声=BGM
+ * ヒューリスティック等)と混ざらないようにする */
+export const PRESET_MIME = "application/x-cutflow-preset";
 
 /** 映像トラックの継ぎ目に出す「カットされた区間」の印。index は
  * cutplan.segments の添字(選択はクリップと同じ kind "cut" を使い回す)。
@@ -263,7 +280,9 @@ export interface Clip {
    * それ以外は素材・BGM の相対パス)。startSec = クリップ先頭に対応する
    * 音声内の秒(クリップ内は連続な前提)。loop = ファイル末尾で先頭へ
    * 戻って描く(BGM はループ合成されるため)。
-   * 合成で音が出ないもの(ワイプ・素材トラック)には付けない */
+   * 合成で音が出ないもの(ワイプ)には付けない。素材トラックは無音
+   * (volume 省略時 0)なら付けないが、volume > 0 の動画素材は最終ミックスに
+   * 音が乗るため波形を付ける */
   wave?: { src: string; startSec: number; loop?: boolean };
 }
 
@@ -820,4 +839,19 @@ export function fitZoomSpan(
   const end = Math.min(span.end, hi);
   if (end - start < minSpan) return null;
   return { start: r2(start), end: r2(end) };
+}
+
+/** 選択スパンを元収録の秒 at で2分割する。at が [start,end] の内側(両端から
+ * minSpan 以上)でなければ null(no-op)。返す秒は round2 済み。時刻はすべて
+ * 元収録の秒(呼び出し側が playhead→srcAt で変換して渡す)。 */
+export function splitSpanAt(
+  start: number,
+  end: number,
+  at: number,
+  minSpan: number,
+): { left: { start: number; end: number }; right: { start: number; end: number } } | null {
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const s = r2(start), e = r2(end), a = r2(at);
+  if (a <= s + minSpan || a >= e - minSpan) return null;
+  return { left: { start: s, end: a }, right: { start: a, end: e } };
 }

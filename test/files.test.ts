@@ -38,6 +38,8 @@ const EXPECTED_GENERATED_FILES = [
   "render.key.json",
   "render.report.json",
   "preview.mp4",
+  "preview-cut.mp4",
+  "preview-cut.key.json",
   "proxy.mp4",
   "proxy.key.json",
   "material-fit.suggested.json",
@@ -84,6 +86,8 @@ test("fileRole: editable / generated / approval / other を正しく判定する
   assert.equal(fileRole("manifest.json"), "generated");
   assert.equal(fileRole("cut.mp4"), "generated");
   assert.equal(fileRole("render.report.json"), "generated");
+  assert.equal(fileRole("preview-cut.mp4"), "generated");
+  assert.equal(fileRole("preview-cut.key.json"), "generated");
   assert.equal(fileRole("material-fit.suggested.json"), "generated");
   assert.equal(fileRole("plan.first.json"), "generated");
   assert.equal(fileRole("plan-effects.first.json"), "generated");
@@ -162,7 +166,8 @@ test("fileRole: render.fast/ 配下(高速パスのテロップPNG・キー)は 
 
 test("isGeneratedCache: 重いキャッシュだけ true、軽い中間生成物は false", () => {
   // cache = true
-  for (const c of ["proxy.mp4", "proxy.key.json", "cut.mp4", "cut.keeps.json",
+  for (const c of ["proxy.mp4", "proxy.key.json", "preview-cut.mp4", "preview-cut.key.json",
+    "cut.mp4", "cut.keeps.json",
     "preview.mp4", "render.props.json", "render.key.json",
     "cut.highlight-1.mp4", "render.highlight-1.key.json",
     "frames/out10s.png", "render.chunks/v001.mp4", "shorts/a.mp4",
@@ -198,7 +203,8 @@ test("isGeneratedLog: ログ・下書き・検品結果だけ true、最適化/p
     assert.equal(isGeneratedLog(l), true, `${l} は log のはず`);
   }
   // generated だが log ではない(リレンダー最適化・proxy・高価な再生成物・成果物・必須入力)
-  for (const g of ["cut.mp4", "cut.keeps.json", "render.props.json", "render.key.json",
+  for (const g of ["preview-cut.mp4", "preview-cut.key.json", "cut.mp4", "cut.keeps.json",
+    "render.props.json", "render.key.json",
     "proxy.mp4", "proxy.key.json", "manifest.json", "whisper-out.json", "whisper-out.srt",
     "transcript.system.json", "whisper-system-out.json", "cut.highlight-1.mp4",
     "render.highlight-1.key.json", "render.chunks/v001.mp4", "render.fast/captions/ab.png",
@@ -234,7 +240,8 @@ test("GENERATED_LOG_FILES は GENERATED_FILES の部分集合(リレンダー最
   // preview.mp4 は cache と log の両方に属してよい(重い かつ 使い捨て)が、
   // リレンダー最適化・proxy の本体は log に混ざってはならない
   const log = new Set(GENERATED_LOG_FILES as readonly string[]);
-  for (const opt of ["cut.mp4", "cut.keeps.json", "render.props.json", "render.key.json",
+  for (const opt of ["preview-cut.mp4", "preview-cut.key.json", "cut.mp4", "cut.keeps.json",
+    "render.props.json", "render.key.json",
     "proxy.mp4", "proxy.key.json"]) {
     assert.ok(!log.has(opt), `${opt}(リレンダー最適化/proxy)が log に混入`);
   }

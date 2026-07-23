@@ -38,6 +38,11 @@ export interface Manifest {
   createdAt: string;
 }
 
+/** Remotion composition / Player が使う整数 fps。素材の実測平均 fps ではなく、
+ * manifest を唯一の clock として preview bake / cache でも共有する。 */
+export const manifestCompositionFps = (manifest: Pick<Manifest, "video">): number =>
+  Math.round(manifest.video.fps) || 30;
+
 /** manifest のレイアウト(未指定は旧 manifest 互換で obs-canvas) */
 export const manifestLayout = (m: { layout?: string }): "obs-canvas" | "plain" =>
   m.layout === "plain" ? "plain" : "obs-canvas";

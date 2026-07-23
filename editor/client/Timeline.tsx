@@ -11,9 +11,19 @@ import type {
   TrackDef,
   TrackId,
 } from "./model.ts";
-import { MATERIAL_MIME, ROW_H } from "./model.ts";
+import { MATERIAL_MIME, PRESET_MIME, trackHeightFor } from "./model.ts";
 import { playhead, usePlayheadSelector } from "./playhead.ts";
-import { AUDIO_EXT_RE, EyeIcon, MagnetIcon, SplitIcon, TrashIcon, UndoIcon, VolumeIcon, fmtTime } from "./widgets.tsx";
+import {
+  AUDIO_EXT_RE,
+  DuplicateIcon,
+  EyeIcon,
+  MagnetIcon,
+  SplitIcon,
+  TrashIcon,
+  UndoIcon,
+  VolumeIcon,
+  fmtTime,
+} from "./widgets.tsx";
 import type { Peaks } from "./widgets.tsx";
 
 /** 再生ヘッドの縦線(ルーラーのつまみ・トラック上の線)。再生中の毎フレーム
@@ -43,13 +53,6 @@ const SplitButton = ({
       <SplitIcon size={14} />
     </button>
   );
-};
-
-/** 素材クリップの色。トラック番号で巡回(V1=緑、V2=紫は従来と同じ) */
-const OV_COLORS = ["#14532d", "#4c1d95", "#7c2d12", "#134e4a", "#701a75", "#1e3a8a"];
-export const ovColor = (track: TrackId): string | undefined => {
-  const n = ovNum(track);
-  return n !== null ? OV_COLORS[(n - 1) % OV_COLORS.length] : undefined;
 };
 
 /** 波形 canvas のデバイスピクセル幅の上限。超えるぶんは CSS で引き伸ばす
@@ -133,10 +136,10 @@ const VIRT_CHUNK = 512;
  * 収録で最大 十数px/秒 になり、テロップ単位の編集が物理的にできない) */
 const MAX_PPS = 240;
 
-/** トラック高さの範囲と localStorage キー(最小 = 既定の ROW_H。
- * 既定より低くは潰せず、広げる方向だけ) */
-const ROW_H_MIN = ROW_H;
+/** トラック高さの範囲と localStorage キー(最小 = 型別既定。
+ * 型別既定より低くは潰せず、広げる方向だけ) */
 const ROW_H_MAX = 96;
+const TRACK_GAP = 6;
 const ROW_H_STORE = "cutflow.editor.trackHeights";
 /** ドロップ吸着 ON/OFF の保存キー(既定 ON) */
 const SNAP_STORE = "cutflow.editor.snapEnabled";
@@ -164,7 +167,6 @@ export const Timeline = ({
   onDragEnd,
   onCreate,
   onReorderTrack,
-  onAddTrack,
   canUndo,
   canRedo,
   onUndo,
@@ -173,12 +175,16 @@ export const Timeline = ({
   getSplitDisabled,
   onDelete,
   deleteDisabled,
+  onDuplicate,
+  dupDisabled,
   onRemoveTrack,
   onRenameTrack,
   onSelectCaptionTrack,
   onDropFile,
   onDropMaterial,
   dragMaterial,
+  presetDragTrack,
+  onDropPreset,
   trackMuted,
   onToggleTrackMute,
   hiddenLayers,
@@ -213,8 +219,6 @@ export const Timeline = ({
   onCreate: (track: TrackId, outStart: number, outEnd: number) => void;
   /** ラベルのドラッグ先(tracks の添字)。並べ替え可能な範囲へは App が丸める */
   onReorderTrack: (id: TrackId, toIndex: number) => void;
-  /** トラックを1本追加する(種類は＋ボタンのメニューで選ぶ) */
-  onAddTrack: (kind: "caption" | "overlay") => void;
   /** 編集履歴の有無(undo/redo ボタンの活性)。実体は App 側が持つ */
   canUndo: boolean;
   canRedo: boolean;
@@ -228,6 +232,9 @@ export const Timeline = ({
    * deleteDisabled = 選択なし */
   onDelete: () => void;
   deleteDisabled: boolean;
+  /** 選択中のクリップを直後へ複製(⌘D)。dupDisabled = 選択なし/複製非対応 kind */
+  onDuplicate: () => void;
+  dupDisabled: boolean;
   /** 空の素材/テロップトラックを削除する(番号は詰め直される) */
   onRemoveTrack: (id: TrackId) => void;
   /** テロップトラックの名前を変更(空文字で自動ラベルに戻す)。
@@ -243,6 +250,15 @@ export const Timeline = ({
   /** 素材パネルからドラッグ中の素材(ドロップゴーストの幅・ラベルに使う)。
    * null = ドラッグしていない/OS のファイルドラッグ(尺は不明なので既定幅) */
   dragMaterial: { file: string; durationSec: number | null } | null;
+  /** ステッカー/エフェクト タブからドラッグ中のプリセットの対象トラック
+   * (App の visibleTracks がこのトラックを一時的に可視化する)。
+   * null = プリセットをドラッグしていない */
+  presetDragTrack: TrackId | null;
+  /** プリセットのドロップ(presetId = presets.ts の EditorPreset.id)。
+   * 行の決定は dropTrackAt(素材の音声/映像ヒューリスティック)を使わず
+   * presetDragTrack をそのまま使う(getData は drop イベントでしか読めない
+   * ため、行の決定に使えない) */
+  onDropPreset: (outT: number, presetId: string) => void;
   /** 音声トラック(映像・BGM)のプレビューミュート状態 */
   trackMuted: Record<AudioTrackId, boolean>;
   onToggleTrackMute: (id: AudioTrackId) => void;
@@ -266,7 +282,6 @@ export const Timeline = ({
   const [dragLabel, setDragLabel] = useState<TrackId | null>(null);
   /** クリップの移動・トリム中に吸着した境界の位置(カット後秒)。表示線用 */
   const [snapMark, setSnapMark] = useState<number | null>(null);
-  const [addMenuOpen, setAddMenuOpen] = useState(false);
   /** トラック名の編集中(テロップトラックのラベルをダブルクリック) */
   const [renaming, setRenaming] = useState<{ id: TrackId; value: string } | null>(null);
   /** ドロップ時の吸着(クリップ境界・再生ヘッド・0/末尾)の ON/OFF */
@@ -295,9 +310,11 @@ export const Timeline = ({
   useEffect(() => {
     localStorage.setItem(ROW_H_STORE, JSON.stringify(trackHeights));
   }, [trackHeights]);
-  /** トラックの表示高さ(px)。未設定は既定の ROW_H */
-  const rowH = (id: TrackId): number =>
-    Math.min(ROW_H_MAX, Math.max(ROW_H_MIN, trackHeights[id] ?? ROW_H));
+  /** トラックの表示高さ(px)。既定は型別、ユーザーは上へだけ広げられる */
+  const rowH = (id: TrackId): number => {
+    const base = trackHeightFor(id);
+    return Math.min(ROW_H_MAX, Math.max(base, trackHeights[id] ?? base));
+  };
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -391,14 +408,15 @@ export const Timeline = ({
   };
 
   /** ルーラーの高さ(px)。CSS の .tlRuler / .tlRulerSpacer と一致させる */
-  const RULER_H = 24;
+  const RULER_H = 22;
 
-  /** コンテンツ座標の縦位置 → トラック添字(高さは可変なので累積で探す) */
+  /** コンテンツ座標の縦位置 → トラック添字(高さと gap は可変なので累積で探す) */
   const trackIndexOfY = (y: number): number => {
     let acc = 0;
     for (let i = 0; i < tracks.length; i++) {
-      acc += rowH(tracks[i].id);
-      if (y < acc) return i;
+      const h = rowH(tracks[i].id);
+      if (y < acc + h + TRACK_GAP) return i;
+      acc += h + TRACK_GAP;
     }
     return tracks.length - 1;
   };
@@ -416,8 +434,9 @@ export const Timeline = ({
     if (y < 0) return null;
     let acc = 0;
     for (const t of tracks) {
-      acc += rowH(t.id);
-      if (y < acc) return t;
+      const h = rowH(t.id);
+      if (y >= acc && y < acc + h) return t;
+      acc += h + TRACK_GAP;
     }
     return null;
   };
@@ -542,8 +561,9 @@ export const Timeline = ({
     e.stopPropagation(); // 並べ替えドラッグを始めない
     const y0 = e.clientY;
     const h0 = rowH(id);
+    const base = trackHeightFor(id);
     beginDrag(e, (ev) => {
-      const h = Math.min(ROW_H_MAX, Math.max(ROW_H_MIN, h0 + (ev.clientY - y0)));
+      const h = Math.min(ROW_H_MAX, Math.max(base, h0 + (ev.clientY - y0)));
       setTrackHeights((m) => (m[id] === h ? m : { ...m, [id]: h }));
     });
   };
@@ -575,13 +595,16 @@ export const Timeline = ({
     );
   };
 
-  // ルーラーの目盛り間隔: 1目盛りが 70px 以上になる切りのいい秒数。
-  // 可視窓の中だけ置く(長尺+高ズームでは全体で数万本になる)
+  // ルーラーの目盛り間隔: ラベル付き主目盛りが 70px 以上になる切りのいい秒数。
+  // 補助目盛り(ラベル無し)は主目盛りをさらに分割し、詰まりすぎない間隔に収める
   const step = [0.2, 0.5, 1, 2, 5, 10, 15, 30, 60].find((s) => s * pps >= 70) ?? 120;
-  const ticks: number[] = [];
+  const minorDivisor = [10, 5, 4, 2, 1].find((n) => (step / n) * pps >= 10) ?? 1;
+  const minorStep = step / minorDivisor;
+  // 可視窓の中だけ置く(長尺+高ズームでは全体で数万本になる)
+  const ticks: { t: number; major: boolean }[] = [];
   const tickEnd = Math.min(duration, winEnd);
-  for (let k = Math.max(0, Math.floor(winStart / step)); k * step <= tickEnd; k++) {
-    ticks.push(k * step);
+  for (let k = Math.max(0, Math.floor(winStart / minorStep)); k * minorStep <= tickEnd; k++) {
+    ticks.push({ t: k * minorStep, major: k % minorDivisor === 0 });
   }
 
   const isSel = (c: Clip) =>
@@ -677,11 +700,11 @@ export const Timeline = ({
 
   // ドラッグがキャンセルされた・パネル側で終わったときの消し忘れ防止
   useEffect(() => {
-    if (!dragMaterial) {
+    if (!dragMaterial && !presetDragTrack) {
       setDrop(null);
       setDropAudio(null);
     }
-  }, [dragMaterial]);
+  }, [dragMaterial, presetDragTrack]);
 
   /** ゴーストの幅に使う尺(秒)。画像・不明は配置時の既定と同じ */
   const dragDurSec = dragMaterial?.durationSec ?? defaultDurationSec;
@@ -799,9 +822,29 @@ export const Timeline = ({
 
   const onDragOverTimeline = (e: ReactDragEvent) => {
     const types = e.dataTransfer.types;
-    if (!types.includes("Files") && !types.includes(MATERIAL_MIME)) return;
+    const isPreset = types.includes(PRESET_MIME);
+    if (!types.includes("Files") && !types.includes(MATERIAL_MIME) && !isPreset) return;
     e.preventDefault();
     dragAutoScroll(e.clientX, e.clientY);
+    // プリセットは音声/映像ヒューリスティック(dropTrackAt)を使わず、
+    // ドラッグ開始時に App が確定させた presetDragTrack をそのまま行として使う
+    // (getData は drop イベントでしか読めないので dragover では判定できない)
+    if (isPreset) {
+      setDropAudio((cur) => (cur === null ? cur : null));
+      if (!presetDragTrack) {
+        e.dataTransfer.dropEffect = "none";
+        setDrop(null);
+        return;
+      }
+      e.dataTransfer.dropEffect = "copy";
+      const { t, snapLine } = snapDropT(posToT(e.clientX));
+      setDrop((cur) =>
+        cur && cur.track === presetDragTrack && cur.t === t && cur.snapLine === snapLine
+          ? cur
+          : { track: presetDragTrack, t, snapLine },
+      );
+      return;
+    }
     const audio = dragIsAudioOnly(e);
     setDropAudio((cur) => (cur === audio ? cur : audio));
     const track = dropTrackAt(e.clientY, audio);
@@ -827,6 +870,15 @@ export const Timeline = ({
   };
   const onDropTimeline = (e: ReactDragEvent) => {
     e.preventDefault();
+    // プリセットは MATERIAL_MIME の判定より前に見る(§8.2 手順5)
+    const presetId = e.dataTransfer.getData(PRESET_MIME);
+    if (presetId) {
+      const t = drop?.t ?? posToT(e.clientX);
+      setDrop(null);
+      setDropAudio(null);
+      onDropPreset(t, presetId);
+      return;
+    }
     // ゴーストの位置に落とす(dragover を経ていない場合はその場で計算)
     const track = drop?.track ?? dropTrackAt(e.clientY, dragIsAudioOnly(e))?.id;
     const t = drop?.t ?? posToT(e.clientX);
@@ -843,41 +895,8 @@ export const Timeline = ({
   };
 
   return (
-    <div className="timeline" style={{ height }}>
+    <div className="timeline ocTimeline" style={{ height }}>
       <div className="tlToolbar">
-        <span className="addTrack">
-          <button
-            className="tlTool"
-            title="トラックを追加(種類を選択)"
-            onClick={() => setAddMenuOpen((v) => !v)}
-          >
-            ＋
-          </button>
-          {addMenuOpen && (
-            <>
-              <div className="menuBackdrop" onClick={() => setAddMenuOpen(false)} />
-              <div className="menu">
-                {(
-                  [
-                    ["caption", "テロップトラック"],
-                    ["overlay", "素材トラック"],
-                  ] as const
-                ).map(([kind, label]) => (
-                  <button
-                    key={kind}
-                    onClick={() => {
-                      setAddMenuOpen(false);
-                      onAddTrack(kind);
-                    }}
-                  >
-                    ＋ {label}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </span>
-        <span className="tlDivider" />
         <button
           className="tlTool"
           aria-label="元に戻す"
@@ -897,6 +916,15 @@ export const Timeline = ({
           <UndoIcon dir="redo" size={14} />
         </button>
         <SplitButton getDisabled={getSplitDisabled} onSplit={onSplit} />
+        <button
+          className="tlTool"
+          aria-label="複製"
+          title="選択中のクリップを直後へ複製 (⌘D)"
+          disabled={dupDisabled}
+          onClick={onDuplicate}
+        >
+          <DuplicateIcon size={14} />
+        </button>
         <button
           className="tlTool"
           aria-label="削除"
@@ -940,7 +968,7 @@ export const Timeline = ({
             title={`ズーム ${Math.round(zoom * 100)}%(ダブルクリックで全体表示)`}
             style={{
               // 左端から現在のズーム位置までをアクセント色で塗る(音量スライダーと同じ流儀)
-              background: `linear-gradient(to right, var(--accent) ${(Math.log2(zoom) / Math.log2(maxZoom)) * 100}%, var(--border) ${(Math.log2(zoom) / Math.log2(maxZoom)) * 100}%)`,
+              background: `linear-gradient(to right, hsl(var(--oc-primary)) ${(Math.log2(zoom) / Math.log2(maxZoom)) * 100}%, hsl(var(--oc-border)) ${(Math.log2(zoom) / Math.log2(maxZoom)) * 100}%)`,
             }}
             onChange={(e) => setZoomTo(2 ** Number(e.target.value))}
             onDoubleClick={() => applyZoom(0)}
@@ -1087,9 +1115,13 @@ export const Timeline = ({
         >
           <div className="tlContent" style={{ width: totalW }}>
             <div className="tlRuler" onPointerDown={onRulerDown}>
-              {ticks.map((t) => (
-                <div className="tlTick" key={t} style={{ left: t * pps }}>
-                  {fmtTime(t)}
+              {ticks.map(({ t, major }) => (
+                <div
+                  className={`tlTick${major ? "" : " tlTickMinor"}`}
+                  key={t}
+                  style={{ left: t * pps }}
+                >
+                  {major && <span className="tlTickLabel">{fmtTime(t)}</span>}
                 </div>
               ))}
               <PlayheadMark className="tlPlayheadCap" pps={pps} />
@@ -1108,6 +1140,8 @@ export const Timeline = ({
                       : isDropTrack(track, dropAudio)
                         ? " dropOk"
                         : ""
+                }${
+                  presetDragTrack === track.id && !byTrack.get(track.id) ? " ocTrackDropLane" : ""
                 }`}
                 key={track.id}
                 style={{ height: rowH(track.id) }}
@@ -1130,10 +1164,6 @@ export const Timeline = ({
                         style={{
                           left: clip.outStart * pps,
                           width: Math.max(6, (clip.outEnd - clip.outStart) * pps),
-                          // 素材クリップはトラック番号で色分け(CSS は種別のみ)
-                          ...(clip.kind === "overlays"
-                            ? { background: ovColor(clip.track) }
-                            : {}),
                         }}
                         title={clip.label}
                         onPointerDown={(e) => onClipDown(e, clip, "move")}
@@ -1208,9 +1238,6 @@ export const Timeline = ({
                     style={{
                       left: drop.t * pps,
                       width: Math.max(6, dragDurSec * pps),
-                      ...(ovNum(track.id) !== null
-                        ? { background: ovColor(track.id) }
-                        : {}),
                     }}
                   >
                     <span className="tlClipLabel">

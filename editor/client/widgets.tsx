@@ -22,6 +22,8 @@ import type {
   HyperframesData,
   MediaFactsData,
   PeaksData,
+  PreviewCutRequest,
+  PreviewCutResponse,
   ProjectData,
   SaveRequest,
   SaveResponse,
@@ -154,6 +156,11 @@ export async function deleteDraft(): Promise<void> {
 /** proxy.mp4(元収録の軽量プロキシ)の生成。収録ごとに1回でよい */
 export async function postProxy(): Promise<void> {
   await request("/api/proxy", {});
+}
+
+/** 未保存の cutplan snapshot から本編用の連続 preview-cut.mp4 を生成する。 */
+export async function postPreviewCut(body: PreviewCutRequest): Promise<PreviewCutResponse> {
+  return (await request("/api/preview-cut", body)) as PreviewCutResponse;
 }
 
 /** 設定画面の保存。config.yaml の該当キーを書き換え(コメント保持)、
@@ -415,7 +422,7 @@ export const PctSlider = ({
       value={pct}
       title={title}
       style={{
-        background: `linear-gradient(to right, var(--accent) ${(pct / max) * 100}%, var(--border) ${(pct / max) * 100}%)`,
+        background: `linear-gradient(to right, hsl(var(--oc-primary)) ${(pct / max) * 100}%, hsl(var(--oc-border)) ${(pct / max) * 100}%)`,
       }}
       onChange={(e) => onChange(Number(e.target.value))}
     />
@@ -637,6 +644,24 @@ export const SplitIcon = ({ size = 16 }: { size?: number }) => (
   </svg>
 );
 
+/** 複製(コピー2枚重ね)アイコン(線画 SVG)。選択中クリップの複製(⌘D)用 */
+export const DuplicateIcon = ({ size = 16 }: { size?: number }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden
+  >
+    <rect x="9" y="9" width="11" height="11" rx="2" />
+    <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+  </svg>
+);
+
 /** 削除(ゴミ箱)アイコン(線画 SVG)。選択中クリップの削除用 */
 export const TrashIcon = ({ size = 16 }: { size?: number }) => (
   <svg
@@ -804,12 +829,7 @@ export const PlayPauseIcon = ({
   </svg>
 );
 
-/** 秒を「分:秒.xx」で表示する(生の秒数は編集欄で見えるので表示用) */
-export function fmtTime(t: number): string {
-  const m = Math.floor(t / 60);
-  const s = (t - m * 60).toFixed(2).padStart(5, "0");
-  return `${m}:${s}`;
-}
+export { fmtTime, parseTimecode } from "./timecode.ts";
 
 /**
  * 秒数の編集欄。入力中はローカルのテキストを保持し、blur / Enter で確定する

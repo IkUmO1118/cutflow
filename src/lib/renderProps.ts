@@ -42,6 +42,7 @@ import type {
   Transcript,
   Annotation,
 } from "../types.ts";
+import { manifestCompositionFps } from "../types.ts";
 import { resolveAnnotation } from "./annotation.ts";
 import { resolveDesign } from "./design.ts";
 import type {
@@ -423,7 +424,7 @@ export function buildRenderProps(args: {
       warn,
     }),
     durationSec: Math.round(durationSec * 100) / 100,
-    fps: Math.round(manifest.video.fps) || 30,
+    fps: manifestCompositionFps(manifest),
     width,
     height,
     canvas: { w: manifest.video.width, h: manifest.video.height },

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from "react";
+import type { LayoutChangedMeta, PanelImperativeHandle } from "react-resizable-panels";
 import { Player } from "@remotion/player";
 import type { CallbackListener, PlayerRef } from "@remotion/player";
 import { Main } from "../../remotion/Main.tsx";
@@ -45,6 +46,8 @@ import {
   captionStyleOf,
   captionTrack,
   captionTrackName,
+  defaultLayerOrder,
+  manifestCompositionFps,
   ovId,
   ovNum,
   overlayTrack,
@@ -54,6 +57,7 @@ import type {
   Bgm,
   CaptionPos,
   CaptionStyle,
+  ColorFilter,
   CutPlan,
   LayerId,
   Overlays,
@@ -69,6 +73,7 @@ import type {
   AiSelectionContext,
   DraftData,
   HyperframeCard,
+  PreviewCutResponse,
   ProjectData,
   SaveRequest,
   ScriptData,
@@ -81,6 +86,7 @@ import {
   hyperframeAuthorReadiness,
 } from "../../src/lib/hyperframeAuthor.ts";
 import { buildReviewEvents, warningSummary } from "../../src/lib/reviewEvents.ts";
+import { previewCutKeepSignature } from "../../src/lib/previewCutSignature.ts";
 import { AiCommand } from "./AiCommand.tsx";
 import { AiVisualReview } from "./AiVisualReview.tsx";
 import { ArrowOverlay } from "./ArrowOverlay.tsx";
@@ -91,13 +97,84 @@ import { DiffReview } from "./DiffReview.tsx";
 import { MaterialOverlay } from "./MaterialOverlay.tsx";
 import type { OverlayRect } from "./MaterialOverlay.tsx";
 import { Inspector } from "./Inspector.tsx";
-import { CaptionsPanel, MaterialsPanel, ScriptPanel, ShortsPanel } from "./Panels.tsx";
+import {
+  AdjustmentPanel,
+  CaptionsPanel,
+  HyperframeAuthorPanel,
+  MaterialsPanel,
+  PanelHeader,
+  PresetPanel,
+  ScriptPanel,
+  SettingsPanel,
+  ShortsPanel,
+} from "./Panels.tsx";
 import { SettingsModal, buildConfigPatch, patchTouchesProxy } from "./SettingsModal.tsx";
 import type { AiSettingsValue, CfgValues } from "./SettingsModal.tsx";
 import { Timeline } from "./Timeline.tsx";
 import { playhead, usePlayheadSelector } from "./playhead.ts";
-import { useToasts, ToastStack } from "./toasts.tsx";
-import { TOAST_TTL_MS } from "./toastReducer.ts";
+import { previewBaseVideoMountKey, previewBaseVideoOf } from "./previewCut.ts";
+import {
+  usePreviewCutRebake,
+  type PreviewCutRebakeState,
+} from "./previewCutRebake.ts";
+import { useToasts } from "./toasts.tsx";
+import { TOAST_TTL_MS } from "./toastAdapter.ts";
+import { Button } from "./components/ui/button.tsx";
+import { NativeSelect } from "./components/ui/native-select.tsx";
+import { Toaster } from "./components/ui/sonner.tsx";
+import { AppStateView } from "./components/EmptyState.tsx";
+import { OnboardingDialog } from "./OnboardingDialog.tsx";
+import {
+  ONBOARDING_STORAGE_KEY,
+  shouldShowOnboarding,
+} from "./onboardingRules.ts";
+import { themePreferenceLabel, useTheme } from "./theme.tsx";
+import type { ThemePreference } from "./theme.tsx";
+import { restoreDialogFocus } from "./lib/dialogFocus.ts";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "./components/ui/dialog.tsx";
+import { ScrollArea } from "./components/ui/scroll-area.tsx";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "./components/ui/popover.tsx";
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "./components/ui/resizable.tsx";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./components/ui/tooltip.tsx";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs.tsx";
+import {
+  ChevronDown,
+  Captions,
+  Download,
+  FileText,
+  Folder,
+  Monitor,
+  Moon,
+  PanelBottom,
+  PanelLeft,
+  PanelRight,
+  Settings,
+  Sparkles,
+  Smartphone,
+  SlidersHorizontal,
+  Smile,
+  Sun,
+  Wand2,
+} from "lucide-react";
 import {
   SCRIPT_CUT_REASON,
   SHORT_TRACK_DEF,
@@ -105,7 +182,10 @@ import {
   cutSourceRange,
   fitZoomSpan,
   restoreSourceRange,
+  splitSpanAt,
 } from "./model.ts";
+import { ANNOTATION_PRESETS, EFFECT_PRESETS } from "./presets.ts";
+import type { EditorPreset, PresetPatch } from "./presets.ts";
 import type {
   AddKind,
   AnnotationPatch,
@@ -113,6 +193,7 @@ import type {
   Clip,
   CutMark,
   DragMode,
+  SelKind,
   Selection,
   TrackId,
 } from "./model.ts";
@@ -121,7 +202,6 @@ import {
   JumpIcon,
   LoopIcon,
   MaximizeIcon,
-  PanelIcon,
   PlayPauseIcon,
   StepIcon,
   VolumeIcon,
@@ -130,6 +210,7 @@ import {
   deleteHyperframe,
   deleteMaterial,
   fmtTime,
+  parseTimecode,
   getMediaFacts,
   getHyperframes,
   getPeaks,
@@ -142,6 +223,7 @@ import {
   postAiRefine,
   postAiReview,
   postPreview,
+  postPreviewCut,
   postProxy,
   postRender,
   postHyperframeRender,
@@ -227,6 +309,14 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), h
 /** ドラッグで区間がゼロ幅・逆転しないための最小幅(秒)。round2 の量子(0.01)
  * まで刻めるように最小幅もそこに合わせる(手動カットの粒度) */
 const MIN_SPAN = 0.01;
+/** 左レール Effects/Transitions タブが再生ヘッドに区間を足すときの既定尺(秒) */
+const DEFAULT_ADD_SEC = 3;
+/** ⌘D(duplicateSelected)で複製できる選択 kind。caption/overlays/zoom/blur/
+ * annotation/bgm は buildClip+insertClipAt 経由、insert は専用分岐(at+durationSec)。
+ * wipe / 映像 keep(cut) / ショート範囲(short) / captionTrack は対象外 */
+const DUPLICABLE = new Set<string>(["caption", "overlays", "zoom", "blur", "annotation", "bgm", "insert"]);
+/** プレビュー表示倍率のプリセット(Fit を除く)。プレビューのみに効く */
+const PREVIEW_ZOOMS: readonly number[] = [0.25, 0.5, 0.75, 1, 1.5, 2];
 
 /** ショートの profile 名 → Profile。src/lib/profile.ts の resolveProfile と
  * 同じ規則(省略時 defaultShortProfileName(hasCamera)。render.ts / frames.ts と
@@ -349,9 +439,35 @@ const PANEL_TABS = [
   ["materials", "素材"],
   ["script", "スクリプト"],
   ["captions", "テロップ"],
+  ["stickers", "ステッカー"],
+  ["effects", "エフェクト"],
+  ["adjust", "色調整"],
   ["shorts", "ショート"],
+  // 「AI 生成」は道具ではなく生成の入口なので、レール末尾の「設定」の直上に置く
+  ["hyperframes", "AI 生成"],
+  ["settings", "設定"],
 ] as const;
 type PanelTab = (typeof PANEL_TABS)[number][0];
+
+const PanelTabIcon = ({ tab }: { tab: PanelTab }) => {
+  const p = { size: 16, strokeWidth: 1.5, "aria-hidden": true } as const;
+  if (tab === "materials") return <Folder {...p} />;
+  if (tab === "hyperframes") return <Sparkles {...p} />;
+  if (tab === "script") return <FileText {...p} />;
+  if (tab === "captions") return <Captions {...p} />;
+  if (tab === "stickers") return <Smile {...p} />;
+  if (tab === "effects") return <Wand2 {...p} />;
+  if (tab === "adjust") return <SlidersHorizontal {...p} />;
+  if (tab === "shorts") return <Smartphone {...p} />;
+  return <Settings {...p} />;
+};
+
+const THEME_PREFERENCES: ThemePreference[] = ["system", "light", "dark"];
+const ThemeChoiceIcon = ({ preference }: { preference: ThemePreference }) => {
+  if (preference === "light") return <Sun size={15} aria-hidden />;
+  if (preference === "dark") return <Moon size={15} aria-hidden />;
+  return <Monitor size={15} aria-hidden />;
+};
 /** 左パネル・インスペクタ・プレビューの最小幅(px)。
  * 境界ドラッグでこれ以下には縮まない */
 const PANEL_MIN = 280;
@@ -409,13 +525,14 @@ function applySaveHashes(
  * 上=タブパネル(左: 素材/テロップ)+プレビュー(中央)+インスペクタ(右)、
  * 中=トランスポート、下=タイムライン。上部の左右比は分割バーで変えられる。
  * プレビューは最終レンダーと同じコンポジション(remotion/Main.tsx)を
- * @remotion/player で再生する。動画ソースは元収録の軽量プロキシ
- * (proxy.mp4)で、カットは焼き込まず Player が keep 区間に従って
- * 飛び飛びに再生する(本物の NLE と同じ方式)。だからカット境界の編集は
- * ファイルの作り直しなしで即プレビューに反映される。
+ * @remotion/player で再生する。本編は現在の keep と一致する連続ベイクが
+ * あれば preview-cut.mp4 を使い、無ければ元収録の軽量 proxy.mp4 を keep
+ * 区間ごとに飛び飛び再生する。後者に即座に戻れるため境界編集中も反映を
+ * 待たない。ショートは常に proxy.mp4 の source-domain 経路を使う。
  * 正のデータは cutplan / overlays / transcript の各 JSON(元収録の秒)。
  */
 export const App = () => {
+  const { preference: themePreference, effectiveTheme, setPreference: setThemePreference } = useTheme();
   const [proj, setProj] = useState<ProjectData | null>(null);
   const [cutplan, setCutplan] = useState<CutPlan | null>(null);
   const [overlays, setOverlays] = useState<Overlays | null>(null);
@@ -434,7 +551,7 @@ export const App = () => {
   const [activeShortName, setActiveShortName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // 通知トースト(error / job)。要対応の継続条件はバナー行が持つ(T4)
-  const { toasts, addToast, updateToast, dismissToast } = useToasts();
+  const { addToast, updateToast, dismissToast } = useToasts();
   const [busy, setBusy] = useState<"save" | "upload" | null>(null);
   /** proxy.mp4 の生成中か。busy と分けて、生成中(初回の数十秒)も
    * 編集・保存・アップロードを普通に受け付ける */
@@ -481,6 +598,8 @@ export const App = () => {
   /** 取得済み(進行中含む)のピークのキー。二重リクエストを避ける */
   const peaksRequestedRef = useRef(new Set<string>());
   const playerRef = useRef<PlayerRef>(null);
+  /** プレビューの表示倍率(プレビューのみ。書き出し・合成には影響しない) */
+  const [previewZoom, setPreviewZoom] = useState<"fit" | number>("fit");
   const [tab, setTab] = useState<PanelTab>("materials");
   /** スクリプトタブの元データ(元収録の全文文字起こし)。タブを初めて
    * 開いたときに取得する遅延ロード(whisper-out.json 由来で大きいため)。
@@ -527,8 +646,12 @@ export const App = () => {
   const [timelineOpen, setTimelineOpen] = useState(
     () => localStorage.getItem("cutflow.editor.timelineOpen") !== "0",
   );
-  const stageRef = useRef<HTMLDivElement>(null);
-  /** パネル最大化(⇧F)。左パネル・タイムラインを一時的に隠してプレビューを
+  const sidePanelRef = useRef<PanelImperativeHandle>(null);
+  const inspectorPanelRef = useRef<PanelImperativeHandle>(null);
+  const timelinePanelRef = useRef<PanelImperativeHandle>(null);
+  const stageGroupRef = useRef<HTMLDivElement>(null);
+  const shellGroupRef = useRef<HTMLDivElement>(null);
+  /** パネル最大化(⇧F)。左右パネル・タイムラインを一時的に畳んでプレビューを
    * 広げる表示モード。レイアウトの切替だけでデータには一切影響しない。
    * 一時確認用なので意図的に保存しない(リロードで通常レイアウトに戻る) */
   const [maximized, setMaximized] = useState(false);
@@ -551,7 +674,10 @@ export const App = () => {
         // 判定する(config.yaml が別セッション・別ツールで変わった場合も
         // 拾える)。false→true 方向だけ反映し、既にバナーが出ている
         // (このセッション中の設定保存で立てた)ものは消さない
-        if (p.proxyStale) setProxyStale(true);
+        if (p.proxyStale) {
+          setProxyStale(true);
+          setProxyStaleDismissed(false);
+        }
         // 前回のセッションが保存せずに終わっていたら(クラッシュ等)、
         // 退避された編集の復元を人間に選ばせる。中身が正のデータと同じなら
         // 復元するものが無いので黙って片付ける
@@ -579,10 +705,12 @@ export const App = () => {
   const [aiWorkflow, setAiWorkflow] = useState<AiWorkflowState | null>(null);
   const [aiCommandOpen, setAiCommandOpen] = useState(false);
   const [aiCommandScope, setAiCommandScope] = useState<AiScope>("global");
+  const aiCommandLauncherRef = useRef<HTMLButtonElement | null>(null);
   /** 前回のセッションの未保存編集(自動退避)。復元するか人間が選ぶまで保持 */
   const [draftOffer, setDraftOffer] = useState<DraftData | null>(null);
   /** ヘッダー右の「書き出し」ポップオーバー(preview / 承認 / render)の開閉 */
   const [exportOpen, setExportOpen] = useState(false);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
 
   /* ---------------- 設定モーダル ---------------- */
 
@@ -595,6 +723,10 @@ export const App = () => {
   /** proxy.mp4 に焼き込まれる設定(targetLufs / systemAudio / denoise /
    * preview.width)を保存した後、プレビューへ反映するには再生成が要ることを促すバナー */
   const [proxyStale, setProxyStale] = useState(false);
+  /** 「後で」でバナーだけ閉じても stale という生成ゲートの事実は保持する。 */
+  const [proxyStaleDismissed, setProxyStaleDismissed] = useState(false);
+  /** proxy 再生成ごとに進め、同じ keep でも preview-cut を必ず作り直す。 */
+  const [previewCutSourceVersion, setPreviewCutSourceVersion] = useState(0);
   /** 動画素材ごとの codec 由来のブラウザ表示可否(非表示のものだけの疎な map)。
    * GET /api/media-facts から非同期に届く(loadProject は sync なので
    * /api/project には含まれない)。既定 {} = 全素材表示可能扱い(degrade)。
@@ -607,8 +739,6 @@ export const App = () => {
   const [hyperframesError, setHyperframesError] = useState<string | null>(null);
   const [hyperframeRendering, setHyperframeRendering] = useState<string | null>(null);
   const [hyperframeErrors, setHyperframeErrors] = useState<Record<string, string>>({});
-  const [hyperframeAuthorOpen, setHyperframeAuthorOpen] = useState(false);
-  const [hyperframeAuthorName, setHyperframeAuthorName] = useState("");
   const [hyperframeAuthorAssets, setHyperframeAuthorAssets] = useState<File[]>([]);
   const [hyperframeAssetLimits, setHyperframeAssetLimits] = useState<{
     maxBytes: number;
@@ -617,8 +747,8 @@ export const App = () => {
   } | null>(null);
   const hyperframeAssetInputRef = useRef<HTMLInputElement>(null);
   const [hyperframeAuthorBusy, setHyperframeAuthorBusy] = useState(false);
-  /** 作成中カード名。モーダルは送信時に閉じ、素材グリッドの作成中タイルと
-   * ヘッダーボタンのアイコンでこの pending を見せる */
+  /** 作成中カード名。送信直後に素材タブへ切り替え、素材グリッドの
+   * 作成中タイルでこの pending を見せる */
   const [hyperframeAuthorPendingName, setHyperframeAuthorPendingName] = useState<string | null>(null);
   const [hyperframeAuthorError, setHyperframeAuthorError] = useState<string | null>(null);
   /** 現在の収録フォルダに対して /api/media-facts を取り直す。初回ロード・
@@ -659,8 +789,10 @@ export const App = () => {
   }, []);
   // HF は編集 JSON 用 SSE の監視対象外。agent/CLI の生成をパレットへ収斂
   // させるため、素材タブ表示中だけ軽い一覧 API を定期 pull し、focus 復帰時も取る。
+  // 生成中(pendingName あり)は、利用者が AI 生成タブへ戻っていても一覧を
+  // 追い続ける(素材タブに戻ったときに完成が反映されているように)。
   useEffect(() => {
-    if (tab !== "materials") return;
+    if (tab !== "materials" && !hyperframeAuthorPendingName) return;
     const timer = window.setInterval(() => void refreshHyperframes(false), 4000);
     const onFocus = () => void refreshHyperframes(false);
     window.addEventListener("focus", onFocus);
@@ -668,7 +800,7 @@ export const App = () => {
       window.clearInterval(timer);
       window.removeEventListener("focus", onFocus);
     };
-  }, [tab, refreshHyperframes]);
+  }, [tab, hyperframeAuthorPendingName, refreshHyperframes]);
   const [aiDoctorResult, setAiDoctorResult] = useState<import("./apiTypes.ts").AiDoctorResult[] | null>(null);
   const [aiDoctorBusy, setAiDoctorBusy] = useState(false);
   /** 再生速度(プレビューのみ)。次回起動時も引き継ぐ */
@@ -788,7 +920,10 @@ export const App = () => {
             aiReviewCfg: res.aiReviewCfg,
           },
       );
-      if (patchTouchesProxy(patch)) setProxyStale(true);
+      if (patchTouchesProxy(patch)) {
+        setProxyStale(true);
+        setProxyStaleDismissed(false);
+      }
       settingsSnapRef.current = null;
       setSettingsOpen(false);
     } catch (e) {
@@ -849,7 +984,10 @@ export const App = () => {
       if (!p.shorts?.shorts.some((s) => s.name === activeShortName)) {
         setActiveShortName(null);
       }
-      if (p.proxyStale) setProxyStale(true);
+      if (p.proxyStale) {
+        setProxyStale(true);
+        setProxyStaleDismissed(false);
+      }
       // 外部変更(手編集・Claude Code)で materials/ に新しいファイルが
       // 増えている可能性があるので、codec 判定も取り直す
       refreshMediaFacts();
@@ -885,7 +1023,10 @@ export const App = () => {
     if (!merged.shorts?.shorts.some((s) => s.name === activeShortName)) {
       setActiveShortName(null);
     }
-    if (theirs.proxyStale) setProxyStale(true);
+    if (theirs.proxyStale) {
+      setProxyStale(true);
+      setProxyStaleDismissed(false);
+    }
     refreshMediaFacts();
     void refreshHyperframes(false);
     setCapMulti([]);
@@ -975,6 +1116,10 @@ export const App = () => {
     // 挿入クリップは音声ごと合成される。動画素材ぶんのピークを取る
     for (const ins of overlays?.inserts ?? []) {
       if (VIDEO_EXT_RE.test(ins.file)) requestPeaks(ins.file);
+    }
+    // 音声つき動画素材(volume>0)のピークも取る(素材オーバーレイの波形用)
+    for (const sp of overlays?.overlays ?? []) {
+      if ((sp.volume ?? 0) > 0 && VIDEO_EXT_RE.test(sp.file)) requestPeaks(sp.file);
     }
   }, [proj, overlays, bgm]);
 
@@ -1194,6 +1339,56 @@ export const App = () => {
     [shortMode, tracks],
   );
 
+  const currentPreviewKeepSignature = useMemo(
+    () => (cutplan ? previewCutKeepSignature(cutplan) : ""),
+    [cutplan],
+  );
+  const requestPreviewCut = useCallback(
+    (snapshot: CutPlan) => postPreviewCut({ cutplan: snapshot }),
+    [],
+  );
+  const acceptPreviewCut = useCallback((response: PreviewCutResponse) => {
+    setProj((current) => current && {
+      ...current,
+      previewCut: { ready: true, keepSignature: response.keepSignature },
+    });
+  }, []);
+  const previewCutRebake = usePreviewCutRebake({
+    cutplan,
+    keepSignature: currentPreviewKeepSignature,
+    ready: proj?.previewCut.ready ?? false,
+    readySignature: proj?.previewCut.keepSignature ?? "",
+    enabled: !!proj?.proxyExists && !proxyStale && !shortMode,
+    sourceVersion: previewCutSourceVersion,
+    request: requestPreviewCut,
+    onReady: acceptPreviewCut,
+  });
+
+  const previewBaseVideo = useMemo(
+    () =>
+      proj && cutplan
+        ? previewBaseVideoOf({
+            cutplan,
+            previewCut: proj.previewCut,
+            shortMode,
+            proxyStale,
+          })
+        : null,
+    [proj, cutplan, shortMode, proxyStale],
+  );
+  /** base video の経路が source ⇄ continuous で切り替わると、同じ Main の
+   * video 要素を使い回さず既存 videoVersion seam から Player を remount する。
+   * C4 の生成完了は proj.previewCut を更新するだけでこの経路へ収斂できる。 */
+  const mountedPreviewVideoRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!previewBaseVideo) return;
+    const key = previewBaseVideoMountKey(previewBaseVideo);
+    if (mountedPreviewVideoRef.current !== null && mountedPreviewVideoRef.current !== key) {
+      setVideoVersion((v) => v + 1);
+    }
+    mountedPreviewVideoRef.current = key;
+  }, [previewBaseVideo]);
+
   const built = useMemo(() => {
     if (!proj || !cutplan || !overlays || !transcript) return null;
     const warnings: string[] = [];
@@ -1238,10 +1433,12 @@ export const App = () => {
       renderCfg: proj.renderCfg,
       width: proj.output.w,
       height: proj.output.h,
-      // 元収録の軽量プロキシ。カットは Player 側で keep 区間ごとに
-      // 飛び飛び再生されるので(videoIsSource)、境界編集は即時反映
-      videoFile: "media/proxy.mp4",
-      videoIsSource: true,
+      // fresh な連続ベイクはカット後時刻で1本として再生する。欠落・陳腐・
+      // keep 編集直後は source proxy へ即時フォールバックする
+      ...(previewBaseVideo ?? {
+        videoFile: "media/proxy.mp4" as const,
+        videoIsSource: true,
+      }),
       // bgm.json(区間配置)を優先。無ければ収録フォルダ直下の bgm.* を
       // 全編1曲で流す(後方互換)。素材ファイルはこの後 media/ 経由に付け替える
       bgm,
@@ -1332,7 +1529,7 @@ export const App = () => {
     };
   }, [
     proj, cutplan, overlays, transcript, bgm, keeps, shortMode, activeShort, shortKeepsMerged,
-    shorts, mediaCodecFacts,
+    shorts, mediaCodecFacts, previewBaseVideo,
   ]);
 
   /** Player に渡す props。トラック別ミュート・レイヤーの一時非表示は
@@ -1388,6 +1585,30 @@ export const App = () => {
     aiWorkflow !== null &&
     ["proposing", "reviewing", "refining", "applying", "saving", "verifying"].includes(aiWorkflow.phase);
   const aiWorkflowReview = isAiWorkflowReviewState(aiWorkflow) ? aiWorkflow : null;
+  const onboardingProjectReady = !!proj && !!built && !!cutplan && !!overlays && !!transcript;
+  const onboardingEligible =
+    onboardingProjectReady && draftOffer === null && !externalChange && !diffPanelOpen;
+  useEffect(() => {
+    if (!onboardingEligible) return;
+    let stored: string | null = null;
+    try {
+      stored = localStorage.getItem(ONBOARDING_STORAGE_KEY);
+    } catch {
+      // Treat unavailable storage like a first visit for this session.
+    }
+    if (
+      shouldShowOnboarding(
+        stored,
+        onboardingProjectReady,
+        draftOffer !== null,
+        externalChange,
+        diffPanelOpen,
+      )
+    ) {
+      setOnboardingOpen(true);
+    }
+  }, [onboardingEligible, onboardingProjectReady, draftOffer, externalChange, diffPanelOpen]);
+  const onboardingVisible = onboardingOpen && onboardingEligible;
   // SSE ハンドラ(マウント時に固定)から最新の dirty 状態を見るための控え
   dirtyRef.current = anyDirty;
 
@@ -1410,6 +1631,28 @@ export const App = () => {
       p.removeEventListener("pause", onPause);
     };
   }, [fps, videoVersion, proj?.proxyExists]);
+
+  /** Player remount(source⇄baked スワップ・proxy 再生成で videoVersion が
+   * 進むと key={videoVersion} 経由で全 remount)後、一時停止中の新しい
+   * <video> は最初の seek が来るまで現フレームをデコードせず黒を出し、再生
+   * 位置も frame 0 に戻る。remount 直後に現在の再生ヘッドへ seek し直して、
+   * 位置復元と初回デコードを同時に促す(手でスクラブすると直る症状の恒久修正)。
+   * <video> の準備を待つため rAF を2つ挟む。 */
+  useEffect(() => {
+    if (!proj?.proxyExists) return;
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        const p = playerRef.current;
+        if (!p) return;
+        p.seekTo(clamp(Math.round(playhead.get() * fps), 0, durationInFrames - 1));
+      });
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [videoVersion, proj?.proxyExists, fps, durationInFrames]);
 
   /** Player に渡す音量。0 ちょうどにすると Remotion が内部の AudioContext を
    * 破棄→再生成し、共有 audio タグの登録がずれて unregisterAudio が
@@ -1543,6 +1786,10 @@ export const App = () => {
           kind: "overlays", index: i, track,
           outStart: iv.start, outEnd: iv.end, label, editable: true,
           noTrimStart: j > 0, noTrimEnd: j < parts.length - 1,
+          // 音声つき動画素材(volume>0)は最終ミックスに音が乗るので波形も出す
+          ...((sp.volume ?? 0) > 0 && VIDEO_EXT_RE.test(sp.file)
+            ? { wave: { src: sp.file, startSec: sp.startFrom ?? 0 } }
+            : {}),
         });
       });
     });
@@ -1667,6 +1914,32 @@ export const App = () => {
     shortMode, activeShort, shortTimelineMemo,
   ]);
 
+  /** ステッカー/エフェクト タブからドラッグ中のプリセット。null = ドラッグしていない。
+   * zoom/blur/annotation/wipe は永続データを持たない常在トラックなので(§8.1.1)、
+   * ドラッグ中だけ visibleTracks に対象トラックを足して「行が見える」ようにする
+   * だけでよく、トラック作成処理(onAddTrack/createOverlayTrack/layerOrder)は
+   * 一切呼ばない */
+  const [presetDrag, setPresetDrag] = useState<EditorPreset | null>(null);
+  const onPresetDragBegin = (preset: EditorPreset) => setPresetDrag(preset);
+  const onPresetDragEnd = () => setPresetDrag(null);
+
+  /** タイムラインに実際に見せるトラック。映像(cut)は常時、他は要素が1つでもある
+   * または「今インスペクタで編集中のテロップトラック」、またはプリセットの
+   * ドラッグ中でその行が対象トラックのときだけ表示(OpenCut 流)。 */
+  const visibleTracks = useMemo(() => {
+    if (shortMode) return timelineTracks;
+    const occupied = new Set(clips.map((c) => c.track));
+    return timelineTracks.filter(
+      (t) =>
+        t.id === "cut" ||
+        occupied.has(t.id) ||
+        t.id === presetDrag?.track ||
+        (t.renamableCaption !== undefined &&
+          selection?.kind === "captionTrack" &&
+          selection.index === t.renamableCaption),
+    );
+  }, [timelineTracks, clips, shortMode, selection, presetDrag]);
+
   /* ---------------- カット編集(分割・keep⇄cut・復元) ----------------
    * cut 区間は削除せず記録として残す(plan の候補と同じ扱い)。だから
    * どの操作も可逆で、映像トラックの継ぎ目の印からいつでも戻せる。 */
@@ -1715,16 +1988,141 @@ export const App = () => {
     return sp ? sp.index : -1;
   };
 
+  /** 選択中スパンの {start,end}(元収録の秒)。cut/insert/wipe/short/captionTrack は null。 */
+  const selectedSpanInterval = (): { start: number; end: number } | null => {
+    if (!selection) return null;
+    const { kind, index } = selection;
+    if (kind === "caption") { const s = transcript?.segments[index]; return s ? { start: s.start, end: s.end } : null; }
+    if (kind === "bgm") { const t = bgm?.tracks?.[index]; return t ? { start: t.start, end: t.end } : null; }
+    if (kind === "overlays") { const o = overlays?.overlays?.[index]; return o ? { start: o.start, end: o.end } : null; }
+    if (kind === "zoom") { const z = overlays?.zooms?.[index]; return z ? { start: z.start, end: z.end } : null; }
+    if (kind === "blur") { const b = overlays?.blurs?.[index]; return b ? { start: b.start, end: b.end } : null; }
+    if (kind === "annotation") { const a = overlays?.annotations?.[index]; return a ? { start: a.start, end: a.end } : null; }
+    return null;
+  };
+
+  /** 再生ヘッド位置(出力秒)がスパン分割として有効か。分割ボタンの非活性
+   * 判定(getSplitDisabled)がスパン選択時にも点灯するように使う */
+  const spanSplittableAt = (outT: number): boolean => {
+    const span = selectedSpanInterval();
+    if (span === null || shortMode) return false;
+    const at = toSourceTime(clamp(outT, 0, Math.max(0, duration - 0.01)), curTimeline);
+    return at !== null && at > span.start + MIN_SPAN && at < span.end - MIN_SPAN;
+  };
+
   /** 分割ボタンの非活性判定。Timeline 側がボタン単体で再生ヘッドを購読して
    * 評価する(App を毎フレーム再レンダーしないため関数で渡す) */
   const getSplitDisabled = (outT: number): boolean =>
-    shortMode || (splitIndexAt(outT) === -1 && splitInsertIndexAt(outT) === -1);
+    shortMode || (splitIndexAt(outT) === -1 && splitInsertIndexAt(outT) === -1 && !spanSplittableAt(outT));
+
+  /** 選択中のスパンを再生ヘッド位置で2つに割る(⌘K がスパン選択時に使う)。
+   * 左が元 id を保持・右は id を落とす(splitAtPlayhead と同じ規約)。元収録の秒で
+   * 書くので dual-axis 写像は不変。承認 hash は cut 集合に束縛されるため失効しない。
+   * 割れたら true(呼び出し側は return)、対象外/範囲外は false(既存の分割へ委譲)。 */
+  const splitSelectedSpan = (): boolean => {
+    if (!selection || shortMode) return false;
+    const { kind, index } = selection;
+    const at = srcAt(playhead.get());
+    if (at === null) return false;
+
+    const partByMid = <T extends { start: number; end: number },>(xs: T[] | undefined): [T[], T[]] => {
+      const l: T[] = [], r: T[] = [];
+      for (const w of xs ?? []) ((w.start + w.end) / 2 < at ? l : r).push(w);
+      return [l, r];
+    };
+    const partByAt = <T extends { at: number },>(xs: T[] | undefined): [T[], T[]] => {
+      const l: T[] = [], r: T[] = [];
+      for (const k of xs ?? []) (k.at < at ? l : r).push(k);
+      return [l, r];
+    };
+
+    if (kind === "caption") {
+      const seg = transcript?.segments[index]; if (!seg) return false;
+      const sp = splitSpanAt(seg.start, seg.end, at, MIN_SPAN); if (!sp) return false;
+      const [lw, rw] = partByMid(seg.words);
+      pushHistory();
+      const segs = [...transcript!.segments];
+      segs.splice(index, 1,
+        { ...seg, ...sp.left, ...(seg.words ? { words: lw } : {}) },
+        { ...seg, ...sp.right, id: undefined, ...(seg.words ? { words: rw } : {}) });
+      setTranscript({ ...transcript!, segments: segs });
+      setSelection({ kind, index: index + 1 });
+      return true;
+    }
+    if (kind === "bgm") {
+      const t = bgm?.tracks?.[index]; if (!t) return false;
+      const sp = splitSpanAt(t.start, t.end, at, MIN_SPAN); if (!sp) return false;
+      const advance = round2((t.startFrom ?? 0) + (at - t.start));
+      pushHistory();
+      const tracks = [...bgm!.tracks];
+      const { fadeOutSec: _fo, ...lRest } = t;
+      const { fadeInSec: _fi, id: _id, ...rRest } = t;
+      tracks.splice(index, 1,
+        { ...lRest, ...sp.left },
+        { ...rRest, ...sp.right, startFrom: advance });
+      setBgm({ ...bgm!, tracks });
+      setSelection({ kind, index: index + 1 });
+      return true;
+    }
+    if (!overlays) return false;
+    const writeOv = (field: keyof Overlays, list: unknown[]) => {
+      pushHistory();
+      setOverlays({ ...overlays, [field]: list });
+      setSelection({ kind, index: index + 1 });
+    };
+    if (kind === "overlays") {
+      const ov = overlays.overlays?.[index]; if (!ov) return false;
+      const sp = splitSpanAt(ov.start, ov.end, at, MIN_SPAN); if (!sp) return false;
+      const [lk, rk] = partByAt(ov.keyframes);
+      const advance = round2((ov.startFrom ?? 0) + (at - ov.start));
+      const arr = [...(overlays.overlays ?? [])];
+      arr.splice(index, 1,
+        { ...ov, ...sp.left, ...(ov.keyframes ? { keyframes: lk } : {}) },
+        { ...ov, ...sp.right, id: undefined, startFrom: advance || undefined, ...(ov.keyframes ? { keyframes: rk } : {}) });
+      writeOv("overlays", arr); return true;
+    }
+    if (kind === "zoom") {
+      const z = overlays.zooms?.[index]; if (!z) return false;
+      const sp = splitSpanAt(z.start, z.end, at, MIN_SPAN); if (!sp) return false;
+      const { easeSec: _e, id: _id, ...rRest } = z;
+      const arr = [...(overlays.zooms ?? [])];
+      arr.splice(index, 1, { ...z, ...sp.left }, { ...rRest, ...sp.right });
+      writeOv("zooms", arr); return true;
+    }
+    if (kind === "blur") {
+      const b = overlays.blurs?.[index]; if (!b) return false;
+      const sp = splitSpanAt(b.start, b.end, at, MIN_SPAN); if (!sp) return false;
+      const [lk, rk] = partByAt(b.keyframes);
+      const arr = [...(overlays.blurs ?? [])];
+      arr.splice(index, 1,
+        { ...b, ...sp.left, ...(b.keyframes ? { keyframes: lk } : {}) },
+        { ...b, ...sp.right, id: undefined, ...(b.keyframes ? { keyframes: rk } : {}) });
+      writeOv("blurs", arr); return true;
+    }
+    if (kind === "annotation") {
+      const an = overlays.annotations?.[index]; if (!an) return false;
+      const sp = splitSpanAt(an.start, an.end, at, MIN_SPAN); if (!sp) return false;
+      // annotation の keyframes は Arrow/Box/Spotlight で別型の union のため
+      // partByAt の総称推論が通らない。at だけで分割し(lk/rk は元の keyframe を
+      // そのまま含むので実体は正当)、結果を Annotation へ明示キャストする
+      const [lk, rk] = partByAt(an.keyframes as { at: number }[] | undefined);
+      const arr = [...(overlays.annotations ?? [])];
+      arr.splice(index, 1,
+        { ...an, ...sp.left, ...(an.keyframes ? { keyframes: lk } : {}) } as unknown as Annotation,
+        { ...an, ...sp.right, id: undefined, ...(an.keyframes ? { keyframes: rk } : {}) } as unknown as Annotation);
+      writeOv("annotations", arr); return true;
+    }
+    return false;
+  };
 
   /** 再生ヘッド位置で keep 区間を2つに割る(⌘K)。割っただけでは映像は
    * 変わらない(隣接 keep はカット後も連続)。割ってから端をトリムして
    * 隙間を作る・片側を Delete でカットする、が「真ん中を抜く」手順になる。
-   * 再生ヘッドが挿入クリップの上にあるときはそちらを分割する */
+   * 再生ヘッドが挿入クリップの上にあるときはそちらを分割する。選択中に
+   * スパン(caption/overlays/zoom/blur/annotation/bgm)があればそちらを
+   * 優先して2分割する(cut/insert の分割は選択が無い/対象外のときのみ) */
   const splitAtPlayhead = () => {
+    if (splitSelectedSpan()) return;
     if (!cutplan || shortMode) return;
     const outT = playhead.get();
     const splitIndex = splitIndexAt(outT);
@@ -2618,7 +3016,21 @@ export const App = () => {
       ...(overlays.overlays ?? []),
       { start, end, file: f, ...(track > 1 ? { track } : {}) },
     ];
-    setOverlays({ ...overlays, overlays: list });
+    if (track > ovTracks) {
+      const order = !overlays.layerOrder || overlays.layerOrder.length === 0
+        ? defaultLayerOrder(track)
+        : [...layerOrder];
+      if (overlays.layerOrder && overlays.layerOrder.length > 0) {
+        const topIdx = order.reduce((top, id, i) => (ovNum(id) !== null ? i : top), 0);
+        for (let n = ovTracks + 1; n <= track; n++) {
+          const id = ovId(n);
+          if (!order.includes(id)) order.splice(topIdx + n - ovTracks, 0, id);
+        }
+      }
+      setOverlays(withLayerOrder({ ...overlays, overlays: list }, order));
+    } else {
+      setOverlays({ ...overlays, overlays: list });
+    }
     setSelection({ kind: "overlays", index: list.length - 1 });
   };
   /** BGM 区間を1つ追加(元収録の秒)。file 省略時は既存の BGM /
@@ -2729,6 +3141,106 @@ export const App = () => {
     else if (kind === "bgm") addBgmSpan(start, end);
     else if (kind === "short") addShortRange(start, end);
     else addCaption(start, end, track);
+  };
+  /** 再生ヘッド位置に既定尺の区間を1つ足す(左レール Effects/Transitions タブの共通入口)。
+   *  playhead は出力(カット後)秒。srcAt で元収録秒へ写像してから既存の addByKind
+   *  (元秒を取る)へ渡す。addByKind が pushHistory・選択・エラー報告を行う。 */
+  const addAtPlayhead = (kind: AddKind) => {
+    const outT = playhead.get();
+    const s = srcAt(outT);
+    const e = srcAt(Math.min(duration, outT + DEFAULT_ADD_SEC));
+    if (s === null || e === null || e - s < MIN_SPAN / 2) {
+      setError("再生ヘッドを keep 区間の中へ置いてから追加してください");
+      return;
+    }
+    addByKind(kind, round2(s), round2(e));
+  };
+
+  /** プリセットの比率パッチを、この案件の出力 px へ落とす。プレビュー用の
+   * サムネ描画(PresetThumb)にも同じ比率を使うので必ず共通化する。
+   * px 指定の見た目フィールド(widthPx/headPx/radiusPx/featherPx)は 1920 幅
+   * 基準で書かれている前提で出力幅にスケールする(解像度非依存化) */
+  const resolvePresetPatch = (p: PresetPatch, out: { w: number; h: number }): AnnotationPatch => {
+    const resolved: AnnotationPatch = {};
+    if (p.type) resolved.type = p.type;
+    if (p.rectRatio) {
+      resolved.rect = {
+        x: Math.round(p.rectRatio.x * out.w),
+        y: Math.round(p.rectRatio.y * out.h),
+        w: Math.round(p.rectRatio.w * out.w),
+        h: Math.round(p.rectRatio.h * out.h),
+      };
+    }
+    if (p.fromRatio) resolved.from = { x: Math.round(p.fromRatio.x * out.w), y: Math.round(p.fromRatio.y * out.h) };
+    if (p.toRatio) resolved.to = { x: Math.round(p.toRatio.x * out.w), y: Math.round(p.toRatio.y * out.h) };
+    if (p.style) {
+      const scalePx = (v: number) => Math.max(1, Math.round((v * out.w) / 1920));
+      for (const [k, v] of Object.entries(p.style)) {
+        if (v === undefined) continue;
+        const scaled =
+          k === "widthPx" || k === "headPx" || k === "radiusPx" || k === "featherPx"
+            ? scalePx(v as number)
+            : v;
+        (resolved as Record<string, unknown>)[k] = scaled;
+      }
+    }
+    return resolved;
+  };
+
+  /** 左レール ステッカー/エフェクト タブのプリセットを1つ追加する。
+   * `addAtPlayhead` を置き換えず隣に置く(§6.4)。addByKind が
+   * pushHistory・選択・重なりエラーを担当し、patch は末尾要素へ直後の
+   * 関数形 setOverlays で重ねる(add してから index を引く方式は React の
+   * バッチングでズレうるので使わない)。beforeLen による「本当に今足した
+   * ものか」の確認で、zoom の重なり拒否(addByKind が何もしなかった)時に
+   * 既存の別要素を誤って書き換えないようにする。layerOrder /
+   * createOverlayTrack には一切触れない(§8.1.1: zoom/blur/annotation は
+   * layerOrder に存在しない常在トラックなので、追加のトラック作成は不要) */
+  const addPresetAt = (preset: EditorPreset, outT: number) => {
+    const s = srcAt(outT);
+    const e = srcAt(Math.min(duration, outT + DEFAULT_ADD_SEC));
+    if (s === null || e === null || e - s < MIN_SPAN / 2) {
+      setError("再生ヘッドを keep 区間の中へ置いてから追加してください");
+      return;
+    }
+    const beforeLen =
+      preset.kind === "zoom"
+        ? (overlays?.zooms ?? []).length
+        : preset.kind === "blur"
+          ? (overlays?.blurs ?? []).length
+          : preset.kind === "annotation"
+            ? (overlays?.annotations ?? []).length
+            : 0;
+    addByKind(preset.kind, round2(s), round2(e));
+    if (!preset.patch || !proj) return;
+    const resolved = resolvePresetPatch(preset.patch, proj.output);
+    setOverlays((prev) => {
+      if (!prev) return prev;
+      if (preset.kind === "annotation") {
+        const list = [...(prev.annotations ?? [])];
+        if (list.length !== beforeLen + 1) return prev;
+        const entry: Record<string, unknown> = { ...(list[list.length - 1] as object) };
+        for (const [k, v] of Object.entries(resolved)) {
+          if (v === undefined) delete entry[k];
+          else entry[k] = v;
+        }
+        list[list.length - 1] = entry as unknown as Annotation;
+        return { ...prev, annotations: list };
+      }
+      if (preset.kind === "zoom" && resolved.rect) {
+        const list = [...(prev.zooms ?? [])];
+        if (list.length !== beforeLen + 1) return prev;
+        list[list.length - 1] = { ...list[list.length - 1], rect: resolved.rect };
+        return { ...prev, zooms: list };
+      }
+      if (preset.kind === "blur" && resolved.rect) {
+        const list = [...(prev.blurs ?? [])];
+        if (list.length !== beforeLen + 1) return prev;
+        list[list.length - 1] = { ...list[list.length - 1], rect: resolved.rect };
+        return { ...prev, blurs: list };
+      }
+      return prev;
+    });
   };
 
   const onCreate = (track: TrackId, outStart: number, outEnd: number) => {
@@ -3114,6 +3626,33 @@ export const App = () => {
     setOverlays((prev) => prev && { ...prev, [kind]: (prev[kind] ?? []).filter((_, j) => j !== i) });
     setSelection(null);
   };
+  /** 全編一律カラー調整(overlays.colorFilter)を部分更新する。updateZoom と同じ流儀。
+   *  各キー既定 1.0。undefined か 1.0 のキーは持たない・全キー既定に戻れば
+   *  colorFilter ごと落とす(JSON を汚さない → overlaysDirty が自動でクリーンに戻る)。
+   *  coalesceKey で連続スライダー操作を undo 1回にまとめる。 */
+  const updateColorFilter = (patch: Partial<ColorFilter>, coalesceKey?: string) => {
+    pushHistory(coalesceKey ?? null);
+    setOverlays((prev) => {
+      if (!prev) return prev;
+      const merged: ColorFilter = { ...(prev.colorFilter ?? {}), ...patch };
+      for (const k of Object.keys(merged) as (keyof ColorFilter)[]) {
+        if (merged[k] === undefined || merged[k] === 1) delete merged[k];
+      }
+      if (Object.keys(merged).length === 0) {
+        const { colorFilter: _drop, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, colorFilter: merged };
+    });
+  };
+  const resetColorFilter = () => {
+    pushHistory();
+    setOverlays((prev) => {
+      if (!prev || !prev.colorFilter) return prev;
+      const { colorFilter: _drop, ...rest } = prev;
+      return rest;
+    });
+  };
   /** ズーム区間の start/end/rect/easeSec を部分更新。coalesceKey は
    * プレビュー上のドラッグ・スライダーの連続変更を undo 1回にまとめる用 */
   const updateZoom = (
@@ -3294,49 +3833,48 @@ export const App = () => {
 
   /* ---------------- クリップのコピー&ペースト(標準 NLE の a) ---------------- */
 
+  /** 指定した選択(kind/index)の中身を Clipboard スナップショットへ複製する。
+   * copySelected(⌘C)と duplicateSelected(⌘D)の共通経路。複製できる中身を
+   * 持たない選択(insert / wipe / 映像 keep / ショート範囲)は null */
+  const buildClip = (kind: SelKind, index: number): Clipboard | null => {
+    if (kind === "caption") {
+      const s = transcript?.segments[index];
+      return s ? { kind, entry: structuredClone(s) } : null;
+    } else if (kind === "overlays") {
+      const s = overlays?.overlays?.[index];
+      return s ? { kind, entry: structuredClone(s) } : null;
+    } else if (kind === "zoom") {
+      const s = overlays?.zooms?.[index];
+      return s ? { kind, entry: structuredClone(s) } : null;
+    } else if (kind === "blur") {
+      const s = overlays?.blurs?.[index];
+      return s ? { kind, entry: structuredClone(s) } : null;
+    } else if (kind === "annotation") {
+      const s = overlays?.annotations?.[index];
+      return s ? { kind, entry: structuredClone(s) } : null;
+    } else if (kind === "bgm") {
+      const s = bgm?.tracks?.[index];
+      return s ? { kind, entry: structuredClone(s) } : null;
+    }
+    return null;
+  };
+
   /** 選択中クリップの中身をクリップボードへ控える(⌘C)。複製できる中身を
    * 持たない選択(insert / wipe / 映像 keep / ショート範囲)は対象外 */
   const copySelected = () => {
     if (!selection) return;
-    const { kind, index } = selection;
-    let clip: Clipboard | null = null;
-    if (kind === "caption") {
-      const s = transcript?.segments[index];
-      if (s) clip = { kind, entry: structuredClone(s) };
-    } else if (kind === "overlays") {
-      const s = overlays?.overlays?.[index];
-      if (s) clip = { kind, entry: structuredClone(s) };
-    } else if (kind === "zoom") {
-      const s = overlays?.zooms?.[index];
-      if (s) clip = { kind, entry: structuredClone(s) };
-    } else if (kind === "blur") {
-      const s = overlays?.blurs?.[index];
-      if (s) clip = { kind, entry: structuredClone(s) };
-    } else if (kind === "annotation") {
-      const s = overlays?.annotations?.[index];
-      if (s) clip = { kind, entry: structuredClone(s) };
-    } else if (kind === "bgm") {
-      const s = bgm?.tracks?.[index];
-      if (s) clip = { kind, entry: structuredClone(s) };
-    }
+    const clip = buildClip(selection.kind, selection.index);
     // 複製できる中身が無い選択(insert / wipe / 映像 keep / ショート範囲)は無反応
     if (!clip) return;
     clipboardRef.current = clip;
   };
 
-  /** クリップボードの中身を再生ヘッド位置へ複製する(⌘V)。ペースト起点は
-   * 標準 NLE と同じく再生ヘッド(出力秒 → 元収録の秒へ変換)。控えた start から
-   * の平行移動で start/end と入れ子の時刻(caption の words・blur の keyframes)を
-   * ずらし、トラックは保ったまま、複製先で id/内部 layer は剥がす(@id は
-   * 一意なので splitAtPlayhead と同じ流儀) */
-  const pasteClipboard = () => {
-    const clip = clipboardRef.current;
-    if (!clip) return;
-    // ショートモードは本編クリップの座標系と別なので今は貼らせない(範囲だけ扱う)
-    if (shortMode) return;
-    // 再生ヘッドが keep 区間の外(カット/挿入クリップ上)なら貼り付け先が無い
-    const base = srcAt(playhead.get());
-    if (base === null) return;
+  /** clip を元収録の秒 base へ配置する(paste と duplicate の共通経路)。
+   * 控えた start からの平行移動で start/end と入れ子の時刻(caption の words・
+   * blur の keyframes)をずらし、トラックは保ったまま、複製先で id/内部 layer は
+   * 剥がす(@id は一意なので splitAtPlayhead と同じ流儀)。
+   * pasteClipboard の旧本体をそのまま抽出したもの(挙動は不変) */
+  const insertClipAt = (clip: Clipboard, base: number) => {
     if (clip.kind === "caption") {
       if (!transcript) return;
       const src = clip.entry;
@@ -3426,6 +3964,43 @@ export const App = () => {
         setSelection({ kind: "annotation", index: list.length - 1 });
       }
     }
+  };
+
+  /** クリップボードの中身を再生ヘッド位置へ複製する(⌘V)。ペースト起点は
+   * 標準 NLE と同じく再生ヘッド(出力秒 → 元収録の秒へ変換)。実体は
+   * insertClipAt(paste/duplicate 共通の複製経路) */
+  const pasteClipboard = () => {
+    const clip = clipboardRef.current;
+    if (!clip) return;
+    // ショートモードは本編クリップの座標系と別なので今は貼らせない(範囲だけ扱う)
+    if (shortMode) return;
+    // 再生ヘッドが keep 区間の外(カット/挿入クリップ上)なら貼り付け先が無い
+    const base = srcAt(playhead.get());
+    if (base === null) return;
+    insertClipAt(clip, base);
+  };
+
+  /** 選択中クリップを直後(尺ぶん後ろ)へ複製する(⌘D)。paste と同じクローン経路
+   * (insertClipAt)を base=元 end で再利用するので dual-axis 変換は paste と共通。
+   * insert は Clipboard 非対応なので専用分岐(at+durationSec で直後へ)。 */
+  const duplicateSelected = () => {
+    if (!selection || shortMode) return;
+    const { kind, index } = selection;
+    if (kind === "insert") {
+      const ins = overlays?.inserts?.[index];
+      if (!ins || !overlays) return;
+      pushHistory();
+      const list = [
+        ...(overlays.inserts ?? []),
+        { ...ins, at: round2(ins.at + ins.durationSec), id: undefined },
+      ];
+      setOverlays({ ...overlays, inserts: list });
+      setSelection({ kind: "insert", index: list.length - 1 });
+      return;
+    }
+    const clip = buildClip(kind, index);
+    if (!clip) return; // 複製非対応 kind(wipe / 映像 keep / ショート範囲)は無反応
+    insertClipAt(clip, clip.entry.end); // 元の直後(元収録の秒)へ
   };
 
   /* ---------------- 保存・下書き退避・プロキシ生成 ---------------- */
@@ -3857,7 +4432,14 @@ export const App = () => {
     setError(null);
     try {
       await postProxy();
-      setProj((p) => p && { ...p, proxyExists: true });
+      // proxy の内容が変わった時点で旧 preview-cut は同じ keep でも採用不可。
+      // ready を落とし sourceVersion を進めると、stale gate解除後に必ず再ベイクする。
+      setProj((p) => p && {
+        ...p,
+        proxyExists: true,
+        previewCut: { ready: false, keepSignature: "" },
+      });
+      setPreviewCutSourceVersion((v) => v + 1);
       setVideoVersion((v) => v + 1);
       return true;
     } catch (e) {
@@ -3870,7 +4452,10 @@ export const App = () => {
 
   /** 設定バナーからのプロキシ再生成。成功したらバナーを下げる */
   const regenProxyForSettings = async () => {
-    if (await generateProxy()) setProxyStale(false);
+    if (await generateProxy()) {
+      setProxyStale(false);
+      setProxyStaleDismissed(false);
+    }
   };
 
   /** 書き出し(preview / render)を GUI から起動する。preview / render は
@@ -3954,72 +4539,59 @@ export const App = () => {
     localStorage.setItem("cutflow.editor.timelineOpen", timelineOpen ? "1" : "0");
   }, [timelineOpen]);
 
-  /** 分割バー共通: window にリスナーを張り、pointerup / cancel で必ず外す */
-  const beginSplitDrag = (e: ReactPointerEvent, move: (ev: PointerEvent) => void) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    const onUp = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
+  /** v4 の imperative API で論理的な開閉状態と直前の px を DOM layout へ
+   * 投影する。最大化中は論理 state を変えず3面を一時 collapse するため、
+   * 解除時には保存済みの開閉と寸法へそのまま戻せる。 */
+  useEffect(() => {
+    const syncPanel = (
+      ref: React.RefObject<PanelImperativeHandle | null>,
+      open: boolean,
+      sizePx: number,
+    ) => {
+      const panel = ref.current;
+      if (!panel) return;
+      if (maximized || !open) panel.collapse();
+      else {
+        panel.expand();
+        panel.resize(sizePx);
+      }
     };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
+    syncPanel(sidePanelRef, panelOpen, panelW);
+    syncPanel(inspectorPanelRef, inspOpen, inspW);
+    syncPanel(timelinePanelRef, timelineOpen, timelineH);
+  }, [maximized, panelOpen, panelW, inspOpen, inspW, timelineOpen, timelineH]);
+
+  /** drag / keyboard resize の完了時だけ state と既存 localStorage を更新する。
+   * 初期 layout や上の imperative collapse/resize は isUserInteraction=false
+   * なので、最大化中を含め永続 state を汚さない。 */
+  /** v4 の layout は Panel 合計を100とする確定値。callback 中の imperative
+   * getSize() は keyboard resize 直後に1つ前の値を返し得るため使わず、Group
+   * 直下の Panel 合計pxへ比率を掛けて既存のpx永続値へ戻す。 */
+  const panelPixelSpan = (group: HTMLDivElement | null, axis: "width" | "height") =>
+    group
+      ? [...group.children]
+          .filter((child): child is HTMLElement =>
+            child instanceof HTMLElement && child.hasAttribute("data-panel"))
+          .reduce((sum, panel) => sum + panel.getBoundingClientRect()[axis], 0)
+      : 0;
+
+  const onStageLayoutChanged = (layout: Record<string, number>, meta: LayoutChangedMeta) => {
+    if (!meta.isUserInteraction || maximized) return;
+    const span = panelPixelSpan(stageGroupRef.current, "width");
+    const left = layout.left ?? 0;
+    const right = layout.right ?? 0;
+    setPanelOpen(left > 0);
+    setInspOpen(right > 0);
+    if (left > 0 && span > 0) setPanelW(Math.round(span * left / 100));
+    if (right > 0 && span > 0) setInspW(Math.round(span * right / 100));
   };
 
-  /** 左右の分割バー: 左パネルの幅を変更(両側の最小幅より内側だけ)。
-   * 最小幅の半分より左へ寄せたらパネルを畳む(閉じたまま右へ引き出すと
-   * 最小幅でパッと開く)。幅は開閉と別に保持する(開き直しで元の幅) */
-  const onSplitterDown = (e: ReactPointerEvent) =>
-    beginSplitDrag(e, (ev) => {
-      const rect = stageRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const w = ev.clientX - rect.left;
-      if (w < PANEL_MIN / 2) {
-        setPanelOpen(false);
-        return;
-      }
-      setPanelOpen(true);
-      setPanelW(
-        clamp(
-          w,
-          PANEL_MIN,
-          Math.max(PANEL_MIN, rect.width - (inspOpen ? inspW : 0) - VIEWER_MIN),
-        ),
-      );
-    });
-
-  /** 右の分割バー: インスペクタの幅を変更(プレビューの最小幅は確保)。
-   * 左パネルと同じく、最小幅の半分より右へ寄せたら畳む */
-  const onInspSplitterDown = (e: ReactPointerEvent) =>
-    beginSplitDrag(e, (ev) => {
-      const rect = stageRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const w = rect.right - ev.clientX;
-      if (w < INSP_MIN / 2) {
-        setInspOpen(false);
-        return;
-      }
-      setInspOpen(true);
-      setInspW(
-        clamp(
-          w,
-          INSP_MIN,
-          Math.max(INSP_MIN, rect.width - (panelOpen ? panelW : 0) - VIEWER_MIN),
-        ),
-      );
-    });
-
-  /** 上下の分割バー: タイムラインの高さを変更(ステージの最小高さは確保) */
-  const onHSplitterDown = (e: ReactPointerEvent) => {
-    const y0 = e.clientY;
-    const h0 = timelineH;
-    const stageH0 = stageRef.current?.getBoundingClientRect().height ?? 0;
-    const max = Math.max(TIMELINE_MIN, h0 + stageH0 - STAGE_MIN);
-    beginSplitDrag(e, (ev) =>
-      setTimelineH(clamp(h0 + (y0 - ev.clientY), TIMELINE_MIN, max)),
-    );
+  const onShellLayoutChanged = (layout: Record<string, number>, meta: LayoutChangedMeta) => {
+    if (!meta.isUserInteraction || maximized) return;
+    const span = panelPixelSpan(shellGroupRef.current, "height");
+    const timeline = layout.timeline ?? 0;
+    setTimelineOpen(timeline > 0);
+    if (timeline > 0 && span > 0) setTimelineH(Math.round(span * timeline / 100));
   };
 
   // テロップを選択したら左パネルを「テロップ」タブへ(一覧の該当行へ
@@ -4049,6 +4621,7 @@ export const App = () => {
     file: string,
     at: { track: TrackId; outT: number } | null,
     mode: "overlay" | "insert" | "bgm",
+    options?: { createOverlayTrack?: boolean },
   ) => {
     const dur = await probeMaterialDuration(file);
     if (mode === "insert") {
@@ -4070,7 +4643,10 @@ export const App = () => {
     const outT = at?.outT ?? playhead.get();
     const s = srcAt(outT);
     if (s === null) return;
-    const track = (at ? ovNum(at.track) : null) ?? ovTracks; // 既定は一番手前
+    const nextOccupiedOverlayTrack = Math.max(0, ...(overlays?.overlays ?? []).map(overlayTrack)) + 1;
+    const track = options?.createOverlayTrack && !at
+      ? nextOccupiedOverlayTrack
+      : (at ? ovNum(at.track) : null) ?? ovTracks; // 既定は一番手前
     addOverlaySpan(round2(s), round2(Math.min(s + (dur ?? defaultImgSec), srcDur)), track, file);
   };
 
@@ -4085,6 +4661,15 @@ export const App = () => {
       setError("音声ファイルは BGM トラックへドロップしてください(素材・映像トラックには置けません)");
     } else if (track === "cut") void placeMaterial(file, { track, outT }, "insert");
     else if (ovNum(track) !== null) void placeMaterial(file, { track, outT }, "overlay");
+  };
+
+  /** ステッカー/エフェクト タブのプリセットをタイムラインへドロップ(§8)。
+   * トラックの決定は Timeline 側が presetDragTrack(このドラッグの対象トラック)
+   * で固定しているので、ここでは id → EditorPreset を引いて addPresetAt を
+   * +ボタンと完全に共有するだけ(時刻の出所が違うだけ) */
+  const onDropPreset = (outT: number, presetId: string) => {
+    const preset = [...ANNOTATION_PRESETS, ...EFFECT_PRESETS].find((p) => p.id === presetId);
+    if (preset) addPresetAt(preset, outT);
   };
 
   /** 素材ファイルの削除(素材タブの右クリックメニュー)。参照が残ったまま
@@ -4167,13 +4752,6 @@ export const App = () => {
     }
   };
 
-  const openHyperframeAuthor = () => {
-    setHyperframeAuthorName("");
-    setHyperframeAuthorAssets([]);
-    setHyperframeAuthorError(null);
-    setHyperframeAuthorOpen(true);
-  };
-
   const addHyperframeAuthorAssets = (files: readonly File[]) => {
     const next = [...hyperframeAuthorAssets];
     for (const file of files) {
@@ -4210,19 +4788,30 @@ export const App = () => {
     addHyperframeAuthorAssets([...event.dataTransfer.files]);
   };
 
+  /** カード名(= 出力ファイル名)は人間に書かせず自動採番する。既存カードと
+   * 衝突しない最小の `ai-<n>`(表示名は素材タブのカードで見える) */
+  const nextHyperframeName = (): string => {
+    const used = new Set(hyperframes.map((card) => card.name));
+    for (let n = 1; ; n++) {
+      const name = `ai-${n}`;
+      if (!used.has(name)) return name;
+    }
+  };
+
   const runHyperframeAuthor = async (brief: string) => {
-    const name = hyperframeAuthorName;
+    const name = nextHyperframeName();
     if (!HYPERFRAME_NAME_RE.test(name)) {
-      setHyperframeAuthorError("ファイル名は英数字・.・_・- のみで指定してください");
+      // 自動採番なので通常起きない(サーバ側の名前規約と食い違ったときの保険)
+      setHyperframeAuthorError("素材名を作れませんでした。もう一度お試しください");
       return;
     }
     const assets = hyperframeAuthorAssets;
     setHyperframeAuthorBusy(true);
     setHyperframeAuthorError(null);
-    // 生成は1〜2分かかるためモーダルは送信時に閉じ、進行は素材グリッドの
+    // 生成は1〜2分かかるため送信直後に素材タブへ切り替え、進行は素材グリッドの
     // 作成中タイルで見せる。入力は失敗時の再試行に備えて成功まで消さない
     setHyperframeAuthorPendingName(name);
-    setHyperframeAuthorOpen(false);
+    setTab("materials");
     try {
       const result = await postHyperframeAuthor(name, brief, assets);
       setHyperframes((cards) => {
@@ -4230,7 +4819,6 @@ export const App = () => {
         return [...rest, result.card].sort((a, b) => a.name.localeCompare(b.name));
       });
       await refreshHyperframes(false);
-      setHyperframeAuthorName("");
       setHyperframeAuthorAssets([]);
       addToast({ kind: "success", ttlMs: TOAST_TTL_MS.success, message: `素材「${name}」を作りました` });
     } catch (e) {
@@ -4343,7 +4931,9 @@ export const App = () => {
       }
       if ((e.metaKey || e.ctrlKey) && e.key === ",") {
         e.preventDefault();
-        if (settingsOpen) cancelSettings();
+        if (settingsOpen) {
+          if (!settingsSaving) cancelSettings();
+        }
         else openSettings();
         return;
       }
@@ -4351,16 +4941,22 @@ export const App = () => {
       const inField = ["INPUT", "SELECT", "TEXTAREA"].includes(t.tagName);
       if (settingsOpen) {
         // モーダル表示中は再生・削除などのグローバルショートカットを止める。
-        // Escape で閉じる(入力欄の中は NumInput の入力破棄が先なので閉じない)
-        if (e.key === "Escape" && !inField && !settingsSaving) cancelSettings();
+        // Escape の dismissal は Dialog が一度だけ処理する。入力欄では
+        // SettingsModal が dismissal を止め、NumInput の入力破棄を優先する。
         return;
       }
       if (aiCommandOpen) {
-        // AI コマンドパネル表示中は再生・削除などを止める。入力中でも Esc で閉じる。
-        if (e.key === "Escape") {
-          e.preventDefault();
-          setAiCommandOpen(false);
-        }
+        // Dialog が Escape dismissal と launcher への focus return を一度だけ処理する。
+        // ここでは再生・削除などのグローバルショートカットだけを止める。
+        return;
+      }
+      if (
+        (diffReview !== null && diffPanelOpen) ||
+        aiWorkflowReview !== null ||
+        onboardingVisible
+      ) {
+        // Modal review/authoring/onboarding owns Space, Escape, and its focus
+        // lifecycle. Do not let those keys reach the player or editor actions.
         return;
       }
       // 入力欄の中はブラウザ標準の undo/redo に任せる(下の guard で除外)
@@ -4392,6 +4988,18 @@ export const App = () => {
         }
         return;
       }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "d") {
+        // 選択中クリップを直後へ複製(標準 NLE の a)。選択が無ければ
+        // 素通し(ブラウザのブックマーク追加に任せる)
+        if (selection) {
+          e.preventDefault(); // ブックマーク追加を抑止
+          duplicateSelected();
+        }
+        return;
+      }
+      // Focused buttons (including the theme Popover trigger) keep native
+      // Enter/Space activation instead of toggling playback behind the control.
+      if (t.closest("button,[role=button]")) return;
       if (!e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === "f") {
         e.preventDefault();
         if (e.shiftKey) setMaximized((v) => !v);
@@ -4431,7 +5039,9 @@ export const App = () => {
 
   /* ---------------- 描画 ---------------- */
 
-  if (error && !proj) return <div className="fatal">エラー: {error}</div>;
+  if (error && !proj) {
+    return <AppStateView kind="error" title="プロジェクトを開けません" description={error} />;
+  }
   const hyperframeAuthorStatus = proj
     ? hyperframeAuthorReadiness({
         structuredRoute: proj.aiRoutes.structured,
@@ -4440,7 +5050,7 @@ export const App = () => {
     : { ready: false, disabledReason: "AI 設定を読み込み中です" };
 
   if (!proj || !built || !cutplan || !overlays || !transcript) {
-    return <div className="fatal dim">読み込み中…</div>;
+    return <AppStateView kind="loading" title="プロジェクトを読み込み中" />;
   }
 
   const aiWorkflowTitle = aiWorkflow
@@ -4479,14 +5089,10 @@ export const App = () => {
     });
   };
 
-  // 開閉はコンポーネントを外さず CSS で隠す(タイムラインのズーム等の状態を保つ)
-  const appClass =
-    "app" +
-    (maximized ? " max" : "") +
-    (panelOpen ? "" : " hideL") +
-    (inspOpen ? "" : " hideR") +
-    (timelineOpen ? "" : " hideB");
+  // 開閉・最大化でも Panel の children は常時 mount したまま保つ。
+  const appClass = "app" + (maximized ? " max" : "");
   return (
+    <TooltipProvider delayDuration={350}>
     <div className={appClass}>
       <input
         ref={fileInputRef}
@@ -4499,85 +5105,150 @@ export const App = () => {
           e.target.value = ""; // 同じファイルを続けて選べるように
         }}
       />
-      <header>
-        <div className="brand">
-          <strong>CutFlow</strong>
-          <span className="sep" aria-hidden>
-            /
-          </span>
-          <span className="dim path" title={proj.dir}>
-            {proj.dir.replace(/\/+$/, "").split("/").pop()}
-          </span>
-        </div>
+      <header className="ocHeader">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="brand ocBreadcrumb" tabIndex={0}>
+              <strong>CutFlow</strong>
+              <span className="sep" aria-hidden>/</span>
+              <span className="dim path" title={proj.dir}>
+                {proj.dir.replace(/\/+$/, "").split("/").pop()}
+              </span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>{proj.dir}</TooltipContent>
+        </Tooltip>
         <span className="spacer" />
-        <span
-          className={anyDirty ? "saveStatus dirty" : "saveStatus"}
-          title="変更は ⌘S で保存。未保存の編集は自動退避され、閉じる前に確認が出ます"
-        >
-          {busy === "save" ? "保存中…" : anyDirty ? "● 未保存 (⌘S)" : "保存済み"}
-        </span>
-        <button
-          className="aiCommandLauncher"
-          disabled={aiWorkflowLocked}
-          title={aiWorkflowLocked ? aiWorkflowTitle : anyDirty ? "保存してから AI 一発編集" : "AI 一発編集を開く"}
-          onClick={() => {
-            setAiCommandScope("global");
-            setAiCommandOpen(true);
-          }}
-        >
-          {aiWorkflowLocked && <img className="aiCommandLauncherIcon" src="/particle_loop_icon.svg" alt="" />}
-          {aiWorkflowLocked ? "編集中" : "AI編集"}
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              className={anyDirty ? "saveStatus dirty" : "saveStatus"}
+              tabIndex={0}
+              title="変更は ⌘S で保存。未保存の編集は自動退避され、閉じる前に確認が出ます"
+            >
+              {busy === "save" ? "保存中…" : anyDirty ? "● 未保存 (⌘S)" : "保存済み"}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>変更は ⌘S で保存。未保存の編集は自動退避されます</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              ref={aiCommandLauncherRef}
+              variant="secondary"
+              size="sm"
+              className="aiCommandLauncher"
+              disabled={aiWorkflowLocked}
+              title={aiWorkflowLocked ? aiWorkflowTitle : anyDirty ? "保存してから AI 一発編集" : "AI 一発編集を開く"}
+              onClick={() => {
+                setAiCommandScope("global");
+                setAiCommandOpen(true);
+              }}
+            >
+              {aiWorkflowLocked
+                ? <img className="aiCommandLauncherIcon" src="/particle_loop_icon.svg" alt="" />
+                : <Sparkles size={14} aria-hidden />}
+              {aiWorkflowLocked ? "編集中" : "AI編集"}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{aiWorkflowLocked ? aiWorkflowTitle : anyDirty ? "保存してから AI 一発編集" : "AI 一発編集を開く"}</TooltipContent>
+        </Tooltip>
         {/* レイアウト切替(VSCode 風)。アイコンの塗られた面 = 表示中のパネル。
             閉じてもデータ・編集状態には影響しない(表示だけの切替) */}
         <div className="layoutBtns">
-          <button
-            className="hIcon"
-            title={`左パネル(素材/テロップ)を${panelOpen ? "隠す" : "表示"}(分割バーを左端へ寄せても閉じられる)`}
-            aria-label="左パネルの表示切替"
-            onClick={() => setPanelOpen((v) => !v)}
-          >
-            <PanelIcon side="left" on={panelOpen} />
-          </button>
-          <button
-            className="hIcon"
-            title={`タイムラインを${timelineOpen ? "隠す" : "表示"}`}
-            aria-label="タイムラインの表示切替"
-            onClick={() => setTimelineOpen((v) => !v)}
-          >
-            <PanelIcon side="bottom" on={timelineOpen} />
-          </button>
-          <button
-            className="hIcon"
-            title={`右パネル(プロパティ)を${inspOpen ? "隠す" : "表示"}(分割バーを右端へ寄せても閉じられる)`}
-            aria-label="右パネルの表示切替"
-            onClick={() => setInspOpen((v) => !v)}
-          >
-            <PanelIcon side="right" on={inspOpen} />
-          </button>
+          <Tooltip><TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="hIcon"
+              data-active={panelOpen}
+              aria-pressed={panelOpen}
+              title={`左パネル(素材/テロップ)を${panelOpen ? "隠す" : "表示"}(分割バーを左端へ寄せても閉じられる)`}
+              aria-label="左パネルの表示切替"
+              onClick={() => setPanelOpen((v) => !v)}
+            ><PanelLeft size={15} aria-hidden /></Button>
+          </TooltipTrigger><TooltipContent>左パネルを{panelOpen ? "隠す" : "表示"}</TooltipContent></Tooltip>
+          <Tooltip><TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="hIcon"
+              data-active={timelineOpen}
+              aria-pressed={timelineOpen}
+              title={`タイムラインを${timelineOpen ? "隠す" : "表示"}`}
+              aria-label="タイムラインの表示切替"
+              onClick={() => setTimelineOpen((v) => !v)}
+            ><PanelBottom size={15} aria-hidden /></Button>
+          </TooltipTrigger><TooltipContent>タイムラインを{timelineOpen ? "隠す" : "表示"}</TooltipContent></Tooltip>
+          <Tooltip><TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="hIcon"
+              data-active={inspOpen}
+              aria-pressed={inspOpen}
+              title={`右パネル(プロパティ)を${inspOpen ? "隠す" : "表示"}(分割バーを右端へ寄せても閉じられる)`}
+              aria-label="右パネルの表示切替"
+              onClick={() => setInspOpen((v) => !v)}
+            ><PanelRight size={15} aria-hidden /></Button>
+          </TooltipTrigger><TooltipContent>右パネルを{inspOpen ? "隠す" : "表示"}</TooltipContent></Tooltip>
         </div>
-        <button
+        <Tooltip><TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
           className={settingsOpen ? "settingsBtn active" : "settingsBtn"}
           aria-label="設定"
+          aria-pressed={settingsOpen}
           title="設定 (⌘,)。ワイプ・テロップ既定・音声などの全収録共通の設定(config.yaml)"
           onClick={() => (settingsOpen ? cancelSettings() : openSettings())}
-        >
-          <svg viewBox="0 0 24 24" aria-hidden>
-            <circle cx="12" cy="12" r="3" />
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-          </svg>
-        </button>
-        <div className="exportMenu">
-          <button
-            className={exportOpen ? "active" : ""}
-            onClick={() => setExportOpen((o) => !o)}
-          >
-            書き出し ▾
-          </button>
-          {exportOpen && (
-            <>
-              <div className="menuBackdrop" onClick={() => setExportOpen(false)} />
-              <div className="menu exportPanel">
+        ><Settings size={15} aria-hidden /></Button>
+        </TooltipTrigger><TooltipContent>設定 (⌘,)</TooltipContent></Tooltip>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="themeBtn"
+              aria-label={`テーマ: ${themePreferenceLabel(themePreference)}`}
+              title={`テーマ: ${themePreferenceLabel(themePreference)}`}
+            >
+              <ThemeChoiceIcon preference={themePreference} />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="themePanel" aria-label="テーマ設定">
+            <fieldset>
+              <legend>テーマ</legend>
+              {THEME_PREFERENCES.map((choice) => (
+                <label key={choice} className="themeChoice">
+                  <input
+                    type="radio"
+                    name="cutflow-theme"
+                    value={choice}
+                    checked={themePreference === choice}
+                    onChange={() => setThemePreference(choice)}
+                  />
+                  <ThemeChoiceIcon preference={choice} />
+                  <span>{themePreferenceLabel(choice)}</span>
+                </label>
+              ))}
+            </fieldset>
+          </PopoverContent>
+        </Popover>
+        <Popover open={exportOpen} onOpenChange={setExportOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="default"
+              size="sm"
+              className="exportTrigger"
+              aria-expanded={exportOpen}
+            >
+              <Download size={14} aria-hidden />
+              書き出し
+              <ChevronDown size={12} aria-hidden />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="exportPanel" aria-label="書き出し">
                 <div className="exportTitle">書き出し</div>
                 <label
                   className="approve"
@@ -4593,8 +5264,8 @@ export const App = () => {
                   />
                   承認済み
                 </label>
-                <button
-                  className="primary"
+                <Button
+                  className="exportAction"
                   disabled={
                     !cutplan.approved || job?.status === "running" || busy !== null
                   }
@@ -4609,8 +5280,10 @@ export const App = () => {
                   }}
                 >
                   レンダー
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="outline"
+                  className="exportAction"
                   disabled={job?.status === "running" || busy !== null}
                   title="カット確認用の軽い動画(preview.mp4)を生成する。未保存の編集は自動で保存してから走る"
                   onClick={() => {
@@ -4619,11 +5292,9 @@ export const App = () => {
                   }}
                 >
                   プレビュー生成
-                </button>
-              </div>
-            </>
-          )}
-        </div>
+                </Button>
+          </PopoverContent>
+        </Popover>
       </header>
 
       {/* 要対応の継続条件(トーストにしない=時間で消えない)。header と stage の
@@ -4632,162 +5303,72 @@ export const App = () => {
         draftOffer={draftOffer}
         externalChange={externalChange}
         reviewConflictCount={diffReview?.result.conflicts.length ?? 0}
-        proxyStale={proxyStale}
+        proxyStale={proxyStale && !proxyStaleDismissed}
         proxyBusy={proxyBusy}
+        previewCutRebake={previewCutRebake.state}
         warnings={built?.warnings ?? []}
         onRestore={restoreDraft}
         onDiscard={discardDraft}
         onReload={() => void reloadFromDisk()}
         onReview={() => setDiffPanelOpen(true)}
         onRegenProxy={() => void regenProxyForSettings()}
-        onDismissProxyStale={() => setProxyStale(false)}
+        onDismissProxyStale={() => setProxyStaleDismissed(true)}
+        onRetryPreviewCut={previewCutRebake.retry}
       />
 
-      {hyperframeAuthorOpen && (
-        <>
-          <div
-            className="aiCommandBackdrop"
-            onClick={() => !hyperframeAuthorBusy && setHyperframeAuthorOpen(false)}
-          />
-          <section className="aiCommandModal hfAuthorModal" role="dialog" aria-label="AI で素材を作る">
-            <div className="aiCommandModalHead">
-              <div>
-                <div className="aiCommandKicker">AI で作る</div>
-                <h3>新しい素材を作る</h3>
-              </div>
-              <button
-                className="icon"
-                aria-label="閉じる"
-                disabled={hyperframeAuthorBusy}
-                onClick={() => setHyperframeAuthorOpen(false)}
-              >
-                ×
-              </button>
-            </div>
-            <label className="hfAuthorNameField">
-              <span>ファイル名</span>
-              <input
-                value={hyperframeAuthorName}
-                disabled={hyperframeAuthorBusy}
-                placeholder="例: next-preview"
-                autoFocus
-                onChange={(event) => {
-                  setHyperframeAuthorName(event.target.value);
-                  setHyperframeAuthorError(null);
-                }}
-              />
-            </label>
-            <AiCommand
-              disabled={!hyperframeAuthorStatus.ready}
-              busy={hyperframeAuthorBusy}
-              multiline
-              modalStyle
-              clearOnSubmit={false}
-              disabledReason={hyperframeAuthorStatus.disabledReason}
-              placeholder="例: 「次回予告」と大きく出るタイトル素材、5秒"
-              submitLabel="作る"
-              onSubmit={(brief) => void runHyperframeAuthor(brief)}
-            />
-            <div
-              className={`hfAssetDrop${hyperframeAuthorBusy ? " disabled" : ""}`}
-              role="button"
-              tabIndex={hyperframeAuthorBusy ? -1 : 0}
-              onClick={() => !hyperframeAuthorBusy && hyperframeAssetInputRef.current?.click()}
-              onKeyDown={(event) => {
-                if (!hyperframeAuthorBusy && (event.key === "Enter" || event.key === " ")) {
-                  event.preventDefault();
-                  hyperframeAssetInputRef.current?.click();
-                }
-              }}
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={onHyperframeAssetDrop}
-            >
-              <input
-                ref={hyperframeAssetInputRef}
-                type="file"
-                accept=".png,.jpg,.jpeg,.gif,.webp,.woff2,image/png,image/jpeg,image/gif,image/webp,font/woff2"
-                multiple
-                disabled={hyperframeAuthorBusy}
-                onChange={(event) => {
-                  addHyperframeAuthorAssets([...(event.target.files ?? [])]);
-                  event.target.value = "";
-                }}
-              />
-              <strong>画像・フォントをドロップ、またはクリックして選択</strong>
-              <span>
-                PNG / JPEG / GIF / WebP / WOFF2
-                {hyperframeAssetLimits && (
-                  ` · 1枚 ${(hyperframeAssetLimits.maxBytes / 1024 / 1024).toFixed(1)}MB / ` +
-                  `font ${(Math.min(hyperframeAssetLimits.maxBytes, hyperframeAssetLimits.fontMaxBytes) / 1024 / 1024).toFixed(1)}MB / ` +
-                  `合計 ${(hyperframeAssetLimits.maxTotalBytes / 1024 / 1024).toFixed(1)}MB まで`
-                )}
-              </span>
-            </div>
-            {hyperframeAuthorAssets.length > 0 && (
-              <ul className="hfAssetList" aria-label="添付素材">
-                {hyperframeAuthorAssets.map((file) => (
-                  <li key={file.name}>
-                    <span>{file.name} · {(file.size / 1024).toFixed(0)}KB</span>
-                    <button
-                      type="button"
-                      disabled={hyperframeAuthorBusy}
-                      aria-label={`${file.name}を外す`}
-                      onClick={() => setHyperframeAuthorAssets((items) => items.filter((item) => item !== file))}
-                    >
-                      ×
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {hyperframeAuthorStatus.disabledReason && (
-              <p className="hfAuthorDisabled">{hyperframeAuthorStatus.disabledReason}</p>
-            )}
-            {hyperframeAuthorError && <p className="hfAuthorError">{hyperframeAuthorError}</p>}
-            <p className="dim hint">
-              生成には通常1〜2分かかります。完成すると他の素材と同じように配置できます。
-            </p>
-          </section>
-        </>
+      {onboardingVisible && (
+        <OnboardingDialog open onDismiss={() => setOnboardingOpen(false)} />
       )}
 
       {aiCommandOpen && (
-        <>
-          <div className="aiCommandBackdrop" onClick={() => setAiCommandOpen(false)} />
-          <section className="aiCommandModal" role="dialog" aria-label="AI 一発編集">
+        <Dialog open onOpenChange={(open) => !open && setAiCommandOpen(false)}>
+          <DialogContent
+            asChild
+            overlayClassName="aiCommandBackdrop"
+            onCloseAutoFocus={(event) => restoreDialogFocus(event, aiCommandLauncherRef.current)}
+          >
+          <section className="aiCommandModal ocAiCommandModal" aria-label="AI 一発編集">
             <div className="aiCommandModalHead">
               <div>
                 <div className="aiCommandKicker">AI 一発編集</div>
-                <h3>どの範囲を編集するか選んで指示</h3>
+                <DialogTitle asChild><h3>どの範囲を編集するか選んで指示</h3></DialogTitle>
               </div>
-              <button className="icon" aria-label="閉じる" onClick={() => setAiCommandOpen(false)}>
-                ×
-              </button>
+              <DialogClose asChild>
+                <button className="icon" aria-label="閉じる">×</button>
+              </DialogClose>
             </div>
-            <div className="aiScopeTabs" role="tablist" aria-label="AI 編集の対象範囲">
-              <button
+            <Tabs
+              value={aiCommandScope}
+              onValueChange={(value) => setAiCommandScope(value as AiScope)}
+            >
+            <TabsList className="aiScopeTabs" aria-label="AI 編集の対象範囲">
+              <TabsTrigger
+                value="global"
                 className={aiCommandScope === "global" ? "on" : ""}
-                onClick={() => setAiCommandScope("global")}
               >
                 全体
                 <span>構成・テンポ・全体調整</span>
-              </button>
-              <button
+              </TabsTrigger>
+              <TabsTrigger
+                value="playhead"
                 className={aiCommandScope === "playhead" ? "on" : ""}
-                onClick={() => setAiCommandScope("playhead")}
               >
                 現在位置
                 <span>再生ヘッド周辺</span>
-              </button>
-              <button
+              </TabsTrigger>
+              <TabsTrigger
+                value="selection"
                 className={aiCommandScope === "selection" ? "on" : ""}
                 disabled={!selection}
-                onClick={() => setAiCommandScope("selection")}
               >
                 選択中
                 <span>{selection ? "選択要素だけ" : "未選択"}</span>
-              </button>
-            </div>
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="global" className="aiScopePanel">プロジェクト全体を対象にします。</TabsContent>
+            <TabsContent value="playhead" className="aiScopePanel">現在の再生位置周辺を対象にします。</TabsContent>
+            <TabsContent value="selection" className="aiScopePanel">現在選択している要素を対象にします。</TabsContent>
+            </Tabs>
             <AiCommand
               disabled={anyDirty || aiWorkflowLocked}
               busy={aiBusy}
@@ -4813,12 +5394,15 @@ export const App = () => {
                 void startAiWorkflow(aiCommandScope, instruction);
               }}
             />
-            <p className="dim hint">
-              全体はプロジェクト要約を、現在位置と選択中は周辺文脈を使います。
-              提案はすぐ保存せず、差分レビューで確認します。
-            </p>
+            <DialogDescription asChild>
+              <p className="dim hint">
+                全体はプロジェクト要約を、現在位置と選択中は周辺文脈を使います。
+                提案はすぐ保存せず、差分レビューで確認します。
+              </p>
+            </DialogDescription>
           </section>
-        </>
+          </DialogContent>
+        </Dialog>
       )}
 
       {diffReview && diffPanelOpen && (
@@ -4894,12 +5478,6 @@ export const App = () => {
       )}
 
       {settingsOpen && (
-        <>
-          {/* backdrop クリック = キャンセル(未保存の設定編集を復元して閉じる) */}
-          <div
-            className="settingsBackdrop"
-            onClick={() => !settingsSaving && cancelSettings()}
-          />
           <SettingsModal
             cfg={cfgValuesOf(proj)}
             planPerception={proj.planPerception}
@@ -4913,26 +5491,68 @@ export const App = () => {
             aiDoctorBusy={aiDoctorBusy}
             onAiDoctor={(route) => void runAiDoctor(route)}
           />
-        </>
       )}
 
-      <div className="stage" ref={stageRef}>
-        <aside
-          className="sidePanel"
-          style={{ width: panelW, maxWidth: `calc(100% - ${VIEWER_MIN}px)` }}
+      <ResizablePanelGroup
+        id="cutflow-shell"
+        orientation="vertical"
+        className="editorShell"
+        elementRef={shellGroupRef}
+        onLayoutChanged={onShellLayoutChanged}
+      >
+        <ResizablePanel
+          id="main"
+          minSize={STAGE_MIN}
+          groupResizeBehavior="preserve-relative-size"
+          className="mainShellPanel"
         >
-          <div className="tabs">
+          <ResizablePanelGroup
+            id="cutflow-stage"
+            orientation="horizontal"
+            className="stage"
+            elementRef={stageGroupRef}
+            onLayoutChanged={onStageLayoutChanged}
+          >
+            <ResizablePanel
+              id="left"
+              panelRef={sidePanelRef}
+              defaultSize={panelOpen ? panelW : 0}
+              minSize={PANEL_MIN}
+              collapsedSize={0}
+              collapsible
+              groupResizeBehavior="preserve-pixel-size"
+              className="sideShellPanel"
+            >
+              <aside className="sidePanel panel shellSurface ocSidePanel">
+          <nav className="tabs ocIconRail" role="tablist" aria-label="編集パネル">
             {PANEL_TABS.map(([id, label]) => (
-              <button
-                key={id}
-                className={tab === id ? "active" : ""}
-                onClick={() => setTab(id)}
-              >
-                {label}
-              </button>
+              <Tooltip key={id}>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={tab === id ? "secondary" : "ghost"}
+                    size="icon"
+                    role="tab"
+                    className={tab === id ? "active" : ""}
+                    aria-label={label}
+                    aria-selected={tab === id}
+                    aria-controls={`panel-${id}`}
+                    title={label}
+                    onClick={() => setTab(id)}
+                  >
+                    <PanelTabIcon tab={id} />
+                    <span className="ocRailLabel">{label}</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="right">{label}</TooltipContent>
+              </Tooltip>
             ))}
-          </div>
-          <div className="panelBody">
+          </nav>
+          <div
+            className="panelBody ocAssetPane"
+            id={`panel-${tab}`}
+            role="tabpanel"
+            aria-label={PANEL_TABS.find(([id]) => id === tab)?.[1]}
+          >
             {tab === "materials" && (
               <MaterialsPanel
                 materials={materials}
@@ -4942,52 +5562,89 @@ export const App = () => {
                 hyperframesError={hyperframesError}
                 hyperframeRendering={hyperframeRendering}
                 hyperframeErrors={hyperframeErrors}
-                hyperframeAuthorDisabledReason={hyperframeAuthorStatus.disabledReason}
                 busy={busy !== null || hyperframeRendering !== null || hyperframeAuthorBusy}
                 onUploadClick={onUploadClick}
                 onUploadFiles={(files) => void uploadOnly(files)}
                 onPlace={(f) =>
-                  void placeMaterial(f, null, AUDIO_ONLY_RE.test(f) ? "bgm" : "overlay")
+                  void placeMaterial(
+                    f,
+                    null,
+                    AUDIO_ONLY_RE.test(f) ? "bgm" : "overlay",
+                    AUDIO_ONLY_RE.test(f) ? undefined : { createOverlayTrack: true },
+                  )
                 }
                 onDelete={(f) => void deleteMaterialFile(f)}
                 onDeleteCard={(name) => void deleteHyperframeCard(name)}
                 onRenderHyperframe={(name) => void runHyperframeRender(name)}
-                onNewHyperframe={openHyperframeAuthor}
                 authorPendingName={hyperframeAuthorPendingName}
                 onDragBegin={onMaterialDragBegin}
                 onDragEnd={onMaterialDragEnd}
               />
             )}
+            {tab === "hyperframes" && (
+              <>
+                <PanelHeader title="AI 生成" />
+                <HyperframeAuthorPanel
+                  assets={hyperframeAuthorAssets}
+                  onAddAssets={addHyperframeAuthorAssets}
+                  onRemoveAsset={(file) =>
+                    setHyperframeAuthorAssets((items) => items.filter((item) => item !== file))
+                  }
+                  onAssetDrop={onHyperframeAssetDrop}
+                  assetInputRef={hyperframeAssetInputRef}
+                  assetLimits={hyperframeAssetLimits}
+                  busy={hyperframeAuthorBusy}
+                  disabledReason={hyperframeAuthorStatus.disabledReason}
+                  error={hyperframeAuthorError}
+                >
+                  <AiCommand
+                    disabled={!hyperframeAuthorStatus.ready}
+                    busy={hyperframeAuthorBusy}
+                    multiline
+                    clearOnSubmit={false}
+                    disabledReason={hyperframeAuthorStatus.disabledReason}
+                    placeholder="例: 「次回予告」と大きく出るタイトル素材、5秒"
+                    submitLabel="作る"
+                    onSubmit={(brief) => void runHyperframeAuthor(brief)}
+                  />
+                </HyperframeAuthorPanel>
+              </>
+            )}
             {tab === "script" && (
-              <ScriptPanel
-                script={script}
-                error={scriptError}
-                keeps={shortMode ? shortKeepsMerged : keeps}
-                silences={silenceEvidence}
-                noBridgeSpans={scriptCutSpans}
-                timeline={curTimeline}
-                playing={playing}
-                editable={!shortMode}
-                onSeekSrc={seekToSrc}
-                onCutRange={cutScriptRange}
-                onRestoreRange={restoreScriptRange}
-              />
+              <>
+                <PanelHeader title="スクリプト" />
+                <ScriptPanel
+                  script={script}
+                  error={scriptError}
+                  keeps={shortMode ? shortKeepsMerged : keeps}
+                  silences={silenceEvidence}
+                  noBridgeSpans={scriptCutSpans}
+                  timeline={curTimeline}
+                  playing={playing}
+                  editable={!shortMode}
+                  onSeekSrc={seekToSrc}
+                  onCutRange={cutScriptRange}
+                  onRestoreRange={restoreScriptRange}
+                />
+              </>
             )}
             {tab === "captions" && (
-              <CaptionsPanel
-                transcript={transcript}
-                overlays={overlays}
-                capTracks={capTracks}
-                selectedIndex={selection?.kind === "caption" ? selection.index : null}
-                multiSelected={capMulti}
-                onRowClick={(i) => selectCaption(i, true)}
-                onRowToggle={toggleCaptionMulti}
-                onRowFocus={(i) => selectCaption(i, false)}
-                // 一覧の textarea は文字入力なので undo をまとめる
-                updateCaption={(i, patch) =>
-                  updateCaption(i, patch, `caption:${i}:text`)
-                }
-              />
+              <>
+                <PanelHeader title="テロップ" />
+                <CaptionsPanel
+                  transcript={transcript}
+                  overlays={overlays}
+                  selectedIndex={selection?.kind === "caption" ? selection.index : null}
+                  multiSelected={capMulti}
+                  onRowClick={(i) => selectCaption(i, true)}
+                  onRowToggle={toggleCaptionMulti}
+                  onRowFocus={(i) => selectCaption(i, false)}
+                  // 一覧の textarea は文字入力なので undo をまとめる
+                  updateCaption={(i, patch) =>
+                    updateCaption(i, patch, `caption:${i}:text`)
+                  }
+                />
+              </>
             )}
             {tab === "shorts" && (
               <ShortsPanel
@@ -4999,22 +5656,80 @@ export const App = () => {
                 onRename={renameShort}
               />
             )}
+            {tab === "adjust" && (
+              <>
+                <PanelHeader title="色調整" />
+                <AdjustmentPanel
+                  colorFilter={overlays?.colorFilter}
+                  onChange={updateColorFilter}
+                  onReset={resetColorFilter}
+                />
+              </>
+            )}
+            {tab === "effects" && (
+              <>
+                <PanelHeader title="エフェクト" />
+                <PresetPanel
+                  presets={EFFECT_PRESETS}
+                  onAdd={(p) => addPresetAt(p, playhead.get())}
+                  onDragBegin={onPresetDragBegin}
+                  onDragEnd={onPresetDragEnd}
+                  disabledIds={proj?.hasCamera === false ? ["wipe-full"] : undefined}
+                  note="位置・サイズは追加後にインスペクタで調整します。AI にまとめて演出させるにはターミナルで node src/cli.ts plan-effects <dir>。"
+                />
+              </>
+            )}
+            {tab === "stickers" && (
+              <>
+                <PanelHeader title="ステッカー" />
+                <PresetPanel
+                  presets={ANNOTATION_PRESETS}
+                  onAdd={(p) => addPresetAt(p, playhead.get())}
+                  onDragBegin={onPresetDragBegin}
+                  onDragEnd={onPresetDragEnd}
+                  note="位置・サイズは追加後にインスペクタで調整します。AI にまとめて演出させるにはターミナルで node src/cli.ts plan-effects <dir>。"
+                />
+              </>
+            )}
+            {tab === "settings" && (
+              <>
+                <PanelHeader title="設定" />
+                <SettingsPanel
+                  projectName={proj.dir.replace(/\/+$/, "").split("/").pop() ?? proj.dir}
+                  output={proj.output}
+                  fps={manifestCompositionFps(proj.manifest)}
+                  shortsCount={shorts?.shorts.length ?? 0}
+                  onOpenFullSettings={openSettings}
+                  onGoShorts={() => setTab("shorts")}
+                />
+              </>
+            )}
           </div>
-        </aside>
-        <div
-          className="splitter"
-          title={
-            panelOpen
-              ? "ドラッグで幅を変更(左端まで寄せると閉じる)。ダブルクリックで開閉"
-              : "右へドラッグ(またはダブルクリック)で左パネルを開く"
-          }
-          onPointerDown={onSplitterDown}
-          onDoubleClick={() => setPanelOpen((v) => !v)}
-        />
-        <div className="viewerCol" ref={viewerColRef}>
+              </aside>
+            </ResizablePanel>
+            <ResizableHandle
+              id="left-handle"
+              disableDoubleClick
+              title={
+                panelOpen
+                  ? "ドラッグで幅を変更(左端まで寄せると閉じる)。ダブルクリックで開閉"
+                  : "右へドラッグ(またはダブルクリック)で左パネルを開く"
+              }
+              onDoubleClick={() => setPanelOpen((v) => !v)}
+            />
+            <ResizablePanel
+              id="viewer"
+              minSize={VIEWER_MIN}
+              groupResizeBehavior="preserve-relative-size"
+              className="viewerShellPanel"
+            >
+              <div className="viewerCol panel shellSurface" ref={viewerColRef}>
         <div className="viewer">
           {proj.proxyExists ? (
-            <>
+            <div
+              className="viewerScale"
+              style={previewZoom === "fit" ? undefined : { transform: `scale(${previewZoom})` }}
+            >
               <Player
                 key={videoVersion}
                 ref={playerRef}
@@ -5114,7 +5829,7 @@ export const App = () => {
                 // 編集中はプレビューを止めてボックス(=表示中テロップ)を固定する
                 onEditStart={() => playerRef.current?.pause()}
               />
-            </>
+            </div>
           ) : (
             <div className="noPreview">
               {proxyBusy || !error ? (
@@ -5136,7 +5851,7 @@ export const App = () => {
           )}
         </div>
 
-        <div className="transport">
+        <div className="transport ocTransport">
         {/* 上段: シークバー(クリック/ドラッグでシーク) */}
         <div
           className="scrub"
@@ -5152,16 +5867,19 @@ export const App = () => {
         >
           <ScrubProgress duration={duration} />
         </div>
-        {/* 下段: 左=時刻・音量 / 中央=再生まわり / 右=元収録の秒・秒送り */}
+        {/* 下段: 左=時刻・音量 / 中央=再生まわり / 右=表示切替 */}
         <div className="tRow">
         <div className="tLeft">
           <span className="tcode">
-            <PlayheadTimecode />
-            <span className="dim tDur"> / {fmtTime(duration)}</span>
+            <EditableTimecode seekOut={seekOut} duration={duration} />
+            <span className="tSlash" aria-hidden="true">/</span>
+            <span className="dim tDur">{fmtTime(duration)}</span>
           </span>
           {/* ホバーで音量バーが横に伸びる(YouTube 風)。普段はアイコンだけ */}
           <div className="volCtl">
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
               className="icon mute"
               title={`ミュート切替(プレビューのみ。書き出しには影響しない)。現在 ${volumePct}%`}
               onClick={toggleMute}
@@ -5170,7 +5888,7 @@ export const App = () => {
                 level={volumePct === 0 ? "mute" : volumePct < 50 ? "low" : "high"}
                 size={16}
               />
-            </button>
+            </Button>
             <input
               className="volume"
               type="range"
@@ -5180,7 +5898,7 @@ export const App = () => {
               value={volumePct}
               style={{
                 // 左側(現在値まで)をアクセント色で塗る
-                background: `linear-gradient(to right, var(--accent) ${volumePct}%, var(--border) ${volumePct}%)`,
+                background: `linear-gradient(to right, hsl(var(--oc-primary)) ${volumePct}%, hsl(var(--oc-border)) ${volumePct}%)`,
               }}
               title={`プレビューの音量 ${volumePct}%(書き出しには影響しない)。ダブルクリックで100%`}
               onChange={(e) => setVolumePct(Number(e.target.value))}
@@ -5189,28 +5907,30 @@ export const App = () => {
           </div>
         </div>
         <div className="tCenter">
-          <button className="icon jump" title="先頭へ (Home)" onClick={() => seekOut(0)}>
+          <Button variant="ghost" size="icon" className="icon jump" title="先頭へ (Home)" onClick={() => seekOut(0)}>
             <JumpIcon dir="back" />
-          </button>
-          <button className="icon" title="1フレーム戻る (←)" onClick={() => stepFrames(-1)}>
+          </Button>
+          <Button variant="ghost" size="icon" className="icon" title="1フレーム戻る (←)" onClick={() => stepFrames(-1)}>
             <StepIcon dir="back" />
-          </button>
-          <button className="play" title="再生/停止 (Space)" onClick={togglePlay}>
+          </Button>
+          <Button variant="ghost" className="play" title="再生/停止 (Space)" onClick={togglePlay}>
             <PlayPauseIcon playing={playing} size={18} />
-          </button>
-          <button className="icon" title="1フレーム進む (→)" onClick={() => stepFrames(1)}>
+          </Button>
+          <Button variant="ghost" size="icon" className="icon" title="1フレーム進む (→)" onClick={() => stepFrames(1)}>
             <StepIcon dir="fwd" />
-          </button>
-          <button className="icon jump" title="末尾へ (End)" onClick={() => seekOut(duration)}>
+          </Button>
+          <Button variant="ghost" size="icon" className="icon jump" title="末尾へ (End)" onClick={() => seekOut(duration)}>
             <JumpIcon dir="fwd" />
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
             className={`icon loop${loop ? " active" : ""}`}
             title="ループ再生(プレビューのみ)"
             onClick={() => setLoop((v) => !v)}
           >
             <LoopIcon />
-          </button>
+          </Button>
         </div>
         <div className="tRight">
           {/* 本編/各ショートの切替。プレビュー・タイムラインの表示対象を変える
@@ -5229,6 +5949,19 @@ export const App = () => {
               ))}
             </select>
           </span>
+          <NativeSelect
+            className="zoomSel"
+            value={previewZoom === "fit" ? "fit" : String(previewZoom)}
+            title="プレビューの表示倍率(プレビューのみ。書き出し・合成には影響しない)"
+            onChange={(e) =>
+              setPreviewZoom(e.target.value === "fit" ? "fit" : Number(e.target.value))
+            }
+          >
+            <option value="fit">Fit</option>
+            {PREVIEW_ZOOMS.map((z) => (
+              <option key={z} value={z}>{Math.round(z * 100)}%</option>
+            ))}
+          </NativeSelect>
           <select
             className="rate"
             value={playbackRate}
@@ -5241,24 +5974,30 @@ export const App = () => {
               </option>
             ))}
           </select>
-          <button className="icon sec" title="1秒戻る (Shift+←)" onClick={() => stepFrames(-fps)}>
+          {/* 1秒送り。狭幅では CSS(.ocTransport .sec)で畳まれるが、
+              キーボード(Shift+←/→)は常に効く */}
+          <Button variant="ghost" size="icon" className="icon sec" title="1秒戻る (Shift+←)" onClick={() => stepFrames(-fps)}>
             <StepIcon dir="back" double />
-          </button>
-          <button className="icon sec" title="1秒進む (Shift+→)" onClick={() => stepFrames(fps)}>
+          </Button>
+          <Button variant="ghost" size="icon" className="icon sec" title="1秒進む (Shift+→)" onClick={() => stepFrames(fps)}>
             <StepIcon dir="fwd" double />
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
             className={`icon${maximized ? " active" : ""}`}
             title={
               maximized
                 ? "元のレイアウトに戻す (⇧F / Esc)"
-                : "プレビューを最大化 (⇧F)。左パネルとタイムラインを一時的に隠す(表示だけの切替で編集内容には影響しない)"
+                : "プレビューを最大化 (⇧F)。左右パネルとタイムラインを一時的に隠す(表示だけの切替で編集内容には影響しない)"
             }
             onClick={() => setMaximized((v) => !v)}
           >
             <MaximizeIcon active={maximized} />
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
             className={`icon${fullscreen ? " active" : ""}`}
             title={
               fullscreen
@@ -5268,41 +6007,34 @@ export const App = () => {
             onClick={toggleFullscreen}
           >
             <FullscreenIcon active={fullscreen} />
-          </button>
+          </Button>
         </div>
         </div>
         </div>
-        </div>
-        <div
-          className="splitter"
-          title={
-            inspOpen
-              ? "ドラッグで幅を変更(右端まで寄せると閉じる)。ダブルクリックで開閉"
-              : "左へドラッグ(またはダブルクリック)で右パネルを開く"
-          }
-          onPointerDown={onInspSplitterDown}
-          onDoubleClick={() => setInspOpen((v) => !v)}
-        />
-        <aside
-          className="inspPanel"
-          style={{ width: inspW, maxWidth: `calc(100% - ${VIEWER_MIN}px)` }}
-        >
-          <div className="panelBody">
-            <AiCommand
-              compact
-              disabled={anyDirty || aiWorkflowLocked}
-              busy={aiBusy}
-              disabledReason={
-                anyDirty
-                  ? "保存してから AI 一発編集"
-                  : aiWorkflowLocked
-                    ? "AI 一発編集を確認中"
-                    : undefined
+              </div>
+            </ResizablePanel>
+            <ResizableHandle
+              id="right-handle"
+              disableDoubleClick
+              title={
+                inspOpen
+                  ? "ドラッグで幅を変更(右端まで寄せると閉じる)。ダブルクリックで開閉"
+                  : "左へドラッグ(またはダブルクリック)で右パネルを開く"
               }
-              placeholder={selection ? "選択中の内容を AI で編集" : "現在位置を AI で編集"}
-              submitLabel="実行"
-              onSubmit={(instruction) => startAiWorkflow(selection ? "selection" : "playhead", instruction)}
+              onDoubleClick={() => setInspOpen((v) => !v)}
             />
+            <ResizablePanel
+              id="right"
+              panelRef={inspectorPanelRef}
+              defaultSize={inspOpen ? inspW : 0}
+              minSize={INSP_MIN}
+              collapsedSize={0}
+              collapsible
+              groupResizeBehavior="preserve-pixel-size"
+              className="inspectorShellPanel"
+            >
+              <aside className="inspPanel panel shellSurface">
+          <div className="panelBody">
             <Inspector
               // 選択が変わったら編集欄ごと作り直す(未確定の入力を持ち越さない)
               key={
@@ -5366,21 +6098,38 @@ export const App = () => {
               removeShort={removeShort}
             />
           </div>
-        </aside>
-      </div>
-
-      <div
-        className="splitter h"
-        title="ドラッグで高さを変更"
-        onPointerDown={onHSplitterDown}
-      />
-      <Timeline
+              </aside>
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        </ResizablePanel>
+        <ResizableHandle
+          id="timeline-handle"
+          disableDoubleClick
+          title={
+            timelineOpen
+              ? "ドラッグで高さを変更(下端まで寄せると閉じる)。ダブルクリックで開閉"
+              : "上へドラッグ(またはダブルクリック)でタイムラインを開く"
+          }
+          onDoubleClick={() => setTimelineOpen((v) => !v)}
+        />
+        <ResizablePanel
+          id="timeline"
+          panelRef={timelinePanelRef}
+          defaultSize={timelineOpen ? timelineH : 0}
+          minSize={TIMELINE_MIN}
+          collapsedSize={0}
+          collapsible
+          groupResizeBehavior="preserve-pixel-size"
+          className="timelineShellPanel"
+        >
+          <div className="timelineSurface panel shellSurface">
+            <Timeline
         height={timelineH}
         duration={duration}
         clips={clips}
         cutMarks={cutMarks}
         peaks={peaksMap}
-        tracks={timelineTracks}
+        tracks={visibleTracks}
         selection={selection}
         multiCaption={capMulti}
         onToggleCaptionSel={toggleCaptionMulti}
@@ -5391,7 +6140,6 @@ export const App = () => {
         onDragEnd={onDragEnd}
         onCreate={onCreate}
         onReorderTrack={onReorderTrack}
-        onAddTrack={addTrack}
         canUndo={undoRef.current.length > 0}
         canRedo={redoRef.current.length > 0}
         onUndo={undoEdit}
@@ -5401,24 +6149,33 @@ export const App = () => {
         onDelete={removeSelected}
         // トラック標準の選択は「消せるクリップ」ではない(Delete は何もしない)
         deleteDisabled={!selection || selection.kind === "captionTrack"}
+        onDuplicate={duplicateSelected}
+        dupDisabled={!selection || !DUPLICABLE.has(selection.kind)}
         onRemoveTrack={removeTrack}
         onRenameTrack={setCaptionTrackName}
         onSelectCaptionTrack={(track) => setSelection({ kind: "captionTrack", index: track })}
         onDropFile={onDropFile}
         onDropMaterial={onDropMaterial}
         dragMaterial={dragMaterial}
+        presetDragTrack={presetDrag?.track ?? null}
+        onDropPreset={onDropPreset}
         trackMuted={trackMuted}
         onToggleTrackMute={toggleTrackMute}
         hiddenLayers={hiddenLayers}
         onToggleTrackHide={toggleTrackHide}
-        defaultDurationSec={defaultImgSec}
-      />
-      <ToastStack toasts={toasts} onDismiss={dismissToast} />
+              defaultDurationSec={defaultImgSec}
+            />
+          </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
+      <Toaster theme={effectiveTheme} />
     </div>
+    </TooltipProvider>
   );
 };
 
 /** ヘッダー直下の要対応バナー行(T4)。draftOffer / externalChange / proxyStale /
+ * previewCutRebake /
  * warnings(built.warnings。hideCaption・blurs×zoom重なり・blursのショート非継承・
  * ショートprofileフォールバック等)は「ユーザーが操作するまで真であり続ける条件」で、
  * 時間で消える通知(トースト)とは寿命モデルが違うのでバナーに残す(warnings は
@@ -5431,6 +6188,7 @@ const HeaderBanners = ({
   reviewConflictCount,
   proxyStale,
   proxyBusy,
+  previewCutRebake,
   warnings,
   onRestore,
   onDiscard,
@@ -5438,12 +6196,14 @@ const HeaderBanners = ({
   onReview,
   onRegenProxy,
   onDismissProxyStale,
+  onRetryPreviewCut,
 }: {
   draftOffer: DraftData | null;
   externalChange: boolean;
   reviewConflictCount: number;
   proxyStale: boolean;
   proxyBusy: boolean;
+  previewCutRebake: PreviewCutRebakeState;
   warnings: string[];
   onRestore: () => void;
   onDiscard: () => void;
@@ -5451,8 +6211,10 @@ const HeaderBanners = ({
   onReview: () => void;
   onRegenProxy: () => void;
   onDismissProxyStale: () => void;
+  onRetryPreviewCut: () => void;
 }) => {
-  if (!draftOffer && !externalChange && !proxyStale && warnings.length === 0) return null;
+  if (!draftOffer && !externalChange && !proxyStale &&
+      previewCutRebake.status === "idle" && warnings.length === 0) return null;
   return (
     <>
       {warnings.map((w) => (
@@ -5508,6 +6270,19 @@ const HeaderBanners = ({
           <button onClick={onDismissProxyStale}>後で</button>
         </div>
       )}
+      {(previewCutRebake.status === "waiting" || previewCutRebake.status === "building") && (
+        <div className="banner" aria-live="polite">
+          <span className="msg">プレビュー再ベイク中…</span>
+        </div>
+      )}
+      {previewCutRebake.status === "failed" && (
+        <div className="banner" role="alert">
+          <span className="msg">
+            プレビューの再ベイクに失敗しました: {previewCutRebake.error}
+          </span>
+          <button className="warn" onClick={onRetryPreviewCut}>再試行</button>
+        </div>
+      )}
     </>
   );
 };
@@ -5516,10 +6291,79 @@ const HeaderBanners = ({
  * 再生中の毎フレーム更新をこれらの小さな要素に閉じ込める(App 全体は
  * 再レンダーしない)。詳しい理由は playhead.ts のコメント参照 */
 
-/** トランスポートの現在時刻表示 */
-const PlayheadTimecode = () => {
+/** トランスポートの現在時刻表示。onActivate があればクリック/Enter/Space で編集モードへ */
+const PlayheadTimecode = ({ onActivate }: { onActivate?: () => void } = {}) => {
   const text = usePlayheadSelector(fmtTime);
-  return <b className="mono">{text}</b>;
+  if (!onActivate) return <b className="mono">{text}</b>;
+  return (
+    <b
+      className="mono tcEdit"
+      role="button"
+      tabIndex={0}
+      title="クリックで時刻を入力してシーク(M:SS.ss または 秒)"
+      onClick={onActivate}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onActivate();
+        }
+      }}
+    >
+      {text}
+    </b>
+  );
+};
+
+/** クリックで編集欄になる現在時刻。Enter/blur で parseTimecode → seekOut、Escape で取消 */
+const EditableTimecode = ({
+  seekOut,
+  duration,
+}: {
+  seekOut: (outT: number) => void;
+  duration: number;
+}) => {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editing]);
+
+  const begin = () => {
+    setText(fmtTime(playhead.get()));
+    setEditing(true);
+  };
+  const commit = () => {
+    const sec = parseTimecode(text);
+    if (sec !== null) seekOut(clamp(sec, 0, duration));
+    setEditing(false);
+  };
+
+  if (!editing) return <PlayheadTimecode onActivate={begin} />;
+  return (
+    <input
+      ref={inputRef}
+      className="mono tcInput"
+      value={text}
+      inputMode="decimal"
+      aria-label="再生位置(時刻を入力してシーク)"
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit();
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          setEditing(false);
+        }
+      }}
+    />
+  );
 };
 
 /** シークバーの塗りとつまみ */

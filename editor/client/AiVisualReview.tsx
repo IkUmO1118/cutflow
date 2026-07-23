@@ -5,6 +5,16 @@ import { reviewEventStatus } from "../../src/lib/reviewEvents.ts";
 import type { ReviewBundle, ReviewStill } from "../../src/stages/review.ts";
 import type { AiRefineMode } from "./apiTypes.ts";
 import { selectPreviewMedia, type PreviewMode } from "./aiVisualReviewMedia.ts";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "./components/ui/dialog.tsx";
+import { ScrollArea } from "./components/ui/scroll-area.tsx";
+import { ToggleGroup, ToggleGroupItem } from "./components/ui/toggle-group.tsx";
+import { restoreDialogFocus } from "./lib/dialogFocus.ts";
 
 type Side = "theirs" | "mine";
 
@@ -112,6 +122,12 @@ export const AiVisualReview = ({
     [selectedEvent, hunks, resolution],
   );
   const descIsLong = description.length > 90;
+  const preventDialogDismiss = (event: Event) => event.preventDefault();
+  const returnFocusRef = useRef<HTMLElement | null>(
+    typeof document !== "undefined" && document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null,
+  );
 
   const syncAfterToBefore = (force = false) => {
     const before = beforeVideoRef.current;
@@ -163,16 +179,24 @@ export const AiVisualReview = ({
   };
 
   return (
-    <>
-      <div className="diffBackdrop" />
-      <section className="aiReviewModal" role="dialog" aria-label="AI 一発編集レビュー">
+    <Dialog open onOpenChange={(open) => !open && !actionsDisabled && onCancel()}>
+      <DialogContent
+        asChild
+        overlayClassName="diffBackdrop"
+        onEscapeKeyDown={preventDialogDismiss}
+        onPointerDownOutside={preventDialogDismiss}
+        onCloseAutoFocus={(event) => restoreDialogFocus(event, returnFocusRef.current)}
+      >
+        <section className="aiReviewModal ocAiReview" aria-label="AI 一発編集レビュー">
         <div className="aiReviewHead">
           <div className="aiReviewHeadCopy">
             <div className="diffCount">{events.length} 件の変更候補</div>
-            <h3>{title}</h3>
-            {description && (
-              <p className={descIsLong && !descExpanded ? "clamp" : ""}>{description}</p>
-            )}
+            <DialogTitle asChild><h3>{title}</h3></DialogTitle>
+            <DialogDescription asChild>
+              <p className={description ? (descIsLong && !descExpanded ? "clamp" : "") : "ocSrOnly"}>
+                {description || "AI が提案した変更内容を確認します"}
+              </p>
+            </DialogDescription>
             {descIsLong && (
               <button className="aiReviewDescToggle" onClick={() => setDescExpanded((prev) => !prev)}>
                 {descExpanded ? "たたむ" : "続きを読む"}
@@ -205,7 +229,8 @@ export const AiVisualReview = ({
 
         <div className={showEventList ? "aiReviewGrid" : "aiReviewGrid noList"}>
           {showEventList && (
-          <aside className="aiReviewEventList">
+          <ScrollArea className="aiReviewEventList">
+            <aside className="aiReviewEventListContent">
             {events.map((event) => {
               const visited = visitedEventIds.has(event.id);
               const status = reviewEventStatus({ event, hunks, resolution });
@@ -230,47 +255,51 @@ export const AiVisualReview = ({
                 </button>
               );
             })}
-          </aside>
+            </aside>
+          </ScrollArea>
           )}
 
-          <main className="aiReviewPreview">
+          <ScrollArea className="aiReviewPreview">
+            <main className="aiReviewPreviewContent">
             <div className="aiReviewPreviewCard">
               <div className="aiReviewPreviewTop">
                 <div className="aiReviewPreviewLabel">プレビュー</div>
-                <div className="aiReviewModeSwitch" role="group" aria-label="比較表示">
-                  <button
+                <ToggleGroup
+                  type="single"
+                  value={previewMode}
+                  onValueChange={(value) => value && setPreviewMode(value as PreviewMode)}
+                  className="aiReviewModeSwitch"
+                  aria-label="比較表示"
+                >
+                  <ToggleGroupItem
+                    value="after"
                     disabled={actionsDisabled}
                     className={previewMode === "after" ? "on" : ""}
-                    aria-pressed={previewMode === "after"}
-                    onClick={() => setPreviewMode("after")}
                   >
                     編集後
-                  </button>
-                  <button
+                  </ToggleGroupItem>
+                  <ToggleGroupItem
+                    value="before"
                     disabled={actionsDisabled}
                     className={previewMode === "before" ? "on" : ""}
-                    aria-pressed={previewMode === "before"}
-                    onClick={() => setPreviewMode("before")}
                   >
                     編集前
-                  </button>
-                  <button
+                  </ToggleGroupItem>
+                  <ToggleGroupItem
+                    value="side-by-side"
                     disabled={actionsDisabled}
                     className={previewMode === "side-by-side" ? "on" : ""}
-                    aria-pressed={previewMode === "side-by-side"}
-                    onClick={() => setPreviewMode("side-by-side")}
                   >
                     左右で比較
-                  </button>
-                  <button
+                  </ToggleGroupItem>
+                  <ToggleGroupItem
+                    value="overlay"
                     disabled={actionsDisabled}
                     className={previewMode === "overlay" ? "on" : ""}
-                    aria-pressed={previewMode === "overlay"}
-                    onClick={() => setPreviewMode("overlay")}
                   >
                     重ねて比較
-                  </button>
-                </div>
+                  </ToggleGroupItem>
+                </ToggleGroup>
               </div>
 
               {previewMedia ? (
@@ -446,9 +475,11 @@ export const AiVisualReview = ({
                 </div>
               )}
             </div>
-          </main>
+            </main>
+          </ScrollArea>
 
-          <aside className="aiReviewInspector">
+          <ScrollArea className="aiReviewInspector">
+            <aside className="aiReviewInspectorContent">
             {selectedEvent ? (
               <>
                 <div className="aiReviewInspectorHead">
@@ -487,26 +518,33 @@ export const AiVisualReview = ({
                   </section>
                 )}
 
-                <div className="aiReviewDecision" role="group" aria-label="この変更の採否">
+                <div className="aiReviewDecision">
                   <span className="aiReviewDecisionLabel">この変更を</span>
-                  <div className="aiReviewDecisionToggle">
-                    <button
+                  <ToggleGroup
+                    type="single"
+                    value={selectedStatus === "skip" || selectedStatus === "use" ? selectedStatus : ""}
+                    onValueChange={(value) => {
+                      if (value === "skip") setSelectedSide("mine");
+                      if (value === "use") setSelectedSide("theirs");
+                    }}
+                    className="aiReviewDecisionToggle"
+                    aria-label="この変更の採否"
+                  >
+                    <ToggleGroupItem
+                      value="skip"
                       disabled={actionsDisabled}
                       className={selectedStatus === "skip" ? "on skip" : ""}
-                      aria-pressed={selectedStatus === "skip"}
-                      onClick={() => setSelectedSide("mine")}
                     >
                       使わない
-                    </button>
-                    <button
+                    </ToggleGroupItem>
+                    <ToggleGroupItem
+                      value="use"
                       disabled={actionsDisabled}
                       className={selectedStatus === "use" ? "on use" : ""}
-                      aria-pressed={selectedStatus === "use"}
-                      onClick={() => setSelectedSide("theirs")}
                     >
                       使う
-                    </button>
-                  </div>
+                    </ToggleGroupItem>
+                  </ToggleGroup>
                 </div>
 
                 <section className="aiReviewInspectorSection">
@@ -577,16 +615,20 @@ export const AiVisualReview = ({
             ) : (
               <div className="aiReviewEmpty">変更候補がありません。</div>
             )}
-          </aside>
+            </aside>
+          </ScrollArea>
         </div>
 
         <div className="aiReviewFoot">
-          <button disabled={actionsDisabled} onClick={onCancel}>キャンセル</button>
+          <DialogClose asChild>
+            <button disabled={actionsDisabled}>キャンセル</button>
+          </DialogClose>
           <div className="spacer" />
           <button disabled={actionsDisabled} className="primary" onClick={onApply}>この内容で確定</button>
         </div>
-      </section>
-    </>
+        </section>
+      </DialogContent>
+    </Dialog>
   );
 };
 

@@ -11,6 +11,7 @@ import {
   watch,
   writeFileSync,
 } from "node:fs";
+import type { FSWatcher } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -21,7 +22,12 @@ import { spawn } from "node:child_process";
 import { renderCfgWithDesign } from "../src/lib/designAsset.ts";
 import { resolveDesign } from "../src/lib/design.ts";
 import { existingDesignAssets, prepareDesignAssetBundle } from "../src/lib/designStill.ts";
-import { build } from "esbuild";
+import {
+  buildEditorClientAssets,
+  createEditorClientReloader,
+  editorAssetResponse,
+} from "./clientBuild.ts";
+import type { MutableEditorClientAssets } from "./clientBuild.ts";
 import {
   clearCutplanApproval,
   clearShortApproval,
@@ -49,6 +55,12 @@ import { reviewSpecOfProposalReview } from "../src/lib/editorAiReview.ts";
 import { frames } from "../src/stages/frames.ts";
 import { buildProxy, isProxyStale } from "../src/stages/proxy.ts";
 import { preview } from "../src/stages/preview.ts";
+import { buildPreviewCut } from "../src/stages/previewCut.ts";
+import {
+  buildPreviewCutCacheKey,
+  inspectPreviewCutFreshness,
+  previewCutKeepSignature,
+} from "../src/lib/previewCutCache.ts";
 import { findBgm, render } from "../src/stages/render.ts";
 import { reviewEdit } from "../src/stages/review.ts";
 import { validateDocs } from "../src/stages/validate.ts";
@@ -78,7 +90,7 @@ import {
 } from "../src/lib/configEdit.ts";
 import type { ConfigPatch } from "../src/lib/configEdit.ts";
 import { loadShorts } from "../src/lib/shorts.ts";
-import { hasCamera } from "../src/types.ts";
+import { hasCamera, manifestCompositionFps } from "../src/types.ts";
 import { applyProposalResolution, proposalDiff } from "../src/lib/docDiff.ts";
 import { snapshotOfReviewDocs, validateReviewSpec } from "../src/lib/review.ts";
 import { supportsImageReview } from "../src/lib/llm.ts";
@@ -102,6 +114,8 @@ import type {
   AiRefineRequest,
   AiReviewRequest,
   ProjectData,
+  PreviewCutRequest,
+  PreviewCutResponse,
   SaveRequest,
   ScriptData,
   ScriptSegment,
@@ -139,23 +153,21 @@ export async function startEditor(
 
   const editorDir = dirname(fileURLToPath(import.meta.url));
 
-  // クライアントは起動時に一度だけメモリ上へバンドルする(~100ms)
-  const bundle = await build({
-    entryPoints: [join(editorDir, "client/index.tsx")],
-    bundle: true,
-    write: false,
-    format: "iife",
-    jsx: "automatic",
-    define: { "process.env.NODE_ENV": '"production"' },
-    sourcemap: "inline",
-    target: "es2022",
-    // Main.tsx が同梱フォント(*.woff2)を import する。esbuild には既定の
-    // ローダーが無いので data URI に埋め込む(remotion 側は webpack の
-    // asset/resource が URL 化する)。バンドルはメモリ上のみで数MB増える程度
-    loader: { ".woff2": "dataurl", ".woff": "dataurl" },
+  // JS/CSS/HTML は起動時に全てメモリ上へ生成する。以後の client 変更も
+  // 3成果物が揃った revision だけを一括 publish し、失敗時は直前の成功版を配る。
+  const assets: MutableEditorClientAssets = {
+    current: await buildEditorClientAssets(editorDir, 1),
+  };
+  const clientReloader = createEditorClientReloader({
+    assets,
+    build: async (revision) => await buildEditorClientAssets(editorDir, revision),
+    onSwap: (next) => console.log(`エディタ UI を再ビルドしました(revision ${next.revision})`),
+    onError: (error) => console.error(
+      `エディタ UI の再ビルドに失敗しました。revision ${assets.current.revision} を継続配信します。`,
+      error,
+    ),
   });
-  const bundleJs = bundle.outputFiles[0].text;
-  const indexHtml = readFileSync(join(editorDir, "client/index.html"), "utf8");
+  let clientWatcher: FSWatcher | null = null;
 
   // 編集 JSON の外部変更(Claude Code や手編集)を検知して SSE で通知する。
   // GUI 自身の保存(/api/save)による変更は lastWrittenHash(自分が最後に
@@ -183,7 +195,7 @@ export async function startEditor(
   });
 
   const server = createServer((req, res) => {
-    handle(req, res, dir, cfg, cfgPath, { bundleJs, indexHtml }, hub).catch((err: Error) => {
+    handle(req, res, dir, cfg, cfgPath, assets, hub).catch((err: Error) => {
       // HttpError は想定内の拒否(不正な保存=400、大きすぎる素材=413 等)。
       // それ以外は想定外なのでログに残して 500 で返す
       if (err instanceof HttpError) {
@@ -209,12 +221,32 @@ export async function startEditor(
     server.listen(port, "127.0.0.1", ok);
   });
 
+  // port conflict 等で listen 自体が失敗した場合に watcher を残さないよう、
+  // client の監視は待受成功後にだけ開始する。watch 開始が同期的に失敗した
+  // 場合も active server を残さず fail fast する。
+  try {
+    clientWatcher = watch(join(editorDir, "client"), { recursive: true }, () => {
+      clientReloader.schedule();
+    });
+    clientWatcher.on("error", (error) => {
+      console.error("editor/client の監視に失敗しました。", error);
+    });
+  } catch (error) {
+    clientReloader.close();
+    await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+    throw error;
+  }
+
   // 待受情報を収録フォルダの外(~/.cutflow/editor/)へ書く。デタッチ起動でも
   // フォアグラウンド起動でも同じように書くので、`editor <dir> --status` は
   // どちらの起動でも見える。プロセスがどの経路で終わっても最終段で必ず発火する
   // "exit" で同期的に消す(framesServe と同じ判断。async は exit 中に走らない)
   writeEditorServeFile({ dir, port, pid: process.pid, startedAt: new Date().toISOString() });
-  process.on("exit", () => removeEditorServeFile(dir));
+  process.on("exit", () => {
+    clientReloader.close();
+    clientWatcher?.close();
+    removeEditorServeFile(dir);
+  });
   // シグナルで殺された場合、Node は "exit" を発火しない(既定ハンドラはプロセスを
   // そのまま終了させる)。Ctrl+C(SIGINT)と `editor --stop`(SIGTERM)を明示的に
   // 受けて process.exit を呼び、上の "exit" を必ず通して portfile を消す。
@@ -231,7 +263,7 @@ export async function startEditor(
 
 /** クライアントへ特定の HTTP ステータスで返す想定内エラー(400 / 413 等)。
  * handle の外側の catch がステータスを見て返す */
-class HttpError extends Error {
+export class HttpError extends Error {
   status: number;
   code?: string;
   constructor(status: number, message: string, code?: string) {
@@ -302,7 +334,7 @@ async function handle(
   dir: string,
   cfg: Config,
   cfgPath: string,
-  assets: { bundleJs: string; indexHtml: string },
+  assets: MutableEditorClientAssets,
   hub: EventHub,
 ): Promise<void> {
   const url = new URL(req.url ?? "/", "http://localhost");
@@ -322,14 +354,12 @@ async function handle(
     return;
   }
 
-  if (req.method === "GET" && path === "/") {
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    res.end(assets.indexHtml);
-    return;
-  }
-  if (req.method === "GET" && path === "/bundle.js") {
-    res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8" });
-    res.end(assets.bundleJs);
+  const clientAsset = req.method === "GET"
+    ? editorAssetResponse(path, assets.current)
+    : null;
+  if (clientAsset) {
+    res.writeHead(200, clientAsset.headers);
+    res.end(clientAsset.body);
     return;
   }
   if (req.method === "GET" && path === "/particle_loop_icon.svg") {
@@ -771,9 +801,26 @@ async function handle(
     sendJson(res, 200, { ok: true });
     return;
   }
+  if (req.method === "POST" && path === "/api/preview-cut") {
+    const body = await readBody(req);
+    const result = await executePreviewCutRequest(dir, cfg, body, {
+      // proxy build が先に始まっていれば、atomic publish 完了後の stat/key で
+      // enqueue する。失敗時はその error を返し、古い proxy は読まない。
+      waitForProxy: async () => {
+        if (proxyBuilding) await proxyBuilding;
+      },
+    });
+    sendJson(res, 200, result);
+    return;
+  }
   if (req.method === "POST" && path === "/api/proxy") {
-    // 二重生成防止: 実行中ならその結果を待って同じレスポンスを返す
-    proxyBuilding ??= buildProxy(dir, cfg).finally(() => {
+    // 二重生成防止: 実行中ならその結果を待って同じレスポンスを返す。
+    // promise を preview queue 待機前に登録することで、新しい preview-cut
+    // request もこの proxy 完了を待ち、proxy の読み書きが重ならない。
+    proxyBuilding ??= (async () => {
+      await previewCutQueue.waitForIdle();
+      return await buildProxy(dir, cfg);
+    })().finally(() => {
       proxyBuilding = null;
     });
     const out = await proxyBuilding;
@@ -818,6 +865,132 @@ async function handle(
 
 /** proxy.mp4 の生成(数十秒かかる)の実行中プロミス。二重生成の防止用 */
 let proxyBuilding: Promise<string> | null = null;
+
+type PreviewCutBuildResult = Awaited<ReturnType<typeof buildPreviewCut>>;
+
+/**
+ * preview cut は入力 key ごとに同一 promise を共有し、異 key は要求順に直列化する。
+ * tail は失敗を吸収して次の task へ進むため、1件の ffmpeg failure で queue は壊れない。
+ */
+export class PreviewCutRequestQueue {
+  private tail: Promise<void> = Promise.resolve();
+  private readonly byKey = new Map<string, Promise<PreviewCutBuildResult>>();
+
+  enqueue(key: string, task: () => Promise<PreviewCutBuildResult>): Promise<PreviewCutBuildResult> {
+    const existing = this.byKey.get(key);
+    if (existing) return existing;
+    const run = this.tail.then(task);
+    let shared!: Promise<PreviewCutBuildResult>;
+    shared = run.finally(() => {
+      if (this.byKey.get(key) === shared) this.byKey.delete(key);
+    });
+    this.byKey.set(key, shared);
+    this.tail = shared.then(() => undefined, () => undefined);
+    return shared;
+  }
+
+  async waitForIdle(): Promise<void> {
+    await this.tail;
+  }
+}
+
+const previewCutQueue = new PreviewCutRequestQueue();
+
+export function validatePreviewCutRequest(dir: string, body: unknown): string[] {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return ["request body は {cutplan} の JSON object で指定してください"];
+  }
+  const record = body as Record<string, unknown>;
+  const errors: string[] = [];
+  if (Object.keys(record).length !== 1 || !("cutplan" in record)) {
+    errors.push("request body は cutplan だけを指定してください");
+  }
+  if (!record.cutplan || typeof record.cutplan !== "object" || Array.isArray(record.cutplan)) {
+    errors.push("cutplan は JSON object で指定してください");
+    return errors;
+  }
+  try {
+    const validation = validateDocs(
+      dir,
+      mergeBodyOverDisk(dir, { cutplan: record.cutplan as CutPlan }),
+    );
+    errors.push(...validation.errors.map((error) =>
+      `${error.file} ${error.where}: ${error.message}`
+    ));
+  } catch (error) {
+    errors.push(`cutplan を検証できません: ${(error as Error).message}`);
+  }
+  return errors;
+}
+
+export function previewCutRequestKey(args: {
+  dir: string;
+  cfg: Config;
+  cutplan: CutPlan;
+  proxyMtimeMs?: number;
+  proxySize?: number;
+}): string {
+  const manifest = JSON.parse(
+    readFileSync(join(args.dir, "manifest.json"), "utf8"),
+  ) as Manifest;
+  const proxyStat = args.proxyMtimeMs === undefined || args.proxySize === undefined
+    ? statSync(join(args.dir, "proxy.mp4"))
+    : null;
+  return JSON.stringify(buildPreviewCutCacheKey({
+    cfg: args.cfg,
+    cutplan: args.cutplan,
+    proxyMtimeMs: args.proxyMtimeMs ?? proxyStat!.mtimeMs,
+    proxySize: args.proxySize ?? proxyStat!.size,
+    compositionFps: manifestCompositionFps(manifest),
+  }));
+}
+
+export interface PreviewCutEndpointDependencies {
+  queue?: PreviewCutRequestQueue;
+  waitForProxy?: () => Promise<void>;
+  proxyExists?: () => boolean;
+  proxyStale?: () => boolean;
+  build?: typeof buildPreviewCut;
+}
+
+/** HTTP層から分離したC2 endpoint本体。テストでも同じvalidation/queueを通す。 */
+export async function executePreviewCutRequest(
+  dir: string,
+  cfg: Config,
+  body: unknown,
+  deps: PreviewCutEndpointDependencies = {},
+): Promise<PreviewCutResponse> {
+  const requestErrors = validatePreviewCutRequest(dir, body);
+  if (requestErrors.length > 0) throw new HttpError(400, requestErrors.join(" / "));
+  const request = body as PreviewCutRequest;
+  await deps.waitForProxy?.();
+
+  const proxyPath = join(dir, "proxy.mp4");
+  if (!(deps.proxyExists ?? (() => existsSync(proxyPath)))()) {
+    throw new HttpError(409, "proxy.mp4 がありません。プロキシ生成の完了後に再試行してください");
+  }
+  let stale: boolean;
+  try {
+    stale = (deps.proxyStale ?? (() => isProxyStale(dir, cfg)))();
+  } catch {
+    stale = true;
+  }
+  if (stale) {
+    throw new HttpError(409, "proxy.mp4 が古いか生成情報が壊れています。プロキシを再生成してください");
+  }
+
+  const key = previewCutRequestKey({ dir, cfg, cutplan: request.cutplan });
+  const result = await (deps.queue ?? previewCutQueue).enqueue(
+    key,
+    () => (deps.build ?? buildPreviewCut)(dir, cfg, request.cutplan),
+  );
+  return {
+    ok: true,
+    path: result.path,
+    keepSignature: previewCutKeepSignature(request.cutplan),
+    reused: result.reused,
+  };
+}
 
 export interface HyperframeCardSources {
   htmlByName: Record<string, string>;
@@ -1401,6 +1574,44 @@ export function loadScript(dir: string): ScriptData {
   return { source: "transcript", segments };
 }
 
+export function loadPreviewCutState(
+  dir: string,
+  cfg: Config,
+  cutplan: CutPlan,
+  proxyState?: { exists: boolean; stale: boolean },
+): ProjectData["previewCut"] {
+  let keepSignature = "";
+  try {
+    keepSignature = previewCutKeepSignature(cutplan);
+    const proxyExists = proxyState?.exists ?? existsSync(join(dir, "proxy.mp4"));
+    const proxyStale = proxyState?.stale ?? isProxyStale(dir, cfg);
+    if (!proxyExists || proxyStale) return { ready: false, keepSignature };
+    const proxyStat = statSync(join(dir, "proxy.mp4"));
+    const manifest = JSON.parse(
+      readFileSync(join(dir, "manifest.json"), "utf8"),
+    ) as Manifest;
+    const currentKey = buildPreviewCutCacheKey({
+      cfg,
+      cutplan,
+      proxyMtimeMs: proxyStat.mtimeMs,
+      proxySize: proxyStat.size,
+      compositionFps: manifestCompositionFps(manifest),
+    });
+    return {
+      ready: inspectPreviewCutFreshness({
+        dir,
+        currentKey,
+        proxyFresh: true,
+      }).fresh,
+      keepSignature,
+    };
+  } catch {
+    // proxy key / preview sidecar / stat / cutplan のどれが壊れていても、
+    // project load 自体は止めず従来の source-domain preview へ劣化する。
+    return { ready: false, keepSignature };
+  }
+}
+
 export function loadProject(dir: string, cfg: Config): ProjectData {
   const aiRuntime = resolveAiRuntimeConfig(cfg);
   const readJson = <T>(file: string, fallback: T): T => {
@@ -1438,6 +1649,13 @@ export function loadProject(dir: string, cfg: Config): ProjectData {
   } catch {
     draft = null;
   }
+  const proxyExists = existsSync(join(dir, "proxy.mp4"));
+  let proxyStale = false;
+  try {
+    proxyStale = proxyExists && isProxyStale(dir, cfg);
+  } catch {
+    proxyStale = true;
+  }
   return {
     dir,
     manifest,
@@ -1451,8 +1669,12 @@ export function loadProject(dir: string, cfg: Config): ProjectData {
     shorts: loadShorts(dir),
     silences: readJson<AutoCuts | null>("cuts.auto.json", null)?.silences ?? null,
     silenceCutReason: cfg.detect?.silenceCutReason ?? DEFAULT_SILENCE_CUT_REASON,
-    proxyExists: existsSync(join(dir, "proxy.mp4")),
-    proxyStale: isProxyStale(dir, cfg),
+    proxyExists,
+    proxyStale,
+    previewCut: loadPreviewCutState(dir, cfg, cutplan, {
+      exists: proxyExists,
+      stale: proxyStale,
+    }),
     renderCfg: designRenderCfg,
     ...editorDesignAssets(dir, cfg, manifest, designRenderCfg),
     previewCfg: { width: cfg.preview.width, videoEncoder: cfg.preview.videoEncoder },

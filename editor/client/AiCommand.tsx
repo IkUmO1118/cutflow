@@ -26,17 +26,19 @@ export const AiCommand = ({
 }) => {
   const [instruction, setInstruction] = useState("");
   const blocked = disabled || busy || instruction.trim().length === 0;
+  const submit = () => {
+    if (blocked) return;
+    onSubmit(instruction.trim());
+    if (clearOnSubmit) setInstruction("");
+  };
   return (
     <form
-      className={`aiCommand${compact ? " compact" : ""}${modalStyle ? " modalStyle" : ""}`}
+      className={`aiCommand ocAiCommand${compact ? " compact" : ""}${modalStyle ? " modalStyle" : ""}`}
       onSubmit={(e) => {
         e.preventDefault();
-        if (blocked) return;
-        onSubmit(instruction.trim());
-        if (clearOnSubmit) setInstruction("");
+        submit();
       }}
     >
-      {!modalStyle && <span className="aiBadge">AI</span>}
       {multiline ? (
         <textarea
           value={instruction}
@@ -45,6 +47,13 @@ export const AiCommand = ({
           title={disabled && disabledReason ? disabledReason : placeholder}
           rows={3}
           onChange={(e) => setInstruction(e.target.value)}
+          // 複数行入力の作法: Enter は改行、⌘/Ctrl+Enter で送信
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              submit();
+            }
+          }}
         />
       ) : (
         <input

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   CAPTION_DEFAULT_COLOR,
   CAPTION_DEFAULT_FONT_FAMILY,
@@ -14,6 +14,16 @@ import type { ConfigPatch } from "../../src/lib/configEdit.ts";
 import type { AiDoctorResult, AiProfileStatus, EditorCfg, PlanPerceptionStatus } from "./apiTypes.ts";
 import { NumInput, PctSlider, joinColor, splitColor } from "./widgets.tsx";
 import { CAPTION_WEIGHT_OPTIONS, FONT_PRESETS } from "./Inspector.tsx";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "./components/ui/dialog.tsx";
+import { ScrollArea } from "./components/ui/scroll-area.tsx";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs.tsx";
+import { restoreDialogFocus } from "./lib/dialogFocus.ts";
 
 type RenderCfg = Config["render"];
 type PreviewCfg = { width: number; videoEncoder?: "libx264" | "videotoolbox" };
@@ -239,37 +249,62 @@ export const SettingsModal = ({
     if (statuses.some((status) => status === "ok")) return "ok";
     return "skip";
   };
+  const isSettingsDraftField = (target: EventTarget | null) =>
+    target instanceof HTMLElement && ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName);
+  const guardSettingsEscapeDismiss = (event: Event) => {
+    if (
+      saving
+      || isSettingsDraftField(event.target)
+      || isSettingsDraftField(document.activeElement)
+    ) event.preventDefault();
+  };
+  const guardSavingDismiss = (event: Event) => {
+    if (saving) event.preventDefault();
+  };
+  const returnFocusRef = useRef<HTMLElement | null>(
+    typeof document !== "undefined" && document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null,
+  );
 
   return (
-    <div className="settingsModal" role="dialog" aria-label="設定">
-      <h3>設定</h3>
-      <p className="hint dim" style={{ margin: "0 0 4px" }}>
-        全収録フォルダ共通の設定(config.yaml)。変更はプレビューに即反映され、
-        「保存」で書き戻します
-      </p>
+    <Dialog open onOpenChange={(open) => !open && !saving && onCancel()}>
+      <DialogContent
+        asChild
+        overlayClassName="settingsBackdrop"
+        onEscapeKeyDown={guardSettingsEscapeDismiss}
+        onPointerDownOutside={guardSavingDismiss}
+        onCloseAutoFocus={(event) => restoreDialogFocus(event, returnFocusRef.current)}
+      >
+        <div className="settingsModal ocSettings" aria-label="設定">
+      <DialogTitle asChild><h3>設定</h3></DialogTitle>
+      <DialogDescription asChild>
+        <p className="hint dim" style={{ margin: "0 0 4px" }}>
+          全収録フォルダ共通の設定(config.yaml)。変更はプレビューに即反映され、
+          「保存」で書き戻します
+        </p>
+      </DialogDescription>
 
-      <div className="settingsTabs" role="tablist" aria-label="設定カテゴリ">
+      <Tabs className="settingsTabsRoot" value={tab} onValueChange={(value) => setTab(value as typeof tab)}>
+      <TabsList className="settingsTabs" aria-label="設定カテゴリ">
         {[
           ["ai", "AI / plan"],
           ["look", "見た目"],
           ["audio", "音声"],
           ["editor", "エディタ"],
         ].map(([id, label]) => (
-          <button
+          <TabsTrigger
             key={id}
-            type="button"
-            role="tab"
-            aria-selected={tab === id}
+            value={id}
             className={tab === id ? "active" : ""}
-            onClick={() => setTab(id as typeof tab)}
           >
             {label}
-          </button>
+          </TabsTrigger>
         ))}
-      </div>
+      </TabsList>
+      <ScrollArea className="settingsBody">
 
-      {tab === "ai" && (
-        <>
+      <TabsContent value="ai" className="settingsTabPanel">
       <h4>AI / plan</h4>
       <div className="field">
         <label>主AI</label>
@@ -433,11 +468,9 @@ export const SettingsModal = ({
         </div>
       </div>
 
-        </>
-      )}
+      </TabsContent>
 
-      {tab === "look" && (
-        <>
+      <TabsContent value="look" className="settingsTabPanel">
       <h4>出力の見た目</h4>
       <div className="field">
         <label>ワイプ幅 / 余白 (px)</label>
@@ -684,11 +717,9 @@ export const SettingsModal = ({
         <span className="hint dim">plan / remeta 実行時のみ反映</span>
       </div>
 
-        </>
-      )}
+      </TabsContent>
 
-      {tab === "audio" && (
-        <>
+      <TabsContent value="audio" className="settingsTabPanel">
       <h4>音声</h4>
       <div className="field">
         <label>ラウドネス目標 (LUFS)</label>
@@ -778,11 +809,9 @@ export const SettingsModal = ({
         <span className="hint dim">0 dB で無効</span>
       </div>
 
-        </>
-      )}
+      </TabsContent>
 
-      {tab === "editor" && (
-        <>
+      <TabsContent value="editor" className="settingsTabPanel">
       <h4>エディタ</h4>
       <div className="field">
         <label>プレビュー幅 (px)</label>
@@ -867,18 +896,22 @@ export const SettingsModal = ({
         />
       </div>
 
-        </>
-      )}
+      </TabsContent>
+
+      </ScrollArea>
+      </Tabs>
 
       <div className="foot">
         {error && <span className="error">{error}</span>}
-        <button onClick={onCancel} disabled={saving}>
-          キャンセル
-        </button>
+        <DialogClose asChild>
+          <button disabled={saving}>キャンセル</button>
+        </DialogClose>
         <button className="primary" onClick={onSave} disabled={saving}>
           {saving ? "保存中…" : "保存"}
         </button>
       </div>
-    </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 };
