@@ -13,12 +13,16 @@ test("P4 checkpoint 1 adds scoped roots without replacing semantic hooks", () =>
   const diff = read("editor/client/DiffReview.tsx");
   const settings = read("editor/client/SettingsModal.tsx");
   const app = read("editor/client/App.tsx");
+  const panels = read("editor/client/Panels.tsx");
 
   assert.match(command, /className=\{`aiCommand ocAiCommand\$\{compact/);
   assert.match(visual, /className="aiReviewModal ocAiReview" aria-label="AI 一発編集レビュー"/);
   assert.match(diff, /className="diffModal ocDiffReview" aria-label="外部変更の差分レビュー"/);
   assert.match(settings, /className="settingsModal ocSettings" aria-label="設定"/);
-  assert.match(app, /className="aiCommandModal hfAuthorModal ocHyperframeAuthor" aria-label="AI で素材を作る"/);
+  // HyperFrames の生成フォームはモーダルではなく「AI 生成」タブのパネル本体
+  // (Panels.tsx の HyperframeAuthorPanel)。ocHyperframeAuthor は panelBody に付く
+  assert.match(panels, /className="panelBody ocHyperframeAuthor"/);
+  assert.doesNotMatch(app, /className="aiCommandModal hfAuthorModal ocHyperframeAuthor"/);
   assert.match(app, /className="aiCommandModal ocAiCommandModal" aria-label="AI 一発編集"/);
 
   for (const hook of [
@@ -26,7 +30,7 @@ test("P4 checkpoint 1 adds scoped roots without replacing semantic hooks", () =>
     "aiReviewModeSwitch", "aiReviewDecisionToggle", "diffList", "diffHunk",
     "diffValue", "hfAssetDrop", "hfAssetList", "settingsTabs", "settingsCard",
     "doctorRow",
-  ]) assert.ok([command, visual, diff, settings, app].some((source) => source.includes(hook)), `lost hook ${hook}`);
+  ]) assert.ok([command, visual, diff, settings, app, panels].some((source) => source.includes(hook)), `lost hook ${hook}`);
 });
 
 test("P4 wrappers use exact-pinned Radix primitives for focus, keys, and scroll mechanics", () => {
@@ -127,6 +131,8 @@ test("conflict review keeps mine/theirs defaults and hunk-resolution callbacks",
 
 test("HyperFrames authoring keeps file gates, keyboard drop target, progress, and API routing", () => {
   const app = read("editor/client/App.tsx");
+  const panels = read("editor/client/Panels.tsx");
+  // 送信ロジック(検証・busy・pending・API 呼び出し)は App.tsx のまま
   for (const contract of [
     "if (hyperframeAuthorBusy) return",
     "if (!HYPERFRAME_NAME_RE.test(name))",
@@ -134,16 +140,22 @@ test("HyperFrames authoring keeps file gates, keyboard drop target, progress, an
     "next.reduce((sum, file) => sum + file.size, 0) > hyperframeAssetLimits.maxTotalBytes",
     "addHyperframeAuthorAssets([...event.dataTransfer.files])",
     "setHyperframeAuthorPendingName(name)",
-    "setHyperframeAuthorOpen(false)",
     "await postHyperframeAuthor(name, brief, assets)",
     "setHyperframeAuthorBusy(false)",
     "setHyperframeAuthorPendingName(null)",
-    'tabIndex={hyperframeAuthorBusy ? -1 : 0}',
-    'event.key === "Enter" || event.key === " "',
-    'accept=".png,.jpg,.jpeg,.gif,.webp,.woff2,image/png,image/jpeg,image/gif,image/webp,font/woff2"',
-    "onDrop={onHyperframeAssetDrop}",
+    "onAssetDrop={onHyperframeAssetDrop}",
     "clearOnSubmit={false}",
   ]) assert.ok(app.includes(contract), `lost HyperFrames contract: ${contract}`);
+  // モーダルの開閉概念は無い(タブなので閉じない)
+  assert.ok(!app.includes("setHyperframeAuthorOpen"), "HyperFrames modal open/close state should be gone");
+  // 添付ドロップの UI(キーボード操作対象・ファイル種別)は Panels.tsx の
+  // HyperframeAuthorPanel(「AI 生成」タブ)へ移った
+  for (const contract of [
+    "tabIndex={busy ? -1 : 0}",
+    'event.key === "Enter" || event.key === " "',
+    'accept=".png,.jpg,.jpeg,.gif,.webp,.woff2,image/png,image/jpeg,image/gif,image/webp,font/woff2"',
+    "onDrop={onAssetDrop}",
+  ]) assert.ok(panels.includes(contract), `lost HyperFrames panel contract: ${contract}`);
 });
 
 test("Settings keeps controlled tabs, live patching, snapshot rollback, save, and doctor flow", () => {
@@ -184,10 +196,9 @@ test("controlled dialogs preserve close routing, focus return, and busy dismissa
   const settings = read("editor/client/SettingsModal.tsx");
   for (const contract of [
     "onOpenChange={(open) => !open && setAiCommandOpen(false)}",
-    "onOpenChange={(open) => !open && !hyperframeAuthorBusy && setHyperframeAuthorOpen(false)}",
-    "onEscapeKeyDown={(event) => event.preventDefault()}",
-    "onPointerDownOutside={(event) => hyperframeAuthorBusy && event.preventDefault()}",
   ]) assert.ok(app.includes(contract), `lost App dialog policy: ${contract}`);
+  // HyperFrames はもうモーダルではないので、busy 中の外側クリック/Escape 抑止は不要
+  assert.ok(!app.includes("hyperframeAuthorBusy && event.preventDefault()"), "HF-only dialog dismiss guard should be gone");
   for (const contract of [
     "onOpenChange={(open) => !open && !actionsDisabled && onCancel()}",
     "onEscapeKeyDown={preventDialogDismiss}",
@@ -219,9 +230,10 @@ test("controlled Dialog teardown restores each launcher or previously focused el
     "const aiCommandLauncherRef = useRef<HTMLButtonElement | null>(null)",
     "ref={aiCommandLauncherRef}",
     "restoreDialogFocus(event, aiCommandLauncherRef.current)",
-    "hyperframeAuthorReturnFocusRef.current =",
-    "restoreDialogFocus(event, hyperframeAuthorReturnFocusRef.current)",
   ]) assert.ok(app.includes(contract), `lost App focus-return contract: ${contract}`);
+  // HyperFrames はもうモーダルではない(タブに閉じる概念は無い)ので、
+  // 返却フォーカス管理は不要になっている
+  assert.ok(!app.includes("hyperframeAuthorReturnFocusRef"), "hyperframeAuthorReturnFocusRef should be removed");
   for (const source of [visual, diff, settings]) {
     assert.match(source, /const returnFocusRef = useRef<HTMLElement \| null>/);
     assert.match(source, /onCloseAutoFocus=\{\(event\) => restoreDialogFocus\(event, returnFocusRef\.current\)\}/);
@@ -288,7 +300,8 @@ test("real Tabs, ToggleGroups, and ScrollAreas mount on every required P4 surfac
   assert.match(diff, /<ScrollArea className="diffList">/);
   assert.match(read("editor/client/styles.css"), /\.ocDiffReview \.diffList \{[\s\S]*?overflow: hidden;/);
   assert.match(settings, /<ScrollArea className="settingsBody">/);
-  assert.match(app, /<ScrollArea className="hfAssetListScroll">/);
+  // HyperFrames の添付一覧は Panels.tsx の HyperframeAuthorPanel(「AI 生成」タブ)にある
+  assert.match(read("editor/client/Panels.tsx"), /<ScrollArea className="hfAssetListScroll">/);
 });
 
 test("P4 surface skin covers dialog, tabs, toggles, cards, focus, scroll, and narrow viewports", () => {

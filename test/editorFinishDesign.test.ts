@@ -54,13 +54,15 @@ test("shared empty and app states preserve panel callbacks and state boundaries"
   assert.match(materialEmpty, /onClick=\{onUploadClick\}/);
   assert.match(materialEmpty, /Drag and drop videos, photos, and audio files here/);
 
-  const captionsEmpty = panels.slice(panels.indexOf("transcript.segments.length === 0"), panels.indexOf('return (\n    <div className="capList">'));
+  // テロップ一覧は「章」トラックを除いた rows で空判定する(全 segments ではない)
+  const captionsEmpty = panels.slice(panels.indexOf("rows.length === 0"), panels.indexOf('return (\n    <div className="capList">'));
   assert.match(captionsEmpty, /<EmptyState/);
   assert.doesNotMatch(captionsEmpty, /onClick=/);
   const shortsEmpty = panels.slice(panels.indexOf("list.length === 0"), panels.indexOf('<div className="capList">', panels.indexOf("list.length === 0")));
   assert.match(shortsEmpty, /<EmptyState[\s\S]*onClick=\{onAdd\}/);
   assert.ok((panels.match(/onClick=\{onAdd\}/g) ?? []).length >= 2);
-  const scriptEmptyAt = panels.indexOf("rows.length === 0");
+  // 空判定 `rows.length === 0` はテロップ側にもあるので ScriptPanel 以降から探す
+  const scriptEmptyAt = panels.indexOf("rows.length === 0", panels.indexOf("export const ScriptPanel"));
   assert.ok(panels.indexOf("if (error)") < panels.indexOf("if (!script)") && panels.indexOf("if (!script)") < scriptEmptyAt);
   assert.match(panels.slice(scriptEmptyAt, panels.indexOf('className="scriptPanel"')), /<EmptyState/);
 });
@@ -147,9 +149,10 @@ test("P5 onboarding is local-only, conflict-prioritized, dismissible, and guarde
   assert.doesNotMatch(dialog, /\/api\/|postSave|postDraft|fetch\(/);
   assert.match(app, /draftOffer === null && !externalChange && !diffPanelOpen/);
   assert.match(app, /onboardingOpen && onboardingEligible/);
-  assert.match(app, /hyperframeAuthorOpen \|\|[\s\S]*diffReview !== null && diffPanelOpen[\s\S]*aiWorkflowReview !== null \|\|[\s\S]*onboardingVisible/);
-  assert.ok(app.indexOf('e.key === "s"') < app.indexOf("hyperframeAuthorOpen ||"));
-  assert.ok(app.indexOf('e.key === ","') < app.indexOf("hyperframeAuthorOpen ||"));
+  assert.match(app, /\(diffReview !== null && diffPanelOpen\) \|\|[\s\S]*aiWorkflowReview !== null \|\|[\s\S]*onboardingVisible/);
+  assert.ok(app.indexOf('e.key === "s"') < app.indexOf("diffReview !== null && diffPanelOpen"));
+  assert.ok(app.indexOf('e.key === ","') < app.indexOf("diffReview !== null && diffPanelOpen"));
+  assert.ok(!app.includes("hyperframeAuthorOpen"), "hyperframeAuthorOpen modal state should be removed");
   assert.match(app, /t\.closest\("button,\[role=button\]"\)/);
 });
 

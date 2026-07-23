@@ -325,13 +325,6 @@
     border-color: hsl(var(--oc-primary) / 0.55);
     background: hsl(var(--oc-primary) / 0.14);
   }
-  .aiCommand .aiBadge {
-    flex: none;
-    padding: 2px 6px;
-    border: 1px solid hsl(var(--oc-primary) / 0.6); border-radius: 4px;
-    color: hsl(var(--oc-primary)); background: hsl(var(--oc-primary) / 0.12);
-    font-size: 11px; font-weight: 700;
-  }
   .aiCommand input,
   .aiCommand textarea {
     min-width: 0; flex: 1;
@@ -618,11 +611,6 @@
   .aiCommandModal .aiCommand { max-width: none; width: 100%; }
   .aiCommandModal textarea { min-height: 88px; }
   .aiCommandModal .hint { margin: 10px 0 0; line-height: 1.55; }
-  .hfAuthorNameField {
-    display: grid; grid-template-columns: 72px 1fr; align-items: center; gap: 8px;
-    margin-bottom: 10px; color: hsl(var(--oc-muted-foreground)); font-size: 12px;
-  }
-  .hfAuthorNameField input { width: 100%; }
   .hfAssetDrop {
     display: grid; gap: 4px; place-items: center;
     margin-top: 10px; padding: 14px;
@@ -635,8 +623,6 @@
   }
   .hfAssetDrop.disabled { opacity: 0.55; cursor: default; }
   .hfAssetDrop input { display: none; }
-  .hfAssetDrop strong { font-size: 12px; }
-  .hfAssetDrop span { color: hsl(var(--oc-muted-foreground)); font-size: 11px; }
   .hfAssetList {
     display: grid; gap: 5px; margin: 8px 0 0; padding: 0; list-style: none;
   }
@@ -1357,13 +1343,13 @@
   }
   .resizableHandle {
     position: relative; z-index: 2;
-    width: 0.35rem; min-width: 0.35rem;
+    width: 0.18rem; min-width: 0.18rem;
     cursor: col-resize;
     background: transparent;
     outline: none;
   }
   .resizableHandle[aria-orientation="horizontal"] {
-    width: 100%; min-width: 0; height: 0.35rem; min-height: 0.35rem;
+    width: 100%; min-width: 0; height: 0.18rem; min-height: 0.18rem;
     cursor: row-resize;
   }
   .resizableHandle::after {
@@ -1471,7 +1457,6 @@
   .matPanel { position: relative; } /* ドロップオーバーレイの基準 */
   .matPanel.dragOver { outline: 2px dashed hsl(var(--oc-primary)); outline-offset: -2px; }
   .materialLoading { margin-left: auto; color: hsl(var(--oc-muted-foreground)); font-size: 11px; }
-  .materialAuthorGate { margin: -3px 14px 10px; color: hsl(var(--oc-warning)); }
   .materialError {
     margin: 4px 0 0;
     color: hsl(var(--oc-destructive));
@@ -3368,42 +3353,30 @@
   background: hsl(var(--oc-muted));
 }
 
-.ocSidePanel .ocMaterialsPanel .materialAuthorGate,
 .ocSidePanel .ocMaterialsPanel .materialListError,
 .ocSidePanel .ocMaterialsPanel > .hint {
   margin: 0.55rem 0.65rem;
   padding: 0 !important;
 }
 
-.ocSidePanel .ocMaterialsPanel .materialAuthorGate { color: hsl(var(--oc-warning)); }
 .ocSidePanel .ocMaterialsPanel .materialError { color: hsl(var(--oc-destructive)); }
 
+/* 空状態はパネル本体をそのまま占める(OpenCut の Assets と同じで、上端に
+   小さな箱が浮かない)。素材が1つでもあればグリッドに置き換わる */
+.ocSidePanel .ocMaterialsPanel { display: flex; flex-direction: column; min-height: 100%; }
+
 .ocSidePanel .ocMaterialsPanel .ocMaterialEmptyDrop {
+  flex: 1;
   width: calc(100% - 1.5rem);
   min-height: 8.375rem;
   margin: 0.75rem;
   padding: 1.5rem 1rem;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1rem;
-  color: hsl(var(--oc-muted-foreground));
-  border: 0;
-  border-radius: 0.75rem;
-  background: hsl(var(--oc-muted));
   font-size: var(--oc-text-sm);
   font-weight: 400;
-  text-align: center;
 }
 
 .ocSidePanel .ocMaterialsPanel .ocMaterialEmptyDrop svg {
   color: hsl(var(--oc-foreground));
-}
-
-.ocSidePanel .ocMaterialsPanel .ocMaterialEmptyDrop:hover:not(:disabled),
-.ocSidePanel .ocMaterialsPanel .ocMaterialEmptyDrop:focus-visible {
-  background: hsl(var(--oc-muted) / 0.82);
 }
 
 .ocSidePanel .ocMaterialsPanel .matDropOverlay {
@@ -3869,6 +3842,21 @@
   padding-top: 0;
   border-top: 0;
 }
+/* P7.1: 背高・非 uppercase・text-sm のセクション見出し(OpenCut の SectionTitle
+   相当)。折りたたみ可能なときは見出し行(inspSecHead)が余白を持つ */
+.ocInspector .inspSec > h4,
+.ocInspector .inspSecHead > h4 {
+  display: flex;
+  align-items: center;
+  min-height: 1.55rem;
+  margin: 0 0 0.5rem;
+  color: hsl(var(--oc-foreground));
+  font-size: var(--oc-text-sm);
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  text-transform: none;
+}
+.ocInspector .inspSecHead > h4 { margin: 0; }
 .ocInspector .inspSecHead {
   display: flex;
   align-items: center;
@@ -4839,7 +4827,7 @@
   transform: translate(-50%, -50%);
 }
 
-.aiCommandBackdrop:has(+ :is(.ocAiCommandModal, .ocHyperframeAuthor)),
+.aiCommandBackdrop:has(+ .ocAiCommandModal),
 .diffBackdrop:has(+ :is(.ocDiffReview, .ocAiReview)),
 .settingsBackdrop:has(+ .ocSettings),
 .onboardingBackdrop:has(+ .onboardingDialog) {
@@ -4946,7 +4934,6 @@
 }
 
 .ocAiCommandModal,
-.ocHyperframeAuthor,
 .ocDiffReview,
 .ocAiReview,
 .ocSettings {
@@ -4980,19 +4967,6 @@
   border: 1px solid hsl(var(--oc-border));
   border-radius: var(--oc-radius);
   background: hsl(var(--oc-muted) / 0.36);
-}
-
-.ocAiCommand .aiBadge {
-  height: 1.45rem;
-  min-width: 1.45rem;
-  padding: 0 0.3rem;
-  border: 1px solid hsl(var(--oc-primary) / 0.28);
-  border-radius: calc(var(--oc-radius) - 0.18rem);
-  color: hsl(var(--oc-primary));
-  background: hsl(var(--oc-primary) / 0.1);
-  font-size: 0.64rem;
-  font-weight: 750;
-  letter-spacing: 0.04em;
 }
 
 .ocAiCommand :is(input, textarea) {
@@ -5034,6 +5008,62 @@
   padding: 0.18rem;
 }
 
+/* 複数行の指示文(「AI 生成」タブ)は 1 行入力の横並びではなく composer に
+   する: 上に本文、下に AI バッジ・送信ヒント・送信ボタンのフッタ行。枠は
+   shadcn の input と同じ扱い(border-input + focus-within リング)で、
+   textarea 自身の枠は消して「1 つの面」に見せる */
+.ocAiCommand:not(.modalStyle):has(textarea) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "text text"
+    ".    submit";
+  align-items: center;
+  gap: 0.5rem 0.45rem;
+  max-width: none;
+  padding: 0.55rem 0.55rem 0.5rem;
+  border-color: hsl(var(--oc-input));
+  border-radius: calc(var(--oc-radius) + 0.1rem);
+  background: hsl(var(--oc-background) / 0.72);
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.ocAiCommand:not(.modalStyle):has(textarea):focus-within {
+  border-color: hsl(var(--oc-primary) / 0.7);
+  box-shadow: 0 0 0 2px hsl(var(--oc-ring) / 0.22);
+}
+
+.ocAiCommand:not(.modalStyle):has(textarea):has(textarea:disabled) {
+  background: hsl(var(--oc-muted) / 0.3);
+}
+
+.ocAiCommand:not(.modalStyle) textarea {
+  grid-area: text;
+  min-height: 5.75rem;
+  padding: 0.1rem 0.15rem;
+  resize: vertical;
+  font-size: var(--oc-text-sm);
+  line-height: 1.6;
+}
+
+/* 枠内に入った送信ボタンへ box-shadow のリングを二重に出さない */
+.ocAiCommand:not(.modalStyle):has(textarea) :is(textarea, button):focus-visible {
+  box-shadow: none;
+}
+
+.ocAiCommand:not(.modalStyle):has(textarea) button:focus-visible {
+  outline: 2px solid hsl(var(--oc-ring) / 0.55);
+  outline-offset: 1px;
+}
+
+.ocAiCommand:not(.modalStyle):has(textarea) > button {
+  grid-area: submit;
+  justify-self: end;
+  align-self: center;
+  min-width: 3.4rem;
+  height: 1.8rem;
+}
+
 .ocAiCommand.modalStyle {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 2.4rem;
@@ -5069,9 +5099,8 @@
   font-size: 1.15rem;
 }
 
-/* AI command and HyperFrames authoring dialogs retain App-owned close rules. */
-.ocAiCommandModal,
-.ocHyperframeAuthor {
+/* AI command dialog retains its App-owned close rules. */
+.ocAiCommandModal {
   width: min(42rem, calc(100vw - 2rem));
   max-height: min(84vh, 46rem);
   padding: 0;
@@ -5080,7 +5109,7 @@
   scrollbar-color: hsl(var(--oc-muted-foreground) / 0.4) transparent;
 }
 
-:is(.ocAiCommandModal, .ocHyperframeAuthor) .aiCommandModalHead {
+.ocAiCommandModal .aiCommandModalHead {
   position: sticky;
   top: 0;
   z-index: 2;
@@ -5091,14 +5120,14 @@
   backdrop-filter: blur(8px);
 }
 
-:is(.ocAiCommandModal, .ocHyperframeAuthor) .aiCommandModalHead h3 {
+.ocAiCommandModal .aiCommandModalHead h3 {
   margin-top: 0.14rem;
   color: hsl(var(--oc-foreground));
   font-size: 1rem;
   letter-spacing: -0.012em;
 }
 
-:is(.ocAiCommandModal, .ocHyperframeAuthor) .aiCommandKicker {
+.ocAiCommandModal .aiCommandKicker {
   color: hsl(var(--oc-primary));
   font-size: 0.66rem;
   font-weight: 750;
@@ -5106,7 +5135,7 @@
   text-transform: uppercase;
 }
 
-:is(.ocAiCommandModal, .ocHyperframeAuthor) .aiCommandModalHead .icon {
+.ocAiCommandModal .aiCommandModalHead .icon {
   width: 1.75rem;
   height: 1.75rem;
   padding: 0;
@@ -5116,23 +5145,20 @@
   background: transparent;
 }
 
-:is(.ocAiCommandModal, .ocHyperframeAuthor) .aiCommandModalHead .icon:hover:not(:disabled) {
+.ocAiCommandModal .aiCommandModalHead .icon:hover:not(:disabled) {
   color: hsl(var(--oc-foreground));
   background: hsl(var(--oc-accent));
 }
 
-.ocAiCommandModal > :not(.aiCommandModalHead),
-.ocHyperframeAuthor > :not(.aiCommandModalHead) {
+.ocAiCommandModal > :not(.aiCommandModalHead) {
   margin-inline: 1rem;
 }
 
-.ocAiCommandModal > .ocAiCommand,
-.ocHyperframeAuthor > .ocAiCommand {
+.ocAiCommandModal > .ocAiCommand {
   width: auto;
 }
 
-.ocAiCommandModal > :last-child,
-.ocHyperframeAuthor > :last-child {
+.ocAiCommandModal > :last-child {
   margin-bottom: 1rem;
 }
 
@@ -5179,63 +5205,90 @@
   font-size: 0.66rem;
 }
 
-.ocAiCommandModal > .hint,
-.ocHyperframeAuthor > .hint {
+.ocAiCommandModal > .hint {
   color: hsl(var(--oc-muted-foreground));
   font-size: var(--oc-text-xs);
 }
 
-/* HyperFrames authoring keeps its native file input and keyboard drop target. */
-.ocHyperframeAuthor {
-  width: min(46rem, calc(100vw - 2rem));
+/* HyperFrames authoring: "AI 生成" タブの本体(パネル埋め込み・モーダルではない)。
+ * 幅・スクロールは panelBody/ocAssetPane に任せ、内側の縦積みだけ持つ。
+ * 添付ドロップとキーボード操作対象は変わらず native file input のまま。 */
+.ocSidePanel .ocHyperframeAuthor {
+  padding: 0.75rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
 }
 
-.ocHyperframeAuthor .hfAuthorNameField {
-  display: grid;
-  grid-template-columns: 6.5rem minmax(0, 1fr);
+.ocHyperframeAuthor .ocAiCommand {
+  flex: none; /* 縦に詰まっても composer と添付ドロップは潰さない(親がスクロールする) */
+  width: 100%;
+  margin-block: 0.2rem 0.35rem;
+}
+
+/* 素材の空状態と AI タブの添付ドロップは OpenCut の Assets プレースホルダと
+   同じ見た目に揃える(枠なしの muted 面・角丸 0.75rem・丸アイコン・
+   sm タイトル + xs 補足)。ホバー/ドラッグでだけ縁が立つ */
+.ocSidePanel .ocMaterialsPanel .ocMaterialEmptyDrop,
+.ocHyperframeAuthor .hfAssetDrop {
+  display: flex;
+  flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 0.6rem;
-  margin-block: 0.9rem 0.65rem;
-  color: hsl(var(--oc-muted-foreground));
-  font-size: var(--oc-text-xs);
+  color: hsl(var(--oc-foreground));
+  border: 1px solid transparent;
+  border-radius: 0.75rem;
+  background: hsl(var(--oc-muted) / 0.55);
+  text-align: center;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
 }
 
-.ocHyperframeAuthor .hfAuthorNameField input {
-  height: 2rem;
-  min-width: 0;
-  padding: 0 0.6rem;
-  border: 1px solid hsl(var(--oc-input));
-  border-radius: calc(var(--oc-radius) - 0.1rem);
+.ocSidePanel .ocMaterialsPanel .ocMaterialEmptyDrop:hover:not(:disabled),
+.ocSidePanel .ocMaterialsPanel .ocMaterialEmptyDrop:focus-visible,
+.ocHyperframeAuthor .hfAssetDrop:hover:not(.disabled),
+.ocHyperframeAuthor .hfAssetDrop:focus-visible {
+  border-color: hsl(var(--oc-primary) / 0.55);
+  background: hsl(var(--oc-muted) / 0.8);
+  outline: none;
+}
+
+.ocSidePanel .ocMaterialsPanel .ocMaterialEmptyDrop .ocDropIcon,
+.ocHyperframeAuthor .hfAssetDrop .ocDropIcon {
+  display: grid;
+  place-items: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 999px;
   color: hsl(var(--oc-foreground));
-  background: hsl(var(--oc-background) / 0.65);
+  background: hsl(var(--oc-background) / 0.7);
+}
+
+.ocSidePanel .ocMaterialsPanel .ocMaterialEmptyDrop .ocDropTitle,
+.ocHyperframeAuthor .hfAssetDrop .ocDropTitle {
+  max-width: 16.5rem;
+  color: hsl(var(--oc-muted-foreground));
+  font-size: var(--oc-text-sm);
+  font-weight: 400;
+  line-height: 1.5;
+  /* 日本語が語の途中で折れないように(非対応ブラウザは従来どおり任意折り返し) */
+  word-break: auto-phrase;
+}
+
+.ocSidePanel .ocMaterialsPanel .ocMaterialEmptyDrop .ocDropMeta,
+.ocHyperframeAuthor .hfAssetDrop .ocDropMeta {
+  max-width: 16.5rem;
+  color: hsl(var(--oc-muted-foreground) / 0.85);
+  font-size: 0.65rem;
+  line-height: 1.5;
+  word-break: auto-phrase;
 }
 
 .ocHyperframeAuthor .hfAssetDrop {
-  gap: 0.3rem;
-  min-height: 5.25rem;
-  margin-block: 0.7rem;
-  padding: 0.8rem;
-  border: 1px dashed hsl(var(--oc-border));
-  border-radius: var(--oc-radius);
-  color: hsl(var(--oc-foreground));
-  background: hsl(var(--oc-muted) / 0.25);
-}
-
-.ocHyperframeAuthor .hfAssetDrop:hover:not(.disabled),
-.ocHyperframeAuthor .hfAssetDrop:focus-visible {
-  border-color: hsl(var(--oc-primary) / 0.72);
-  background: hsl(var(--oc-primary) / 0.07);
-  box-shadow: 0 0 0 2px hsl(var(--oc-ring) / 0.26);
-}
-
-.ocHyperframeAuthor .hfAssetDrop strong {
-  font-size: var(--oc-text-xs);
-  font-weight: 650;
-}
-
-.ocHyperframeAuthor .hfAssetDrop span {
-  color: hsl(var(--oc-muted-foreground));
-  font-size: 0.65rem;
+  flex: none;
+  min-height: 7rem;
+  margin-block: 0.75rem;
+  padding: 1.1rem 0.9rem;
 }
 
 .ocHyperframeAuthor .hfAssetList {
@@ -6070,7 +6123,7 @@
   background: hsl(var(--oc-primary));
 }
 
-:is(.ocAiCommandModal, .ocHyperframeAuthor, .ocDiffReview, .ocSettings)::-webkit-scrollbar,
+:is(.ocAiCommandModal, .ocDiffReview, .ocSettings)::-webkit-scrollbar,
 .ocAiReview :is(.aiReviewEventList, .aiReviewPreview, .aiReviewInspector, .aiReviewWarnings)::-webkit-scrollbar,
 .ocDiffReview :is(.diffList, pre)::-webkit-scrollbar,
 .ocHyperframeAuthor .hfAssetList::-webkit-scrollbar {
@@ -6078,7 +6131,7 @@
   height: 8px;
 }
 
-:is(.ocAiCommandModal, .ocHyperframeAuthor, .ocDiffReview, .ocSettings)::-webkit-scrollbar-thumb,
+:is(.ocAiCommandModal, .ocDiffReview, .ocSettings)::-webkit-scrollbar-thumb,
 .ocAiReview :is(.aiReviewEventList, .aiReviewPreview, .aiReviewInspector, .aiReviewWarnings)::-webkit-scrollbar-thumb,
 .ocDiffReview :is(.diffList, pre)::-webkit-scrollbar-thumb,
 .ocHyperframeAuthor .hfAssetList::-webkit-scrollbar-thumb {
@@ -6164,7 +6217,6 @@
 
 @media (max-width: 720px) {
   .ocAiCommandModal,
-  .ocHyperframeAuthor,
   .ocDiffReview,
   .ocSettings {
     width: calc(100vw - 1rem);
@@ -6172,10 +6224,6 @@
   }
 
   .ocAiCommandModal .aiScopeTabs {
-    grid-template-columns: 1fr;
-  }
-
-  .ocHyperframeAuthor .hfAuthorNameField {
     grid-template-columns: 1fr;
   }
 

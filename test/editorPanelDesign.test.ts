@@ -107,12 +107,13 @@ test("P2 panel scopes remain present while Inspector and Timeline advance in lat
   assert.doesNotMatch(app, /テロップトラックを追加/);
 });
 
-test("P2 checkpoint 2 mounts exactly eight accessible CutFlow icon-rail tabs", () => {
+test("P2 checkpoint 2 mounts exactly nine accessible CutFlow icon-rail tabs", () => {
   const app = read("editor/client/App.tsx");
   const panels = read("editor/client/Panels.tsx");
   const tabs = app.slice(app.indexOf("const PANEL_TABS"), app.indexOf("] as const", app.indexOf("const PANEL_TABS")));
   for (const entry of [
     '["materials", "素材"]',
+    '["hyperframes", "AI 生成"]',
     '["script", "スクリプト"]',
     '["captions", "テロップ"]',
     '["stickers", "ステッカー"]',
@@ -123,7 +124,13 @@ test("P2 checkpoint 2 mounts exactly eight accessible CutFlow icon-rail tabs", (
   ]) assert.ok(tabs.includes(entry), `missing rail capability ${entry}`);
   assert.ok(!tabs.includes('["sounds"'), "sounds tab should be removed (P1)");
   assert.ok(!tabs.includes('["transitions"'), "transitions tab should be removed (P2)");
-  assert.equal((tabs.match(/^\s*\["/gm) ?? []).length, 8);
+  assert.equal((tabs.match(/^\s*\["/gm) ?? []).length, 9);
+  // 「AI 生成」はレール末尾の「設定」の直上(道具の並びの後ろ)
+  assert.match(tabs, /\["hyperframes", "AI 生成"\][\s\S]*\["settings", "設定"\]/);
+  assert.ok(
+    tabs.indexOf('["shorts"') < tabs.indexOf('["hyperframes"'),
+    "AI 生成 must sit after the editing tools, directly above 設定",
+  );
   assert.match(app, /<nav className="tabs ocIconRail" role="tablist" aria-label="編集パネル">/);
   assert.match(app, /PANEL_TABS\.map\(\(\[id, label\]\) => \(\s*<Tooltip key=\{id\}>/);
   assert.match(app, /role="tab"[\s\S]*aria-label=\{label\}[\s\S]*aria-selected=\{tab === id\}/);
@@ -134,6 +141,7 @@ test("P2 checkpoint 2 mounts exactly eight accessible CutFlow icon-rail tabs", (
 
   for (const capability of [
     "materials",
+    "hyperframes",
     "script",
     "captions",
     "stickers",
@@ -161,11 +169,10 @@ test("Materials reskin preserves actions, cards, drag/drop, placement, and conte
     "onDelete={(f) => void deleteMaterialFile(f)}",
     "onDeleteCard={(name) => void deleteHyperframeCard(name)}",
     "onRenderHyperframe={(name) => void runHyperframeRender(name)}",
-    "onNewHyperframe={openHyperframeAuthor}",
     "onDragBegin={onMaterialDragBegin}",
     "onDragEnd={onMaterialDragEnd}",
   ]) assert.ok(app.includes(prop), `missing MaterialsPanel handler ${prop}`);
-  assert.match(app, /void placeMaterial\(f, null, AUDIO_ONLY_RE\.test\(f\) \? "bgm" : "overlay"\)/);
+  assert.match(app, /void placeMaterial\(\s*f,\s*null,\s*AUDIO_ONLY_RE\.test\(f\) \? "bgm" : "overlay",/);
 
   assert.match(panels, /className=\{`matPanel ocMaterialsPanel\$\{dragOver \? " dragOver" : ""\}`\}/);
   assert.match(panels, /e\.dataTransfer\.types\.includes\("Files"\)/);
@@ -182,7 +189,7 @@ test("Materials reskin preserves actions, cards, drag/drop, placement, and conte
   assert.match(panels, /const \[sortMenuOpen, setSortMenuOpen\] = useState\(false\)/);
   assert.match(panels, /const \[sortKey, setSortKey\] = useState<"name" \| "type" \| "duration" \| "size">\("name"\)/);
   assert.match(panels, /onClick=\{\(\) => setViewMode\(\(mode\) => \(mode === "grid" \? "list" : "grid"\)\)\}/);
-  assert.match(panels, /viewMode === "grid" \? \(\s*<List size=\{14\}/);
+  assert.match(panels, /viewMode === "grid" \? \(\s*<LayoutGrid size=\{14\}/);
   assert.match(panels, /onClick=\{\(\) => setSortMenuOpen\(\(v\) => !v\)\}/);
   assert.match(panels, /className="ocMaterialSortMenu" role="menu"/);
   assert.match(panels, /\["name", `Name \$\{sortKey === "name" && sortAsc \? "↑" : ""\}`\]/);
@@ -205,7 +212,6 @@ test("Materials reskin preserves actions, cards, drag/drop, placement, and conte
     "matThumbUnplayable",
     "hyperframesLoading",
     "hyperframesError",
-    "hyperframeAuthorDisabledReason",
     "materialCount === 0",
     "inlineError",
     "needsUpdate",
@@ -233,6 +239,77 @@ test("Materials reskin preserves actions, cards, drag/drop, placement, and conte
     ".ocMaterialsPanel .matDropOverlay",
     ".ocMaterialsPanel .ctxMenu",
   ]) assert.ok(css.includes(selector), `missing token skin ${selector}`);
+});
+
+test("AI generation tab hosts the author form while materials keeps the cards", () => {
+  const app = read("editor/client/App.tsx");
+  const panels = read("editor/client/Panels.tsx");
+
+  assert.match(panels, /export const HyperframeAuthorPanel = \(/);
+
+  // モーダル廃止の pin: 開閉 state・返却フォーカス管理はもう存在しない
+  for (const gone of [
+    "hyperframeAuthorOpen",
+    "openHyperframeAuthor",
+    "hyperframeAuthorReturnFocusRef",
+  ]) assert.ok(!app.includes(gone), `should have removed ${gone}`);
+  assert.doesNotMatch(app, /<Dialog[\s\S]*ocHyperframeAuthor/);
+
+  // 送信直後にタブが切り替わる(§2.2)。setHyperframeAuthorPendingName の直後、
+  // 非同期の postHyperframeAuthor 呼び出しより前(try の外)にある
+  const runStart = app.indexOf("const runHyperframeAuthor = async");
+  const runBody = app.slice(runStart, app.indexOf("\n  };", runStart));
+  assert.match(runBody, /setHyperframeAuthorPendingName\(name\);\s*setTab\("materials"\);\s*try \{/);
+
+  // カードは引き続き素材タブ(§1.4 の回帰防止=二重表示しない)
+  assert.match(app, /!file\.startsWith\("materials\/hyperframes\/"\)/);
+
+  // 生成中はどのタブに居ても一覧 pull を続ける(§8)
+  assert.match(
+    app,
+    /if \(tab !== "materials" && !hyperframeAuthorPendingName\) return;/,
+  );
+
+  // HF タブはカードのライフサイクルを持たない(配置・ドラッグ・DraggableItem 無し)
+  const panelStart = panels.indexOf("export const HyperframeAuthorPanel = (");
+  const panelBody = panels.slice(panelStart, panels.indexOf("\n/**", panelStart));
+  assert.doesNotMatch(panelBody, /DraggableItem/);
+
+  // 出力ファイル名は人間に書かせない: 入力欄は無く、App が既存カードと
+  // 衝突しない `ai-<n>` を自動採番する
+  assert.doesNotMatch(panelBody, /hfAuthorNameField|ファイル名/);
+  for (const gone of ["hyperframeAuthorName", "onNameChange"]) {
+    assert.ok(!app.includes(gone), `filename input state should be gone: ${gone}`);
+  }
+  assert.match(app, /const nextHyperframeName = \(\): string => \{[\s\S]*`ai-\$\{n\}`/);
+  assert.match(runBody, /const name = nextHyperframeName\(\);/);
+});
+
+test("asset drop zones share the OpenCut assets placeholder shape", () => {
+  const panels = read("editor/client/Panels.tsx");
+  const css = read("editor/client/styles.css");
+  const command = read("editor/client/AiCommand.tsx");
+
+  // 素材の空状態と AI タブの添付ドロップは同じ部品(丸アイコン+タイトル+補足)
+  assert.equal((panels.match(/className="ocDropIcon"/g) ?? []).length, 2);
+  assert.equal((panels.match(/className="ocDropTitle"/g) ?? []).length, 2);
+  assert.equal((panels.match(/className="ocDropMeta"/g) ?? []).length, 2);
+  for (const selector of [
+    ".ocSidePanel .ocMaterialsPanel .ocMaterialEmptyDrop,\n.ocHyperframeAuthor .hfAssetDrop",
+    ".ocHyperframeAuthor .hfAssetDrop .ocDropIcon",
+    ".ocHyperframeAuthor .hfAssetDrop .ocDropTitle",
+  ]) assert.ok(css.includes(selector), `missing shared drop-zone skin ${selector}`);
+  // 空状態はパネル本体を占める(上端に小箱が浮かない)
+  assert.match(css, /\.ocSidePanel \.ocMaterialsPanel \{ display: flex;[\s\S]*min-height: 100%; \}/);
+
+  // 複数行の指示文は composer(本文の下に送信ボタンだけのフッタ行)。
+  // 装飾のバッジ・キーヒントは持たない
+  assert.match(css, /\.ocAiCommand:not\(\.modalStyle\):has\(textarea\) \{[\s\S]*grid-template-areas:/);
+  for (const gone of ["aiBadge", "aiCommandHint"]) {
+    assert.ok(!command.includes(gone), `composer chrome should be gone: ${gone}`);
+    assert.ok(!css.includes(gone), `composer chrome style should be gone: ${gone}`);
+  }
+  assert.match(command, /e\.key === "Enter" && \(e\.metaKey \|\| e\.ctrlKey\)/);
 });
 
 test("DraggableItem is the one shared asset-card shell for every asset card", () => {
@@ -341,7 +418,9 @@ test("P7.2 adds click-to-edit timecode and a preview-only zoom control", () => {
 
   assert.match(app, /<NativeSelect[\s\S]*className="zoomSel"[\s\S]*setPreviewZoom\(/);
   assert.match(app, /className="viewerScale"[\s\S]*transform: `scale\(\$\{previewZoom\}\)`/);
-  assert.match(css, /\.viewer \.viewerTools \.zoomSel/);
+  // 表示倍率はプレビュー上のフローティングではなく transport の右クラスタ
+  // (OpenCut の PreviewToolbar 右=ZoomSelect+fullscreen と同じ並び)
+  assert.match(css, /\.ocTransport select\.zoomSel/);
   assert.match(css, /\.ocTransport \.tSlash \{[\s\S]*padding: 0 0\.4rem;/);
 });
 
@@ -368,7 +447,7 @@ test("left rail presets add at playhead and drop onto a revealed track", () => {
 
   const tabsStart = app.indexOf("const PANEL_TABS");
   const tabs = app.slice(tabsStart, app.indexOf("] as const", tabsStart));
-  assert.equal((tabs.match(/^\s*\["/gm) ?? []).length, 8);
+  assert.equal((tabs.match(/^\s*\["/gm) ?? []).length, 9);
   assert.ok(!tabs.includes('["sounds"'));
   assert.ok(!tabs.includes('["transitions"'));
 

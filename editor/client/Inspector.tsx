@@ -2383,17 +2383,20 @@ const Section = ({
     `${canCollapse && !open ? " isClosed" : ""}`;
   return (
     <div className={cls}>
-      {canCollapse && (
-        <button
-          type="button"
-          className="inspSecHead"
-          aria-expanded={open}
-          aria-label={title}
-          onClick={() => setOpen((v) => !v)}
-        >
-          <ChevronDown className="inspSecChevron" aria-hidden="true" />
-        </button>
-      )}
+      {title !== "" &&
+        (canCollapse ? (
+          <button
+            type="button"
+            className="inspSecHead"
+            aria-expanded={open}
+            onClick={() => setOpen((v) => !v)}
+          >
+            <ChevronDown className="inspSecChevron" aria-hidden="true" />
+            <h4>{title}</h4>
+          </button>
+        ) : (
+          <h4>{title}</h4>
+        ))}
       {(!canCollapse || open) && children}
     </div>
   );

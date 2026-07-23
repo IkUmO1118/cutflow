@@ -100,6 +100,7 @@ import { Inspector } from "./Inspector.tsx";
 import {
   AdjustmentPanel,
   CaptionsPanel,
+  HyperframeAuthorPanel,
   MaterialsPanel,
   PanelHeader,
   PresetPanel,
@@ -442,6 +443,8 @@ const PANEL_TABS = [
   ["effects", "エフェクト"],
   ["adjust", "色調整"],
   ["shorts", "ショート"],
+  // 「AI 生成」は道具ではなく生成の入口なので、レール末尾の「設定」の直上に置く
+  ["hyperframes", "AI 生成"],
   ["settings", "設定"],
 ] as const;
 type PanelTab = (typeof PANEL_TABS)[number][0];
@@ -449,6 +452,7 @@ type PanelTab = (typeof PANEL_TABS)[number][0];
 const PanelTabIcon = ({ tab }: { tab: PanelTab }) => {
   const p = { size: 16, strokeWidth: 1.5, "aria-hidden": true } as const;
   if (tab === "materials") return <Folder {...p} />;
+  if (tab === "hyperframes") return <Sparkles {...p} />;
   if (tab === "script") return <FileText {...p} />;
   if (tab === "captions") return <Captions {...p} />;
   if (tab === "stickers") return <Smile {...p} />;
@@ -735,9 +739,6 @@ export const App = () => {
   const [hyperframesError, setHyperframesError] = useState<string | null>(null);
   const [hyperframeRendering, setHyperframeRendering] = useState<string | null>(null);
   const [hyperframeErrors, setHyperframeErrors] = useState<Record<string, string>>({});
-  const [hyperframeAuthorOpen, setHyperframeAuthorOpen] = useState(false);
-  const hyperframeAuthorReturnFocusRef = useRef<HTMLElement | null>(null);
-  const [hyperframeAuthorName, setHyperframeAuthorName] = useState("");
   const [hyperframeAuthorAssets, setHyperframeAuthorAssets] = useState<File[]>([]);
   const [hyperframeAssetLimits, setHyperframeAssetLimits] = useState<{
     maxBytes: number;
@@ -746,8 +747,8 @@ export const App = () => {
   } | null>(null);
   const hyperframeAssetInputRef = useRef<HTMLInputElement>(null);
   const [hyperframeAuthorBusy, setHyperframeAuthorBusy] = useState(false);
-  /** 作成中カード名。モーダルは送信時に閉じ、素材グリッドの作成中タイルと
-   * ヘッダーボタンのアイコンでこの pending を見せる */
+  /** 作成中カード名。送信直後に素材タブへ切り替え、素材グリッドの
+   * 作成中タイルでこの pending を見せる */
   const [hyperframeAuthorPendingName, setHyperframeAuthorPendingName] = useState<string | null>(null);
   const [hyperframeAuthorError, setHyperframeAuthorError] = useState<string | null>(null);
   /** 現在の収録フォルダに対して /api/media-facts を取り直す。初回ロード・
@@ -788,8 +789,10 @@ export const App = () => {
   }, []);
   // HF は編集 JSON 用 SSE の監視対象外。agent/CLI の生成をパレットへ収斂
   // させるため、素材タブ表示中だけ軽い一覧 API を定期 pull し、focus 復帰時も取る。
+  // 生成中(pendingName あり)は、利用者が AI 生成タブへ戻っていても一覧を
+  // 追い続ける(素材タブに戻ったときに完成が反映されているように)。
   useEffect(() => {
-    if (tab !== "materials") return;
+    if (tab !== "materials" && !hyperframeAuthorPendingName) return;
     const timer = window.setInterval(() => void refreshHyperframes(false), 4000);
     const onFocus = () => void refreshHyperframes(false);
     window.addEventListener("focus", onFocus);
@@ -797,7 +800,7 @@ export const App = () => {
       window.clearInterval(timer);
       window.removeEventListener("focus", onFocus);
     };
-  }, [tab, refreshHyperframes]);
+  }, [tab, hyperframeAuthorPendingName, refreshHyperframes]);
   const [aiDoctorResult, setAiDoctorResult] = useState<import("./apiTypes.ts").AiDoctorResult[] | null>(null);
   const [aiDoctorBusy, setAiDoctorBusy] = useState(false);
   /** 再生速度(プレビューのみ)。次回起動時も引き継ぐ */
@@ -4749,15 +4752,6 @@ export const App = () => {
     }
   };
 
-  const openHyperframeAuthor = () => {
-    hyperframeAuthorReturnFocusRef.current =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    setHyperframeAuthorName("");
-    setHyperframeAuthorAssets([]);
-    setHyperframeAuthorError(null);
-    setHyperframeAuthorOpen(true);
-  };
-
   const addHyperframeAuthorAssets = (files: readonly File[]) => {
     const next = [...hyperframeAuthorAssets];
     for (const file of files) {
@@ -4794,19 +4788,30 @@ export const App = () => {
     addHyperframeAuthorAssets([...event.dataTransfer.files]);
   };
 
+  /** カード名(= 出力ファイル名)は人間に書かせず自動採番する。既存カードと
+   * 衝突しない最小の `ai-<n>`(表示名は素材タブのカードで見える) */
+  const nextHyperframeName = (): string => {
+    const used = new Set(hyperframes.map((card) => card.name));
+    for (let n = 1; ; n++) {
+      const name = `ai-${n}`;
+      if (!used.has(name)) return name;
+    }
+  };
+
   const runHyperframeAuthor = async (brief: string) => {
-    const name = hyperframeAuthorName;
+    const name = nextHyperframeName();
     if (!HYPERFRAME_NAME_RE.test(name)) {
-      setHyperframeAuthorError("ファイル名は英数字・.・_・- のみで指定してください");
+      // 自動採番なので通常起きない(サーバ側の名前規約と食い違ったときの保険)
+      setHyperframeAuthorError("素材名を作れませんでした。もう一度お試しください");
       return;
     }
     const assets = hyperframeAuthorAssets;
     setHyperframeAuthorBusy(true);
     setHyperframeAuthorError(null);
-    // 生成は1〜2分かかるためモーダルは送信時に閉じ、進行は素材グリッドの
+    // 生成は1〜2分かかるため送信直後に素材タブへ切り替え、進行は素材グリッドの
     // 作成中タイルで見せる。入力は失敗時の再試行に備えて成功まで消さない
     setHyperframeAuthorPendingName(name);
-    setHyperframeAuthorOpen(false);
+    setTab("materials");
     try {
       const result = await postHyperframeAuthor(name, brief, assets);
       setHyperframes((cards) => {
@@ -4814,7 +4819,6 @@ export const App = () => {
         return [...rest, result.card].sort((a, b) => a.name.localeCompare(b.name));
       });
       await refreshHyperframes(false);
-      setHyperframeAuthorName("");
       setHyperframeAuthorAssets([]);
       addToast({ kind: "success", ttlMs: TOAST_TTL_MS.success, message: `素材「${name}」を作りました` });
     } catch (e) {
@@ -4947,7 +4951,6 @@ export const App = () => {
         return;
       }
       if (
-        hyperframeAuthorOpen ||
         (diffReview !== null && diffPanelOpen) ||
         aiWorkflowReview !== null ||
         onboardingVisible
@@ -5317,129 +5320,6 @@ export const App = () => {
         <OnboardingDialog open onDismiss={() => setOnboardingOpen(false)} />
       )}
 
-      {hyperframeAuthorOpen && (
-        <Dialog
-          open
-          onOpenChange={(open) => !open && !hyperframeAuthorBusy && setHyperframeAuthorOpen(false)}
-        >
-          <DialogContent
-            asChild
-            overlayClassName="aiCommandBackdrop"
-            onEscapeKeyDown={(event) => event.preventDefault()}
-            onPointerDownOutside={(event) => hyperframeAuthorBusy && event.preventDefault()}
-            onCloseAutoFocus={(event) => {
-              restoreDialogFocus(event, hyperframeAuthorReturnFocusRef.current);
-              hyperframeAuthorReturnFocusRef.current = null;
-            }}
-          >
-          <section className="aiCommandModal hfAuthorModal ocHyperframeAuthor" aria-label="AI で素材を作る">
-            <div className="aiCommandModalHead">
-              <div>
-                <div className="aiCommandKicker">AI で作る</div>
-                <DialogTitle asChild><h3>新しい素材を作る</h3></DialogTitle>
-              </div>
-              <DialogClose asChild>
-                <button
-                  className="icon"
-                  aria-label="閉じる"
-                  disabled={hyperframeAuthorBusy}
-                >
-                  ×
-                </button>
-              </DialogClose>
-            </div>
-            <label className="hfAuthorNameField">
-              <span>ファイル名</span>
-              <input
-                value={hyperframeAuthorName}
-                disabled={hyperframeAuthorBusy}
-                placeholder="例: next-preview"
-                autoFocus
-                onChange={(event) => {
-                  setHyperframeAuthorName(event.target.value);
-                  setHyperframeAuthorError(null);
-                }}
-              />
-            </label>
-            <AiCommand
-              disabled={!hyperframeAuthorStatus.ready}
-              busy={hyperframeAuthorBusy}
-              multiline
-              modalStyle
-              clearOnSubmit={false}
-              disabledReason={hyperframeAuthorStatus.disabledReason}
-              placeholder="例: 「次回予告」と大きく出るタイトル素材、5秒"
-              submitLabel="作る"
-              onSubmit={(brief) => void runHyperframeAuthor(brief)}
-            />
-            <div
-              className={`hfAssetDrop${hyperframeAuthorBusy ? " disabled" : ""}`}
-              role="button"
-              tabIndex={hyperframeAuthorBusy ? -1 : 0}
-              onClick={() => !hyperframeAuthorBusy && hyperframeAssetInputRef.current?.click()}
-              onKeyDown={(event) => {
-                if (!hyperframeAuthorBusy && (event.key === "Enter" || event.key === " ")) {
-                  event.preventDefault();
-                  hyperframeAssetInputRef.current?.click();
-                }
-              }}
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={onHyperframeAssetDrop}
-            >
-              <input
-                ref={hyperframeAssetInputRef}
-                type="file"
-                accept=".png,.jpg,.jpeg,.gif,.webp,.woff2,image/png,image/jpeg,image/gif,image/webp,font/woff2"
-                multiple
-                disabled={hyperframeAuthorBusy}
-                onChange={(event) => {
-                  addHyperframeAuthorAssets([...(event.target.files ?? [])]);
-                  event.target.value = "";
-                }}
-              />
-              <strong>画像・フォントをドロップ、またはクリックして選択</strong>
-              <span>
-                PNG / JPEG / GIF / WebP / WOFF2
-                {hyperframeAssetLimits && (
-                  ` · 1枚 ${(hyperframeAssetLimits.maxBytes / 1024 / 1024).toFixed(1)}MB / ` +
-                  `font ${(Math.min(hyperframeAssetLimits.maxBytes, hyperframeAssetLimits.fontMaxBytes) / 1024 / 1024).toFixed(1)}MB / ` +
-                  `合計 ${(hyperframeAssetLimits.maxTotalBytes / 1024 / 1024).toFixed(1)}MB まで`
-                )}
-              </span>
-            </div>
-            {hyperframeAuthorAssets.length > 0 && (
-              <ScrollArea className="hfAssetListScroll">
-              <ul className="hfAssetList" aria-label="添付素材">
-                {hyperframeAuthorAssets.map((file) => (
-                  <li key={file.name}>
-                    <span>{file.name} · {(file.size / 1024).toFixed(0)}KB</span>
-                    <button
-                      type="button"
-                      disabled={hyperframeAuthorBusy}
-                      aria-label={`${file.name}を外す`}
-                      onClick={() => setHyperframeAuthorAssets((items) => items.filter((item) => item !== file))}
-                    >
-                      ×
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              </ScrollArea>
-            )}
-            {hyperframeAuthorStatus.disabledReason && (
-              <p className="hfAuthorDisabled">{hyperframeAuthorStatus.disabledReason}</p>
-            )}
-            {hyperframeAuthorError && <p className="hfAuthorError">{hyperframeAuthorError}</p>}
-            <DialogDescription asChild>
-              <p className="dim hint">
-                生成には通常1〜2分かかります。完成すると他の素材と同じように配置できます。
-              </p>
-            </DialogDescription>
-          </section>
-          </DialogContent>
-        </Dialog>
-      )}
-
       {aiCommandOpen && (
         <Dialog open onOpenChange={(open) => !open && setAiCommandOpen(false)}>
           <DialogContent
@@ -5682,7 +5562,6 @@ export const App = () => {
                 hyperframesError={hyperframesError}
                 hyperframeRendering={hyperframeRendering}
                 hyperframeErrors={hyperframeErrors}
-                hyperframeAuthorDisabledReason={hyperframeAuthorStatus.disabledReason}
                 busy={busy !== null || hyperframeRendering !== null || hyperframeAuthorBusy}
                 onUploadClick={onUploadClick}
                 onUploadFiles={(files) => void uploadOnly(files)}
@@ -5697,11 +5576,39 @@ export const App = () => {
                 onDelete={(f) => void deleteMaterialFile(f)}
                 onDeleteCard={(name) => void deleteHyperframeCard(name)}
                 onRenderHyperframe={(name) => void runHyperframeRender(name)}
-                onNewHyperframe={openHyperframeAuthor}
                 authorPendingName={hyperframeAuthorPendingName}
                 onDragBegin={onMaterialDragBegin}
                 onDragEnd={onMaterialDragEnd}
               />
+            )}
+            {tab === "hyperframes" && (
+              <>
+                <PanelHeader title="AI 生成" />
+                <HyperframeAuthorPanel
+                  assets={hyperframeAuthorAssets}
+                  onAddAssets={addHyperframeAuthorAssets}
+                  onRemoveAsset={(file) =>
+                    setHyperframeAuthorAssets((items) => items.filter((item) => item !== file))
+                  }
+                  onAssetDrop={onHyperframeAssetDrop}
+                  assetInputRef={hyperframeAssetInputRef}
+                  assetLimits={hyperframeAssetLimits}
+                  busy={hyperframeAuthorBusy}
+                  disabledReason={hyperframeAuthorStatus.disabledReason}
+                  error={hyperframeAuthorError}
+                >
+                  <AiCommand
+                    disabled={!hyperframeAuthorStatus.ready}
+                    busy={hyperframeAuthorBusy}
+                    multiline
+                    clearOnSubmit={false}
+                    disabledReason={hyperframeAuthorStatus.disabledReason}
+                    placeholder="例: 「次回予告」と大きく出るタイトル素材、5秒"
+                    submitLabel="作る"
+                    onSubmit={(brief) => void runHyperframeAuthor(brief)}
+                  />
+                </HyperframeAuthorPanel>
+              </>
             )}
             {tab === "script" && (
               <>
@@ -6006,7 +5913,7 @@ export const App = () => {
           <Button variant="ghost" size="icon" className="icon" title="1フレーム戻る (←)" onClick={() => stepFrames(-1)}>
             <StepIcon dir="back" />
           </Button>
-          <Button variant="secondary" className="play" title="再生/停止 (Space)" onClick={togglePlay}>
+          <Button variant="ghost" className="play" title="再生/停止 (Space)" onClick={togglePlay}>
             <PlayPauseIcon playing={playing} size={18} />
           </Button>
           <Button variant="ghost" size="icon" className="icon" title="1フレーム進む (→)" onClick={() => stepFrames(1)}>
@@ -6067,6 +5974,14 @@ export const App = () => {
               </option>
             ))}
           </select>
+          {/* 1秒送り。狭幅では CSS(.ocTransport .sec)で畳まれるが、
+              キーボード(Shift+←/→)は常に効く */}
+          <Button variant="ghost" size="icon" className="icon sec" title="1秒戻る (Shift+←)" onClick={() => stepFrames(-fps)}>
+            <StepIcon dir="back" double />
+          </Button>
+          <Button variant="ghost" size="icon" className="icon sec" title="1秒進む (Shift+→)" onClick={() => stepFrames(fps)}>
+            <StepIcon dir="fwd" double />
+          </Button>
           <Button
             variant="ghost"
             size="icon"

@@ -3,6 +3,7 @@ import type {
   DragEvent as ReactDragEvent,
   MouseEvent as ReactMouseEvent,
   ReactNode,
+  RefObject,
   SyntheticEvent as ReactSyntheticEvent,
 } from "react";
 import { captionTrack } from "../../src/types.ts";
@@ -16,12 +17,14 @@ import type { ScriptBlock } from "./model.ts";
 import type { EditorPreset } from "./presets.ts";
 import { VIDEO_EXT_RE, fmtTime } from "./widgets.tsx";
 import { Button } from "./components/ui/button.tsx";
+import { ScrollArea } from "./components/ui/scroll-area.tsx";
 import { Slider } from "./components/ui/slider.tsx";
 import { EmptyState } from "./components/EmptyState.tsx";
 import {
   ArrowDownUp,
   Captions,
   FileText,
+  ImagePlus,
   LayoutGrid,
   List,
   Plus,
@@ -178,7 +181,6 @@ export const MaterialsPanel = ({
   hyperframesError,
   hyperframeRendering,
   hyperframeErrors,
-  hyperframeAuthorDisabledReason,
   busy,
   onUploadClick,
   onUploadFiles,
@@ -186,7 +188,6 @@ export const MaterialsPanel = ({
   onDelete,
   onDeleteCard,
   onRenderHyperframe,
-  onNewHyperframe,
   authorPendingName,
   onDragBegin,
   onDragEnd,
@@ -201,7 +202,6 @@ export const MaterialsPanel = ({
   hyperframesError: string | null;
   hyperframeRendering: string | null;
   hyperframeErrors: Record<string, string>;
-  hyperframeAuthorDisabledReason?: string;
   busy: boolean;
   /** 「素材を読み込む…」(App のファイル選択を開く) */
   onUploadClick: () => void;
@@ -215,8 +215,7 @@ export const MaterialsPanel = ({
   onDeleteCard: (name: string) => void;
   /** AI 生成素材を既存の生成経路で作り直す */
   onRenderHyperframe: (name: string) => void;
-  onNewHyperframe: () => void;
-  /** AI が作成中のカード名(モーダル送信後の pending 表示)。null = 作成中なし */
+  /** AI が作成中のカード名(「AI 生成」タブでの送信後の pending 表示)。null = 作成中なし */
   authorPendingName: string | null;
   /** カードのドラッグ開始/終了(タイムラインがドロップゴーストを出す) */
   onDragBegin: (file: string) => void;
@@ -473,9 +472,6 @@ export const MaterialsPanel = ({
           </>
         }
       />
-      {hyperframeAuthorDisabledReason && (
-        <p className="dim hint materialAuthorGate">{hyperframeAuthorDisabledReason}</p>
-      )}
       {hyperframesError && <p className="materialError materialListError">{hyperframesError}</p>}
       {materialCount === 0 ? (
         <button
@@ -484,8 +480,13 @@ export const MaterialsPanel = ({
           disabled={busy}
           onClick={onUploadClick}
         >
-          <UploadCloud size={34} strokeWidth={1.75} aria-hidden />
-          <span>Drag and drop videos, photos, and audio files here</span>
+          <span className="ocDropIcon" aria-hidden>
+            <UploadCloud size={22} strokeWidth={1.75} />
+          </span>
+          <span className="ocDropTitle">Drag and drop videos, photos, and audio files here</span>
+          <span className="ocDropMeta">
+            クリックして選択もできます · 「AI 生成」タブで作ることもできます
+          </span>
         </button>
       ) : (
         <div className={`matGrid ${viewMode}`} aria-label={`${sortLabel}${sortAsc ? " ascending" : " descending"}`}>
@@ -733,6 +734,104 @@ export const MaterialsPanel = ({
     </div>
   );
 };
+
+/**
+ * 左パネル「AI 生成」タブ。HyperFrames カードの生成フォーム(指示文・添付素材・
+ * 上限表示・不可理由・エラー)だけを持つ。カード一覧・配置・削除・作り直しは
+ * 持たない(すべて素材タブのまま。§1.4)。出力ファイル名は人間に書かせず
+ * App 側で自動採番する(このパネルは名前を一切扱わない)。
+ * 指示文の `<AiCommand>` は App が組み立てて children で渡す。
+ */
+export const HyperframeAuthorPanel = ({
+  assets,
+  onAddAssets,
+  onRemoveAsset,
+  onAssetDrop,
+  assetInputRef,
+  assetLimits,
+  busy,
+  disabledReason,
+  error,
+  children,
+}: {
+  assets: File[];
+  onAddAssets: (files: readonly File[]) => void;
+  onRemoveAsset: (file: File) => void;
+  onAssetDrop: (event: ReactDragEvent<HTMLDivElement>) => void;
+  assetInputRef: RefObject<HTMLInputElement | null>;
+  assetLimits: { maxBytes: number; maxTotalBytes: number; fontMaxBytes: number } | null;
+  busy: boolean;
+  disabledReason?: string;
+  error: string | null;
+  /** 指示文の `<AiCommand>`(App が組み立てる) */
+  children: ReactNode;
+}) => (
+  <div className="panelBody ocHyperframeAuthor">
+    {children}
+    <div
+      className={`hfAssetDrop${busy ? " disabled" : ""}`}
+      role="button"
+      tabIndex={busy ? -1 : 0}
+      onClick={() => !busy && assetInputRef.current?.click()}
+      onKeyDown={(event) => {
+        if (!busy && (event.key === "Enter" || event.key === " ")) {
+          event.preventDefault();
+          assetInputRef.current?.click();
+        }
+      }}
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={onAssetDrop}
+    >
+      <input
+        ref={assetInputRef}
+        type="file"
+        accept=".png,.jpg,.jpeg,.gif,.webp,.woff2,image/png,image/jpeg,image/gif,image/webp,font/woff2"
+        multiple
+        disabled={busy}
+        onChange={(event) => {
+          onAddAssets([...(event.target.files ?? [])]);
+          event.target.value = "";
+        }}
+      />
+      <span className="ocDropIcon" aria-hidden>
+        <ImagePlus size={22} strokeWidth={1.75} />
+      </span>
+      <span className="ocDropTitle">画像・フォントをドロップ、またはクリックして選択</span>
+      <span className="ocDropMeta">
+        PNG / JPEG / GIF / WebP / WOFF2
+        {assetLimits && (
+          ` · 1枚 ${(assetLimits.maxBytes / 1024 / 1024).toFixed(1)}MB / ` +
+          `font ${(Math.min(assetLimits.maxBytes, assetLimits.fontMaxBytes) / 1024 / 1024).toFixed(1)}MB / ` +
+          `合計 ${(assetLimits.maxTotalBytes / 1024 / 1024).toFixed(1)}MB まで`
+        )}
+      </span>
+    </div>
+    {assets.length > 0 && (
+      <ScrollArea className="hfAssetListScroll">
+      <ul className="hfAssetList" aria-label="添付素材">
+        {assets.map((file) => (
+          <li key={file.name}>
+            <span>{file.name} · {(file.size / 1024).toFixed(0)}KB</span>
+            <button
+              type="button"
+              disabled={busy}
+              aria-label={`${file.name}を外す`}
+              onClick={() => onRemoveAsset(file)}
+            >
+              ×
+            </button>
+          </li>
+        ))}
+      </ul>
+      </ScrollArea>
+    )}
+    {disabledReason && <p className="hfAuthorDisabled">{disabledReason}</p>}
+    {error && <p className="hfAuthorError">{error}</p>}
+    <p className="dim hint">
+      生成には通常1〜2分かかります。作成中と完成後のカードは<strong>素材タブ</strong>に出ます。
+    </p>
+  </div>
+);
 
 /**
  * 左パネル「テロップ」タブ。transcript.segments を一覧し、その場で文言を

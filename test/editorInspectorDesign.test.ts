@@ -67,7 +67,8 @@ test("caption design keeps typography, paint, band, position, animation, and kar
   assert.match(inspector, /patchKaraoke\(/);
   assert.match(inspector, /resolveCaptionBackground\(ownBg, base\.background\)/);
   assert.match(inspector, /splitColor\(effBg\.color\)/);
-  assert.match(inspector, /joinColor\(e\.target\.value, bgColor\.alpha\)/);
+  // 帯の色は ColorPillInput(onChange(value))経由。生の input イベントは持たない
+  assert.match(inspector, /joinColor\(value, bgColor\.alpha\)/);
   assert.match(inspector, /`\$\{keyPrefix\}:bgAlpha`/);
 });
 
