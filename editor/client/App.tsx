@@ -5751,7 +5751,12 @@ export const App = () => {
             {tab === "effects" && (
               <>
                 <PanelHeader title="エフェクト" />
-                <EffectsPanel onAdd={addAtPlayhead} />
+                <PresetPanel
+                  presets={EFFECT_PRESETS}
+                  onAdd={(p) => addPresetAt(p, playhead.get())}
+                  disabledIds={proj?.hasCamera === false ? ["wipe-full"] : undefined}
+                  note="位置・サイズは追加後にインスペクタで調整します。AI にまとめて演出させるにはターミナルで node src/cli.ts plan-effects <dir>。"
+                />
               </>
             )}
             {tab === "transitions" && (
