@@ -143,6 +143,7 @@ CutFlow の render 経路で**厳格再現**するための土台(P1 = 逐語移
 | `zoomRegionUtils.ts` | vendor（逐語・import 書き換えのみ）。`findDominantRegion`/`computeRegionStrength`/連鎖(`getConnectedRegionPairs`/`getConnectedRegionHold`/`getConnectedRegionTransition`)/module-level `dominantRegionCache`(単一スロットキャッシュ)込みで丸ごと vendor |
 | `zoomTransform.ts` | **partial port**。`computeZoomTransform` + `computeFocusFromTransform`（と `AppliedTransform`/`ZoomTransformGeometry`/`FocusFromTransformGeometry`）のみ vendor。関数本体の数式は逐語。upstream の pixi.js/pixi-filters 依存コード(`applyZoomTransform`/`MotionBlurState`/`getMotionBlurAmountResponse`/`TransformParams`)は**vendor していない**(Remotion にモーションブラー相当が無く、CutFlow は pixi に依存しないため) |
 | `types.ts` | **trimmed extract**。upstream `src/components/video-editor/types.ts` から zoom runtime が要る型・定数だけを抽出（`ZoomDepth`/`ZoomFocusMode`/`ZoomFocus`/`Rotation3D`系/`ZoomRegionSource`/`ZoomRegion`/`CursorTelemetryPoint`/`ZOOM_DEPTH_SCALES`/`getZoomScale`/`clampFocusToDepth` 等）。webcam/annotation/blur/crop/speed 等の無関係な export と `@/lib/compositeLayout` import は削っている |
+| `webcamReactive.ts` | vendor（逐語）。`reactiveWebcamScale`/`WEBCAM_REACTIVE_ZOOM_MIN_SCALE`(反応的ウェブカムワイプ縮小。取得元 `src/lib/compositeLayout.ts`。baked zoom 経路(props.zoomTransformTrack)のワイプ縮小を sprung composite scale から駆動するのに使う) |
 
 各ファイル冒頭に出典ヘッダ("Vendored from getopenscreen v1.7.0 …")を付与。相対 import は
 Node 23 の type-stripping に合わせて `./xxx.ts` の明示拡張子で書き換えている(数式・定数・

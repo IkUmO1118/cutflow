@@ -35,6 +35,7 @@ import { fadeFactor, isImageFile } from "../src/lib/overlayFade.ts";
 import { cropFitStyle } from "../src/lib/panelStyle.ts";
 import { zoomProgressAt, zoomTransformAt } from "../src/lib/zoom.ts";
 import { wipeProgressAt } from "../src/lib/wipe.ts";
+import { reactiveWebcamScale } from "../src/lib/vendor/openscreen/webcamReactive.ts";
 import { AnnotationItemView } from "./AnnotationLayer.tsx";
 import { PositionedCaption } from "./CaptionLayer.tsx";
 import { OverlayLayer } from "./OverlayLayer.tsx";
@@ -90,31 +91,7 @@ export const Main = (props: RenderProps) => {
   const wipeW = Math.round(props.wipe.widthPx + (props.width - props.wipe.widthPx) * wipeEase);
   const wipeHNow = Math.round(wipeH + (props.height - wipeH) * wipeEase);
 
-  // ズーム中のワイプ縮小(right:0/bottom:0 flush・design アンカーいずれも
-  // 右下を保ったまま w/h だけ縮む。§設計 D4)。zoomProgressAt は zoom と同じ
-  // 区間探索・イーズ・カーブを使うので、縮小のトランジションは zoom 本体と
-  // 完全に一致する。wipeFull で全画面になっている間(wipeEase=1)は
-  // 縮めない((1 - wipeEase) の項)。zoom が無ければ p=0 → s=1 = 恒等
   const zoomSpans = props.zooms ?? [];
-  const activeZoom = zoomSpans.find((z) => t >= z.start && t < z.end);
-  const zoomP = zoomProgressAt(t, zoomSpans);
-  const wipeShrinkK = activeZoom?.wipeScale ?? 1;
-  const wipeShrinkS = 1 - (1 - wipeShrinkK) * zoomP * (1 - wipeEase);
-
-  // カット境界のディップ・トゥ・ブラック(config.yaml の render.cutTransition が
-  // dip-to-black のときだけ props に載る)。境界点 tb の前後 sec/2 で
-  // 0→1→0 の黒フェードを重ねる。尺・音声・字幕のタイミングには一切触れず、
-  // 最上層(テロップより上)に黒い AbsoluteFill を重ねるだけの合成層の演出
-  // 簡易カラー調整(overlays.json の colorFilter)。ベース映像(画面クロップ+
-  // カメラ=同一収録動画)だけに効く CSS filter(renderBase の全呼び出しに
-  // 乗せる。素材オーバーレイ・挿入クリップは対象外)
-  const filterCss = cssFilterOf(props.colorFilter);
-
-  // ベースレイアウトのデザイン(背景 + 画面パネル + カメラワイプ)。縦プリセット
-  // (props.layout があるショート経路)はパネル合成が別なので載せない。
-  // panel = ベース映像が収まる矩形で、design 無しでは出力全面(§lib/design.ts)
-  const design = props.layout ? undefined : props.design;
-  const panel = panelRect(design, props.width, props.height);
 
   // ズーム演出(画面の一部を拡大)。「背景(デザインの背景画像)+画面パネル」
   // をまとめた合成面全体に掛ける transform(ワイプ・素材・テロップ・
@@ -130,8 +107,6 @@ export const Main = (props: RenderProps) => {
   // OpenScreen 逐語 precompute の spring 込み軌跡をそのまま使う)。
   // 範囲外フレーム(pre-roll/lead-out より外)は恒等。opt-out(未指定)は
   // 上の zoomTransformAt のまま=バイト等価。
-  // 【スコープ外】ワイプ縮小(下の wipeShrinkS)は zoomProgressAt の従来
-  // エンベロープのまま(baked 経路には乗せていない)
   if (props.zoomTransformTrack) {
     const tt = props.zoomTransformTrack;
     const i = frame - tt.startFrame;
@@ -140,6 +115,36 @@ export const Main = (props: RenderProps) => {
       ? { scale: entry.scale, translateX: entry.x, translateY: entry.y }
       : { scale: 1, translateX: 0, translateY: 0 };
   }
+
+  // ズーム中のワイプ縮小(right:0/bottom:0 flush・design アンカーいずれも
+  // 右下を保ったまま w/h だけ縮む。§設計 D4)。wipeFull で全画面になっている間
+  // (wipeEase=1)は縮めない((1 - wipeEase) の項)。zoom が無ければ恒等(s=1)。
+  // baked 経路(props.zoomTransformTrack。focusMode opt-in)では OpenScreen 逐語の
+  // reactiveWebcamScale(=max(0.35, min(1, 1/scale)))を sprung composite scale
+  // (zoomT.scale)から直接駆動する。これでズーム本体(spring)と in/out の
+  // タイミング・質感が完全一致し、legacy エンベロープ(zoomProgressAt)由来の
+  // カクつき・早戻りが消える。legacy 経路(baked 無し)は従来式のまま=バイト等価。
+  const wipeShrinkS = props.zoomTransformTrack
+    ? 1 - (1 - reactiveWebcamScale(zoomT.scale)) * (1 - wipeEase)
+    : 1 -
+      (1 - (zoomSpans.find((z) => t >= z.start && t < z.end)?.wipeScale ?? 1)) *
+        zoomProgressAt(t, zoomSpans) *
+        (1 - wipeEase);
+
+  // カット境界のディップ・トゥ・ブラック(config.yaml の render.cutTransition が
+  // dip-to-black のときだけ props に載る)。境界点 tb の前後 sec/2 で
+  // 0→1→0 の黒フェードを重ねる。尺・音声・字幕のタイミングには一切触れず、
+  // 最上層(テロップより上)に黒い AbsoluteFill を重ねるだけの合成層の演出
+  // 簡易カラー調整(overlays.json の colorFilter)。ベース映像(画面クロップ+
+  // カメラ=同一収録動画)だけに効く CSS filter(renderBase の全呼び出しに
+  // 乗せる。素材オーバーレイ・挿入クリップは対象外)
+  const filterCss = cssFilterOf(props.colorFilter);
+
+  // ベースレイアウトのデザイン(背景 + 画面パネル + カメラワイプ)。縦プリセット
+  // (props.layout があるショート経路)はパネル合成が別なので載せない。
+  // panel = ベース映像が収まる矩形で、design 無しでは出力全面(§lib/design.ts)
+  const design = props.layout ? undefined : props.design;
+  const panel = panelRect(design, props.width, props.height);
 
   const cutHalf = (props.cutTransition?.sec ?? 0) / 2;
   const cutOpacity =
