@@ -229,6 +229,10 @@ export interface Config {
      *  aggressive=テンポ最優先。省略時 balanced(D4)。rules/brief のマーカー行が優先。
      *  §docs/plans/2026-07-11-x4-editing-aggressiveness-design.md */
     editMode?: "safe" | "balanced" | "aggressive";
+    /** 章(chapters.json + 「章」テロップ)を自動生成するか。省略時 false=
+     *  plan/remeta は章を作らない(meta.json のタイトル案・概要欄は作る)。
+     *  §docs/plans/2026-07-24-chapters-toggle-design.md */
+    chapters?: boolean;
     /** カット判断と演出判断に分類 id を使わせる共通 opt-in 設定。
      *  cut は docs/edit-skills/cut/recipes / src/lib/reasonIds.ts、演出は
      *  docs/edit-skills/effects/recipes / src/lib/effectReasonIds.ts が単一の出所。

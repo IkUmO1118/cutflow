@@ -301,6 +301,10 @@ plan:
   # balanced(既定・明確な冗長は切る) / aggressive(テンポ最優先)。
   # rules.md / brief.md に「編集モード: aggressive」等の行があればそちらが優先
   editMode: balanced
+  # 章(chapters.json + 動画上の「章」テロップ)を自動生成するか。
+  # 既定 false=plan/remeta は章を作らない(タイトル案・概要欄は作る)。
+  # 章立てが欲しいときだけ true。既存の chapters.json を手で持つ場合は影響しない
+  chapters: false
   # カット判断と演出判断(plan-effects)に分類 id を使わせる共通スイッチ。
   # 既定 false=導入前とバイト等価。true で cut は reasonId(13分類)を
   # cutplan.json に、演出は effectReasonId(7分類)を生成した zoom/blur/annotation の

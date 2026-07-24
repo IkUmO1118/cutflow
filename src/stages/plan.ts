@@ -850,15 +850,17 @@ function writeChaptersAndMeta(
   cfg: Config,
   idCtx?: ChaptersIdContext,
 ): Meta {
-  const chaptersPath = join(dir, "chapters.json");
-  const existingChapters: Chapters["chapters"] = existsSync(chaptersPath)
-    ? ((JSON.parse(readFileSync(chaptersPath, "utf8")) as Chapters).chapters ?? [])
-    : [];
-  const chapters: Chapters = {
-    chapters: buildChapterEntries(parsed.chapters, numbered, existingChapters, idCtx),
-  };
-  writeFileSync(chaptersPath, JSON.stringify(chapters, null, 2));
-  writeChapterTelops(dir, transcript, chapters, cfg, idCtx);
+  if (cfg.plan?.chapters) {
+    const chaptersPath = join(dir, "chapters.json");
+    const existingChapters: Chapters["chapters"] = existsSync(chaptersPath)
+      ? ((JSON.parse(readFileSync(chaptersPath, "utf8")) as Chapters).chapters ?? [])
+      : [];
+    const chapters: Chapters = {
+      chapters: buildChapterEntries(parsed.chapters, numbered, existingChapters, idCtx),
+    };
+    writeFileSync(chaptersPath, JSON.stringify(chapters, null, 2));
+    writeChapterTelops(dir, transcript, chapters, cfg, idCtx);
+  }
 
   const meta: Meta = { titles: parsed.titles, description: parsed.description };
   writeFileSync(join(dir, "meta.json"), JSON.stringify(meta, null, 2));
