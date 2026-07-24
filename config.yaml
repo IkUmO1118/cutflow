@@ -381,13 +381,18 @@ plan:
   # <recording base>.cursor.json サイドカー(record --watch)が無ければ一切
   # 参照されない。既定値は OpenScreen 自身のチューニング(30Hz・製品デモ向け)
   # なので、収録本数が増えたら再調整を検討する
-  # cursor:
-  #   minDwellMs: 450      # 停留とみなす最小継続時間
-  #   maxDwellMs: 2600     # これを超えると意図的な作業とみなし除外
-  #   moveThreshold: 0.02  # 隣接サンプル間でこれを超える移動があれば停留を打ち切る
-  #   spacingMs: 1800      # 採用済み候補の中心からこの間隔未満は間引く
-  #   defaultScale: 2.5    # focus点からズーム rect を作るときの倍率
-  #   clickBoost: 1.5      # クリック起点の dwell に与える strength 倍率(1で無効化)
+  # 【調整メモ 2026-07-24】~/Movies/cutflow/test で実測: 既定 max2600ms は
+  # 「対象に置いて数秒〜十数秒しゃべる」チュートリアルの長い注視(このクリップは
+  # 9.4秒の静止すらあった)を丸ごと除外し、dwell候補が7件しか出ない。上限を
+  # 8000ms へ上げると10件に増える。長い注視こそズームしたい対象なので上限を緩和。
+  cursor:
+    minDwellMs: 450      # 停留とみなす最小継続時間
+    maxDwellMs: 8000     # これを超えると意図的な作業とみなし除外(既定2600→8000。上記メモ)
+    moveThreshold: 0.02  # 隣接サンプル間でこれを超える移動があれば停留を打ち切る
+    spacingMs: 1800      # 採用済み候補の中心からこの間隔未満は間引く
+    defaultScale: 2.5    # focus点からズーム rect を作るときの倍率
+    clickBoost: 1.5      # クリック起点の dwell に与える strength 倍率(1で無効化)
+    maxWindowMs: 3500    # dwell窓長の上限(ms)。clamp(総尺の5%,1000,これ)。追従(枝A)前の長尺ドリフト対策。A後は緩めてOpenScreenの5%へ戻せる
 
   # plan の候補格子を語タイムスタンプ(要 whisper.wordTimestamps)由来の語境界で
   # 細分化する(C1)+ 候補テキストを実際に残る語だけにする(C8)。

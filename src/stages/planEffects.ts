@@ -327,7 +327,7 @@ function buildCursorAnchorCandidates(
     inBounds: s.inBounds,
     leftButtonPressed: s.leftButtonPressed,
   }));
-  const windowMs = resolveDwellWindowMs(manifest.durationSec * 1000);
+  const windowMs = resolveDwellWindowMs(manifest.durationSec * 1000, cursorCfg.maxWindowMs);
   const candidates = detectDwellCandidates(samples, {
     minDwellMs: cursorCfg.minDwellMs,
     maxDwellMs: cursorCfg.maxDwellMs,

@@ -38,6 +38,7 @@ import {
   DEFAULT_PLAN_CURSOR_SPACING_MS,
   DEFAULT_PLAN_CURSOR_DEFAULT_SCALE,
   DEFAULT_PLAN_CURSOR_CLICK_BOOST,
+  DEFAULT_PLAN_CURSOR_MAX_WINDOW_MS,
   resolvePlanCursorCfg,
   DEFAULT_STYLE_PROFILE_NAME,
   loadConfig,
@@ -875,6 +876,7 @@ test("resolvePlanCursorCfg: plan.cursor 省略時は OpenScreen 既定値", () =
     spacingMs: DEFAULT_PLAN_CURSOR_SPACING_MS,
     defaultScale: DEFAULT_PLAN_CURSOR_DEFAULT_SCALE,
     clickBoost: DEFAULT_PLAN_CURSOR_CLICK_BOOST,
+    maxWindowMs: DEFAULT_PLAN_CURSOR_MAX_WINDOW_MS,
   });
 });
 
@@ -923,6 +925,7 @@ test("loadConfig: plan.cursor の正常系は素通り", () => {
       spacingMs: 1500,
       defaultScale: 3,
       clickBoost: 2,
+      maxWindowMs: DEFAULT_PLAN_CURSOR_MAX_WINDOW_MS,
     });
   } finally {
     rmSync(dir, { recursive: true, force: true });

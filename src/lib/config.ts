@@ -353,6 +353,9 @@ export interface Config {
       /** クリック起点(leftButtonPressed 直後)の dwell に与える strength 倍率。
        *  省略時 DEFAULT_PLAN_CURSOR_CLICK_BOOST(1.5)。1 で無効化 */
       clickBoost?: number;
+      /** dwell 窓長の上限(ms)。clamp(総尺の5%, 1000, これ)。省略時
+       *  DEFAULT_PLAN_CURSOR_MAX_WINDOW_MS(3500)。追従(枝A)前の長尺ドリフト対策 */
+      maxWindowMs?: number;
     };
   };
   /** plan の候補格子を語タイムスタンプ(transcript.words)由来の語境界でも
@@ -910,6 +913,7 @@ export const DEFAULT_PLAN_CURSOR_MOVE_THRESHOLD = 0.02;
 export const DEFAULT_PLAN_CURSOR_SPACING_MS = 1800;
 export const DEFAULT_PLAN_CURSOR_DEFAULT_SCALE = 2.5;
 export const DEFAULT_PLAN_CURSOR_CLICK_BOOST = 1.5;
+export const DEFAULT_PLAN_CURSOR_MAX_WINDOW_MS = 3500;
 
 /** plan.cursor を既定値で解決する純関数。loadConfig は cfg.plan.cursor を
  *  書き換えない */
@@ -920,6 +924,7 @@ export function resolvePlanCursorCfg(cfg: Config): {
   spacingMs: number;
   defaultScale: number;
   clickBoost: number;
+  maxWindowMs: number;
 } {
   const c = cfg.plan?.cursor ?? {};
   return {
@@ -929,6 +934,7 @@ export function resolvePlanCursorCfg(cfg: Config): {
     spacingMs: c.spacingMs ?? DEFAULT_PLAN_CURSOR_SPACING_MS,
     defaultScale: c.defaultScale ?? DEFAULT_PLAN_CURSOR_DEFAULT_SCALE,
     clickBoost: c.clickBoost ?? DEFAULT_PLAN_CURSOR_CLICK_BOOST,
+    maxWindowMs: c.maxWindowMs ?? DEFAULT_PLAN_CURSOR_MAX_WINDOW_MS,
   };
 }
 
@@ -1450,7 +1456,7 @@ function validateWorkflowConfig(cfg: Config): string[] {
   if (planCursor) {
     errors.push(
       ...unknownKeys(planCursor, [
-        "minDwellMs", "maxDwellMs", "moveThreshold", "spacingMs", "defaultScale", "clickBoost",
+        "minDwellMs", "maxDwellMs", "moveThreshold", "spacingMs", "defaultScale", "clickBoost", "maxWindowMs",
       ]).map((key) => `plan.cursor.${key} は未対応です`),
     );
     if ("minDwellMs" in planCursor && (!Number.isFinite(planCursor.minDwellMs) || Number(planCursor.minDwellMs) <= 0)) {
@@ -1477,6 +1483,9 @@ function validateWorkflowConfig(cfg: Config): string[] {
     }
     if ("clickBoost" in planCursor && (!Number.isFinite(planCursor.clickBoost) || Number(planCursor.clickBoost) <= 0)) {
       errors.push("plan.cursor.clickBoost は正の数値で指定してください");
+    }
+    if ("maxWindowMs" in planCursor && (!Number.isFinite(planCursor.maxWindowMs) || Number(planCursor.maxWindowMs) <= 0)) {
+      errors.push("plan.cursor.maxWindowMs は正の数値で指定してください");
     }
   }
   const log = cfg.log as Record<string, unknown> | undefined;

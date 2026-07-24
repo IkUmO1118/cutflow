@@ -475,6 +475,32 @@ vision route 不在・still 抽出失敗・`--no-vlm` はいずれも優雅に�
 - サイドカーは知覚専用の生テレメトリで、`fileRole` は `"other"`
   (`clean` で消えない・AI は編集しない。§AGENTS_CONTRACT.md §4)。
 
+## カーソル dwell からのズーム候補(config.yaml の plan.cursor)
+
+`<recording base>.cursor.json` サイドカーがあるとき、`plan-effects` は
+カーソルの停留(dwell)からズーム候補を作る(OpenScreen 移植)。
+`config.yaml` の `plan.cursor` で閾値を上書きできる(全て省略可・既定値は
+OpenScreen 自身のチューニング値)。
+
+- `minDwellMs` … 停留とみなす最小継続時間(ms)。省略時 450
+- `maxDwellMs` … これを超えると意図的な作業とみなし除外(ms)。省略時 2600
+- `moveThreshold` … 隣接サンプル間でこれを超える移動(正規化座標)があれば
+  停留を打ち切る。省略時 0.02
+- `spacingMs` … 採用済み候補の中心からこの間隔(ms)未満の候補は間引く。
+  省略時 1800
+- `defaultScale` … focus点からズーム rect を作るときの倍率
+  (`w = screenRegion.w / defaultScale`)。省略時 2.5
+- `clickBoost` … クリック起点(leftButtonPressed 直後)の dwell に与える
+  strength 倍率(1 で無効化)。省略時 1.5
+- `maxWindowMs` … dwell 窓長(=ズーム区間長)の上限(ms)。窓は
+  `clamp(総尺の5%, 1000, maxWindowMs)` で決まる(OpenScreen は
+  `max(1000, 総尺の5%)` のみで上限なし)。省略時 3500。長尺収録では
+  総尺の5%が数秒〜十数秒になり、その間にカーソルが動いて固定 rect が
+  ズレる(CutFlow はまだ枝A=focus 追従が無い)ため、CutFlow 固有の cap
+  として付けている。追従が入ったら緩めて OpenScreen の値へ戻せる想定
+  (収録ごとに config で調整可)
+  (§docs/plans/2026-07-24-openscreen-zoom-B-window-cap-design.md)
+
 ## 環境プリフライト(doctor)
 
 `node src/cli.ts doctor` は収録に入る前の環境チェック(読み取り専用)。

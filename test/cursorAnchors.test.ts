@@ -34,6 +34,15 @@ test("resolveDwellWindowMs: 総尺5%が1000ms未満なら1000msの下限", () =>
   assert.equal(resolveDwellWindowMs(10_000), 1000);
 });
 
+test("resolveDwellWindowMs: 長尺は既定上限(3500ms)でcapされる", () => {
+  // 600_000ms の5%=30_000ms だが既定 maxWindowMs=3500 で頭打ち
+  assert.equal(resolveDwellWindowMs(600_000), 3500);
+});
+
+test("resolveDwellWindowMs: maxWindowMs を明示指定するとその上限が効く", () => {
+  assert.equal(resolveDwellWindowMs(600_000, 4000), 4000);
+});
+
 /* ---------------- detectDwellCandidates: run 検出 ---------------- */
 
 test("detectDwellCandidates: 大きな移動に挟まれた静止区間だけを候補にする", () => {

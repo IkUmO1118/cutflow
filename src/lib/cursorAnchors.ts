@@ -53,10 +53,18 @@ export const DEFAULT_MOVE_THRESHOLD = 0.02;
 export const DEFAULT_SPACING_MS = 1800;
 export const DEFAULT_CLICK_BOOST = 1.5;
 export const DEFAULT_CURSOR_SCALE = 2.5;
+/** dwell 窓長の上限(ms)。OpenScreen 逐語再現の 5% に CutFlow 固有で足す cap
+ *  (枝B。A の追従が入るまでの長尺ドリフト対策) */
+export const DEFAULT_PLAN_CURSOR_MAX_WINDOW_MS = 3500;
 
-/** OpenScreen 呼び側と同じ既定候補幅: max(1000ms, 総尺の5%) */
-export function resolveDwellWindowMs(totalDurationMs: number): number {
-  return Math.max(1000, totalDurationMs * 0.05);
+/** OpenScreen 呼び側と同じ既定候補幅 max(1000ms, 総尺の5%) に、CutFlow 固有の
+ *  上限 maxWindowMs を掛けたもの: clamp(総尺の5%, 1000, maxWindowMs)。
+ *  OpenScreen は focus が追従するので長窓でも破綻しないが、追従(枝A)前の
+ *  CutFlow は固定 rect のため長窓でカーソルがズレる。A 後は maxWindowMs を
+ *  緩めて OpenScreen の 5% へ戻せる(config なので収録で調整可)。
+ *  §docs/plans/2026-07-24-openscreen-zoom-B-window-cap-design.md */
+export function resolveDwellWindowMs(totalDurationMs: number, maxWindowMs = DEFAULT_PLAN_CURSOR_MAX_WINDOW_MS): number {
+  return Math.min(Math.max(1000, totalDurationMs * 0.05), maxWindowMs);
 }
 
 /** クリック起点判定の遡り窓(ms)。run 開始のこの手前までに leftButtonPressed が
