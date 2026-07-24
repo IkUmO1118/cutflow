@@ -40,6 +40,7 @@ import {
   DEFAULT_PLAN_CURSOR_CLICK_BOOST,
   DEFAULT_PLAN_CURSOR_MAX_WINDOW_MS,
   DEFAULT_PLAN_CURSOR_SCROLL_MOTION_THRESHOLD,
+  DEFAULT_PLAN_CURSOR_AUTO_ZOOM,
   resolvePlanCursorCfg,
   DEFAULT_STYLE_PROFILE_NAME,
   loadConfig,
@@ -879,6 +880,7 @@ test("resolvePlanCursorCfg: plan.cursor 省略時は OpenScreen 既定値", () =
     clickBoost: DEFAULT_PLAN_CURSOR_CLICK_BOOST,
     maxWindowMs: DEFAULT_PLAN_CURSOR_MAX_WINDOW_MS,
     scrollMotionThreshold: DEFAULT_PLAN_CURSOR_SCROLL_MOTION_THRESHOLD,
+    autoZoom: DEFAULT_PLAN_CURSOR_AUTO_ZOOM,
   });
 });
 
@@ -929,6 +931,7 @@ test("loadConfig: plan.cursor の正常系は素通り", () => {
       clickBoost: 2,
       maxWindowMs: DEFAULT_PLAN_CURSOR_MAX_WINDOW_MS,
       scrollMotionThreshold: DEFAULT_PLAN_CURSOR_SCROLL_MOTION_THRESHOLD,
+      autoZoom: DEFAULT_PLAN_CURSOR_AUTO_ZOOM,
     });
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -995,6 +998,31 @@ test("loadConfig: plan.cursor.scrollMotionThreshold は正の数値以外を拒�
   try {
     const path = writeMinimalConfigWithPlanCursor(dir, "{ scrollMotionThreshold: 0 }");
     assert.throws(() => loadConfig(path), /plan\.cursor\.scrollMotionThreshold は正の数値で指定してください/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* plan.cursor.autoZoom(run 末尾の自動挿入の on/off。
+ * §2026-07-24-openscreen-autozoom-placement-design.md D6) */
+
+test("loadConfig: plan.cursor.autoZoom の正常系(false)は素通り", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = writeMinimalConfigWithPlanCursor(dir, "{ autoZoom: false }");
+    const cfg = loadConfig(path);
+    assert.equal(resolvePlanCursorCfg(cfg).autoZoom, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig: plan.cursor.autoZoom は真偽値以外を拒否する", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = writeMinimalConfigWithPlanCursor(dir, "{ autoZoom: 1 }");
+    assert.throws(() => loadConfig(path), /plan\.cursor\.autoZoom は真偽値で指定してください/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
