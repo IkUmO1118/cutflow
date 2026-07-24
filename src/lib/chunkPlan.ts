@@ -170,6 +170,30 @@ function videoInsertProjection(i: NonNullable<RenderProps["inserts"]>[number]) {
 }
 
 /**
+ * 枝A・P3: zoomTransformTrack(グローバルな sprung transform 軌跡。opt-in=
+ * overlays.zooms のいずれかに focusMode があるときだけ載る)のうち、チャンク
+ * `[fromFrame, toFrame]` に重なるフレームだけを射影する。zooms と同じ時間
+ * 局所要素として扱う(重ならないチャンクはキーが動かない=無駄な無効化をしない)。
+ * §docs/plans/2026-07-24-openscreen-zoom-A-cursor-follow-design.md P3
+ */
+function zoomTransformTrackLocal(
+  track: NonNullable<RenderProps["zoomTransformTrack"]> | undefined,
+  fromFrame: number,
+  toFrame: number,
+): { startFrame: number; frames: { scale: number; x: number; y: number }[] } | null {
+  if (!track || track.frames.length === 0) return null;
+  const trackEnd = track.startFrame + track.frames.length - 1;
+  if (trackEnd < fromFrame || track.startFrame > toFrame) return null;
+  const sliceStart = Math.max(fromFrame, track.startFrame);
+  const sliceEnd = Math.min(toFrame, trackEnd);
+  if (sliceEnd < sliceStart) return null;
+  return {
+    startFrame: sliceStart,
+    frames: track.frames.slice(sliceStart - track.startFrame, sliceEnd - track.startFrame + 1),
+  };
+}
+
+/**
  * チャンク `[fromFrame, toFrame)` の絵を決めるキー。§3-1 の全域 props +
  * §3-2 のうちこのチャンクに重なる要素だけ(安定ソート済み)+ 境界そのもの
  * をまとめてハッシュ化する。テロップ1件を変えると、それが乗るチャンクの
@@ -218,6 +242,7 @@ export function chunkVideoKey(
     ),
     wipeFull: sortStable((props.wipeFull ?? []).filter((s) => overlaps(s.start, s.end))),
     zooms: sortStable(zoomsKeyed),
+    zoomTransformTrack: zoomTransformTrackLocal(props.zoomTransformTrack, fromFrame, toFrame),
     // blurs も zooms と同型の時間局所要素。重なるチャンクだけキーが変わる
     // (globalVideoProps には入れない=全域無効化を避ける。§4 タスク6)
     blurs: sortStable((props.blurs ?? []).filter((b) => overlaps(b.start, b.end))),

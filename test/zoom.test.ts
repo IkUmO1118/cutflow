@@ -4,6 +4,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  OPENSCREEN_LEAD_IN_SEC,
+  OPENSCREEN_LEAD_OUT_SEC,
   effectiveZoomRange,
   zoomContiguous,
   zoomEase,
@@ -390,6 +392,71 @@ test("pre-roll: 直前ズームの末尾より前へは出ない(隣接ズーム
   assert.equal(effectiveZoomRange(zooms[1], zooms).start, 5);
   assert.equal(zoomProgressAt(5, zooms), 0); // 詰まった実効区間の頭
   assert.ok(zoomProgressAt(5.29, zooms) > 0); // 詰まった pre-roll 内で進行している
+});
+
+// ---- 枝A・P3: focusMode 指定時のみ OpenScreen precompute の実効窓へ拡張 ----
+
+test("effectiveZoomRange: focusMode 未指定は従来どおり(leadSec の pre-roll・matchEnd のまま)", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 };
+  const zooms: ZoomSpan[] = [{ start: 10, end: 20, rect, easeSec: 1.5, leadSec: 0.5 }];
+  assert.deepEqual(effectiveZoomRange(zooms[0], zooms), { start: 9.5, end: 20 });
+});
+
+test("effectiveZoomRange: focusMode:manual も leadSec ではなく OPENSCREEN_LEAD_IN/OUT_SEC を使う", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 };
+  const zooms: ZoomSpan[] = [{ start: 10, end: 20, rect, easeSec: 1.5, leadSec: 0.5, focusMode: "manual" }];
+  const range = effectiveZoomRange(zooms[0], zooms);
+  assert.ok(Math.abs(range.start - (10 - OPENSCREEN_LEAD_IN_SEC)) < 1e-9);
+  assert.ok(Math.abs(range.end - (20 + OPENSCREEN_LEAD_OUT_SEC)) < 1e-9);
+});
+
+test("effectiveZoomRange: focusMode:auto の孤立ズームは start を lead-in ぶん、end を lead-out ぶん広げる", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 };
+  const zooms: ZoomSpan[] = [{ start: 30, end: 40, rect, easeSec: 0.4, focusMode: "auto" }];
+  const range = effectiveZoomRange(zooms[0], zooms);
+  assert.ok(Math.abs(range.start - (30 - OPENSCREEN_LEAD_IN_SEC)) < 1e-9);
+  assert.ok(Math.abs(range.end - (40 + OPENSCREEN_LEAD_OUT_SEC)) < 1e-9);
+});
+
+test("effectiveZoomRange: focusMode:auto の拡張は直前ズームの末尾/タイムライン先頭より前へは出ない", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 };
+  const zooms: ZoomSpan[] = [
+    { start: 0, end: 0.5, rect, easeSec: 0.4, chainGapSec: 0 },
+    // 直前ズーム末尾(0.5)から OPENSCREEN_LEAD_IN_SEC(≈1.02) 遡ると負になるが、
+    // 直前ズームの末尾より前へは出ない(timelineFloorBefore でクランプ)
+    { start: 1.0, end: 5, rect, easeSec: 0.4, chainGapSec: 0, focusMode: "auto" },
+  ];
+  assert.equal(effectiveZoomRange(zooms[1], zooms).start, 0.5);
+  // 先頭の zoom 自体もタイムライン先頭(0)より前へは出ない
+  const zoomsAtHead: ZoomSpan[] = [{ start: 0.3, end: 5, rect, easeSec: 0.4, focusMode: "auto" }];
+  assert.equal(effectiveZoomRange(zoomsAtHead[0], zoomsAtHead).start, 0);
+});
+
+test("effectiveZoomRange: focusMode:auto の end 拡張は後続ズームの start を超えない", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 };
+  const zooms: ZoomSpan[] = [
+    { start: 0, end: 5, rect, easeSec: 0.4, chainGapSec: 0, focusMode: "auto" },
+    // 次のズーム開始(5.3)まで 0.3 秒しかないので lead-out(≈1.015)は 5.3 へ詰まる
+    { start: 5.3, end: 10, rect, easeSec: 0.4, chainGapSec: 0 },
+  ];
+  assert.equal(effectiveZoomRange(zooms[0], zooms).end, 5.3);
+});
+
+test("effectiveZoomRange: 連鎖している側(contiguousPrev/Next あり)は focusMode があっても matchStart/matchEnd のまま(拡張しない)。連鎖していない外側だけ lead-in/out で広がる", () => {
+  const zooms: ZoomSpan[] = [
+    { start: 10, end: 20, rect: CHAIN_A, easeSec: 0.4, focusMode: "auto" },
+    { start: 20, end: 30, rect: CHAIN_B, easeSec: 0.4, focusMode: "auto" },
+  ];
+  const rangeA = effectiveZoomRange(zooms[0], zooms);
+  // 頭側(prev なし)は孤立と同じ扱いで lead-in ぶん広がる
+  assert.ok(Math.abs(rangeA.start - (10 - OPENSCREEN_LEAD_IN_SEC)) < 1e-9);
+  // 尾側(next=連鎖あり)は matchEnd のまま(完全隣接なので z.end=20)
+  assert.equal(rangeA.end, 20);
+  const rangeB = effectiveZoomRange(zooms[1], zooms);
+  // 頭側(prev=連鎖あり)は matchStart のまま(= z.start)
+  assert.equal(rangeB.start, 20);
+  // 尾側(next なし)は lead-out ぶん広がる
+  assert.ok(Math.abs(rangeB.end - (30 + OPENSCREEN_LEAD_OUT_SEC)) < 1e-9);
 });
 
 test("zoomTransformAt: リファクタ後も既存の期待値が1つも変わらない(回帰の要)", () => {

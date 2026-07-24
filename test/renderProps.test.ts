@@ -911,6 +911,153 @@ test("buildRenderProps: zooms がカット内で全部消えると出力に含�
   assert.equal("zooms" in props, false);
 });
 
+// ---- 枝A・P3: focusMode → zoomTransformTrack(OpenScreen 逐語 precompute) ----
+
+test("buildRenderProps: focusMode 未指定の zoom は zoomTransformTrack を一切載せない(props.zooms もバイト等価)", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 };
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 40 }],
+    transcript: { segments: [] },
+    overlays: { zooms: [{ start: 10, end: 20, rect, easeSec: 0.4 }] },
+    renderCfg,
+    width: 1920,
+    height: 1080,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.equal("zoomTransformTrack" in props, false);
+  assert.deepEqual(props.zooms, [
+    {
+      start: 10, end: 20, rect, easeSec: 0.4, easeOutSec: 1.0,
+      chainGapSec: 1.5, leadSec: 0.5, chainPanSec: 1.0, wipeScale: 0.8,
+    },
+  ]);
+});
+
+test("buildRenderProps: focusMode:manual の zoom は zoomTransformTrack を焼き、ホールド中間フレームは fullTransformOf(spring 収束後)に一致する", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 }; // 1920x1080 の中心
+  const width = 1920;
+  const height = 1080;
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 40 }],
+    transcript: { segments: [] },
+    overlays: { zooms: [{ start: 10, end: 20, rect, easeSec: 0.4, focusMode: "manual" }] },
+    renderCfg,
+    width,
+    height,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.ok(props.zoomTransformTrack);
+  const track = props.zoomTransformTrack!;
+  const fps = 30;
+  // ホールド中間(区間頭から7秒後=遷移窓+spring 収束に十分な余裕)
+  const frame = Math.round(17 * fps);
+  const idx = frame - track.startFrame;
+  assert.ok(idx >= 0 && idx < track.frames.length, `idx=${idx} out of range (len=${track.frames.length})`);
+  const entry = track.frames[idx];
+  const scale = width / rect.w;
+  const cx = rect.x + rect.w / 2;
+  const cy = rect.y + rect.h / 2;
+  const expectedX = width / 2 - scale * cx;
+  const expectedY = height / 2 - scale * cy;
+  assert.ok(Math.abs(entry.scale - scale) < 0.01, `scale=${entry.scale} expected≈${scale}`);
+  assert.ok(Math.abs(entry.x - expectedX) < 0.5, `x=${entry.x} expected≈${expectedX}`);
+  assert.ok(Math.abs(entry.y - expectedY) < 0.5, `y=${entry.y} expected≈${expectedY}`);
+});
+
+test("buildRenderProps: focusMode:auto + 動くカーソルは焼いた x がホールド中で変化する(追従)", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 };
+  const width = 1920;
+  const height = 1080;
+  const cursorSamples: { recTimeMs: number; cx: number; cy: number; inBounds: boolean; leftButtonPressed: boolean }[] = [];
+  for (let ms = 9000; ms <= 26000; ms += 100) {
+    const p = Math.max(0, Math.min(1, (ms - 9000) / (26000 - 9000)));
+    cursorSamples.push({
+      recTimeMs: ms,
+      cx: 0.3 + (0.7 - 0.3) * p,
+      cy: 0.5,
+      inBounds: true,
+      leftButtonPressed: false,
+    });
+  }
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 40 }],
+    transcript: { segments: [] },
+    overlays: { zooms: [{ start: 10, end: 25, rect, easeSec: 0.4, focusMode: "auto" }] },
+    renderCfg,
+    width,
+    height,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    cursorSamples,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.ok(props.zoomTransformTrack);
+  const track = props.zoomTransformTrack!;
+  const fps = 30;
+  const xAt = (tSec: number) => {
+    const idx = Math.round(tSec * fps) - track.startFrame;
+    assert.ok(idx >= 0 && idx < track.frames.length, `idx out of range at t=${tSec}`);
+    return track.frames[idx].x;
+  };
+  const xEarly = xAt(12);
+  const xLate = xAt(23);
+  assert.ok(
+    Math.abs(xEarly - xLate) > 5,
+    `x should differ across the hold as cursor moves: early=${xEarly} late=${xLate}`,
+  );
+  // カーソルが右へ動く(cx増加)ほど x(=stageCenterX - focus*scale)は減る
+  assert.ok(xLate < xEarly, `x should decrease as cursor moves right: early=${xEarly} late=${xLate}`);
+});
+
+test("buildRenderProps: focusMode:auto かつ cursorSamples 省略でもクラッシュせず静的 rect 中心へ劣化する", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 };
+  const width = 1920;
+  const height = 1080;
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 40 }],
+    transcript: { segments: [] },
+    overlays: { zooms: [{ start: 10, end: 20, rect, easeSec: 0.4, focusMode: "auto" }] },
+    renderCfg,
+    width,
+    height,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.ok(props.zoomTransformTrack);
+  const track = props.zoomTransformTrack!;
+  assert.ok(track.frames.length > 0);
+  const fps = 30;
+  const frame = Math.round(17 * fps);
+  const idx = frame - track.startFrame;
+  assert.ok(idx >= 0 && idx < track.frames.length);
+  const entry = track.frames[idx];
+  const scale = width / rect.w;
+  const cx = rect.x + rect.w / 2;
+  const cy = rect.y + rect.h / 2;
+  const expectedX = width / 2 - scale * cx;
+  const expectedY = height / 2 - scale * cy;
+  assert.ok(Math.abs(entry.scale - scale) < 0.01);
+  assert.ok(Math.abs(entry.x - expectedX) < 0.5);
+  assert.ok(Math.abs(entry.y - expectedY) < 0.5);
+});
+
 test("buildRenderProps: blurs 未指定なら props に blurs キーが現れない(既存 props と完全一致)", () => {
   const props = buildRenderProps({
     manifest,

@@ -273,7 +273,8 @@
           "end": { "type": "number" },
           "rect": { "$ref": "common.schema.json#/$defs/Region" },
           "easeSec": { "type": "number", "minimum": 0 },
-          "easeOutSec": { "type": "number", "minimum": 0 }
+          "easeOutSec": { "type": "number", "minimum": 0 },
+          "focusMode": { "type": "string", "enum": ["manual", "auto"] }
         }
       }
     },

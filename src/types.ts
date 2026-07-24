@@ -701,6 +701,12 @@ export interface Zoom {
   easeSec?: number;
   /** 区間の末尾でズームアウトする遷移時間(秒)。省略時 easeSec と同じ */
   easeOutSec?: number;
+  /** 省略=manual(固定 focus)。"auto"=カーソル追従(cursor サイドカーがあれば
+   * 毎フレームカーソルへ、無ければ rect 中心へ劣化)。focusMode を1つでも
+   * 持つと render は OpenScreen 逐語の precompute 経路(spring 込み)に
+   * 切り替わる。持たない既存収録はバイト等価。
+   * §docs/plans/2026-07-24-openscreen-zoom-A-cursor-follow-design.md D0 */
+  focusMode?: "manual" | "auto";
 }
 
 /** render.zoom.easeSec 未指定時の既定(秒)。renderProps と設定画面で共有 */

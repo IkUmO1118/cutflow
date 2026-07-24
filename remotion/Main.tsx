@@ -123,7 +123,23 @@ export const Main = (props: RenderProps) => {
   // rect は出力px のまま、出力全面を対象に scale = 出力幅 / rect.w で拡大する
   // (design 無しでは背景画像が無くパネル=出力全面なので、パネル内側に掛けて
   // いた従来と同じ絵になる)
-  const zoomT = zoomTransformAt(t, zoomSpans, props.width, props.height);
+  let zoomT = zoomTransformAt(t, zoomSpans, props.width, props.height);
+  // 枝A・P3: opt-in(overlays.zooms のいずれかに focusMode)のときだけ
+  // props.zoomTransformTrack が焼かれている。焼かれていればステートレスに
+  // フレーム番号で lookup するだけ(zoomProgressAt/zoomTransformAt は通らない。
+  // OpenScreen 逐語 precompute の spring 込み軌跡をそのまま使う)。
+  // 範囲外フレーム(pre-roll/lead-out より外)は恒等。opt-out(未指定)は
+  // 上の zoomTransformAt のまま=バイト等価。
+  // 【スコープ外】ワイプ縮小(下の wipeShrinkS)は zoomProgressAt の従来
+  // エンベロープのまま(baked 経路には乗せていない)
+  if (props.zoomTransformTrack) {
+    const tt = props.zoomTransformTrack;
+    const i = frame - tt.startFrame;
+    const entry = i >= 0 && i < tt.frames.length ? tt.frames[i] : null;
+    zoomT = entry
+      ? { scale: entry.scale, translateX: entry.x, translateY: entry.y }
+      : { scale: 1, translateX: 0, translateY: 0 };
+  }
 
   const cutHalf = (props.cutTransition?.sec ?? 0) / 2;
   const cutOpacity =

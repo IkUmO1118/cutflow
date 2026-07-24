@@ -8,7 +8,11 @@ import {
 } from "./timeline.ts";
 import type { RemappedPiece, TimelineEntry } from "./timeline.ts";
 import type { Config } from "./config.ts";
-import { resolveZoomCfg } from "./zoom.ts";
+import { effectiveZoomRange, resolveZoomCfg } from "./zoom.ts";
+import type { ZoomSpan } from "./zoom.ts";
+import { buildZoomRuntimeTrack } from "./zoomRuntimeTrack.ts";
+import { DEFAULT_ZOOM_DEPTH } from "./vendor/openscreen/types.ts";
+import type { CursorTelemetryPoint, ZoomRegion } from "./vendor/openscreen/types.ts";
 import type { Profile } from "./profile.ts";
 import { remapKeyframesForPiece } from "./keyframes.ts";
 import {
@@ -45,8 +49,8 @@ import type {
 import { manifestCompositionFps } from "../types.ts";
 import { resolveAnnotation } from "./annotation.ts";
 import { resolveDesign } from "./design.ts";
-import { resampleCursorTrack } from "./cursorAnchors.ts";
-import type { CursorDwellSample } from "./cursorAnchors.ts";
+import { cursorFocusToLocalPoint, resampleCursorTrack } from "./cursorAnchors.ts";
+import type { CursorDwellSample, CursorRectGeom } from "./cursorAnchors.ts";
 import type {
   Caption,
   OverlayItem,
@@ -352,9 +356,98 @@ export function buildRenderProps(args: {
         chainPanSec: zoomCfg.chainPanSec,
         wipeScale: renderCfg.zoom?.wipeScale ?? DEFAULT_ZOOM_WIPE_SCALE,
         ...(cursorTrack.length > 0 ? { cursorTrack } : {}),
+        ...(z.focusMode ? { focusMode: z.focusMode } : {}),
       },
     ];
   });
+
+  // 枝A・P3: overlays.zooms のいずれか1つでも focusMode を持てば「opt-in」
+  // (§docs/plans/2026-07-24-openscreen-zoom-A-cursor-follow-design.md D0)。
+  // opt-in のときだけ OpenScreen 逐語 precompute(buildZoomRuntimeTrack)を
+  // 全 zoom 区間ぶんまとめて1本のグローバル軌跡として焼く。opt-out(1件も
+  // focusMode が無い)のプロジェクトはここを一切通らず、props に
+  // zoomTransformTrack が乗らない(Main.tsx は現行 zoomTransformAt のまま=
+  // バイト等価)
+  const optedIntoZoomPrecompute = (overlays.zooms ?? []).some((z) => z.focusMode);
+  let zoomTransformTrack: RenderProps["zoomTransformTrack"] | undefined;
+  if (optedIntoZoomPrecompute && zoomSpans.length > 0) {
+    const fps = manifestCompositionFps(manifest);
+    // regions は OUTPUT 秒(zoomSpans はカット後タイムラインへ写像済み)を
+    // OUTPUT ms へ。focus はステージ全体(props.width/height)に対する
+    // 正規化座標(computeZoomTransform が baseMask ではなく stageSize で
+    // 直接写像するため。zoom.ts の fullTransformOf と同じ前提)
+    const regions: ZoomRegion[] = zoomSpans.map((span, i) => ({
+      id: `z${i}`,
+      startMs: span.start * 1000,
+      endMs: span.end * 1000,
+      depth: DEFAULT_ZOOM_DEPTH,
+      customScale: width / span.rect.w,
+      focus: {
+        cx: (span.rect.x + span.rect.w / 2) / width,
+        cy: (span.rect.y + span.rect.h / 2) / height,
+      },
+      focusMode: span.focusMode ?? "manual",
+    }));
+    // カーソル追従(focusMode:"auto")の region が1つも無ければテレメトリ不要
+    // (静的 focus のみで足りる=無駄な resample/写像をしない)
+    const hasAutoRegion = regions.some((r) => r.focusMode === "auto");
+    let cursorTelemetry: CursorTelemetryPoint[] | undefined;
+    if (hasAutoRegion && cursorSamples) {
+      const geom: CursorRectGeom = {
+        layout: manifest.layout ?? "obs-canvas",
+        screenRegion: manifest.video.screenRegion,
+        recordingWidth: manifest.video.width,
+        recordingHeight: manifest.video.height,
+        defaultScale: 1,
+      };
+      cursorTelemetry = cursorSamples
+        .filter((s) => s.inBounds && Number.isFinite(s.cx) && Number.isFinite(s.cy))
+        .map((s) => {
+          const outSec = toOutputTime(s.recTimeMs / 1000, timeline);
+          if (outSec === null) return null; // カット内=出力に存在しない時刻
+          const local = cursorFocusToLocalPoint({ cx: s.cx, cy: s.cy }, geom);
+          const cx = local.x / width;
+          const cy = local.y / height;
+          if (!Number.isFinite(cx) || !Number.isFinite(cy)) return null;
+          return { timeMs: outSec * 1000, cx, cy };
+        })
+        .filter((p): p is CursorTelemetryPoint => p !== null)
+        .sort((a, b) => a.timeMs - b.timeMs);
+    }
+    // 実効区間(pre-roll/lead-out込み。focusMode があるので effectiveZoomRange が
+    // OPENSCREEN_LEAD_IN_SEC/OUT_SEC ぶん広げた範囲を返す)の和集合を
+    // render fps のフレーム範囲へ。durationInFrames は builtTimeline の秒数から
+    // (buildRenderProps 末尾の durationSec と同じ計算をここで先取りする)
+    const durationInFrames = Math.round(builtTimeline.durationSec * fps);
+    if (durationInFrames > 0) {
+      const ranges = (zoomSpans as ZoomSpan[]).map((z) => effectiveZoomRange(z, zoomSpans as ZoomSpan[]));
+      const startFrame = Math.max(0, Math.floor(Math.min(...ranges.map((r) => r.start)) * fps));
+      const endFrame = Math.min(
+        durationInFrames - 1,
+        Math.ceil(Math.max(...ranges.map((r) => r.end)) * fps),
+      );
+      if (endFrame >= startFrame) {
+        const track = buildZoomRuntimeTrack({
+          regions,
+          cursorTelemetry,
+          fps,
+          stageSize: { width, height },
+          baseMask: {
+            x: manifest.video.screenRegion.x,
+            y: manifest.video.screenRegion.y,
+            width: manifest.video.screenRegion.w,
+            height: manifest.video.screenRegion.h,
+          },
+          startFrame,
+          endFrame,
+        });
+        zoomTransformTrack = {
+          startFrame,
+          frames: track.map((f) => ({ scale: f.scale, x: f.x, y: f.y })),
+        };
+      }
+    }
+  }
 
   // 領域ぼかしもカット後タイムラインへ写像する。rect は不変なので
   // マージ不要(zooms と同じく断片ごとに独立エントリのまま。判断5)。
@@ -507,6 +600,7 @@ export function buildRenderProps(args: {
     overlays: overlayItems,
     wipeFull: wipeSpans,
     ...(zoomSpans.length > 0 ? { zooms: zoomSpans } : {}),
+    ...(zoomTransformTrack ? { zoomTransformTrack } : {}),
     ...(blurSpans.length > 0 ? { blurs: blurSpans } : {}),
     ...(annotationItems.length > 0 ? { annotations: annotationItems } : {}),
     ...(renderCfg.cutTransition?.type === "dip-to-black"

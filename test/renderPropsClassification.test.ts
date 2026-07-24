@@ -63,6 +63,11 @@ const CLASSIFICATION = {
   overlays: { chunk: "chunk-local", fast: "layer" },
   wipeFull: { chunk: "chunk-local", fast: "fallback" },
   zooms: { chunk: "chunk-local", fast: "fallback" },
+  // 枝A・P3: OpenScreen 逐語 precompute のグローバル軌跡。zooms と同じ時間局所
+  // 要素(重なるチャンクだけキーが変わる)。FAST 側は zoomTransformTrack 自体を
+  // 直接は見ない(その frame 範囲は既に対応する zooms の effectiveZoomRange 経由で
+  // SLOW 送りされているため=triggerは zooms 側。ここは fallback 分類の一致を保つ)
+  zoomTransformTrack: { chunk: "chunk-local", fast: "fallback" },
   // blurs は意図的に chunk-local(全域無効化を避ける。chunkPlan.ts §4 タスク6)
   blurs: { chunk: "chunk-local", fast: "fallback" },
   annotations: { chunk: "chunk-local", fast: "layer" },
@@ -103,6 +108,7 @@ const BASE: RenderProps = {
   overlays: [{ start: 1, end: 3, file: "materials/a.png", track: 1, fit: "contain" }],
   wipeFull: [{ start: 4, end: 5 }],
   zooms: [{ start: 2, end: 3, rect: { x: 0, y: 0, w: 960, h: 540 }, easeSec: 0.4, wipeScale: 0.8 }],
+  zoomTransformTrack: { startFrame: 60, frames: [{ scale: 1.5, x: -100, y: -50 }, { scale: 1.5, x: -100, y: -50 }] },
   blurs: [{ start: 3, end: 4, rect: { x: 10, y: 10, w: 200, h: 100 }, strength: 0.5 }],
   annotations: [
     { type: "box", start: 4, end: 5, rect: { x: 50, y: 50, w: 300, h: 200 }, color: "#ff0000", widthPx: 4, radiusPx: 8 },
@@ -143,6 +149,10 @@ const MUTATIONS: Record<keyof RenderProps, (p: RenderProps) => RenderProps> = {
   overlays: (p) => ({ ...p, overlays: [{ ...p.overlays[0], start: 1.5 }] }),
   wipeFull: (p) => ({ ...p, wipeFull: [{ start: 4, end: 5.5 }] }),
   zooms: (p) => ({ ...p, zooms: [{ ...p.zooms![0], rect: { x: 0, y: 0, w: 1280, h: 720 } }] }),
+  zoomTransformTrack: (p) => ({
+    ...p,
+    zoomTransformTrack: { startFrame: 60, frames: [{ scale: 1.6, x: -100, y: -50 }, { scale: 1.6, x: -100, y: -50 }] },
+  }),
   blurs: (p) => ({ ...p, blurs: [{ ...p.blurs![0], strength: 0.8 }] }),
   annotations: (p) => ({ ...p, annotations: [{ ...p.annotations![0], widthPx: 6 }] }),
   cutTransition: (p) => ({ ...p, cutTransition: { sec: 0.9 } }),

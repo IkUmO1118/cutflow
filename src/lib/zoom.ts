@@ -78,7 +78,22 @@ export interface ZoomSpan {
    * 完全隣接(gap=0)には効かず easeSec を使う。省略時
    * DEFAULT_ZOOM_CHAIN_PAN_SEC(1.0)。OpenScreen 移植 D3(#2・D2b) */
   chainPanSec?: number;
+  /** 省略=manual(固定 focus)。"auto"=カーソル追従。1つでも持つと render は
+   * OpenScreen 逐語の precompute 経路(spring 込み)に切り替わる(枝A・P3)。
+   * 持たない既存収録はバイト等価(effectiveZoomRange の拡張も未指定時は
+   * 一切効かない) */
+  focusMode?: "manual" | "auto";
 }
+
+/** OpenScreen 逐語 precompute 経路(focusMode 指定時)のリードイン秒。
+ * computeRegionStrength は startMs+ZOOM_IN_OVERLAP_MS(500) から
+ * ZOOM_IN_TRANSITION_WINDOW_MS(1522.575) 遡って立ち上がる
+ * = 実効開始は startMs-1022.575ms。FAST/SLOW とチャンクキャッシュがこの範囲を
+ * SLOW/局所キーに含むよう effectiveZoomRange をこの分だけ前へ広げる(母艦 D4)。 */
+export const OPENSCREEN_LEAD_IN_SEC = 1.022575;
+/** 同・リードアウト秒。computeRegionStrength は endMs 以降
+ * TRANSITION_WINDOW_MS(1015.05ms) かけて 0 へ戻る。 */
+export const OPENSCREEN_LEAD_OUT_SEC = 1.01505;
 
 export interface ZoomTransform {
   /** 出力全体に掛ける一様スケール(1 = 等倍) */
@@ -171,15 +186,45 @@ function gapChainedFrom(z: ZoomSpan, zooms: ZoomSpan[]): ZoomSpan | undefined {
   return z.start - prev.end > ZOOM_CONTIG_EPS ? prev : undefined;
 }
 
+/** z より後ろ(z.end 以上の start を持つ)にある他ズームのうち最も早い start
+ * (無ければ undefined=タイムライン末尾までクランプなし)。focusMode の
+ * リードアウト(OPENSCREEN_LEAD_OUT_SEC)が後続ズームへ食い込まないよう
+ * 上限を決めるのに使う */
+function timelineCeilAfter(z: ZoomSpan, zooms: ZoomSpan[]): number | undefined {
+  let ceil: number | undefined;
+  for (const o of zooms) {
+    if (o !== z && o.start >= z.end && (ceil === undefined || o.start < ceil)) ceil = o.start;
+  }
+  return ceil;
+}
+
 /**
  * ズーム区間 z の実効区間(pre-roll・gap 保持込み。OpenScreen 移植 D3・
  * D1c・D2b)。FAST/SLOW 判定・チャンクキャッシュキーなど「この時間は
  * ズームの影響を受ける」を判定したい経路は、zoomProgressAt/zoomTransformAt
  * の区間探索と食い違わないようここを通す。孤立側の頭は leadAdjustedStart で
- * 前倒しし、gap のある連鎖の尾は次区間の頭まで延長する(前 rect 保持)
+ * 前倒しし、gap のある連鎖の尾は次区間の頭まで延長する(前 rect 保持)。
+ * **focusMode 指定時のみ**(枝A・P3)、連鎖しない側の端をさらに
+ * OpenScreen 逐語 precompute 経路の実効窓(OPENSCREEN_LEAD_IN_SEC /
+ * OPENSCREEN_LEAD_OUT_SEC)まで広げる。focusMode 未指定なら常に
+ * matchStart/matchEnd のまま = 従来とバイト等価
  */
 export function effectiveZoomRange(z: ZoomSpan, zooms: ZoomSpan[]): { start: number; end: number } {
-  return { start: matchStart(z, zooms), end: matchEnd(z, zooms) };
+  const prev = contiguousPrev(z, zooms);
+  const next = contiguousNext(z, zooms);
+  const start =
+    !prev && z.focusMode
+      ? Math.max(timelineFloorBefore(z, zooms), z.start - OPENSCREEN_LEAD_IN_SEC)
+      : matchStart(z, zooms);
+  const end =
+    !next && z.focusMode
+      ? (() => {
+          const ceil = timelineCeilAfter(z, zooms);
+          const extended = z.end + OPENSCREEN_LEAD_OUT_SEC;
+          return ceil !== undefined ? Math.min(extended, ceil) : extended;
+        })()
+      : matchEnd(z, zooms);
+  return { start, end };
 }
 
 /** cubic-bezier(x1,y1,x2,y2) の P0=(0,0)・P3=(1,1) 固定版を x=raw で解いて

@@ -639,6 +639,9 @@ export function validateDocs(
       if (z.easeOutSec !== undefined && (!isNum(z.easeOutSec) || z.easeOutSec < 0)) {
         err(f, w, `easeOutSec(退出遷移秒数)は0以上の数です(現在: ${JSON.stringify(z.easeOutSec)})`);
       }
+      if (z.focusMode !== undefined && z.focusMode !== "manual" && z.focusMode !== "auto") {
+        err(f, w, `focusMode は "manual" か "auto" です(現在: ${JSON.stringify(z.focusMode)})`);
+      }
     });
     // 重なり禁止(エラー)。ユーザーが時系列順に書くとは限らないので開始時刻でソートしてから隣接比較
     const sortedZooms = [...zoomSpans].sort((a, b) => a.start - b.start);

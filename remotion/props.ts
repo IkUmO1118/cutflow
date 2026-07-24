@@ -249,7 +249,28 @@ export type RenderProps = {
      * (省略時/空配列は現行の描画と完全に同じ)。
      * §docs/plans/2026-07-24-openscreen-d2-dwell-suggestion-design.md */
     cursorTrack?: { tSec: number; cx: number; cy: number }[];
+    /** 省略=manual(固定 focus)。"auto"=カーソル追従。1つでも持つ zoom が
+     * あると render は OpenScreen 逐語 precompute 経路(props 直下の
+     * zoomTransformTrack)に切り替わり、Main.tsx はこの区間の
+     * zoomTransformAt/zoomProgressAt(ズーム本体の transform に限る。
+     * ワイプ縮小は対象外)を通らない。省略時は現行の描画と完全に同じ
+     * (枝A・P3・§docs/plans/2026-07-24-openscreen-zoom-A-cursor-follow-design.md D0) */
+    focusMode?: "manual" | "auto";
   }[];
+  /** グローバルな sprung transform 軌跡(OpenScreen 逐語 precompute。
+   * `overlays.zooms[]` のいずれか1つでも focusMode を持つ("opted in")ときだけ
+   * buildRenderProps が焼く。zooms[] は1件ずつだが、この軌跡は全 zoom
+   * 区間をまたぐ「1本のグローバルトラック」(連鎖の spring 連続性を保つため。
+   * src/lib/zoomRuntimeTrack.ts の buildZoomRuntimeTrack が render fps 全フレーム
+   * ぶんの sprung {scale,x,y} を書き出す)。startFrame は frames[0] の絶対
+   * 出力フレーム番号。Main.tsx はフレーム番号で frames[frame-startFrame] を
+   * lookup するだけ(ステートレス。zoomProgressAt/zoomTransformAt は一切
+   * 通らない)。省略時(opt-out)は現行の zoomTransformAt 経路のまま=
+   * バイト等価(枝A・P3) */
+  zoomTransformTrack?: {
+    startFrame: number;
+    frames: { scale: number; x: number; y: number }[];
+  };
   /** 領域ぼかし(overlays.json の blurs。カット後の秒へ写像・
    * strength 解決済み)。ベース映像(画面クロップ)の rect 部分だけを
    * 隠す。zoom 追従なしの出力px固定。省略時(空)は現行の描画と完全に同じ。
