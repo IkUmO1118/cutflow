@@ -12,33 +12,40 @@
 // しない)、次の区間の頭 easeSec 秒で前の rect から次の rect へ直接パンする
 // (scale・translate を zoomEase で補間)。孤立した区間の値は smoothstep から
 // zoomEase への差し替えの影響を受ける(カーブが変わるため)。
-import { DEFAULT_ZOOM_EASE_IN_SEC, DEFAULT_ZOOM_EASE_OUT_SEC } from "../types.ts";
+import {
+  DEFAULT_ZOOM_CHAIN_GAP_SEC,
+  DEFAULT_ZOOM_EASE_IN_SEC,
+  DEFAULT_ZOOM_EASE_OUT_SEC,
+} from "../types.ts";
 import type { Region } from "../types.ts";
 
-/** config.yaml の render.zoom のうちイーズ関連の部分形状(renderProps.ts が
- * buildRenderProps に渡す Config["render"]["zoom"] と構造的に互換)。
- * zoom.ts は config.ts を import しない(config.ts は node:fs 等を持ち込み、
- * renderProps.ts 経由でブラウザ/Remotion バンドルへ漏れるため。§docs/decisions.md) */
-export interface ZoomEaseCfg {
+/** config.yaml の render.zoom の部分形状(renderProps.ts が buildRenderProps に
+ * 渡す Config["render"]["zoom"] と構造的に互換)。zoom.ts は config.ts を
+ * import しない(config.ts は node:fs 等を持ち込み、renderProps.ts 経由で
+ * ブラウザ/Remotion バンドルへ漏れるため。§docs/decisions.md) */
+export interface ZoomRenderCfg {
   easeSec?: number;
   easeInSec?: number;
   easeOutSec?: number;
+  chainGapSec?: number;
 }
 
-/** render.zoom.{easeInSec,easeOutSec} を既定値で解決する純関数
+/** render.zoom.{easeInSec,easeOutSec,chainGapSec} を既定値で解決する純関数
  *  (OpenScreen 移植 D3。§docs/plans/2026-07-24-openscreen-d3-zoom-look-and-feel-design.md)。
- *  優先順位は各方向とも「easeInSec/easeOutSec 個別指定」→「easeSec(両方未指定時の
- *  後方互換値。対称のまま値だけ引き継ぐ)」→「新既定(1.5秒/1.0秒の非対称)」。
- *  buildRenderProps はここで解決した値へさらに zooms[].easeSec/easeOutSec
- *  (zoom 1件ごとの個別指定)を上書きする */
-export function resolveZoomEaseCfg(zoomCfg: ZoomEaseCfg | undefined): {
+ *  ease の優先順位は各方向とも「easeInSec/easeOutSec 個別指定」→「easeSec(両方
+ *  未指定時の後方互換値。対称のまま値だけ引き継ぐ)」→「新既定(1.5秒/1.0秒の
+ *  非対称)」。buildRenderProps はここで解決した値へさらに zooms[].easeSec/
+ *  easeOutSec(zoom 1件ごとの個別指定)を上書きする */
+export function resolveZoomCfg(zoomCfg: ZoomRenderCfg | undefined): {
   easeInSec: number;
   easeOutSec: number;
+  chainGapSec: number;
 } {
   const z = zoomCfg ?? {};
   return {
     easeInSec: z.easeInSec ?? z.easeSec ?? DEFAULT_ZOOM_EASE_IN_SEC,
     easeOutSec: z.easeOutSec ?? z.easeSec ?? DEFAULT_ZOOM_EASE_OUT_SEC,
+    chainGapSec: z.chainGapSec ?? DEFAULT_ZOOM_CHAIN_GAP_SEC,
   };
 }
 
@@ -49,6 +56,9 @@ export interface ZoomSpan {
   rect: Region;
   easeSec: number;
   easeOutSec?: number;
+  /** 隣接ズームを連鎖(パン遷移)とみなす gap の上限(秒)。省略時
+   * DEFAULT_ZOOM_CHAIN_GAP_SEC(1.5)。OpenScreen 移植 D3(#2・D2a) */
+  chainGapSec?: number;
 }
 
 export interface ZoomTransform {
@@ -61,26 +71,32 @@ export interface ZoomTransform {
 
 const IDENTITY: ZoomTransform = { scale: 1, translateX: 0, translateY: 0 };
 
-/** 連鎖(隣接)判定の許容誤差(秒)。元収録秒で end === start なら
- * renderProps の写像(同じ算術)を通ってもカット後の秒は厳密に一致するが、
- * 浮動小数の合成誤差に備えて 1µs まで許す(意図的な微小ギャップを連鎖と
- * 誤認しない程度に小さく、演算誤差(高々 1e-10 秒程度)より十分大きく) */
+/** 浮動小数の合成誤差の吸収用(秒)。元収録秒で end === start(gap=0 の
+ * 完全隣接)なら renderProps の写像(同じ算術)を通ってもカット後の秒は
+ * 厳密に一致するが、合成誤差に備えて 1µs まで許す(演算誤差(高々 1e-10 秒
+ * 程度)より十分小さいギャップ差は意図的な区別と誤認しない程度に小さい) */
 export const ZOOM_CONTIG_EPS = 1e-6;
 
-/** a(先行)の直後に b(後続)が隙間なく続くか = パン遷移でつなぐ連鎖か */
-export function zoomContiguous(aEnd: number, bStart: number): boolean {
-  return Math.abs(bStart - aEnd) <= ZOOM_CONTIG_EPS;
+/** a(先行)の直後に b(後続)が chainGapSec 以内の gap で続くか = パン遷移で
+ * つなぐ連鎖か(OpenScreen 移植 D3・D2a)。負の gap(重なり。validate が
+ * そもそもエラーにする)は連鎖にしない(誤差吸収の ZOOM_CONTIG_EPS だけ許容)。
+ * 旧仕様(完全隣接 = gap 以内 1µs)は chainGapSec: 0 を渡すのと等価 */
+export function zoomContiguous(aEnd: number, bStart: number, chainGapSec: number): boolean {
+  const gap = bStart - aEnd;
+  return gap >= -ZOOM_CONTIG_EPS && gap <= chainGapSec + ZOOM_CONTIG_EPS;
 }
 
-/** z の直前に隙間なく接するズーム(無ければ undefined)。zooms は重ならない
- * 前提(validate がエラーにする)なので該当は高々1つ */
+/** z の直前に chainGapSec 以内の gap で連鎖するズーム(無ければ undefined)。
+ * zooms は重ならない前提(validate がエラーにする)なので該当は高々1つ */
 function contiguousPrev(z: ZoomSpan, zooms: ZoomSpan[]): ZoomSpan | undefined {
-  return zooms.find((o) => o !== z && zoomContiguous(o.end, z.start));
+  const chainGapSec = z.chainGapSec ?? DEFAULT_ZOOM_CHAIN_GAP_SEC;
+  return zooms.find((o) => o !== z && zoomContiguous(o.end, z.start, chainGapSec));
 }
 
-/** z の直後に隙間なく接するズーム(無ければ undefined) */
+/** z の直後に chainGapSec 以内の gap で連鎖するズーム(無ければ undefined) */
 function contiguousNext(z: ZoomSpan, zooms: ZoomSpan[]): ZoomSpan | undefined {
-  return zooms.find((o) => o !== z && zoomContiguous(z.end, o.start));
+  const chainGapSec = z.chainGapSec ?? DEFAULT_ZOOM_CHAIN_GAP_SEC;
+  return zooms.find((o) => o !== z && zoomContiguous(z.end, o.start, chainGapSec));
 }
 
 /** cubic-bezier(x1,y1,x2,y2) の P0=(0,0)・P3=(1,1) 固定版を x=raw で解いて

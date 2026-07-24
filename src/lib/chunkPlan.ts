@@ -1,5 +1,6 @@
 import type { OverlayItem, RenderProps } from "../../remotion/props.ts";
 import { zoomContiguous } from "./zoom.ts";
+import { DEFAULT_ZOOM_CHAIN_GAP_SEC } from "../types.ts";
 
 /**
  * render チャンク差分レンダー(docs/render-chunk-cache.md)のキャッシュキーを
@@ -194,11 +195,12 @@ export function chunkVideoKey(
   // キーへ含める(隣の rect 編集でパン中のチャンクが正しく無効化される)
   const zoomsAll = props.zooms ?? [];
   const zoomsHere = zoomsAll.filter((z) => overlaps(z.start, z.end));
-  const zoomsKeyed = zoomsAll.filter((z) =>
-    zoomsHere.some(
-      (o) => z === o || zoomContiguous(z.end, o.start) || zoomContiguous(o.end, z.start),
-    ),
-  );
+  const zoomsKeyed = zoomsAll.filter((z) => {
+    const gap = z.chainGapSec ?? DEFAULT_ZOOM_CHAIN_GAP_SEC;
+    return zoomsHere.some(
+      (o) => z === o || zoomContiguous(z.end, o.start, gap) || zoomContiguous(o.end, z.start, gap),
+    );
+  });
   const local = {
     captions: sortStable(props.captions.filter((c) => overlaps(c.start, c.end))),
     overlays: sortStable(

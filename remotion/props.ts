@@ -229,6 +229,10 @@ export type RenderProps = {
     rect: Region;
     easeSec: number;
     easeOutSec?: number;
+    /** 隣接ズームを連鎖(パン遷移)とみなす gap の上限(秒)。省略時
+     * DEFAULT_ZOOM_CHAIN_GAP_SEC(1.5。src/lib/zoom.ts の resolveZoomCfg)。
+     * OpenScreen 移植 D3(#2・D2a) */
+    chainGapSec?: number;
     /** ズーム中にカメラワイプを右下アンカーで縮める倍率(1 = 縮小なし)。
      * config.yaml の render.zoom.wipeScale から解決済み(既定 0.8) */
     wipeScale: number;

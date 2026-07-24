@@ -252,11 +252,13 @@ test("chunkVideoKey: 連鎖ズーム(隣接=パン遷移)は隣の rect 変更�
 });
 
 test("chunkVideoKey: 隙間のあるズームどうしは従来どおりチャンク限定(隣の rect 変更で他チャンク不変)", () => {
+  // gap=2s > 既定 chainGapSec(1.5秒。DEFAULT_ZOOM_CHAIN_GAP_SEC。OpenScreen
+  // 移植 D3・D2a)なので連鎖しない。この gap を挟まないと2つは連鎖扱いになる
   const withGap: RenderProps = {
     ...PROPS,
     zooms: [
       { start: 2, end: 4, rect: { x: 0, y: 0, w: 960, h: 1080 }, easeSec: 0.4, wipeScale: 0.8 },
-      { start: 5.5, end: 7, rect: { x: 960, y: 0, w: 960, h: 1080 }, easeSec: 0.4, wipeScale: 0.8 },
+      { start: 6, end: 7, rect: { x: 960, y: 0, w: 960, h: 1080 }, easeSec: 0.4, wipeScale: 0.8 },
     ],
   };
   const before = keysOf(withGap);

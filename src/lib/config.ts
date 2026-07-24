@@ -664,6 +664,11 @@ export interface Config {
        * 共有。専用の時間設定は無い)。zoom 1件ごとの上書きは非目標
        * (overlays.json のスキーマは変えない) */
       wipeScale?: number;
+      /** 隣接ズームを連鎖(パン遷移)とみなす gap の上限(秒)。省略時
+       * DEFAULT_ZOOM_CHAIN_GAP_SEC(1.5)。0 <= gap <= この値で連鎖、
+       * 負の gap(重なり。validate がそもそもエラーにする)は連鎖にしない。
+       * OpenScreen 移植 D3(#2・D2a) */
+      chainGapSec?: number;
     };
     /** ベースレイアウトのデザイン。plain は背景画像 + 画面パネル、
      * obs-canvas はさらにカメラ円を描く。ショートには継承しない。

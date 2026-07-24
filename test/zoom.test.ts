@@ -228,10 +228,28 @@ test("連鎖: 3区間の連鎖も各境界でパンする", () => {
   assert.deepEqual(zoomTransformAt(30.4, chain3, WIDTH, HEIGHT), fullC);
 });
 
-test("隙間のある2区間は連鎖しない(従来どおり間で等倍へ戻る)", () => {
+// ---- OpenScreen 移植 D3(#2・D2a): 連鎖を「gap <= chainGapSec」へ緩める ----
+// 既定 chainGapSec は DEFAULT_ZOOM_CHAIN_GAP_SEC(1.5秒)。gap を明示しない
+// ZoomSpan はこの既定を使う(zoom.ts の contiguousPrev/Next のフォールバック)
+
+test("gap が既定 chainGapSec(1.5秒)以内なら連鎖する(区間の端が連鎖扱いになる)", () => {
   const gap: ZoomSpan[] = [
     { start: 10, end: 20, rect: CHAIN_A, easeSec: 0.4 },
-    { start: 20.5, end: 30, rect: CHAIN_B, easeSec: 0.4 },
+    { start: 20.5, end: 30, rect: CHAIN_B, easeSec: 0.4 }, // gap=0.5 <= 1.5
+  ];
+  const fullA = zoomTransformAt(15, gap, WIDTH, HEIGHT);
+  // A は末尾でイーズアウトせずフルズームを保つ(連鎖)
+  assert.deepEqual(zoomTransformAt(19.99, gap, WIDTH, HEIGHT), fullA);
+  assert.equal(zoomProgressAt(19.99, gap), 1);
+  // B の頭(イーズ前)は前 rect(fullA)からのパン開始点になる。gap 区間
+  // [20, 20.5) 自体の穴埋め(前 rect 保持)は D2b(P4)で対応、ここでは未対応
+  assert.deepEqual(zoomTransformAt(20.5, gap, WIDTH, HEIGHT), fullA);
+});
+
+test("gap が chainGapSec を超えると連鎖しない(従来どおり間で等倍へ戻る)", () => {
+  const gap: ZoomSpan[] = [
+    { start: 10, end: 20, rect: CHAIN_A, easeSec: 0.4, chainGapSec: 1.5 },
+    { start: 22, end: 30, rect: CHAIN_B, easeSec: 0.4, chainGapSec: 1.5 }, // gap=2 > 1.5
   ];
   const nearEndA = zoomTransformAt(19.8, gap, WIDTH, HEIGHT);
   assert.ok(nearEndA.scale > 1 && nearEndA.scale < 2); // イーズアウト中
@@ -239,11 +257,35 @@ test("隙間のある2区間は連鎖しない(従来どおり間で等倍へ戻
   assert.equal(zoomProgressAt(20.2, gap), 0);
 });
 
-test("zoomContiguous: 浮動小数の合成誤差(1µs 以内)だけを連鎖とみなす", () => {
-  assert.equal(zoomContiguous(20, 20), true);
-  assert.equal(zoomContiguous(20, 20 + 1e-9), true);
-  assert.equal(zoomContiguous(20, 20.01), false);
-  assert.equal(zoomContiguous(20, 19.99), false);
+test("chainGapSec: 0 を明示すると gap があれば連鎖しない(完全隣接のみ連鎖する旧仕様と等価)", () => {
+  const gap: ZoomSpan[] = [
+    { start: 10, end: 20, rect: CHAIN_A, easeSec: 0.4, chainGapSec: 0 },
+    { start: 20.5, end: 30, rect: CHAIN_B, easeSec: 0.4, chainGapSec: 0 },
+  ];
+  const nearEndA = zoomTransformAt(19.8, gap, WIDTH, HEIGHT);
+  assert.ok(nearEndA.scale > 1 && nearEndA.scale < 2); // イーズアウト中
+  assert.deepEqual(zoomTransformAt(20.2, gap, WIDTH, HEIGHT), { scale: 1, translateX: 0, translateY: 0 });
+  assert.equal(zoomProgressAt(20.2, gap), 0);
+});
+
+test("zoomContiguous: 0 <= gap <= chainGapSec を連鎖とみなす(境界含む)", () => {
+  assert.equal(zoomContiguous(20, 20, 1.5), true); // gap=0
+  assert.equal(zoomContiguous(20, 21.5, 1.5), true); // gap=chainGapSec ちょうど(境界含む)
+  assert.equal(zoomContiguous(20, 21.51, 1.5), false); // gap がわずかに超過
+  assert.equal(zoomContiguous(20, 20 + 1e-9, 1.5), true); // 浮動小数の合成誤差
+});
+
+test("zoomContiguous: 負の gap(重なり)は chainGapSec に関わらず連鎖にしない", () => {
+  assert.equal(zoomContiguous(20, 19.99, 1.5), false);
+  assert.equal(zoomContiguous(20, 10, 1.5), false);
+  assert.equal(zoomContiguous(20, 15, 100), false);
+});
+
+test("zoomContiguous: chainGapSec: 0 は完全隣接(1µs 以内)だけを連鎖とみなす旧仕様と等価", () => {
+  assert.equal(zoomContiguous(20, 20, 0), true);
+  assert.equal(zoomContiguous(20, 20 + 1e-9, 0), true);
+  assert.equal(zoomContiguous(20, 20.01, 0), false);
+  assert.equal(zoomContiguous(20, 19.99, 0), false);
 });
 
 test("zoomTransformAt: リファクタ後も既存の期待値が1つも変わらない(回帰の要)", () => {

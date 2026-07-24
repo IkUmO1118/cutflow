@@ -8,7 +8,7 @@ import {
 } from "./timeline.ts";
 import type { RemappedPiece, TimelineEntry } from "./timeline.ts";
 import type { Config } from "./config.ts";
-import { resolveZoomEaseCfg } from "./zoom.ts";
+import { resolveZoomCfg } from "./zoom.ts";
 import type { Profile } from "./profile.ts";
 import { remapKeyframesForPiece } from "./keyframes.ts";
 import {
@@ -322,8 +322,9 @@ export function buildRenderProps(args: {
   // 挿入で割れた断片は wipeFull と同じ考え方で先頭〜末尾をひと続きに扱う
   // (挿入中はベース映像が無く見えないので安全)
   // OpenScreen 移植 D3: config 既定は入り/出で非対称(既定 1.5秒/1.0秒)。
-  // zoom 1件ごとの easeSec/easeOutSec があればそちらが優先する
-  const zoomEaseCfg = resolveZoomEaseCfg(renderCfg.zoom);
+  // zoom 1件ごとの easeSec/easeOutSec があればそちらが優先する。chainGapSec
+  // は連鎖(パン遷移)とみなす gap の上限(zoom.ts の zoomContiguous が使う)
+  const zoomCfg = resolveZoomCfg(renderCfg.zoom);
   const zoomSpans = (overlays.zooms ?? []).flatMap((z) => {
     const parts = remapInterval(z.start, z.end, timeline);
     if (parts.length === 0) return [];
@@ -344,8 +345,9 @@ export function buildRenderProps(args: {
         start: parts[0].start,
         end: parts[parts.length - 1].end,
         rect: z.rect,
-        easeSec: z.easeSec ?? zoomEaseCfg.easeInSec,
-        easeOutSec: z.easeOutSec ?? zoomEaseCfg.easeOutSec,
+        easeSec: z.easeSec ?? zoomCfg.easeInSec,
+        easeOutSec: z.easeOutSec ?? zoomCfg.easeOutSec,
+        chainGapSec: zoomCfg.chainGapSec,
         wipeScale: renderCfg.zoom?.wipeScale ?? DEFAULT_ZOOM_WIPE_SCALE,
         ...(cursorTrack.length > 0 ? { cursorTrack } : {}),
       },
