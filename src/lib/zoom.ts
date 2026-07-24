@@ -1,15 +1,46 @@
 // remotion/Main.tsx の背景レイヤーが使う純関数。zooms(overlays.json 由来。
-// カット後の秒・rect・easeSec 解決済み)から、時刻 t における背景レイヤーの
-// 拡大・平行移動を求める。区間外は恒等(scale=1, translate=0)。区間の頭
-// easeSec 秒でイーズイン、末尾 easeOutSec 秒でイーズアウトし、遷移カーブは
-// wipeFull(remotion/Main.tsx の wipeEase)と同じ smoothstep。区間が短いときは
-// 各遷移を区間の半分へ縮める(wipeFull の既存規則を踏襲)。
+// カット後の秒・rect・easeSec/easeOutSec 解決済み)から、時刻 t における
+// 背景レイヤーの拡大・平行移動を求める。区間外は恒等(scale=1, translate=0)。
+// 区間の頭 easeSec 秒でイーズイン、末尾 easeOutSec 秒でイーズアウトし、
+// 遷移カーブは cubic-bezier(0.16,1,0.3,1)(OpenScreen 移植 D3・zoomEase)。
+// 区間が短いときは各遷移を区間の半分へ縮める(wipeFull の既存規則を踏襲)。
+// **旧 smoothstep からの差し替えで「孤立区間の値は従来とビット等価」という
+// 不変条件を意図的に破る**(docs/decisions.md 参照。§docs/plans/2026-07-24-openscreen-d3-zoom-look-and-feel-design.md)。
 //
 // 連鎖(パン遷移): 隣のズームと隙間なく接する(前の end === 次の start)とき、
 // 境界で等倍へ戻らない。前の区間は末尾までフルズームを保ち(イーズアウトを
 // しない)、次の区間の頭 easeSec 秒で前の rect から次の rect へ直接パンする
-// (scale・translate を smoothstep で補間)。孤立した区間の値は従来と不変。
+// (scale・translate を zoomEase で補間)。孤立した区間の値は smoothstep から
+// zoomEase への差し替えの影響を受ける(カーブが変わるため)。
+import { DEFAULT_ZOOM_EASE_IN_SEC, DEFAULT_ZOOM_EASE_OUT_SEC } from "../types.ts";
 import type { Region } from "../types.ts";
+
+/** config.yaml の render.zoom のうちイーズ関連の部分形状(renderProps.ts が
+ * buildRenderProps に渡す Config["render"]["zoom"] と構造的に互換)。
+ * zoom.ts は config.ts を import しない(config.ts は node:fs 等を持ち込み、
+ * renderProps.ts 経由でブラウザ/Remotion バンドルへ漏れるため。§docs/decisions.md) */
+export interface ZoomEaseCfg {
+  easeSec?: number;
+  easeInSec?: number;
+  easeOutSec?: number;
+}
+
+/** render.zoom.{easeInSec,easeOutSec} を既定値で解決する純関数
+ *  (OpenScreen 移植 D3。§docs/plans/2026-07-24-openscreen-d3-zoom-look-and-feel-design.md)。
+ *  優先順位は各方向とも「easeInSec/easeOutSec 個別指定」→「easeSec(両方未指定時の
+ *  後方互換値。対称のまま値だけ引き継ぐ)」→「新既定(1.5秒/1.0秒の非対称)」。
+ *  buildRenderProps はここで解決した値へさらに zooms[].easeSec/easeOutSec
+ *  (zoom 1件ごとの個別指定)を上書きする */
+export function resolveZoomEaseCfg(zoomCfg: ZoomEaseCfg | undefined): {
+  easeInSec: number;
+  easeOutSec: number;
+} {
+  const z = zoomCfg ?? {};
+  return {
+    easeInSec: z.easeInSec ?? z.easeSec ?? DEFAULT_ZOOM_EASE_IN_SEC,
+    easeOutSec: z.easeOutSec ?? z.easeSec ?? DEFAULT_ZOOM_EASE_OUT_SEC,
+  };
+}
 
 /** ズーム演出1件(カット後の秒に写像済み・easeSec 解決済み) */
 export interface ZoomSpan {
@@ -52,7 +83,66 @@ function contiguousNext(z: ZoomSpan, zooms: ZoomSpan[]): ZoomSpan | undefined {
   return zooms.find((o) => o !== z && zoomContiguous(z.end, o.start));
 }
 
-const smoothstep = (raw: number): number => raw * raw * (3 - 2 * raw);
+/** cubic-bezier(x1,y1,x2,y2) の P0=(0,0)・P3=(1,1) 固定版を x=raw で解いて
+ * y を返す(WebKit の UnitBezier と同じ Newton-Raphson + 収束しないときの
+ * 二分法フォールバック。純粋・決定論)。x は [0,1] にクランプ済み前提 */
+function cubicBezierY(x: number, x1: number, y1: number, x2: number, y2: number): number {
+  if (x <= 0) return 0;
+  if (x >= 1) return 1;
+  const cx = 3 * x1;
+  const bx = 3 * (x2 - x1) - cx;
+  const ax = 1 - cx - bx;
+  const cy = 3 * y1;
+  const by = 3 * (y2 - y1) - cy;
+  const ay = 1 - cy - by;
+  const sampleX = (t: number) => ((ax * t + bx) * t + cx) * t;
+  const sampleY = (t: number) => ((ay * t + by) * t + cy) * t;
+  const sampleXDeriv = (t: number) => (3 * ax * t + 2 * bx) * t + cx;
+
+  let t = x;
+  for (let i = 0; i < 8; i++) {
+    const xErr = sampleX(t) - x;
+    if (Math.abs(xErr) < 1e-7) return sampleY(t);
+    const d = sampleXDeriv(t);
+    if (Math.abs(d) < 1e-6) break;
+    t -= xErr / d;
+  }
+  // Newton-Raphson が発散/収束しなかったときの安全な二分法フォールバック
+  let lo = 0;
+  let hi = 1;
+  t = x;
+  for (let i = 0; i < 30; i++) {
+    const xt = sampleX(t);
+    if (Math.abs(xt - x) < 1e-7) break;
+    if (xt < x) lo = t;
+    else hi = t;
+    t = (lo + hi) / 2;
+  }
+  return sampleY(t);
+}
+
+/** OpenScreen 移植 D3(#1): Screen Studio 級の寄りに使われている
+ * cubic-bezier(0.16, 1, 0.3, 1)(通称 easeOutExpo 系)。イーズイン・アウト共通の
+ * 既定カーブ(dir は将来 in/out で別カーブにする余地を残すための引数で、
+ * 本 plan では両方この曲線に固定)。
+ * §docs/plans/2026-07-24-openscreen-d3-zoom-look-and-feel-design.md D1a */
+const SCREEN_STUDIO_BEZIER = { x1: 0.16, y1: 1, x2: 0.3, y2: 1 } as const;
+
+/** ズームのイーズ進行度を求める。raw は [0,1] の生の線形進行度(クランプ
+ * 済みでなくても内部でクランプする)、dir は将来のイーズ差し替えの余地
+ * (現状は in/out とも同じ曲線)。zoomProgressAt/zoomTransformAt はこの
+ * 1関数だけを通す(2箇所でカーブ定義が割れないようにする契約) */
+export function zoomEase(raw: number, dir: "in" | "out" = "in"): number {
+  void dir;
+  const x = Math.max(0, Math.min(1, raw));
+  return cubicBezierY(
+    x,
+    SCREEN_STUDIO_BEZIER.x1,
+    SCREEN_STUDIO_BEZIER.y1,
+    SCREEN_STUDIO_BEZIER.x2,
+    SCREEN_STUDIO_BEZIER.y2,
+  );
+}
 
 /** rect がちょうど全画面になる transform(イーズ完了状態の値) */
 function fullTransformOf(rect: Region, width: number, height: number): ZoomTransform {
@@ -109,7 +199,10 @@ export function zoomProgressAt(t: number, zooms: ZoomSpan[]): number {
     : easeOut <= 0
       ? 1
       : Math.min(1, (z.end - t) / easeOut);
-  return smoothstep(Math.min(inRaw, outRaw));
+  // どちらのイーズが効いているか(=raw が小さい方)を dir として渡す。
+  // 現状は in/out 同一曲線なので数値は Math.min(inRaw, outRaw) を単に
+  // easeする場合と一致する(zoomTransformAt との契約を保つ)
+  return inRaw <= outRaw ? zoomEase(inRaw, "in") : zoomEase(outRaw, "out");
 }
 
 /**
@@ -141,6 +234,6 @@ export function zoomTransformAt(
   const full = fullTransformOf(z.rect, width, height);
   const from = prev ? fullTransformOf(prev.rect, width, height) : IDENTITY;
   // 入り: from(前の rect のフルズーム or 恒等)→ full。出: 恒等へ戻す
-  const enter = lerpTransform(from, full, smoothstep(inRaw));
-  return lerpTransform(IDENTITY, enter, smoothstep(outRaw));
+  const enter = lerpTransform(from, full, zoomEase(inRaw, "in"));
+  return lerpTransform(IDENTITY, enter, zoomEase(outRaw, "out"));
 }

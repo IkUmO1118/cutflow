@@ -655,7 +655,31 @@ test("buildRenderProps: zooms はカット後タイムラインへ写像され�
     overlayExists: () => true,
     warn: () => {},
   });
-  assert.deepEqual(props.zooms, [{ start: 12, end: 18, rect, easeSec: 0.6, wipeScale: 0.8 }]);
+  // config が easeSec のみ指定(easeInSec/easeOutSec 未指定)= 対称のまま
+  // その値を引き継ぐ(easeInSec も easeOutSec も 0.6)
+  assert.deepEqual(props.zooms, [
+    { start: 12, end: 18, rect, easeSec: 0.6, easeOutSec: 0.6, wipeScale: 0.8 },
+  ]);
+});
+
+test("buildRenderProps: zooms 未指定・config も未指定なら easeSec/easeOutSec は非対称既定(1.5/1.0)になる", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 };
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 10 }],
+    transcript: { segments: [] },
+    overlays: { zooms: [{ start: 1, end: 5, rect }] },
+    renderCfg,
+    width: 1920,
+    height: 1080,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.equal(props.zooms?.[0]?.easeSec, 1.5);
+  assert.equal(props.zooms?.[0]?.easeOutSec, 1.0);
 });
 
 test("buildRenderProps: zooms の easeSec 個別指定は config より優先", () => {
@@ -674,7 +698,11 @@ test("buildRenderProps: zooms の easeSec 個別指定は config より優先", 
     overlayExists: () => true,
     warn: () => {},
   });
-  assert.deepEqual(props.zooms, [{ start: 1, end: 5, rect, easeSec: 0.1, wipeScale: 0.8 }]);
+  // 個別 easeSec(0.1)は ease-in だけ上書きする。ease-out は config 解決値
+  // (easeSec:0.6 のみ指定=対称の 0.6)を引き継ぐ
+  assert.deepEqual(props.zooms, [
+    { start: 1, end: 5, rect, easeSec: 0.1, easeOutSec: 0.6, wipeScale: 0.8 },
+  ]);
 });
 
 test("buildRenderProps: zooms の easeOutSec 個別指定は props に残る", () => {

@@ -197,13 +197,16 @@ render:
   fastPath: true
   # FAST 被覆率(FAST秒/出力総秒)の発動しきい値。省略時 0.5
   # fastPathMinCoverage: 0.5
-  # ズーム演出(overlays.json の zooms)の既定設定。zooms[].easeSec で
+  # ズーム演出(overlays.json の zooms)の既定設定。zooms[].easeSec/easeOutSec で
   # 個別指定があればそちらが優先する
   zoom:
-    # ズームイン/アウトの遷移秒数
-    easeSec: 0.4
+    # OpenScreen 移植 D3: 入り/出の遷移秒数を非対称にする(Screen Studio 級の
+    # 寄りの体感。入りが出より長い)。両方省略時の既定は easeInSec: 1.5 /
+    # easeOutSec: 1.0。旧 easeSec(両方未指定のときだけ使う対称の後方互換値)
+    easeInSec: 1.5
+    easeOutSec: 1.0
     # ズーム中にカメラワイプを右下アンカーで縮める倍率(1 = 縮小なし)。
-    # 縮小・復帰のトランジションは上の easeSec/easeOutSec と共有する
+    # 縮小・復帰のトランジションは上の easeInSec/easeOutSec と共有する
     wipeScale: 0.8
   # ベースレイアウトのデザイン(背景画像 + 画面パネル + カメラ角丸ワイプ)。
   # **OBS 拡張キャンバス収録(obs-canvas)だけ**に効く。plain 収録(OBS を

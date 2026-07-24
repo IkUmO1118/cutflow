@@ -706,6 +706,13 @@ export interface Zoom {
 /** render.zoom.easeSec 未指定時の既定(秒)。renderProps と設定画面で共有 */
 export const DEFAULT_ZOOM_EASE_SEC = 0.4;
 
+/** render.zoom.easeInSec/easeOutSec が両方未指定(かつ easeSec も未指定)の
+ * ときの既定(秒)。OpenScreen 移植 D3: 入りが出より約1.5倍長い非対称が
+ * Screen Studio 級の寄りの体感を作る(§docs/plans/2026-07-24-openscreen-d3-zoom-look-and-feel-design.md)。
+ * easeSec だけを指定した既存収録は対称のまま値を引き継ぐ(この既定は使わない) */
+export const DEFAULT_ZOOM_EASE_IN_SEC = 1.5;
+export const DEFAULT_ZOOM_EASE_OUT_SEC = 1.0;
+
 /** render.zoom.wipeScale 未指定時の既定。ズーム中のカメラワイプをこの倍率
  * まで右下アンカーで縮める(1 = 縮小なし)。renderProps と設定画面で共有 */
 export const DEFAULT_ZOOM_WIPE_SCALE = 0.8;

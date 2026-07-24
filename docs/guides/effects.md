@@ -85,9 +85,15 @@
     `rect` と同じ座標系)。この矩形を全画面へ一様拡大する(歪ませない)。
     拡大率は書かせない: `scale = 出力幅 / rect.w` が rect から一意に決まる
     (倍率と rect の二重指定は矛盾の温床になるため)
-  - `easeSec`: 区間の頭でズームイン・末尾でズームアウトする遷移秒数。省略時
-    config.yaml の `render.zoom.easeSec`(既定 0.4)。区間が遷移2回分より
-    短いときは遷移を区間の半分へ縮める(`wipeFull` と同じ規則)
+  - `easeSec`: 区間の頭でズームインする遷移秒数。省略時 config.yaml の
+    `render.zoom.easeInSec`(既定 1.5秒)。`easeOutSec`(区間末尾のズームアウト)
+    は省略時 `render.zoom.easeOutSec`(既定 1.0秒)。**入りが出より長い非対称が
+    既定**(OpenScreen 移植 D3。Screen Studio 級の寄りの体感)。区間が遷移2回分
+    より短いときは遷移を区間の半分へ縮める(`wipeFull` と同じ規則)。config.yaml
+    に `render.zoom.easeSec` だけを書いた旧式収録は対称のままその値を引き継ぐ
+  - 遷移カーブは cubic-bezier(0.16, 1, 0.3, 1)(`src/lib/zoom.ts` の
+    `zoomEase`。制御点が早期に y=1 へ寄るため、対称な旧 smoothstep より
+    早く寄り切ってから緩やかに収束する)。zoom 1件ごとのカーブ変更は非目標
   - **連鎖(パン遷移)**: 隣のズームと隙間なく接する(`end` === 次の `start`)
     と、境界で等倍へ戻らず**前の rect から次の rect へ直接パン**する(次の
     区間の `easeSec` がパンの遷移時間)。「A に寄る → B へ視線を移す → 引く」

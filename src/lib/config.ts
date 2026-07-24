@@ -645,9 +645,19 @@ export interface Config {
     fastPathMinCoverage?: number;
     /** ズーム演出(overlays.json の zooms)の既定設定。省略可 */
     zoom?: {
-      /** ズームイン/アウトの遷移秒数。省略時 DEFAULT_ZOOM_EASE_SEC(0.4)。
-       * zooms[].easeSec で個別指定があればそちらが優先 */
+      /** ズームイン/アウトの遷移秒数(両方未指定時の後方互換値)。
+       * easeInSec/easeOutSec のどちらも未指定のときだけ使われ、両方に同じ
+       * 値を適用する(対称のまま値だけ引き継ぐ)。zooms[].easeSec/easeOutSec
+       * で個別指定があればそちらが最優先 */
       easeSec?: number;
+      /** ズームインの遷移秒数。省略時は easeSec、それも無ければ
+       * DEFAULT_ZOOM_EASE_IN_SEC(1.5。OpenScreen 移植 D3)。
+       * zooms[].easeSec で個別指定があればそちらが優先 */
+      easeInSec?: number;
+      /** ズームアウトの遷移秒数。省略時は easeSec、それも無ければ
+       * DEFAULT_ZOOM_EASE_OUT_SEC(1.0。OpenScreen 移植 D3。入りより短い
+       * 非対称が既定)。zooms[].easeOutSec で個別指定があればそちらが優先 */
+      easeOutSec?: number;
       /** ズーム中にカメラワイプを右下アンカーで縮める倍率。省略時
        * DEFAULT_ZOOM_WIPE_SCALE(0.8)。1 で縮小なし(従来どおり)。
        * 縮小・復帰のトランジションは zoom 本体と同じ(easeSec/easeOutSec を

@@ -3,11 +3,40 @@
 // 短い区間での遷移縮小を固定する(remotion/Main.tsx が使う)。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { zoomContiguous, zoomProgressAt, zoomTransformAt } from "../src/lib/zoom.ts";
+import { zoomContiguous, zoomEase, zoomProgressAt, zoomTransformAt } from "../src/lib/zoom.ts";
 import type { ZoomSpan } from "../src/lib/zoom.ts";
 
 const WIDTH = 1920;
 const HEIGHT = 1080;
+
+// ---- zoomEase(OpenScreen 移植 D3・D1a): cubic-bezier(0.16,1,0.3,1) ----
+
+test("zoomEase: 端点は0/1、範囲外はクランプする", () => {
+  assert.equal(zoomEase(0), 0);
+  assert.equal(zoomEase(1), 1);
+  assert.equal(zoomEase(-1), 0);
+  assert.equal(zoomEase(2), 1);
+});
+
+test("zoomEase: 単調増加", () => {
+  let prev = -1;
+  for (let x = 0; x <= 1.0001; x += 0.05) {
+    const y = zoomEase(Math.min(1, x));
+    assert.ok(y >= prev - 1e-9, `x=${x}: y=${y} < prev=${prev}`);
+    prev = y;
+  }
+});
+
+test("zoomEase: screen-studio bezier(0.16,1,0.3,1) の既知点に一致(制御点が両方 y=1 なので早期にほぼ寄り切る)", () => {
+  assert.ok(Math.abs(zoomEase(0.5) - 0.9717791052647868) < 1e-9);
+  assert.ok(Math.abs(zoomEase(0.25) - 0.8256223011584941) < 1e-9);
+});
+
+test("zoomEase: dir 引数は現状 in/out で同じ曲線(将来の差し替えの余地)", () => {
+  for (const x of [0, 0.2, 0.5, 0.8, 1]) {
+    assert.equal(zoomEase(x, "in"), zoomEase(x, "out"));
+  }
+});
 
 test("zoomTransformAt: 区間外は恒等(scale=1, translate=0)", () => {
   const zooms: ZoomSpan[] = [
@@ -36,10 +65,21 @@ test("zoomTransformAt: 区間中央(イーズ完了後)は rect がちょうど�
 test("zoomTransformAt: イーズ中間値は 0(恒等)と完了後の間", () => {
   const rect = { x: 480, y: 270, w: 960, h: 540 };
   const zooms: ZoomSpan[] = [{ start: 10, end: 20, rect, easeSec: 0.4 }];
-  // 区間の頭から 0.2 秒(easeSec の半分)= smoothstep(0.5) = 0.5
+  // 区間の頭から 0.2 秒(easeSec の半分。raw=0.5)
   const t = zoomTransformAt(10.2, zooms, WIDTH, HEIGHT);
   const full = zoomTransformAt(15, zooms, WIDTH, HEIGHT);
   assert.ok(t.scale > 1 && t.scale < full.scale);
+});
+
+test("回帰固定(意図的な破壊。docs/decisions.md 参照): 孤立区間の中間値は旧 smoothstep(0.5)=0.5 とはもう一致しない", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 };
+  const zooms: ZoomSpan[] = [{ start: 10, end: 20, rect, easeSec: 0.4 }];
+  const half = zoomTransformAt(10.2, zooms, WIDTH, HEIGHT); // raw=0.5
+  const full = zoomTransformAt(15, zooms, WIDTH, HEIGHT);
+  const oldSmoothstepScale = 1 + (full.scale - 1) * 0.5;
+  assert.notEqual(half.scale, oldSmoothstepScale);
+  const newCurveScale = 1 + (full.scale - 1) * zoomEase(0.5, "in");
+  assert.ok(Math.abs(half.scale - newCurveScale) < 1e-9);
 });
 
 test("zoomTransformAt: 区間が遷移2回分より短いと遷移を区間の半分へ縮める", () => {
@@ -151,13 +191,17 @@ test("連鎖: 境界直後は前の rect のフルズームから始まる(等�
   assert.deepEqual(zoomTransformAt(20, CHAIN, WIDTH, HEIGHT), fullA);
 });
 
-test("連鎖: 次の区間の頭 easeSec で前の rect から次の rect へパン(中点は両者のちょうど中間)", () => {
-  // 20.2 = easeSec 0.4 の半分 → smoothstep(0.5) = 0.5
+test("連鎖: 次の区間の頭 easeSec で前の rect から次の rect へパン(中点は zoomEase(0.5) の進行度で補間)", () => {
+  // 20.2 = easeSec 0.4 の半分 → raw=0.5。旧 smoothstep(0.5)=0.5 の対称性は
+  // cubic-bezier 差し替え(OpenScreen 移植 D3・D1a)で意図的に崩れる
+  // (docs/decisions.md 参照)。実際の進行度は zoomEase(0.5) から求める
+  const p = zoomEase(0.5, "in");
   const mid = zoomTransformAt(20.2, CHAIN, WIDTH, HEIGHT);
   assert.equal(mid.scale, 2); // 同じ幅の rect どうしのパンでは scale は動かない
-  // 20.2 - 20 の浮動小数誤差ぶんだけ厳密値からずれるので許容誤差つきで比較
-  assert.ok(Math.abs(mid.translateX - (-384 + -1536) / 2) < 1e-6, `translateX=${mid.translateX}`);
-  assert.ok(Math.abs(mid.translateY - (-216 + -864) / 2) < 1e-6, `translateY=${mid.translateY}`);
+  const expectedTx = -384 + (-1536 - -384) * p;
+  const expectedTy = -216 + (-864 - -216) * p;
+  assert.ok(Math.abs(mid.translateX - expectedTx) < 1e-6, `translateX=${mid.translateX}`);
+  assert.ok(Math.abs(mid.translateY - expectedTy) < 1e-6, `translateY=${mid.translateY}`);
   // イーズ完了後は次の rect のフルズーム
   const fullB = zoomTransformAt(25, CHAIN, WIDTH, HEIGHT);
   assert.deepEqual(zoomTransformAt(20.4, CHAIN, WIDTH, HEIGHT), fullB);
