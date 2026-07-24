@@ -7,6 +7,7 @@ import {
   OPENSCREEN_LEAD_IN_SEC,
   OPENSCREEN_LEAD_OUT_SEC,
   effectiveZoomRange,
+  resolveZoomScale,
   zoomContiguous,
   zoomEase,
   zoomProgressAt,
@@ -470,4 +471,71 @@ test("zoomTransformAt: リファクタ後も既存の期待値が1つも変わ�
   const cy = rect.y + rect.h / 2;
   assert.equal(full.translateX, WIDTH / 2 - expectedScale * cx);
   assert.equal(full.translateY, HEIGHT / 2 - expectedScale * cy);
+});
+
+// ---- 枝C: per-zoom 強さ(depth/customScale) ----
+// §docs/plans/2026-07-24-openscreen-zoom-C-depth-strength-design.md
+
+test("resolveZoomScale: depth/customScale とも未指定なら width/rect.w を寸分違わず返す(バイト等価の要)", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 };
+  assert.equal(resolveZoomScale({ rect }, WIDTH), WIDTH / rect.w);
+});
+
+test("zoomTransformAt: depth/customScale が両方無い区間は従来のリファクタ前の値とバイト等価", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 };
+  const zooms: ZoomSpan[] = [{ start: 10, end: 20, rect, easeSec: 0.4 }];
+  const baseline = { scale: 2, translateX: WIDTH / 2 - 2 * (rect.x + rect.w / 2), translateY: HEIGHT / 2 - 2 * (rect.y + rect.h / 2) };
+  assert.deepEqual(zoomTransformAt(15, zooms, WIDTH, HEIGHT), baseline);
+});
+
+test("resolveZoomScale: customScale が指定されればそれを使う(rect.w とは無関係)", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 };
+  assert.equal(resolveZoomScale({ rect, customScale: 2.5 }, WIDTH), 2.5);
+});
+
+test("zoomTransformAt: customScale 指定時は scale=customScale・focus(中心)は rect 中心のまま", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 };
+  const zooms: ZoomSpan[] = [{ start: 10, end: 20, rect, easeSec: 0.4, customScale: 2.5 }];
+  const t = zoomTransformAt(15, zooms, WIDTH, HEIGHT);
+  assert.equal(t.scale, 2.5);
+  const cx = rect.x + rect.w / 2;
+  const cy = rect.y + rect.h / 2;
+  // rect の中心が出力の中心に来ていることの検算(focus は不変)
+  assert.ok(Math.abs(2.5 * cx + t.translateX - WIDTH / 2) < 1e-9);
+  assert.ok(Math.abs(2.5 * cy + t.translateY - HEIGHT / 2) < 1e-9);
+});
+
+test("resolveZoomScale: depth はテーブルから引く(depth:5 → 3.5)", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 };
+  assert.equal(resolveZoomScale({ rect, depth: 5 }, WIDTH), 3.5);
+});
+
+test("zoomTransformAt: depth:5 指定時は scale=3.5(ZOOM_DEPTH_SCALES[5])", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 };
+  const zooms: ZoomSpan[] = [{ start: 10, end: 20, rect, easeSec: 0.4, depth: 5 }];
+  const t = zoomTransformAt(15, zooms, WIDTH, HEIGHT);
+  assert.equal(t.scale, 3.5);
+});
+
+test("resolveZoomScale: customScale が depth より優先する", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 };
+  assert.equal(resolveZoomScale({ rect, depth: 1, customScale: 4.2 }, WIDTH), 4.2);
+});
+
+test("resolveZoomScale: customScale は [1.0, 5.0] へクランプする", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 };
+  assert.equal(resolveZoomScale({ rect, customScale: 0.2 }, WIDTH), 1.0);
+  assert.equal(resolveZoomScale({ rect, customScale: 9.9 }, WIDTH), 5.0);
+});
+
+test("zoomTransformAt: 連鎖(前 rect からのパン)側も prev の depth/customScale を解決して使う", () => {
+  const rectA = { x: 0, y: 0, w: 960, h: 1080 }; // scale=2 by rect
+  const rectB = { x: 960, y: 0, w: 960, h: 1080 };
+  const zooms: ZoomSpan[] = [
+    { start: 0, end: 5, rect: rectA, easeSec: 0.4, customScale: 3.0 },
+    { start: 5, end: 10, rect: rectB, easeSec: 0.4 }, // chainGapSec 既定で完全隣接=連鎖
+  ];
+  // 連鎖区間の頭(パン開始直後)は prev(rectA)の scale=3.0 から始まる
+  const atStart = zoomTransformAt(5, zooms, WIDTH, HEIGHT);
+  assert.equal(atStart.scale, 3.0);
 });

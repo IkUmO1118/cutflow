@@ -20,6 +20,10 @@ import {
   DEFAULT_ZOOM_LEAD_SEC,
 } from "../types.ts";
 import type { Region } from "../types.ts";
+// C 枝(per-zoom 強さ): OpenScreen 逐語の depth テーブル/clamp 境界だけを使う。
+// zoom.ts は Remotion バンドルに乗るため、vendor の「純関数のみ」の types.ts
+// (node 依存なし)からしか import しない
+import { MAX_ZOOM_SCALE, MIN_ZOOM_SCALE, ZOOM_DEPTH_SCALES } from "./vendor/openscreen/types.ts";
 
 /** config.yaml の render.zoom の部分形状(renderProps.ts が buildRenderProps に
  * 渡す Config["render"]["zoom"] と構造的に互換)。zoom.ts は config.ts を
@@ -83,6 +87,30 @@ export interface ZoomSpan {
    * 持たない既存収録はバイト等価(effectiveZoomRange の拡張も未指定時は
    * 一切効かない) */
   focusMode?: "manual" | "auto";
+  /** ズームの強さ(段階)。1..6 → ZOOM_DEPTH_SCALES。省略時は rect 由来
+   * (scale=width/rect.w)。customScale が優先(枝C) */
+  depth?: 1 | 2 | 3 | 4 | 5 | 6;
+  /** 強さの直接指定(1.0–5.0)。depth より優先。指定時は rect.w を無視し
+   * rect 中心だけを focus として使う(枝C) */
+  customScale?: number;
+}
+
+/**
+ * ズーム区間の有効スケールを解決する(OpenScreen 移植・枝C)。
+ * `customScale ?? (depth ? ZOOM_DEPTH_SCALES[depth] : width/rect.w)`。
+ * customScale は [MIN_ZOOM_SCALE, MAX_ZOOM_SCALE] へクランプする
+ * (`vendor/openscreen/types.ts:getZoomScale` と同じ意味論)。
+ * **depth・customScale とも未指定のときは `width / rect.w` を寸分違わず返す**
+ * (バイト等価不変条件の要。この分岐だけは従来のリテラル式のまま) */
+export function resolveZoomScale(
+  z: { rect: Region; depth?: 1 | 2 | 3 | 4 | 5 | 6; customScale?: number },
+  width: number,
+): number {
+  if (z.customScale != null && Number.isFinite(z.customScale)) {
+    return Math.max(MIN_ZOOM_SCALE, Math.min(MAX_ZOOM_SCALE, z.customScale));
+  }
+  if (z.depth != null) return ZOOM_DEPTH_SCALES[z.depth];
+  return width / z.rect.w;
 }
 
 /** OpenScreen 逐語 precompute 経路(focusMode 指定時)のリードイン秒。
@@ -288,15 +316,19 @@ export function zoomEase(raw: number, dir: "in" | "out" = "in"): number {
   );
 }
 
-/** rect がちょうど全画面になる transform(イーズ完了状態の値) */
-function fullTransformOf(rect: Region, width: number, height: number): ZoomTransform {
-  const scale = width / rect.w;
+/** rect がちょうど全画面になる transform(イーズ完了状態の値)。
+ * `scale` を渡すと rect.w からではなくその値を使う(rect は中心=focus 専用に
+ * 降格。枝C・depth/customScale)。**省略時は `width / rect.w` を使い従来と
+ * バイト等価**(呼び出し側が resolveZoomScale で解決した値を渡さない限り
+ * 挙動は一切変わらない) */
+function fullTransformOf(rect: Region, width: number, height: number, scale?: number): ZoomTransform {
+  const s = scale ?? width / rect.w;
   const cx = rect.x + rect.w / 2;
   const cy = rect.y + rect.h / 2;
   return {
-    scale,
-    translateX: width / 2 - scale * cx,
-    translateY: height / 2 - scale * cy,
+    scale: s,
+    translateX: width / 2 - s * cx,
+    translateY: height / 2 - s * cy,
   };
 }
 
@@ -394,8 +426,8 @@ export function zoomTransformAt(
     : easeOut <= 0
       ? 1
       : Math.min(1, (z.end - t) / easeOut);
-  const full = fullTransformOf(z.rect, width, height);
-  const from = prev ? fullTransformOf(prev.rect, width, height) : IDENTITY;
+  const full = fullTransformOf(z.rect, width, height, resolveZoomScale(z, width));
+  const from = prev ? fullTransformOf(prev.rect, width, height, resolveZoomScale(prev, width)) : IDENTITY;
   // 入り: from(前の rect のフルズーム or 恒等)→ full。出: 恒等へ戻す
   const enter = lerpTransform(from, full, zoomEase(inRaw, "in"));
   return lerpTransform(IDENTITY, enter, zoomEase(outRaw, "out"));

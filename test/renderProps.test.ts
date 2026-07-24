@@ -974,6 +974,36 @@ test("buildRenderProps: focusMode:manual の zoom は zoomTransformTrack を焼�
   assert.ok(Math.abs(entry.y - expectedY) < 0.5, `y=${entry.y} expected≈${expectedY}`);
 });
 
+test("buildRenderProps: 枝C・focusMode:manual + depth:5 の焼き込み経路は rect 由来(width/rect.w)ではなく ZOOM_DEPTH_SCALES[5]=3.5 へホールドする", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 }; // rect 由来なら scale=2(バイト等価不変条件で使う対照)
+  const width = 1920;
+  const height = 1080;
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 40 }],
+    transcript: { segments: [] },
+    overlays: { zooms: [{ start: 10, end: 20, rect, easeSec: 0.4, focusMode: "manual", depth: 5 }] },
+    renderCfg,
+    width,
+    height,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.ok(props.zoomTransformTrack);
+  const track = props.zoomTransformTrack!;
+  const fps = 30;
+  const frame = Math.round(17 * fps);
+  const idx = frame - track.startFrame;
+  assert.ok(idx >= 0 && idx < track.frames.length, `idx=${idx} out of range (len=${track.frames.length})`);
+  const entry = track.frames[idx];
+  const rectDerivedScale = width / rect.w; // = 2(depth を効かせなかった場合の旧値)
+  assert.notEqual(Math.round(entry.scale * 100) / 100, rectDerivedScale);
+  assert.ok(Math.abs(entry.scale - 3.5) < 0.05, `scale=${entry.scale} expected≈3.5(ZOOM_DEPTH_SCALES[5])`);
+});
+
 test("buildRenderProps: focusMode:auto + 動くカーソルは焼いた x がホールド中で変化する(追従)", () => {
   const rect = { x: 480, y: 270, w: 960, h: 540 };
   const width = 1920;

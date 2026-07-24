@@ -11,7 +11,7 @@ import type { Config } from "./config.ts";
 import { effectiveZoomRange, resolveZoomCfg } from "./zoom.ts";
 import type { ZoomSpan } from "./zoom.ts";
 import { buildZoomRuntimeTrack } from "./zoomRuntimeTrack.ts";
-import { DEFAULT_ZOOM_DEPTH } from "./vendor/openscreen/types.ts";
+import { DEFAULT_ZOOM_DEPTH, ZOOM_DEPTH_SCALES } from "./vendor/openscreen/types.ts";
 import type { CursorTelemetryPoint, ZoomRegion } from "./vendor/openscreen/types.ts";
 import type { Profile } from "./profile.ts";
 import { remapKeyframesForPiece } from "./keyframes.ts";
@@ -357,6 +357,8 @@ export function buildRenderProps(args: {
         wipeScale: renderCfg.zoom?.wipeScale ?? DEFAULT_ZOOM_WIPE_SCALE,
         ...(cursorTrack.length > 0 ? { cursorTrack } : {}),
         ...(z.focusMode ? { focusMode: z.focusMode } : {}),
+        ...(z.depth != null ? { depth: z.depth } : {}),
+        ...(z.customScale != null ? { customScale: z.customScale } : {}),
       },
     ];
   });
@@ -381,7 +383,11 @@ export function buildRenderProps(args: {
       startMs: span.start * 1000,
       endMs: span.end * 1000,
       depth: DEFAULT_ZOOM_DEPTH,
-      customScale: width / span.rect.w,
+      // 枝C: depth/customScale が明示されていればそちらを、なければ従来どおり
+      // rect 由来(width/rect.w)。region は常に customScale を持たせる
+      // (getZoomScale はそちらを優先するため、depth フィールドは事実上未使用の
+      // まま整合性のためだけに残る)
+      customScale: span.customScale ?? (span.depth != null ? ZOOM_DEPTH_SCALES[span.depth] : width / span.rect.w),
       focus: {
         cx: (span.rect.x + span.rect.w / 2) / width,
         cy: (span.rect.y + span.rect.h / 2) / height,

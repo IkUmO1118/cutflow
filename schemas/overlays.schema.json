@@ -274,7 +274,9 @@
           "rect": { "$ref": "common.schema.json#/$defs/Region" },
           "easeSec": { "type": "number", "minimum": 0 },
           "easeOutSec": { "type": "number", "minimum": 0 },
-          "focusMode": { "type": "string", "enum": ["manual", "auto"] }
+          "focusMode": { "type": "string", "enum": ["manual", "auto"] },
+          "depth": { "type": "integer", "minimum": 1, "maximum": 6 },
+          "customScale": { "type": "number", "minimum": 1, "maximum": 5 }
         }
       }
     },

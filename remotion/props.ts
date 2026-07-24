@@ -256,6 +256,11 @@ export type RenderProps = {
      * ワイプ縮小は対象外)を通らない。省略時は現行の描画と完全に同じ
      * (枝A・P3・§docs/plans/2026-07-24-openscreen-zoom-A-cursor-follow-design.md D0) */
     focusMode?: "manual" | "auto";
+    /** ズームの強さ(段階)。1..6 → ZOOM_DEPTH_SCALES(vendor/openscreen/types.ts)。
+     * 省略時は rect 由来(scale=width/rect.w)。customScale が優先(枝C) */
+    depth?: 1 | 2 | 3 | 4 | 5 | 6;
+    /** 強さの直接指定(1.0–5.0)。depth より優先(枝C) */
+    customScale?: number;
   }[];
   /** グローバルな sprung transform 軌跡(OpenScreen 逐語 precompute。
    * `overlays.zooms[]` のいずれか1つでも focusMode を持つ("opted in")ときだけ

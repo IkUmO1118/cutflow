@@ -707,6 +707,12 @@ export interface Zoom {
    * 切り替わる。持たない既存収録はバイト等価。
    * §docs/plans/2026-07-24-openscreen-zoom-A-cursor-follow-design.md D0 */
   focusMode?: "manual" | "auto";
+  /** ズームの強さ(段階)。1..6 → {1.25,1.5,1.8,2.2,3.5,5.0}(OpenScreen ZOOM_DEPTH_SCALES 逐語)。
+   * 省略時は rect の幅から scale=出力幅/rect.w(従来どおり)。customScale が優先。 */
+  depth?: 1 | 2 | 3 | 4 | 5 | 6;
+  /** 強さの直接指定(1.0–5.0)。depth より優先。指定時 rect は focus(中心)専用になり
+   * 拡大率は rect.w からではなくこの値から決まる。省略時は depth→rect の順に解決。 */
+  customScale?: number;
 }
 
 /** render.zoom.easeSec 未指定時の既定(秒)。renderProps と設定画面で共有 */
