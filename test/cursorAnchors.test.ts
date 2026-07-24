@@ -6,10 +6,11 @@ import {
   cursorFocusToLocalPoint,
   cursorFocusToRect,
   detectDwellCandidates,
+  filterScrollSamples,
   resampleCursorTrack,
   resolveDwellWindowMs,
 } from "../src/lib/cursorAnchors.ts";
-import type { CursorDwellSample, DwellDetectionCfg } from "../src/lib/cursorAnchors.ts";
+import type { CursorDwellSample, DwellDetectionCfg, ScrollMotionSample } from "../src/lib/cursorAnchors.ts";
 
 const BASE_CFG: DwellDetectionCfg = {
   minDwellMs: 450,
@@ -284,4 +285,51 @@ test("resampleCursorTrack: 空区間・0以下の rateHz は空配列", () => {
   const samples: CursorDwellSample[] = [sample(0, 0.5, 0.5)];
   assert.deepEqual(resampleCursorTrack(samples, 100, 100, { rateHz: 10 }), []);
   assert.deepEqual(resampleCursorTrack(samples, 0, 100, { rateHz: 0 }), []);
+});
+
+/* ---------------- filterScrollSamples(枝D: スクロール誤爆抑制の前段除去) ---------------- */
+
+function motionSample(sourceSec: number, sceneScore: number): ScrollMotionSample {
+  return { sourceSec, sceneScore };
+}
+
+test("filterScrollSamples: motionTrack が空なら全サンプルをそのまま通す", () => {
+  const samples = [sample(0, 0.1, 0.1), sample(1000, 0.5, 0.5)];
+  const result = filterScrollSamples(samples, [], { scrollMotionThreshold: 0.4, windowSec: 1 });
+  assert.deepEqual(result, samples);
+});
+
+test("filterScrollSamples: 高 scene score 区間に重なるサンプルを除去する", () => {
+  const samples = [
+    sample(0, 0.1, 0.1), // 0秒。閾値超の motion(sourceSec=0.2)から0.2秒→windowSec=1以内→除去
+    sample(5000, 0.5, 0.5), // 5秒。motion から遠い→残る
+  ];
+  const motionTrack = [motionSample(0.2, 0.8)]; // 閾値0.4超
+  const result = filterScrollSamples(samples, motionTrack, { scrollMotionThreshold: 0.4, windowSec: 1 });
+  assert.equal(result.length, 1);
+  assert.equal(result[0].recTimeMs, 5000);
+});
+
+test("filterScrollSamples: 低 scene score(閾値以下)の区間は除去しない", () => {
+  const samples = [sample(0, 0.1, 0.1)];
+  const motionTrack = [motionSample(0.1, 0.4)]; // 閾値と同値(超えていない)
+  const result = filterScrollSamples(samples, motionTrack, { scrollMotionThreshold: 0.4, windowSec: 1 });
+  assert.deepEqual(result, samples);
+});
+
+test("filterScrollSamples: windowSec の外側のサンプルは残る", () => {
+  const samples = [sample(5000, 0.1, 0.1)]; // 5秒
+  const motionTrack = [motionSample(0.1, 0.9)]; // 0.1秒。5秒との差はwindowSec(1)を超える
+  const result = filterScrollSamples(samples, motionTrack, { scrollMotionThreshold: 0.4, windowSec: 1 });
+  assert.deepEqual(result, samples);
+});
+
+test("filterScrollSamples: 順序を保ったまま除去する", () => {
+  const samples = [sample(0, 0, 0), sample(200, 0, 0), sample(5000, 0, 0)];
+  const motionTrack = [motionSample(0.1, 0.9)];
+  const result = filterScrollSamples(samples, motionTrack, { scrollMotionThreshold: 0.4, windowSec: 1 });
+  assert.deepEqual(
+    result.map((s) => s.recTimeMs),
+    [5000],
+  );
 });

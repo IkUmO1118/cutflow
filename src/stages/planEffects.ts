@@ -37,9 +37,10 @@ import {
   cursorFocusToLocalPoint,
   cursorFocusToRect,
   detectDwellCandidates,
+  filterScrollSamples,
   resolveDwellWindowMs,
 } from "../lib/cursorAnchors.ts";
-import type { CursorDwellSample } from "../lib/cursorAnchors.ts";
+import type { CursorDwellSample, ScrollMotionSample } from "../lib/cursorAnchors.ts";
 import { CURSOR_SIDECAR_SUFFIX } from "./record.ts";
 import type { CursorSidecar } from "./record.ts";
 import { effectWarningsToObservation } from "../lib/effectReview.ts";
@@ -306,11 +307,21 @@ export function readCursorSidecar(dir: string, manifest: Manifest): CursorSideca
   }
 }
 
+/** スクロール誤爆抑制(枝D)の前段除去の窓(サンプル時刻の前後この秒数)。
+ *  av の scene score サンプリング間隔より広めに取り、閾値超区間の縁の
+ *  サンプルも確実に拾う。config化はしない(閾値本体の
+ *  plan.cursor.scrollMotionThreshold とは別軸の内部定数) */
+const SCROLL_SUPPRESSION_WINDOW_SEC = 1.0;
+
 /**
  * サイドカーの生テレメトリから演出アンカー化できるカーソル候補を組む(D2/D4/D5)。
  * `samples[].recTimeMs` は一時停止圧縮済みの録画内時刻で、OBS の一時停止は
  * 録画ファイル自体からもその区間を除くため「元収録の秒」とバイト等価に扱える
  * (motion.json の frozen のように timeline 経由の変換は不要)。
+ * `motion`(av.probe/motion.json。無ければ null)がある場合、dwell 検出の前に
+ * スクロール区間(画面モーション大)に重なるサンプルを除去する(枝D)。
+ * `motion.motion[].sourceSec` は元収録の秒で cursor サンプルと同じ軸なので
+ * timeline 経由の写像は不要。detectDwellCandidates 自体は無改変(逐語)。
  * rect は D2(focus→rect)+ clampRect/growToMinZoom まで適用済みで返す
  * (buildEffectAnchors は解像度を知らないため、ここで済ませておく)。
  */
@@ -319,14 +330,27 @@ function buildCursorAnchorCandidates(
   manifest: Manifest,
   placementCfg: ReturnType<typeof resolveEffectPlacementCfg>,
   cursorCfg: ReturnType<typeof resolvePlanCursorCfg>,
+  motion: MotionLike | null,
 ): CursorAnchorLike[] {
-  const samples: CursorDwellSample[] = sidecar.samples.map((s) => ({
+  const rawSamples: CursorDwellSample[] = sidecar.samples.map((s) => ({
     recTimeMs: s.recTimeMs,
     cx: s.cx,
     cy: s.cy,
     inBounds: s.inBounds,
     leftButtonPressed: s.leftButtonPressed,
   }));
+  const motionTrack: ScrollMotionSample[] = motion
+    ? motion.motion.map((m) => ({ sourceSec: m.sourceSec, sceneScore: m.sceneScore }))
+    : [];
+  const samples = filterScrollSamples(rawSamples, motionTrack, {
+    scrollMotionThreshold: cursorCfg.scrollMotionThreshold,
+    windowSec: SCROLL_SUPPRESSION_WINDOW_SEC,
+  });
+  if (samples.length < rawSamples.length) {
+    console.warn(
+      `${rawSamples.length - samples.length} 件のカーソルサンプルをスクロール区間(画面モーション大)として除外しました`,
+    );
+  }
   const windowMs = resolveDwellWindowMs(manifest.durationSec * 1000, cursorCfg.maxWindowMs);
   const candidates = detectDwellCandidates(samples, {
     minDwellMs: cursorCfg.minDwellMs,
@@ -412,7 +436,7 @@ export async function planEffects(
 
   const placementCfg = resolveEffectPlacementCfg(cfg);
   const cursorCandidates = cursorSidecar
-    ? buildCursorAnchorCandidates(cursorSidecar, manifest, placementCfg, resolvePlanCursorCfg(cfg))
+    ? buildCursorAnchorCandidates(cursorSidecar, manifest, placementCfg, resolvePlanCursorCfg(cfg), motion)
     : [];
   const anchors = buildEffectAnchors(
     cutplan,

@@ -39,6 +39,7 @@ import {
   DEFAULT_PLAN_CURSOR_DEFAULT_SCALE,
   DEFAULT_PLAN_CURSOR_CLICK_BOOST,
   DEFAULT_PLAN_CURSOR_MAX_WINDOW_MS,
+  DEFAULT_PLAN_CURSOR_SCROLL_MOTION_THRESHOLD,
   resolvePlanCursorCfg,
   DEFAULT_STYLE_PROFILE_NAME,
   loadConfig,
@@ -877,6 +878,7 @@ test("resolvePlanCursorCfg: plan.cursor 省略時は OpenScreen 既定値", () =
     defaultScale: DEFAULT_PLAN_CURSOR_DEFAULT_SCALE,
     clickBoost: DEFAULT_PLAN_CURSOR_CLICK_BOOST,
     maxWindowMs: DEFAULT_PLAN_CURSOR_MAX_WINDOW_MS,
+    scrollMotionThreshold: DEFAULT_PLAN_CURSOR_SCROLL_MOTION_THRESHOLD,
   });
 });
 
@@ -926,6 +928,7 @@ test("loadConfig: plan.cursor の正常系は素通り", () => {
       defaultScale: 3,
       clickBoost: 2,
       maxWindowMs: DEFAULT_PLAN_CURSOR_MAX_WINDOW_MS,
+      scrollMotionThreshold: DEFAULT_PLAN_CURSOR_SCROLL_MOTION_THRESHOLD,
     });
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -967,6 +970,31 @@ test("loadConfig: plan.cursor.clickBoost は正の数値以外を拒否する", 
   try {
     const path = writeMinimalConfigWithPlanCursor(dir, "{ clickBoost: -1 }");
     assert.throws(() => loadConfig(path), /plan\.cursor\.clickBoost は正の数値で指定してください/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* 枝D: plan.cursor.scrollMotionThreshold(スクロール誤爆抑制の scene score 閾値。
+ * §2026-07-24-openscreen-zoom-D-scroll-suppression-design.md) */
+
+test("loadConfig: plan.cursor.scrollMotionThreshold の正常系は素通り", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = writeMinimalConfigWithPlanCursor(dir, "{ scrollMotionThreshold: 0.6 }");
+    const cfg = loadConfig(path);
+    assert.equal(resolvePlanCursorCfg(cfg).scrollMotionThreshold, 0.6);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig: plan.cursor.scrollMotionThreshold は正の数値以外を拒否する", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = writeMinimalConfigWithPlanCursor(dir, "{ scrollMotionThreshold: 0 }");
+    assert.throws(() => loadConfig(path), /plan\.cursor\.scrollMotionThreshold は正の数値で指定してください/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

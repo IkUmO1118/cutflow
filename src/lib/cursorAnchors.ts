@@ -173,6 +173,53 @@ export function detectDwellCandidates(
   return accepted.sort((a, b) => a.centerMs - b.centerMs);
 }
 
+/** filterScrollSamples が読む av.probe/motion.json 由来の1点(必要フィールドだけ抜粋)。
+ *  sourceSec は元収録の秒(cursor サイドカーの recTimeMs/1000 と同じ軸=写像不要) */
+export interface ScrollMotionSample {
+  sourceSec: number;
+  sceneScore: number;
+}
+
+/**
+ * スクロール誤爆抑制(枝D)。画面モーション(scene score)が閾値を超える時間帯に
+ * 重なるカーソルサンプルを dwell 検出の前段で除去する(OpenScreen の
+ * detectDwellCandidates は無改変=逐語のまま)。カーソル静止×画面移動(スクロール/
+ * 再生中の動画)を「注視」と誤検出しないための CutFlow 独自の前段フィルタ。
+ * motionTrack が空なら全サンプルをそのまま通す(= av 未実行時は従来どおり)。
+ * @param windowSec サンプル時刻の前後この秒数内に閾値超の motion サンプルがあれば除去
+ * §docs/plans/2026-07-24-openscreen-zoom-D-scroll-suppression-design.md
+ */
+export function filterScrollSamples(
+  samples: readonly CursorDwellSample[],
+  motionTrack: readonly ScrollMotionSample[],
+  cfg: { scrollMotionThreshold: number; windowSec: number },
+): CursorDwellSample[] {
+  if (motionTrack.length === 0) return samples.slice();
+
+  const hi = motionTrack
+    .filter((m) => m.sceneScore > cfg.scrollMotionThreshold)
+    .map((m) => m.sourceSec)
+    .sort((a, b) => a - b);
+  if (hi.length === 0) return samples.slice();
+
+  // sec の前後 windowSec 以内に hi の要素があるかを二分探索で判定する
+  // (hi は昇順ソート済み。lower_bound で挟む2点だけ見れば十分)
+  const nearHighMotion = (sec: number): boolean => {
+    let lo = 0;
+    let hiIdx = hi.length - 1;
+    while (lo < hiIdx) {
+      const mid = (lo + hiIdx) >> 1;
+      if (hi[mid] < sec) lo = mid + 1;
+      else hiIdx = mid;
+    }
+    if (Math.abs(hi[lo] - sec) <= cfg.windowSec) return true;
+    if (lo > 0 && Math.abs(hi[lo - 1] - sec) <= cfg.windowSec) return true;
+    return false;
+  };
+
+  return samples.filter((s) => !nearHighMotion(s.recTimeMs / 1000));
+}
+
 export interface CursorRectGeom {
   layout: "obs-canvas" | "plain";
   screenRegion: Region;

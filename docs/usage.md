@@ -500,6 +500,16 @@ OpenScreen 自身のチューニング値)。
   として付けている。追従が入ったら緩めて OpenScreen の値へ戻せる想定
   (収録ごとに config で調整可)
   (§docs/plans/2026-07-24-openscreen-zoom-B-window-cap-design.md)
+- `scrollMotionThreshold` … スクロール誤爆抑制(枝D)の scene score 閾値。
+  省略時 0.4。`av <dir>` を先に実行して `av.probe/motion.json` があるときだけ
+  効く(無ければこの機能導入前とバイト等価。無視されるだけで plan-effects は
+  止まらない)。「カーソル静止 × 画面モーション大」(ホイール/トラックパッド
+  スクロール・再生中の動画など)の区間に重なる dwell サンプルを、
+  `detectDwellCandidates`(OpenScreen 逐語)へ渡す前に除去する
+  (`filterScrollSamples`)。dwell アルゴリズム自体は無改変。av の scene score
+  スケールに合わせて収録ごとに較正する値なので、誤爆(スクロール中の誤ズーム)
+  が続くようなら下げる
+  (§docs/plans/2026-07-24-openscreen-zoom-D-scroll-suppression-design.md)
 
 ## 環境プリフライト(doctor)
 

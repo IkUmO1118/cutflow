@@ -356,6 +356,14 @@ export interface Config {
       /** dwell 窓長の上限(ms)。clamp(総尺の5%, 1000, これ)。省略時
        *  DEFAULT_PLAN_CURSOR_MAX_WINDOW_MS(3500)。追従(枝A)前の長尺ドリフト対策 */
       maxWindowMs?: number;
+      /** スクロール誤爆抑制(枝D)の scene score 閾値。`av.probe/motion.json`
+       *  があるときだけ効く(無ければ無視。この機能導入前とバイト等価)。
+       *  カーソル静止×画面モーション大(スクロール/再生中動画)の区間の
+       *  dwell サンプルを検出前段で除去する。省略時
+       *  DEFAULT_PLAN_CURSOR_SCROLL_MOTION_THRESHOLD(0.4)。av の scene score
+       *  スケールに合わせて収録で較正する。
+       *  §docs/plans/2026-07-24-openscreen-zoom-D-scroll-suppression-design.md */
+      scrollMotionThreshold?: number;
     };
   };
   /** plan の候補格子を語タイムスタンプ(transcript.words)由来の語境界でも
@@ -914,6 +922,10 @@ export const DEFAULT_PLAN_CURSOR_SPACING_MS = 1800;
 export const DEFAULT_PLAN_CURSOR_DEFAULT_SCALE = 2.5;
 export const DEFAULT_PLAN_CURSOR_CLICK_BOOST = 1.5;
 export const DEFAULT_PLAN_CURSOR_MAX_WINDOW_MS = 3500;
+/** スクロール誤爆抑制(枝D)の scene score 閾値の既定値。av の scene score
+ *  スケールに合わせたゆるめの既定(明白なスクロールだけ落とす)。
+ *  §docs/plans/2026-07-24-openscreen-zoom-D-scroll-suppression-design.md */
+export const DEFAULT_PLAN_CURSOR_SCROLL_MOTION_THRESHOLD = 0.4;
 
 /** plan.cursor を既定値で解決する純関数。loadConfig は cfg.plan.cursor を
  *  書き換えない */
@@ -925,6 +937,7 @@ export function resolvePlanCursorCfg(cfg: Config): {
   defaultScale: number;
   clickBoost: number;
   maxWindowMs: number;
+  scrollMotionThreshold: number;
 } {
   const c = cfg.plan?.cursor ?? {};
   return {
@@ -935,6 +948,7 @@ export function resolvePlanCursorCfg(cfg: Config): {
     defaultScale: c.defaultScale ?? DEFAULT_PLAN_CURSOR_DEFAULT_SCALE,
     clickBoost: c.clickBoost ?? DEFAULT_PLAN_CURSOR_CLICK_BOOST,
     maxWindowMs: c.maxWindowMs ?? DEFAULT_PLAN_CURSOR_MAX_WINDOW_MS,
+    scrollMotionThreshold: c.scrollMotionThreshold ?? DEFAULT_PLAN_CURSOR_SCROLL_MOTION_THRESHOLD,
   };
 }
 
@@ -1457,6 +1471,7 @@ function validateWorkflowConfig(cfg: Config): string[] {
     errors.push(
       ...unknownKeys(planCursor, [
         "minDwellMs", "maxDwellMs", "moveThreshold", "spacingMs", "defaultScale", "clickBoost", "maxWindowMs",
+        "scrollMotionThreshold",
       ]).map((key) => `plan.cursor.${key} は未対応です`),
     );
     if ("minDwellMs" in planCursor && (!Number.isFinite(planCursor.minDwellMs) || Number(planCursor.minDwellMs) <= 0)) {
@@ -1486,6 +1501,12 @@ function validateWorkflowConfig(cfg: Config): string[] {
     }
     if ("maxWindowMs" in planCursor && (!Number.isFinite(planCursor.maxWindowMs) || Number(planCursor.maxWindowMs) <= 0)) {
       errors.push("plan.cursor.maxWindowMs は正の数値で指定してください");
+    }
+    if (
+      "scrollMotionThreshold" in planCursor &&
+      (!Number.isFinite(planCursor.scrollMotionThreshold) || Number(planCursor.scrollMotionThreshold) <= 0)
+    ) {
+      errors.push("plan.cursor.scrollMotionThreshold は正の数値で指定してください");
     }
   }
   const log = cfg.log as Record<string, unknown> | undefined;
