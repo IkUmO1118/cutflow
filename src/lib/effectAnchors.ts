@@ -331,10 +331,12 @@ export function decisionsToOverlays(
       const candidate = { start: anchor.start, end: anchor.end };
       if (zooms.some((z) => overlaps(z, candidate))) continue;
       const rect = clampRect(growToMinZoom(anchor.rect, cfg.minZoomRect), cfg.outW, cfg.outH);
+      // カーソル dwell 由来の zoom は追従(focusMode:"auto")を既定付与。OCR/motion/speech/手置きは manual=focusMode 無し。母艦 枝A D0
       zooms.push({
         start: anchor.start,
         end: anchor.end,
         rect,
+        ...(anchor.source === "cursor" ? { focusMode: "auto" as const } : {}),
         ...(d.effectReasonId !== undefined ? { reasonId: d.effectReasonId } : {}),
       });
       accepted++;

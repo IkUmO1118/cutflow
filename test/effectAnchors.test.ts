@@ -313,8 +313,14 @@ const ZCFG: EffectOverlayCfg = {
   outH: 1080,
 };
 
-function anchor(id: number, start: number, end: number, rect?: EffectAnchor["rect"]): EffectAnchor {
-  return { id, start, end, source: "ocr", text: "", ...(rect ? { rect } : {}) };
+function anchor(
+  id: number,
+  start: number,
+  end: number,
+  rect?: EffectAnchor["rect"],
+  source: EffectAnchor["source"] = "ocr",
+): EffectAnchor {
+  return { id, start, end, source, text: "", ...(rect ? { rect } : {}) };
 }
 
 test("decisionsToOverlays: 存在しない anchorId を捨てる", () => {
@@ -328,6 +334,22 @@ test("decisionsToOverlays: 存在しない anchorId を捨てる", () => {
     ZCFG,
   );
   assert.equal(out.zooms?.length, 1);
+});
+
+test("decisionsToOverlays: source='cursor' の zoom は focusMode:'auto' を既定付与", () => {
+  const anchors = [anchor(1, 0, 10, { x: 100, y: 100, w: 300, h: 300 }, "cursor")];
+  const out = decisionsToOverlays([{ anchorId: 1, effect: "zoom", reason: "" }], anchors, ZCFG);
+  assert.equal(out.zooms?.length, 1);
+  assert.equal(out.zooms?.[0].focusMode, "auto");
+});
+
+test("decisionsToOverlays: source='ocr'/'motion'/'speech' の zoom は focusMode を付与しない", () => {
+  for (const source of ["ocr", "motion", "speech"] as const) {
+    const anchors = [anchor(1, 0, 10, { x: 100, y: 100, w: 300, h: 300 }, source)];
+    const out = decisionsToOverlays([{ anchorId: 1, effect: "zoom", reason: "" }], anchors, ZCFG);
+    assert.equal(out.zooms?.length, 1);
+    assert.ok(!("focusMode" in out.zooms![0]), `source=${source} は focusMode を持たないはず`);
+  }
 });
 
 test("decisionsToOverlays: rect の無いアンカーへの zoom/blur/annotation を捨てる", () => {
