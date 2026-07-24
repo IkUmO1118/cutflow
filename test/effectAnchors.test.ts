@@ -8,6 +8,7 @@ import {
   limitNoneDecisions,
 } from "../src/lib/effectAnchors.ts";
 import type {
+  CursorAnchorLike,
   EffectAnchor,
   EffectDecision,
   EffectOverlayCfg,
@@ -187,6 +188,120 @@ test("buildEffectAnchors: OCR/motion 知覚が無ければ speech アンカー�
   const t = transcript([{ start: 0, end: 10, text: "only speech" }]);
   const anchors = buildEffectAnchors(cp, t, [], null, ACFG);
   assert.deepEqual(anchors.map((a) => a.source), ["speech"]);
+});
+
+/* ---------------- buildEffectAnchors: cursor(D2/D4/D6) ---------------- */
+
+function cursorCandidate(
+  sourceSec: number,
+  rect: EffectAnchor["rect"],
+  opts: Partial<CursorAnchorLike> = {},
+): CursorAnchorLike {
+  return {
+    sourceSec,
+    start: sourceSec - 0.5,
+    end: sourceSec + 0.5,
+    point: { x: rect!.x + rect!.w / 2, y: rect!.y + rect!.h / 2 },
+    rect: rect!,
+    clickBoosted: false,
+    ...opts,
+  };
+}
+
+test("buildEffectAnchors: cursorCandidates 省略時は従来とバイト等価", () => {
+  const cp = cutplan([{ start: 0, end: 20, action: "keep" }]);
+  const t = transcript([]);
+  const ocr: OcrSidecar[] = [{ sourceSec: 5, lines: [{ text: "a", box: { x: 0, y: 0, w: 50, h: 50 } }] }];
+  const withCursorArg = buildEffectAnchors(cp, t, ocr, null, ACFG, []);
+  const withoutCursorArg = buildEffectAnchors(cp, t, ocr, null, ACFG);
+  assert.deepEqual(withCursorArg, withoutCursorArg);
+});
+
+test("buildEffectAnchors: cursor 候補は rect 付きの source:'cursor' アンカーになる", () => {
+  const cp = cutplan([{ start: 0, end: 20, action: "keep" }]);
+  const t = transcript([]);
+  const cursor = [cursorCandidate(10, { x: 100, y: 100, w: 200, h: 150 })];
+  const anchors = buildEffectAnchors(cp, t, [], null, ACFG, cursor);
+  const cursorAnchors = anchors.filter((a) => a.source === "cursor");
+  assert.equal(cursorAnchors.length, 1);
+  assert.deepEqual(cursorAnchors[0].rect, { x: 100, y: 100, w: 200, h: 150 });
+  assert.equal(cursorAnchors[0].start, 9.5);
+  assert.equal(cursorAnchors[0].end, 10.5);
+});
+
+test("buildEffectAnchors: cursor アンカーも cut span からは作らない", () => {
+  const cp = cutplan([
+    { start: 0, end: 10, action: "keep" },
+    { start: 10, end: 20, action: "cut" },
+    { start: 20, end: 30, action: "keep" },
+  ]);
+  const t = transcript([]);
+  const cursor = [cursorCandidate(15, { x: 0, y: 0, w: 50, h: 50 })]; // cut span
+  const anchors = buildEffectAnchors(cp, t, [], null, ACFG, cursor);
+  assert.equal(anchors.filter((a) => a.source === "cursor").length, 0);
+});
+
+test("buildEffectAnchors: cursor アンカーは keep 端でクランプされる", () => {
+  const cp = cutplan([{ start: 0, end: 10, action: "keep" }]);
+  const t = transcript([]);
+  const cursor = [cursorCandidate(9.8, { x: 0, y: 0, w: 50, h: 50 })]; // window end=10.3 > keep.end
+  const anchors = buildEffectAnchors(cp, t, [], null, ACFG, cursor);
+  const cursorAnchors = anchors.filter((a) => a.source === "cursor");
+  assert.equal(cursorAnchors.length, 1);
+  assert.equal(cursorAnchors[0].end, 10);
+});
+
+test("buildEffectAnchors: dwell の焦点が OCR box に重なるなら座標をその OCR box に合わせる(D6)", () => {
+  const cp = cutplan([{ start: 0, end: 20, action: "keep" }]);
+  const t = transcript([]);
+  const ocr: OcrSidecar[] = [
+    { sourceSec: 10, lines: [{ text: "ボタン", box: { x: 100, y: 100, w: 300, h: 100 } }] },
+  ];
+  // focus 点(250,150)は OCR box(100,100,300,100)の内側
+  const cursor = [
+    cursorCandidate(10, { x: 200, y: 120, w: 100, h: 60 }, { point: { x: 250, y: 150 } }),
+  ];
+  const anchors = buildEffectAnchors(cp, t, ocr, null, ACFG, cursor);
+  const cursorAnchors = anchors.filter((a) => a.source === "cursor");
+  assert.equal(cursorAnchors.length, 1);
+  assert.deepEqual(cursorAnchors[0].rect, { x: 100, y: 100, w: 300, h: 100 });
+  assert.match(cursorAnchors[0].text, /ボタン/);
+});
+
+test("buildEffectAnchors: dwell の焦点が OCR box の外なら D2 の既定 rect のまま", () => {
+  const cp = cutplan([{ start: 0, end: 20, action: "keep" }]);
+  const t = transcript([]);
+  const ocr: OcrSidecar[] = [
+    { sourceSec: 10, lines: [{ text: "遠い", box: { x: 1000, y: 1000, w: 100, h: 100 } }] },
+  ];
+  const cursor = [cursorCandidate(10, { x: 0, y: 0, w: 50, h: 50 }, { point: { x: 25, y: 25 } })];
+  const anchors = buildEffectAnchors(cp, t, ocr, null, ACFG, cursor);
+  const cursorAnchors = anchors.filter((a) => a.source === "cursor");
+  assert.equal(cursorAnchors.length, 1);
+  assert.deepEqual(cursorAnchors[0].rect, { x: 0, y: 0, w: 50, h: 50 });
+});
+
+test("buildEffectAnchors: クリック起点の cursor アンカーは text に明示される", () => {
+  const cp = cutplan([{ start: 0, end: 20, action: "keep" }]);
+  const t = transcript([]);
+  const cursor = [cursorCandidate(10, { x: 0, y: 0, w: 50, h: 50 }, { clickBoosted: true })];
+  const anchors = buildEffectAnchors(cp, t, [], null, ACFG, cursor);
+  const cursorAnchors = anchors.filter((a) => a.source === "cursor");
+  assert.match(cursorAnchors[0].text, /クリック/);
+});
+
+test("buildEffectAnchors: cursor アンカーは decisionsToOverlays を無改造で通る(rect あり)", () => {
+  const cp = cutplan([{ start: 0, end: 20, action: "keep" }]);
+  const t = transcript([]);
+  const cursor = [cursorCandidate(10, { x: 100, y: 100, w: 300, h: 300 })];
+  const anchors = buildEffectAnchors(cp, t, [], null, ACFG, cursor);
+  const cursorAnchor = anchors.find((a) => a.source === "cursor")!;
+  const out = decisionsToOverlays(
+    [{ anchorId: cursorAnchor.id, effect: "zoom", reason: "" }],
+    anchors,
+    ZCFG,
+  );
+  assert.equal(out.zooms?.length, 1);
 });
 
 /* ---------------- decisionsToOverlays ---------------- */

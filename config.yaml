@@ -362,6 +362,18 @@ plan:
   #   pauseMax: 3
   #   pauseMinSec: 0.6
 
+  # カーソル dwell(停留)からズーム候補を作る(plan-effects。OpenScreen移植D2)。
+  # <recording base>.cursor.json サイドカー(record --watch)が無ければ一切
+  # 参照されない。既定値は OpenScreen 自身のチューニング(30Hz・製品デモ向け)
+  # なので、収録本数が増えたら再調整を検討する
+  # cursor:
+  #   minDwellMs: 450      # 停留とみなす最小継続時間
+  #   maxDwellMs: 2600     # これを超えると意図的な作業とみなし除外
+  #   moveThreshold: 0.02  # 隣接サンプル間でこれを超える移動があれば停留を打ち切る
+  #   spacingMs: 1800      # 採用済み候補の中心からこの間隔未満は間引く
+  #   defaultScale: 2.5    # focus点からズーム rect を作るときの倍率
+  #   clickBoost: 1.5      # クリック起点の dwell に与える strength 倍率(1で無効化)
+
   # plan の候補格子を語タイムスタンプ(要 whisper.wordTimestamps)由来の語境界で
   # 細分化する(C1)+ 候補テキストを実際に残る語だけにする(C8)。
   # 既定 false=無音境界のみ(従来とバイト等価)。回帰基準線で on 比較してから既定化を検討

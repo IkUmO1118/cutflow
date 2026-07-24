@@ -14,9 +14,26 @@ export interface EffectAnchor {
   id: number; // 1始まりの通し番号
   start: number; // 元収録の秒
   end: number; // 元収録の秒
-  rect?: Region; // 出力px。OCR box / scene 変化領域
-  source: "ocr" | "motion" | "speech";
+  rect?: Region; // 出力px。OCR box / scene 変化領域 / カーソル dwell 由来
+  source: "ocr" | "motion" | "speech" | "cursor";
   text: string; // OCR テキスト or 実残存発話・演出の意味づけ
+}
+
+/** D2: dwell 検出済みのカーソル候補(cursorAnchors.ts の出力を元収録秒へ写像し、
+ *  focus→rect 変換(clamp/grow込み)まで済ませたもの)。buildEffectAnchors は
+ *  OCR box との重なり(D6)だけを追加で判定する。
+ *  §docs/plans/2026-07-24-openscreen-d2-dwell-suggestion-design.md */
+export interface CursorAnchorLike {
+  /** dwell 中心(元収録秒) */
+  sourceSec: number;
+  /** 固定幅ウィンドウ(元収録秒) */
+  start: number;
+  end: number;
+  /** OCR box との重なり判定に使う出力px点(screenRegion ローカル) */
+  point: { x: number; y: number };
+  /** D2 の既定矩形(既に clamp/grow 済み) */
+  rect: Region;
+  clickBoosted: boolean;
 }
 
 /** LLM が返す1判断。番号+種別だけ(座標・時刻・色は含めない) */
@@ -93,9 +110,19 @@ interface Draft {
   start: number;
   end: number;
   rect?: Region;
-  source: "ocr" | "motion" | "speech";
+  source: "ocr" | "motion" | "speech" | "cursor";
   text: string;
   sortAt: number;
+}
+
+/** point が rect(出力px)の内側にあるか(境界含む) */
+function pointInRect(point: { x: number; y: number }, rect: Region): boolean {
+  return (
+    point.x >= rect.x &&
+    point.x <= rect.x + rect.w &&
+    point.y >= rect.y &&
+    point.y <= rect.y + rect.h
+  );
 }
 
 /** OCR/motion/transcript から演出アンカーを決定論生成する。cutplan の keep 区間
@@ -107,6 +134,10 @@ interface Draft {
  *    1アンカーにまとめる。frozen(長い静止)区間も候補に含める。
  *  - speech 由来: cfg.anchorWindowSec 以上ある keep span ごとに1アンカー
  *    (rect 無し=意味づけ用。実際に残る語だけを連結するテキスト)。
+ *  - cursor 由来(D2/D4/D6・opt-in): 呼び出し側が組んだ dwell 候補
+ *    (cursorCandidates)を rect アンカー化する。dwell の焦点が OCR box に
+ *    重なるなら座標をその OCR box に合わせる(D6・意味のある要素へ寄せる)。
+ *    省略時(サイドカー無し収録)は従来とバイト等価。
  *  id は時系列順の1始まり連番。 */
 export function buildEffectAnchors(
   cutplan: CutPlan,
@@ -114,6 +145,7 @@ export function buildEffectAnchors(
   ocrSidecars: OcrSidecar[],
   motion: MotionLike | null,
   cfg: EffectPlacementCfg,
+  cursorCandidates: CursorAnchorLike[] = [],
 ): EffectAnchor[] {
   const keeps = mergeIntervals(
     cutplan.segments
@@ -141,6 +173,31 @@ export function buildEffectAnchors(
       if (end <= start) continue;
       drafts.push({ start, end, rect: line.box, source: "ocr", text: line.text, sortAt: sidecar.sourceSec });
     }
+  }
+
+  // --- cursor 由来(D2/D4/D6): dwell 候補を rect アンカー化。焦点が OCR box に
+  //     重なるなら座標をその OCR box に合わせる(意味のある要素へ寄せる)
+  for (const c of cursorCandidates) {
+    const keep = containingKeep(c.sourceSec);
+    if (!keep) continue;
+    const start = Math.max(keep.start, c.start);
+    const end = Math.min(keep.end, c.end);
+    if (end <= start) continue;
+    const fusedOcr = drafts.find(
+      (d) =>
+        d.source === "ocr" &&
+        d.rect &&
+        c.sourceSec >= d.start &&
+        c.sourceSec <= d.end &&
+        pointInRect(c.point, d.rect),
+    );
+    const rect = fusedOcr?.rect ?? c.rect;
+    const text = fusedOcr
+      ? `カーソル停留(${fusedOcr.text})`
+      : c.clickBoosted
+        ? "カーソル停留(クリック起点)"
+        : "カーソル停留";
+    drafts.push({ start, end, rect, source: "cursor", text, sortAt: c.sourceSec });
   }
 
   if (motion) {
@@ -224,7 +281,7 @@ export function buildEffectAnchors(
 }
 
 /** rect の w/h を outW/outH 以内に縮め、x/y を範囲内へ収める(画面外はみ出しを防ぐ) */
-function clampRect(rect: Region, outW: number, outH: number): Region {
+export function clampRect(rect: Region, outW: number, outH: number): Region {
   const w = Math.min(rect.w, outW);
   const h = Math.min(rect.h, outH);
   const x = Math.min(Math.max(rect.x, 0), Math.max(0, outW - w));
@@ -233,7 +290,7 @@ function clampRect(rect: Region, outW: number, outH: number): Region {
 }
 
 /** rect が min より小さければ中心を保ったまま min サイズへ広げる(拡大しすぎ防止) */
-function growToMinZoom(rect: Region, min: { w: number; h: number }): Region {
+export function growToMinZoom(rect: Region, min: { w: number; h: number }): Region {
   if (rect.w >= min.w && rect.h >= min.h) return rect;
   const w = Math.max(rect.w, min.w);
   const h = Math.max(rect.h, min.h);

@@ -232,6 +232,11 @@ export type RenderProps = {
     /** ズーム中にカメラワイプを右下アンカーで縮める倍率(1 = 縮小なし)。
      * config.yaml の render.zoom.wipeScale から解決済み(既定 0.8) */
     wipeScale: number;
+    /** OpenScreen 移植 D2/D7: この区間に重なるカーソル実測(10-15Hz 間引き済み・
+     * 正規化座標)。追従ズーム(母艦後段)の下地で、現状の描画では未参照
+     * (省略時/空配列は現行の描画と完全に同じ)。
+     * §docs/plans/2026-07-24-openscreen-d2-dwell-suggestion-design.md */
+    cursorTrack?: { tSec: number; cx: number; cy: number }[];
   }[];
   /** 領域ぼかし(overlays.json の blurs。カット後の秒へ写像・
    * strength 解決済み)。ベース映像(画面クロップ)の rect 部分だけを

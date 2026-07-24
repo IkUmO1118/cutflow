@@ -45,6 +45,8 @@ import type {
 import { manifestCompositionFps } from "../types.ts";
 import { resolveAnnotation } from "./annotation.ts";
 import { resolveDesign } from "./design.ts";
+import { resampleCursorTrack } from "./cursorAnchors.ts";
+import type { CursorDwellSample } from "./cursorAnchors.ts";
 import type {
   Caption,
   OverlayItem,
@@ -54,6 +56,10 @@ import type {
 } from "../../remotion/props.ts";
 
 type NumericBaseline = Record<string, number>;
+
+/** D7: zooms[].cursorTrack の間引きレート(Hz)。設計の目安「10-15Hz」の中央値。
+ * config化はしない(追従ズーム本体が実装されるまでは内部定数で十分) */
+const CURSOR_TRACK_RATE_HZ = 12;
 
 function keyframesForPieces<TValues extends object>(
   keyframes: { at: number; easing?: import("../types.ts").KeyframeEasing; values: TValues }[] | undefined,
@@ -144,6 +150,11 @@ export function buildRenderProps(args: {
   /** 無音検出(cuts.auto.json)の無音区間(元収録の秒)。BGM ダッキングの
    * 発話区間を組み立てるのに使う。null/省略ならダッキングなし */
   silences?: Interval[] | null;
+  /** `<recording base>.cursor.json`(D1)の生テレメトリ。あれば各 zoom 区間に
+   * 10-15Hz 間引き済みのカーソル実測(D7・追従ズームの下地。現状の描画では
+   * 未参照)を載せる。null/省略なら zooms[].cursorTrack を一切付けない
+   * (この機能導入前とバイト等価)。§docs/plans/2026-07-24-openscreen-d2-dwell-suggestion-design.md */
+  cursorSamples?: CursorDwellSample[] | null;
   /** オーバーレイ・BGM 素材の存在チェック。無い素材は warn して除外する */
   overlayExists: (file: string) => boolean;
   warn: (msg: string) => void;
@@ -151,7 +162,7 @@ export function buildRenderProps(args: {
   const {
     manifest, keeps, transcript, overlays,
     renderCfg, width, height, profile, videoFile, videoIsSource, bgm, bgmFallbackFile, silences,
-    overlayExists, warn,
+    cursorSamples, overlayExists, warn,
   } = args;
   const layoutCaption = profile?.layout?.caption;
 
@@ -313,6 +324,18 @@ export function buildRenderProps(args: {
   const zoomSpans = (overlays.zooms ?? []).flatMap((z) => {
     const parts = remapInterval(z.start, z.end, timeline);
     if (parts.length === 0) return [];
+    // D7: この区間に重なるカーソル実測を間引いて載せる(追従ズームの下地。
+    // 現状の描画では未参照)。サイドカー未注入・空区間なら何も付けない
+    const cursorTrack = cursorSamples
+      ? resampleCursorTrack(cursorSamples, z.start * 1000, z.end * 1000, {
+          rateHz: CURSOR_TRACK_RATE_HZ,
+        })
+          .map((p) => {
+            const tSec = toOutputTime(p.tMs / 1000, timeline);
+            return tSec === null ? null : { tSec, cx: p.cx, cy: p.cy };
+          })
+          .filter((p): p is { tSec: number; cx: number; cy: number } => p !== null)
+      : [];
     return [
       {
         start: parts[0].start,
@@ -321,6 +344,7 @@ export function buildRenderProps(args: {
         easeSec: z.easeSec ?? renderCfg.zoom?.easeSec ?? DEFAULT_ZOOM_EASE_SEC,
         ...(z.easeOutSec !== undefined ? { easeOutSec: z.easeOutSec } : {}),
         wipeScale: renderCfg.zoom?.wipeScale ?? DEFAULT_ZOOM_WIPE_SCALE,
+        ...(cursorTrack.length > 0 ? { cursorTrack } : {}),
       },
     ];
   });

@@ -183,15 +183,20 @@ LLM に**番号+種別選択**だけさせて `overlays.json` の下書きを作
 cut(`cutplan.json`)・承認(`approvals.json`)には一切触れない独立軸。
 
 - **前提**: 先に `node src/cli.ts frames <dir> --every 10 --ocr` と
-  `node src/cli.ts av <dir>` のどちらか(両方推奨)を実行しておく必要がある。
-  どちらも無ければ実行方法を告げて exit 1(例外にはしない)。演出アンカーが
+  `node src/cli.ts av <dir>` のどちらか(両方推奨)を実行しておく必要がある
+  (`<recording base>.cursor.json` サイドカーがあればそれだけでも進める)。
+  いずれも無ければ実行方法を告げて exit 1(例外にはしない)。演出アンカーが
   0件のときも同様に告知して終了する
-- **演出アンカー(演出を置ける候補)**: 3つの知覚から決定論的に組む。
+- **演出アンカー(演出を置ける候補)**: 4つの知覚から決定論的に組む。
   画面OCR(`frames/*.ocr.json` の各行。box が十分大きいものだけ)・
   動き(`av.probe/motion.json` の sceneScore 超のサンプル・長い静止区間)・
-  発話(十分な尺の keep span ごとの意味づけ用アンカー)。**座標(rect)は
-  OCR box または画面変化領域から取り、LLM は一切触らない**。rect の無い
-  アンカー(発話のみ由来)は zoom/blur/annotation の対象にできない
+  発話(十分な尺の keep span ごとの意味づけ用アンカー)・
+  カーソル(`record --watch` が書く `<recording base>.cursor.json` があれば、
+  カーソルの停留(dwell)を検出して rect アンカー化する。OpenScreen 移植。
+  停留の焦点が OCR box に重なるならその box を rect に採用する)。
+  **座標(rect)は OCR box・画面変化領域・カーソル位置から取り、LLM は
+  一切触らない**。rect の無いアンカー(発話のみ由来)は zoom/blur/annotation
+  の対象にできない
 - **番号+種別選択のみ**: LLM に渡すのはアンカー一覧
   (`#id [開始-終了] source [座標] テキスト`)だけ。LLM の応答は
   `{ "decisions": [{ "anchorId": N, "effect": "zoom"|"blur"|"annotation"|"none", "reason": "..." }] }`

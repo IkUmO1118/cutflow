@@ -329,6 +329,31 @@ export interface Config {
        *  style-profile --name と対応 */
       profile?: string;
     };
+    /** OpenScreen 移植 D2: カーソル dwell(停留)からズーム候補を作る
+     *  plan-effects の演出アンカー生成(cursorAnchors.ts)の閾値。省略時は
+     *  全て既定値(DEFAULT_PLAN_CURSOR_*。OpenScreen 自身のチューニング値)。
+     *  `<recording base>.cursor.json` サイドカー(record --watch。D1)が
+     *  無ければ一切参照されない(この機能導入前とバイト等価)。
+     *  §docs/plans/2026-07-24-openscreen-d2-dwell-suggestion-design.md */
+    cursor?: {
+      /** 停留とみなす最小継続時間(ms)。省略時 DEFAULT_PLAN_CURSOR_MIN_DWELL_MS(450) */
+      minDwellMs?: number;
+      /** 停留とみなす最大継続時間(ms。これを超えると意図的な作業とみなし除外)。
+       *  省略時 DEFAULT_PLAN_CURSOR_MAX_DWELL_MS(2600) */
+      maxDwellMs?: number;
+      /** 隣接サンプル間でこれを超える移動(正規化座標)があれば停留を打ち切る。
+       *  省略時 DEFAULT_PLAN_CURSOR_MOVE_THRESHOLD(0.02) */
+      moveThreshold?: number;
+      /** 採用済み候補の中心からこの間隔(ms)未満の候補は間引く。省略時
+       *  DEFAULT_PLAN_CURSOR_SPACING_MS(1800) */
+      spacingMs?: number;
+      /** focus点からズーム rect を作るときの倍率(w=screenRegion.w/scale)。
+       *  省略時 DEFAULT_PLAN_CURSOR_DEFAULT_SCALE(2.5) */
+      defaultScale?: number;
+      /** クリック起点(leftButtonPressed 直後)の dwell に与える strength 倍率。
+       *  省略時 DEFAULT_PLAN_CURSOR_CLICK_BOOST(1.5)。1 で無効化 */
+      clickBoost?: number;
+    };
   };
   /** plan の候補格子を語タイムスタンプ(transcript.words)由来の語境界でも
    *  分割する(C1)+ 候補テキストを実際に残る語だけにする(C8)。省略可
@@ -849,6 +874,36 @@ export function resolveEffectPlacementCfg(cfg: Config): {
   };
 }
 
+/** plan.cursor.* 未指定時の既定値(OpenScreen 自身のチューニング値)。
+ *  §docs/plans/2026-07-24-openscreen-d2-dwell-suggestion-design.md */
+export const DEFAULT_PLAN_CURSOR_MIN_DWELL_MS = 450;
+export const DEFAULT_PLAN_CURSOR_MAX_DWELL_MS = 2600;
+export const DEFAULT_PLAN_CURSOR_MOVE_THRESHOLD = 0.02;
+export const DEFAULT_PLAN_CURSOR_SPACING_MS = 1800;
+export const DEFAULT_PLAN_CURSOR_DEFAULT_SCALE = 2.5;
+export const DEFAULT_PLAN_CURSOR_CLICK_BOOST = 1.5;
+
+/** plan.cursor を既定値で解決する純関数。loadConfig は cfg.plan.cursor を
+ *  書き換えない */
+export function resolvePlanCursorCfg(cfg: Config): {
+  minDwellMs: number;
+  maxDwellMs: number;
+  moveThreshold: number;
+  spacingMs: number;
+  defaultScale: number;
+  clickBoost: number;
+} {
+  const c = cfg.plan?.cursor ?? {};
+  return {
+    minDwellMs: c.minDwellMs ?? DEFAULT_PLAN_CURSOR_MIN_DWELL_MS,
+    maxDwellMs: c.maxDwellMs ?? DEFAULT_PLAN_CURSOR_MAX_DWELL_MS,
+    moveThreshold: c.moveThreshold ?? DEFAULT_PLAN_CURSOR_MOVE_THRESHOLD,
+    spacingMs: c.spacingMs ?? DEFAULT_PLAN_CURSOR_SPACING_MS,
+    defaultScale: c.defaultScale ?? DEFAULT_PLAN_CURSOR_DEFAULT_SCALE,
+    clickBoost: c.clickBoost ?? DEFAULT_PLAN_CURSOR_CLICK_BOOST,
+  };
+}
+
 /** planBgm.* 未指定時の既定値。§docs/plans/2026-07-11-b1-b3-bgm-placement-candidates-design.md */
 export const DEFAULT_PLAN_BGM_BIG_CUT_SEC = 3.0;
 export const DEFAULT_PLAN_BGM_MIN_SLOT_SEC = 8.0;
@@ -1361,6 +1416,39 @@ function validateWorkflowConfig(cfg: Config): string[] {
     // plan を止めない設計。§docs/plans/2026-07-20-cut-knowledge-p3-p5-design.md §2)
     if ("pattern" in planReasonIds && typeof planReasonIds.pattern !== "string") {
       errors.push("plan.reasonIds.pattern は文字列で指定してください");
+    }
+  }
+  const planCursor = cfg.plan?.cursor as Record<string, unknown> | undefined;
+  if (planCursor) {
+    errors.push(
+      ...unknownKeys(planCursor, [
+        "minDwellMs", "maxDwellMs", "moveThreshold", "spacingMs", "defaultScale", "clickBoost",
+      ]).map((key) => `plan.cursor.${key} は未対応です`),
+    );
+    if ("minDwellMs" in planCursor && (!Number.isFinite(planCursor.minDwellMs) || Number(planCursor.minDwellMs) <= 0)) {
+      errors.push("plan.cursor.minDwellMs は正の数値で指定してください");
+    }
+    if ("maxDwellMs" in planCursor && (!Number.isFinite(planCursor.maxDwellMs) || Number(planCursor.maxDwellMs) <= 0)) {
+      errors.push("plan.cursor.maxDwellMs は正の数値で指定してください");
+    }
+    if (
+      typeof planCursor.minDwellMs === "number" &&
+      typeof planCursor.maxDwellMs === "number" &&
+      planCursor.minDwellMs >= planCursor.maxDwellMs
+    ) {
+      errors.push("plan.cursor.minDwellMs は maxDwellMs 未満で指定してください");
+    }
+    if ("moveThreshold" in planCursor && (!Number.isFinite(planCursor.moveThreshold) || Number(planCursor.moveThreshold) <= 0)) {
+      errors.push("plan.cursor.moveThreshold は正の数値で指定してください");
+    }
+    if ("spacingMs" in planCursor && (!Number.isFinite(planCursor.spacingMs) || Number(planCursor.spacingMs) < 0)) {
+      errors.push("plan.cursor.spacingMs は 0 以上の数値で指定してください");
+    }
+    if ("defaultScale" in planCursor && (!Number.isFinite(planCursor.defaultScale) || Number(planCursor.defaultScale) <= 0)) {
+      errors.push("plan.cursor.defaultScale は正の数値で指定してください");
+    }
+    if ("clickBoost" in planCursor && (!Number.isFinite(planCursor.clickBoost) || Number(planCursor.clickBoost) <= 0)) {
+      errors.push("plan.cursor.clickBoost は正の数値で指定してください");
     }
   }
   const log = cfg.log as Record<string, unknown> | undefined;

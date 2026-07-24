@@ -12,19 +12,36 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { completeWithJsonSchema } from "../lib/llm.ts";
-import { resolveEffectPlacementCfg, resolveEffectReviewCfg, resolveReasonIdsCfg } from "../lib/config.ts";
+import {
+  resolveEffectPlacementCfg,
+  resolveEffectReviewCfg,
+  resolvePlanCursorCfg,
+  resolveReasonIdsCfg,
+} from "../lib/config.ts";
 import {
   buildEffectAnchors,
+  clampRect,
   decisionsToOverlays,
+  growToMinZoom,
   limitNoneDecisions,
 } from "../lib/effectAnchors.ts";
 import type {
+  CursorAnchorLike,
   EffectAnchor,
   EffectDecision,
   EffectOverlayCfg,
   MotionLike,
   OcrSidecar,
 } from "../lib/effectAnchors.ts";
+import {
+  cursorFocusToLocalPoint,
+  cursorFocusToRect,
+  detectDwellCandidates,
+  resolveDwellWindowMs,
+} from "../lib/cursorAnchors.ts";
+import type { CursorDwellSample } from "../lib/cursorAnchors.ts";
+import { CURSOR_SIDECAR_SUFFIX } from "./record.ts";
+import type { CursorSidecar } from "./record.ts";
 import { effectWarningsToObservation } from "../lib/effectReview.ts";
 import type { EffectWarning } from "../lib/effectCheck.ts";
 import {
@@ -275,6 +292,77 @@ function readMotion(dir: string): MotionLike | null {
   return { motion: raw.motion ?? [], frozen: raw.frozen ?? [] };
 }
 
+/** `<recording base>.cursor.json`(D1 の record --watch が書くサイドカー)を読む。
+ *  無ければ null(D2: カーソル由来アンカーを生成しないだけで、この機能導入前と
+ *  バイト等価)。壊れたサイドカーも同様に無視する */
+export function readCursorSidecar(dir: string, manifest: Manifest): CursorSidecar | null {
+  const base = manifest.source.replace(/\.[^.]+$/, "");
+  const p = join(dir, `${base}${CURSOR_SIDECAR_SUFFIX}`);
+  if (!existsSync(p)) return null;
+  try {
+    return JSON.parse(readFileSync(p, "utf8")) as CursorSidecar;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * サイドカーの生テレメトリから演出アンカー化できるカーソル候補を組む(D2/D4/D5)。
+ * `samples[].recTimeMs` は一時停止圧縮済みの録画内時刻で、OBS の一時停止は
+ * 録画ファイル自体からもその区間を除くため「元収録の秒」とバイト等価に扱える
+ * (motion.json の frozen のように timeline 経由の変換は不要)。
+ * rect は D2(focus→rect)+ clampRect/growToMinZoom まで適用済みで返す
+ * (buildEffectAnchors は解像度を知らないため、ここで済ませておく)。
+ */
+function buildCursorAnchorCandidates(
+  sidecar: CursorSidecar,
+  manifest: Manifest,
+  placementCfg: ReturnType<typeof resolveEffectPlacementCfg>,
+  cursorCfg: ReturnType<typeof resolvePlanCursorCfg>,
+): CursorAnchorLike[] {
+  const samples: CursorDwellSample[] = sidecar.samples.map((s) => ({
+    recTimeMs: s.recTimeMs,
+    cx: s.cx,
+    cy: s.cy,
+    inBounds: s.inBounds,
+    leftButtonPressed: s.leftButtonPressed,
+  }));
+  const windowMs = resolveDwellWindowMs(manifest.durationSec * 1000);
+  const candidates = detectDwellCandidates(samples, {
+    minDwellMs: cursorCfg.minDwellMs,
+    maxDwellMs: cursorCfg.maxDwellMs,
+    moveThreshold: cursorCfg.moveThreshold,
+    spacingMs: cursorCfg.spacingMs,
+    clickBoost: cursorCfg.clickBoost,
+    windowMs,
+  });
+  // resolveProfile(screenRegion, "default") は width/height=screenRegion.w/h
+  // そのものなので、ここでは screenRegion を直接「出力解像度」として使える
+  const geom = {
+    layout: manifest.layout ?? ("obs-canvas" as const),
+    screenRegion: manifest.video.screenRegion,
+    recordingWidth: manifest.video.width,
+    recordingHeight: manifest.video.height,
+    defaultScale: cursorCfg.defaultScale,
+  };
+  return candidates.map((c) => {
+    const point = cursorFocusToLocalPoint(c.focus, geom);
+    const rect = clampRect(
+      growToMinZoom(cursorFocusToRect(c.focus, geom), placementCfg.minZoomRect),
+      manifest.video.screenRegion.w,
+      manifest.video.screenRegion.h,
+    );
+    return {
+      sourceSec: c.centerMs / 1000,
+      start: c.startMs / 1000,
+      end: c.endMs / 1000,
+      point,
+      rect,
+      clickBoosted: c.clickBoosted,
+    };
+  });
+}
+
 export interface PlanEffectsResult {
   overlays: Overlays;
   zooms: NonNullable<Overlays["zooms"]>;
@@ -312,16 +400,28 @@ export async function planEffects(
 
   const ocrSidecars = readOcrSidecars(dir);
   const motion = readMotion(dir);
-  if (ocrSidecars.length === 0 && motion === null) {
+  const cursorSidecar = readCursorSidecar(dir, manifest);
+  if (ocrSidecars.length === 0 && motion === null && cursorSidecar === null) {
     throw new Error(
-      "画面OCR・動き検出のどちらも未生成です。先に " +
+      "画面OCR・動き検出・カーソル座標のいずれも未生成です。先に " +
         `\`${cliCmd()} frames ${dir} --every 10 --ocr\` と ` +
-        `\`${cliCmd()} av ${dir}\` のどちらか(両方推奨)を実行してください`,
+        `\`${cliCmd()} av ${dir}\` のどちらか(両方推奨)を実行してください` +
+        "(カーソル座標は `record --watch` の収録にのみ付随します)",
     );
   }
 
   const placementCfg = resolveEffectPlacementCfg(cfg);
-  const anchors = buildEffectAnchors(cutplan, transcript, ocrSidecars, motion, placementCfg);
+  const cursorCandidates = cursorSidecar
+    ? buildCursorAnchorCandidates(cursorSidecar, manifest, placementCfg, resolvePlanCursorCfg(cfg))
+    : [];
+  const anchors = buildEffectAnchors(
+    cutplan,
+    transcript,
+    ocrSidecars,
+    motion,
+    placementCfg,
+    cursorCandidates,
+  );
   if (anchors.length === 0) {
     throw new Error(
       "演出アンカーが0件です(cutplan.json の keep 区間・frames --ocr・av の知覚を確認してください)",

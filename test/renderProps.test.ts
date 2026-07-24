@@ -736,6 +736,74 @@ test("buildRenderProps: zoom wipeScale は未設定時 0.8(DEFAULT_ZOOM_WIPE_SCA
   assert.equal(props.zooms?.[0]?.wipeScale, 0.8);
 });
 
+test("buildRenderProps: cursorSamples 省略時は zooms に cursorTrack が付かない(D7・バイト等価)", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 };
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 10 }],
+    transcript: { segments: [] },
+    overlays: { zooms: [{ start: 1, end: 5, rect }] },
+    renderCfg,
+    width: 1920,
+    height: 1080,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.equal("cursorTrack" in (props.zooms?.[0] ?? {}), false);
+});
+
+test("buildRenderProps: cursorSamples があれば zoom 区間に間引いたカーソル実測を付ける(D7)", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 };
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 10 }],
+    transcript: { segments: [] },
+    overlays: { zooms: [{ start: 1, end: 5, rect }] }, // 元収録秒[1,5]、単一keepなので出力秒と同一
+    renderCfg,
+    width: 1920,
+    height: 1080,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    cursorSamples: [
+      { recTimeMs: 1000, cx: 0.2, cy: 0.3, inBounds: true, leftButtonPressed: false },
+      { recTimeMs: 3000, cx: 0.6, cy: 0.7, inBounds: true, leftButtonPressed: false },
+      { recTimeMs: 9000, cx: 0.9, cy: 0.9, inBounds: true, leftButtonPressed: false }, // 区間外
+    ],
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  const track = props.zooms?.[0]?.cursorTrack;
+  assert.ok(track && track.length > 0);
+  assert.ok(track!.every((p) => p.tSec >= 1 && p.tSec <= 5));
+  assert.ok(track!.some((p) => p.cx === 0.2 && p.cy === 0.3));
+  assert.ok(track!.some((p) => p.cx === 0.6 && p.cy === 0.7));
+  assert.ok(!track!.some((p) => p.cx === 0.9));
+});
+
+test("buildRenderProps: cursorSamples があっても区間内に該当サンプルが無ければ cursorTrack を付けない", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 };
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 10 }],
+    transcript: { segments: [] },
+    overlays: { zooms: [{ start: 1, end: 5, rect }] },
+    renderCfg,
+    width: 1920,
+    height: 1080,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    cursorSamples: [{ recTimeMs: 9000, cx: 0.9, cy: 0.9, inBounds: true, leftButtonPressed: false }],
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.equal("cursorTrack" in (props.zooms?.[0] ?? {}), false);
+});
+
 test("buildRenderProps: zooms がカット内で全部消えると出力に含まれない", () => {
   const rect = { x: 0, y: 0, w: 960, h: 1080 };
   const props = buildRenderProps({
