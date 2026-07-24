@@ -229,6 +229,13 @@ starting after the highest fixed pattern number; failing seeds are skipped
 with a warning, never an error). An absent or empty store leaves the author
 prompt byte-identical to before this feature.
 
+`<recording base>.cursor.json` (written by the `record --watch` watcher, one
+per recording, named after the raw video file's basename) is **not**
+generated in the reproducible-intermediate sense — it is a one-shot capture
+artifact from the physical recording session and cannot be regenerated after
+the fact. Like `materials/`, its `fileRole` is `"other"`: an agent must not
+edit it, and `clean` never removes it.
+
 `node src/lib/files.ts` (`GENERATED_FILES` + the generated-name patterns and
 directories) is the single source of truth for this list; this file's
 enumeration is pinned to it by `test/agentsMd.test.ts`.
@@ -390,6 +397,7 @@ without `--force`; with `--force`, hand-edited files are moved to
 | `editor <dir>` | Launch the GUI editor |
 | `mcp <dir>` | Launch a Model Context Protocol server over stdio, bound to this one recording folder (§11) |
 | `run <dir>` | First-time bulk pipeline: ingest → transcribe → detect → plan (§9: do not re-run casually) |
+| `record` | Long-running watcher (macOS only, no `<dir>` argument) that connects to obs-websocket v5 and reacts to the recording button: spawns a vendored Swift cursor-position helper for the duration of each recording, and on stop writes `<recording base>.cursor.json` next to wherever OBS saved the file (not inside a project folder — this runs before ingest). The target display is auto-resolved (obs-websocket capture-source `display_uuid` → the sole active display → telemetry inference from raw cursor samples, in that order); `--display <id>` is a hidden manual override. Requires `--watch`. Never touches editable files, `approvals.json`, or any existing recording folder |
 
 ## 11. MCP tools
 

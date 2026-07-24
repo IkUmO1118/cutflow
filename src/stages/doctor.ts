@@ -1,9 +1,15 @@
 import { existsSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { run } from "../lib/exec.ts";
 import { resolveVideoEncoder } from "../lib/videoEncode.ts";
 import { aiDoctor } from "./aiDoctor.ts";
 import type { AiDoctorResult } from "./aiDoctor.ts";
-import type { Config } from "../lib/config.ts";
+import { DEFAULT_OBS_WEBSOCKET_HOST, DEFAULT_OBS_WEBSOCKET_PORT, type Config } from "../lib/config.ts";
+import { ensureCursorHelperBinary } from "../lib/cursorHelperBinary.ts";
+import { isAccessibilityTrusted } from "../lib/displayList.ts";
+import { connectObsWebSocket, type ObsWebSocketClient } from "../lib/obsWebsocket.ts";
+import { resolveTargetDisplay } from "./record.ts";
 
 /** Node の最低要件(型ストリッピング既定化のフロア)。A3 の bin シムと同じ値。 */
 export const MIN_NODE = { major: 23, minor: 6 } as const;
@@ -46,6 +52,36 @@ async function probe(cmd: string, args: string[]): Promise<{ found: boolean; det
 function parseNodeVersion(v: string): { major: number; minor: number } {
   const [major, minor] = v.replace(/^v/, "").split(".").map(Number);
   return { major: major ?? 0, minor: minor ?? 0 };
+}
+
+/** .env から OBS_WEBSOCKET_PASSWORD 等を読む(src/lib/ai/client.ts の
+ * loadRepoEnv と同じ流儀。モジュールごとにこの小さなヘルパーを複製するのが
+ * このリポジトリの既存の慣行) */
+function loadRepoEnv(): void {
+  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+  process.loadEnvFile?.(join(repoRoot, ".env"));
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} がタイムアウトしました(${ms}ms)`)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer!);
+  }
+}
+
+/** record.obsWebsocket 設定から接続を試みる(未設定でも既定値で接続を試す) */
+async function tryConnectObs(cfg: Config): Promise<ObsWebSocketClient> {
+  const host = cfg.record?.obsWebsocket?.host ?? DEFAULT_OBS_WEBSOCKET_HOST;
+  const port = cfg.record?.obsWebsocket?.port ?? DEFAULT_OBS_WEBSOCKET_PORT;
+  const passwordEnv = cfg.record?.obsWebsocket?.passwordEnv;
+  if (passwordEnv) loadRepoEnv();
+  const password = passwordEnv ? process.env[passwordEnv] : undefined;
+  return withTimeout(connectObsWebSocket({ host, port, password }), 3000, "obs-websocket 接続");
 }
 
 export async function envDoctor(opts: DoctorOptions): Promise<DoctorReport> {
@@ -151,6 +187,103 @@ export async function envDoctor(opts: DoctorOptions): Promise<DoctorReport> {
         required: false,
         detail: present ? opts.cfg.whisper.model : `不在: ${opts.cfg.whisper.model}`,
       });
+    }
+  }
+
+  // cursor-helper(D9。record --watch が使う vendor バイナリのビルド可否)
+  {
+    if (process.platform !== "darwin") {
+      checks.push({ name: "cursor-helper", status: "skip", required: false, detail: "macOS 専用" });
+    } else {
+      try {
+        const binPath = await ensureCursorHelperBinary();
+        checks.push({ name: "cursor-helper", status: "ok", required: false, detail: `ビルド済み: ${binPath}` });
+      } catch (e) {
+        checks.push({
+          name: "cursor-helper",
+          status: "warn",
+          required: false,
+          detail: `ビルドできません: ${(e as Error).message}`,
+        });
+      }
+    }
+  }
+
+  // obs-websocket(D9。record --watch の接続先の到達性)
+  {
+    if (!opts.cfg) {
+      checks.push({ name: "obs-websocket", status: "skip", required: false, detail: "config 未ロード" });
+    } else {
+      try {
+        const client = await tryConnectObs(opts.cfg);
+        client.close();
+        const host = opts.cfg.record?.obsWebsocket?.host ?? DEFAULT_OBS_WEBSOCKET_HOST;
+        const port = opts.cfg.record?.obsWebsocket?.port ?? DEFAULT_OBS_WEBSOCKET_PORT;
+        checks.push({ name: "obs-websocket", status: "ok", required: false, detail: `到達可能: ${host}:${port}` });
+      } catch (e) {
+        checks.push({
+          name: "obs-websocket",
+          status: "warn",
+          required: false,
+          detail: `到達不可(OBS が起動していない可能性): ${(e as Error).message}`,
+        });
+      }
+    }
+  }
+
+  // accessibility(D9。位置は権限不要・形状/クリックだけがこの許可に依存するため未許可は warn)
+  {
+    if (process.platform !== "darwin") {
+      checks.push({ name: "accessibility", status: "skip", required: false, detail: "macOS 専用" });
+    } else {
+      try {
+        const trusted = await isAccessibilityTrusted();
+        checks.push({
+          name: "accessibility",
+          status: trusted ? "ok" : "warn",
+          required: false,
+          detail: trusted
+            ? "許可済み(カーソル形状/クリックも取得できます)"
+            : "未許可(カーソル位置は取得できますが形状/クリックは取れません。" +
+              "システム設定 > プライバシーとセキュリティ > アクセシビリティ)",
+        });
+      } catch (e) {
+        checks.push({ name: "accessibility", status: "warn", required: false, detail: (e as Error).message });
+      }
+    }
+  }
+
+  // capture-display(D9。D4 の対象ディスプレイ自動一致を録画無しで可視化する)
+  {
+    if (!opts.cfg) {
+      checks.push({ name: "capture-display", status: "skip", required: false, detail: "config 未ロード" });
+    } else if (process.platform !== "darwin") {
+      checks.push({ name: "capture-display", status: "skip", required: false, detail: "macOS 専用" });
+    } else {
+      let client: ObsWebSocketClient | undefined;
+      try {
+        client = await tryConnectObs(opts.cfg);
+        const resolution = await resolveTargetDisplay(client, undefined);
+        checks.push({
+          name: "capture-display",
+          status: resolution.displayId !== null ? "ok" : "warn",
+          required: false,
+          detail:
+            resolution.displayId !== null
+              ? `解決済み: id=${resolution.displayId}(${resolution.resolvedBy})`
+              : "録画開始前には解決できません(録画中のテレメトリ推論に委ねられます。" +
+                "record --watch --display <id> での明示指定も可)",
+        });
+      } catch (e) {
+        checks.push({
+          name: "capture-display",
+          status: "skip",
+          required: false,
+          detail: `obs-websocket 未到達のため検査不可: ${(e as Error).message}`,
+        });
+      } finally {
+        client?.close();
+      }
     }
   }
 

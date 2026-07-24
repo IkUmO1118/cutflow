@@ -56,6 +56,7 @@ import { describe, describeJson } from "./stages/describe.ts";
 import { frames } from "./stages/frames.ts";
 import type { FrameRequest } from "./stages/frames.ts";
 import { DEFAULT_SERVE_PORT, startFramesServe } from "./stages/framesServe.ts";
+import { startRecordWatch } from "./stages/record.ts";
 import { tryServeFrames } from "./lib/framesClient.ts";
 import { formatOcrPreview } from "./lib/ocr.ts";
 import type { OcrResult } from "./lib/ocr.ts";
@@ -1326,6 +1327,34 @@ program
       throw new Error(`--port の値が不正です: ${opts.port}`);
     }
     await startFramesServe(abs, explicit, port);
+  });
+
+program
+  .command("record")
+  .description(
+    "OBS の録画ボタンに自動連動し、カーソル座標を <recording>.cursor.json へ確定する常駐 watcher" +
+      "(D1。撮影は OBS のまま維持。収録フォルダではなく OBS の出力先へサイドカーを書く)。" +
+      "対象ディスプレイは自動一致(obs-websocket→単一ディスプレイ→テレメトリ推論の3段)。macOS 専用。終了は Ctrl+C",
+  )
+  .option("--watch", "常駐して待ち受ける(現状は必須。指定なしはエラー)")
+  .option(
+    "--display <id>",
+    "対象ディスプレイの CGDirectDisplayID(数値)を明示指定する隠しオプション。" +
+      "通常は不要(自動一致が失敗する/別ディスプレイを撮りたいときだけ使う)",
+  )
+  .action(async (opts: { watch?: boolean; display?: string }) => {
+    if (!opts.watch) {
+      throw new Error("--watch を指定してください(例: cutflow record --watch)");
+    }
+    let displayId: number | undefined;
+    if (opts.display !== undefined) {
+      displayId = Number(opts.display);
+      if (!Number.isFinite(displayId) || displayId <= 0) {
+        throw new Error(`--display の値が不正です: ${opts.display}`);
+      }
+    }
+    const cfg = loadConfig(program.opts().config);
+    await startRecordWatch(cfg, { displayId });
   });
 
 program

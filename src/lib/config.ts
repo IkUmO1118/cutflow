@@ -668,6 +668,25 @@ export interface Config {
     };
     stripWidthPx?: number;
   };
+  /** `record --watch`(D1。カーソル座標の取得)。省略可(古い config.yaml との
+   * 互換。使わない限り読まれず既存挙動は不変)。撮影は OBS を維持したまま、
+   * obs-websocket 経由で録画ボタンに自動連動する常駐 watcher の接続設定。
+   * §docs/plans/2026-07-24-openscreen-d1-cursor-telemetry-design.md */
+  record?: {
+    obsWebsocket?: {
+      /** 省略時 "localhost" */
+      host?: string;
+      /** 省略時 4455(obs-websocket の既定ポート) */
+      port?: number;
+      /** OBS の「WebSocket サーバー設定」→「認証を有効にする」時のみ必須。
+       * config.yaml は git 管理下のため平文パスワードは書かない
+       * (ai.profiles.*.auth.apiKeyEnv と同じ流儀)。環境変数名を書き、
+       * 実際の値は .env / シェル環境から読む。認証無効の OBS では省略可 */
+      passwordEnv?: string;
+    };
+    /** カーソルヘルパのサンプリング間隔(ms)。省略時 DEFAULT_RECORD_SAMPLE_INTERVAL_MS(33) */
+    sampleIntervalMs?: number;
+  };
   /** ログ/可観測性。workflow(AI 呼び出し・ステージ・外部ツール)を stderr に
    *  どれだけ出すか。省略時 normal(既定挙動=AI 行+ステージが出る)。
    *  quiet で AI 行も抑止、verbose で ffmpeg/whisper/remotion まで1行ずつ。
@@ -856,6 +875,12 @@ export const DEFAULT_EFFECT_CHECK_MAX_PER_WINDOW = 3;
 export const DEFAULT_EFFECT_CHECK_MAX_ANNOTATION_SEC = 8.0;
 export const DEFAULT_EFFECT_CHECK_MIN_RECT_OVERLAP_RATIO = 0.3;
 export const DEFAULT_EFFECT_CHECK_USE_VLM = true;
+
+/** record.sampleIntervalMs(config.yaml)未指定時の既定(ms)。
+ * §docs/plans/2026-07-24-openscreen-d1-cursor-telemetry-design.md D1 */
+export const DEFAULT_RECORD_SAMPLE_INTERVAL_MS = 33;
+export const DEFAULT_OBS_WEBSOCKET_HOST = "localhost";
+export const DEFAULT_OBS_WEBSOCKET_PORT = 4455;
 
 /** effectCheck を既定値で解決する純関数。loadConfig は cfg.effectCheck を
  *  書き換えない */

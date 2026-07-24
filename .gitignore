@@ -15,3 +15,13 @@ public/
 # 初回実行時に src/lib/ocr.ts が自動ビルドする)
 bin/ocr/.build/
 
+# swiftc が事前ビルドするカーソルヘルパバイナリ(ソースは
+# src/lib/vendor/openscreen/OpenScreenMacOSCursorHelper/main.swift を追跡。
+# 初回実行時に src/lib/cursorHelperBinary.ts が自動ビルドする)
+src/lib/vendor/openscreen/OpenScreenMacOSCursorHelper/.build/
+
+# swiftc が事前ビルドするディスプレイ列挙バイナリ(ソースは
+# bin/displays/list-displays.swift を追跡。初回実行時に
+# src/lib/displayList.ts が自動ビルドする)
+bin/displays/.build/
+

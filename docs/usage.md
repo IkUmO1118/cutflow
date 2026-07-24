@@ -447,11 +447,41 @@ vision route 不在・still 抽出失敗・`--no-vlm` はいずれも優雅に�
 `cutplan.json` / `approvals.json` は読まない・書かない。
 
 
+## カーソル座標の取得(record --watch)
+
+`node src/cli.ts record --watch` は、OBS の録画ボタンに自動連動してカーソル座標を
+`<recording base>.cursor.json` サイドカーへ確定する常駐 watcher(macOS 専用)。
+撮影は OBS のまま維持し、CutFlow は Electron を持ち込まない。将来のズーム推薦
+(dwell 検出)の土台で、`<dir>` 引数は取らない(収録フォルダではなく OBS が
+録画を保存した場所に直接サイドカーを書く。ingest より前の工程)。
+
+    node src/cli.ts record --watch                 # 対象ディスプレイは自動一致
+    node src/cli.ts record --watch --display 3      # 自動一致に失敗する/別ディスプレイを撮りたいときの隠しオプション
+
+- 事前準備: OBS の「ツール」→「WebSocket サーバー設定」で WebSocket サーバーを
+  有効化(認証を使うなら config.yaml の `record.obsWebsocket.passwordEnv` に
+  環境変数名を書き、実際の値は `.env`(git 管理外)に置く。平文パスワードを
+  config.yaml へ書かない)。
+- 対象ディスプレイは3段の自動一致(設定は増やさない方針。沈黙禁止=どの段で
+  解決したか、または解決できなかったかを必ずログへ出す):
+  1. obs-websocket: 現在のシーンの画面キャプチャソース(`display_capture`/
+     `screen_capture`)の `display_uuid` と、実際のディスプレイの UUID
+     (`CGDisplayCreateUUIDFromDisplayID`)を突き合わせる
+  2. アクティブなディスプレイが1枚だけならそれを採用
+  3. それでも決まらなければ、録画中に蓄積したカーソル座標がどのディスプレイの
+     bounds に最も多く収まるかで事後的に推論する(短い録画では外れうる最後段)
+- 一時停止(OBS の PAUSED/RESUMED)はサイドカーの `pauses[]` に記録され、
+  サンプルの `recTimeMs` から一時停止ぶんが前詰めされる。
+- サイドカーは知覚専用の生テレメトリで、`fileRole` は `"other"`
+  (`clean` で消えない・AI は編集しない。§AGENTS_CONTRACT.md §4)。
+
 ## 環境プリフライト(doctor)
 
 `node src/cli.ts doctor` は収録に入る前の環境チェック(読み取り専用)。
 node(>=23.6)/ffmpeg/ffprobe/有効エンコーダの整合/whisper バイナリ・モデル/
-AI route 到達性を 1 コマンドで検査する。収録フォルダは不要で、config.yaml だけを使う。
+カーソルヘルパのビルド可否・obs-websocket 到達性・アクセシビリティ許可・
+対象ディスプレイの解決結果/AI route 到達性を 1 コマンドで検査する。
+収録フォルダは不要で、config.yaml だけを使う。
 
     node src/cli.ts doctor
     node src/cli.ts doctor --json     # DoctorReport を JSON で(パイプ可)
@@ -459,6 +489,10 @@ AI route 到達性を 1 コマンドで検査する。収録フォルダは不�
 
 - 必須(node/ffmpeg/ffprobe)が欠けていれば exit 1。収録/AI 系(whisper・model・
   encoder・AI route)は warn で exit 0(editor までは到達できる)。
+- `cursor-helper`/`accessibility` は非 macOS で skip。`obs-websocket`/
+  `capture-display` は config 未ロードで skip、OBS 未起動時は warn(record は
+  必須ではないため exit 0 のまま)。`capture-display` は `record --watch`
+  の D4 自動一致(上記)を録画なしで可視化する(現在のシーンから解決を試みる)。
 - 非 mac で preview.videoEncoder 未設定なら有効エンコーダは自動で libx264(A2)。
 - doctor は編集ファイル・approvals.json を一切書かない。
 - AI エージェントにセットアップ自体を委任するなら、`doctor --json` を背骨にした収束手順を

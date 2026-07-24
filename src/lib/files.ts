@@ -131,7 +131,12 @@ export type FileRole = "editable" | "generated" | "approval" | "other";
  * ファイルの分類を返す。EDITABLE_FILES / GENERATED_FILES(+パターン・
  * ディレクトリ) / APPROVAL_FILE のどれにも該当しなければ "other"
  * (final.mp4 / thumbnail.png / bgm.* / materials/ / rules*.md / backups/ /
- * .editor-draft.json など、人間の成果物やその他の特別扱いファイル) */
+ * .editor-draft.json など、人間の成果物やその他の特別扱いファイル)。
+ * `<recording base>.cursor.json`(`record --watch` が録画ごとに書くカーソル
+ * 座標サイドカー。§docs/plans/2026-07-24-openscreen-d1-cursor-telemetry-design.md
+ * D6)もここに含まれる: 再現不能な1回限りの収録入力であって再生成できる
+ * 中間生成物ではないため、パターンを足さず(=個別列挙もせず)デフォルトの
+ * "other" のまま扱う。AI は編集しない・`clean` は消さない */
 export function fileRole(relPath: string): FileRole {
   if (relPath === APPROVAL_FILE) return "approval";
   if ((EDITABLE_FILES as readonly string[]).includes(relPath)) return "editable";

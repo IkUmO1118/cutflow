@@ -261,6 +261,18 @@ ocr:
 #   serve:
 #     port: 4311
 
+# カーソル座標の取得(record --watch)。OBS の録画ボタンに自動連動する常駐
+# watcher。省略可(既定 localhost:4455・sampleIntervalMs 33)。macOS 専用
+record:
+  obsWebsocket:
+    host: localhost
+    port: 4455
+    # OBS の「WebSocket サーバー設定」→「認証を有効にする」時のみ必須。
+    # config.yaml は git 管理下のため平文パスワードは書かず、環境変数名を
+    # 書く(実際の値は .env の OBS_WEBSOCKET_PASSWORD から読む)
+    passwordEnv: OBS_WEBSOCKET_PASSWORD
+  sampleIntervalMs: 33
+
 # A/V フィードバック(av コマンド)。省略時はコード既定を使う
 # av:
 #   everySec: 5

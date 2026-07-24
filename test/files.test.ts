@@ -102,6 +102,11 @@ test("fileRole: editable / generated / approval / other を正しく判定する
   assert.equal(fileRole(".editor-draft.json"), "other");
 });
 
+test("fileRole: record --watch のカーソルサイドカーは other(再現不能な収録入力)", () => {
+  assert.equal(fileRole("raw.cursor.json"), "other");
+  assert.equal(fileRole("2026-07-24 17-50-25.cursor.json"), "other");
+});
+
 test("fileRole: ショート名で可変な中間生成物のパターンを判定する", () => {
   assert.equal(fileRole("cut.highlight-1.mp4"), "generated");
   assert.equal(fileRole("cut.highlight-1.keeps.json"), "generated");
