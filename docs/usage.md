@@ -511,6 +511,12 @@ OpenScreen 自身のチューニング値)。
   が続くようなら下げる
   (§docs/plans/2026-07-24-openscreen-zoom-D-scroll-suppression-design.md)
 
+`config.yaml` の `render.zoom.webcamReactiveMinScale` … baked(`focusMode`
+指定ズームの precompute 経路)中にワイプ(カメラ)を右下アンカーで縮める
+下限(0..1)。省略時 0.35(OpenScreen `WEBCAM_REACTIVE_ZOOM_MIN_SCALE` 逐語。
+既定のまま=描画はバイト等価)。1.0 で縮小なし、0.55 でより穏やかな縮小に
+なる。legacy(`focusMode` 無し)経路には効かない。
+
 ## 環境プリフライト(doctor)
 
 `node src/cli.ts doctor` は収録に入る前の環境チェック(読み取り専用)。

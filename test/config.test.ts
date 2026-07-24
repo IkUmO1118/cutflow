@@ -1001,6 +1001,68 @@ test("loadConfig: plan.cursor.scrollMotionThreshold は正の数値以外を拒�
 });
 
 /* ------------------------------------------------------------------ */
+/* render.zoom.webcamReactiveMinScale(baked ズーム中のワイプ縮小の下限。
+ * §docs/plans/2026-07-24-openscreen-d3-zoom-look-and-feel-design.md 系) */
+/* ------------------------------------------------------------------ */
+
+function writeMinimalConfigWithRenderZoom(dir: string, zoomYaml: string): string {
+  const path = join(dir, "config.yaml");
+  writeFileSync(
+    path,
+    `recordingsDir: ~/Movies/cutflow
+whisper:
+  bin: whisper-cli
+  model: ~/m.bin
+  language: ja
+detect: { silenceDb: -35, minSilenceSec: 0.7, padSec: 0.15, minKeepSec: 0.5 }
+preview: { width: 1280, videoEncoder: videotoolbox }
+render:
+  wipeWidthPx: 480
+  wipeMarginPx: 32
+  captionFontSizePx: 52
+  chapterCardSec: 3
+  targetLufs: -14
+  zoom: ${zoomYaml}
+editor: { maxUploadMb: 2048, defaultImageDurationSec: 4, defaultShortRangeSec: 10 }
+planShorts: { maxDurationSec: 60 }
+llm: { backend: claude-cli, model: x }
+`,
+  );
+  return path;
+}
+
+test("loadConfig: render.zoom.webcamReactiveMinScale の正常系は素通り", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = writeMinimalConfigWithRenderZoom(dir, "{ webcamReactiveMinScale: 0.55 }");
+    const cfg = loadConfig(path);
+    assert.equal(cfg.render.zoom?.webcamReactiveMinScale, 0.55);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig: render.zoom.webcamReactiveMinScale は 0 より大きく 1 以下でなければ拒否される", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = writeMinimalConfigWithRenderZoom(dir, "{ webcamReactiveMinScale: 0 }");
+    assert.throws(() => loadConfig(path), /render\.zoom\.webcamReactiveMinScale は 0 より大きく 1 以下の数値です/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig: render.zoom.webcamReactiveMinScale は 1 を超えると拒否される", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = writeMinimalConfigWithRenderZoom(dir, "{ webcamReactiveMinScale: 1.5 }");
+    assert.throws(() => loadConfig(path), /render\.zoom\.webcamReactiveMinScale は 0 より大きく 1 以下の数値です/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* ------------------------------------------------------------------ */
 /* P3-4: plan.reasonIds.pattern(収録タイプの選択注入)                     */
 /* ------------------------------------------------------------------ */
 

@@ -177,8 +177,11 @@ export type RenderProps = {
    *  undefined(ワイプ非描画。ワイプ関連レイヤーが到達しない) */
   cameraRegion?: Region;
   /** 右下ワイプの寸法。transitionSec はワイプ全画面(wipeFull)の出入りの
-   * 遷移時間(秒。省略・0 で瞬時) */
-  wipe: { widthPx: number; marginPx: number; transitionSec?: number };
+   * 遷移時間(秒。省略・0 で瞬時)。reactiveMinScale は baked(focusMode)
+   * ズーム中のワイプ縮小の下限(0..1。config.yaml の
+   * render.zoom.webcamReactiveMinScale から解決済み。省略時 0.35=
+   * OpenScreen 逐語) */
+  wipe: { widthPx: number; marginPx: number; transitionSec?: number; reactiveMinScale?: number };
   /** true = ワイプ(カメラ)を cut.mp4 に焼き込み済み。Main.tsx はワイプレイヤーを
    * 描かない(ベース抽出1回の高速レンダー。docs/plans/perf-render-single-extraction.md)。
    * 最終レンダーの composite 経路でのみ立つ。エディタ Player / short では未指定 */

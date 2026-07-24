@@ -693,6 +693,11 @@ export interface Config {
        * 完全隣接(gap=0。従来どおりの連鎖)には効かず easeInSec を使う。
        * OpenScreen 移植 D3(#2・D2b) */
       chainPanSec?: number;
+      /** baked(focusMode)ズーム中のワイプ縮小の下限(0..1)。省略時 0.35
+       * (OpenScreen WEBCAM_REACTIVE_ZOOM_MIN_SCALE 逐語。src/lib/zoom.ts の
+       * DEFAULT_WEBCAM_REACTIVE_MIN_SCALE)。1.0=縮小なし、値を上げるほど
+       * 縮小が穏やかになる。legacy(baked 無し)経路には効かない */
+      webcamReactiveMinScale?: number;
     };
     /** ベースレイアウトのデザイン。plain は背景画像 + 画面パネル、
      * obs-canvas はさらにカメラ円を描く。ショートには継承しない。
@@ -1507,6 +1512,13 @@ function validateWorkflowConfig(cfg: Config): string[] {
       (!Number.isFinite(planCursor.scrollMotionThreshold) || Number(planCursor.scrollMotionThreshold) <= 0)
     ) {
       errors.push("plan.cursor.scrollMotionThreshold は正の数値で指定してください");
+    }
+  }
+  const renderZoom = cfg.render?.zoom as Record<string, unknown> | undefined;
+  if (renderZoom && "webcamReactiveMinScale" in renderZoom) {
+    const value = renderZoom.webcamReactiveMinScale;
+    if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value > 1) {
+      errors.push("render.zoom.webcamReactiveMinScale は 0 より大きく 1 以下の数値です");
     }
   }
   const log = cfg.log as Record<string, unknown> | undefined;

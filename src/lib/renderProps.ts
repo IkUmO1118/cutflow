@@ -566,6 +566,9 @@ export function buildRenderProps(args: {
       // ワイプ全画面の出入りの遷移(秒)。未設定の config では従来より
       // なめらかな既定 0.3 秒にする(0 を書けば瞬時に戻せる)
       transitionSec: renderCfg.wipeTransitionSec ?? DEFAULT_WIPE_TRANSITION_SEC,
+      // baked(focusMode)ズーム中のワイプ縮小の下限。render.zoom.webcamReactiveMinScale
+      // から解決済み(既定 0.35 = OpenScreen 逐語)
+      reactiveMinScale: zoomCfg.webcamReactiveMinScale,
     },
     ...(overlays.colorFilter ? { colorFilter: overlays.colorFilter } : {}),
     // ベースレイアウトのデザイン(背景 + 画面パネル + カメラ円)。縦プリセット

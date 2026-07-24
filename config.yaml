@@ -220,6 +220,9 @@ render:
     # ではない)のパン遷移秒数。既定 1.0。完全隣接(gap=0)には効かず
     # easeInSec を使う
     # chainPanSec: 1.0
+    # baked(focusMode)ズーム中のワイプ縮小の下限。OpenScreen 逐語(1/scale・
+    # 下限0.35)。1.0=縮小なし・0.55=穏やか
+    webcamReactiveMinScale: 0.35
   # ベースレイアウトのデザイン(背景画像 + 画面パネル + カメラ角丸ワイプ)。
   # **OBS 拡張キャンバス収録(obs-canvas)だけ**に効く。plain 収録(OBS を
   # 通していない素の動画。スマホのショート動画等)は素材をそのまま見せる

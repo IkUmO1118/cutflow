@@ -35,7 +35,6 @@ import { fadeFactor, isImageFile } from "../src/lib/overlayFade.ts";
 import { cropFitStyle } from "../src/lib/panelStyle.ts";
 import { zoomProgressAt, zoomTransformAt } from "../src/lib/zoom.ts";
 import { wipeProgressAt } from "../src/lib/wipe.ts";
-import { reactiveWebcamScale } from "../src/lib/vendor/openscreen/webcamReactive.ts";
 import { AnnotationItemView } from "./AnnotationLayer.tsx";
 import { PositionedCaption } from "./CaptionLayer.tsx";
 import { OverlayLayer } from "./OverlayLayer.tsx";
@@ -120,12 +119,21 @@ export const Main = (props: RenderProps) => {
   // 右下を保ったまま w/h だけ縮む。§設計 D4)。wipeFull で全画面になっている間
   // (wipeEase=1)は縮めない((1 - wipeEase) の項)。zoom が無ければ恒等(s=1)。
   // baked 経路(props.zoomTransformTrack。focusMode opt-in)では OpenScreen 逐語の
-  // reactiveWebcamScale(=max(0.35, min(1, 1/scale)))を sprung composite scale
+  // reactiveWebcamScale(=max(floor, min(1, 1/scale)))を sprung composite scale
   // (zoomT.scale)から直接駆動する。これでズーム本体(spring)と in/out の
   // タイミング・質感が完全一致し、legacy エンベロープ(zoomProgressAt)由来の
   // カクつき・早戻りが消える。legacy 経路(baked 無し)は従来式のまま=バイト等価。
+  // 下限(floor)は config.yaml の render.zoom.webcamReactiveMinScale から
+  // buildRenderProps が解決して props.wipe.reactiveMinScale へ渡す(省略時
+  // 0.35。§src/lib/zoom.ts DEFAULT_WEBCAM_REACTIVE_MIN_SCALE)。0.35 のとき
+  // reactiveWebcamScale と数値的に完全一致(=既定の描画はバイト等価)。
+  const reactiveMin = props.wipe.reactiveMinScale ?? 0.35;
+  const reactiveFactor = Math.max(
+    reactiveMin,
+    Math.min(1, Number.isFinite(zoomT.scale) && zoomT.scale > 0 ? 1 / zoomT.scale : 1),
+  );
   const wipeShrinkS = props.zoomTransformTrack
-    ? 1 - (1 - reactiveWebcamScale(zoomT.scale)) * (1 - wipeEase)
+    ? 1 - (1 - reactiveFactor) * (1 - wipeEase)
     : 1 -
       (1 - (zoomSpans.find((z) => t >= z.start && t < z.end)?.wipeScale ?? 1)) *
         zoomProgressAt(t, zoomSpans) *

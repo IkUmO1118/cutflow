@@ -36,7 +36,15 @@ export interface ZoomRenderCfg {
   chainGapSec?: number;
   leadSec?: number;
   chainPanSec?: number;
+  /** baked経路の reactive webcam 縮小の下限(0..1)。省略時 0.35
+   * (OpenScreen WEBCAM_REACTIVE_ZOOM_MIN_SCALE 逐語)。1.0=縮小なし。
+   * 値を上げるほど縮小が穏やかになる */
+  webcamReactiveMinScale?: number;
 }
+
+/** render.zoom.webcamReactiveMinScale 未指定時の既定。OpenScreen 移植
+ * (vendor/openscreen/webcamReactive.ts の WEBCAM_REACTIVE_ZOOM_MIN_SCALE 参照) */
+export const DEFAULT_WEBCAM_REACTIVE_MIN_SCALE = 0.35;
 
 /** render.zoom.{easeInSec,easeOutSec,chainGapSec,leadSec,chainPanSec} を
  *  既定値で解決する純関数(OpenScreen 移植 D3。
@@ -53,6 +61,7 @@ export function resolveZoomCfg(zoomCfg: ZoomRenderCfg | undefined): {
   chainGapSec: number;
   leadSec: number;
   chainPanSec: number;
+  webcamReactiveMinScale: number;
 } {
   const z = zoomCfg ?? {};
   return {
@@ -61,6 +70,7 @@ export function resolveZoomCfg(zoomCfg: ZoomRenderCfg | undefined): {
     chainGapSec: z.chainGapSec ?? DEFAULT_ZOOM_CHAIN_GAP_SEC,
     leadSec: z.leadSec ?? DEFAULT_ZOOM_LEAD_SEC,
     chainPanSec: z.chainPanSec ?? DEFAULT_ZOOM_CHAIN_PAN_SEC,
+    webcamReactiveMinScale: z.webcamReactiveMinScale ?? DEFAULT_WEBCAM_REACTIVE_MIN_SCALE,
   };
 }
 

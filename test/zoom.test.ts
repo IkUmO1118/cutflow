@@ -7,6 +7,7 @@ import {
   OPENSCREEN_LEAD_IN_SEC,
   OPENSCREEN_LEAD_OUT_SEC,
   effectiveZoomRange,
+  resolveZoomCfg,
   resolveZoomScale,
   zoomContiguous,
   zoomEase,
@@ -538,4 +539,14 @@ test("zoomTransformAt: 連鎖(前 rect からのパン)側も prev の depth/cus
   // 連鎖区間の頭(パン開始直後)は prev(rectA)の scale=3.0 から始まる
   const atStart = zoomTransformAt(5, zooms, WIDTH, HEIGHT);
   assert.equal(atStart.scale, 3.0);
+});
+
+test("resolveZoomCfg: 未指定なら webcamReactiveMinScale は既定 0.35(OpenScreen 逐語)", () => {
+  const resolved = resolveZoomCfg(undefined);
+  assert.equal(resolved.webcamReactiveMinScale, 0.35);
+});
+
+test("resolveZoomCfg: webcamReactiveMinScale は config 値をそのまま解決する", () => {
+  const resolved = resolveZoomCfg({ webcamReactiveMinScale: 0.55 });
+  assert.equal(resolved.webcamReactiveMinScale, 0.55);
 });

@@ -742,6 +742,42 @@ test("buildRenderProps: zoom chainPanSec は config の render.zoom.chainPanSec 
   assert.equal(props.zooms?.[0]?.chainPanSec, 0.7);
 });
 
+test("buildRenderProps: wipe.reactiveMinScale は config 未指定なら既定 0.35(OpenScreen 逐語)になる", () => {
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 10 }],
+    transcript: { segments: [] },
+    overlays: {},
+    renderCfg,
+    width: 1920,
+    height: 1080,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.equal(props.wipe.reactiveMinScale, 0.35);
+});
+
+test("buildRenderProps: wipe.reactiveMinScale は config の render.zoom.webcamReactiveMinScale から解決される", () => {
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 10 }],
+    transcript: { segments: [] },
+    overlays: {},
+    renderCfg: { ...renderCfg, zoom: { webcamReactiveMinScale: 0.55 } },
+    width: 1920,
+    height: 1080,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.equal(props.wipe.reactiveMinScale, 0.55);
+});
+
 test("buildRenderProps: zooms の easeSec 個別指定は config より優先", () => {
   const rect = { x: 0, y: 0, w: 960, h: 1080 };
   const props = buildRenderProps({
