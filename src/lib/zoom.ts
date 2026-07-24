@@ -14,6 +14,7 @@
 // zoomEase への差し替えの影響を受ける(カーブが変わるため)。
 import {
   DEFAULT_ZOOM_CHAIN_GAP_SEC,
+  DEFAULT_ZOOM_CHAIN_PAN_SEC,
   DEFAULT_ZOOM_EASE_IN_SEC,
   DEFAULT_ZOOM_EASE_OUT_SEC,
   DEFAULT_ZOOM_LEAD_SEC,
@@ -30,20 +31,24 @@ export interface ZoomRenderCfg {
   easeOutSec?: number;
   chainGapSec?: number;
   leadSec?: number;
+  chainPanSec?: number;
 }
 
-/** render.zoom.{easeInSec,easeOutSec,chainGapSec,leadSec} を既定値で解決する
- *  純関数(OpenScreen 移植 D3。§docs/plans/2026-07-24-openscreen-d3-zoom-look-and-feel-design.md)。
+/** render.zoom.{easeInSec,easeOutSec,chainGapSec,leadSec,chainPanSec} を
+ *  既定値で解決する純関数(OpenScreen 移植 D3。
+ *  §docs/plans/2026-07-24-openscreen-d3-zoom-look-and-feel-design.md)。
  *  ease の優先順位は各方向とも「easeInSec/easeOutSec 個別指定」→「easeSec(両方
  *  未指定時の後方互換値。対称のまま値だけ引き継ぐ)」→「新既定(1.5秒/1.0秒の
  *  非対称)」。buildRenderProps はここで解決した値へさらに zooms[].easeSec/
- *  easeOutSec(zoom 1件ごとの個別指定)を上書きする。chainGapSec/leadSec は
- *  zoom 1件ごとの上書きは非目標(overlays.json のスキーマは変えない) */
+ *  easeOutSec(zoom 1件ごとの個別指定)を上書きする。chainGapSec/leadSec/
+ *  chainPanSec は zoom 1件ごとの上書きは非目標(overlays.json のスキーマは
+ *  変えない) */
 export function resolveZoomCfg(zoomCfg: ZoomRenderCfg | undefined): {
   easeInSec: number;
   easeOutSec: number;
   chainGapSec: number;
   leadSec: number;
+  chainPanSec: number;
 } {
   const z = zoomCfg ?? {};
   return {
@@ -51,6 +56,7 @@ export function resolveZoomCfg(zoomCfg: ZoomRenderCfg | undefined): {
     easeOutSec: z.easeOutSec ?? z.easeSec ?? DEFAULT_ZOOM_EASE_OUT_SEC,
     chainGapSec: z.chainGapSec ?? DEFAULT_ZOOM_CHAIN_GAP_SEC,
     leadSec: z.leadSec ?? DEFAULT_ZOOM_LEAD_SEC,
+    chainPanSec: z.chainPanSec ?? DEFAULT_ZOOM_CHAIN_PAN_SEC,
   };
 }
 
@@ -68,6 +74,10 @@ export interface ZoomSpan {
    * (孤立ズームのみ。連鎖側には効かない)。省略時 DEFAULT_ZOOM_LEAD_SEC(0.5)。
    * OpenScreen 移植 D3(#1・D1c) */
   leadSec?: number;
+  /** gap のある連鎖(chainGapSec 以内だが完全隣接ではない)のパン遷移秒数。
+   * 完全隣接(gap=0)には効かず easeSec を使う。省略時
+   * DEFAULT_ZOOM_CHAIN_PAN_SEC(1.0)。OpenScreen 移植 D3(#2・D2b) */
+  chainPanSec?: number;
 }
 
 export interface ZoomTransform {
@@ -139,14 +149,37 @@ function matchStart(z: ZoomSpan, zooms: ZoomSpan[]): number {
 }
 
 /**
- * ズーム区間 z の実効区間(pre-roll 込み。OpenScreen 移植 D3・D1c)。
- * FAST/SLOW 判定・チャンクキャッシュキーなど「この時間はズームの影響を
- * 受ける」を判定したい経路は、zoomProgressAt/zoomTransformAt の区間探索と
- * 食い違わないようここを通す。連鎖側(前と隙間なく接する区間)は z.start
- * のまま(pre-roll しない)
+ * z が(区間探索込みで)実時間 t を担当する終了秒(OpenScreen 移植 D3・D2b)。
+ * 次と gap のある連鎖(chainGapSec 以内だが完全隣接ではない)なら、gap 区間
+ * (z.end 〜 次の start)は「z(前)の延長」として扱い、次の区間開始まで z が
+ * 担当する(前 rect のフルズームを保持する。z は次と連鎖=contiguousNext ありの
+ * 間ずっと outRaw=1 で保持し続けるので、この延長区間でも自然にフルズームの
+ * まま)。次が無い/完全隣接(gap=0)なら z.end のまま(拡張の必要が無い) */
+function matchEnd(z: ZoomSpan, zooms: ZoomSpan[]): number {
+  const next = contiguousNext(z, zooms);
+  return next ? Math.max(z.end, next.start) : z.end;
+}
+
+/**
+ * z が「gap のある連鎖」の後続側か(contiguousPrev があり、かつその gap が
+ * ZOOM_CONTIG_EPS を超える=完全隣接ではない)。true なら D2b のパン
+ * (chainPanSec)を使う側、false なら従来どおり easeSec を使う側
+ */
+function gapChainedFrom(z: ZoomSpan, zooms: ZoomSpan[]): ZoomSpan | undefined {
+  const prev = contiguousPrev(z, zooms);
+  if (!prev) return undefined;
+  return z.start - prev.end > ZOOM_CONTIG_EPS ? prev : undefined;
+}
+
+/**
+ * ズーム区間 z の実効区間(pre-roll・gap 保持込み。OpenScreen 移植 D3・
+ * D1c・D2b)。FAST/SLOW 判定・チャンクキャッシュキーなど「この時間は
+ * ズームの影響を受ける」を判定したい経路は、zoomProgressAt/zoomTransformAt
+ * の区間探索と食い違わないようここを通す。孤立側の頭は leadAdjustedStart で
+ * 前倒しし、gap のある連鎖の尾は次区間の頭まで延長する(前 rect 保持)
  */
 export function effectiveZoomRange(z: ZoomSpan, zooms: ZoomSpan[]): { start: number; end: number } {
-  return { start: matchStart(z, zooms), end: z.end };
+  return { start: matchStart(z, zooms), end: matchEnd(z, zooms) };
 }
 
 /** cubic-bezier(x1,y1,x2,y2) の P0=(0,0)・P3=(1,1) 固定版を x=raw で解いて
@@ -252,7 +285,7 @@ function easeWindows(z: ZoomSpan): { easeIn: number; easeOut: number } {
  * zooms は重ならない前提(validate がエラーにする)なので、該当区間は高々1つ。
  */
 export function zoomProgressAt(t: number, zooms: ZoomSpan[]): number {
-  const z = zooms.find((z) => t >= matchStart(z, zooms) && t < z.end);
+  const z = zooms.find((z) => t >= matchStart(z, zooms) && t < matchEnd(z, zooms));
   if (!z) return 0;
   const { easeIn, easeOut } = easeWindows(z);
   const inRaw = contiguousPrev(z, zooms)
@@ -287,14 +320,30 @@ export function zoomTransformAt(
   width: number,
   height: number,
 ): ZoomTransform {
-  const z = zooms.find((z) => t >= matchStart(z, zooms) && t < z.end);
+  const z = zooms.find((z) => t >= matchStart(z, zooms) && t < matchEnd(z, zooms));
   if (!z) return IDENTITY;
   const prev = contiguousPrev(z, zooms);
   const { easeIn, easeOut } = easeWindows(z);
-  // 連鎖側は z.start から数える(パンの遷移時間は easeSec のまま)。孤立側は
-  // pre-roll ぶん前倒しした実効開始秒から数える(OpenScreen 移植 D3・D1c)
-  const inStart = prev ? z.start : leadAdjustedStart(z, zooms);
-  const inRaw = easeIn <= 0 ? 1 : Math.min(1, (t - inStart) / easeIn);
+  // 入りの基準秒・窓の長さは3通り(OpenScreen 移植 D3):
+  // - 孤立: pre-roll ぶん前倒しした実効開始秒から easeIn で(D1c)
+  // - gap のある連鎖(完全隣接ではない): z.start から chainPanSec で(D2b)
+  // - 完全隣接(gap=0): 従来どおり z.start から easeIn で
+  const gapPrev = gapChainedFrom(z, zooms);
+  let inStart: number;
+  let inWindow: number;
+  if (!prev) {
+    inStart = leadAdjustedStart(z, zooms);
+    inWindow = easeIn;
+  } else if (gapPrev) {
+    const half = (z.end - z.start) / 2;
+    const chainPanSec = z.chainPanSec ?? DEFAULT_ZOOM_CHAIN_PAN_SEC;
+    inStart = z.start;
+    inWindow = Math.min(chainPanSec, half);
+  } else {
+    inStart = z.start;
+    inWindow = easeIn;
+  }
+  const inRaw = inWindow <= 0 ? 1 : Math.min(1, (t - inStart) / inWindow);
   const outRaw = contiguousNext(z, zooms)
     ? 1
     : easeOut <= 0

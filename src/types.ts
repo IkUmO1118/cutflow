@@ -723,6 +723,12 @@ export const DEFAULT_ZOOM_CHAIN_GAP_SEC = 1.5;
  * (#1・D1c)§docs/plans/2026-07-24-openscreen-d3-zoom-look-and-feel-design.md */
 export const DEFAULT_ZOOM_LEAD_SEC = 0.5;
 
+/** render.zoom.chainPanSec 未指定時の既定(秒)。gap のある連鎖(chainGapSec
+ * 以内だが完全隣接ではない)のパン遷移秒数。完全隣接(gap=0)には効かず
+ * easeInSec を使う。OpenScreen 移植 D3(#2・D2b)
+ * §docs/plans/2026-07-24-openscreen-d3-zoom-look-and-feel-design.md */
+export const DEFAULT_ZOOM_CHAIN_PAN_SEC = 1.0;
+
 /** render.zoom.wipeScale 未指定時の既定。ズーム中のカメラワイプをこの倍率
  * まで右下アンカーで縮める(1 = 縮小なし)。renderProps と設定画面で共有 */
 export const DEFAULT_ZOOM_WIPE_SCALE = 0.8;

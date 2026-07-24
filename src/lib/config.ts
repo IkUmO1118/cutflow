@@ -676,6 +676,12 @@ export interface Config {
        * 接する区間)には効かない(既に前 rect からパンで入るため)。
        * OpenScreen 移植 D3(#1・D1c) */
       leadSec?: number;
+      /** gap のある連鎖(chainGapSec 以内だが完全隣接ではない)のパン遷移秒数。
+       * gap 区間(前の end 〜 次の start)は前 rect のフルズームを保持し、
+       * 次区間の頭からこの秒数でパンする。省略時 DEFAULT_ZOOM_CHAIN_PAN_SEC(1.0)。
+       * 完全隣接(gap=0。従来どおりの連鎖)には効かず easeInSec を使う。
+       * OpenScreen 移植 D3(#2・D2b) */
+      chainPanSec?: number;
     };
     /** ベースレイアウトのデザイン。plain は背景画像 + 画面パネル、
      * obs-canvas はさらにカメラ円を描く。ショートには継承しない。

@@ -248,9 +248,11 @@ test("gap が既定 chainGapSec(1.5秒)以内なら連鎖する(区間の端が�
   // A は末尾でイーズアウトせずフルズームを保つ(連鎖)
   assert.deepEqual(zoomTransformAt(19.99, gap, WIDTH, HEIGHT), fullA);
   assert.equal(zoomProgressAt(19.99, gap), 1);
-  // B の頭(イーズ前)は前 rect(fullA)からのパン開始点になる。gap 区間
-  // [20, 20.5) 自体の穴埋め(前 rect 保持)は D2b(P4)で対応、ここでは未対応
+  // B の頭(イーズ前)は前 rect(fullA)からのパン開始点になる
   assert.deepEqual(zoomTransformAt(20.5, gap, WIDTH, HEIGHT), fullA);
+  // gap 区間 [20, 20.5) 自体も前 rect(fullA)のまま保持される(D2b・P4)
+  assert.deepEqual(zoomTransformAt(20.2, gap, WIDTH, HEIGHT), fullA);
+  assert.equal(zoomProgressAt(20.2, gap), 1);
 });
 
 test("gap が chainGapSec を超えると連鎖しない(従来どおり間で等倍へ戻る)", () => {
@@ -274,6 +276,44 @@ test("chainGapSec: 0 を明示すると gap があれば連鎖しない(完全�
   assert.ok(nearEndA.scale > 1 && nearEndA.scale < 2); // イーズアウト中
   assert.deepEqual(zoomTransformAt(20.2, gap, WIDTH, HEIGHT), { scale: 1, translateX: 0, translateY: 0 });
   assert.equal(zoomProgressAt(20.2, gap), 0);
+});
+
+// ---- OpenScreen 移植 D3(#2・D2b): gap のある連鎖のパン窓を chainPanSec に ----
+
+test("D2b: gap のある連鎖は chainPanSec でパンする(easeSec より長くても短くてもそちらに従う)", () => {
+  const gap: ZoomSpan[] = [
+    { start: 10, end: 20, rect: CHAIN_A, easeSec: 0.4, leadSec: 0 },
+    { start: 20.5, end: 30, rect: CHAIN_B, easeSec: 0.4, leadSec: 0, chainPanSec: 2.0 },
+  ];
+  const fullB = zoomTransformAt(25, gap, WIDTH, HEIGHT);
+  // 旧 easeSec(0.4)の完了点(20.9)ではまだパンが完了していない
+  // (chainPanSec=2.0 の方が長いため)
+  assert.notDeepEqual(zoomTransformAt(20.9, gap, WIDTH, HEIGHT), fullB);
+  // chainPanSec(2.0秒)経過後(22.5)ならパン完了
+  assert.deepEqual(zoomTransformAt(22.5, gap, WIDTH, HEIGHT), fullB);
+});
+
+test("D2b: effectiveZoomRange は gap のある連鎖の尾を次区間の頭まで延長する", () => {
+  const zooms: ZoomSpan[] = [
+    { start: 10, end: 20, rect: CHAIN_A, easeSec: 0.4, leadSec: 0 },
+    { start: 20.5, end: 30, rect: CHAIN_B, easeSec: 0.4, leadSec: 0 },
+  ];
+  const rangeA = effectiveZoomRange(zooms[0], zooms);
+  assert.equal(rangeA.start, 10);
+  assert.equal(rangeA.end, 20.5); // gap 区間ぶん延長(次の start まで)
+  const rangeB = effectiveZoomRange(zooms[1], zooms);
+  assert.equal(rangeB.start, 20.5); // 連鎖側は pre-roll しない
+  assert.equal(rangeB.end, 30); // 次が無いので延長なし
+});
+
+test("D2b: 完全隣接(gap=0)は chainPanSec の影響を受けず easeSec のまま", () => {
+  const chained: ZoomSpan[] = [
+    { start: 10, end: 20, rect: CHAIN_A, easeSec: 0.4, leadSec: 0 },
+    { start: 20, end: 30, rect: CHAIN_B, easeSec: 0.4, leadSec: 0, chainPanSec: 5.0 },
+  ];
+  // gap=0 なので chainPanSec(5.0)は無視され、easeSec(0.4)でパン完了する
+  const fullB = zoomTransformAt(25, chained, WIDTH, HEIGHT);
+  assert.deepEqual(zoomTransformAt(20.4, chained, WIDTH, HEIGHT), fullB);
 });
 
 test("zoomContiguous: 0 <= gap <= chainGapSec を連鎖とみなす(境界含む)", () => {

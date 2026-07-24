@@ -237,6 +237,10 @@ export type RenderProps = {
      * 始める。省略時 DEFAULT_ZOOM_LEAD_SEC(0.5)。連鎖側には効かない。
      * OpenScreen 移植 D3(#1・D1c) */
     leadSec?: number;
+    /** gap のある連鎖(完全隣接ではない)のパン遷移秒数。省略時
+     * DEFAULT_ZOOM_CHAIN_PAN_SEC(1.0)。完全隣接には効かず easeSec を使う。
+     * OpenScreen 移植 D3(#2・D2b) */
+    chainPanSec?: number;
     /** ズーム中にカメラワイプを右下アンカーで縮める倍率(1 = 縮小なし)。
      * config.yaml の render.zoom.wipeScale から解決済み(既定 0.8) */
     wipeScale: number;

@@ -297,6 +297,25 @@ test("zoom 区間は SLOW(前後は FAST)", () => {
   ]);
 });
 
+test("D2b: gap のある連鎖は gap 区間もまとめて SLOW になる(前 rect 保持ぶんの穴を残さない)", () => {
+  const props = mkProps({
+    durationSec: 30,
+    zooms: [
+      { start: 10, end: 12, rect: { x: 0, y: 0, w: 960, h: 1080 }, easeSec: 0.3, wipeScale: 0.8, leadSec: 0 },
+      // gap=1s(既定 chainGapSec=1.5 以内なので連鎖)。effectiveZoomRange により
+      // A(前)の SLOW 区間が B の頭(13s)まで延長され、gap 自体に FAST の
+      // 隙間ができない
+      { start: 13, end: 15, rect: { x: 960, y: 0, w: 960, h: 1080 }, easeSec: 0.3, wipeScale: 0.8, leadSec: 0 },
+    ],
+  });
+  const plan = fastPlan(props);
+  assert.deepEqual(plan.spans, [
+    { kind: "fast", fromFrame: 0, toFrame: 300 },
+    { kind: "slow", fromFrame: 300, toFrame: 450 },
+    { kind: "fast", fromFrame: 450, toFrame: 900 },
+  ]);
+});
+
 test("anim テロップは SLOW、他の静的テロップは FAST のまま", () => {
   const props = mkProps({
     durationSec: 30,
