@@ -658,7 +658,7 @@ test("buildRenderProps: zooms はカット後タイムラインへ写像され�
   // config が easeSec のみ指定(easeInSec/easeOutSec 未指定)= 対称のまま
   // その値を引き継ぐ(easeInSec も easeOutSec も 0.6)
   assert.deepEqual(props.zooms, [
-    { start: 12, end: 18, rect, easeSec: 0.6, easeOutSec: 0.6, chainGapSec: 1.5, wipeScale: 0.8 },
+    { start: 12, end: 18, rect, easeSec: 0.6, easeOutSec: 0.6, chainGapSec: 1.5, leadSec: 0.5, wipeScale: 0.8 },
   ]);
 });
 
@@ -681,6 +681,7 @@ test("buildRenderProps: zooms 未指定・config も未指定なら easeSec/ease
   assert.equal(props.zooms?.[0]?.easeSec, 1.5);
   assert.equal(props.zooms?.[0]?.easeOutSec, 1.0);
   assert.equal(props.zooms?.[0]?.chainGapSec, 1.5);
+  assert.equal(props.zooms?.[0]?.leadSec, 0.5);
 });
 
 test("buildRenderProps: zoom chainGapSec は config の render.zoom.chainGapSec から解決される", () => {
@@ -702,6 +703,25 @@ test("buildRenderProps: zoom chainGapSec は config の render.zoom.chainGapSec 
   assert.equal(props.zooms?.[0]?.chainGapSec, 0.2);
 });
 
+test("buildRenderProps: zoom leadSec は config の render.zoom.leadSec から解決される", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 };
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 10 }],
+    transcript: { segments: [] },
+    overlays: { zooms: [{ start: 1, end: 5, rect }] },
+    renderCfg: { ...renderCfg, zoom: { leadSec: 0.1 } },
+    width: 1920,
+    height: 1080,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.equal(props.zooms?.[0]?.leadSec, 0.1);
+});
+
 test("buildRenderProps: zooms の easeSec 個別指定は config より優先", () => {
   const rect = { x: 0, y: 0, w: 960, h: 1080 };
   const props = buildRenderProps({
@@ -721,7 +741,7 @@ test("buildRenderProps: zooms の easeSec 個別指定は config より優先", 
   // 個別 easeSec(0.1)は ease-in だけ上書きする。ease-out は config 解決値
   // (easeSec:0.6 のみ指定=対称の 0.6)を引き継ぐ
   assert.deepEqual(props.zooms, [
-    { start: 1, end: 5, rect, easeSec: 0.1, easeOutSec: 0.6, chainGapSec: 1.5, wipeScale: 0.8 },
+    { start: 1, end: 5, rect, easeSec: 0.1, easeOutSec: 0.6, chainGapSec: 1.5, leadSec: 0.5, wipeScale: 0.8 },
   ]);
 });
 
@@ -742,7 +762,7 @@ test("buildRenderProps: zooms の easeOutSec 個別指定は props に残る", (
     warn: () => {},
   });
   assert.deepEqual(props.zooms, [
-    { start: 1, end: 5, rect, easeSec: 0.1, easeOutSec: 0.8, chainGapSec: 1.5, wipeScale: 0.8 },
+    { start: 1, end: 5, rect, easeSec: 0.1, easeOutSec: 0.8, chainGapSec: 1.5, leadSec: 0.5, wipeScale: 0.8 },
   ]);
 });
 

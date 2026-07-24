@@ -348,6 +348,7 @@ export function buildRenderProps(args: {
         easeSec: z.easeSec ?? zoomCfg.easeInSec,
         easeOutSec: z.easeOutSec ?? zoomCfg.easeOutSec,
         chainGapSec: zoomCfg.chainGapSec,
+        leadSec: zoomCfg.leadSec,
         wipeScale: renderCfg.zoom?.wipeScale ?? DEFAULT_ZOOM_WIPE_SCALE,
         ...(cursorTrack.length > 0 ? { cursorTrack } : {}),
       },

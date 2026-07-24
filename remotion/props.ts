@@ -233,6 +233,10 @@ export type RenderProps = {
      * DEFAULT_ZOOM_CHAIN_GAP_SEC(1.5。src/lib/zoom.ts の resolveZoomCfg)。
      * OpenScreen 移植 D3(#2・D2a) */
     chainGapSec?: number;
+    /** 先読み(pre-roll)。孤立ズームのイーズインを区間開始のこの秒だけ前から
+     * 始める。省略時 DEFAULT_ZOOM_LEAD_SEC(0.5)。連鎖側には効かない。
+     * OpenScreen 移植 D3(#1・D1c) */
+    leadSec?: number;
     /** ズーム中にカメラワイプを右下アンカーで縮める倍率(1 = 縮小なし)。
      * config.yaml の render.zoom.wipeScale から解決済み(既定 0.8) */
     wipeScale: number;

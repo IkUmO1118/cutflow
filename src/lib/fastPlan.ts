@@ -15,6 +15,7 @@ import { overlayFastReason, overlaySeqRange } from "./overlayFade.ts";
 import { countFastPngInputs } from "./fastSegment.ts";
 import { ffmpegColorFilterOf } from "./colorFilter.ts";
 import { baseLayoutOf } from "./fastBase.ts";
+import { effectiveZoomRange } from "./zoom.ts";
 import { DEFAULT_LAYER_ORDER, ovId } from "../types.ts";
 import type { BaseLayout } from "./fastBase.ts";
 import type { OverlayItem, RenderProps } from "../../remotion/props.ts";
@@ -330,7 +331,14 @@ export function fastPlan(props: RenderProps): FastPlan {
 
   // ---- SLOW 区間の収集(秒。不適格 overlay だけ含む) ----
   const slowSec: SecInterval[] = [];
-  for (const z of props.zooms ?? []) slowSec.push({ start: z.start, end: z.end });
+  // OpenScreen 移植 D3(#1・D1c): 先読み(pre-roll)ぶん広げた実効区間を使う
+  // (zoomTransformAt/zoomProgressAt の区間探索と食い違うと、pre-roll 部分が
+  // FAST(恒等)で描かれ境界で段差になる)
+  const zoomsAll = props.zooms ?? [];
+  for (const z of zoomsAll) {
+    const eff = effectiveZoomRange(z, zoomsAll);
+    slowSec.push({ start: eff.start, end: eff.end });
+  }
   for (const w of props.wipeFull) slowSec.push({ start: w.start, end: w.end });
   const order = props.layerOrder ?? DEFAULT_LAYER_ORDER;
   const eligibleOv: OverlayItem[] = [];

@@ -1,5 +1,5 @@
 import type { OverlayItem, RenderProps } from "../../remotion/props.ts";
-import { zoomContiguous } from "./zoom.ts";
+import { effectiveZoomRange, zoomContiguous } from "./zoom.ts";
 import { DEFAULT_ZOOM_CHAIN_GAP_SEC } from "../types.ts";
 
 /**
@@ -192,9 +192,14 @@ export function chunkVideoKey(
   );
   // ズームは連鎖(隣接=パン遷移。§lib/zoom.ts)すると隣のズームの rect にも
   // 絵が依存するため、チャンクに重なるズームだけでなく、その隣接ズームも
-  // キーへ含める(隣の rect 編集でパン中のチャンクが正しく無効化される)
+  // キーへ含める(隣の rect 編集でパン中のチャンクが正しく無効化される)。
+  // 重なり判定は先読み(pre-roll)ぶん広げた実効区間で行う(OpenScreen 移植
+  // D3・D1c。pre-roll 部分だけに重なるチャンクを取りこぼさないため)
   const zoomsAll = props.zooms ?? [];
-  const zoomsHere = zoomsAll.filter((z) => overlaps(z.start, z.end));
+  const zoomsHere = zoomsAll.filter((z) => {
+    const eff = effectiveZoomRange(z, zoomsAll);
+    return overlaps(eff.start, eff.end);
+  });
   const zoomsKeyed = zoomsAll.filter((z) => {
     const gap = z.chainGapSec ?? DEFAULT_ZOOM_CHAIN_GAP_SEC;
     return zoomsHere.some(

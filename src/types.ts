@@ -718,6 +718,11 @@ export const DEFAULT_ZOOM_EASE_OUT_SEC = 1.0;
  * §docs/plans/2026-07-24-openscreen-d3-zoom-look-and-feel-design.md */
 export const DEFAULT_ZOOM_CHAIN_GAP_SEC = 1.5;
 
+/** render.zoom.leadSec 未指定時の既定(秒)。孤立ズームのイーズインを区間
+ * 開始のこの秒だけ前から始める(先読み/pre-roll)。OpenScreen 移植 D3
+ * (#1・D1c)§docs/plans/2026-07-24-openscreen-d3-zoom-look-and-feel-design.md */
+export const DEFAULT_ZOOM_LEAD_SEC = 0.5;
+
 /** render.zoom.wipeScale 未指定時の既定。ズーム中のカメラワイプをこの倍率
  * まで右下アンカーで縮める(1 = 縮小なし)。renderProps と設定画面で共有 */
 export const DEFAULT_ZOOM_WIPE_SCALE = 0.8;

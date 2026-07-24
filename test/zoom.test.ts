@@ -3,7 +3,13 @@
 // 短い区間での遷移縮小を固定する(remotion/Main.tsx が使う)。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { zoomContiguous, zoomEase, zoomProgressAt, zoomTransformAt } from "../src/lib/zoom.ts";
+import {
+  effectiveZoomRange,
+  zoomContiguous,
+  zoomEase,
+  zoomProgressAt,
+  zoomTransformAt,
+} from "../src/lib/zoom.ts";
 import type { ZoomSpan } from "../src/lib/zoom.ts";
 
 const WIDTH = 1920;
@@ -64,7 +70,8 @@ test("zoomTransformAt: 区間中央(イーズ完了後)は rect がちょうど�
 
 test("zoomTransformAt: イーズ中間値は 0(恒等)と完了後の間", () => {
   const rect = { x: 480, y: 270, w: 960, h: 540 };
-  const zooms: ZoomSpan[] = [{ start: 10, end: 20, rect, easeSec: 0.4 }];
+  // leadSec: 0(pre-roll 無効)にして easeIn 自体の挙動だけを見る
+  const zooms: ZoomSpan[] = [{ start: 10, end: 20, rect, easeSec: 0.4, leadSec: 0 }];
   // 区間の頭から 0.2 秒(easeSec の半分。raw=0.5)
   const t = zoomTransformAt(10.2, zooms, WIDTH, HEIGHT);
   const full = zoomTransformAt(15, zooms, WIDTH, HEIGHT);
@@ -73,7 +80,7 @@ test("zoomTransformAt: イーズ中間値は 0(恒等)と完了後の間", () =>
 
 test("回帰固定(意図的な破壊。docs/decisions.md 参照): 孤立区間の中間値は旧 smoothstep(0.5)=0.5 とはもう一致しない", () => {
   const rect = { x: 480, y: 270, w: 960, h: 540 };
-  const zooms: ZoomSpan[] = [{ start: 10, end: 20, rect, easeSec: 0.4 }];
+  const zooms: ZoomSpan[] = [{ start: 10, end: 20, rect, easeSec: 0.4, leadSec: 0 }];
   const half = zoomTransformAt(10.2, zooms, WIDTH, HEIGHT); // raw=0.5
   const full = zoomTransformAt(15, zooms, WIDTH, HEIGHT);
   const oldSmoothstepScale = 1 + (full.scale - 1) * 0.5;
@@ -122,9 +129,9 @@ test("zoomProgressAt: 区間外は0", () => {
   assert.equal(zoomProgressAt(25, zooms), 0);
 });
 
-test("zoomProgressAt: 区間頭で0", () => {
+test("zoomProgressAt: leadSec: 0(pre-roll 無効)なら区間頭で0", () => {
   const zooms: ZoomSpan[] = [
-    { start: 10, end: 20, rect: { x: 480, y: 270, w: 960, h: 540 }, easeSec: 0.4 },
+    { start: 10, end: 20, rect: { x: 480, y: 270, w: 960, h: 540 }, easeSec: 0.4, leadSec: 0 },
   ];
   assert.equal(zoomProgressAt(10, zooms), 0);
 });
@@ -258,9 +265,10 @@ test("gap が chainGapSec を超えると連鎖しない(従来どおり間で�
 });
 
 test("chainGapSec: 0 を明示すると gap があれば連鎖しない(完全隣接のみ連鎖する旧仕様と等価)", () => {
+  // leadSec: 0(pre-roll 無効)で D1c との相互作用を排除し、chainGapSec だけを見る
   const gap: ZoomSpan[] = [
-    { start: 10, end: 20, rect: CHAIN_A, easeSec: 0.4, chainGapSec: 0 },
-    { start: 20.5, end: 30, rect: CHAIN_B, easeSec: 0.4, chainGapSec: 0 },
+    { start: 10, end: 20, rect: CHAIN_A, easeSec: 0.4, chainGapSec: 0, leadSec: 0 },
+    { start: 20.5, end: 30, rect: CHAIN_B, easeSec: 0.4, chainGapSec: 0, leadSec: 0 },
   ];
   const nearEndA = zoomTransformAt(19.8, gap, WIDTH, HEIGHT);
   assert.ok(nearEndA.scale > 1 && nearEndA.scale < 2); // イーズアウト中
@@ -286,6 +294,62 @@ test("zoomContiguous: chainGapSec: 0 は完全隣接(1µs 以内)だけを連鎖
   assert.equal(zoomContiguous(20, 20 + 1e-9, 0), true);
   assert.equal(zoomContiguous(20, 20.01, 0), false);
   assert.equal(zoomContiguous(20, 19.99, 0), false);
+});
+
+// ---- OpenScreen 移植 D3(#1・D1c): 先読み(pre-roll) ----
+// 既定 leadSec は DEFAULT_ZOOM_LEAD_SEC(0.5秒)。孤立ズームのみに効く
+// (連鎖側は既に前 rect からのパンで入るため pre-roll しない)
+
+test("pre-roll: 孤立ズームの effectiveZoomRange は leadSec ぶん前へ広がる", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 };
+  const zooms: ZoomSpan[] = [{ start: 10, end: 20, rect, easeSec: 1.5, leadSec: 0.5 }];
+  const range = effectiveZoomRange(zooms[0], zooms);
+  assert.equal(range.start, 9.5);
+  assert.equal(range.end, 20);
+});
+
+test("pre-roll: 連鎖側は effectiveZoomRange が z.start のまま(leadSec があっても)", () => {
+  const chained: ZoomSpan[] = [
+    { start: 10, end: 20, rect: CHAIN_A, easeSec: 0.4 },
+    { start: 20, end: 30, rect: CHAIN_B, easeSec: 0.4, leadSec: 0.5 },
+  ];
+  const rangeB = effectiveZoomRange(chained[1], chained);
+  assert.equal(rangeB.start, 20);
+});
+
+test("pre-roll: 区間頭で既に leadSec/easeIn まで寄っている(実効区間の頭は0、区間開始は正の進行度)", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 };
+  const zooms: ZoomSpan[] = [{ start: 10, end: 20, rect, easeSec: 1.5, easeOutSec: 1.0, leadSec: 0.5 }];
+  // 実効区間の頭(t = start - leadSec = 9.5)で p=0、直前は恒等
+  assert.equal(zoomProgressAt(9.5, zooms), 0);
+  assert.deepEqual(zoomTransformAt(9.49, zooms, WIDTH, HEIGHT), { scale: 1, translateX: 0, translateY: 0 });
+  // 区間開始(t=10)では既に raw = leadSec/easeIn = 0.5/1.5 まで進んだ状態
+  const atStart = zoomProgressAt(10, zooms);
+  const expected = zoomEase(0.5 / 1.5, "in");
+  assert.ok(Math.abs(atStart - expected) < 1e-9, `atStart=${atStart}`);
+  assert.ok(atStart > 0);
+});
+
+test("pre-roll: leadSec がタイムライン先頭(0)より前へ出る場合は詰める", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 };
+  // start=0.2 しかないので leadSec=0.5 は 0.2 分しか使えない(0 へ詰まる)
+  const zooms: ZoomSpan[] = [{ start: 0.2, end: 10, rect, easeSec: 1.5, leadSec: 0.5 }];
+  assert.equal(effectiveZoomRange(zooms[0], zooms).start, 0);
+  assert.equal(zoomProgressAt(0, zooms), 0); // タイムライン先頭(実効区間の頭)
+  assert.ok(zoomProgressAt(0.1, zooms) > 0); // 詰まった pre-roll 内で進行している
+});
+
+test("pre-roll: 直前ズームの末尾より前へは出ない(隣接ズームとの間で leadSec を詰める)", () => {
+  const rect = { x: 480, y: 270, w: 960, h: 540 };
+  const zooms: ZoomSpan[] = [
+    { start: 0, end: 5, rect, easeSec: 0.4, chainGapSec: 0, leadSec: 0 },
+    // gap=0.3。chainGapSec: 0 なので連鎖しない。leadSec=1.0 だが直前ズームの
+    // 末尾(5)より前へは出せないので実効 lead は 0.3 に詰まる
+    { start: 5.3, end: 10, rect, easeSec: 1.5, chainGapSec: 0, leadSec: 1.0 },
+  ];
+  assert.equal(effectiveZoomRange(zooms[1], zooms).start, 5);
+  assert.equal(zoomProgressAt(5, zooms), 0); // 詰まった実効区間の頭
+  assert.ok(zoomProgressAt(5.29, zooms) > 0); // 詰まった pre-roll 内で進行している
 });
 
 test("zoomTransformAt: リファクタ後も既存の期待値が1つも変わらない(回帰の要)", () => {

@@ -669,6 +669,13 @@ export interface Config {
        * 負の gap(重なり。validate がそもそもエラーにする)は連鎖にしない。
        * OpenScreen 移植 D3(#2・D2a) */
       chainGapSec?: number;
+      /** 先読み(pre-roll)。区間開始のこの秒だけ前からイーズインを開始し、
+       * 開始時点で既に `leadSec/easeIn` まで寄っている状態にする(「見せたい
+       * 瞬間には既に寄り終わっている」)。省略時 DEFAULT_ZOOM_LEAD_SEC(0.5)。
+       * 0 で無効(従来どおり区間開始から寄り始める)。連鎖側(前と隙間なく
+       * 接する区間)には効かない(既に前 rect からパンで入るため)。
+       * OpenScreen 移植 D3(#1・D1c) */
+      leadSec?: number;
     };
     /** ベースレイアウトのデザイン。plain は背景画像 + 画面パネル、
      * obs-canvas はさらにカメラ円を描く。ショートには継承しない。
