@@ -1,4 +1,19 @@
-@layer theme, utilities;
+/*
+ * `ocOverrides` は Button の variant(cva の `text-foreground!` 等)を確実に
+ * 上書きするためのレイヤー。
+ *
+ * 罠: Tailwind の `!` ユーティリティは @layer utilities の中にあり、
+ * !important 同士の勝敗はレイヤー順が**逆転**する(CSS Cascade 5)。
+ * つまり無レイヤー(このファイルの大半)の `!important` は utilities の
+ * `!important` に**負ける**。`.ocTransport button.icon.active { color: … !important }`
+ * のような状態スタイルが黙って効かなくなるのはこれが原因。
+ * utilities より前に宣言したこのレイヤーに置くと !important の優先度が最上位になる。
+ *
+ * 置いてよいのは **`!important` 付きの宣言だけ**。逆に通常宣言をここへ入れると
+ * 最弱(utilities の通常ユーティリティにも負ける)になるので、
+ * 寸法・余白・角丸などは無レイヤーのまま残すこと。
+ */
+@layer ocOverrides, theme, utilities;
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities);
 
@@ -2740,15 +2755,20 @@
   gap: 0.35rem;
   height: 1.75rem;
   padding: 0 0.55rem;
-  color: hsl(var(--oc-primary)) !important;
-  background: hsl(var(--oc-primary) / 0.12) !important;
-  border-color: hsl(var(--oc-primary) / 0.3) !important;
 }
 
-.ocHeader .aiCommandLauncher:hover:not(:disabled) {
-  color: hsl(var(--oc-primary)) !important;
-  background: hsl(var(--oc-primary) / 0.2) !important;
-  border-color: hsl(var(--oc-primary) / 0.45) !important;
+@layer ocOverrides {
+  .ocHeader .aiCommandLauncher {
+    color: hsl(var(--oc-primary)) !important;
+    background: hsl(var(--oc-primary) / 0.12) !important;
+    border-color: hsl(var(--oc-primary) / 0.3) !important;
+  }
+
+  .ocHeader .aiCommandLauncher:hover:not(:disabled) {
+    color: hsl(var(--oc-primary)) !important;
+    background: hsl(var(--oc-primary) / 0.2) !important;
+    border-color: hsl(var(--oc-primary) / 0.45) !important;
+  }
 }
 
 .ocHeader .layoutBtns {
@@ -2767,19 +2787,26 @@
   width: 1.65rem;
   height: 1.65rem;
   padding: 0;
-  color: hsl(var(--oc-muted-foreground)) !important;
-  border-color: transparent !important;
   border-radius: calc(var(--oc-radius) - 0.12rem);
 }
 
-.ocHeader .layoutBtns .hIcon:hover:not(:disabled),
-.ocHeader .settingsBtn:hover:not(:disabled),
-.ocHeader .themeBtn:hover:not(:disabled),
-.ocHeader .layoutBtns .hIcon[data-active="true"],
-.ocHeader .settingsBtn.active {
-  color: hsl(var(--oc-foreground)) !important;
-  background: hsl(var(--oc-accent)) !important;
-  border-color: transparent !important;
+@layer ocOverrides {
+  .ocHeader .layoutBtns .hIcon,
+  .ocHeader .settingsBtn,
+  .ocHeader .themeBtn {
+    color: hsl(var(--oc-muted-foreground)) !important;
+    border-color: transparent !important;
+  }
+
+  .ocHeader .layoutBtns .hIcon:hover:not(:disabled),
+  .ocHeader .settingsBtn:hover:not(:disabled),
+  .ocHeader .themeBtn:hover:not(:disabled),
+  .ocHeader .layoutBtns .hIcon[data-active="true"],
+  .ocHeader .settingsBtn.active {
+    color: hsl(var(--oc-foreground)) !important;
+    background: hsl(var(--oc-accent)) !important;
+    border-color: transparent !important;
+  }
 }
 
 .themePanel {
@@ -2921,20 +2948,25 @@
   width: 2rem;
   height: 2rem;
   padding: 0;
-  color: hsl(var(--oc-muted-foreground) / 0.72) !important;
-  border: 0 !important;
   border-radius: var(--radius-sm);
-  background: transparent !important;
 }
 
-.ocSidePanel .ocIconRail [role="tab"]:hover {
-  color: hsl(var(--oc-muted-foreground) / 0.95) !important;
-  background: hsl(var(--oc-muted)) !important;
-}
+@layer ocOverrides {
+  .ocSidePanel .ocIconRail [role="tab"] {
+    color: hsl(var(--oc-muted-foreground) / 0.72) !important;
+    border: 0 !important;
+    background: transparent !important;
+  }
 
-.ocSidePanel .ocIconRail [role="tab"].active {
-  color: hsl(var(--oc-primary)) !important;
-  background: hsl(var(--oc-primary) / 0.14) !important;
+  .ocSidePanel .ocIconRail [role="tab"]:hover {
+    color: hsl(var(--oc-muted-foreground) / 0.95) !important;
+    background: hsl(var(--oc-muted)) !important;
+  }
+
+  .ocSidePanel .ocIconRail [role="tab"].active {
+    color: hsl(var(--oc-primary)) !important;
+    background: hsl(var(--oc-primary) / 0.14) !important;
+  }
 }
 
 .ocSidePanel .ocIconRail [role="tab"]:focus-visible {
@@ -3611,36 +3643,38 @@
   width: 1.75rem;
   height: 1.75rem;
   padding: 0;
-  color: hsl(var(--oc-muted-foreground)) !important;
-  border-color: transparent !important;
-  background: transparent !important;
   border-radius: calc(var(--oc-radius) - 0.08rem);
-}
-
-.ocTransport button.icon:hover:not(:disabled),
-.ocTransport button.mute:hover:not(:disabled) {
-  color: hsl(var(--oc-foreground)) !important;
-  background: hsl(var(--oc-accent)) !important;
-}
-
-.ocTransport button.icon.active {
-  color: hsl(var(--oc-primary)) !important;
-  background: hsl(var(--oc-primary) / 0.12) !important;
 }
 
 .ocTransport .play {
   width: 2.75rem;
   height: 1.75rem;
   padding: 0;
-  color: hsl(var(--oc-muted-foreground)) !important;
-  background: transparent !important;
-  border-color: transparent !important;
   border-radius: 999px;
 }
 
-.ocTransport .play:hover:not(:disabled) {
-  color: hsl(var(--oc-foreground)) !important;
-  background: hsl(var(--oc-accent)) !important;
+@layer ocOverrides {
+  .ocTransport button.icon,
+  .ocTransport button.mute,
+  .ocTransport .play {
+    color: hsl(var(--oc-muted-foreground)) !important;
+    border-color: transparent !important;
+    background: transparent !important;
+  }
+
+  .ocTransport button.icon:hover:not(:disabled),
+  .ocTransport button.mute:hover:not(:disabled),
+  .ocTransport .play:hover:not(:disabled) {
+    color: hsl(var(--oc-foreground)) !important;
+    background: hsl(var(--oc-accent)) !important;
+  }
+
+  /* ループ・最大化・フルスクリーンの ON 表示。ここが utilities に負けると
+     ループボタンは(アイコンの形も変わらないので)押しても無反応に見える */
+  .ocTransport button.icon.active {
+    color: hsl(var(--oc-primary)) !important;
+    background: hsl(var(--oc-primary) / 0.12) !important;
+  }
 }
 
 .ocTransport .tcode {
@@ -4212,8 +4246,10 @@
   stroke-width: 1.75px;
 }
 /* inactive tabs are muted — override the ghost variant's forced text-foreground */
-.ocInspector .inspTabBtn.inspTabBtnIdle { color: hsl(var(--oc-muted-foreground)) !important; }
-.ocInspector .inspTabBtn.inspTabBtnIdle:hover { color: hsl(var(--oc-foreground)) !important; }
+@layer ocOverrides {
+  .ocInspector .inspTabBtn.inspTabBtnIdle { color: hsl(var(--oc-muted-foreground)) !important; }
+  .ocInspector .inspTabBtn.inspTabBtnIdle:hover { color: hsl(var(--oc-foreground)) !important; }
+}
 .ocInspector .inspTabBody { flex: 1; min-width: 0; min-height: 0; padding: 16px; }
 /* タブ本体いっぱいまで一覧を伸ばして自前スクロールさせたいケース(例: 発言
    タブ)向け。Radix の table-div(既に display:block へ上書き済み)へ

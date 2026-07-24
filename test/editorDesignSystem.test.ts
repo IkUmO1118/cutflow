@@ -95,3 +95,51 @@ test("Tailwind core and CLI are locked to the same exact version", () => {
   assert.equal(pkg.devDependencies.tailwindcss, undefined);
   assert.equal(pkg.devDependencies["@tailwindcss/cli"], undefined);
 });
+
+/** `@layer <name> { … }` のブロック本体を(入れ子の括弧を数えて)全部抜き出す */
+function layerBodies(css: string, name: string): string[] {
+  const bodies: string[] = [];
+  const head = new RegExp(`@layer\\s+${name}\\s*\\{`, "g");
+  for (let m = head.exec(css); m; m = head.exec(css)) {
+    let depth = 1;
+    let i = m.index + m[0].length;
+    const from = i;
+    for (; i < css.length && depth > 0; i++) {
+      if (css[i] === "{") depth++;
+      else if (css[i] === "}") depth--;
+    }
+    bodies.push(css.slice(from, i - 1));
+  }
+  return bodies;
+}
+
+test("Button variant を上書きする !important は ocOverrides レイヤーの中だけに置く", () => {
+  const css = read("editor/client/styles.css");
+  // レイヤー宣言順が要。!important 同士はレイヤー順が逆転する(CSS Cascade 5)ので、
+  // utilities より前に宣言したレイヤーだけが Tailwind の `!` ユーティリティに勝てる
+  const order = /^@layer\s+([^;]+);/m.exec(css)?.[1] ?? "";
+  const names = order.split(",").map((s) => s.trim());
+  assert.ok(names.indexOf("ocOverrides") >= 0, "ocOverrides レイヤーが宣言されていない");
+  assert.ok(
+    names.indexOf("ocOverrides") < names.indexOf("utilities"),
+    "ocOverrides は utilities より前に宣言する(!important の優先度が逆順のため)",
+  );
+
+  const bodies = layerBodies(css, "ocOverrides");
+  assert.ok(bodies.length > 0);
+  // 状態表示(ループ ON など)の色は必ずレイヤーの中。無レイヤーだと Tailwind の
+  // `text-foreground!` / `bg-transparent!` に負けて押しても見た目が変わらない
+  const inLayer = bodies.join("\n");
+  assert.match(inLayer, /\.ocTransport button\.icon\.active\s*\{/);
+  assert.match(inLayer, /\.ocHeader \.settingsBtn\.active/);
+  assert.match(inLayer, /\.ocSidePanel \.ocIconRail \[role="tab"\]\.active/);
+  assert.match(inLayer, /\.ocInspector \.inspTabBtn\.inspTabBtnIdle/);
+
+  // レイヤー外に色系の !important が残っていないこと(残っていれば黙って無効になる)
+  let outside = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const body of bodies) outside = outside.replace(body.replace(/\/\*[\s\S]*?\*\//g, ""), "");
+  const stray = outside
+    .split("\n")
+    .filter((line) => /!important/.test(line) && /(^|[\s;{])(color|background|background-color|border|border-color)\s*:/.test(line));
+  assert.deepEqual(stray, []);
+});
