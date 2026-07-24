@@ -38,12 +38,14 @@ import type { TimelineEntry } from "../../src/lib/timeline.ts";
 import { defaultShortProfileName, PROFILES } from "../../src/lib/profile.ts";
 import type { Profile } from "../../src/lib/profile.ts";
 import {
+  CAPTION_DEFAULT_OUTLINE,
   DEFAULT_LAYER_ORDER,
   capId,
   capNum,
   captionAnchorOf,
   captionPosOf,
   captionStyleOf,
+  resolveCaptionBackground,
   captionTrack,
   captionTrackName,
   defaultLayerOrder,
@@ -2250,9 +2252,15 @@ export const App = () => {
     // カメラがあるときだけワイプ回避の右側予約を引く(B1 の Remotion 側と同規約)。
     // plain(カメラ無し)は全幅中央
     const reserve = cameraRegion ? wipe.widthPx + wipe.marginPx * 2 : 0;
+    // 下部中央テロップ(位置未指定)は Remotion 側で bottom:marginPx 基準に
+    // 置かれる=座布団(background)の縦 padding のぶんテキスト芯の中心が
+    // 上へ持ち上がる。中心座標の近似はその padY を引いて実描画に合わせる
+    // (引かないと枠・インライン編集ボックスが padY ぶん下へずれる)
+    const bg = resolveCaptionBackground(caption.background, undefined);
+    const padY = bg ? Math.round((bg.paddingPx ?? Math.round(caption.fontSizePx * 0.35)) * 0.5) : 0;
     return {
       x: Math.round((width - reserve) / 2),
-      y: Math.round(height - wipe.marginPx - caption.fontSizePx * 0.7),
+      y: Math.round(height - wipe.marginPx - caption.fontSizePx * 0.7 - padY),
     };
   }, [built]);
 
@@ -2295,17 +2303,34 @@ export const App = () => {
         // から解決する(D2/5-4)
         const pos = captionPosOf(s, curCaptionOverlays);
         const style = captionStyleOf(s, curCaptionOverlays);
+        const fontSizePx = style?.fontSizePx ?? built.props.caption.fontSizePx;
+        // 当たり判定枠を「テキスト芯」ではなく「実際に見える字幕」に合わせる
+        // ため、縁取り(WebkitTextStroke)と座布団(background の padding)の
+        // 張り出し量を CaptionLayer と同じ解決で算出して渡す(枠の膨らみは
+        // CaptionOverlay 側で scale 済み px に変換される)
+        const outlineColor =
+          style?.outlineColor ?? built.props.caption.outlineColor ?? CAPTION_DEFAULT_OUTLINE;
+        const hasStroke = outlineColor !== "none" && outlineColor !== "transparent";
+        const strokePx = hasStroke
+          ? (style?.outlineWidthPx ?? Math.round(fontSizePx * 0.25))
+          : 0;
+        const bg = resolveCaptionBackground(style?.background, built.props.caption.background);
+        const bgPadX = bg ? (bg.paddingPx ?? Math.round(fontSizePx * 0.35)) : 0;
+        const bgPadY = bg ? Math.round(bgPadX * 0.5) : 0;
         return [
           {
             index: c.index,
             text: s.text.trim(),
             pos: pos ?? stdCaptionPos,
             anchor: pos ? captionAnchorOf(s, curCaptionOverlays) : ("center" as const),
-            fontSizePx: style?.fontSizePx ?? built.props.caption.fontSizePx,
+            fontSizePx,
             // config の既定(render.caption*)まで解決して渡す(当たり判定の
             // フォント計量を本編の見た目と一致させる)
             fontFamily: style?.fontFamily ?? built.props.caption.fontFamily,
             fontWeight: style?.fontWeight ?? built.props.caption.fontWeight,
+            // 縁取り/座布団の張り出し(コンポジションpx)。枠を可視字幕まで広げる
+            padXPx: Math.max(strokePx / 2, bgPadX),
+            padYPx: Math.max(strokePx / 2, bgPadY),
           },
         ];
       });
