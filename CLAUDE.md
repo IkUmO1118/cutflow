@@ -545,6 +545,7 @@ node src/cli.ts remeta <dir>      # 章立て・タイトル案・概要欄だ�
 node src/cli.ts plan-shorts <dir> # LLM でショート向きの見せ場を選び shorts.json の下書きを生成(全て approved:false。承認は人間。既存 shorts.json ありは --force 必須+backups/ へ退避)
 node src/cli.ts plan-materials <dir>  # 要 materials --all 事前実行。LLM で素材配置候補を選び overlays.json の overlays[] を下書き生成(番号選択のみ・cut/承認には触れない。既存 overlays.json ありは --force 必須+backups/ へ退避)
 node src/cli.ts plan-effects <dir>  # 要 frames --ocr / av のいずれか事前実行。LLM で演出(zoom/blur/annotation)の種別を選び overlays.json の zooms/blurs/annotations を下書き生成(番号+種別選択のみ・座標は知覚由来・cut/承認には触れない。既存 zooms/blurs/annotations ありは --force 必須+backups/ へ退避)
+node src/cli.ts autozoom <dir>    # 要 record --watch のカーソルサイドカーのみ。LLM 不使用でカーソル dwell 全件を zoom として決定論配置(overlays.json の zooms のみ置換・blurs/annotations は不変・cut/承認には触れない。既存 zooms ありは --force 必須+backups/ へ退避。config の plan.cursor.autoZoom=true(既定)なら run 末尾でも非破壊に自動実行)
 node src/cli.ts plan-bgm <dir>    # LLM で BGM の配置候補(区間×曲、または無音)を選び bgm.json の下書きを生成(区間境界は章/大カット境界からの決定論・曲は番号選択のみ・cut/承認には触れない。既存 bgm.json ありは --force 必須+backups/ へ退避)
 node src/cli.ts hyperframe-backends --json  # 収録dir不要・read-only。backendの4状態/tier/CDN pin/authoring経路/usable実render fixtureを純JSONで表示(Anime.js 3.2.2はmanual/byte、Three.js r160とraw WebGPU/WGSLはmanual/perceptualでusable。TypeGPUはout。既定は散文)
 node src/cli.ts hyperframe <dir> --name <name> --from-brief  # HyperFrames カード(無音の作図素材)を LLM で下書き(hyperframes/<name>.html。番号選択のパターンメニュー+check ゲート通過必須。既存ありは --force 必須)
@@ -565,7 +566,7 @@ node src/cli.ts clean <dir>       # 中間生成物/キャッシュを安全削�
 node src/cli.ts editor <dir>      # GUI エディタ(npm run editor と同じ。終了は Ctrl+C)
 node src/cli.ts editor <dir> --detach  # バックグラウンド起動でターミナルを返す(--status / --stop で確認・停止。待受情報とログは ~/.cutflow/editor/)
 node src/cli.ts mcp <dir>         # MCP サーバ(stdio。1収録フォルダに束縛。describe/validate/frames/materials/assert/apply/id-stamp だけを露出。承認/render/plan 等は露出しない)
-node src/cli.ts run <dir>         # 収録直後の初回一括(再実行は --force 必須+backups/ へ退避)
+node src/cli.ts run <dir>         # 収録直後の初回一括(再実行は --force 必須+backups/ へ退避。末尾で config の plan.cursor.autoZoom=true(既定)+cursorサイドカー有り+zooms空のときだけ autozoom を非破壊で自動実行)
 ```
 
 `mcp <dir>` は任意の MCP 対応エージェントにこの収録フォルダを機械的に

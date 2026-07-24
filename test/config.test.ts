@@ -32,6 +32,16 @@ import {
   DEFAULT_PLAN_LOOP_SECONDARY_MAX_CALLS,
   DEFAULT_PLAN_LOOP_SECONDARY_MAX_IMAGES,
   DEFAULT_PLAN_SHORTS_MAX_DURATION_SEC,
+  DEFAULT_PLAN_CURSOR_MIN_DWELL_MS,
+  DEFAULT_PLAN_CURSOR_MAX_DWELL_MS,
+  DEFAULT_PLAN_CURSOR_MOVE_THRESHOLD,
+  DEFAULT_PLAN_CURSOR_SPACING_MS,
+  DEFAULT_PLAN_CURSOR_DEFAULT_SCALE,
+  DEFAULT_PLAN_CURSOR_CLICK_BOOST,
+  DEFAULT_PLAN_CURSOR_MAX_WINDOW_MS,
+  DEFAULT_PLAN_CURSOR_SCROLL_MOTION_THRESHOLD,
+  DEFAULT_PLAN_CURSOR_AUTO_ZOOM,
+  resolvePlanCursorCfg,
   DEFAULT_STYLE_PROFILE_NAME,
   loadConfig,
   MAX_AI_IMAGES,
@@ -852,6 +862,229 @@ test("loadConfig: plan.styleProfile.profile は文字列以外を拒否する", 
   try {
     const path = writeMinimalConfigWithPlanStyleProfile(dir, "{ profile: 123 }");
     assert.throws(() => loadConfig(path), /plan\.styleProfile\.profile は文字列で指定してください/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* D2: plan.cursor(カーソル dwell 閾値。§2026-07-24-openscreen-d2-dwell-suggestion-design.md) */
+
+test("resolvePlanCursorCfg: plan.cursor 省略時は OpenScreen 既定値", () => {
+  assert.deepEqual(resolvePlanCursorCfg({} as never), {
+    minDwellMs: DEFAULT_PLAN_CURSOR_MIN_DWELL_MS,
+    maxDwellMs: DEFAULT_PLAN_CURSOR_MAX_DWELL_MS,
+    moveThreshold: DEFAULT_PLAN_CURSOR_MOVE_THRESHOLD,
+    spacingMs: DEFAULT_PLAN_CURSOR_SPACING_MS,
+    defaultScale: DEFAULT_PLAN_CURSOR_DEFAULT_SCALE,
+    clickBoost: DEFAULT_PLAN_CURSOR_CLICK_BOOST,
+    maxWindowMs: DEFAULT_PLAN_CURSOR_MAX_WINDOW_MS,
+    scrollMotionThreshold: DEFAULT_PLAN_CURSOR_SCROLL_MOTION_THRESHOLD,
+    autoZoom: DEFAULT_PLAN_CURSOR_AUTO_ZOOM,
+  });
+});
+
+/** loadConfig 経由で validateWorkflowConfig の plan.cursor 検査を固定する
+ * (plan.styleProfile と同じく、この検査自体は非 export のため loadConfig 越しに
+ * 確認する) */
+function writeMinimalConfigWithPlanCursor(dir: string, cursorYaml: string): string {
+  const path = join(dir, "config.yaml");
+  writeFileSync(
+    path,
+    `recordingsDir: ~/Movies/cutflow
+whisper:
+  bin: whisper-cli
+  model: ~/m.bin
+  language: ja
+detect: { silenceDb: -35, minSilenceSec: 0.7, padSec: 0.15, minKeepSec: 0.5 }
+preview: { width: 1280, videoEncoder: videotoolbox }
+render:
+  wipeWidthPx: 480
+  wipeMarginPx: 32
+  captionFontSizePx: 52
+  chapterCardSec: 3
+  targetLufs: -14
+editor: { maxUploadMb: 2048, defaultImageDurationSec: 4, defaultShortRangeSec: 10 }
+planShorts: { maxDurationSec: 60 }
+llm: { backend: claude-cli, model: x }
+plan:
+  cursor: ${cursorYaml}
+`,
+  );
+  return path;
+}
+
+test("loadConfig: plan.cursor の正常系は素通り", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = writeMinimalConfigWithPlanCursor(
+      dir,
+      "{ minDwellMs: 300, maxDwellMs: 2000, moveThreshold: 0.03, spacingMs: 1500, defaultScale: 3, clickBoost: 2 }",
+    );
+    const cfg = loadConfig(path);
+    assert.deepEqual(resolvePlanCursorCfg(cfg), {
+      minDwellMs: 300,
+      maxDwellMs: 2000,
+      moveThreshold: 0.03,
+      spacingMs: 1500,
+      defaultScale: 3,
+      clickBoost: 2,
+      maxWindowMs: DEFAULT_PLAN_CURSOR_MAX_WINDOW_MS,
+      scrollMotionThreshold: DEFAULT_PLAN_CURSOR_SCROLL_MOTION_THRESHOLD,
+      autoZoom: DEFAULT_PLAN_CURSOR_AUTO_ZOOM,
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig: plan.cursor の未知キーは拒否される", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = writeMinimalConfigWithPlanCursor(dir, "{ foo: 1 }");
+    assert.throws(() => loadConfig(path), /plan\.cursor\.foo は未対応です/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig: plan.cursor.minDwellMs は maxDwellMs 未満でなければ拒否される", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = writeMinimalConfigWithPlanCursor(dir, "{ minDwellMs: 3000, maxDwellMs: 2000 }");
+    assert.throws(() => loadConfig(path), /plan\.cursor\.minDwellMs は maxDwellMs 未満で指定してください/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig: plan.cursor.moveThreshold は正の数値以外を拒否する", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = writeMinimalConfigWithPlanCursor(dir, "{ moveThreshold: 0 }");
+    assert.throws(() => loadConfig(path), /plan\.cursor\.moveThreshold は正の数値で指定してください/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig: plan.cursor.clickBoost は正の数値以外を拒否する", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = writeMinimalConfigWithPlanCursor(dir, "{ clickBoost: -1 }");
+    assert.throws(() => loadConfig(path), /plan\.cursor\.clickBoost は正の数値で指定してください/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* 枝D: plan.cursor.scrollMotionThreshold(スクロール誤爆抑制の scene score 閾値。
+ * §2026-07-24-openscreen-zoom-D-scroll-suppression-design.md) */
+
+test("loadConfig: plan.cursor.scrollMotionThreshold の正常系は素通り", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = writeMinimalConfigWithPlanCursor(dir, "{ scrollMotionThreshold: 0.6 }");
+    const cfg = loadConfig(path);
+    assert.equal(resolvePlanCursorCfg(cfg).scrollMotionThreshold, 0.6);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig: plan.cursor.scrollMotionThreshold は正の数値以外を拒否する", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = writeMinimalConfigWithPlanCursor(dir, "{ scrollMotionThreshold: 0 }");
+    assert.throws(() => loadConfig(path), /plan\.cursor\.scrollMotionThreshold は正の数値で指定してください/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* plan.cursor.autoZoom(run 末尾の自動挿入の on/off。
+ * §2026-07-24-openscreen-autozoom-placement-design.md D6) */
+
+test("loadConfig: plan.cursor.autoZoom の正常系(false)は素通り", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = writeMinimalConfigWithPlanCursor(dir, "{ autoZoom: false }");
+    const cfg = loadConfig(path);
+    assert.equal(resolvePlanCursorCfg(cfg).autoZoom, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig: plan.cursor.autoZoom は真偽値以外を拒否する", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = writeMinimalConfigWithPlanCursor(dir, "{ autoZoom: 1 }");
+    assert.throws(() => loadConfig(path), /plan\.cursor\.autoZoom は真偽値で指定してください/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* render.zoom.webcamReactiveMinScale(baked ズーム中のワイプ縮小の下限。
+ * §docs/plans/2026-07-24-openscreen-d3-zoom-look-and-feel-design.md 系) */
+/* ------------------------------------------------------------------ */
+
+function writeMinimalConfigWithRenderZoom(dir: string, zoomYaml: string): string {
+  const path = join(dir, "config.yaml");
+  writeFileSync(
+    path,
+    `recordingsDir: ~/Movies/cutflow
+whisper:
+  bin: whisper-cli
+  model: ~/m.bin
+  language: ja
+detect: { silenceDb: -35, minSilenceSec: 0.7, padSec: 0.15, minKeepSec: 0.5 }
+preview: { width: 1280, videoEncoder: videotoolbox }
+render:
+  wipeWidthPx: 480
+  wipeMarginPx: 32
+  captionFontSizePx: 52
+  chapterCardSec: 3
+  targetLufs: -14
+  zoom: ${zoomYaml}
+editor: { maxUploadMb: 2048, defaultImageDurationSec: 4, defaultShortRangeSec: 10 }
+planShorts: { maxDurationSec: 60 }
+llm: { backend: claude-cli, model: x }
+`,
+  );
+  return path;
+}
+
+test("loadConfig: render.zoom.webcamReactiveMinScale の正常系は素通り", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = writeMinimalConfigWithRenderZoom(dir, "{ webcamReactiveMinScale: 0.55 }");
+    const cfg = loadConfig(path);
+    assert.equal(cfg.render.zoom?.webcamReactiveMinScale, 0.55);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig: render.zoom.webcamReactiveMinScale は 0 より大きく 1 以下でなければ拒否される", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = writeMinimalConfigWithRenderZoom(dir, "{ webcamReactiveMinScale: 0 }");
+    assert.throws(() => loadConfig(path), /render\.zoom\.webcamReactiveMinScale は 0 より大きく 1 以下の数値です/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig: render.zoom.webcamReactiveMinScale は 1 を超えると拒否される", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = writeMinimalConfigWithRenderZoom(dir, "{ webcamReactiveMinScale: 1.5 }");
+    assert.throws(() => loadConfig(path), /render\.zoom\.webcamReactiveMinScale は 0 より大きく 1 以下の数値です/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -329,6 +329,48 @@ export interface Config {
        *  style-profile --name と対応 */
       profile?: string;
     };
+    /** OpenScreen 移植 D2: カーソル dwell(停留)からズーム候補を作る
+     *  plan-effects の演出アンカー生成(cursorAnchors.ts)の閾値。省略時は
+     *  全て既定値(DEFAULT_PLAN_CURSOR_*。OpenScreen 自身のチューニング値)。
+     *  `<recording base>.cursor.json` サイドカー(record --watch。D1)が
+     *  無ければ一切参照されない(この機能導入前とバイト等価)。
+     *  §docs/plans/2026-07-24-openscreen-d2-dwell-suggestion-design.md */
+    cursor?: {
+      /** 停留とみなす最小継続時間(ms)。省略時 DEFAULT_PLAN_CURSOR_MIN_DWELL_MS(450) */
+      minDwellMs?: number;
+      /** 停留とみなす最大継続時間(ms。これを超えると意図的な作業とみなし除外)。
+       *  省略時 DEFAULT_PLAN_CURSOR_MAX_DWELL_MS(2600) */
+      maxDwellMs?: number;
+      /** 隣接サンプル間でこれを超える移動(正規化座標)があれば停留を打ち切る。
+       *  省略時 DEFAULT_PLAN_CURSOR_MOVE_THRESHOLD(0.02) */
+      moveThreshold?: number;
+      /** 採用済み候補の中心からこの間隔(ms)未満の候補は間引く。省略時
+       *  DEFAULT_PLAN_CURSOR_SPACING_MS(1800) */
+      spacingMs?: number;
+      /** focus点からズーム rect を作るときの倍率(w=screenRegion.w/scale)。
+       *  省略時 DEFAULT_PLAN_CURSOR_DEFAULT_SCALE(2.5) */
+      defaultScale?: number;
+      /** クリック起点(leftButtonPressed 直後)の dwell に与える strength 倍率。
+       *  省略時 DEFAULT_PLAN_CURSOR_CLICK_BOOST(1.5)。1 で無効化 */
+      clickBoost?: number;
+      /** dwell 窓長の上限(ms)。clamp(総尺の5%, 1000, これ)。省略時
+       *  DEFAULT_PLAN_CURSOR_MAX_WINDOW_MS(3500)。追従(枝A)前の長尺ドリフト対策 */
+      maxWindowMs?: number;
+      /** スクロール誤爆抑制(枝D)の scene score 閾値。`av.probe/motion.json`
+       *  があるときだけ効く(無ければ無視。この機能導入前とバイト等価)。
+       *  カーソル静止×画面モーション大(スクロール/再生中動画)の区間の
+       *  dwell サンプルを検出前段で除去する。省略時
+       *  DEFAULT_PLAN_CURSOR_SCROLL_MOTION_THRESHOLD(0.4)。av の scene score
+       *  スケールに合わせて収録で較正する。
+       *  §docs/plans/2026-07-24-openscreen-zoom-D-scroll-suppression-design.md */
+      scrollMotionThreshold?: number;
+      /** run(収録直後の初回一括)の末尾で、カーソル dwell 由来の zoom を
+       *  決定論で自動挿入するか。省略時 true。false でも `autozoom` /
+       *  `plan-effects` コマンド自体は閾値(このオブジェクトの他フィールド)を
+       *  使い続ける(run の自動挿入だけを止める別軸)。
+       *  §docs/plans/2026-07-24-openscreen-autozoom-placement-design.md D6 */
+      autoZoom?: boolean;
+    };
   };
   /** plan の候補格子を語タイムスタンプ(transcript.words)由来の語境界でも
    *  分割する(C1)+ 候補テキストを実際に残る語だけにする(C8)。省略可
@@ -620,15 +662,48 @@ export interface Config {
     fastPathMinCoverage?: number;
     /** ズーム演出(overlays.json の zooms)の既定設定。省略可 */
     zoom?: {
-      /** ズームイン/アウトの遷移秒数。省略時 DEFAULT_ZOOM_EASE_SEC(0.4)。
-       * zooms[].easeSec で個別指定があればそちらが優先 */
+      /** ズームイン/アウトの遷移秒数(両方未指定時の後方互換値)。
+       * easeInSec/easeOutSec のどちらも未指定のときだけ使われ、両方に同じ
+       * 値を適用する(対称のまま値だけ引き継ぐ)。zooms[].easeSec/easeOutSec
+       * で個別指定があればそちらが最優先 */
       easeSec?: number;
+      /** ズームインの遷移秒数。省略時は easeSec、それも無ければ
+       * DEFAULT_ZOOM_EASE_IN_SEC(1.5。OpenScreen 移植 D3)。
+       * zooms[].easeSec で個別指定があればそちらが優先 */
+      easeInSec?: number;
+      /** ズームアウトの遷移秒数。省略時は easeSec、それも無ければ
+       * DEFAULT_ZOOM_EASE_OUT_SEC(1.0。OpenScreen 移植 D3。入りより短い
+       * 非対称が既定)。zooms[].easeOutSec で個別指定があればそちらが優先 */
+      easeOutSec?: number;
       /** ズーム中にカメラワイプを右下アンカーで縮める倍率。省略時
        * DEFAULT_ZOOM_WIPE_SCALE(0.8)。1 で縮小なし(従来どおり)。
        * 縮小・復帰のトランジションは zoom 本体と同じ(easeSec/easeOutSec を
        * 共有。専用の時間設定は無い)。zoom 1件ごとの上書きは非目標
        * (overlays.json のスキーマは変えない) */
       wipeScale?: number;
+      /** 隣接ズームを連鎖(パン遷移)とみなす gap の上限(秒)。省略時
+       * DEFAULT_ZOOM_CHAIN_GAP_SEC(1.5)。0 <= gap <= この値で連鎖、
+       * 負の gap(重なり。validate がそもそもエラーにする)は連鎖にしない。
+       * OpenScreen 移植 D3(#2・D2a) */
+      chainGapSec?: number;
+      /** 先読み(pre-roll)。区間開始のこの秒だけ前からイーズインを開始し、
+       * 開始時点で既に `leadSec/easeIn` まで寄っている状態にする(「見せたい
+       * 瞬間には既に寄り終わっている」)。省略時 DEFAULT_ZOOM_LEAD_SEC(0.5)。
+       * 0 で無効(従来どおり区間開始から寄り始める)。連鎖側(前と隙間なく
+       * 接する区間)には効かない(既に前 rect からパンで入るため)。
+       * OpenScreen 移植 D3(#1・D1c) */
+      leadSec?: number;
+      /** gap のある連鎖(chainGapSec 以内だが完全隣接ではない)のパン遷移秒数。
+       * gap 区間(前の end 〜 次の start)は前 rect のフルズームを保持し、
+       * 次区間の頭からこの秒数でパンする。省略時 DEFAULT_ZOOM_CHAIN_PAN_SEC(1.0)。
+       * 完全隣接(gap=0。従来どおりの連鎖)には効かず easeInSec を使う。
+       * OpenScreen 移植 D3(#2・D2b) */
+      chainPanSec?: number;
+      /** baked(focusMode)ズーム中のワイプ縮小の下限(0..1)。省略時 0.35
+       * (OpenScreen WEBCAM_REACTIVE_ZOOM_MIN_SCALE 逐語。src/lib/zoom.ts の
+       * DEFAULT_WEBCAM_REACTIVE_MIN_SCALE)。1.0=縮小なし、値を上げるほど
+       * 縮小が穏やかになる。legacy(baked 無し)経路には効かない */
+      webcamReactiveMinScale?: number;
     };
     /** ベースレイアウトのデザイン。plain は背景画像 + 画面パネル、
      * obs-canvas はさらにカメラ円を描く。ショートには継承しない。
@@ -667,6 +742,25 @@ export interface Config {
       durationSec?: number;
     };
     stripWidthPx?: number;
+  };
+  /** `record --watch`(D1。カーソル座標の取得)。省略可(古い config.yaml との
+   * 互換。使わない限り読まれず既存挙動は不変)。撮影は OBS を維持したまま、
+   * obs-websocket 経由で録画ボタンに自動連動する常駐 watcher の接続設定。
+   * §docs/plans/2026-07-24-openscreen-d1-cursor-telemetry-design.md */
+  record?: {
+    obsWebsocket?: {
+      /** 省略時 "localhost" */
+      host?: string;
+      /** 省略時 4455(obs-websocket の既定ポート) */
+      port?: number;
+      /** OBS の「WebSocket サーバー設定」→「認証を有効にする」時のみ必須。
+       * config.yaml は git 管理下のため平文パスワードは書かない
+       * (ai.profiles.*.auth.apiKeyEnv と同じ流儀)。環境変数名を書き、
+       * 実際の値は .env / シェル環境から読む。認証無効の OBS では省略可 */
+      passwordEnv?: string;
+    };
+    /** カーソルヘルパのサンプリング間隔(ms)。省略時 DEFAULT_RECORD_SAMPLE_INTERVAL_MS(33) */
+    sampleIntervalMs?: number;
   };
   /** ログ/可観測性。workflow(AI 呼び出し・ステージ・外部ツール)を stderr に
    *  どれだけ出すか。省略時 normal(既定挙動=AI 行+ステージが出る)。
@@ -830,6 +924,50 @@ export function resolveEffectPlacementCfg(cfg: Config): {
   };
 }
 
+/** plan.cursor.* 未指定時の既定値(OpenScreen 自身のチューニング値)。
+ *  §docs/plans/2026-07-24-openscreen-d2-dwell-suggestion-design.md */
+export const DEFAULT_PLAN_CURSOR_MIN_DWELL_MS = 450;
+export const DEFAULT_PLAN_CURSOR_MAX_DWELL_MS = 2600;
+export const DEFAULT_PLAN_CURSOR_MOVE_THRESHOLD = 0.02;
+export const DEFAULT_PLAN_CURSOR_SPACING_MS = 1800;
+export const DEFAULT_PLAN_CURSOR_DEFAULT_SCALE = 2.5;
+export const DEFAULT_PLAN_CURSOR_CLICK_BOOST = 1.5;
+export const DEFAULT_PLAN_CURSOR_MAX_WINDOW_MS = 3500;
+/** スクロール誤爆抑制(枝D)の scene score 閾値の既定値。av の scene score
+ *  スケールに合わせたゆるめの既定(明白なスクロールだけ落とす)。
+ *  §docs/plans/2026-07-24-openscreen-zoom-D-scroll-suppression-design.md */
+export const DEFAULT_PLAN_CURSOR_SCROLL_MOTION_THRESHOLD = 0.4;
+/** run の末尾で autozoom を自動挿入するかの既定値。
+ *  §docs/plans/2026-07-24-openscreen-autozoom-placement-design.md D6 */
+export const DEFAULT_PLAN_CURSOR_AUTO_ZOOM = true;
+
+/** plan.cursor を既定値で解決する純関数。loadConfig は cfg.plan.cursor を
+ *  書き換えない */
+export function resolvePlanCursorCfg(cfg: Config): {
+  minDwellMs: number;
+  maxDwellMs: number;
+  moveThreshold: number;
+  spacingMs: number;
+  defaultScale: number;
+  clickBoost: number;
+  maxWindowMs: number;
+  scrollMotionThreshold: number;
+  autoZoom: boolean;
+} {
+  const c = cfg.plan?.cursor ?? {};
+  return {
+    minDwellMs: c.minDwellMs ?? DEFAULT_PLAN_CURSOR_MIN_DWELL_MS,
+    maxDwellMs: c.maxDwellMs ?? DEFAULT_PLAN_CURSOR_MAX_DWELL_MS,
+    moveThreshold: c.moveThreshold ?? DEFAULT_PLAN_CURSOR_MOVE_THRESHOLD,
+    spacingMs: c.spacingMs ?? DEFAULT_PLAN_CURSOR_SPACING_MS,
+    defaultScale: c.defaultScale ?? DEFAULT_PLAN_CURSOR_DEFAULT_SCALE,
+    clickBoost: c.clickBoost ?? DEFAULT_PLAN_CURSOR_CLICK_BOOST,
+    maxWindowMs: c.maxWindowMs ?? DEFAULT_PLAN_CURSOR_MAX_WINDOW_MS,
+    scrollMotionThreshold: c.scrollMotionThreshold ?? DEFAULT_PLAN_CURSOR_SCROLL_MOTION_THRESHOLD,
+    autoZoom: c.autoZoom ?? DEFAULT_PLAN_CURSOR_AUTO_ZOOM,
+  };
+}
+
 /** planBgm.* 未指定時の既定値。§docs/plans/2026-07-11-b1-b3-bgm-placement-candidates-design.md */
 export const DEFAULT_PLAN_BGM_BIG_CUT_SEC = 3.0;
 export const DEFAULT_PLAN_BGM_MIN_SLOT_SEC = 8.0;
@@ -856,6 +994,12 @@ export const DEFAULT_EFFECT_CHECK_MAX_PER_WINDOW = 3;
 export const DEFAULT_EFFECT_CHECK_MAX_ANNOTATION_SEC = 8.0;
 export const DEFAULT_EFFECT_CHECK_MIN_RECT_OVERLAP_RATIO = 0.3;
 export const DEFAULT_EFFECT_CHECK_USE_VLM = true;
+
+/** record.sampleIntervalMs(config.yaml)未指定時の既定(ms)。
+ * §docs/plans/2026-07-24-openscreen-d1-cursor-telemetry-design.md D1 */
+export const DEFAULT_RECORD_SAMPLE_INTERVAL_MS = 33;
+export const DEFAULT_OBS_WEBSOCKET_HOST = "localhost";
+export const DEFAULT_OBS_WEBSOCKET_PORT = 4455;
 
 /** effectCheck を既定値で解決する純関数。loadConfig は cfg.effectCheck を
  *  書き換えない */
@@ -1336,6 +1480,59 @@ function validateWorkflowConfig(cfg: Config): string[] {
     // plan を止めない設計。§docs/plans/2026-07-20-cut-knowledge-p3-p5-design.md §2)
     if ("pattern" in planReasonIds && typeof planReasonIds.pattern !== "string") {
       errors.push("plan.reasonIds.pattern は文字列で指定してください");
+    }
+  }
+  const planCursor = cfg.plan?.cursor as Record<string, unknown> | undefined;
+  if (planCursor) {
+    errors.push(
+      ...unknownKeys(planCursor, [
+        "minDwellMs", "maxDwellMs", "moveThreshold", "spacingMs", "defaultScale", "clickBoost", "maxWindowMs",
+        "scrollMotionThreshold", "autoZoom",
+      ]).map((key) => `plan.cursor.${key} は未対応です`),
+    );
+    if ("minDwellMs" in planCursor && (!Number.isFinite(planCursor.minDwellMs) || Number(planCursor.minDwellMs) <= 0)) {
+      errors.push("plan.cursor.minDwellMs は正の数値で指定してください");
+    }
+    if ("maxDwellMs" in planCursor && (!Number.isFinite(planCursor.maxDwellMs) || Number(planCursor.maxDwellMs) <= 0)) {
+      errors.push("plan.cursor.maxDwellMs は正の数値で指定してください");
+    }
+    if (
+      typeof planCursor.minDwellMs === "number" &&
+      typeof planCursor.maxDwellMs === "number" &&
+      planCursor.minDwellMs >= planCursor.maxDwellMs
+    ) {
+      errors.push("plan.cursor.minDwellMs は maxDwellMs 未満で指定してください");
+    }
+    if ("moveThreshold" in planCursor && (!Number.isFinite(planCursor.moveThreshold) || Number(planCursor.moveThreshold) <= 0)) {
+      errors.push("plan.cursor.moveThreshold は正の数値で指定してください");
+    }
+    if ("spacingMs" in planCursor && (!Number.isFinite(planCursor.spacingMs) || Number(planCursor.spacingMs) < 0)) {
+      errors.push("plan.cursor.spacingMs は 0 以上の数値で指定してください");
+    }
+    if ("defaultScale" in planCursor && (!Number.isFinite(planCursor.defaultScale) || Number(planCursor.defaultScale) <= 0)) {
+      errors.push("plan.cursor.defaultScale は正の数値で指定してください");
+    }
+    if ("clickBoost" in planCursor && (!Number.isFinite(planCursor.clickBoost) || Number(planCursor.clickBoost) <= 0)) {
+      errors.push("plan.cursor.clickBoost は正の数値で指定してください");
+    }
+    if ("maxWindowMs" in planCursor && (!Number.isFinite(planCursor.maxWindowMs) || Number(planCursor.maxWindowMs) <= 0)) {
+      errors.push("plan.cursor.maxWindowMs は正の数値で指定してください");
+    }
+    if (
+      "scrollMotionThreshold" in planCursor &&
+      (!Number.isFinite(planCursor.scrollMotionThreshold) || Number(planCursor.scrollMotionThreshold) <= 0)
+    ) {
+      errors.push("plan.cursor.scrollMotionThreshold は正の数値で指定してください");
+    }
+    if ("autoZoom" in planCursor && typeof planCursor.autoZoom !== "boolean") {
+      errors.push("plan.cursor.autoZoom は真偽値で指定してください");
+    }
+  }
+  const renderZoom = cfg.render?.zoom as Record<string, unknown> | undefined;
+  if (renderZoom && "webcamReactiveMinScale" in renderZoom) {
+    const value = renderZoom.webcamReactiveMinScale;
+    if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value > 1) {
+      errors.push("render.zoom.webcamReactiveMinScale は 0 より大きく 1 以下の数値です");
     }
   }
   const log = cfg.log as Record<string, unknown> | undefined;

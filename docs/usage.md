@@ -447,11 +447,131 @@ vision route 不在・still 抽出失敗・`--no-vlm` はいずれも優雅に�
 `cutplan.json` / `approvals.json` は読まない・書かない。
 
 
+## カーソル座標の取得(record --watch)
+
+`node src/cli.ts record --watch` は、OBS の録画ボタンに自動連動してカーソル座標を
+`<recording base>.cursor.json` サイドカーへ確定する常駐 watcher(macOS 専用)。
+撮影は OBS のまま維持し、CutFlow は Electron を持ち込まない。将来のズーム推薦
+(dwell 検出)の土台で、`<dir>` 引数は取らない(収録フォルダではなく OBS が
+録画を保存した場所に直接サイドカーを書く。ingest より前の工程)。
+
+    node src/cli.ts record --watch                 # 対象ディスプレイは自動一致
+    node src/cli.ts record --watch --display 3      # 自動一致に失敗する/別ディスプレイを撮りたいときの隠しオプション
+
+- 事前準備: OBS の「ツール」→「WebSocket サーバー設定」で WebSocket サーバーを
+  有効化(認証を使うなら config.yaml の `record.obsWebsocket.passwordEnv` に
+  環境変数名を書き、実際の値は `.env`(git 管理外)に置く。平文パスワードを
+  config.yaml へ書かない)。
+- 対象ディスプレイは3段の自動一致(設定は増やさない方針。沈黙禁止=どの段で
+  解決したか、または解決できなかったかを必ずログへ出す):
+  1. obs-websocket: 現在のシーンの画面キャプチャソース(`display_capture`/
+     `screen_capture`)の `display_uuid` と、実際のディスプレイの UUID
+     (`CGDisplayCreateUUIDFromDisplayID`)を突き合わせる
+  2. アクティブなディスプレイが1枚だけならそれを採用
+  3. それでも決まらなければ、録画中に蓄積したカーソル座標がどのディスプレイの
+     bounds に最も多く収まるかで事後的に推論する(短い録画では外れうる最後段)
+- 一時停止(OBS の PAUSED/RESUMED)はサイドカーの `pauses[]` に記録され、
+  サンプルの `recTimeMs` から一時停止ぶんが前詰めされる。
+- サイドカーは知覚専用の生テレメトリで、`fileRole` は `"other"`
+  (`clean` で消えない・AI は編集しない。§AGENTS_CONTRACT.md §4)。
+
+## カーソル dwell からのズーム候補(config.yaml の plan.cursor)
+
+`<recording base>.cursor.json` サイドカーがあるとき、`plan-effects` は
+カーソルの停留(dwell)からズーム候補を作る(OpenScreen 移植)。
+`config.yaml` の `plan.cursor` で閾値を上書きできる(全て省略可・既定値は
+OpenScreen 自身のチューニング値)。
+
+- `minDwellMs` … 停留とみなす最小継続時間(ms)。省略時 450
+- `maxDwellMs` … これを超えると意図的な作業とみなし除外(ms)。省略時 2600
+- `moveThreshold` … 隣接サンプル間でこれを超える移動(正規化座標)があれば
+  停留を打ち切る。省略時 0.02
+- `spacingMs` … 採用済み候補の中心からこの間隔(ms)未満の候補は間引く。
+  省略時 1800
+- `defaultScale` … focus点からズーム rect を作るときの倍率
+  (`w = screenRegion.w / defaultScale`)。省略時 2.5
+- `clickBoost` … クリック起点(leftButtonPressed 直後)の dwell に与える
+  strength 倍率(1 で無効化)。省略時 1.5
+- `maxWindowMs` … dwell 窓長(=ズーム区間長)の上限(ms)。窓は
+  `clamp(総尺の5%, 1000, maxWindowMs)` で決まる(OpenScreen は
+  `max(1000, 総尺の5%)` のみで上限なし)。省略時 3500。長尺収録では
+  総尺の5%が数秒〜十数秒になり、その間にカーソルが動いて固定 rect が
+  ズレる(CutFlow はまだ枝A=focus 追従が無い)ため、CutFlow 固有の cap
+  として付けている。追従が入ったら緩めて OpenScreen の値へ戻せる想定
+  (収録ごとに config で調整可)
+  (§docs/plans/2026-07-24-openscreen-zoom-B-window-cap-design.md)
+- `scrollMotionThreshold` … スクロール誤爆抑制(枝D)の scene score 閾値。
+  省略時 0.4。`av <dir>` を先に実行して `av.probe/motion.json` があるときだけ
+  効く(無ければこの機能導入前とバイト等価。無視されるだけで plan-effects は
+  止まらない)。「カーソル静止 × 画面モーション大」(ホイール/トラックパッド
+  スクロール・再生中の動画など)の区間に重なる dwell サンプルを、
+  `detectDwellCandidates`(OpenScreen 逐語)へ渡す前に除去する
+  (`filterScrollSamples`)。dwell アルゴリズム自体は無改変。av の scene score
+  スケールに合わせて収録ごとに較正する値なので、誤爆(スクロール中の誤ズーム)
+  が続くようなら下げる
+  (§docs/plans/2026-07-24-openscreen-zoom-D-scroll-suppression-design.md)
+
+`config.yaml` の `render.zoom.webcamReactiveMinScale` … baked(`focusMode`
+指定ズームの precompute 経路)中にワイプ(カメラ)を右下アンカーで縮める
+下限(0..1)。省略時 0.35(OpenScreen `WEBCAM_REACTIVE_ZOOM_MIN_SCALE` 逐語。
+既定のまま=描画はバイト等価)。1.0 で縮小なし、0.55 でより穏やかな縮小に
+なる。legacy(`focusMode` 無し)経路には効かない。
+
+## カーソル dwell の自動配置(autozoom)
+
+`plan-effects` は OCR/motion/cursor アンカーを LLM に番号選択させるが、
+`node src/cli.ts autozoom <dir>` は cursor アンカー**だけ**を対象に、
+LLM を使わず全 dwell 候補をそのまま zoom として採用する決定論コマンド
+(OpenScreen 本家の on-load 自動配置に相当。
+§docs/plans/2026-07-24-openscreen-autozoom-placement-design.md)。
+
+- 前提入力は `<recording base>.cursor.json` サイドカー(`record --watch`
+  収録)**のみ必須**(`frames --ocr` / `av <dir>` は不要。無くても動く)
+- `overlays.json` の **`zooms[]` だけ**を置換する。`blurs`/`annotations`/
+  `overlays`/`inserts`/`captionTracks` 等の他フィールドは触らない
+- 採用した dwell は `detectDwellCandidates`(上記 `plan.cursor` の閾値。
+  `autoZoom` を除く全フィールドを共有)がそのまま返す最終集合で、
+  各 zoom には `focusMode: "auto"`(カーソル追従)が自動で付く
+- 録画端に落ちる dwell は `start`/`end` を `[0, durationSec]` へクランプし、
+  クランプ後に 0.5 秒未満になった zoom は捨てる(OpenScreen 呼び側の
+  境界クランプに相当)
+- cut/承認(`cutplan.json` / `approvals.json`)は読み書きしない。
+  スキーマ変更も無い(`Zoom` に新フィールドは足さない)
+- 既存の `zooms` が非空なら `--force` が必須(実行前に `backups/` へ退避。
+  `plan-effects` と同じ作法)
+
+```sh
+node src/cli.ts autozoom <dir>
+node src/cli.ts autozoom <dir> --force   # 既存 zooms を上書き(backups/ へ退避)
+```
+
+**既定 ON の自動挿入**: `config.yaml` の `plan.cursor.autoZoom`(省略時 `true`)
+が有効なとき、`run`(ingest→transcribe→detect→plan→id-stamp)の末尾で
+同じ決定論を非破壊に自動実行する。呼ぶのは次を**すべて**満たすときだけで、
+1 つでも欠ければ静かにスキップする(1 行 log のみ・run は止まらない):
+
+1. `plan.cursor.autoZoom` が `true`
+2. cursor サイドカーが存在する(`record --watch` 収録)
+3. `overlays.json` の `zooms` が空/不在(手編集済みなら絶対に上書きしない)
+
+```yaml
+plan:
+  cursor:
+    autoZoom: false   # run の自動挿入だけを止める(閾値は plan-effects/autozoom に効き続ける)
+```
+
+`autoZoom: false` にしても `autozoom <dir>` / `plan-effects <dir>` コマンド
+自体は影響を受けない(`plan.cursor` の他フィールド=閾値は使い続ける。
+止まるのは `run` の自動挿入だけ)。`autozoom <dir>` コマンド単体はこの
+フラグを無視して常に実行する(明示操作を優先)。
+
 ## 環境プリフライト(doctor)
 
 `node src/cli.ts doctor` は収録に入る前の環境チェック(読み取り専用)。
 node(>=23.6)/ffmpeg/ffprobe/有効エンコーダの整合/whisper バイナリ・モデル/
-AI route 到達性を 1 コマンドで検査する。収録フォルダは不要で、config.yaml だけを使う。
+カーソルヘルパのビルド可否・obs-websocket 到達性・アクセシビリティ許可・
+対象ディスプレイの解決結果/AI route 到達性を 1 コマンドで検査する。
+収録フォルダは不要で、config.yaml だけを使う。
 
     node src/cli.ts doctor
     node src/cli.ts doctor --json     # DoctorReport を JSON で(パイプ可)
@@ -459,6 +579,10 @@ AI route 到達性を 1 コマンドで検査する。収録フォルダは不�
 
 - 必須(node/ffmpeg/ffprobe)が欠けていれば exit 1。収録/AI 系(whisper・model・
   encoder・AI route)は warn で exit 0(editor までは到達できる)。
+- `cursor-helper`/`accessibility` は非 macOS で skip。`obs-websocket`/
+  `capture-display` は config 未ロードで skip、OBS 未起動時は warn(record は
+  必須ではないため exit 0 のまま)。`capture-display` は `record --watch`
+  の D4 自動一致(上記)を録画なしで可視化する(現在のシーンから解決を試みる)。
 - 非 mac で preview.videoEncoder 未設定なら有効エンコーダは自動で libx264(A2)。
 - doctor は編集ファイル・approvals.json を一切書かない。
 - AI エージェントにセットアップ自体を委任するなら、`doctor --json` を背骨にした収束手順を

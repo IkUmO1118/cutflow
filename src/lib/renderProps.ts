@@ -8,6 +8,11 @@ import {
 } from "./timeline.ts";
 import type { RemappedPiece, TimelineEntry } from "./timeline.ts";
 import type { Config } from "./config.ts";
+import { effectiveZoomRange, resolveZoomCfg } from "./zoom.ts";
+import type { ZoomSpan } from "./zoom.ts";
+import { buildZoomRuntimeTrack } from "./zoomRuntimeTrack.ts";
+import { DEFAULT_ZOOM_DEPTH, ZOOM_DEPTH_SCALES } from "./vendor/openscreen/types.ts";
+import type { CursorTelemetryPoint, ZoomRegion } from "./vendor/openscreen/types.ts";
 import type { Profile } from "./profile.ts";
 import { remapKeyframesForPiece } from "./keyframes.ts";
 import {
@@ -20,7 +25,6 @@ import {
   DEFAULT_SPOTLIGHT_DIM,
   DEFAULT_SPOTLIGHT_FEATHER_PX,
   DEFAULT_WIPE_TRANSITION_SEC,
-  DEFAULT_ZOOM_EASE_SEC,
   DEFAULT_ZOOM_WIPE_SCALE,
   capId,
   capNum,
@@ -45,6 +49,8 @@ import type {
 import { manifestCompositionFps } from "../types.ts";
 import { resolveAnnotation } from "./annotation.ts";
 import { resolveDesign } from "./design.ts";
+import { cursorFocusToLocalPoint, resampleCursorTrack } from "./cursorAnchors.ts";
+import type { CursorDwellSample, CursorRectGeom } from "./cursorAnchors.ts";
 import type {
   Caption,
   OverlayItem,
@@ -54,6 +60,10 @@ import type {
 } from "../../remotion/props.ts";
 
 type NumericBaseline = Record<string, number>;
+
+/** D7: zooms[].cursorTrack の間引きレート(Hz)。設計の目安「10-15Hz」の中央値。
+ * config化はしない(追従ズーム本体が実装されるまでは内部定数で十分) */
+const CURSOR_TRACK_RATE_HZ = 12;
 
 function keyframesForPieces<TValues extends object>(
   keyframes: { at: number; easing?: import("../types.ts").KeyframeEasing; values: TValues }[] | undefined,
@@ -144,6 +154,11 @@ export function buildRenderProps(args: {
   /** 無音検出(cuts.auto.json)の無音区間(元収録の秒)。BGM ダッキングの
    * 発話区間を組み立てるのに使う。null/省略ならダッキングなし */
   silences?: Interval[] | null;
+  /** `<recording base>.cursor.json`(D1)の生テレメトリ。あれば各 zoom 区間に
+   * 10-15Hz 間引き済みのカーソル実測(D7・追従ズームの下地。現状の描画では
+   * 未参照)を載せる。null/省略なら zooms[].cursorTrack を一切付けない
+   * (この機能導入前とバイト等価)。§docs/plans/2026-07-24-openscreen-d2-dwell-suggestion-design.md */
+  cursorSamples?: CursorDwellSample[] | null;
   /** オーバーレイ・BGM 素材の存在チェック。無い素材は warn して除外する */
   overlayExists: (file: string) => boolean;
   warn: (msg: string) => void;
@@ -151,7 +166,7 @@ export function buildRenderProps(args: {
   const {
     manifest, keeps, transcript, overlays,
     renderCfg, width, height, profile, videoFile, videoIsSource, bgm, bgmFallbackFile, silences,
-    overlayExists, warn,
+    cursorSamples, overlayExists, warn,
   } = args;
   const layoutCaption = profile?.layout?.caption;
 
@@ -310,20 +325,135 @@ export function buildRenderProps(args: {
   // (rect が異なるエントリを1本にまとめると情報が失われるため)。
   // 挿入で割れた断片は wipeFull と同じ考え方で先頭〜末尾をひと続きに扱う
   // (挿入中はベース映像が無く見えないので安全)
+  // OpenScreen 移植 D3: config 既定は入り/出で非対称(既定 1.5秒/1.0秒)。
+  // zoom 1件ごとの easeSec/easeOutSec があればそちらが優先する。chainGapSec
+  // は連鎖(パン遷移)とみなす gap の上限(zoom.ts の zoomContiguous が使う)
+  const zoomCfg = resolveZoomCfg(renderCfg.zoom);
   const zoomSpans = (overlays.zooms ?? []).flatMap((z) => {
     const parts = remapInterval(z.start, z.end, timeline);
     if (parts.length === 0) return [];
+    // D7: この区間に重なるカーソル実測を間引いて載せる(追従ズームの下地。
+    // 現状の描画では未参照)。サイドカー未注入・空区間なら何も付けない
+    const cursorTrack = cursorSamples
+      ? resampleCursorTrack(cursorSamples, z.start * 1000, z.end * 1000, {
+          rateHz: CURSOR_TRACK_RATE_HZ,
+        })
+          .map((p) => {
+            const tSec = toOutputTime(p.tMs / 1000, timeline);
+            return tSec === null ? null : { tSec, cx: p.cx, cy: p.cy };
+          })
+          .filter((p): p is { tSec: number; cx: number; cy: number } => p !== null)
+      : [];
     return [
       {
         start: parts[0].start,
         end: parts[parts.length - 1].end,
         rect: z.rect,
-        easeSec: z.easeSec ?? renderCfg.zoom?.easeSec ?? DEFAULT_ZOOM_EASE_SEC,
-        ...(z.easeOutSec !== undefined ? { easeOutSec: z.easeOutSec } : {}),
+        easeSec: z.easeSec ?? zoomCfg.easeInSec,
+        easeOutSec: z.easeOutSec ?? zoomCfg.easeOutSec,
+        chainGapSec: zoomCfg.chainGapSec,
+        leadSec: zoomCfg.leadSec,
+        chainPanSec: zoomCfg.chainPanSec,
         wipeScale: renderCfg.zoom?.wipeScale ?? DEFAULT_ZOOM_WIPE_SCALE,
+        ...(cursorTrack.length > 0 ? { cursorTrack } : {}),
+        ...(z.focusMode ? { focusMode: z.focusMode } : {}),
+        ...(z.depth != null ? { depth: z.depth } : {}),
+        ...(z.customScale != null ? { customScale: z.customScale } : {}),
       },
     ];
   });
+
+  // 枝A・P3: overlays.zooms のいずれか1つでも focusMode を持てば「opt-in」
+  // (§docs/plans/2026-07-24-openscreen-zoom-A-cursor-follow-design.md D0)。
+  // opt-in のときだけ OpenScreen 逐語 precompute(buildZoomRuntimeTrack)を
+  // 全 zoom 区間ぶんまとめて1本のグローバル軌跡として焼く。opt-out(1件も
+  // focusMode が無い)のプロジェクトはここを一切通らず、props に
+  // zoomTransformTrack が乗らない(Main.tsx は現行 zoomTransformAt のまま=
+  // バイト等価)
+  const optedIntoZoomPrecompute = (overlays.zooms ?? []).some((z) => z.focusMode);
+  let zoomTransformTrack: RenderProps["zoomTransformTrack"] | undefined;
+  if (optedIntoZoomPrecompute && zoomSpans.length > 0) {
+    const fps = manifestCompositionFps(manifest);
+    // regions は OUTPUT 秒(zoomSpans はカット後タイムラインへ写像済み)を
+    // OUTPUT ms へ。focus はステージ全体(props.width/height)に対する
+    // 正規化座標(computeZoomTransform が baseMask ではなく stageSize で
+    // 直接写像するため。zoom.ts の fullTransformOf と同じ前提)
+    const regions: ZoomRegion[] = zoomSpans.map((span, i) => ({
+      id: `z${i}`,
+      startMs: span.start * 1000,
+      endMs: span.end * 1000,
+      depth: DEFAULT_ZOOM_DEPTH,
+      // 枝C: depth/customScale が明示されていればそちらを、なければ従来どおり
+      // rect 由来(width/rect.w)。region は常に customScale を持たせる
+      // (getZoomScale はそちらを優先するため、depth フィールドは事実上未使用の
+      // まま整合性のためだけに残る)
+      customScale: span.customScale ?? (span.depth != null ? ZOOM_DEPTH_SCALES[span.depth] : width / span.rect.w),
+      focus: {
+        cx: (span.rect.x + span.rect.w / 2) / width,
+        cy: (span.rect.y + span.rect.h / 2) / height,
+      },
+      focusMode: span.focusMode ?? "manual",
+    }));
+    // カーソル追従(focusMode:"auto")の region が1つも無ければテレメトリ不要
+    // (静的 focus のみで足りる=無駄な resample/写像をしない)
+    const hasAutoRegion = regions.some((r) => r.focusMode === "auto");
+    let cursorTelemetry: CursorTelemetryPoint[] | undefined;
+    if (hasAutoRegion && cursorSamples) {
+      const geom: CursorRectGeom = {
+        layout: manifest.layout ?? "obs-canvas",
+        screenRegion: manifest.video.screenRegion,
+        recordingWidth: manifest.video.width,
+        recordingHeight: manifest.video.height,
+        defaultScale: 1,
+      };
+      cursorTelemetry = cursorSamples
+        .filter((s) => s.inBounds && Number.isFinite(s.cx) && Number.isFinite(s.cy))
+        .map((s) => {
+          const outSec = toOutputTime(s.recTimeMs / 1000, timeline);
+          if (outSec === null) return null; // カット内=出力に存在しない時刻
+          const local = cursorFocusToLocalPoint({ cx: s.cx, cy: s.cy }, geom);
+          const cx = local.x / width;
+          const cy = local.y / height;
+          if (!Number.isFinite(cx) || !Number.isFinite(cy)) return null;
+          return { timeMs: outSec * 1000, cx, cy };
+        })
+        .filter((p): p is CursorTelemetryPoint => p !== null)
+        .sort((a, b) => a.timeMs - b.timeMs);
+    }
+    // 実効区間(pre-roll/lead-out込み。focusMode があるので effectiveZoomRange が
+    // OPENSCREEN_LEAD_IN_SEC/OUT_SEC ぶん広げた範囲を返す)の和集合を
+    // render fps のフレーム範囲へ。durationInFrames は builtTimeline の秒数から
+    // (buildRenderProps 末尾の durationSec と同じ計算をここで先取りする)
+    const durationInFrames = Math.round(builtTimeline.durationSec * fps);
+    if (durationInFrames > 0) {
+      const ranges = (zoomSpans as ZoomSpan[]).map((z) => effectiveZoomRange(z, zoomSpans as ZoomSpan[]));
+      const startFrame = Math.max(0, Math.floor(Math.min(...ranges.map((r) => r.start)) * fps));
+      const endFrame = Math.min(
+        durationInFrames - 1,
+        Math.ceil(Math.max(...ranges.map((r) => r.end)) * fps),
+      );
+      if (endFrame >= startFrame) {
+        const track = buildZoomRuntimeTrack({
+          regions,
+          cursorTelemetry,
+          fps,
+          stageSize: { width, height },
+          baseMask: {
+            x: manifest.video.screenRegion.x,
+            y: manifest.video.screenRegion.y,
+            width: manifest.video.screenRegion.w,
+            height: manifest.video.screenRegion.h,
+          },
+          startFrame,
+          endFrame,
+        });
+        zoomTransformTrack = {
+          startFrame,
+          frames: track.map((f) => ({ scale: f.scale, x: f.x, y: f.y })),
+        };
+      }
+    }
+  }
 
   // 領域ぼかしもカット後タイムラインへ写像する。rect は不変なので
   // マージ不要(zooms と同じく断片ごとに独立エントリのまま。判断5)。
@@ -436,6 +566,9 @@ export function buildRenderProps(args: {
       // ワイプ全画面の出入りの遷移(秒)。未設定の config では従来より
       // なめらかな既定 0.3 秒にする(0 を書けば瞬時に戻せる)
       transitionSec: renderCfg.wipeTransitionSec ?? DEFAULT_WIPE_TRANSITION_SEC,
+      // baked(focusMode)ズーム中のワイプ縮小の下限。render.zoom.webcamReactiveMinScale
+      // から解決済み(既定 0.35 = OpenScreen 逐語)
+      reactiveMinScale: zoomCfg.webcamReactiveMinScale,
     },
     ...(overlays.colorFilter ? { colorFilter: overlays.colorFilter } : {}),
     // ベースレイアウトのデザイン(背景 + 画面パネル + カメラ円)。縦プリセット
@@ -476,6 +609,7 @@ export function buildRenderProps(args: {
     overlays: overlayItems,
     wipeFull: wipeSpans,
     ...(zoomSpans.length > 0 ? { zooms: zoomSpans } : {}),
+    ...(zoomTransformTrack ? { zoomTransformTrack } : {}),
     ...(blurSpans.length > 0 ? { blurs: blurSpans } : {}),
     ...(annotationItems.length > 0 ? { annotations: annotationItems } : {}),
     ...(renderCfg.cutTransition?.type === "dip-to-black"

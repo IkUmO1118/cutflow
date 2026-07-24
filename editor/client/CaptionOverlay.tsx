@@ -23,6 +23,11 @@ export interface OverlayCaption {
   fontFamily?: string;
   /** 実効の太さ(style 解決済み) */
   fontWeight?: number;
+  /** 縁取り/座布団の左右の張り出し(コンポジションpx)。枠をテキスト芯では
+   * なく可視字幕まで広げるための padding。省略時 0 */
+  padXPx?: number;
+  /** 縁取り/座布団の上下の張り出し(コンポジションpx)。省略時 0 */
+  padYPx?: number;
 }
 
 /**
@@ -110,7 +115,6 @@ export const CaptionOverlay = ({
     e.preventDefault();
     e.stopPropagation();
     onSelect(c.index);
-    setDragging(true);
     const x0 = e.clientX;
     const y0 = e.clientY;
     // ドラッグは掴んだ時点の実効位置に Δ を足すだけ(anchor は変えないので
@@ -121,7 +125,17 @@ export const CaptionOverlay = ({
     // state ではなくこちらを読む=直近の setPosDraft がまだコミットされて
     // いなくても最新値を確実に読める)
     let current: { index: number; pos: CaptionPos } | null = null;
+    // ドラッグ開始の閾値(画面px)。これを越えて初めて「移動」とみなす。
+    // ダブルクリック中の微小な指の揺れで onMove が発火し、意図せず pos が
+    // transcript.json に書き込まれる(位置がずれる)のを防ぐ
+    const DRAG_THRESHOLD_PX = 3;
+    let started = false;
     const move = (ev: PointerEvent) => {
+      if (!started) {
+        if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < DRAG_THRESHOLD_PX) return;
+        started = true;
+        setDragging(true);
+      }
       current = {
         index: c.index,
         pos: {
@@ -204,6 +218,13 @@ export const CaptionOverlay = ({
                 ...common,
                 whiteSpace: "pre-line",
                 width: "max-content",
+                // 縁取り/座布団の張り出しぶん枠を広げ、可視字幕を囲う。
+                // padding は左右/上下対称なので中心(pos)基準の translate は不変
+                boxSizing: "content-box",
+                paddingLeft: (c.padXPx ?? 0) * scale,
+                paddingRight: (c.padXPx ?? 0) * scale,
+                paddingTop: (c.padYPx ?? 0) * scale,
+                paddingBottom: (c.padYPx ?? 0) * scale,
               }}
               title={
                 onCommitText

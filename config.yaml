@@ -197,14 +197,32 @@ render:
   fastPath: true
   # FAST 被覆率(FAST秒/出力総秒)の発動しきい値。省略時 0.5
   # fastPathMinCoverage: 0.5
-  # ズーム演出(overlays.json の zooms)の既定設定。zooms[].easeSec で
+  # ズーム演出(overlays.json の zooms)の既定設定。zooms[].easeSec/easeOutSec で
   # 個別指定があればそちらが優先する
   zoom:
-    # ズームイン/アウトの遷移秒数
-    easeSec: 0.4
+    # OpenScreen 移植 D3: 入り/出の遷移秒数を非対称にする(Screen Studio 級の
+    # 寄りの体感。入りが出より長い)。両方省略時の既定は easeInSec: 1.5 /
+    # easeOutSec: 1.0。旧 easeSec(両方未指定のときだけ使う対称の後方互換値)
+    easeInSec: 1.5
+    easeOutSec: 1.0
     # ズーム中にカメラワイプを右下アンカーで縮める倍率(1 = 縮小なし)。
-    # 縮小・復帰のトランジションは上の easeSec/easeOutSec と共有する
+    # 縮小・復帰のトランジションは上の easeInSec/easeOutSec と共有する
     wipeScale: 0.8
+    # OpenScreen 移植 D3(#2・D2a): 隣接ズームを連鎖(パン遷移)とみなす gap の
+    # 上限(秒)。既定 1.5。厳密な隣接(gap=0)のときだけ連鎖させたい場合は
+    # chainGapSec: 0 にする(旧仕様)
+    # chainGapSec: 1.5
+    # OpenScreen 移植 D3(#1・D1c): 先読み(pre-roll)。孤立ズームのイーズインを
+    # 区間開始のこの秒だけ前から始める(「見せたい瞬間には既に寄り終わっている」)。
+    # 既定 0.5。0 で無効(従来どおり区間開始から寄り始める)
+    # leadSec: 0.5
+    # OpenScreen 移植 D3(#2・D2b): gap のある連鎖(chainGapSec 以内だが完全隣接
+    # ではない)のパン遷移秒数。既定 1.0。完全隣接(gap=0)には効かず
+    # easeInSec を使う
+    # chainPanSec: 1.0
+    # baked(focusMode)ズーム中のワイプ縮小の下限。OpenScreen 逐語(1/scale・
+    # 下限0.35)。1.0=縮小なし・0.55=穏やか
+    webcamReactiveMinScale: 0.35
   # ベースレイアウトのデザイン(背景画像 + 画面パネル + カメラ角丸ワイプ)。
   # **OBS 拡張キャンバス収録(obs-canvas)だけ**に効く。plain 収録(OBS を
   # 通していない素の動画。スマホのショート動画等)は素材をそのまま見せる
@@ -260,6 +278,18 @@ ocr:
 # frames:
 #   serve:
 #     port: 4311
+
+# カーソル座標の取得(record --watch)。OBS の録画ボタンに自動連動する常駐
+# watcher。省略可(既定 localhost:4455・sampleIntervalMs 33)。macOS 専用
+record:
+  obsWebsocket:
+    host: localhost
+    port: 4455
+    # OBS の「WebSocket サーバー設定」→「認証を有効にする」時のみ必須。
+    # config.yaml は git 管理下のため平文パスワードは書かず、環境変数名を
+    # 書く(実際の値は .env の OBS_WEBSOCKET_PASSWORD から読む)
+    passwordEnv: OBS_WEBSOCKET_PASSWORD
+  sampleIntervalMs: 33
 
 # A/V フィードバック(av コマンド)。省略時はコード既定を使う
 # av:
@@ -349,6 +379,28 @@ plan:
   #   pauses: false      # keep 内の間の位置と長さを出す
   #   pauseMax: 3
   #   pauseMinSec: 0.6
+
+  # カーソル dwell(停留)からズーム候補を作る(plan-effects。OpenScreen移植D2)。
+  # <recording base>.cursor.json サイドカー(record --watch)が無ければ一切
+  # 参照されない。既定値は OpenScreen 自身のチューニング(30Hz・製品デモ向け)
+  # なので、収録本数が増えたら再調整を検討する
+  # 【調整メモ 2026-07-24】~/Movies/cutflow/test で実測: 既定 max2600ms は
+  # 「対象に置いて数秒〜十数秒しゃべる」チュートリアルの長い注視(このクリップは
+  # 9.4秒の静止すらあった)を丸ごと除外し、dwell候補が7件しか出ない。上限を
+  # 8000ms へ上げると10件に増える。長い注視こそズームしたい対象なので上限を緩和。
+  cursor:
+    minDwellMs: 450      # 停留とみなす最小継続時間
+    maxDwellMs: 8000     # これを超えると意図的な作業とみなし除外(既定2600→8000。上記メモ)
+    moveThreshold: 0.02  # 隣接サンプル間でこれを超える移動があれば停留を打ち切る
+    spacingMs: 1800      # 採用済み候補の中心からこの間隔未満は間引く
+    defaultScale: 2.5    # focus点からズーム rect を作るときの倍率
+    clickBoost: 1.5      # クリック起点の dwell に与える strength 倍率(1で無効化)
+    maxWindowMs: 3500    # dwell窓長の上限(ms)。clamp(総尺の5%,1000,これ)。追従(枝A)前の長尺ドリフト対策。A後は緩めてOpenScreenの5%へ戻せる
+    scrollMotionThreshold: 0.4  # スクロール誤爆抑制の scene score 閾値。av.probe/motion.json があるときだけ効く。明白なスクロールだけ落とすゆるめの既定。誤爆が続くなら下げる
+    autoZoom: true  # 省略時 true。run(収録直後の初回一括)末尾でカーソル dwell 由来の
+    #   zoom を自動配置する(cursorサイドカー有り・overlays.json の zooms 空のときだけ。
+    #   手編集済みは絶対に上書きしない)。false で run の自動挿入だけを止める(閾値は
+    #   plan-effects/autozoom コマンド自体には効き続ける別軸)
 
   # plan の候補格子を語タイムスタンプ(要 whisper.wordTimestamps)由来の語境界で
   # 細分化する(C1)+ 候補テキストを実際に残る語だけにする(C8)。

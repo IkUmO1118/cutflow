@@ -61,7 +61,8 @@
   ],
   "hideCaption": [{ "id": "hc_a1b2c3", "start": 40, "end": 42 }],
   "zooms": [
-    { "id": "zm_a1b2c3", "reasonId": "tiny-target", "start": 50, "end": 55, "rect": { "x": 0, "y": 0, "w": 960, "h": 540 }, "easeSec": 0.4 }
+    { "id": "zm_a1b2c3", "reasonId": "tiny-target", "start": 50, "end": 55, "rect": { "x": 0, "y": 0, "w": 960, "h": 540 }, "easeSec": 0.4, "focusMode": "auto", "depth": 4 },
+    { "id": "zm_d4e5f6", "reasonId": "focus-shift", "start": 56, "end": 60, "rect": { "x": 100, "y": 100, "w": 400, "h": 225 }, "customScale": 2.75 }
   ],
   "colorFilter": { "brightness": 1.1, "contrast": 1.05, "saturate": 0.95 },
   "blurs": [

@@ -57,6 +57,8 @@ import {
 } from "../lib/renderFrameMath.ts";
 import { loadShort, loadShorts } from "../lib/shorts.ts";
 import { mergeIntervals, playbackSegmentsOf } from "../lib/timeline.ts";
+import { readCursorSidecar } from "./planEffects.ts";
+import type { CursorDwellSample } from "../lib/cursorAnchors.ts";
 import { timed, timedSync, setTimingSink, clearTimingSink } from "../lib/timing.ts";
 import {
   RenderReportCollector,
@@ -280,6 +282,19 @@ async function runRenderMain(
     ? (JSON.parse(readFileSync(autoCutsPath, "utf8")) as AutoCuts).silences
     : null;
 
+  // D7: <recording base>.cursor.json(D1)があれば zoom 区間へ実測カーソル
+  // トラックを載せる下地(追従ズームは母艦後段。無ければ従来とバイト等価)
+  const cursorSidecar = readCursorSidecar(dir, manifest);
+  const cursorSamples: CursorDwellSample[] | null = cursorSidecar
+    ? cursorSidecar.samples.map((s) => ({
+        recTimeMs: s.recTimeMs,
+        cx: s.cx,
+        cy: s.cy,
+        inBounds: s.inBounds,
+        leftButtonPressed: s.leftButtonPressed,
+      }))
+    : null;
+
   const profile = resolveProfile(manifest.video.screenRegion, "default");
   let props = buildRenderProps({
     manifest,
@@ -293,6 +308,7 @@ async function runRenderMain(
     bgm,
     bgmFallbackFile: bgmFile,
     silences,
+    cursorSamples,
     overlayExists: (f) => existsSync(join(dir, f)),
     warn: (msg) => console.warn(`警告: ${msg}`),
   });

@@ -639,6 +639,21 @@ export function validateDocs(
       if (z.easeOutSec !== undefined && (!isNum(z.easeOutSec) || z.easeOutSec < 0)) {
         err(f, w, `easeOutSec(退出遷移秒数)は0以上の数です(現在: ${JSON.stringify(z.easeOutSec)})`);
       }
+      if (z.focusMode !== undefined && z.focusMode !== "manual" && z.focusMode !== "auto") {
+        err(f, w, `focusMode は "manual" か "auto" です(現在: ${JSON.stringify(z.focusMode)})`);
+      }
+      if (
+        z.depth !== undefined &&
+        (!isNum(z.depth) || !Number.isInteger(z.depth) || z.depth < 1 || z.depth > 6)
+      ) {
+        err(f, w, `depth は 1〜6 の整数です(現在: ${JSON.stringify(z.depth)})`);
+      }
+      if (
+        z.customScale !== undefined &&
+        (!isNum(z.customScale) || z.customScale < 1.0 || z.customScale > 5.0)
+      ) {
+        err(f, w, `customScale は 1.0〜5.0 の数値です(現在: ${JSON.stringify(z.customScale)})`);
+      }
     });
     // 重なり禁止(エラー)。ユーザーが時系列順に書くとは限らないので開始時刻でソートしてから隣接比較
     const sortedZooms = [...zoomSpans].sort((a, b) => a.start - b.start);

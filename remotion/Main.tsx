@@ -90,16 +90,54 @@ export const Main = (props: RenderProps) => {
   const wipeW = Math.round(props.wipe.widthPx + (props.width - props.wipe.widthPx) * wipeEase);
   const wipeHNow = Math.round(wipeH + (props.height - wipeH) * wipeEase);
 
-  // ズーム中のワイプ縮小(right:0/bottom:0 flush・design アンカーいずれも
-  // 右下を保ったまま w/h だけ縮む。§設計 D4)。zoomProgressAt は zoom と同じ
-  // 区間探索・イーズ・カーブを使うので、縮小のトランジションは zoom 本体と
-  // 完全に一致する。wipeFull で全画面になっている間(wipeEase=1)は
-  // 縮めない((1 - wipeEase) の項)。zoom が無ければ p=0 → s=1 = 恒等
   const zoomSpans = props.zooms ?? [];
-  const activeZoom = zoomSpans.find((z) => t >= z.start && t < z.end);
-  const zoomP = zoomProgressAt(t, zoomSpans);
-  const wipeShrinkK = activeZoom?.wipeScale ?? 1;
-  const wipeShrinkS = 1 - (1 - wipeShrinkK) * zoomP * (1 - wipeEase);
+
+  // ズーム演出(画面の一部を拡大)。「背景(デザインの背景画像)+画面パネル」
+  // をまとめた合成面全体に掛ける transform(ワイプ・素材・テロップ・
+  // blur/annotation は外=不動。props.layout があるショート/縦経路には zooms が
+  // 乗らないので自動的にここは恒等のまま=関与しない。D2 と同じ相乗り)。
+  // rect は出力px のまま、出力全面を対象に scale = 出力幅 / rect.w で拡大する
+  // (design 無しでは背景画像が無くパネル=出力全面なので、パネル内側に掛けて
+  // いた従来と同じ絵になる)
+  let zoomT = zoomTransformAt(t, zoomSpans, props.width, props.height);
+  // 枝A・P3: opt-in(overlays.zooms のいずれかに focusMode)のときだけ
+  // props.zoomTransformTrack が焼かれている。焼かれていればステートレスに
+  // フレーム番号で lookup するだけ(zoomProgressAt/zoomTransformAt は通らない。
+  // OpenScreen 逐語 precompute の spring 込み軌跡をそのまま使う)。
+  // 範囲外フレーム(pre-roll/lead-out より外)は恒等。opt-out(未指定)は
+  // 上の zoomTransformAt のまま=バイト等価。
+  if (props.zoomTransformTrack) {
+    const tt = props.zoomTransformTrack;
+    const i = frame - tt.startFrame;
+    const entry = i >= 0 && i < tt.frames.length ? tt.frames[i] : null;
+    zoomT = entry
+      ? { scale: entry.scale, translateX: entry.x, translateY: entry.y }
+      : { scale: 1, translateX: 0, translateY: 0 };
+  }
+
+  // ズーム中のワイプ縮小(right:0/bottom:0 flush・design アンカーいずれも
+  // 右下を保ったまま w/h だけ縮む。§設計 D4)。wipeFull で全画面になっている間
+  // (wipeEase=1)は縮めない((1 - wipeEase) の項)。zoom が無ければ恒等(s=1)。
+  // baked 経路(props.zoomTransformTrack。focusMode opt-in)では OpenScreen 逐語の
+  // reactiveWebcamScale(=max(floor, min(1, 1/scale)))を sprung composite scale
+  // (zoomT.scale)から直接駆動する。これでズーム本体(spring)と in/out の
+  // タイミング・質感が完全一致し、legacy エンベロープ(zoomProgressAt)由来の
+  // カクつき・早戻りが消える。legacy 経路(baked 無し)は従来式のまま=バイト等価。
+  // 下限(floor)は config.yaml の render.zoom.webcamReactiveMinScale から
+  // buildRenderProps が解決して props.wipe.reactiveMinScale へ渡す(省略時
+  // 0.35。§src/lib/zoom.ts DEFAULT_WEBCAM_REACTIVE_MIN_SCALE)。0.35 のとき
+  // reactiveWebcamScale と数値的に完全一致(=既定の描画はバイト等価)。
+  const reactiveMin = props.wipe.reactiveMinScale ?? 0.35;
+  const reactiveFactor = Math.max(
+    reactiveMin,
+    Math.min(1, Number.isFinite(zoomT.scale) && zoomT.scale > 0 ? 1 / zoomT.scale : 1),
+  );
+  const wipeShrinkS = props.zoomTransformTrack
+    ? 1 - (1 - reactiveFactor) * (1 - wipeEase)
+    : 1 -
+      (1 - (zoomSpans.find((z) => t >= z.start && t < z.end)?.wipeScale ?? 1)) *
+        zoomProgressAt(t, zoomSpans) *
+        (1 - wipeEase);
 
   // カット境界のディップ・トゥ・ブラック(config.yaml の render.cutTransition が
   // dip-to-black のときだけ props に載る)。境界点 tb の前後 sec/2 で
@@ -115,15 +153,6 @@ export const Main = (props: RenderProps) => {
   // panel = ベース映像が収まる矩形で、design 無しでは出力全面(§lib/design.ts)
   const design = props.layout ? undefined : props.design;
   const panel = panelRect(design, props.width, props.height);
-
-  // ズーム演出(画面の一部を拡大)。「背景(デザインの背景画像)+画面パネル」
-  // をまとめた合成面全体に掛ける transform(ワイプ・素材・テロップ・
-  // blur/annotation は外=不動。props.layout があるショート/縦経路には zooms が
-  // 乗らないので自動的にここは恒等のまま=関与しない。D2 と同じ相乗り)。
-  // rect は出力px のまま、出力全面を対象に scale = 出力幅 / rect.w で拡大する
-  // (design 無しでは背景画像が無くパネル=出力全面なので、パネル内側に掛けて
-  // いた従来と同じ絵になる)
-  const zoomT = zoomTransformAt(t, zoomSpans, props.width, props.height);
 
   const cutHalf = (props.cutTransition?.sec ?? 0) / 2;
   const cutOpacity =

@@ -1,5 +1,6 @@
 import type { OverlayItem, RenderProps } from "../../remotion/props.ts";
-import { zoomContiguous } from "./zoom.ts";
+import { effectiveZoomRange, zoomContiguous } from "./zoom.ts";
+import { DEFAULT_ZOOM_CHAIN_GAP_SEC } from "../types.ts";
 
 /**
  * render チャンク差分レンダー(docs/render-chunk-cache.md)のキャッシュキーを
@@ -169,6 +170,30 @@ function videoInsertProjection(i: NonNullable<RenderProps["inserts"]>[number]) {
 }
 
 /**
+ * 枝A・P3: zoomTransformTrack(グローバルな sprung transform 軌跡。opt-in=
+ * overlays.zooms のいずれかに focusMode があるときだけ載る)のうち、チャンク
+ * `[fromFrame, toFrame]` に重なるフレームだけを射影する。zooms と同じ時間
+ * 局所要素として扱う(重ならないチャンクはキーが動かない=無駄な無効化をしない)。
+ * §docs/plans/2026-07-24-openscreen-zoom-A-cursor-follow-design.md P3
+ */
+function zoomTransformTrackLocal(
+  track: NonNullable<RenderProps["zoomTransformTrack"]> | undefined,
+  fromFrame: number,
+  toFrame: number,
+): { startFrame: number; frames: { scale: number; x: number; y: number }[] } | null {
+  if (!track || track.frames.length === 0) return null;
+  const trackEnd = track.startFrame + track.frames.length - 1;
+  if (trackEnd < fromFrame || track.startFrame > toFrame) return null;
+  const sliceStart = Math.max(fromFrame, track.startFrame);
+  const sliceEnd = Math.min(toFrame, trackEnd);
+  if (sliceEnd < sliceStart) return null;
+  return {
+    startFrame: sliceStart,
+    frames: track.frames.slice(sliceStart - track.startFrame, sliceEnd - track.startFrame + 1),
+  };
+}
+
+/**
  * チャンク `[fromFrame, toFrame)` の絵を決めるキー。§3-1 の全域 props +
  * §3-2 のうちこのチャンクに重なる要素だけ(安定ソート済み)+ 境界そのもの
  * をまとめてハッシュ化する。テロップ1件を変えると、それが乗るチャンクの
@@ -191,14 +216,20 @@ export function chunkVideoKey(
   );
   // ズームは連鎖(隣接=パン遷移。§lib/zoom.ts)すると隣のズームの rect にも
   // 絵が依存するため、チャンクに重なるズームだけでなく、その隣接ズームも
-  // キーへ含める(隣の rect 編集でパン中のチャンクが正しく無効化される)
+  // キーへ含める(隣の rect 編集でパン中のチャンクが正しく無効化される)。
+  // 重なり判定は先読み(pre-roll)ぶん広げた実効区間で行う(OpenScreen 移植
+  // D3・D1c。pre-roll 部分だけに重なるチャンクを取りこぼさないため)
   const zoomsAll = props.zooms ?? [];
-  const zoomsHere = zoomsAll.filter((z) => overlaps(z.start, z.end));
-  const zoomsKeyed = zoomsAll.filter((z) =>
-    zoomsHere.some(
-      (o) => z === o || zoomContiguous(z.end, o.start) || zoomContiguous(o.end, z.start),
-    ),
-  );
+  const zoomsHere = zoomsAll.filter((z) => {
+    const eff = effectiveZoomRange(z, zoomsAll);
+    return overlaps(eff.start, eff.end);
+  });
+  const zoomsKeyed = zoomsAll.filter((z) => {
+    const gap = z.chainGapSec ?? DEFAULT_ZOOM_CHAIN_GAP_SEC;
+    return zoomsHere.some(
+      (o) => z === o || zoomContiguous(z.end, o.start, gap) || zoomContiguous(o.end, z.start, gap),
+    );
+  });
   const local = {
     captions: sortStable(props.captions.filter((c) => overlaps(c.start, c.end))),
     overlays: sortStable(
@@ -211,6 +242,7 @@ export function chunkVideoKey(
     ),
     wipeFull: sortStable((props.wipeFull ?? []).filter((s) => overlaps(s.start, s.end))),
     zooms: sortStable(zoomsKeyed),
+    zoomTransformTrack: zoomTransformTrackLocal(props.zoomTransformTrack, fromFrame, toFrame),
     // blurs も zooms と同型の時間局所要素。重なるチャンクだけキーが変わる
     // (globalVideoProps には入れない=全域無効化を避ける。§4 タスク6)
     blurs: sortStable((props.blurs ?? []).filter((b) => overlaps(b.start, b.end))),

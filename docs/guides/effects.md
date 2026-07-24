@@ -85,15 +85,36 @@
     `rect` と同じ座標系)。この矩形を全画面へ一様拡大する(歪ませない)。
     拡大率は書かせない: `scale = 出力幅 / rect.w` が rect から一意に決まる
     (倍率と rect の二重指定は矛盾の温床になるため)
-  - `easeSec`: 区間の頭でズームイン・末尾でズームアウトする遷移秒数。省略時
-    config.yaml の `render.zoom.easeSec`(既定 0.4)。区間が遷移2回分より
-    短いときは遷移を区間の半分へ縮める(`wipeFull` と同じ規則)
-  - **連鎖(パン遷移)**: 隣のズームと隙間なく接する(`end` === 次の `start`)
-    と、境界で等倍へ戻らず**前の rect から次の rect へ直接パン**する(次の
+  - `easeSec`: 区間の頭でズームインする遷移秒数。省略時 config.yaml の
+    `render.zoom.easeInSec`(既定 1.5秒)。`easeOutSec`(区間末尾のズームアウト)
+    は省略時 `render.zoom.easeOutSec`(既定 1.0秒)。**入りが出より長い非対称が
+    既定**(OpenScreen 移植 D3。Screen Studio 級の寄りの体感)。区間が遷移2回分
+    より短いときは遷移を区間の半分へ縮める(`wipeFull` と同じ規則)。config.yaml
+    に `render.zoom.easeSec` だけを書いた旧式収録は対称のままその値を引き継ぐ
+  - 遷移カーブは cubic-bezier(0.16, 1, 0.3, 1)(`src/lib/zoom.ts` の
+    `zoomEase`。制御点が早期に y=1 へ寄るため、対称な旧 smoothstep より
+    早く寄り切ってから緩やかに収束する)。zoom 1件ごとのカーブ変更は非目標
+  - **連鎖(パン遷移)**: 隣のズームの gap(前の `end` 〜 次の `start`)が
+    `render.zoom.chainGapSec`(既定 1.5秒。OpenScreen 移植 D3)以内だと、
+    境界で等倍へ戻らず**前の rect から次の rect へ直接パン**する(次の
     区間の `easeSec` がパンの遷移時間)。「A に寄る → B へ視線を移す → 引く」
-    は A と B を接した2区間で書く。隙間があれば従来どおり一度等倍へ戻る。
-    カットで区切られた2つのズームも、カット後のタイムラインで接していれば
-    連鎖する(間の映像が無いので境界でパンが始まる)
+    は A と B を chainGapSec 以内の間隔で書けばよく、厳密に秒を揃える必要は
+    無い。gap が chainGapSec を超えれば従来どおり一度等倍へ戻る。
+    `chainGapSec: 0` にすると厳密な隣接(gap=0)だけを連鎖とみなす旧仕様に戻る。
+    カットで区切られた2つのズームも、カット後のタイムラインで gap が
+    chainGapSec 以内なら連鎖する(間の映像が無いので境界でパンが始まる)。
+    gap が 0 より大きい連鎖では、**gap 区間自体(前の end 〜 次の start)も
+    前 rect のフルズームを保持**する(恒等に落ちない。OpenScreen 移植 D3・D2b)。
+    パンの遷移秒数は `render.zoom.chainPanSec`(既定 1.0秒)を使い(次区間の
+    `easeSec` ではない)、完全隣接(gap=0)には効かず従来どおり `easeSec` を使う
+  - **先読み(pre-roll)**: 孤立ズーム(連鎖側でない区間)は、区間開始の
+    `render.zoom.leadSec`(既定 0.5秒。OpenScreen 移植 D3)秒前からイーズインを
+    始める。区間の頭に到達した時点で既に `leadSec/easeIn` まで寄っている
+    (「見せたい瞬間には既に寄り終わっている」)。`leadSec: 0` で無効化でき、
+    従来どおり区間開始からイーズインが始まる。直前ズームの末尾やタイムライン
+    先頭(0秒)より前へは出ないよう自動で詰まる(手で秒を計算する必要はない)。
+    連鎖側(前と隙間なく/chainGapSec 以内で接する区間)には効かない(既に
+    前 rect からのパンで入るため)
   - かかるのは**背景(design の背景画像)+画面パネルの合成面全体**(ワイプ・
     テロップ・素材オーバーレイ・挿入クリップ・blur/annotation は不動)。
     design 無しでは背景が無くパネル=出力全面なので、実質ベース映像
@@ -183,15 +204,20 @@ LLM に**番号+種別選択**だけさせて `overlays.json` の下書きを作
 cut(`cutplan.json`)・承認(`approvals.json`)には一切触れない独立軸。
 
 - **前提**: 先に `node src/cli.ts frames <dir> --every 10 --ocr` と
-  `node src/cli.ts av <dir>` のどちらか(両方推奨)を実行しておく必要がある。
-  どちらも無ければ実行方法を告げて exit 1(例外にはしない)。演出アンカーが
+  `node src/cli.ts av <dir>` のどちらか(両方推奨)を実行しておく必要がある
+  (`<recording base>.cursor.json` サイドカーがあればそれだけでも進める)。
+  いずれも無ければ実行方法を告げて exit 1(例外にはしない)。演出アンカーが
   0件のときも同様に告知して終了する
-- **演出アンカー(演出を置ける候補)**: 3つの知覚から決定論的に組む。
+- **演出アンカー(演出を置ける候補)**: 4つの知覚から決定論的に組む。
   画面OCR(`frames/*.ocr.json` の各行。box が十分大きいものだけ)・
   動き(`av.probe/motion.json` の sceneScore 超のサンプル・長い静止区間)・
-  発話(十分な尺の keep span ごとの意味づけ用アンカー)。**座標(rect)は
-  OCR box または画面変化領域から取り、LLM は一切触らない**。rect の無い
-  アンカー(発話のみ由来)は zoom/blur/annotation の対象にできない
+  発話(十分な尺の keep span ごとの意味づけ用アンカー)・
+  カーソル(`record --watch` が書く `<recording base>.cursor.json` があれば、
+  カーソルの停留(dwell)を検出して rect アンカー化する。OpenScreen 移植。
+  停留の焦点が OCR box に重なるならその box を rect に採用する)。
+  **座標(rect)は OCR box・画面変化領域・カーソル位置から取り、LLM は
+  一切触らない**。rect の無いアンカー(発話のみ由来)は zoom/blur/annotation
+  の対象にできない
 - **番号+種別選択のみ**: LLM に渡すのはアンカー一覧
   (`#id [開始-終了] source [座標] テキスト`)だけ。LLM の応答は
   `{ "decisions": [{ "anchorId": N, "effect": "zoom"|"blur"|"annotation"|"none", "reason": "..." }] }`

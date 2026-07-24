@@ -177,8 +177,11 @@ export type RenderProps = {
    *  undefined(ワイプ非描画。ワイプ関連レイヤーが到達しない) */
   cameraRegion?: Region;
   /** 右下ワイプの寸法。transitionSec はワイプ全画面(wipeFull)の出入りの
-   * 遷移時間(秒。省略・0 で瞬時) */
-  wipe: { widthPx: number; marginPx: number; transitionSec?: number };
+   * 遷移時間(秒。省略・0 で瞬時)。reactiveMinScale は baked(focusMode)
+   * ズーム中のワイプ縮小の下限(0..1。config.yaml の
+   * render.zoom.webcamReactiveMinScale から解決済み。省略時 0.35=
+   * OpenScreen 逐語) */
+  wipe: { widthPx: number; marginPx: number; transitionSec?: number; reactiveMinScale?: number };
   /** true = ワイプ(カメラ)を cut.mp4 に焼き込み済み。Main.tsx はワイプレイヤーを
    * 描かない(ベース抽出1回の高速レンダー。docs/plans/perf-render-single-extraction.md)。
    * 最終レンダーの composite 経路でのみ立つ。エディタ Player / short では未指定 */
@@ -229,10 +232,53 @@ export type RenderProps = {
     rect: Region;
     easeSec: number;
     easeOutSec?: number;
+    /** 隣接ズームを連鎖(パン遷移)とみなす gap の上限(秒)。省略時
+     * DEFAULT_ZOOM_CHAIN_GAP_SEC(1.5。src/lib/zoom.ts の resolveZoomCfg)。
+     * OpenScreen 移植 D3(#2・D2a) */
+    chainGapSec?: number;
+    /** 先読み(pre-roll)。孤立ズームのイーズインを区間開始のこの秒だけ前から
+     * 始める。省略時 DEFAULT_ZOOM_LEAD_SEC(0.5)。連鎖側には効かない。
+     * OpenScreen 移植 D3(#1・D1c) */
+    leadSec?: number;
+    /** gap のある連鎖(完全隣接ではない)のパン遷移秒数。省略時
+     * DEFAULT_ZOOM_CHAIN_PAN_SEC(1.0)。完全隣接には効かず easeSec を使う。
+     * OpenScreen 移植 D3(#2・D2b) */
+    chainPanSec?: number;
     /** ズーム中にカメラワイプを右下アンカーで縮める倍率(1 = 縮小なし)。
      * config.yaml の render.zoom.wipeScale から解決済み(既定 0.8) */
     wipeScale: number;
+    /** OpenScreen 移植 D2/D7: この区間に重なるカーソル実測(10-15Hz 間引き済み・
+     * 正規化座標)。追従ズーム(母艦後段)の下地で、現状の描画では未参照
+     * (省略時/空配列は現行の描画と完全に同じ)。
+     * §docs/plans/2026-07-24-openscreen-d2-dwell-suggestion-design.md */
+    cursorTrack?: { tSec: number; cx: number; cy: number }[];
+    /** 省略=manual(固定 focus)。"auto"=カーソル追従。1つでも持つ zoom が
+     * あると render は OpenScreen 逐語 precompute 経路(props 直下の
+     * zoomTransformTrack)に切り替わり、Main.tsx はこの区間の
+     * zoomTransformAt/zoomProgressAt(ズーム本体の transform に限る。
+     * ワイプ縮小は対象外)を通らない。省略時は現行の描画と完全に同じ
+     * (枝A・P3・§docs/plans/2026-07-24-openscreen-zoom-A-cursor-follow-design.md D0) */
+    focusMode?: "manual" | "auto";
+    /** ズームの強さ(段階)。1..6 → ZOOM_DEPTH_SCALES(vendor/openscreen/types.ts)。
+     * 省略時は rect 由来(scale=width/rect.w)。customScale が優先(枝C) */
+    depth?: 1 | 2 | 3 | 4 | 5 | 6;
+    /** 強さの直接指定(1.0–5.0)。depth より優先(枝C) */
+    customScale?: number;
   }[];
+  /** グローバルな sprung transform 軌跡(OpenScreen 逐語 precompute。
+   * `overlays.zooms[]` のいずれか1つでも focusMode を持つ("opted in")ときだけ
+   * buildRenderProps が焼く。zooms[] は1件ずつだが、この軌跡は全 zoom
+   * 区間をまたぐ「1本のグローバルトラック」(連鎖の spring 連続性を保つため。
+   * src/lib/zoomRuntimeTrack.ts の buildZoomRuntimeTrack が render fps 全フレーム
+   * ぶんの sprung {scale,x,y} を書き出す)。startFrame は frames[0] の絶対
+   * 出力フレーム番号。Main.tsx はフレーム番号で frames[frame-startFrame] を
+   * lookup するだけ(ステートレス。zoomProgressAt/zoomTransformAt は一切
+   * 通らない)。省略時(opt-out)は現行の zoomTransformAt 経路のまま=
+   * バイト等価(枝A・P3) */
+  zoomTransformTrack?: {
+    startFrame: number;
+    frames: { scale: number; x: number; y: number }[];
+  };
   /** 領域ぼかし(overlays.json の blurs。カット後の秒へ写像・
    * strength 解決済み)。ベース映像(画面クロップ)の rect 部分だけを
    * 隠す。zoom 追従なしの出力px固定。省略時(空)は現行の描画と完全に同じ。

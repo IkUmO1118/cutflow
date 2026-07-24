@@ -286,13 +286,33 @@ test("colorFilter 全キー 1.0(無補正)は wholeFallback に影響しない",
 test("zoom 区間は SLOW(前後は FAST)", () => {
   const props = mkProps({
     durationSec: 30,
-    zooms: [{ start: 10, end: 20, rect: { x: 0, y: 0, w: 960, h: 1080 }, easeSec: 0.3, wipeScale: 0.8 }],
+    // leadSec: 0(pre-roll 無効)で SLOW 境界が z.start/z.end のままであることを見る
+    zooms: [{ start: 10, end: 20, rect: { x: 0, y: 0, w: 960, h: 1080 }, easeSec: 0.3, wipeScale: 0.8, leadSec: 0 }],
   });
   const plan = fastPlan(props);
   assert.deepEqual(plan.spans, [
     { kind: "fast", fromFrame: 0, toFrame: 300 },
     { kind: "slow", fromFrame: 300, toFrame: 600 },
     { kind: "fast", fromFrame: 600, toFrame: 900 },
+  ]);
+});
+
+test("D2b: gap のある連鎖は gap 区間もまとめて SLOW になる(前 rect 保持ぶんの穴を残さない)", () => {
+  const props = mkProps({
+    durationSec: 30,
+    zooms: [
+      { start: 10, end: 12, rect: { x: 0, y: 0, w: 960, h: 1080 }, easeSec: 0.3, wipeScale: 0.8, leadSec: 0 },
+      // gap=1s(既定 chainGapSec=1.5 以内なので連鎖)。effectiveZoomRange により
+      // A(前)の SLOW 区間が B の頭(13s)まで延長され、gap 自体に FAST の
+      // 隙間ができない
+      { start: 13, end: 15, rect: { x: 960, y: 0, w: 960, h: 1080 }, easeSec: 0.3, wipeScale: 0.8, leadSec: 0 },
+    ],
+  });
+  const plan = fastPlan(props);
+  assert.deepEqual(plan.spans, [
+    { kind: "fast", fromFrame: 0, toFrame: 300 },
+    { kind: "slow", fromFrame: 300, toFrame: 450 },
+    { kind: "fast", fromFrame: 450, toFrame: 900 },
   ]);
 });
 
@@ -553,9 +573,10 @@ test("min-FAST 吸収: 3秒未満の FAST 隙間は SLOW へ吸収してマー�
 test("min-FAST 吸収: 3秒以上の FAST 隙間は吸収されず2本のまま", () => {
   const props = mkProps({
     durationSec: 10,
+    // leadSec: 0(pre-roll 無効)で境界の丁度3秒隙間を厳密に見る
     zooms: [
-      { start: 0, end: 2, rect: { x: 0, y: 0, w: 100, h: 100 }, easeSec: 0, wipeScale: 0.8 },
-      { start: 5, end: 7, rect: { x: 0, y: 0, w: 100, h: 100 }, easeSec: 0, wipeScale: 0.8 },
+      { start: 0, end: 2, rect: { x: 0, y: 0, w: 100, h: 100 }, easeSec: 0, wipeScale: 0.8, leadSec: 0 },
+      { start: 5, end: 7, rect: { x: 0, y: 0, w: 100, h: 100 }, easeSec: 0, wipeScale: 0.8, leadSec: 0 },
     ],
   });
   const plan = fastPlan(props);
@@ -679,7 +700,8 @@ test("P-7: opacity 0.5 の静止画 overlay(定数 alpha)→ 全編 FAST", () =>
 test("P-8: またぎ降格: zoom と部分的に重なる静止画 overlay は overlay 区間ごと SLOW へ降格", () => {
   const props = mkProps({
     durationSec: 30,
-    zooms: [{ start: 10, end: 12, rect: { x: 0, y: 0, w: 100, h: 100 }, easeSec: 0, wipeScale: 0.8 }],
+    // leadSec: 0(pre-roll 無効)で zoom/overlay の frame 合成をそのまま見る
+    zooms: [{ start: 10, end: 12, rect: { x: 0, y: 0, w: 100, h: 100 }, easeSec: 0, wipeScale: 0.8, leadSec: 0 }],
     overlays: [mkOverlay({ start: 11, end: 15 })],
   });
   const plan = fastPlan(props);

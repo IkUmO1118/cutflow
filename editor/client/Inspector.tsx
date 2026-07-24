@@ -1715,6 +1715,47 @@ export const Inspector = ({
                     }
                   />
                 </Section>
+                <Section title="倍率" className="inspSecGap">
+                  <div className="capField wide">
+                    <label>倍率</label>
+                    <NativeSelect
+                      value={
+                        z.customScale != null
+                          ? "custom"
+                          : z.depth != null
+                            ? String(z.depth)
+                            : "auto"
+                      }
+                      title="ズームの拡大率。自動=上の枠の大きさから決まる(枠を狭めるほど寄る)。固定倍率を選ぶと枠は「中心=見せる位置」だけを決め、拡大率はこの値で固定される(OpenScreen の depth)。"
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (v === "auto") {
+                          updateZoom(
+                            selection.index,
+                            { depth: undefined, customScale: undefined },
+                            `zoom:${selection.index}:depth`,
+                          );
+                        } else if (v !== "custom") {
+                          updateZoom(
+                            selection.index,
+                            { depth: Number(v) as 1 | 2 | 3 | 4 | 5 | 6, customScale: undefined },
+                            `zoom:${selection.index}:depth`,
+                          );
+                        }
+                      }}
+                    >
+                      <option value="auto">自動(範囲から)</option>
+                      {ZOOM_DEPTH_OPTIONS.map(({ depth, scale }) => (
+                        <option key={depth} value={depth}>
+                          {`${scale}×`}
+                        </option>
+                      ))}
+                      {z.customScale != null && (
+                        <option value="custom">{`カスタム (${z.customScale}×)`}</option>
+                      )}
+                    </NativeSelect>
+                  </div>
+                </Section>
               </div>
             ),
           },
@@ -2796,6 +2837,18 @@ const RectControl = ({
  * 無い(rect は必須)。拡大率プリセット(中央 N 倍)+ 位置プリセット(4分割)+
  * 数値微調整。プレビュー上の枠ドラッグ・リサイズは MaterialOverlay を流用する
  * (App.tsx の LiveMaterialOverlay 経由) */
+// ズームの固定倍率プリセット(depth 1..6)。OpenScreen ZOOM_DEPTH_SCALES 逐語
+// (src/lib/vendor/openscreen/types.ts / src/types.ts の Zoom.depth コメントと一致)。
+// 倍率は rect の大きさに依らない固定変数=左インスペクターで明示指定する用。
+const ZOOM_DEPTH_OPTIONS: { depth: 1 | 2 | 3 | 4 | 5 | 6; scale: number }[] = [
+  { depth: 1, scale: 1.25 },
+  { depth: 2, scale: 1.5 },
+  { depth: 3, scale: 1.8 },
+  { depth: 4, scale: 2.2 },
+  { depth: 5, scale: 3.5 },
+  { depth: 6, scale: 5.0 },
+];
+
 const ZoomRectControl = ({
   rect,
   output,

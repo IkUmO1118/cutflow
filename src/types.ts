@@ -701,10 +701,45 @@ export interface Zoom {
   easeSec?: number;
   /** 区間の末尾でズームアウトする遷移時間(秒)。省略時 easeSec と同じ */
   easeOutSec?: number;
+  /** 省略=manual(固定 focus)。"auto"=カーソル追従(cursor サイドカーがあれば
+   * 毎フレームカーソルへ、無ければ rect 中心へ劣化)。focusMode を1つでも
+   * 持つと render は OpenScreen 逐語の precompute 経路(spring 込み)に
+   * 切り替わる。持たない既存収録はバイト等価。
+   * §docs/plans/2026-07-24-openscreen-zoom-A-cursor-follow-design.md D0 */
+  focusMode?: "manual" | "auto";
+  /** ズームの強さ(段階)。1..6 → {1.25,1.5,1.8,2.2,3.5,5.0}(OpenScreen ZOOM_DEPTH_SCALES 逐語)。
+   * 省略時は rect の幅から scale=出力幅/rect.w(従来どおり)。customScale が優先。 */
+  depth?: 1 | 2 | 3 | 4 | 5 | 6;
+  /** 強さの直接指定(1.0–5.0)。depth より優先。指定時 rect は focus(中心)専用になり
+   * 拡大率は rect.w からではなくこの値から決まる。省略時は depth→rect の順に解決。 */
+  customScale?: number;
 }
 
 /** render.zoom.easeSec 未指定時の既定(秒)。renderProps と設定画面で共有 */
 export const DEFAULT_ZOOM_EASE_SEC = 0.4;
+
+/** render.zoom.easeInSec/easeOutSec が両方未指定(かつ easeSec も未指定)の
+ * ときの既定(秒)。OpenScreen 移植 D3: 入りが出より約1.5倍長い非対称が
+ * Screen Studio 級の寄りの体感を作る(§docs/plans/2026-07-24-openscreen-d3-zoom-look-and-feel-design.md)。
+ * easeSec だけを指定した既存収録は対称のまま値を引き継ぐ(この既定は使わない) */
+export const DEFAULT_ZOOM_EASE_IN_SEC = 1.5;
+export const DEFAULT_ZOOM_EASE_OUT_SEC = 1.0;
+
+/** render.zoom.chainGapSec 未指定時の既定(秒)。隣接ズームどうしの gap が
+ * これ以内なら連鎖(パン遷移)とみなす。OpenScreen 移植 D3(#2・D2a)
+ * §docs/plans/2026-07-24-openscreen-d3-zoom-look-and-feel-design.md */
+export const DEFAULT_ZOOM_CHAIN_GAP_SEC = 1.5;
+
+/** render.zoom.leadSec 未指定時の既定(秒)。孤立ズームのイーズインを区間
+ * 開始のこの秒だけ前から始める(先読み/pre-roll)。OpenScreen 移植 D3
+ * (#1・D1c)§docs/plans/2026-07-24-openscreen-d3-zoom-look-and-feel-design.md */
+export const DEFAULT_ZOOM_LEAD_SEC = 0.5;
+
+/** render.zoom.chainPanSec 未指定時の既定(秒)。gap のある連鎖(chainGapSec
+ * 以内だが完全隣接ではない)のパン遷移秒数。完全隣接(gap=0)には効かず
+ * easeInSec を使う。OpenScreen 移植 D3(#2・D2b)
+ * §docs/plans/2026-07-24-openscreen-d3-zoom-look-and-feel-design.md */
+export const DEFAULT_ZOOM_CHAIN_PAN_SEC = 1.0;
 
 /** render.zoom.wipeScale 未指定時の既定。ズーム中のカメラワイプをこの倍率
  * まで右下アンカーで縮める(1 = 縮小なし)。renderProps と設定画面で共有 */

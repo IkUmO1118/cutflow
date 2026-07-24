@@ -37,6 +37,7 @@ import { plan, remeta } from "./stages/plan.ts";
 import { planShorts } from "./stages/planShorts.ts";
 import { planMaterials } from "./stages/planMaterials.ts";
 import { planEffects } from "./stages/planEffects.ts";
+import { autoZoom, autoZoomIfFresh } from "./stages/autoZoom.ts";
 import { planBgm } from "./stages/planBgm.ts";
 import { authorHyperframe, renderHyperframe } from "./stages/hyperframe.ts";
 import { embedLottieHyperframe } from "./stages/hyperframeLottie.ts";
@@ -56,6 +57,7 @@ import { describe, describeJson } from "./stages/describe.ts";
 import { frames } from "./stages/frames.ts";
 import type { FrameRequest } from "./stages/frames.ts";
 import { DEFAULT_SERVE_PORT, startFramesServe } from "./stages/framesServe.ts";
+import { startRecordWatch } from "./stages/record.ts";
 import { tryServeFrames } from "./lib/framesClient.ts";
 import { formatOcrPreview } from "./lib/ocr.ts";
 import type { OcrResult } from "./lib/ocr.ts";
@@ -258,6 +260,33 @@ function guardEffectsRerun(dir: string, force: boolean): void {
     throw new Error(
       "overlays.json に既存の zooms/blurs/annotations があります。plan-effects の " +
         "再実行はこれらを LLM の生成物で上書きし、手編集が消えます。\n" +
+        "やり直す場合は --force を付けてください(実行前に手編集ファイルを " +
+        "backups/ へ退避します)",
+    );
+  }
+  const backupList = [...new Set([...EDITABLE_FILES, "overlays.json"])];
+  const dest = backupEditableFiles(dir, backupList);
+  if (dest) {
+    console.log(
+      `上書き前に手編集ファイルを退避しました: ${dest}\n` +
+        "(戻すには退避先のファイルを収録フォルダ直下へコピーし直す)",
+    );
+  }
+}
+
+/**
+ * autozoom の再実行ガード。guardEffectsRerun の zoom だけ版
+ * (autozoom は zooms[] しか置換しないため blurs/annotations の非空は無視する)。
+ */
+function guardAutoZoomRerun(dir: string, force: boolean): void {
+  const overlaysPath = join(dir, "overlays.json");
+  if (!existsSync(overlaysPath)) return;
+  const existing = JSON.parse(readFileSync(overlaysPath, "utf8")) as Overlays;
+  if ((existing.zooms?.length ?? 0) === 0) return;
+  if (!force) {
+    throw new Error(
+      "overlays.json に既存の zooms があります。autozoom の再実行はこれらを " +
+        "上書きし、手編集が消えます。\n" +
         "やり直す場合は --force を付けてください(実行前に手編集ファイルを " +
         "backups/ へ退避します)",
     );
@@ -915,6 +944,32 @@ program
   });
 
 program
+  .command("autozoom <dir>")
+  .description(
+    "カーソル dwell から zoom を決定論で自動配置し overlays.json の zooms を下書き" +
+      "(LLM 不使用・要 record --watch 収録・cut/承認には触れない)",
+  )
+  .option("--force", "既存の zooms を上書きして再実行(実行前に backups/ へ退避)")
+  .action(async (dir: string, opts: { force?: boolean }) => {
+    const cfg = loadConfig(program.opts().config);
+    const abs = resolveDir(dir);
+    guardAutoZoomRerun(abs, opts.force === true);
+    const result = autoZoom(abs, cfg);
+    console.log(
+      `autozoom 完了: dwell候補${result.candidateCount}件から zoom${result.placedCount}件を下書き` +
+        (result.placedCount < result.candidateCount
+          ? `(境界クランプで${result.candidateCount - result.placedCount}件を除外)`
+          : ""),
+    );
+    for (const z of result.zooms) {
+      console.log(`  zoom [${z.start.toFixed(2)}-${z.end.toFixed(2)}]`);
+    }
+    console.log(
+      "\n次のステップ: preview か frames <dir> --t <区間の秒> で見え方を確認し、要らなければ overlays.json から削除してください。",
+    );
+  });
+
+program
   .command("plan-bgm <dir>")
   .description(
     "LLM で BGM の配置候補(区間×曲)を選ばせ bgm.json の下書きを生成" +
@@ -1326,6 +1381,34 @@ program
       throw new Error(`--port の値が不正です: ${opts.port}`);
     }
     await startFramesServe(abs, explicit, port);
+  });
+
+program
+  .command("record")
+  .description(
+    "OBS の録画ボタンに自動連動し、カーソル座標を <recording>.cursor.json へ確定する常駐 watcher" +
+      "(D1。撮影は OBS のまま維持。収録フォルダではなく OBS の出力先へサイドカーを書く)。" +
+      "対象ディスプレイは自動一致(obs-websocket→単一ディスプレイ→テレメトリ推論の3段)。macOS 専用。終了は Ctrl+C",
+  )
+  .option("--watch", "常駐して待ち受ける(現状は必須。指定なしはエラー)")
+  .option(
+    "--display <id>",
+    "対象ディスプレイの CGDirectDisplayID(数値)を明示指定する隠しオプション。" +
+      "通常は不要(自動一致が失敗する/別ディスプレイを撮りたいときだけ使う)",
+  )
+  .action(async (opts: { watch?: boolean; display?: string }) => {
+    if (!opts.watch) {
+      throw new Error("--watch を指定してください(例: cutflow record --watch)");
+    }
+    let displayId: number | undefined;
+    if (opts.display !== undefined) {
+      displayId = Number(opts.display);
+      if (!Number.isFinite(displayId) || displayId <= 0) {
+        throw new Error(`--display の値が不正です: ${opts.display}`);
+      }
+    }
+    const cfg = loadConfig(program.opts().config);
+    await startRecordWatch(cfg, { displayId });
   });
 
 program
@@ -1849,6 +1932,13 @@ program
     const { changed } = idStamp(abs);
     if (changed.length > 0) {
       console.log(`id-stamp 完了: ${changed.join(", ")}`);
+    }
+
+    // 新規 watch 収録には dwell 由来 zoom を自動挿入(既存編集は触らない・
+    // config の plan.cursor.autoZoom で off 可)。判定は autoZoomIfFresh に閉じる
+    const az = autoZoomIfFresh(abs, cfg);
+    if (az) {
+      console.log(`autozoom: zoom${az.placedCount}件を自動配置`);
     }
   });
 
