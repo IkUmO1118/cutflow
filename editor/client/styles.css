@@ -3955,6 +3955,10 @@
    テキスト/配置/アニメの3タブだけに絞ったスコープ。他タブの2列グリッド・
    セクション区切り線はここでは変えない */
 .ocInspector .capFlat .inspSec { border-top: 0; }
+/* capFlat タブは Section 間に既定の余白が無い(前 Section の最終行の
+   margin-bottom だけが区切り)。倍率 Section など、意図的に一段空けたい
+   ときはこのクラスで h4 の上に gap を足す */
+.ocInspector .capFlat .inspSec.inspSecGap { margin-top: 0.875rem; }
 .ocInspector .capFlat .capControlStack,
 .ocInspector .capFlat .capPositionGrid { grid-template-columns: 1fr; }
 .ocInspector .field,

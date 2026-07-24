@@ -364,6 +364,12 @@ export interface Config {
        *  スケールに合わせて収録で較正する。
        *  §docs/plans/2026-07-24-openscreen-zoom-D-scroll-suppression-design.md */
       scrollMotionThreshold?: number;
+      /** run(収録直後の初回一括)の末尾で、カーソル dwell 由来の zoom を
+       *  決定論で自動挿入するか。省略時 true。false でも `autozoom` /
+       *  `plan-effects` コマンド自体は閾値(このオブジェクトの他フィールド)を
+       *  使い続ける(run の自動挿入だけを止める別軸)。
+       *  §docs/plans/2026-07-24-openscreen-autozoom-placement-design.md D6 */
+      autoZoom?: boolean;
     };
   };
   /** plan の候補格子を語タイムスタンプ(transcript.words)由来の語境界でも
@@ -931,6 +937,9 @@ export const DEFAULT_PLAN_CURSOR_MAX_WINDOW_MS = 3500;
  *  スケールに合わせたゆるめの既定(明白なスクロールだけ落とす)。
  *  §docs/plans/2026-07-24-openscreen-zoom-D-scroll-suppression-design.md */
 export const DEFAULT_PLAN_CURSOR_SCROLL_MOTION_THRESHOLD = 0.4;
+/** run の末尾で autozoom を自動挿入するかの既定値。
+ *  §docs/plans/2026-07-24-openscreen-autozoom-placement-design.md D6 */
+export const DEFAULT_PLAN_CURSOR_AUTO_ZOOM = true;
 
 /** plan.cursor を既定値で解決する純関数。loadConfig は cfg.plan.cursor を
  *  書き換えない */
@@ -943,6 +952,7 @@ export function resolvePlanCursorCfg(cfg: Config): {
   clickBoost: number;
   maxWindowMs: number;
   scrollMotionThreshold: number;
+  autoZoom: boolean;
 } {
   const c = cfg.plan?.cursor ?? {};
   return {
@@ -954,6 +964,7 @@ export function resolvePlanCursorCfg(cfg: Config): {
     clickBoost: c.clickBoost ?? DEFAULT_PLAN_CURSOR_CLICK_BOOST,
     maxWindowMs: c.maxWindowMs ?? DEFAULT_PLAN_CURSOR_MAX_WINDOW_MS,
     scrollMotionThreshold: c.scrollMotionThreshold ?? DEFAULT_PLAN_CURSOR_SCROLL_MOTION_THRESHOLD,
+    autoZoom: c.autoZoom ?? DEFAULT_PLAN_CURSOR_AUTO_ZOOM,
   };
 }
 
@@ -1476,7 +1487,7 @@ function validateWorkflowConfig(cfg: Config): string[] {
     errors.push(
       ...unknownKeys(planCursor, [
         "minDwellMs", "maxDwellMs", "moveThreshold", "spacingMs", "defaultScale", "clickBoost", "maxWindowMs",
-        "scrollMotionThreshold",
+        "scrollMotionThreshold", "autoZoom",
       ]).map((key) => `plan.cursor.${key} は未対応です`),
     );
     if ("minDwellMs" in planCursor && (!Number.isFinite(planCursor.minDwellMs) || Number(planCursor.minDwellMs) <= 0)) {
@@ -1512,6 +1523,9 @@ function validateWorkflowConfig(cfg: Config): string[] {
       (!Number.isFinite(planCursor.scrollMotionThreshold) || Number(planCursor.scrollMotionThreshold) <= 0)
     ) {
       errors.push("plan.cursor.scrollMotionThreshold は正の数値で指定してください");
+    }
+    if ("autoZoom" in planCursor && typeof planCursor.autoZoom !== "boolean") {
+      errors.push("plan.cursor.autoZoom は真偽値で指定してください");
     }
   }
   const renderZoom = cfg.render?.zoom as Record<string, unknown> | undefined;

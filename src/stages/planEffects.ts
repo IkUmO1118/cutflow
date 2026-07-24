@@ -283,7 +283,7 @@ function readOcrSidecars(dir: string): OcrSidecar[] {
 }
 
 /** av.probe/motion.json(av <dir> が書く動き知覚)を読む。無ければ null */
-function readMotion(dir: string): MotionLike | null {
+export function readMotion(dir: string): MotionLike | null {
   const p = join(dir, "av.probe", "motion.json");
   if (!existsSync(p)) return null;
   const raw = JSON.parse(readFileSync(p, "utf8")) as {
@@ -325,7 +325,7 @@ const SCROLL_SUPPRESSION_WINDOW_SEC = 1.0;
  * rect は D2(focus→rect)+ clampRect/growToMinZoom まで適用済みで返す
  * (buildEffectAnchors は解像度を知らないため、ここで済ませておく)。
  */
-function buildCursorAnchorCandidates(
+export function buildCursorAnchorCandidates(
   sidecar: CursorSidecar,
   manifest: Manifest,
   placementCfg: ReturnType<typeof resolveEffectPlacementCfg>,

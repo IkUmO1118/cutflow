@@ -517,6 +517,54 @@ OpenScreen 自身のチューニング値)。
 既定のまま=描画はバイト等価)。1.0 で縮小なし、0.55 でより穏やかな縮小に
 なる。legacy(`focusMode` 無し)経路には効かない。
 
+## カーソル dwell の自動配置(autozoom)
+
+`plan-effects` は OCR/motion/cursor アンカーを LLM に番号選択させるが、
+`node src/cli.ts autozoom <dir>` は cursor アンカー**だけ**を対象に、
+LLM を使わず全 dwell 候補をそのまま zoom として採用する決定論コマンド
+(OpenScreen 本家の on-load 自動配置に相当。
+§docs/plans/2026-07-24-openscreen-autozoom-placement-design.md)。
+
+- 前提入力は `<recording base>.cursor.json` サイドカー(`record --watch`
+  収録)**のみ必須**(`frames --ocr` / `av <dir>` は不要。無くても動く)
+- `overlays.json` の **`zooms[]` だけ**を置換する。`blurs`/`annotations`/
+  `overlays`/`inserts`/`captionTracks` 等の他フィールドは触らない
+- 採用した dwell は `detectDwellCandidates`(上記 `plan.cursor` の閾値。
+  `autoZoom` を除く全フィールドを共有)がそのまま返す最終集合で、
+  各 zoom には `focusMode: "auto"`(カーソル追従)が自動で付く
+- 録画端に落ちる dwell は `start`/`end` を `[0, durationSec]` へクランプし、
+  クランプ後に 0.5 秒未満になった zoom は捨てる(OpenScreen 呼び側の
+  境界クランプに相当)
+- cut/承認(`cutplan.json` / `approvals.json`)は読み書きしない。
+  スキーマ変更も無い(`Zoom` に新フィールドは足さない)
+- 既存の `zooms` が非空なら `--force` が必須(実行前に `backups/` へ退避。
+  `plan-effects` と同じ作法)
+
+```sh
+node src/cli.ts autozoom <dir>
+node src/cli.ts autozoom <dir> --force   # 既存 zooms を上書き(backups/ へ退避)
+```
+
+**既定 ON の自動挿入**: `config.yaml` の `plan.cursor.autoZoom`(省略時 `true`)
+が有効なとき、`run`(ingest→transcribe→detect→plan→id-stamp)の末尾で
+同じ決定論を非破壊に自動実行する。呼ぶのは次を**すべて**満たすときだけで、
+1 つでも欠ければ静かにスキップする(1 行 log のみ・run は止まらない):
+
+1. `plan.cursor.autoZoom` が `true`
+2. cursor サイドカーが存在する(`record --watch` 収録)
+3. `overlays.json` の `zooms` が空/不在(手編集済みなら絶対に上書きしない)
+
+```yaml
+plan:
+  cursor:
+    autoZoom: false   # run の自動挿入だけを止める(閾値は plan-effects/autozoom に効き続ける)
+```
+
+`autoZoom: false` にしても `autozoom <dir>` / `plan-effects <dir>` コマンド
+自体は影響を受けない(`plan.cursor` の他フィールド=閾値は使い続ける。
+止まるのは `run` の自動挿入だけ)。`autozoom <dir>` コマンド単体はこの
+フラグを無視して常に実行する(明示操作を優先)。
+
 ## 環境プリフライト(doctor)
 
 `node src/cli.ts doctor` は収録に入る前の環境チェック(読み取り専用)。

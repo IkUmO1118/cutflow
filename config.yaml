@@ -397,6 +397,10 @@ plan:
     clickBoost: 1.5      # クリック起点の dwell に与える strength 倍率(1で無効化)
     maxWindowMs: 3500    # dwell窓長の上限(ms)。clamp(総尺の5%,1000,これ)。追従(枝A)前の長尺ドリフト対策。A後は緩めてOpenScreenの5%へ戻せる
     scrollMotionThreshold: 0.4  # スクロール誤爆抑制の scene score 閾値。av.probe/motion.json があるときだけ効く。明白なスクロールだけ落とすゆるめの既定。誤爆が続くなら下げる
+    autoZoom: true  # 省略時 true。run(収録直後の初回一括)末尾でカーソル dwell 由来の
+    #   zoom を自動配置する(cursorサイドカー有り・overlays.json の zooms 空のときだけ。
+    #   手編集済みは絶対に上書きしない)。false で run の自動挿入だけを止める(閾値は
+    #   plan-effects/autozoom コマンド自体には効き続ける別軸)
 
   # plan の候補格子を語タイムスタンプ(要 whisper.wordTimestamps)由来の語境界で
   # 細分化する(C1)+ 候補テキストを実際に残る語だけにする(C8)。

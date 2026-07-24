@@ -37,6 +37,7 @@ import { plan, remeta } from "./stages/plan.ts";
 import { planShorts } from "./stages/planShorts.ts";
 import { planMaterials } from "./stages/planMaterials.ts";
 import { planEffects } from "./stages/planEffects.ts";
+import { autoZoom, autoZoomIfFresh } from "./stages/autoZoom.ts";
 import { planBgm } from "./stages/planBgm.ts";
 import { authorHyperframe, renderHyperframe } from "./stages/hyperframe.ts";
 import { embedLottieHyperframe } from "./stages/hyperframeLottie.ts";
@@ -259,6 +260,33 @@ function guardEffectsRerun(dir: string, force: boolean): void {
     throw new Error(
       "overlays.json に既存の zooms/blurs/annotations があります。plan-effects の " +
         "再実行はこれらを LLM の生成物で上書きし、手編集が消えます。\n" +
+        "やり直す場合は --force を付けてください(実行前に手編集ファイルを " +
+        "backups/ へ退避します)",
+    );
+  }
+  const backupList = [...new Set([...EDITABLE_FILES, "overlays.json"])];
+  const dest = backupEditableFiles(dir, backupList);
+  if (dest) {
+    console.log(
+      `上書き前に手編集ファイルを退避しました: ${dest}\n` +
+        "(戻すには退避先のファイルを収録フォルダ直下へコピーし直す)",
+    );
+  }
+}
+
+/**
+ * autozoom の再実行ガード。guardEffectsRerun の zoom だけ版
+ * (autozoom は zooms[] しか置換しないため blurs/annotations の非空は無視する)。
+ */
+function guardAutoZoomRerun(dir: string, force: boolean): void {
+  const overlaysPath = join(dir, "overlays.json");
+  if (!existsSync(overlaysPath)) return;
+  const existing = JSON.parse(readFileSync(overlaysPath, "utf8")) as Overlays;
+  if ((existing.zooms?.length ?? 0) === 0) return;
+  if (!force) {
+    throw new Error(
+      "overlays.json に既存の zooms があります。autozoom の再実行はこれらを " +
+        "上書きし、手編集が消えます。\n" +
         "やり直す場合は --force を付けてください(実行前に手編集ファイルを " +
         "backups/ へ退避します)",
     );
@@ -909,6 +937,32 @@ program
     }
     for (const a of result.annotations) {
       console.log(`  annotation [${a.start.toFixed(2)}-${a.end.toFixed(2)}]`);
+    }
+    console.log(
+      "\n次のステップ: preview か frames <dir> --t <区間の秒> で見え方を確認し、要らなければ overlays.json から削除してください。",
+    );
+  });
+
+program
+  .command("autozoom <dir>")
+  .description(
+    "カーソル dwell から zoom を決定論で自動配置し overlays.json の zooms を下書き" +
+      "(LLM 不使用・要 record --watch 収録・cut/承認には触れない)",
+  )
+  .option("--force", "既存の zooms を上書きして再実行(実行前に backups/ へ退避)")
+  .action(async (dir: string, opts: { force?: boolean }) => {
+    const cfg = loadConfig(program.opts().config);
+    const abs = resolveDir(dir);
+    guardAutoZoomRerun(abs, opts.force === true);
+    const result = autoZoom(abs, cfg);
+    console.log(
+      `autozoom 完了: dwell候補${result.candidateCount}件から zoom${result.placedCount}件を下書き` +
+        (result.placedCount < result.candidateCount
+          ? `(境界クランプで${result.candidateCount - result.placedCount}件を除外)`
+          : ""),
+    );
+    for (const z of result.zooms) {
+      console.log(`  zoom [${z.start.toFixed(2)}-${z.end.toFixed(2)}]`);
     }
     console.log(
       "\n次のステップ: preview か frames <dir> --t <区間の秒> で見え方を確認し、要らなければ overlays.json から削除してください。",
@@ -1878,6 +1932,13 @@ program
     const { changed } = idStamp(abs);
     if (changed.length > 0) {
       console.log(`id-stamp 完了: ${changed.join(", ")}`);
+    }
+
+    // 新規 watch 収録には dwell 由来 zoom を自動挿入(既存編集は触らない・
+    // config の plan.cursor.autoZoom で off 可)。判定は autoZoomIfFresh に閉じる
+    const az = autoZoomIfFresh(abs, cfg);
+    if (az) {
+      console.log(`autozoom: zoom${az.placedCount}件を自動配置`);
     }
   });
 
