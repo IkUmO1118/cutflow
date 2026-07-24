@@ -112,3 +112,43 @@ SOFTWARE.
 
 母艦 §5 の方針どおり、**取り込み切り**（本家の以後の更新を追従しない）。位置出力の改変は
 このリポジトリだけの差分として維持する。
+
+## vendor している TS ランタイム(zoom 追従・枝A)
+
+母艦: `docs/programs/openscreen-zoom-fidelity-program.md`。設計: 枝A
+`docs/plans/2026-07-24-openscreen-zoom-A-cursor-follow-design.md`(P1)。
+
+上記の Swift カーソルヘルパとは別に、**OpenScreen のズーム runtime(TypeScript の純関数)**を
+このディレクトリ直下に vendor している。ズームの「位置(focus)追従・spring 平滑化・連鎖パン」を
+CutFlow の render 経路で**厳格再現**するための土台(P1 = 逐語移植のみ・CutFlow 配線は後続 P で行う)。
+
+| 項目 | 値 |
+|---|---|
+| upstream | `https://github.com/getopenscreen/openscreen`(**getopenscreen v1.7.0**) |
+| 参照クローン(ローカル・repo外・恒久参照用に再クローン) | `~/dev/labs/openscreen-gos` |
+| 取得元パス | `src/components/video-editor/videoPlayback/`(型は `src/components/video-editor/types.ts` から抽出) |
+| license | MIT © 2025 Siddharth Vaddem。全文は上記「MIT notice」節と同一 |
+| 取得日 | 2026-07-24 |
+
+### vendor しているファイル
+
+| ファイル | 状態 |
+|---|---|
+| `mathUtils.ts` | vendor（逐語・import 書き換えのみ）。`cubicBezier`/`easeOutScreenStudio`/`clamp01` 等 |
+| `constants.ts` | vendor（逐語・import 書き換えのみ）。`TRANSITION_WINDOW_MS`/`AUTO_FOLLOW_PARAMS` 等の定数 |
+| `cursorFollowUtils.ts` | vendor（逐語・import 書き換えのみ）。`interpolateCursorAt`/`advanceFollowFocus`/`adaptiveSmoothFactor`/`timeCorrectedFollowFactor` |
+| `focusUtils.ts` | vendor（逐語・import 書き換えのみ）。`clampFocusToScale`/`getFocusBoundsForScale`/`softenFocusToScale`（render 経路が実際に呼ぶのは `clampFocusToScale` のみ。`softenFocusToScale` は preview ドラッグ用だが逐語性のため丸ごと vendor） |
+| `motionSmoothing.ts` | vendor（逐語・import 書き換えのみ）。`spring()` generator を1ステップ回す `stepSpringValue`。`import { spring } from "motion"` は bare のまま（npm `motion` 依存を追加） |
+| `zoomSpring.ts` | vendor（逐語・import 書き換えのみ）。`createZoomSpringState`/`resetZoomSpring`/`stepZoomSpring`(交差スナップ付き `stepAxis`) |
+| `zoomRegionUtils.ts` | vendor（逐語・import 書き換えのみ）。`findDominantRegion`/`computeRegionStrength`/連鎖(`getConnectedRegionPairs`/`getConnectedRegionHold`/`getConnectedRegionTransition`)/module-level `dominantRegionCache`(単一スロットキャッシュ)込みで丸ごと vendor |
+| `zoomTransform.ts` | **partial port**。`computeZoomTransform` + `computeFocusFromTransform`（と `AppliedTransform`/`ZoomTransformGeometry`/`FocusFromTransformGeometry`）のみ vendor。関数本体の数式は逐語。upstream の pixi.js/pixi-filters 依存コード(`applyZoomTransform`/`MotionBlurState`/`getMotionBlurAmountResponse`/`TransformParams`)は**vendor していない**(Remotion にモーションブラー相当が無く、CutFlow は pixi に依存しないため) |
+| `types.ts` | **trimmed extract**。upstream `src/components/video-editor/types.ts` から zoom runtime が要る型・定数だけを抽出（`ZoomDepth`/`ZoomFocusMode`/`ZoomFocus`/`Rotation3D`系/`ZoomRegionSource`/`ZoomRegion`/`CursorTelemetryPoint`/`ZOOM_DEPTH_SCALES`/`getZoomScale`/`clampFocusToDepth` 等）。webcam/annotation/blur/crop/speed 等の無関係な export と `@/lib/compositeLayout` import は削っている |
+
+各ファイル冒頭に出典ヘッダ("Vendored from getopenscreen v1.7.0 …")を付与。相対 import は
+Node 23 の type-stripping に合わせて `./xxx.ts` の明示拡張子で書き換えている(数式・定数・
+関数分割そのものは無改変)。
+
+### 本家追従について
+
+上記 Swift ヘルパと同じく**取り込み切り**。P1 は逐語移植のみで CutFlow の render 経路への配線は
+まだ行っていない(母艦 §0.2 の P2/P3 で `src/lib/zoomRuntimeTrack.ts` から利用される)。
