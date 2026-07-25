@@ -376,6 +376,23 @@ const acceptedAiHunkLabels = (workflow: AiWorkflowReviewState): string[] =>
       : [],
   );
 
+function diffTrackIdForEvent(event: { kind: string }): string | null {
+  switch (event.kind) {
+    case "cut": return "cut";
+    case "caption": return "caption";
+    case "overlay": return "ov1";
+    case "insert": return "cut";
+    case "annotation": return "annotation";
+    case "blur": return "blur";
+    case "zoom": return "zoom";
+    case "wipe": return "wipe";
+    case "caption-track": return "caption";
+    case "bgm": return "bgm";
+    case "short": return "short";
+    default: return null;
+  }
+}
+
 /** BGM に使えるファイル(音声、または音を持つ動画)の拡張子 */
 const BGM_EXT_RE = /\.(mp3|m4a|wav|aac|ogg|flac|mp4|mov|webm|mkv)$/i;
 /** 音声のみのファイル(BGM 専用。素材・映像トラックには置けない) */
@@ -4978,6 +4995,103 @@ export const App = () => {
         // ここでは再生・削除などのグローバルショートカットだけを止める。
         return;
       }
+      // ---- AI Copilot Diff: キーボードナビゲーション ----
+      if (aiEditEnabled) {
+        const DIFF_TRACK_PREFIX = "diff:";
+
+        if (e.key === "j" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+          e.preventDefault();
+          if (flatDiffEvents.length === 0) return;
+          const currentIdx = focusedDiffEventId
+            ? flatDiffEvents.findIndex((ev) => ev.id === focusedDiffEventId)
+            : -1;
+          const nextIdx = currentIdx + 1 >= flatDiffEvents.length ? 0 : currentIdx + 1;
+          const nextEvent = flatDiffEvents[nextIdx];
+          setFocusedDiffEventId(nextEvent.id);
+          const trackId = diffTrackIdForEvent(nextEvent);
+          if (trackId) {
+            const diffTrackId = `${DIFF_TRACK_PREFIX}${trackId}`;
+            setFocusedDiffTrackId(diffTrackId);
+            setDiffCollapsed((prev) => ({ ...prev, [diffTrackId]: false }));
+          }
+          if (nextEvent.timeRange) {
+            const outSec = toOutputTime(nextEvent.timeRange.startSec, curTimeline);
+            if (outSec !== null) seekOut(Math.max(0, Math.min(outSec, duration)));
+          }
+          return;
+        }
+
+        if (e.key === "k" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+          e.preventDefault();
+          if (flatDiffEvents.length === 0) return;
+          const currentIdx = focusedDiffEventId
+            ? flatDiffEvents.findIndex((ev) => ev.id === focusedDiffEventId)
+            : -1;
+          const prevIdx = currentIdx <= 0 ? flatDiffEvents.length - 1 : currentIdx - 1;
+          const prevEvent = flatDiffEvents[prevIdx];
+          setFocusedDiffEventId(prevEvent.id);
+          const trackId = diffTrackIdForEvent(prevEvent);
+          if (trackId) {
+            const diffTrackId = `${DIFF_TRACK_PREFIX}${trackId}`;
+            setFocusedDiffTrackId(diffTrackId);
+            setDiffCollapsed((prev) => ({ ...prev, [diffTrackId]: false }));
+          }
+          if (prevEvent.timeRange) {
+            const outSec = toOutputTime(prevEvent.timeRange.startSec, curTimeline);
+            if (outSec !== null) seekOut(Math.max(0, Math.min(outSec, duration)));
+          }
+          return;
+        }
+
+        if (e.key === "Enter" && !e.metaKey && !e.shiftKey && focusedDiffEventId) {
+          e.preventDefault();
+          const event = flatDiffEvents.find((ev) => ev.id === focusedDiffEventId);
+          if (event && aiWorkflowReview) {
+            const hunks = event.hunkIndexes
+              .map((i) => aiWorkflowReview.diff.hunks[i])
+              .filter((h): h is typeof aiWorkflowReview.diff.hunks[number] => Boolean(h));
+            setAiWorkflowHunks(hunks, "theirs");
+          }
+          return;
+        }
+
+        if (e.key === "Escape" && focusedDiffEventId) {
+          e.preventDefault();
+          const event = flatDiffEvents.find((ev) => ev.id === focusedDiffEventId);
+          if (event && aiWorkflowReview) {
+            const hunks = event.hunkIndexes
+              .map((i) => aiWorkflowReview.diff.hunks[i])
+              .filter((h): h is typeof aiWorkflowReview.diff.hunks[number] => Boolean(h));
+            setAiWorkflowHunks(hunks, "mine");
+          }
+          return;
+        }
+
+        if (e.key === "Enter" && e.shiftKey && !e.metaKey && focusedDiffTrackId) {
+          e.preventDefault();
+          if (aiWorkflowReview) {
+            const trackEvents = aiReviewEvents.filter((ev) =>
+              diffTrackIdForEvent(ev) === focusedDiffTrackId.replace(DIFF_TRACK_PREFIX, "")
+            );
+            const hunks = trackEvents.flatMap((ev) =>
+              ev.hunkIndexes
+                .map((i) => aiWorkflowReview.diff.hunks[i])
+                .filter((h): h is typeof aiWorkflowReview.diff.hunks[number] => Boolean(h))
+            );
+            setAiWorkflowHunks(hunks, "theirs");
+          }
+          return;
+        }
+
+        if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
+          e.preventDefault();
+          if (aiWorkflowReview) {
+            setAiWorkflowHunks(aiWorkflowReview.diff.hunks, "theirs");
+          }
+          return;
+        }
+      }
+
       if (
         (diffReview !== null && diffPanelOpen) ||
         aiWorkflowReview !== null ||
@@ -5123,7 +5237,21 @@ export const App = () => {
         : [],
     [aiEditEnabled, aiWorkflowReview, aiReviewEvents, built],
   );
+  const flatDiffEvents = useMemo(
+    () =>
+      aiEditEnabled && aiWorkflowReview
+        ? aiReviewEvents
+            .filter((e) => e.timeRange)
+            .sort((a, b) => {
+              if (!a.timeRange || !b.timeRange) return 0;
+              return a.timeRange.startSec - b.timeRange.startSec;
+            })
+        : [],
+    [aiEditEnabled, aiWorkflowReview, aiReviewEvents],
+  );
   const [diffCollapsed, setDiffCollapsed] = useState<Record<string, boolean>>({});
+  const [focusedDiffEventId, setFocusedDiffEventId] = useState<string | null>(null);
+  const [focusedDiffTrackId, setFocusedDiffTrackId] = useState<string | null>(null);
   const setAiWorkflowHunks = (hunks: ProposalDiffResult["hunks"], side: "theirs" | "mine") => {
     setAiWorkflow((prev) => {
       if (!prev?.resolution) return prev;
