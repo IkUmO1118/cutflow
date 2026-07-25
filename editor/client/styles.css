@@ -6549,6 +6549,70 @@
 }
 .diffPlaybackContinue:hover { background: hsl(var(--oc-accent) / 0.1); }
 
+/* AI Copilot diff: ホバーサムネイル */
+.tlDiffHoverThumb {
+  background: hsl(var(--oc-popover));
+  border: 1px solid hsl(var(--oc-border));
+  border-radius: 8px;
+  padding: 8px;
+  box-shadow: 0 4px 16px hsl(0 0% 0% / 0.2);
+  pointer-events: none;
+}
+.tlDiffHoverThumbLabel {
+  font-size: 10px;
+  color: hsl(var(--oc-muted-foreground));
+  margin-bottom: 4px;
+  text-align: center;
+}
+.tlDiffHoverThumbPair {
+  display: flex;
+  gap: 4px;
+}
+.tlDiffHoverThumbImg {
+  width: 140px;
+  height: auto;
+  border-radius: 4px;
+  border: 1px solid hsl(var(--oc-border));
+  object-fit: cover;
+}
+
+/* diffクリップ ポップオーバー */
+.tlDiffPopover {
+  background: hsl(var(--oc-popover));
+  border: 1px solid hsl(var(--oc-border));
+  border-radius: 6px;
+  padding: 8px 10px;
+  min-width: 160px;
+  box-shadow: 0 4px 12px hsl(0 0% 0% / 0.15);
+  font-size: 12px;
+}
+.tlDiffPopoverTitle {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.tlDiffPopoverMeta {
+  color: hsl(var(--oc-muted-foreground));
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+.tlDiffPopoverActions {
+  display: flex;
+  gap: 6px;
+}
+.tlDiffPopoverActions button {
+  flex: 1;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid hsl(var(--oc-border));
+  background: transparent;
+  cursor: pointer;
+}
+.tlDiffPopoverActions button.preview { border-color: hsl(var(--oc-primary)); color: hsl(var(--oc-primary)); }
+.tlDiffPopoverActions button.accept { border-color: hsl(var(--oc-success)); color: hsl(var(--oc-success)); }
+.tlDiffPopoverActions button.reject { border-color: hsl(var(--oc-destructive)); color: hsl(var(--oc-destructive)); }
+.tlDiffPopoverActions button:hover { opacity: 0.8; }
+
 /* AI Copilot diff: スクリプトパネル 簡易インジケータ */
 .scriptAiIndicator {
   display: flex;

@@ -198,9 +198,9 @@ export const Timeline = ({
   onToggleDiffCollapse,
   onDiffSetHunk,
   onDiffPreview,
+  diffStills,
   aiWorkflowHunks,
 }: {
-  /** タイムライン全体の高さ(px)。上部との分割バーのドラッグで変わる */
   height: number;
   duration: number;
   clips: Clip[];
@@ -281,6 +281,7 @@ export const Timeline = ({
   onToggleDiffCollapse?: (trackId: string) => void;
   onDiffSetHunk?: (hunks: Hunk[], side: "theirs" | "mine") => void;
   onDiffPreview?: (event: import("../../src/lib/reviewEvents.ts").ReviewEvent) => void;
+  diffStills?: { eventId: string; beforeFile: string; afterFile: string }[];
   aiWorkflowHunks?: Hunk[];
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -325,6 +326,31 @@ export const Timeline = ({
   useEffect(() => {
     localStorage.setItem(ROW_H_STORE, JSON.stringify(trackHeights));
   }, [trackHeights]);
+
+  const [hoverThumb, setHoverThumb] = useState<{
+    eventId: string;
+    x: number;
+    y: number;
+    still: { beforeFile: string; afterFile: string };
+  } | null>(null);
+  const [popoverEvent, setPopoverEvent] = useState<{
+    event: import("../../src/lib/reviewEvents.ts").ReviewEvent;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!popoverEvent) return;
+    const close = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest(".tlDiffPopover") && !target.closest(".tlDiffClip")) {
+        setPopoverEvent(null);
+      }
+    };
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [popoverEvent]);
+
   /** トラックの表示高さ(px)。既定は型別、ユーザーは上へだけ広げられる */
   const rowH = (id: TrackId): number => {
     if (typeof id === "string" && id.startsWith(DIFF_TRACK_PREFIX)) {
@@ -1236,7 +1262,20 @@ export const Timeline = ({
                             height: DIFF_ROW_H - 8,
                           }}
                           title={`${event.title}\n${event.subtitle}`}
-                          onClick={() => onDiffPreview?.(event)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPopoverEvent({
+                              event,
+                              x: e.clientX,
+                              y: e.clientY,
+                            });
+                          }}
+                          onPointerEnter={(e) => {
+                            const still = diffStills?.find((s) => s.eventId === event.id);
+                            if (!still) return;
+                            setHoverThumb({ eventId: event.id, x: e.clientX, y: e.clientY, still });
+                          }}
+                          onPointerLeave={() => setHoverThumb(null)}
                         >
                           <span className="tlDiffClipLabel">{event.title}</span>
                         </div>
@@ -1377,6 +1416,86 @@ export const Timeline = ({
             <PlayheadMark className="tlPlayhead" pps={pps} />
           </div>
         </div>
+        {/* ホバーサムネイル */}
+        {hoverThumb && (
+          <div
+            className="tlDiffHoverThumb"
+            style={{
+              position: "fixed",
+              left: Math.min(hoverThumb.x + 12, window.innerWidth - 320),
+              top: Math.min(hoverThumb.y - 160, window.innerHeight - 200),
+              zIndex: 40,
+            }}
+          >
+            <div className="tlDiffHoverThumbLabel">変更前 / 変更後</div>
+            <div className="tlDiffHoverThumbPair">
+              <img
+                src={`/media/${encodeURIComponent(hoverThumb.still.beforeFile).replace(/%2F/g, "/")}`}
+                alt="変更前"
+                className="tlDiffHoverThumbImg"
+              />
+              <img
+                src={`/media/${encodeURIComponent(hoverThumb.still.afterFile).replace(/%2F/g, "/")}`}
+                alt="変更後"
+                className="tlDiffHoverThumbImg"
+              />
+            </div>
+          </div>
+        )}
+        {/* クリックポップオーバー */}
+        {popoverEvent && (
+          <div
+            className="tlDiffPopover"
+            style={{
+              position: "fixed",
+              left: Math.min(popoverEvent.x, window.innerWidth - 180),
+              top: Math.min(popoverEvent.y + 8, window.innerHeight - 140),
+              zIndex: 30,
+            }}
+          >
+            <div className="tlDiffPopoverTitle">{popoverEvent.event.title}</div>
+            <div className="tlDiffPopoverMeta">
+              {popoverEvent.event.timeRange
+                ? `${popoverEvent.event.timeRange.startSec.toFixed(1)}s \u2192 ${popoverEvent.event.timeRange.endSec.toFixed(1)}s`
+                : popoverEvent.event.subtitle}
+            </div>
+            <div className="tlDiffPopoverActions">
+              <button
+                className="preview"
+                onClick={() => {
+                  onDiffPreview?.(popoverEvent.event);
+                  setPopoverEvent(null);
+                }}
+              >
+                プレビュー
+              </button>
+              <button
+                className="accept"
+                onClick={() => {
+                  const hunks = popoverEvent.event.hunkIndexes
+                    .map((i) => aiWorkflowHunks?.[i])
+                    .filter((h): h is Hunk => Boolean(h));
+                  onDiffSetHunk?.(hunks, "theirs");
+                  setPopoverEvent(null);
+                }}
+              >
+                承認
+              </button>
+              <button
+                className="reject"
+                onClick={() => {
+                  const hunks = popoverEvent.event.hunkIndexes
+                    .map((i) => aiWorkflowHunks?.[i])
+                    .filter((h): h is Hunk => Boolean(h));
+                  onDiffSetHunk?.(hunks, "mine");
+                  setPopoverEvent(null);
+                }}
+              >
+                却下
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

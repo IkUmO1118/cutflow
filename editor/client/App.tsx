@@ -5330,6 +5330,15 @@ export const App = () => {
         : [],
     [aiEditEnabled, aiWorkflowReview, aiReviewEvents],
   );
+  const diffStills = useMemo(
+    () =>
+      aiWorkflowReview?.reviewBundle?.stills.map((still, i) => ({
+        eventId: aiReviewEvents[i]?.id ?? "",
+        beforeFile: still.before.file,
+        afterFile: still.after.file,
+      })) ?? [],
+    [aiWorkflowReview?.reviewBundle, aiReviewEvents],
+  );
   const [diffCollapsed, setDiffCollapsed] = useState<Record<string, boolean>>({});
   const setAiWorkflowHunks = (hunks: ProposalDiffResult["hunks"], side: "theirs" | "mine") => {
     setAiWorkflow((prev) => {
@@ -6548,9 +6557,14 @@ export const App = () => {
                 if (!event.timeRange) return;
                 const range = diffPreviewRange(event.timeRange, event.kind);
                 if (!range) return;
-                seekOut(Math.max(0, range.startSec - 1));
+                const seekTarget = Math.max(0, range.startSec - 1);
+                seekOut(Math.min(seekTarget, duration));
                 playerRef.current?.play();
+                setDiffBoundedPlayback(true);
+                setDiffPreviewMode("after");
+                setFocusedDiffEventId(event.id);
               }}
+              diffStills={aiEditEnabled ? diffStills : []}
               aiWorkflowHunks={aiWorkflowReview?.diff.hunks}
             />
           </div>
