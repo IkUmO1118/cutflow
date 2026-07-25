@@ -1554,17 +1554,85 @@ export const App = () => {
     shorts, mediaCodecFacts, previewBaseVideo,
   ]);
 
+  const aiWorkflowReview = isAiWorkflowReviewState(aiWorkflow) ? aiWorkflow : null;
+  const aiReviewEvents = aiWorkflowReview
+    ? buildReviewEvents({
+        hunks: aiWorkflowReview.diff.hunks,
+        reviewBundle: aiWorkflowReview.reviewBundle,
+        aiNotes: aiWorkflowReview.response.proposal.review.notes,
+        applyWarnings: aiWorkflowReview.response.proposal.applyPlan.warnings.map(
+          (warning) => `${warning.file} ${warning.where}: ${warning.message}`,
+        ),
+      })
+    : [];
+  const aiWarningSummary = warningSummary(aiReviewEvents);
+  const [focusedDiffEventId, setFocusedDiffEventId] = useState<string | null>(null);
+  const [focusedDiffTrackId, setFocusedDiffTrackId] = useState<string | null>(null);
+  const [diffPreviewMode, setDiffPreviewMode] = useState<"before" | "after">("after");
+  const [diffBoundedPlayback, setDiffBoundedPlayback] = useState(true);
+  const focusedDiffEvent = useMemo(
+    () =>
+      focusedDiffEventId
+        ? aiReviewEvents.find((ev) => ev.id === focusedDiffEventId) ?? null
+        : null,
+    [focusedDiffEventId, aiReviewEvents],
+  );
+  const diffPreviewRangeValue = useMemo(
+    () =>
+      focusedDiffEvent
+        ? diffPreviewRange(focusedDiffEvent.timeRange, focusedDiffEvent.kind)
+        : null,
+    [focusedDiffEvent],
+  );
+
+  /** AI編集diffモード用: 変更前(base)のレンダーprops */
+  const baseBuilt = useMemo(() => {
+    if (!proj || !cutplan || !overlays || !transcript) return null;
+    const baseKeeps = keepsOf(proj.cutplan);
+    const props = buildRenderProps({
+      manifest: proj.manifest,
+      keeps: baseKeeps,
+      transcript: proj.transcript,
+      overlays: proj.overlays,
+      renderCfg: proj.renderCfg,
+      width: proj.output.w,
+      height: proj.output.h,
+      videoFile: "media/proxy.mp4",
+      videoIsSource: true,
+      bgm: proj.bgm,
+      bgmFallbackFile: proj.bgmFile,
+      silences: proj.silences,
+      overlayExists: () => true,
+      warn: () => {},
+    });
+    const overlayItems = props.overlays.map((o) => ({ ...o, file: `media/${o.file}` }));
+    const insertItems = (props.inserts ?? []).map((o) => ({ ...o, file: `media/${o.file}` }));
+    const bgmTracks = props.bgm.map((b) => ({ ...b, file: `media/${b.file}` }));
+    const design = designForPlayer(props.design, props.width, props.height, proj.designAssets);
+    return {
+      props: {
+        ...props,
+        overlays: overlayItems,
+        inserts: insertItems,
+        bgm: bgmTracks,
+        ...(design ? { design } : {}),
+      },
+    };
+  }, [proj]);
+
   /** Player に渡す props。トラック別ミュート・レイヤーの一時非表示は
    * プレビューにだけ効かせる(built.props は書き出しと同じ内容のまま保つ) */
   const playerProps = useMemo(
-    () =>
-      built && {
-        ...built.props,
+    () => {
+      const source = aiEditEnabled && diffPreviewMode === "before" ? baseBuilt : built;
+      return source && {
+        ...source.props,
         muteBase: trackMuted.cut,
         muteBgm: trackMuted.bgm,
         hiddenLayers,
-      },
-    [built, trackMuted, hiddenLayers],
+      };
+    },
+    [built, baseBuilt, trackMuted, hiddenLayers, aiEditEnabled, diffPreviewMode],
   );
 
   const fps = built?.props.fps ?? 30;
@@ -1606,7 +1674,6 @@ export const App = () => {
   const aiWorkflowLocked =
     aiWorkflow !== null &&
     ["proposing", "reviewing", "refining", "applying", "saving", "verifying"].includes(aiWorkflow.phase);
-  const aiWorkflowReview = isAiWorkflowReviewState(aiWorkflow) ? aiWorkflow : null;
   const onboardingProjectReady = !!proj && !!built && !!cutplan && !!overlays && !!transcript;
   const onboardingEligible =
     onboardingProjectReady && draftOffer === null && !externalChange && !diffPanelOpen;
@@ -1726,6 +1793,31 @@ export const App = () => {
     p.pause();
     p.seekTo(clamp(p.getCurrentFrame() + n, 0, durationInFrames - 1));
   };
+  // バウンド再生の監視
+  useEffect(() => {
+    if (!aiEditEnabled || !diffBoundedPlayback || !diffPreviewRangeValue) return;
+    if (!playing) return;
+
+    const { startSec, endSec } = diffPreviewRangeValue;
+
+    let rafId: number;
+    const loop = () => {
+      const currentTime = playhead.get();
+      if (currentTime >= endSec) {
+        seekOut(startSec);
+      }
+      rafId = requestAnimationFrame(loop);
+    };
+    rafId = requestAnimationFrame(loop);
+
+    return () => cancelAnimationFrame(rafId);
+  }, [aiEditEnabled, diffBoundedPlayback, diffPreviewRangeValue, playing]);
+
+  // diffPreviewMode が切り替わったらバウンド再生をリセット
+  useEffect(() => {
+    setDiffBoundedPlayback(true);
+  }, [diffPreviewMode]);
+
   /** シークバー: ポインタの横位置の割合でカット後の時間へシーク */
   const scrubTo = (e: ReactPointerEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -5211,17 +5303,6 @@ export const App = () => {
   const aiFrameParse = aiWorkflowReview
     ? aiWorkflowReview.response.proposal.review.frames.map(formatReviewFrame)
     : [];
-  const aiReviewEvents = aiWorkflowReview
-    ? buildReviewEvents({
-        hunks: aiWorkflowReview.diff.hunks,
-        reviewBundle: aiWorkflowReview.reviewBundle,
-        aiNotes: aiWorkflowReview.response.proposal.review.notes,
-        applyWarnings: aiWorkflowReview.response.proposal.applyPlan.warnings.map(
-          (warning) => `${warning.file} ${warning.where}: ${warning.message}`,
-        ),
-      })
-    : [];
-  const aiWarningSummary = warningSummary(aiReviewEvents);
   const transcriptAiHunks = useMemo(
     () => aiWorkflowReview
       ? aiWorkflowReview.diff.hunks.filter(
@@ -5250,8 +5331,6 @@ export const App = () => {
     [aiEditEnabled, aiWorkflowReview, aiReviewEvents],
   );
   const [diffCollapsed, setDiffCollapsed] = useState<Record<string, boolean>>({});
-  const [focusedDiffEventId, setFocusedDiffEventId] = useState<string | null>(null);
-  const [focusedDiffTrackId, setFocusedDiffTrackId] = useState<string | null>(null);
   const setAiWorkflowHunks = (hunks: ProposalDiffResult["hunks"], side: "theirs" | "mine") => {
     setAiWorkflow((prev) => {
       if (!prev?.resolution) return prev;
@@ -6252,6 +6331,58 @@ export const App = () => {
         </div>
         </div>
         </div>
+        {aiEditEnabled && aiWorkflowReview && (
+          <div className="diffPlaybackBar ocDiffPlaybackBar">
+            <div className="diffPlaybackToggle">
+              <button
+                className={`diffPlaybackBtn${diffPreviewMode === "before" ? " on" : ""}`}
+                disabled={!focusedDiffEvent}
+                onClick={() => setDiffPreviewMode("before")}
+              >
+                前（変更前）
+              </button>
+              <button
+                className={`diffPlaybackBtn${diffPreviewMode === "after" ? " on" : ""}`}
+                disabled={!focusedDiffEvent}
+                onClick={() => setDiffPreviewMode("after")}
+              >
+                後（変更後）
+              </button>
+            </div>
+
+            {diffPreviewRangeValue && diffPreviewRangeValue.mode === "bounded" && (
+              <div className="diffPlaybackBounds">
+                <label className="diffPlaybackLoop">
+                  <input
+                    type="checkbox"
+                    checked={diffBoundedPlayback}
+                    onChange={(e) => setDiffBoundedPlayback(e.target.checked)}
+                  />
+                  区間ループ再生
+                </label>
+                <span className="diffPlaybackRange mono dim">
+                  {fmtTime(diffPreviewRangeValue.startSec)} &rarr; {fmtTime(diffPreviewRangeValue.endSec)}
+                </span>
+                {!diffBoundedPlayback && (
+                  <button
+                    className="diffPlaybackContinue"
+                    onClick={() => setDiffBoundedPlayback(true)}
+                  >
+                    ループに戻す
+                  </button>
+                )}
+              </div>
+            )}
+
+            {diffPreviewRangeValue && diffPreviewRangeValue.mode === "full-clip" && (
+              <div className="diffPlaybackBounds">
+                <span className="diffPlaybackRange mono dim">
+                  クリップ全体: {fmtTime(diffPreviewRangeValue.startSec)} &rarr; {fmtTime(diffPreviewRangeValue.endSec)}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
               </div>
             </ResizablePanel>
             <ResizableHandle
