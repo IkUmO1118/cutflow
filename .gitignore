@@ -8,6 +8,10 @@ node_modules/
 # schemas/examples/ の追跡対象を巻き込まないため)
 /examples/
 
+# 実装で用いたプランファイル
+docs/plans/
+docs/programs/
+
 # Remotion Studio 用の一時ファイル置き場(動画は収録フォルダに置く)
 public/
 
