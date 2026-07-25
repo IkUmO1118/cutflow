@@ -657,6 +657,43 @@
     position: fixed; inset: 0; z-index: 24;
     background: rgba(0, 0, 0, 0.42);
   }
+  /* AI Copilot diff: サマリーバー */
+  .aiSummaryBar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    background: hsl(var(--oc-accent) / 0.12);
+    border-bottom: 1px solid hsl(var(--oc-border));
+    font-size: 13px;
+  }
+  .aiSummaryCount {
+    font-weight: 600;
+    color: hsl(var(--oc-foreground));
+  }
+  button.aiSummaryBulk {
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    border: 1px solid hsl(var(--oc-border));
+    background: hsl(var(--oc-background));
+    color: hsl(var(--oc-foreground));
+    cursor: pointer;
+  }
+  button.aiSummaryBulk.primary {
+    background: hsl(var(--oc-primary));
+    color: hsl(var(--oc-primary-foreground));
+    border-color: hsl(var(--oc-primary));
+  }
+  button.aiSummaryBulk:hover {
+    opacity: 0.85;
+  }
+  /* AI編集ボタン ON状態 */
+  .aiCommandLauncher.on {
+    background: hsl(var(--oc-primary) / 0.18);
+    border-color: hsl(var(--oc-primary));
+    color: hsl(var(--oc-primary));
+  }
   .diffModal {
     position: fixed; left: 50%; top: 20px; bottom: 20px; transform: translateX(-50%);
     z-index: 25; width: 1020px; max-width: calc(100vw - 40px);

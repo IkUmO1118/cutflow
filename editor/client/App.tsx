@@ -705,6 +705,7 @@ export const App = () => {
   const [diffResolution, setDiffResolution] = useState<Resolution>(() => new Map());
   const [diffPanelOpen, setDiffPanelOpen] = useState(false);
   const [aiWorkflow, setAiWorkflow] = useState<AiWorkflowState | null>(null);
+  const [aiEditEnabled, setAiEditEnabled] = useState(false);
   const [aiCommandOpen, setAiCommandOpen] = useState(false);
   const [aiCommandScope, setAiCommandScope] = useState<AiScope>("global");
   const aiCommandLauncherRef = useRef<HTMLButtonElement | null>(null);
@@ -5160,23 +5161,45 @@ export const App = () => {
           <TooltipTrigger asChild>
             <Button
               ref={aiCommandLauncherRef}
-              variant="secondary"
+              variant={aiEditEnabled ? "default" : "secondary"}
               size="sm"
-              className="aiCommandLauncher"
+              className={`aiCommandLauncher${aiEditEnabled ? " on" : ""}`}
               disabled={aiWorkflowLocked}
-              title={aiWorkflowLocked ? aiWorkflowTitle : anyDirty ? "保存してから AI 一発編集" : "AI 一発編集を開く"}
+              title={
+                aiWorkflowLocked
+                  ? aiWorkflowTitle
+                  : aiEditEnabled
+                    ? "AI編集モードを終了"
+                    : anyDirty
+                      ? "保存してから AI 一発編集"
+                      : "AI 一発編集を開く"
+              }
               onClick={() => {
-                setAiCommandScope("global");
-                setAiCommandOpen(true);
+                if (aiEditEnabled) {
+                  setAiEditEnabled(false);
+                } else if (isAiWorkflowReviewState(aiWorkflow)) {
+                  setAiEditEnabled(true);
+                } else {
+                  setAiCommandScope("global");
+                  setAiCommandOpen(true);
+                }
               }}
             >
               {aiWorkflowLocked
                 ? <img className="aiCommandLauncherIcon" src="/particle_loop_icon.svg" alt="" />
                 : <Sparkles size={14} aria-hidden />}
-              {aiWorkflowLocked ? "編集中" : "AI編集"}
+              {aiWorkflowLocked ? "編集中" : aiEditEnabled ? "AI編集 ON" : "AI編集"}
             </Button>
           </TooltipTrigger>
-          <TooltipContent>{aiWorkflowLocked ? aiWorkflowTitle : anyDirty ? "保存してから AI 一発編集" : "AI 一発編集を開く"}</TooltipContent>
+          <TooltipContent>
+            {aiWorkflowLocked
+              ? aiWorkflowTitle
+              : aiEditEnabled
+                ? "AI編集モードを終了"
+                : anyDirty
+                  ? "保存してから AI 一発編集"
+                  : "AI 一発編集を開く"}
+          </TooltipContent>
         </Tooltip>
         {/* レイアウト切替(VSCode 風)。アイコンの塗られた面 = 表示中のパネル。
             閉じてもデータ・編集状態には影響しない(表示だけの切替) */}
@@ -5322,8 +5345,35 @@ export const App = () => {
         </Popover>
       </header>
 
+      {aiEditEnabled && aiWorkflowReview && (
+        <div className="aiSummaryBar ocAiSummaryBar">
+          <span className="aiSummaryCount">
+            AI編集・{aiWorkflowReview.diff.hunks.length}件の提案
+          </span>
+          <span className="spacer" />
+          <button
+            className="aiSummaryBulk primary"
+            onClick={() => {
+              if (!aiWorkflowReview) return;
+              setAiWorkflowHunks(aiWorkflowReview.diff.hunks, "theirs");
+            }}
+          >
+            すべて承認
+          </button>
+          <button
+            className="aiSummaryBulk"
+            onClick={() => {
+              if (!aiWorkflowReview) return;
+              setAiWorkflowHunks(aiWorkflowReview.diff.hunks, "mine");
+            }}
+          >
+            すべて却下
+          </button>
+        </div>
+      )}
+
       {/* 要対応の継続条件(トーストにしない=時間で消えない)。header と stage の
-          間に、いずれかが真のときだけ描画する。複数同時は縦積み(T4) */}
+           間に、いずれかが真のときだけ描画する。複数同時は縦積み(T4) */}
       <HeaderBanners
         draftOffer={draftOffer}
         externalChange={externalChange}
