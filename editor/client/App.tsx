@@ -88,6 +88,7 @@ import {
   hyperframeAuthorReadiness,
 } from "../../src/lib/hyperframeAuthor.ts";
 import { buildReviewEvents, warningSummary } from "../../src/lib/reviewEvents.ts";
+import { diffPreviewRange } from "../../src/lib/review.ts";
 import { previewCutKeepSignature } from "../../src/lib/previewCutSignature.ts";
 import { AiCommand } from "./AiCommand.tsx";
 import { AiVisualReview } from "./AiVisualReview.tsx";
@@ -182,6 +183,7 @@ import {
   SHORT_TRACK_DEF,
   buildTracks,
   cutSourceRange,
+  buildDiffTracks,
   fitZoomSpan,
   restoreSourceRange,
   splitSpanAt,
@@ -5114,6 +5116,14 @@ export const App = () => {
       : [],
     [aiWorkflowReview],
   );
+  const diffTracks = useMemo(
+    () =>
+      aiEditEnabled && aiWorkflowReview && built
+        ? buildDiffTracks(aiReviewEvents, timelineTracks)
+        : [],
+    [aiEditEnabled, aiWorkflowReview, aiReviewEvents, built],
+  );
+  const [diffCollapsed, setDiffCollapsed] = useState<Record<string, boolean>>({});
   const setAiWorkflowHunks = (hunks: ProposalDiffResult["hunks"], side: "theirs" | "mine") => {
     setAiWorkflow((prev) => {
       if (!prev?.resolution) return prev;
@@ -6267,6 +6277,22 @@ export const App = () => {
         hiddenLayers={hiddenLayers}
         onToggleTrackHide={toggleTrackHide}
               defaultDurationSec={defaultImgSec}
+              diffTracks={diffTracks}
+              diffCollapsed={diffCollapsed}
+              onToggleDiffCollapse={(trackId) => {
+                setDiffCollapsed((prev) => ({ ...prev, [trackId]: !prev[trackId] }));
+              }}
+              onDiffSetHunk={(hunks, side) => {
+                setAiWorkflowHunks(hunks, side);
+              }}
+              onDiffPreview={(event) => {
+                if (!event.timeRange) return;
+                const range = diffPreviewRange(event.timeRange, event.kind);
+                if (!range) return;
+                seekOut(Math.max(0, range.startSec - 1));
+                playerRef.current?.play();
+              }}
+              aiWorkflowHunks={aiWorkflowReview?.diff.hunks}
             />
           </div>
         </ResizablePanel>

@@ -12,6 +12,8 @@
 import { capNum, ovNum } from "../../src/types.ts";
 import type { AnnotationType, CaptionPos, Interval, LayerId, PlanSegment, Region, SpotlightShape } from "../../src/types.ts";
 import type { ScriptSegment } from "./apiTypes.ts";
+import type { Hunk } from "../../src/lib/docDiff.ts";
+import type { ReviewEvent, ReviewEventKind } from "../../src/lib/reviewEvents.ts";
 
 /** overlays.json のどの配列か(hide 系はエディタ非表示の手書き互換)。
  * "short" はショートモードの ranges 帯(shorts.json のショート単位)。
@@ -855,3 +857,94 @@ export function splitSpanAt(
   if (a <= s + minSpan || a >= e - minSpan) return null;
   return { left: { start: s, end: a }, right: { start: a, end: e } };
 }
+
+// ============================================================
+// AI Copilot Diff レビュー: diffレーン用 TrackDef
+// ============================================================
+
+/** diffレーンのトラックIDプレフィックス */
+export const DIFF_TRACK_PREFIX = "diff:";
+
+/** diffレーンの TrackDef。id は "diff:zoom" のように既存トラックIDに前置する */
+export interface DiffTrackDef {
+  track: TrackDef;
+  /** このdiffレーンに対応する元トラックの TrackDef */
+  sourceTrack: TrackDef;
+  /** このdiffレーンが表示する変更イベント */
+  events: ReviewEvent[];
+  /** 提案件数（バッジ表示用） */
+  eventCount: number;
+  /** 折りたたみ状態（初期値 true） */
+  collapsed: boolean;
+}
+
+/**
+ * ReviewEvent[] と既存 tracks から、diffレーンの TrackDef 配列を作る。
+ * 変更のあるトラックに対してのみ diffレーンを生成する。
+ */
+export function buildDiffTracks(
+  events: readonly ReviewEvent[],
+  existingTracks: readonly TrackDef[],
+): DiffTrackDef[] {
+  const trackIdToEvents = new Map<TrackId, ReviewEvent[]>();
+
+  for (const event of events) {
+    const trackId = diffTrackIdForEventKind(event.kind);
+    if (!trackId) continue;
+    const exists = existingTracks.some((t) => t.id === trackId);
+    if (!exists) continue;
+    const arr = trackIdToEvents.get(trackId) ?? [];
+    arr.push(event);
+    trackIdToEvents.set(trackId, arr);
+  }
+
+  const result: DiffTrackDef[] = [];
+  for (const [trackId, trackEvents] of trackIdToEvents) {
+    const sourceTrack = existingTracks.find((t) => t.id === trackId);
+    if (!sourceTrack) continue;
+    result.push({
+      track: {
+        id: `${DIFF_TRACK_PREFIX}${trackId}` as TrackId,
+        label: "AI提案",
+        hint: "AI編集の提案を確認します。クリックで展開/折りたたみ",
+      },
+      sourceTrack,
+      events: trackEvents,
+      eventCount: trackEvents.length,
+      collapsed: true,
+    });
+  }
+
+  const orderMap = new Map<TrackId, number>();
+  existingTracks.forEach((t, i) => orderMap.set(t.id, i));
+  result.sort(
+    (a, b) =>
+      (orderMap.get(a.sourceTrack.id) ?? 0) -
+      (orderMap.get(b.sourceTrack.id) ?? 0),
+  );
+
+  return result;
+}
+
+/** ReviewEventKind → 対応する TrackId */
+function diffTrackIdForEventKind(kind: string): TrackId | null {
+  switch (kind) {
+    case "cut": return "cut";
+    case "caption": return "caption";
+    case "overlay": return "ov1";
+    case "insert": return "cut";
+    case "annotation": return "annotation";
+    case "blur": return "blur";
+    case "zoom": return "zoom";
+    case "wipe": return "wipe";
+    case "caption-track": return "caption";
+    case "bgm": return "bgm";
+    case "short": return "short";
+    default: return null;
+  }
+}
+
+/** diffレーンの行高（px）。既定28px */
+export const DIFF_ROW_H = 28;
+/** 折りたたみ時の最小行高 */
+export const DIFF_ROW_H_COLLAPSED = 24;

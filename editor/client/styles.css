@@ -6426,6 +6426,72 @@
 .capDiffBtn.reject.on { background: hsl(var(--oc-destructive)); color: white; border-color: hsl(var(--oc-destructive)); }
 .capDiffBtn:hover { opacity: 0.8; }
 
+/* AI Copilot diff: タイムライン diffレーン */
+.diffTrack {
+  background: hsl(var(--oc-accent) / 0.04);
+  border-top: 1px dashed hsl(var(--oc-border));
+  border-bottom: 1px dashed hsl(var(--oc-border));
+  position: relative;
+  overflow: hidden;
+}
+.tlDiffTrackHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  user-select: none;
+}
+.tlDiffTrackHeader:hover { background: hsl(var(--oc-accent) / 0.08); }
+.tlDiffBadge {
+  background: hsl(var(--oc-primary));
+  color: hsl(var(--oc-primary-foreground));
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 600;
+}
+.tlDiffLabel { color: hsl(var(--oc-foreground)); }
+.tlDiffArrow { color: hsl(var(--oc-muted-foreground)); font-size: 10px; }
+
+/* diffクリップ */
+.tlDiffClip {
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  cursor: pointer;
+  overflow: hidden;
+  border: 1.5px dashed;
+}
+.tlDiffClip.add { border-color: hsl(var(--oc-success)); background: hsl(var(--oc-success) / 0.12); }
+.tlDiffClip.remove { border-color: hsl(var(--oc-destructive)); background: hsl(var(--oc-destructive) / 0.12); }
+.tlDiffClip.change { border-color: hsl(38 92% 50%); background: hsl(38 92% 50% / 0.12); border-style: solid; }
+.tlDiffClip.accepted { opacity: 0.5; border-style: solid; }
+.tlDiffClip.rejected { opacity: 0.25; }
+.tlDiffClip:hover { filter: brightness(1.1); }
+.tlDiffClipLabel {
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: hsl(var(--oc-foreground));
+}
+
+/* diffレーン ラベル列 */
+.tlLabelDiff {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+}
+.tlLabelDiff:hover { background: hsl(var(--oc-accent) / 0.08); }
+.tlDiffLabelText { color: hsl(var(--oc-muted-foreground)); font-size: 11px; }
+
 /* AI Copilot diff: スクリプトパネル 簡易インジケータ */
 .scriptAiIndicator {
   display: flex;
