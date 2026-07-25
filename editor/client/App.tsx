@@ -5106,6 +5106,14 @@ export const App = () => {
       })
     : [];
   const aiWarningSummary = warningSummary(aiReviewEvents);
+  const transcriptAiHunks = useMemo(
+    () => aiWorkflowReview
+      ? aiWorkflowReview.diff.hunks.filter(
+          (h) => h.address.file === "transcript" && h.address.arrayKey === "segments"
+        )
+      : [],
+    [aiWorkflowReview],
+  );
   const setAiWorkflowHunks = (hunks: ProposalDiffResult["hunks"], side: "theirs" | "mine") => {
     setAiWorkflow((prev) => {
       if (!prev?.resolution) return prev;
@@ -5700,6 +5708,16 @@ export const App = () => {
                   onSeekSrc={seekToSrc}
                   onCutRange={cutScriptRange}
                   onRestoreRange={restoreScriptRange}
+                  aiHunks={aiEditEnabled ? transcriptAiHunks : []}
+                  aiResolution={aiEditEnabled ? aiWorkflowReview?.resolution : undefined}
+                  onAiSetHunk={(hunk, side) => {
+                    setAiWorkflow((prev) => {
+                      if (!prev?.resolution) return prev;
+                      const next = new Map(prev.resolution);
+                      next.set(hunk, side);
+                      return { ...prev, resolution: next };
+                    });
+                  }}
                 />
               </>
             )}
@@ -5718,6 +5736,16 @@ export const App = () => {
                   updateCaption={(i, patch) =>
                     updateCaption(i, patch, `caption:${i}:text`)
                   }
+                  aiHunks={aiEditEnabled ? transcriptAiHunks : []}
+                  aiResolution={aiEditEnabled ? aiWorkflowReview?.resolution : undefined}
+                  onAiSetHunk={(hunk, side) => {
+                    setAiWorkflow((prev) => {
+                      if (!prev?.resolution) return prev;
+                      const next = new Map(prev.resolution);
+                      next.set(hunk, side);
+                      return { ...prev, resolution: next };
+                    });
+                  }}
                 />
               </>
             )}

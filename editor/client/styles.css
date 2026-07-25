@@ -6387,3 +6387,65 @@
 
   .mobileGateCard button { margin-top: 0.2rem; }
 }
+
+/* AI Copilot diff: テロップパネル インラインdiff */
+.capDiffRow {
+  border-left: 3px solid hsl(var(--oc-muted-foreground) / 0.3);
+  padding: 6px 8px 6px 12px;
+  margin: 4px 0;
+  border-radius: 4px;
+  font-size: 13px;
+}
+.capDiffRow.add { border-left-color: hsl(var(--oc-success)); background: hsl(var(--oc-success) / 0.06); }
+.capDiffRow.remove { border-left-color: hsl(var(--oc-destructive)); background: hsl(var(--oc-destructive) / 0.06); }
+.capDiffRow.modify { border-left-color: hsl(38 92% 50%); background: hsl(38 92% 50% / 0.06); }
+.capDiffRow.rejected { opacity: 0.45; }
+
+.capDiffMeta { display: flex; gap: 6px; margin-bottom: 3px; font-size: 11px; color: hsl(var(--oc-muted-foreground)); }
+.capDiffText { padding: 3px 6px; border-radius: 3px; margin-bottom: 2px; }
+.capDiffText.del {
+  background: hsl(var(--oc-destructive) / 0.12);
+  color: hsl(var(--oc-destructive));
+  text-decoration: line-through;
+}
+.capDiffText.add {
+  background: hsl(var(--oc-success) / 0.12);
+  color: hsl(var(--oc-success));
+}
+.capDiffActions { display: flex; gap: 4px; justify-content: flex-end; }
+.capDiffBtn {
+  width: 24px; height: 24px;
+  border: 1px solid hsl(var(--oc-border));
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  display: flex; align-items: center; justify-content: center;
+}
+.capDiffBtn.accept.on { background: hsl(var(--oc-success)); color: white; border-color: hsl(var(--oc-success)); }
+.capDiffBtn.reject.on { background: hsl(var(--oc-destructive)); color: white; border-color: hsl(var(--oc-destructive)); }
+.capDiffBtn:hover { opacity: 0.8; }
+
+/* AI Copilot diff: スクリプトパネル 簡易インジケータ */
+.scriptAiIndicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  margin-bottom: 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  background: hsl(38 92% 50% / 0.1);
+  border: 1px solid hsl(38 92% 50% / 0.3);
+}
+.scriptAiIndicator.accepted { background: hsl(var(--oc-success) / 0.1); border-color: hsl(var(--oc-success) / 0.3); }
+.scriptAiIndicator.rejected { background: hsl(var(--oc-destructive) / 0.1); border-color: hsl(var(--oc-destructive) / 0.3); opacity: 0.5; }
+.scriptAiIndicator button {
+  width: 20px; height: 20px;
+  border: 1px solid hsl(var(--oc-border));
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 11px;
+  display: flex; align-items: center; justify-content: center;
+}
