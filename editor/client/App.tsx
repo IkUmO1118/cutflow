@@ -5413,6 +5413,10 @@ export const App = () => {
                   setAiEditEnabled(false);
                 } else if (isAiWorkflowReviewState(aiWorkflow)) {
                   setAiEditEnabled(true);
+                  setFocusedDiffEventId(null);
+                  setFocusedDiffTrackId(null);
+                  setDiffPreviewMode("after");
+                  setDiffBoundedPlayback(true);
                 } else {
                   setAiCommandScope("global");
                   setAiCommandOpen(true);
