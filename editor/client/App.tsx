@@ -1589,21 +1589,31 @@ export const App = () => {
     );
   }, [focusedDiffEvent, curTimeline]);
 
-  /** AI編集diffモード用: 変更前(base)のレンダーprops */
-  const baseBuilt = useMemo(() => {
+  /** F5: AI編集モードの「後(変更後)」プレビュー用 props */
+  const aiPreviewBuilt = useMemo(() => {
     if (!proj || !cutplan || !overlays || !transcript) return null;
-    const baseKeeps = keepsOf(proj.cutplan);
+    if (!aiEditEnabled) return null;
+    const review = isAiWorkflowReviewState(aiWorkflow) ? aiWorkflow : null;
+    if (!review) return null;
+
+    const merged = applyProposalResolution(
+      { cutplan, overlays, transcript, bgm, shorts },
+      review.response.proposal.proposedDocs,
+      review.diff,
+      review.resolution,
+    );
+
     const props = buildRenderProps({
       manifest: proj.manifest,
-      keeps: baseKeeps,
-      transcript: proj.transcript,
-      overlays: proj.overlays,
+      keeps: keepsOf(merged.cutplan),
+      transcript: merged.transcript,
+      overlays: merged.overlays,
       renderCfg: proj.renderCfg,
       width: proj.output.w,
       height: proj.output.h,
       videoFile: "media/proxy.mp4",
       videoIsSource: true,
-      bgm: proj.bgm,
+      bgm: merged.bgm,
       bgmFallbackFile: proj.bgmFile,
       silences: proj.silences,
       overlayExists: () => true,
@@ -1622,13 +1632,16 @@ export const App = () => {
         ...(design ? { design } : {}),
       },
     };
-  }, [proj]);
+  }, [proj, cutplan, overlays, transcript, bgm, shorts, aiEditEnabled, aiWorkflow]);
 
   /** Player に渡す props。トラック別ミュート・レイヤーの一時非表示は
    * プレビューにだけ効かせる(built.props は書き出しと同じ内容のまま保つ) */
   const playerProps = useMemo(
     () => {
-      const source = aiEditEnabled && diffPreviewMode === "before" ? baseBuilt : built;
+      const source =
+        aiEditEnabled && diffPreviewMode === "after" && aiPreviewBuilt
+          ? aiPreviewBuilt
+          : built;
       return source && {
         ...source.props,
         muteBase: trackMuted.cut,
@@ -1636,7 +1649,7 @@ export const App = () => {
         hiddenLayers,
       };
     },
-    [built, baseBuilt, trackMuted, hiddenLayers, aiEditEnabled, diffPreviewMode],
+    [built, aiPreviewBuilt, trackMuted, hiddenLayers, aiEditEnabled, diffPreviewMode],
   );
 
   const fps = built?.props.fps ?? 30;
@@ -1819,8 +1832,14 @@ export const App = () => {
 
   // diffPreviewMode が切り替わったらバウンド再生をリセット
   useEffect(() => {
+    // F5: 「前/後」で出力尺が変わりうる。playhead が新しい尺の外に出たら戻す
+    const dur =
+      diffPreviewMode === "after" && aiPreviewBuilt
+        ? aiPreviewBuilt.props.durationSec
+        : built?.props.durationSec ?? 0;
+    if (dur > 0 && playhead.get() > dur) seekOut(Math.max(0, dur - 0.05));
     setDiffBoundedPlayback(true);
-  }, [diffPreviewMode]);
+  }, [diffPreviewMode, aiPreviewBuilt, built]);
 
   /** シークバー: ポインタの横位置の割合でカット後の時間へシーク */
   const scrubTo = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -6361,14 +6380,14 @@ export const App = () => {
             <div className="diffPlaybackToggle">
               <button
                 className={`diffPlaybackBtn${diffPreviewMode === "before" ? " on" : ""}`}
-                disabled={!focusedDiffEvent}
+                title="今の編集内容そのまま(AI提案を当てない絵)"
                 onClick={() => setDiffPreviewMode("before")}
               >
                 前（変更前）
               </button>
               <button
                 className={`diffPlaybackBtn${diffPreviewMode === "after" ? " on" : ""}`}
-                disabled={!focusedDiffEvent}
+                title="承認した AI 提案を当てた絵"
                 onClick={() => setDiffPreviewMode("after")}
               >
                 後（変更後）
