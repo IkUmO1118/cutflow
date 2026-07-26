@@ -884,8 +884,6 @@ export interface DiffTrackDef {
   clips: DiffLaneClip[];
   /** 提案件数（バッジ表示用） */
   eventCount: number;
-  /** 折りたたみ状態（初期値 true） */
-  collapsed: boolean;
 }
 
 /**
@@ -930,7 +928,6 @@ export function buildDiffTracks(
       sourceTrack,
       clips,
       eventCount: clips.length,
-      collapsed: false,
     });
   }
 
@@ -963,7 +960,5 @@ function diffTrackIdForEventKind(kind: string): TrackId | null {
   }
 }
 
-/** diffレーンの行高（px）。既定28px */
+/** diffレーンの行高(px)。開閉は無く常にこの高さ(F3) */
 export const DIFF_ROW_H = 28;
-/** 折りたたみ時の最小行高 */
-export const DIFF_ROW_H_COLLAPSED = 24;

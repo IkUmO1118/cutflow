@@ -6437,34 +6437,29 @@
 .capDiffBtn.reject.on { background: hsl(var(--oc-destructive)); color: white; border-color: hsl(var(--oc-destructive)); }
 .capDiffBtn:hover { opacity: 0.8; }
 
-/* AI Copilot diff: タイムライン diffレーン */
+/* AI Copilot diff: タイムライン diffレーン(F3: 開閉なし・本体とセット表示) */
 .diffTrack {
-  background: hsl(var(--oc-accent) / 0.04);
-  border-top: 1px dashed hsl(var(--oc-border));
-  border-bottom: 1px dashed hsl(var(--oc-border));
   position: relative;
   overflow: hidden;
 }
-.tlDiffTrackHeader {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 2px 10px;
-  cursor: pointer;
-  font-size: 12px;
-  user-select: none;
+/* セット表示: diff レーン(上)と本体トラック(下)を左罫と背景で括る。
+   間には境界線を引かず、セットの外側にだけ引く */
+.diffTrack.setTop,
+.tlTrack.setBottom,
+.tlLabelDiff.setTop,
+.tlLabel.setBottom {
+  background: hsl(var(--oc-accent) / 0.05);
+  box-shadow: inset 2px 0 0 0 hsl(var(--oc-primary) / 0.7);
 }
-.tlDiffTrackHeader:hover { background: hsl(var(--oc-accent) / 0.08); }
-.tlDiffBadge {
-  background: hsl(var(--oc-primary));
-  color: hsl(var(--oc-primary-foreground));
-  padding: 1px 6px;
-  border-radius: 8px;
-  font-size: 10px;
-  font-weight: 600;
+.diffTrack.setTop,
+.tlLabelDiff.setTop {
+  border-top: 1px solid hsl(var(--oc-border));
+  border-bottom: none;
 }
-.tlDiffLabel { color: hsl(var(--oc-foreground)); }
-.tlDiffArrow { color: hsl(var(--oc-muted-foreground)); font-size: 10px; }
+.tlTrack.setBottom,
+.tlLabel.setBottom {
+  border-bottom: 1px solid hsl(var(--oc-border));
+}
 
 /* diffクリップ */
 .tlDiffClip {
@@ -6501,12 +6496,19 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 2px 8px;
-  cursor: pointer;
+  padding: 2px 8px 2px 10px;
   user-select: none;
   font-size: 12px;
+  box-sizing: border-box;
 }
-.tlLabelDiff:hover { background: hsl(var(--oc-accent) / 0.08); }
+.tlDiffBadge {
+  background: hsl(var(--oc-primary));
+  color: hsl(var(--oc-primary-foreground));
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 600;
+}
 .tlDiffLabelText { color: hsl(var(--oc-muted-foreground)); font-size: 11px; }
 
 /* AI Copilot diff: プレイヤー下の前後トグル + バウンド再生 */

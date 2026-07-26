@@ -11,7 +11,7 @@ import type {
   TrackDef,
   TrackId,
 } from "./model.ts";
-import { DIFF_ROW_H, DIFF_ROW_H_COLLAPSED, DIFF_TRACK_PREFIX, MATERIAL_MIME, PRESET_MIME, trackHeightFor } from "./model.ts";
+import { DIFF_ROW_H, DIFF_TRACK_PREFIX, MATERIAL_MIME, PRESET_MIME, trackHeightFor } from "./model.ts";
 import type { DiffTrackDef } from "./model.ts";
 import type { Hunk } from "../../src/lib/docDiff.ts";
 import { reviewEventStatus } from "../../src/lib/reviewEvents.ts";
@@ -197,8 +197,6 @@ export const Timeline = ({
   onToggleTrackHide,
   defaultDurationSec,
   diffTracks,
-  diffCollapsed,
-  onToggleDiffCollapse,
   onDiffSetHunk,
   onDiffPreview,
   diffStills,
@@ -281,8 +279,6 @@ export const Timeline = ({
   /** 画像・尺不明素材の既定の尺(秒)。config の editor.defaultImageDurationSec */
   defaultDurationSec: number;
   diffTracks?: DiffTrackDef[];
-  diffCollapsed?: Record<string, boolean>;
-  onToggleDiffCollapse?: (trackId: string) => void;
   onDiffSetHunk?: (hunks: Hunk[], side: "theirs" | "mine") => void;
   onDiffPreview?: (event: import("../../src/lib/reviewEvents.ts").ReviewEvent) => void;
   diffStills?: { eventId: string; beforeFile: string; afterFile: string }[];
@@ -359,10 +355,8 @@ export const Timeline = ({
 
   /** トラックの表示高さ(px)。既定は型別、ユーザーは上へだけ広げられる */
   const rowH = (id: TrackId): number => {
-    if (typeof id === "string" && id.startsWith(DIFF_TRACK_PREFIX)) {
-      const collapsed = diffCollapsed?.[id] ?? true;
-      return collapsed ? DIFF_ROW_H_COLLAPSED : DIFF_ROW_H;
-    }
+    // F3: diff レーンは開閉しないので常に固定高
+    if (typeof id === "string" && id.startsWith(DIFF_TRACK_PREFIX)) return DIFF_ROW_H;
     const base = trackHeightFor(id);
     return Math.min(ROW_H_MAX, Math.max(base, trackHeights[id] ?? base));
   };
@@ -384,6 +378,12 @@ export const Timeline = ({
 
     return result;
   }, [tracks, diffTracks]);
+
+  /** F3: diff レーンとペアになっている本体トラックの id(セット表示用) */
+  const pairedTrackIds = useMemo(
+    () => new Set((diffTracks ?? []).map((dt) => dt.sourceTrack.id)),
+    [diffTracks],
+  );
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -608,7 +608,7 @@ export const Timeline = ({
   const onLabelDown = (e: ReactPointerEvent, idx: number) => {
     if (e.button !== 0) return;
     const t = tracks[idx];
-    if (!t.reorderable) return;
+    if (!t || !t.reorderable) return;   // F3: idx が -1 でも落ちないように
     let cur = idx;
     setDragLabel(t.id);
     beginDrag(
@@ -1070,17 +1070,15 @@ export const Timeline = ({
             {allTracks.map((item, i) => {
               if ("sourceTrack" in item) {
                 const diffDef = item as unknown as DiffTrackDef;
-                const collapsed = diffCollapsed?.[diffDef.track.id] ?? diffDef.collapsed;
-                const rowHeight = collapsed ? DIFF_ROW_H_COLLAPSED : DIFF_ROW_H;
                 return (
                   <div
                     key={diffDef.track.id}
-                    className="tlLabelDiff"
-                    style={{ height: rowHeight }}
-                    onClick={() => onToggleDiffCollapse?.(diffDef.track.id)}
+                    className="tlLabelDiff setTop"
+                    style={{ height: DIFF_ROW_H }}
+                    title={diffDef.track.hint}
                   >
                     <span className="tlDiffBadge">{diffDef.eventCount}</span>
-                    <span className="tlDiffLabelText">{diffDef.sourceTrack.label}</span>
+                    <span className="tlDiffLabelText">AI提案</span>
                   </div>
                 );
               }
@@ -1093,7 +1091,7 @@ export const Timeline = ({
                 selection.index === t.renamableCaption;
               return (
                 <div
-                  className={`tlLabel${t.reorderable ? " reorderable" : ""}${dragLabel === t.id ? " dragging" : ""}${drop?.track === t.id ? " dropActive" : ""}${trackSelected ? " sel" : ""}`}
+                  className={`tlLabel${t.reorderable ? " reorderable" : ""}${dragLabel === t.id ? " dragging" : ""}${drop?.track === t.id ? " dropActive" : ""}${trackSelected ? " sel" : ""}${pairedTrackIds.has(t.id) ? " setBottom" : ""}`}
                   key={t.id}
                   style={{ height: rowH(t.id) }}
                   title={t.hint}
@@ -1104,7 +1102,9 @@ export const Timeline = ({
                     if (e.button === 0 && t.renamableCaption !== undefined) {
                       onSelectCaptionTrack(t.renamableCaption);
                     }
-                    onLabelDown(e, i);
+                    // F3: i は diff レーンを含む allTracks の添字。
+                    // onLabelDown は tracks[idx] を引くので id で引き直す
+                    onLabelDown(e, tracks.findIndex((x) => x.id === t.id));
                   }}
                   onDoubleClick={() =>
                     t.renamableCaption !== undefined &&
@@ -1215,19 +1215,9 @@ export const Timeline = ({
             {allTracks.map((item) => {
               if ("sourceTrack" in item) {
                 const diffDef = item as unknown as DiffTrackDef;
-                const collapsed = diffCollapsed?.[diffDef.track.id] ?? diffDef.collapsed;
-                const rowHeight = collapsed ? DIFF_ROW_H_COLLAPSED : DIFF_ROW_H;
                 return (
-                  <div key={diffDef.track.id} className="tlRow diffTrack" style={{ height: rowHeight }}>
-                    <div
-                      className="tlDiffTrackHeader"
-                      onClick={() => onToggleDiffCollapse?.(diffDef.track.id)}
-                    >
-                      <span className="tlDiffBadge">{diffDef.eventCount}件</span>
-                      <span className="tlDiffLabel">{diffDef.track.label}</span>
-                      <span className="tlDiffArrow">{collapsed ? "\u25B8" : "\u25BE"}</span>
-                    </div>
-                    {!collapsed && diffDef.clips.map(({ event, outStart, outEnd, inCut }) => {
+                  <div key={diffDef.track.id} className="tlRow diffTrack setTop" style={{ height: DIFF_ROW_H }}>
+                    {diffDef.clips.map(({ event, outStart, outEnd, inCut }) => {
                       // F2: outStart/outEnd はカット後秒。既存クリップと同じ
                       // 絶対配置(winLeftPx を引かない)にする
                       const left = outStart * pps;
@@ -1304,7 +1294,7 @@ export const Timeline = ({
                           : ""
                   }${
                     presetDragTrack === track.id && !byTrack.get(track.id) ? " ocTrackDropLane" : ""
-                  }`}
+                  }${pairedTrackIds.has(track.id) ? " setBottom" : ""}`}
                   key={track.id}
                   style={{ height: rowH(track.id) }}
                   onPointerDown={(e) => onTrackDown(e, track)}

@@ -2079,7 +2079,7 @@ export const App = () => {
       beforeFile: still.before.file,
       afterFile: still.after.file,
     })) ?? [];
-  const [diffCollapsed, setDiffCollapsed] = useState<Record<string, boolean>>({});
+  /* F3: 折りたたみは廃止。diff レーンは常時展開 */
 
   /** タイムラインに実際に見せるトラック。映像(cut)は常時、他は要素が1つでもある
    * または「今インスペクタで編集中のテロップトラック」、またはプリセットの
@@ -2087,16 +2087,19 @@ export const App = () => {
   const visibleTracks = useMemo(() => {
     if (shortMode) return timelineTracks;
     const occupied = new Set(clips.map((c) => c.track));
+    // F3: AI提案のあるトラックは、まだクリップが1つも無くても表示する
+    const hasDiff = new Set(diffTracks.map((dt) => dt.sourceTrack.id));
     return timelineTracks.filter(
       (t) =>
         t.id === "cut" ||
         occupied.has(t.id) ||
+        hasDiff.has(t.id) ||
         t.id === presetDrag?.track ||
         (t.renamableCaption !== undefined &&
           selection?.kind === "captionTrack" &&
           selection.index === t.renamableCaption),
     );
-  }, [timelineTracks, clips, shortMode, selection, presetDrag]);
+  }, [timelineTracks, clips, shortMode, selection, presetDrag, diffTracks]);
 
   /* ---------------- カット編集(分割・keep⇄cut・復元) ----------------
    * cut 区間は削除せず記録として残す(plan の候補と同じ扱い)。だから
@@ -5154,11 +5157,7 @@ export const App = () => {
           const nextEvent = flatDiffEvents[nextIdx];
           setFocusedDiffEventId(nextEvent.id);
           const trackId = diffTrackIdForEvent(nextEvent);
-          if (trackId) {
-            const diffTrackId = `${DIFF_TRACK_PREFIX}${trackId}`;
-            setFocusedDiffTrackId(diffTrackId);
-            setDiffCollapsed((prev) => ({ ...prev, [diffTrackId]: false }));
-          }
+          if (trackId) setFocusedDiffTrackId(`${DIFF_TRACK_PREFIX}${trackId}`);
           if (nextEvent.timeRange) {
             const outSec = snapToOutput(nextEvent.timeRange.startSec, curTimeline);
           }
@@ -5175,11 +5174,7 @@ export const App = () => {
           const prevEvent = flatDiffEvents[prevIdx];
           setFocusedDiffEventId(prevEvent.id);
           const trackId = diffTrackIdForEvent(prevEvent);
-          if (trackId) {
-            const diffTrackId = `${DIFF_TRACK_PREFIX}${trackId}`;
-            setFocusedDiffTrackId(diffTrackId);
-            setDiffCollapsed((prev) => ({ ...prev, [diffTrackId]: false }));
-          }
+          if (trackId) setFocusedDiffTrackId(`${DIFF_TRACK_PREFIX}${trackId}`);
           if (prevEvent.timeRange) {
             const outSec = snapToOutput(prevEvent.timeRange.startSec, curTimeline);
           }
@@ -6555,10 +6550,6 @@ export const App = () => {
         onToggleTrackHide={toggleTrackHide}
               defaultDurationSec={defaultImgSec}
               diffTracks={diffTracks}
-              diffCollapsed={diffCollapsed}
-              onToggleDiffCollapse={(trackId) => {
-                setDiffCollapsed((prev) => ({ ...prev, [trackId]: !prev[trackId] }));
-              }}
               onDiffSetHunk={(hunks, side) => {
                 setAiWorkflowHunks(hunks, side);
               }}
