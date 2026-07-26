@@ -899,11 +899,13 @@ export const CaptionsPanel = ({
     <div className="capList">
       {rows.map(({ s, i }) => {
         const sel = i === selectedIndex || multiSelected.includes(i);
-        const rowHunks = transcriptAiHunks.length > 0
-          ? transcriptAiHunks.filter(
-              (h) => h.address.elementId === s.id || h.address.elementId === undefined
-            )
-          : [];
+        // F4: elementId が一致する hunk だけをこの行に出す。
+        // elementId の無い hunk(= 配列まるごとの退化 hunk)は特定の行を
+        // 指していないので、ここでは拾わない(サマリーバーが告知する)
+        const rowHunks =
+          transcriptAiHunks.length > 0 && s.id
+            ? transcriptAiHunks.filter((h) => h.address.elementId === s.id)
+            : [];
         return (
           <div
             className={`capRow${sel ? " sel" : ""}`}
@@ -933,7 +935,7 @@ export const CaptionsPanel = ({
                 const theirs = hunk.theirs as Record<string, unknown>;
                 if (typeof theirs.text === "string") {
                   return (
-                    <div key={hunk.address.label} className={`capDiffRow add${isAccepted ? " accepted" : ""}`}>
+                    <div key={`${hunk.address.label}#${hunk.kind}#${hunk.address.field ?? ""}`} className={`capDiffRow add${isAccepted ? " accepted" : ""}`}>
                       <div className="capDiffMeta mono"><span>AI提案: 追加</span></div>
                       <div className="capDiffText">{theirs.text}</div>
                       <div className="capDiffActions">
@@ -949,7 +951,7 @@ export const CaptionsPanel = ({
 
               if (hunk.kind === "element-remove") {
                 return (
-                  <div key={hunk.address.label} className={`capDiffRow remove${isAccepted ? " accepted" : " rejected"}`}>
+                  <div key={`${hunk.address.label}#${hunk.kind}#${hunk.address.field ?? ""}`} className={`capDiffRow remove${isAccepted ? " accepted" : " rejected"}`}>
                     <div className="capDiffMeta mono"><span>AI提案: 削除</span></div>
                     <div className="capDiffText del">{s.text}</div>
                     <div className="capDiffActions">
@@ -968,7 +970,7 @@ export const CaptionsPanel = ({
                 typeof hunk.theirs === "string"
               ) {
                 return (
-                  <div key={hunk.address.label} className={`capDiffRow modify${isAccepted ? " accepted" : ""}`}>
+                  <div key={`${hunk.address.label}#${hunk.kind}#${hunk.address.field ?? ""}`} className={`capDiffRow modify${isAccepted ? " accepted" : ""}`}>
                     <div className="capDiffMeta mono"><span>AI提案: 文言変更</span></div>
                     <div className="capDiffText del">{String(hunk.mine ?? s.text)}</div>
                     <div className="capDiffText add">{hunk.theirs}</div>
@@ -1273,6 +1275,7 @@ export const ScriptPanel = ({
   aiHunks: scriptAiHunks = [],
   aiResolution: scriptAiResolution,
   onAiSetHunk: scriptOnAiSetHunk,
+  transcript,
 }: {
   /** GET /api/script の結果。null = 読み込み中 */
   script: ScriptData | null;
@@ -1301,7 +1304,24 @@ export const ScriptPanel = ({
   aiResolution?: Map<Hunk, "theirs" | "mine">;
   /** AI編集diffモード用: Hunk の承認/却下 */
   onAiSetHunk?: (hunk: Hunk, side: "theirs" | "mine") => void;
+  /** F4: hunk elementId → transcript segment 時刻の解決 */
+  transcript?: { segments: { id?: string; start: number; end: number }[] };
 }) => {
+  /** F4: hunk → 対象 transcript segment の元収録秒 */
+  const scriptAiHunkTimes = useMemo(() => {
+    const byId = new Map<string, { start: number; end: number }>();
+    for (const seg of transcript?.segments ?? []) {
+      if (seg.id) byId.set(seg.id, { start: seg.start, end: seg.end });
+    }
+    const m = new Map<Hunk, { start: number; end: number }>();
+    for (const h of scriptAiHunks) {
+      const id = h.address.elementId;
+      if (!id) continue;
+      const t = byId.get(id);
+      if (t) m.set(h, t);
+    }
+    return m;
+  }, [scriptAiHunks, transcript]);
   const rootRef = useRef<HTMLDivElement>(null);
   /** 現在の文字選択(語 span に解決できたときだけ)。a/b = 元収録の秒 */
   const [sel, setSel] = useState<{
@@ -1471,9 +1491,11 @@ export const ScriptPanel = ({
       </div>
       <div className="scriptList">
         {rows.map((r, i) => {
-          const rowHunk = scriptAiHunks.length > 0
-            ? scriptAiHunks.find((h) => h.address.elementId === undefined)
-            : undefined;
+          // F4: 行(元収録秒の区間)に時間が重なる提案だけを出す
+          const rowHunk = scriptAiHunks.find((h) => {
+            const t = scriptAiHunkTimes.get(h);
+            return t !== undefined && t.start < r.end && r.start < t.end;
+          });
           return (
             <ScriptRow
               key={i}

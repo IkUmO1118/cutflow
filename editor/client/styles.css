@@ -682,6 +682,11 @@
   }
   /* F1: サマリーバーの適用・破棄ボタン */
   .aiSummaryAccepted { font-size: 11px; margin-left: 10px; }
+  .aiSummaryWarn {
+    font-size: 11px;
+    margin-left: 10px;
+    color: hsl(38 92% 45%);
+  }
   .aiSummaryBulk:disabled { opacity: 0.45; cursor: not-allowed; }
   .aiSummaryBulk.ghost {
     border-color: transparent;

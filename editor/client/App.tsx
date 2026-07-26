@@ -2046,6 +2046,12 @@ export const App = () => {
         (h) => h.address.file === "transcript" && h.address.arrayKey === "segments"
       )
     : [];
+  /** F4: 配列まるごと1件に退化した hunk(要素に @id が無い収録) */
+  const aiHunksDegraded = aiWorkflowReview
+    ? aiWorkflowReview.diff.hunks.some(
+        (h) => h.kind === "file" && h.address.arrayKey !== undefined,
+      )
+    : false;
   /** F2: 元収録秒の区間をカット後秒へ */
   const diffTimeToOutput = (startSec: number, endSec: number) => {
     const pieces = remapInterval(startSec, endSec, curTimeline);
@@ -5609,6 +5615,11 @@ export const App = () => {
           <span className="aiSummaryCount">
             AI編集・{aiWorkflowReview.diff.hunks.length}件の提案
           </span>
+          {aiHunksDegraded && (
+            <span className="aiSummaryWarn" title="この収録の JSON 要素に @id が無いため、AI の提案を1件ずつテロップ行へ割り当てられません。一度 ⌘S で保存すると id が採番され、次回から行ごとに表示できます">
+              ⚠ 行ごとの表示は不可(@id 未採番)
+            </span>
+          )}
           <span className="aiSummaryAccepted mono dim">
             承認 {aiAcceptedCount} / 却下 {aiWorkflowReview.diff.hunks.length - aiAcceptedCount}
           </span>
@@ -5940,6 +5951,7 @@ export const App = () => {
                   onRestoreRange={restoreScriptRange}
                   aiHunks={aiEditEnabled ? transcriptAiHunks : []}
                   aiResolution={aiEditEnabled ? aiWorkflowReview?.resolution : undefined}
+                  transcript={transcript}
                   onAiSetHunk={(hunk, side) => {
                     setAiWorkflow((prev) => {
                       if (!prev?.resolution) return prev;
