@@ -28,6 +28,7 @@ import {
   threeWayDiff,
 } from "../../src/lib/docDiff.ts";
 import type {
+  Hunk,
   ProposalDiffResult,
   ProposalResolution,
   ReviewDocs,
@@ -184,8 +185,8 @@ import {
   buildTracks,
   cutSourceRange,
   buildDiffTracks,
-  canApplyProposal,
   isLaneWorthy,
+  resolutionForOnly,
   fitZoomSpan,
   restoreSourceRange,
   shouldEnterCopilotMode,
@@ -283,6 +284,8 @@ interface AiWorkflowState {
   response?: AiProposeResponse;
   diff?: ProposalDiffResult;
   resolution?: ProposalResolution;
+  /** F8: 決着済み(承認して反映した / 却下した)hunk。UI からは消える */
+  settled?: Set<Hunk>;
   saved?: boolean;
   reviewBundle?: ReviewBundle;
   reviewCandidateKey?: string;
@@ -296,6 +299,7 @@ interface AiWorkflowReviewState extends AiWorkflowState {
   response: AiProposeResponse;
   diff: ProposalDiffResult;
   resolution: ProposalResolution;
+  settled: Set<Hunk>;
 }
 
 interface ApplyAiWorkflowOptions {
@@ -370,7 +374,8 @@ const isAiWorkflowReviewState = (
   (workflow?.phase === "reviewing" || workflow?.phase === "verifying" || workflow?.phase === "refining") &&
   workflow.response !== undefined &&
   workflow.diff !== undefined &&
-  workflow.resolution !== undefined;
+  workflow.resolution !== undefined &&
+  workflow.settled !== undefined;
 
 const acceptedAiHunkLabels = (workflow: AiWorkflowReviewState): string[] =>
   workflow.diff.hunks.flatMap((hunk) =>
@@ -1592,18 +1597,25 @@ export const App = () => {
     );
   }, [focusedDiffEvent, curTimeline]);
 
-  /** F5: AI編集モードの「後(変更後)」プレビュー用 props */
+  /** F8: 「後」= いまフォーカスしている1件だけを当てた絵。
+   * 承認済みのものは既に live docs に入っているので重ねない */
   const aiPreviewBuilt = useMemo(() => {
     if (!proj || !cutplan || !overlays || !transcript) return null;
     if (!aiEditEnabled) return null;
     const review = isAiWorkflowReviewState(aiWorkflow) ? aiWorkflow : null;
     if (!review) return null;
 
+    const focused = focusedDiffEvent;
+    if (!focused) return null;
+    const targets = focused.hunkIndexes
+      .map((i) => review.diff.hunks[i])
+      .filter((h): h is Hunk => Boolean(h) && !review.settled.has(h));
+    if (targets.length === 0) return null;
     const merged = applyProposalResolution(
       { cutplan, overlays, transcript, bgm, shorts },
       review.response.proposal.proposedDocs,
       review.diff,
-      review.resolution,
+      resolutionForOnly(review.diff.hunks, targets),
     );
 
     const props = buildRenderProps({
@@ -1635,7 +1647,7 @@ export const App = () => {
         ...(design ? { design } : {}),
       },
     };
-  }, [proj, cutplan, overlays, transcript, bgm, shorts, aiEditEnabled, aiWorkflow]);
+  }, [proj, cutplan, overlays, transcript, bgm, shorts, aiEditEnabled, aiWorkflow, focusedDiffEvent]);
 
   /** Player に渡す props。トラック別ミュート・レイヤーの一時非表示は
    * プレビューにだけ効かせる(built.props は書き出しと同じ内容のまま保つ) */
@@ -2079,7 +2091,10 @@ export const App = () => {
 
   const transcriptAiHunks = aiWorkflowReview
     ? aiWorkflowReview.diff.hunks.filter(
-        (h) => h.address.file === "transcript" && h.address.arrayKey === "segments"
+        (h) =>
+          !aiWorkflowReview.settled.has(h) &&
+          h.address.file === "transcript" &&
+          h.address.arrayKey === "segments",
       )
     : [];
   /** F4: 配列まるごと1件に退化した hunk(要素に @id が無い収録) */
@@ -2105,7 +2120,10 @@ export const App = () => {
   const laneEvents =
     aiEditEnabled && aiWorkflowReview
       ? aiReviewEvents.filter((ev) =>
-          isLaneWorthy(ev, aiWorkflowReview.diff.hunks),
+          isLaneWorthy(ev, aiWorkflowReview.diff.hunks) &&
+          ev.hunkIndexes.some(
+            (i) => !aiWorkflowReview.settled.has(aiWorkflowReview.diff.hunks[i]),
+          ),
         )
       : [];
   const diffTracks =
@@ -4463,6 +4481,7 @@ export const App = () => {
         response,
         diff,
         resolution: new Map(diff.hunks.map((h) => [h, "theirs"] as const)),
+        settled: new Set(),
         autoReviewRequested: false,
       });
       // F1: 提案が返ったらそのまま Copilot モード(インライン diff レビュー)に
@@ -4598,6 +4617,7 @@ export const App = () => {
         response,
         diff,
         resolution: new Map(diff.hunks.map((h) => [h, "theirs"] as const)),
+        settled: new Set(),
         refineMode: undefined,
       });
     } catch (e) {
@@ -5270,7 +5290,7 @@ export const App = () => {
             const hunks = event.hunkIndexes
               .map((i) => aiWorkflowReview.diff.hunks[i])
               .filter((h): h is typeof aiWorkflowReview.diff.hunks[number] => Boolean(h));
-            setAiWorkflowHunks(hunks, "theirs");
+            settleAiHunks(hunks, "theirs");
           }
           return;
         }
@@ -5282,7 +5302,7 @@ export const App = () => {
             const hunks = event.hunkIndexes
               .map((i) => aiWorkflowReview.diff.hunks[i])
               .filter((h): h is typeof aiWorkflowReview.diff.hunks[number] => Boolean(h));
-            setAiWorkflowHunks(hunks, "mine");
+            settleAiHunks(hunks, "mine");
           }
           return;
         }
@@ -5298,7 +5318,7 @@ export const App = () => {
                 .map((i) => aiWorkflowReview.diff.hunks[i])
                 .filter((h): h is typeof aiWorkflowReview.diff.hunks[number] => Boolean(h))
             );
-            setAiWorkflowHunks(hunks, "theirs");
+            settleAiHunks(hunks, "theirs");
           }
           return;
         }
@@ -5306,7 +5326,7 @@ export const App = () => {
         if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
           e.preventDefault();
           if (aiWorkflowReview) {
-            setAiWorkflowHunks(aiWorkflowReview.diff.hunks, "theirs");
+            settleAiHunks(pendingHunks, "theirs");
           }
           return;
         }
@@ -5430,26 +5450,48 @@ export const App = () => {
   const aiFrameParse = aiWorkflowReview
     ? aiWorkflowReview.response.proposal.review.frames.map(formatReviewFrame)
     : [];
-  /** F1: 承認(theirs)側になっている hunk の件数 */
-  const aiAcceptedCount = aiWorkflowReview
-    ? aiWorkflowReview.diff.hunks.filter(
-        (h) => (aiWorkflowReview.resolution.get(h) ?? "theirs") === "theirs",
-      ).length
-    : 0;
-  /** F1: 適用・保存・検証の実行中(二重押し防止) */
-  const aiWorkflowBusy =
-    aiWorkflow !== null &&
-    (aiWorkflow.phase === "applying" ||
-      aiWorkflow.phase === "saving" ||
-      aiWorkflow.phase === "verifying" ||
-      aiWorkflow.phase === "refining");
-  const setAiWorkflowHunks = (hunks: ProposalDiffResult["hunks"], side: "theirs" | "mine") => {
+  /** F8: まだ決着していない hunk。UI(レーン・パネル・サマリー)はこれだけを見る */
+  const pendingHunks = aiWorkflowReview
+    ? aiWorkflowReview.diff.hunks.filter((h) => !aiWorkflowReview.settled.has(h))
+    : [];
+
+  /**
+   * F8: hunk を決着させる。承認(theirs)ならその場で編集へ反映し、
+   * 却下(mine)なら何もせず捨てる。どちらも UI からは消える。
+   * 反映は1回の applyLiveDocs にまとめる(= undo 1回で戻せる)。
+   * ディスクには書かない(保存は人間の ⌘S)。
+   */
+  const settleAiHunks = (hunks: Hunk[], side: "theirs" | "mine") => {
+    const review = aiWorkflowReview;
+    if (!review || hunks.length === 0 || !proj) return;
+
+    if (side === "theirs") {
+      const merged = applyProposalResolution(
+        { cutplan, overlays, transcript, bgm, shorts },
+        review.response.proposal.proposedDocs,
+        review.diff,
+        resolutionForOnly(review.diff.hunks, hunks),
+      );
+      applyLiveDocs(merged);
+    }
+
     setAiWorkflow((prev) => {
-      if (!prev?.resolution) return prev;
-      const next = new Map(prev.resolution);
-      for (const hunk of hunks) next.set(hunk, side);
-      return { ...prev, resolution: next, reviewStale: prev.reviewBundle ? true : prev.reviewStale };
+      if (!prev?.settled || !prev.resolution) return prev;
+      const settled = new Set(prev.settled);
+      const resolution = new Map(prev.resolution);
+      for (const h of hunks) {
+        settled.add(h);
+        resolution.set(h, side);
+      }
+      if (prev.diff && settled.size >= prev.diff.hunks.length) return null;
+      return { ...prev, settled, resolution };
     });
+
+    if (review.settled.size + hunks.length >= review.diff.hunks.length) {
+      setAiEditEnabled(false);
+      setFocusedDiffEventId(null);
+      setFocusedDiffTrackId(null);
+    }
   };
 
   // 開閉・最大化でも Panel の children は常時 mount したまま保つ。
@@ -5689,61 +5731,28 @@ export const App = () => {
       {aiEditEnabled && aiWorkflowReview && (
         <div className="aiSummaryBar ocAiSummaryBar">
           <span className="aiSummaryCount">
-            AI編集・{aiWorkflowReview.diff.hunks.length}件の提案
+            AI編集・残り {pendingHunks.length} 件
           </span>
           {aiHunksDegraded && (
             <span className="aiSummaryWarn" title="この収録の JSON 要素に @id が無いため、AI の提案を1件ずつテロップ行へ割り当てられません。一度 ⌘S で保存すると id が採番され、次回から行ごとに表示できます">
               ⚠ 行ごとの表示は不可(@id 未採番)
             </span>
           )}
-          <span className="aiSummaryAccepted mono dim">
-            承認 {aiAcceptedCount} / 却下 {aiWorkflowReview.diff.hunks.length - aiAcceptedCount}
+          <span className="aiSummaryHint dim">
+            ✓ で反映・✗ で破棄(どちらも即時。⌘Z で取り消せます)
           </span>
           <span className="spacer" />
           <button
-            className="aiSummaryBulk"
-            disabled={aiWorkflowBusy}
-            onClick={() => {
-              if (!aiWorkflowReview) return;
-              setAiWorkflowHunks(aiWorkflowReview.diff.hunks, "theirs");
-            }}
+            className="aiSummaryBulk primary"
+            onClick={() => settleAiHunks(pendingHunks, "theirs")}
           >
-            すべて承認
+            すべて承認して反映
           </button>
           <button
             className="aiSummaryBulk"
-            disabled={aiWorkflowBusy}
-            onClick={() => {
-              if (!aiWorkflowReview) return;
-              setAiWorkflowHunks(aiWorkflowReview.diff.hunks, "mine");
-            }}
+            onClick={() => settleAiHunks(pendingHunks, "mine")}
           >
             すべて却下
-          </button>
-          <button
-            className="aiSummaryBulk primary"
-            disabled={!canApplyProposal({ acceptedCount: aiAcceptedCount, busy: aiWorkflowBusy })}
-            title={
-              aiAcceptedCount === 0
-                ? "承認された提案がありません"
-                : "承認した提案だけを編集内容へ反映して保存します"
-            }
-            onClick={() => void applyAiWorkflow({ save: true, reviewFirst: false })}
-          >
-            {aiWorkflowBusy ? "適用中…" : `承認した ${aiAcceptedCount} 件を適用`}
-          </button>
-          <button
-            className="aiSummaryBulk ghost"
-            disabled={aiWorkflowBusy}
-            title="提案を破棄して AI編集モードを終了します(編集内容は変わりません)"
-            onClick={() => {
-              setAiWorkflow(null);
-              setAiEditEnabled(false);
-              setFocusedDiffEventId(null);
-              setFocusedDiffTrackId(null);
-            }}
-          >
-            やめる
           </button>
         </div>
       )}
@@ -6437,17 +6446,19 @@ export const App = () => {
             <div className="diffPlaybackToggle">
               <button
                 className={`diffPlaybackBtn${diffPreviewMode === "before" ? " on" : ""}`}
-                title="今の編集内容そのまま(AI提案を当てない絵)"
+                disabled={!focusedDiffEvent}
+                title="この提案を当てない絵(今の編集内容そのまま)"
                 onClick={() => setDiffPreviewMode("before")}
               >
-                前（変更前）
+                この提案なし
               </button>
               <button
                 className={`diffPlaybackBtn${diffPreviewMode === "after" ? " on" : ""}`}
-                title="承認した AI 提案を当てた絵"
+                disabled={!focusedDiffEvent}
+                title="この提案を当てた絵"
                 onClick={() => setDiffPreviewMode("after")}
               >
-                後（変更後）
+                この提案あり
               </button>
             </div>
 
@@ -6639,7 +6650,7 @@ export const App = () => {
               defaultDurationSec={defaultImgSec}
               diffTracks={diffTracks}
               onDiffSetHunk={(hunks, side) => {
-                setAiWorkflowHunks(hunks, side);
+                settleAiHunks(hunks, side);
               }}
               onDiffPreview={(event) => {
                 if (!event.timeRange) return;

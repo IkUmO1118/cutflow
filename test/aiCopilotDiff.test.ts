@@ -57,7 +57,7 @@ describe("AI Copilot Diff: 統合", () => {
 
 import {
   buildDiffTracks,
-  canApplyProposal,
+  resolutionForOnly,
   shouldEnterCopilotMode,
   DIFF_TRACK_PREFIX,
 } from "../editor/client/model.ts";
@@ -86,17 +86,6 @@ describe("AI Copilot Diff: モード遷移(F6)", () => {
     );
   });
 
-  it("承認ゼロ件では適用できない", () => {
-    assert.equal(canApplyProposal({ acceptedCount: 0, busy: false }), false);
-  });
-
-  it("実行中は適用できない", () => {
-    assert.equal(canApplyProposal({ acceptedCount: 3, busy: true }), false);
-  });
-
-  it("承認があり実行中でなければ適用できる", () => {
-    assert.equal(canApplyProposal({ acceptedCount: 1, busy: false }), true);
-  });
 });
 
 describe("AI Copilot Diff: diffレーンの組み立て(F2/F3)", () => {
@@ -175,5 +164,36 @@ describe("AI Copilot Diff: diffレーンの組み立て(F2/F3)", () => {
     );
     assert.equal(lanes[0].clips[0].inCut, true);
     assert.equal(lanes[0].clips[0].outStart, lanes[0].clips[0].outEnd);
+  });
+});
+
+import type { Hunk } from "../src/lib/docDiff.ts";
+
+describe("AI Copilot Diff: 単一適用の resolution(F8)", () => {
+  const mk = (label: string) =>
+    ({
+      address: { file: "overlays", label },
+      kind: "field", base: 0, mine: 0, theirs: 1, conflict: false,
+    }) as unknown as Hunk;
+
+  it("対象以外はすべて mine で塞がれる", () => {
+    const a = mk("a"), b = mk("b"), c = mk("c");
+    const r = resolutionForOnly([a, b, c], [b]);
+    assert.equal(r.get(a), "mine");
+    assert.equal(r.get(b), "theirs");
+    assert.equal(r.get(c), "mine");
+  });
+
+  it("全 hunk が map に入る(既定 theirs の穴を残さない)", () => {
+    const a = mk("a"), b = mk("b");
+    const r = resolutionForOnly([a, b], []);
+    assert.equal(r.size, 2);
+    assert.equal([...r.values()].every((v) => v === "mine"), true);
+  });
+
+  it("複数を同時に当てられる", () => {
+    const a = mk("a"), b = mk("b"), c = mk("c");
+    const r = resolutionForOnly([a, b, c], [a, c]);
+    assert.deepEqual([r.get(a), r.get(b), r.get(c)], ["theirs", "mine", "theirs"]);
   });
 });

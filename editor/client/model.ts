@@ -992,14 +992,18 @@ export function shouldEnterCopilotMode(args: {
 }
 
 /**
- * F6: サマリーバーの「適用」を押せるか。
- * 承認が1件も無い / 実行中は押せない
+ * F8: 単一(または複数)hunk だけを当てるための resolution を作る。
+ * applyProposalResolution は resolution に無い hunk を既定で "theirs" として
+ * 当ててしまうので、当てたいもの以外を明示的に "mine" で塞ぐ必要がある
  */
-export function canApplyProposal(args: {
-  acceptedCount: number;
-  busy: boolean;
-}): boolean {
-  return !args.busy && args.acceptedCount > 0;
+export function resolutionForOnly(
+  allHunks: readonly Hunk[],
+  targets: readonly Hunk[],
+): Map<Hunk, "theirs" | "mine"> {
+  const m = new Map<Hunk, "theirs" | "mine">();
+  for (const h of allHunks) m.set(h, "mine");
+  for (const h of targets) m.set(h, "theirs");
+  return m;
 }
 
 /** diffレーンの行高(px)。開閉は無く常にこの高さ(F3) */

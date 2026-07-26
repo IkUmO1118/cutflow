@@ -1448,8 +1448,8 @@ export const Timeline = ({
             className="tlDiffPopover"
             style={{
               position: "fixed",
-              left: Math.min(popoverEvent.x, window.innerWidth - 180),
-              top: Math.min(popoverEvent.y + 8, window.innerHeight - 140),
+              left: Math.max(8, Math.min(popoverEvent.x, window.innerWidth - 268)),
+              top: Math.max(8, Math.min(popoverEvent.y + 8, window.innerHeight - 156)),
               zIndex: 30,
             }}
           >
@@ -1479,7 +1479,7 @@ export const Timeline = ({
                   setPopoverEvent(null);
                 }}
               >
-                承認
+                 承認して反映
               </button>
               <button
                 className="reject"
