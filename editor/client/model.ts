@@ -960,5 +960,29 @@ function diffTrackIdForEventKind(kind: string): TrackId | null {
   }
 }
 
+/**
+ * F6: AI編集モード(Copilot)を開いてよいか。
+ * - 提案が無い / 差分ゼロ件 → 開かない
+ * - 外部変更を検知している → 開かない(古い base への提案になるため)
+ */
+export function shouldEnterCopilotMode(args: {
+  hunkCount: number;
+  externalChanged: boolean;
+}): boolean {
+  if (args.externalChanged) return false;
+  return args.hunkCount > 0;
+}
+
+/**
+ * F6: サマリーバーの「適用」を押せるか。
+ * 承認が1件も無い / 実行中は押せない
+ */
+export function canApplyProposal(args: {
+  acceptedCount: number;
+  busy: boolean;
+}): boolean {
+  return !args.busy && args.acceptedCount > 0;
+}
+
 /** diffレーンの行高(px)。開閉は無く常にこの高さ(F3) */
 export const DIFF_ROW_H = 28;

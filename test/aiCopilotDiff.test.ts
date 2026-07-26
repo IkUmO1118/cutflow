@@ -54,3 +54,126 @@ describe("AI Copilot Diff: 統合", () => {
     }
   });
 });
+
+import {
+  buildDiffTracks,
+  canApplyProposal,
+  shouldEnterCopilotMode,
+  DIFF_TRACK_PREFIX,
+} from "../editor/client/model.ts";
+import type { ReviewEvent } from "../src/lib/reviewEvents.ts";
+import type { TrackDef } from "../editor/client/model.ts";
+
+describe("AI Copilot Diff: モード遷移(F6)", () => {
+  it("提案が1件以上あれば Copilot モードに入る", () => {
+    assert.equal(
+      shouldEnterCopilotMode({ hunkCount: 3, externalChanged: false }),
+      true,
+    );
+  });
+
+  it("差分ゼロ件では Copilot モードに入らない", () => {
+    assert.equal(
+      shouldEnterCopilotMode({ hunkCount: 0, externalChanged: false }),
+      false,
+    );
+  });
+
+  it("外部変更があれば提案があっても Copilot モードに入らない", () => {
+    assert.equal(
+      shouldEnterCopilotMode({ hunkCount: 3, externalChanged: true }),
+      false,
+    );
+  });
+
+  it("承認ゼロ件では適用できない", () => {
+    assert.equal(canApplyProposal({ acceptedCount: 0, busy: false }), false);
+  });
+
+  it("実行中は適用できない", () => {
+    assert.equal(canApplyProposal({ acceptedCount: 3, busy: true }), false);
+  });
+
+  it("承認があり実行中でなければ適用できる", () => {
+    assert.equal(canApplyProposal({ acceptedCount: 1, busy: false }), true);
+  });
+});
+
+describe("AI Copilot Diff: diffレーンの組み立て(F2/F3)", () => {
+  const tracks: TrackDef[] = [
+    { id: "caption", label: "テロップ" },
+    { id: "zoom", label: "ズーム" },
+    { id: "cut", label: "映像" },
+  ];
+  const ev = (id: string, kind: string, start: number, end: number): ReviewEvent =>
+    ({
+      id,
+      kind,
+      title: id,
+      subtitle: "",
+      hunkIndexes: [0],
+      hunkLabels: ["transcript segments"],
+      jsonPaths: [],
+      timeRange: { axis: "source", startSec: start, endSec: end },
+    }) as unknown as ReviewEvent;
+
+  const passthrough = (s: number, e: number) => ({ start: s, end: e, inCut: false });
+
+  it("timeRange を持たない提案はレーンに載らない", () => {
+    const noTime = { ...ev("a", "caption", 0, 1), timeRange: undefined } as ReviewEvent;
+    const lanes = buildDiffTracks([noTime], tracks, passthrough);
+    assert.equal(lanes.length, 0);
+  });
+
+  it("換算が null を返す提案はレーンに載らない", () => {
+    const lanes = buildDiffTracks([ev("a", "caption", 0, 1)], tracks, () => null);
+    assert.equal(lanes.length, 0);
+  });
+
+  it("存在しないトラック向けの提案はレーンを作らない", () => {
+    const lanes = buildDiffTracks([ev("a", "blur", 0, 1)], tracks, passthrough);
+    assert.equal(lanes.length, 0);
+  });
+
+  it("同じトラックの提案は1本のレーンにまとまり、時系列で並ぶ", () => {
+    const lanes = buildDiffTracks(
+      [ev("late", "caption", 30, 31), ev("early", "caption", 5, 6)],
+      tracks,
+      passthrough,
+    );
+    assert.equal(lanes.length, 1);
+    assert.equal(lanes[0].track.id, `${DIFF_TRACK_PREFIX}caption`);
+    assert.equal(lanes[0].eventCount, 2);
+    assert.deepEqual(lanes[0].clips.map((c) => c.event.id), ["early", "late"]);
+  });
+
+  it("レーンは元トラックの表示順に並ぶ", () => {
+    const lanes = buildDiffTracks(
+      [ev("z", "zoom", 1, 2), ev("c", "caption", 1, 2)],
+      tracks,
+      passthrough,
+    );
+    assert.deepEqual(lanes.map((l) => l.sourceTrack.id), ["caption", "zoom"]);
+  });
+
+  it("換算した output 秒がクリップに載る(source 秒のままにしない)", () => {
+    const lanes = buildDiffTracks(
+      [ev("a", "caption", 100, 105)],
+      tracks,
+      () => ({ start: 40, end: 45, inCut: false }),
+    );
+    assert.equal(lanes[0].clips[0].outStart, 40);
+    assert.equal(lanes[0].clips[0].outEnd, 45);
+    assert.equal(lanes[0].clips[0].event.timeRange?.startSec, 100);
+  });
+
+  it("カット内の提案は inCut として幅ゼロで載る", () => {
+    const lanes = buildDiffTracks(
+      [ev("a", "caption", 100, 105)],
+      tracks,
+      () => ({ start: 40, end: 40, inCut: true }),
+    );
+    assert.equal(lanes[0].clips[0].inCut, true);
+    assert.equal(lanes[0].clips[0].outStart, lanes[0].clips[0].outEnd);
+  });
+});

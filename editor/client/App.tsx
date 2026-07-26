@@ -184,8 +184,10 @@ import {
   buildTracks,
   cutSourceRange,
   buildDiffTracks,
+  canApplyProposal,
   fitZoomSpan,
   restoreSourceRange,
+  shouldEnterCopilotMode,
   splitSpanAt,
 } from "./model.ts";
 import { ANNOTATION_PRESETS, EFFECT_PRESETS } from "./presets.ts";
@@ -1714,6 +1716,20 @@ export const App = () => {
       setOnboardingOpen(true);
     }
   }, [onboardingEligible, onboardingProjectReady, draftOffer, externalChange, diffPanelOpen]);
+  /** F6: 外部でファイルが変わったら AI提案は古い base に対するものになる */
+  useEffect(() => {
+    if (!externalChange) return;
+    if (!aiEditEnabled && aiWorkflow === null) return;
+    setAiEditEnabled(false);
+    setAiWorkflow(null);
+    setFocusedDiffEventId(null);
+    setFocusedDiffTrackId(null);
+    addToast({
+      kind: "info",
+      message: "外部でファイルが変更されたため、AI提案を破棄しました",
+      ttlMs: TOAST_TTL_MS.info,
+    });
+  }, [externalChange]);
   const onboardingVisible = onboardingOpen && onboardingEligible;
   // SSE ハンドラ(マウント時に固定)から最新の dirty 状態を見るための控え
   dirtyRef.current = anyDirty;
@@ -4396,6 +4412,7 @@ export const App = () => {
           resolution: new Map(),
           saved: false,
         });
+        setAiEditEnabled(false);   // F6: 見せる diff が無いので Copilot は閉じる
         addToast({ kind: "info", message: "AI 提案に差分はありませんでした", ttlMs: TOAST_TTL_MS.info });
         return;
       }
@@ -4410,7 +4427,7 @@ export const App = () => {
       });
       // F1: 提案が返ったらそのまま Copilot モード(インライン diff レビュー)に
       // 入る。モーダルは出さないので、ここで ON にしないと提案が一切見えない
-      setAiEditEnabled(true);
+      setAiEditEnabled(shouldEnterCopilotMode({ hunkCount: diff.hunks.length, externalChanged: externalChange }));
       setFocusedDiffEventId(null);
       setFocusedDiffTrackId(null);
       setDiffPreviewMode("after");
@@ -5665,7 +5682,7 @@ export const App = () => {
           </button>
           <button
             className="aiSummaryBulk primary"
-            disabled={aiWorkflowBusy || aiAcceptedCount === 0}
+            disabled={!canApplyProposal({ acceptedCount: aiAcceptedCount, busy: aiWorkflowBusy })}
             title={
               aiAcceptedCount === 0
                 ? "承認された提案がありません"
