@@ -11,7 +11,10 @@ import type {
   TrackDef,
   TrackId,
 } from "./model.ts";
-import { MATERIAL_MIME, PRESET_MIME, trackHeightFor } from "./model.ts";
+import { DIFF_ROW_H, DIFF_TRACK_PREFIX, MATERIAL_MIME, PRESET_MIME, trackHeightFor } from "./model.ts";
+import type { DiffTrackDef } from "./model.ts";
+import type { Hunk } from "../../src/lib/docDiff.ts";
+import { reviewEventStatus } from "../../src/lib/reviewEvents.ts";
 import { playhead, usePlayheadSelector } from "./playhead.ts";
 import {
   AUDIO_EXT_RE,
@@ -144,6 +147,9 @@ const ROW_H_STORE = "cutflow.editor.trackHeights";
 /** ドロップ吸着 ON/OFF の保存キー(既定 ON) */
 const SNAP_STORE = "cutflow.editor.snapEnabled";
 
+/** F2: 現在カットされている区間の提案を示す細い印の幅(px) */
+const DIFF_CUT_MARK_W = 3;
+
 /**
  * 画面下部のマルチトラックタイムライン。横軸はカット後の秒、上=前面。
  * ここは「見た目とポインタ操作」だけを持ち、ドキュメントの変換・更新は
@@ -190,8 +196,14 @@ export const Timeline = ({
   hiddenLayers,
   onToggleTrackHide,
   defaultDurationSec,
+  diffTracks,
+  onDiffSetHunk,
+  onDiffPreview,
+  diffStills,
+  aiClipMarks,
+  aiWorkflowHunks,
+  aiResolution,
 }: {
-  /** タイムライン全体の高さ(px)。上部との分割バーのドラッグで変わる */
   height: number;
   duration: number;
   clips: Clip[];
@@ -267,6 +279,15 @@ export const Timeline = ({
   onToggleTrackHide: (id: LayerId) => void;
   /** 画像・尺不明素材の既定の尺(秒)。config の editor.defaultImageDurationSec */
   defaultDurationSec: number;
+  diffTracks?: DiffTrackDef[];
+  onDiffSetHunk?: (hunks: Hunk[], side: "theirs" | "mine") => void;
+  onDiffPreview?: (event: import("../../src/lib/reviewEvents.ts").ReviewEvent) => void;
+  diffStills?: { eventId: string; beforeFile: string; afterFile: string }[];
+  /** F7: AI提案の影響を受ける本体クリップ。キーは `${kind}:${index}` */
+  aiClipMarks?: Map<string, "remove" | "modify">;
+  aiWorkflowHunks?: Hunk[];
+  /** F2: hunk ごとの承認状態。diff クリップの色(承認済み/却下)に使う */
+  aiResolution?: Map<Hunk, "theirs" | "mine">;
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   /** 左のラベル列(縦スクロールを tlScroll と同期させる) */
@@ -310,11 +331,62 @@ export const Timeline = ({
   useEffect(() => {
     localStorage.setItem(ROW_H_STORE, JSON.stringify(trackHeights));
   }, [trackHeights]);
+
+  const [hoverThumb, setHoverThumb] = useState<{
+    eventId: string;
+    x: number;
+    y: number;
+    still: { beforeFile: string; afterFile: string };
+  } | null>(null);
+  const [popoverEvent, setPopoverEvent] = useState<{
+    event: import("../../src/lib/reviewEvents.ts").ReviewEvent;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!popoverEvent) return;
+    const close = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest(".tlDiffPopover") && !target.closest(".tlDiffClip")) {
+        setPopoverEvent(null);
+      }
+    };
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [popoverEvent]);
+
   /** トラックの表示高さ(px)。既定は型別、ユーザーは上へだけ広げられる */
   const rowH = (id: TrackId): number => {
+    // F3: diff レーンは開閉しないので常に固定高
+    if (typeof id === "string" && id.startsWith(DIFF_TRACK_PREFIX)) return DIFF_ROW_H;
     const base = trackHeightFor(id);
     return Math.min(ROW_H_MAX, Math.max(base, trackHeights[id] ?? base));
   };
+
+  const allTracks = useMemo(() => {
+    if (!diffTracks || diffTracks.length === 0) return tracks;
+
+    const result: (TrackDef | DiffTrackDef)[] = [];
+    const diffMap = new Map<string, DiffTrackDef>();
+    for (const dt of diffTracks) {
+      diffMap.set(dt.sourceTrack.id, dt);
+    }
+
+    for (const track of tracks) {
+      const diff = diffMap.get(track.id);
+      if (diff) result.push(diff);
+      result.push(track);
+    }
+
+    return result;
+  }, [tracks, diffTracks]);
+
+  /** F3: diff レーンとペアになっている本体トラックの id(セット表示用) */
+  const pairedTrackIds = useMemo(
+    () => new Set((diffTracks ?? []).map((dt) => dt.sourceTrack.id)),
+    [diffTracks],
+  );
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -539,7 +611,7 @@ export const Timeline = ({
   const onLabelDown = (e: ReactPointerEvent, idx: number) => {
     if (e.button !== 0) return;
     const t = tracks[idx];
-    if (!t.reorderable) return;
+    if (!t || !t.reorderable) return;   // F3: idx が -1 でも落ちないように
     let cur = idx;
     setDragLabel(t.id);
     beginDrag(
@@ -998,7 +1070,22 @@ export const Timeline = ({
               if (scrollRef.current) scrollRef.current.scrollTop += e.deltaY;
             }}
           >
-            {tracks.map((t, i) => {
+            {allTracks.map((item, i) => {
+              if ("sourceTrack" in item) {
+                const diffDef = item as unknown as DiffTrackDef;
+                return (
+                  <div
+                    key={diffDef.track.id}
+                    className="tlLabelDiff setTop"
+                    style={{ height: DIFF_ROW_H }}
+                    title={diffDef.track.hint}
+                  >
+                    <span className="tlDiffBadge">{diffDef.eventCount}</span>
+                    <span className="tlDiffLabelText">AI提案</span>
+                  </div>
+                );
+              }
+              const t = item as TrackDef;
               const audio = t.audio;
               const layerHidden = t.layer !== undefined && hiddenLayers.includes(t.layer);
               const trackSelected =
@@ -1007,7 +1094,7 @@ export const Timeline = ({
                 selection.index === t.renamableCaption;
               return (
                 <div
-                  className={`tlLabel${t.reorderable ? " reorderable" : ""}${dragLabel === t.id ? " dragging" : ""}${drop?.track === t.id ? " dropActive" : ""}${trackSelected ? " sel" : ""}`}
+                  className={`tlLabel${t.reorderable ? " reorderable" : ""}${dragLabel === t.id ? " dragging" : ""}${drop?.track === t.id ? " dropActive" : ""}${trackSelected ? " sel" : ""}${pairedTrackIds.has(t.id) ? " setBottom" : ""}`}
                   key={t.id}
                   style={{ height: rowH(t.id) }}
                   title={t.hint}
@@ -1018,7 +1105,9 @@ export const Timeline = ({
                     if (e.button === 0 && t.renamableCaption !== undefined) {
                       onSelectCaptionTrack(t.renamableCaption);
                     }
-                    onLabelDown(e, i);
+                    // F3: i は diff レーンを含む allTracks の添字。
+                    // onLabelDown は tracks[idx] を引くので id で引き直す
+                    onLabelDown(e, tracks.findIndex((x) => x.id === t.id));
                   }}
                   onDoubleClick={() =>
                     t.renamableCaption !== undefined &&
@@ -1126,127 +1215,198 @@ export const Timeline = ({
               ))}
               <PlayheadMark className="tlPlayheadCap" pps={pps} />
             </div>
-            {tracks.map((track) => (
-              <div
-                className={`tlTrack${
-                  track.layer !== undefined && hiddenLayers.includes(track.layer)
-                    ? " layerHidden"
-                    : ""
-                }${
-                  drop === null
-                    ? ""
-                    : drop.track === track.id
-                      ? " dropActive"
-                      : isDropTrack(track, dropAudio)
-                        ? " dropOk"
-                        : ""
-                }${
-                  presetDragTrack === track.id && !byTrack.get(track.id) ? " ocTrackDropLane" : ""
-                }`}
-                key={track.id}
-                style={{ height: rowH(track.id) }}
-                onPointerDown={(e) => onTrackDown(e, track)}
-                title={track.hint}
-              >
-                {(() => {
-                  // 可視窓に重なるクリップだけを DOM に置く(水平仮想化)
-                  const g = byTrack.get(track.id);
-                  if (!g) return null;
-                  const [from, to] = visibleRange(g);
-                  const nodes = [];
-                  for (let i = from; i < to; i++) {
-                    const clip = g.list[i];
-                    if (clip.outEnd <= winStart) continue; // 窓より左で終わる
-                    nodes.push(
-                      <div
-                        key={g.keys[i]}
-                        className={`tlClip ${clip.kind}${isSel(clip) ? " sel" : ""}${clip.static ? " static" : ""}`}
-                        style={{
-                          left: clip.outStart * pps,
-                          width: Math.max(6, (clip.outEnd - clip.outStart) * pps),
-                        }}
-                        title={clip.label}
-                        onPointerDown={(e) => onClipDown(e, clip, "move")}
-                      >
-                        {clip.wave && peaks[clip.wave.src] && (
-                          <Waveform
-                            peaks={peaks[clip.wave.src] as Peaks}
-                            srcStart={clip.wave.startSec}
-                            durSec={clip.outEnd - clip.outStart}
-                            pxWidth={Math.max(6, (clip.outEnd - clip.outStart) * pps)}
-                            pxHeight={rowH(track.id) - 6}
-                            loop={clip.wave.loop}
-                          />
-                        )}
-                        {clip.editable && !clip.noTrimStart && (
-                          <div
-                            className="tlEdge l"
-                            onPointerDown={(e) => onClipDown(e, clip, "trim-start")}
-                          />
-                        )}
-                        <span className="tlClipLabel">{clip.label}</span>
-                        {clip.editable && !clip.noTrimEnd && (
-                          <div
-                            className="tlEdge r"
-                            onPointerDown={(e) => onClipDown(e, clip, "trim-end")}
-                          />
-                        )}
-                      </div>,
-                    );
-                  }
-                  return nodes;
-                })()}
-                {/* 継ぎ目の「カットされた区間」の印。クリップと違い幅を持たない
-                    (横軸はカット後の秒で、切られた時間はこの軸上に存在しない) */}
-                {track.id === "cut" &&
-                  cutMarks
-                    // 印も可視窓の中だけ(stack の横ずらしぶんだけ左へ余裕を持つ)
-                    .filter((m) => m.out >= winStart - 24 / pps && m.out <= winEnd)
-                    .map((m) => (
-                    <div
-                      key={`cutmark-${m.index}`}
-                      className={`tlCutMark${
-                        selection?.kind === "cut" && selection.index === m.index
-                          ? " sel"
+            {allTracks.map((item) => {
+              if ("sourceTrack" in item) {
+                const diffDef = item as unknown as DiffTrackDef;
+                return (
+                  <div key={diffDef.track.id} className="tlRow diffTrack setTop" style={{ height: DIFF_ROW_H }}>
+                    {diffDef.clips.map(({ event, outStart, outEnd, inCut }) => {
+                      // F2: outStart/outEnd はカット後秒。既存クリップと同じ
+                      // 絶対配置(winLeftPx を引かない)にする
+                      const left = outStart * pps;
+                      const width = inCut
+                        ? DIFF_CUT_MARK_W
+                        : Math.max(12, (outEnd - outStart) * pps);
+
+                      if (outEnd < winStart || outStart > winEnd) return null;
+
+                      const kindClass =
+                        event.kind === "cut" ? "change" :
+                        event.hunkLabels.some((l) => l.includes("add")) ? "add" :
+                        event.hunkLabels.some((l) => l.includes("remove")) ? "remove" :
+                        "change";
+
+                      const status = reviewEventStatus({
+                        event,
+                        hunks: aiWorkflowHunks ?? [],
+                        resolution: aiResolution ?? new Map(),
+                      });
+                      const statusClass =
+                        status === "use" ? "accepted" :
+                        status === "skip" ? "rejected" :
+                        "pending";
+
+                      return (
+                        <div
+                          key={event.id}
+                          className={`tlDiffClip ${kindClass} ${statusClass}${inCut ? " inCut" : ""}`}
+                          style={{
+                            position: "absolute",
+                            left,
+                            width,
+                            top: 4,
+                            height: DIFF_ROW_H - 8,
+                          }}
+                          title={
+                            inCut
+                              ? `${event.title}\n${event.subtitle}\n(現在カットされている区間の提案)`
+                              : `${event.title}\n${event.subtitle}`
+                          }
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPopoverEvent({ event, x: e.clientX, y: e.clientY });
+                          }}
+                          onPointerEnter={(e) => {
+                            const still = diffStills?.find((s) => s.eventId === event.id);
+                            if (!still) return;
+                            setHoverThumb({ eventId: event.id, x: e.clientX, y: e.clientY, still });
+                          }}
+                          onPointerLeave={() => setHoverThumb(null)}
+                        >
+                          <span className="tlDiffClipLabel">{event.title}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              }
+              const track = item as TrackDef;
+              return (
+                <div
+                  className={`tlTrack${
+                    track.layer !== undefined && hiddenLayers.includes(track.layer)
+                      ? " layerHidden"
+                      : ""
+                  }${
+                    drop === null
+                      ? ""
+                      : drop.track === track.id
+                        ? " dropActive"
+                        : isDropTrack(track, dropAudio)
+                          ? " dropOk"
                           : ""
-                      }`}
-                      style={{ left: m.out * pps + m.stack * 10 }}
-                      title={
-                        `カットされた区間 ${m.durSec.toFixed(1)}秒` +
-                        `${m.reason ? `: ${m.reason}` : ""}` +
-                        "(クリックで選択 → プロパティから戻せる)"
-                      }
-                      onPointerDown={(e) => {
-                        e.stopPropagation();
-                        if (e.button !== 0) return;
-                        onSelect({ kind: "cut", index: m.index });
+                  }${
+                    presetDragTrack === track.id && !byTrack.get(track.id) ? " ocTrackDropLane" : ""
+                  }${pairedTrackIds.has(track.id) ? " setBottom" : ""}`}
+                  key={track.id}
+                  style={{ height: rowH(track.id) }}
+                  onPointerDown={(e) => onTrackDown(e, track)}
+                  title={track.hint}
+                >
+                  {(() => {
+                    // 可視窓に重なるクリップだけを DOM に置く(水平仮想化)
+                    const g = byTrack.get(track.id);
+                    if (!g) return null;
+                    const [from, to] = visibleRange(g);
+                    const nodes = [];
+                    for (let i = from; i < to; i++) {
+                      const clip = g.list[i];
+                      if (clip.outEnd <= winStart) continue; // 窓より左で終わる
+                      nodes.push(
+                        <div
+                          key={g.keys[i]}
+                          className={`tlClip ${clip.kind}${isSel(clip) ? " sel" : ""}${clip.static ? " static" : ""}${
+                            aiClipMarks?.get(`${clip.kind}:${clip.index}`)
+                              ? ` aiMark ${aiClipMarks.get(`${clip.kind}:${clip.index}`)}`
+                              : ""
+                          }`}
+                          style={{
+                            left: clip.outStart * pps,
+                            width: Math.max(6, (clip.outEnd - clip.outStart) * pps),
+                          }}
+                          title={clip.label}
+                          onPointerDown={(e) => onClipDown(e, clip, "move")}
+                        >
+                          {clip.wave && peaks[clip.wave.src] && (
+                            <Waveform
+                              peaks={peaks[clip.wave.src] as Peaks}
+                              srcStart={clip.wave.startSec}
+                              durSec={clip.outEnd - clip.outStart}
+                              pxWidth={Math.max(6, (clip.outEnd - clip.outStart) * pps)}
+                              pxHeight={rowH(track.id) - 6}
+                              loop={clip.wave.loop}
+                            />
+                          )}
+                          {clip.editable && !clip.noTrimStart && (
+                            <div
+                              className="tlEdge l"
+                              onPointerDown={(e) => onClipDown(e, clip, "trim-start")}
+                            />
+                          )}
+                          <span className="tlClipLabel">{clip.label}</span>
+                          {clip.editable && !clip.noTrimEnd && (
+                            <div
+                              className="tlEdge r"
+                              onPointerDown={(e) => onClipDown(e, clip, "trim-end")}
+                            />
+                          )}
+                        </div>,
+                      );
+                    }
+                    return nodes;
+                  })()}
+                  {/* 継ぎ目の「カットされた区間」の印。クリップと違い幅を持たない
+                      (横軸はカット後の秒で、切られた時間はこの軸上に存在しない) */}
+                  {track.id === "cut" &&
+                    cutMarks
+                      // 印も可視窓の中だけ(stack の横ずらしぶんだけ左へ余裕を持つ)
+                      .filter((m) => m.out >= winStart - 24 / pps && m.out <= winEnd)
+                      .map((m) => (
+                      <div
+                        key={`cutmark-${m.index}`}
+                        className={`tlCutMark${
+                          selection?.kind === "cut" && selection.index === m.index
+                            ? " sel"
+                            : ""
+                        }`}
+                        style={{ left: m.out * pps + m.stack * 10 }}
+                        title={
+                          `カットされた区間 ${m.durSec.toFixed(1)}秒` +
+                          `${m.reason ? `: ${m.reason}` : ""}` +
+                          "(クリックで選択 → プロパティから戻せる)"
+                        }
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          if (e.button !== 0) return;
+                          onSelect({ kind: "cut", index: m.index });
+                        }}
+                      />
+                    ))}
+                  {ghost && ghost.track === track.id && (
+                    <div
+                      className="tlGhost"
+                      style={{
+                        left: Math.min(ghost.a, ghost.b) * pps,
+                        width: Math.abs(ghost.b - ghost.a) * pps,
                       }}
                     />
-                  ))}
-                {ghost && ghost.track === track.id && (
-                  <div
-                    className="tlGhost"
-                    style={{
-                      left: Math.min(ghost.a, ghost.b) * pps,
-                      width: Math.abs(ghost.b - ghost.a) * pps,
-                    }}
-                  />
-                )}
-                {drop && drop.track === track.id && (
-                  <div
-                    className={`tlDropGhost${track.id === "cut" ? " insert" : ""}`}
-                    style={{
-                      left: drop.t * pps,
-                      width: Math.max(6, dragDurSec * pps),
-                    }}
-                  >
-                    <span className="tlClipLabel">
-                      {track.id === "cut" ? `インサート: ${dragName}` : dragName}
-                    </span>
-                  </div>
-                )}
-              </div>
-            ))}
+                  )}
+                  {drop && drop.track === track.id && (
+                    <div
+                      className={`tlDropGhost${track.id === "cut" ? " insert" : ""}`}
+                      style={{
+                        left: drop.t * pps,
+                        width: Math.max(6, dragDurSec * pps),
+                      }}
+                    >
+                      <span className="tlClipLabel">
+                        {track.id === "cut" ? `インサート: ${dragName}` : dragName}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
             {drop && drop.snapLine !== null && (
               <div className="tlSnapLine" style={{ left: drop.snapLine * pps }} />
             )}
@@ -1256,6 +1416,86 @@ export const Timeline = ({
             <PlayheadMark className="tlPlayhead" pps={pps} />
           </div>
         </div>
+        {/* ホバーサムネイル */}
+        {hoverThumb && (
+          <div
+            className="tlDiffHoverThumb"
+            style={{
+              position: "fixed",
+              left: Math.min(hoverThumb.x + 12, window.innerWidth - 320),
+              top: Math.min(hoverThumb.y - 160, window.innerHeight - 200),
+              zIndex: 40,
+            }}
+          >
+            <div className="tlDiffHoverThumbLabel">変更前 / 変更後</div>
+            <div className="tlDiffHoverThumbPair">
+              <img
+                src={`/media/${encodeURIComponent(hoverThumb.still.beforeFile).replace(/%2F/g, "/")}`}
+                alt="変更前"
+                className="tlDiffHoverThumbImg"
+              />
+              <img
+                src={`/media/${encodeURIComponent(hoverThumb.still.afterFile).replace(/%2F/g, "/")}`}
+                alt="変更後"
+                className="tlDiffHoverThumbImg"
+              />
+            </div>
+          </div>
+        )}
+        {/* クリックポップオーバー */}
+        {popoverEvent && (
+          <div
+            className="tlDiffPopover"
+            style={{
+              position: "fixed",
+              left: Math.max(8, Math.min(popoverEvent.x, window.innerWidth - 268)),
+              top: Math.max(8, Math.min(popoverEvent.y + 8, window.innerHeight - 156)),
+              zIndex: 30,
+            }}
+          >
+            <div className="tlDiffPopoverTitle">{popoverEvent.event.title}</div>
+            <div className="tlDiffPopoverMeta">
+              {popoverEvent.event.timeRange
+                ? `${popoverEvent.event.timeRange.startSec.toFixed(1)}s \u2192 ${popoverEvent.event.timeRange.endSec.toFixed(1)}s`
+                : popoverEvent.event.subtitle}
+            </div>
+            <div className="tlDiffPopoverActions">
+              <button
+                className="preview"
+                onClick={() => {
+                  onDiffPreview?.(popoverEvent.event);
+                  setPopoverEvent(null);
+                }}
+              >
+                プレビュー
+              </button>
+              <button
+                className="accept"
+                onClick={() => {
+                  const hunks = popoverEvent.event.hunkIndexes
+                    .map((i) => aiWorkflowHunks?.[i])
+                    .filter((h): h is Hunk => Boolean(h));
+                  onDiffSetHunk?.(hunks, "theirs");
+                  setPopoverEvent(null);
+                }}
+              >
+                 承認して反映
+              </button>
+              <button
+                className="reject"
+                onClick={() => {
+                  const hunks = popoverEvent.event.hunkIndexes
+                    .map((i) => aiWorkflowHunks?.[i])
+                    .filter((h): h is Hunk => Boolean(h));
+                  onDiffSetHunk?.(hunks, "mine");
+                  setPopoverEvent(null);
+                }}
+              >
+                却下
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

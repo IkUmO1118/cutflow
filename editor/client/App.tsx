@@ -28,6 +28,7 @@ import {
   threeWayDiff,
 } from "../../src/lib/docDiff.ts";
 import type {
+  Hunk,
   ProposalDiffResult,
   ProposalResolution,
   ReviewDocs,
@@ -88,9 +89,10 @@ import {
   hyperframeAuthorReadiness,
 } from "../../src/lib/hyperframeAuthor.ts";
 import { buildReviewEvents, warningSummary } from "../../src/lib/reviewEvents.ts";
+import { diffPreviewRange } from "../../src/lib/review.ts";
 import { previewCutKeepSignature } from "../../src/lib/previewCutSignature.ts";
 import { AiCommand } from "./AiCommand.tsx";
-import { AiVisualReview } from "./AiVisualReview.tsx";
+// F1: AiVisualReview はモーダルを出さなくなったので参照しない
 import { ArrowOverlay } from "./ArrowOverlay.tsx";
 import type { OverlayArrow } from "./ArrowOverlay.tsx";
 import { CaptionOverlay } from "./CaptionOverlay.tsx";
@@ -182,8 +184,12 @@ import {
   SHORT_TRACK_DEF,
   buildTracks,
   cutSourceRange,
+  buildDiffTracks,
+  isLaneWorthy,
+  resolutionForOnly,
   fitZoomSpan,
   restoreSourceRange,
+  shouldEnterCopilotMode,
   splitSpanAt,
 } from "./model.ts";
 import { ANNOTATION_PRESETS, EFFECT_PRESETS } from "./presets.ts";
@@ -278,6 +284,8 @@ interface AiWorkflowState {
   response?: AiProposeResponse;
   diff?: ProposalDiffResult;
   resolution?: ProposalResolution;
+  /** F8: 決着済み(承認して反映した / 却下した)hunk。UI からは消える */
+  settled?: Set<Hunk>;
   saved?: boolean;
   reviewBundle?: ReviewBundle;
   reviewCandidateKey?: string;
@@ -291,6 +299,7 @@ interface AiWorkflowReviewState extends AiWorkflowState {
   response: AiProposeResponse;
   diff: ProposalDiffResult;
   resolution: ProposalResolution;
+  settled: Set<Hunk>;
 }
 
 interface ApplyAiWorkflowOptions {
@@ -365,7 +374,8 @@ const isAiWorkflowReviewState = (
   (workflow?.phase === "reviewing" || workflow?.phase === "verifying" || workflow?.phase === "refining") &&
   workflow.response !== undefined &&
   workflow.diff !== undefined &&
-  workflow.resolution !== undefined;
+  workflow.resolution !== undefined &&
+  workflow.settled !== undefined;
 
 const acceptedAiHunkLabels = (workflow: AiWorkflowReviewState): string[] =>
   workflow.diff.hunks.flatMap((hunk) =>
@@ -373,6 +383,23 @@ const acceptedAiHunkLabels = (workflow: AiWorkflowReviewState): string[] =>
       ? [hunk.address.label]
       : [],
   );
+
+function diffTrackIdForEvent(event: { kind: string }): string | null {
+  switch (event.kind) {
+    case "cut": return "cut";
+    case "caption": return "caption";
+    case "overlay": return "ov1";
+    case "insert": return "cut";
+    case "annotation": return "annotation";
+    case "blur": return "blur";
+    case "zoom": return "zoom";
+    case "wipe": return "wipe";
+    case "caption-track": return "caption";
+    case "bgm": return "bgm";
+    case "short": return "short";
+    default: return null;
+  }
+}
 
 /** BGM に使えるファイル(音声、または音を持つ動画)の拡張子 */
 const BGM_EXT_RE = /\.(mp3|m4a|wav|aac|ogg|flac|mp4|mov|webm|mkv)$/i;
@@ -705,6 +732,7 @@ export const App = () => {
   const [diffResolution, setDiffResolution] = useState<Resolution>(() => new Map());
   const [diffPanelOpen, setDiffPanelOpen] = useState(false);
   const [aiWorkflow, setAiWorkflow] = useState<AiWorkflowState | null>(null);
+  const [aiEditEnabled, setAiEditEnabled] = useState(false);
   const [aiCommandOpen, setAiCommandOpen] = useState(false);
   const [aiCommandScope, setAiCommandScope] = useState<AiScope>("global");
   const aiCommandLauncherRef = useRef<HTMLButtonElement | null>(null);
@@ -1534,17 +1562,109 @@ export const App = () => {
     shorts, mediaCodecFacts, previewBaseVideo,
   ]);
 
+  const aiWorkflowReview = isAiWorkflowReviewState(aiWorkflow) ? aiWorkflow : null;
+  const aiReviewEvents = aiWorkflowReview
+    ? buildReviewEvents({
+        hunks: aiWorkflowReview.diff.hunks,
+        reviewBundle: aiWorkflowReview.reviewBundle,
+        aiNotes: aiWorkflowReview.response.proposal.review.notes,
+        applyWarnings: aiWorkflowReview.response.proposal.applyPlan.warnings.map(
+          (warning) => `${warning.file} ${warning.where}: ${warning.message}`,
+        ),
+      })
+    : [];
+  const aiWarningSummary = warningSummary(aiReviewEvents);
+  const [focusedDiffEventId, setFocusedDiffEventId] = useState<string | null>(null);
+  const [focusedDiffTrackId, setFocusedDiffTrackId] = useState<string | null>(null);
+  const [diffPreviewMode, setDiffPreviewMode] = useState<"before" | "after">("after");
+  const [diffBoundedPlayback, setDiffBoundedPlayback] = useState(true);
+  const focusedDiffEvent = useMemo(
+    () =>
+      focusedDiffEventId
+        ? aiReviewEvents.find((ev) => ev.id === focusedDiffEventId) ?? null
+        : null,
+    [focusedDiffEventId, aiReviewEvents],
+  );
+  const diffPreviewRangeValue = useMemo(() => {
+    const tr = focusedDiffEvent?.timeRange;
+    if (!tr || !focusedDiffEvent) return null;
+    // F2: バウンド再生の範囲もカット後秒で持つ(playhead と同じ軸)
+    const pieces = remapInterval(tr.startSec, tr.endSec, curTimeline);
+    if (pieces.length === 0) return null;
+    return diffPreviewRange(
+      { startSec: pieces[0].start, endSec: pieces[pieces.length - 1].end },
+      focusedDiffEvent.kind,
+    );
+  }, [focusedDiffEvent, curTimeline]);
+
+  /** F8: 「後」= いまフォーカスしている1件だけを当てた絵。
+   * 承認済みのものは既に live docs に入っているので重ねない */
+  const aiPreviewBuilt = useMemo(() => {
+    if (!proj || !cutplan || !overlays || !transcript) return null;
+    if (!aiEditEnabled) return null;
+    const review = isAiWorkflowReviewState(aiWorkflow) ? aiWorkflow : null;
+    if (!review) return null;
+
+    const focused = focusedDiffEvent;
+    if (!focused) return null;
+    const targets = focused.hunkIndexes
+      .map((i) => review.diff.hunks[i])
+      .filter((h): h is Hunk => Boolean(h) && !review.settled.has(h));
+    if (targets.length === 0) return null;
+    const merged = applyProposalResolution(
+      { cutplan, overlays, transcript, bgm, shorts },
+      review.response.proposal.proposedDocs,
+      review.diff,
+      resolutionForOnly(review.diff.hunks, targets),
+    );
+
+    const props = buildRenderProps({
+      manifest: proj.manifest,
+      keeps: keepsOf(merged.cutplan),
+      transcript: merged.transcript,
+      overlays: merged.overlays,
+      renderCfg: proj.renderCfg,
+      width: proj.output.w,
+      height: proj.output.h,
+      videoFile: "media/proxy.mp4",
+      videoIsSource: true,
+      bgm: merged.bgm,
+      bgmFallbackFile: proj.bgmFile,
+      silences: proj.silences,
+      overlayExists: () => true,
+      warn: () => {},
+    });
+    const overlayItems = props.overlays.map((o) => ({ ...o, file: `media/${o.file}` }));
+    const insertItems = (props.inserts ?? []).map((o) => ({ ...o, file: `media/${o.file}` }));
+    const bgmTracks = props.bgm.map((b) => ({ ...b, file: `media/${b.file}` }));
+    const design = designForPlayer(props.design, props.width, props.height, proj.designAssets);
+    return {
+      props: {
+        ...props,
+        overlays: overlayItems,
+        inserts: insertItems,
+        bgm: bgmTracks,
+        ...(design ? { design } : {}),
+      },
+    };
+  }, [proj, cutplan, overlays, transcript, bgm, shorts, aiEditEnabled, aiWorkflow, focusedDiffEvent]);
+
   /** Player に渡す props。トラック別ミュート・レイヤーの一時非表示は
    * プレビューにだけ効かせる(built.props は書き出しと同じ内容のまま保つ) */
   const playerProps = useMemo(
-    () =>
-      built && {
-        ...built.props,
+    () => {
+      const source =
+        aiEditEnabled && diffPreviewMode === "after" && aiPreviewBuilt
+          ? aiPreviewBuilt
+          : built;
+      return source && {
+        ...source.props,
         muteBase: trackMuted.cut,
         muteBgm: trackMuted.bgm,
         hiddenLayers,
-      },
-    [built, trackMuted, hiddenLayers],
+      };
+    },
+    [built, aiPreviewBuilt, trackMuted, hiddenLayers, aiEditEnabled, diffPreviewMode],
   );
 
   const fps = built?.props.fps ?? 30;
@@ -1586,7 +1706,6 @@ export const App = () => {
   const aiWorkflowLocked =
     aiWorkflow !== null &&
     ["proposing", "reviewing", "refining", "applying", "saving", "verifying"].includes(aiWorkflow.phase);
-  const aiWorkflowReview = isAiWorkflowReviewState(aiWorkflow) ? aiWorkflow : null;
   const onboardingProjectReady = !!proj && !!built && !!cutplan && !!overlays && !!transcript;
   const onboardingEligible =
     onboardingProjectReady && draftOffer === null && !externalChange && !diffPanelOpen;
@@ -1610,6 +1729,20 @@ export const App = () => {
       setOnboardingOpen(true);
     }
   }, [onboardingEligible, onboardingProjectReady, draftOffer, externalChange, diffPanelOpen]);
+  /** F6: 外部でファイルが変わったら AI提案は古い base に対するものになる */
+  useEffect(() => {
+    if (!externalChange) return;
+    if (!aiEditEnabled && aiWorkflow === null) return;
+    setAiEditEnabled(false);
+    setAiWorkflow(null);
+    setFocusedDiffEventId(null);
+    setFocusedDiffTrackId(null);
+    addToast({
+      kind: "info",
+      message: "外部でファイルが変更されたため、AI提案を破棄しました",
+      ttlMs: TOAST_TTL_MS.info,
+    });
+  }, [externalChange]);
   const onboardingVisible = onboardingOpen && onboardingEligible;
   // SSE ハンドラ(マウント時に固定)から最新の dirty 状態を見るための控え
   dirtyRef.current = anyDirty;
@@ -1706,6 +1839,37 @@ export const App = () => {
     p.pause();
     p.seekTo(clamp(p.getCurrentFrame() + n, 0, durationInFrames - 1));
   };
+  // バウンド再生の監視
+  useEffect(() => {
+    if (!aiEditEnabled || !diffBoundedPlayback || !diffPreviewRangeValue) return;
+    if (!playing) return;
+
+    const { startSec, endSec } = diffPreviewRangeValue;
+
+    let rafId: number;
+    const loop = () => {
+      const currentTime = playhead.get();
+      if (currentTime >= endSec) {
+        seekOut(startSec);
+      }
+      rafId = requestAnimationFrame(loop);
+    };
+    rafId = requestAnimationFrame(loop);
+
+    return () => cancelAnimationFrame(rafId);
+  }, [aiEditEnabled, diffBoundedPlayback, diffPreviewRangeValue, playing]);
+
+  // diffPreviewMode が切り替わったらバウンド再生をリセット
+  useEffect(() => {
+    // F5: 「前/後」で出力尺が変わりうる。playhead が新しい尺の外に出たら戻す
+    const dur =
+      diffPreviewMode === "after" && aiPreviewBuilt
+        ? aiPreviewBuilt.props.durationSec
+        : built?.props.durationSec ?? 0;
+    if (dur > 0 && playhead.get() > dur) seekOut(Math.max(0, dur - 0.05));
+    setDiffBoundedPlayback(true);
+  }, [diffPreviewMode, aiPreviewBuilt, built]);
+
   /** シークバー: ポインタの横位置の割合でカット後の時間へシーク */
   const scrubTo = (e: ReactPointerEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -1925,22 +2089,116 @@ export const App = () => {
   const onPresetDragBegin = (preset: EditorPreset) => setPresetDrag(preset);
   const onPresetDragEnd = () => setPresetDrag(null);
 
+  const transcriptAiHunks = aiWorkflowReview
+    ? aiWorkflowReview.diff.hunks.filter(
+        (h) =>
+          !aiWorkflowReview.settled.has(h) &&
+          h.address.file === "transcript" &&
+          h.address.arrayKey === "segments",
+      )
+    : [];
+  /** F4: 配列まるごと1件に退化した hunk(要素に @id が無い収録) */
+  const aiHunksDegraded = aiWorkflowReview
+    ? aiWorkflowReview.diff.hunks.some(
+        (h) => h.kind === "file" && h.address.arrayKey !== undefined,
+      )
+    : false;
+  /** F2: 元収録秒の区間をカット後秒へ */
+  const diffTimeToOutput = (startSec: number, endSec: number) => {
+    const pieces = remapInterval(startSec, endSec, curTimeline);
+    if (pieces.length > 0) {
+      return {
+        start: pieces[0].start,
+        end: pieces[pieces.length - 1].end,
+        inCut: false,
+      };
+    }
+    const snapped = snapToOutput(startSec, curTimeline);
+    if (snapped === null) return null;
+    return { start: snapped, end: snapped, inCut: true };
+  };
+  const laneEvents =
+    aiEditEnabled && aiWorkflowReview
+      ? aiReviewEvents.filter((ev) =>
+          isLaneWorthy(ev, aiWorkflowReview.diff.hunks) &&
+          ev.hunkIndexes.some(
+            (i) => !aiWorkflowReview.settled.has(aiWorkflowReview.diff.hunks[i]),
+          ),
+        )
+      : [];
+  const diffTracks =
+    aiEditEnabled && aiWorkflowReview && built
+      ? buildDiffTracks(laneEvents, timelineTracks, diffTimeToOutput)
+      : [];
+  /** F7: AI提案の影響を受ける本体クリップ。キーは `${kind}:${index}`
+   * (Clip の identity と同じ)。削除は取り消し線、変更は枠だけを付ける */
+  const aiClipMarks = useMemo(() => {
+    const marks = new Map<string, "remove" | "modify">();
+    if (!aiEditEnabled || !aiWorkflowReview) return marks;
+    const lookup: { key: string; kind: SelKind; arr: unknown[] | undefined }[] = [
+      { key: "cutplan.segments", kind: "cut", arr: cutplan?.segments },
+      { key: "transcript.segments", kind: "caption", arr: transcript?.segments },
+      { key: "overlays.overlays", kind: "overlays", arr: overlays?.overlays },
+      { key: "overlays.inserts", kind: "insert", arr: overlays?.inserts },
+      { key: "overlays.wipeFull", kind: "wipeFull", arr: overlays?.wipeFull },
+      { key: "overlays.zooms", kind: "zoom", arr: overlays?.zooms },
+      { key: "overlays.blurs", kind: "blur", arr: overlays?.blurs },
+      { key: "overlays.annotations", kind: "annotation", arr: overlays?.annotations },
+      { key: "bgm.tracks", kind: "bgm", arr: bgm?.tracks },
+    ];
+    for (const h of aiWorkflowReview.diff.hunks) {
+      const id = h.address.elementId;
+      if (!id || !h.address.arrayKey) continue;
+      const entry = lookup.find((l) => l.key === `${h.address.file}.${h.address.arrayKey}`);
+      if (!entry?.arr) continue;
+      const idx = entry.arr.findIndex(
+        (x) => typeof x === "object" && x !== null && (x as { id?: string }).id === id,
+      );
+      if (idx < 0) continue;
+      const mark = h.kind === "element-remove" ? "remove" : "modify";
+      if (mark === "remove" || !marks.has(`${entry.kind}:${idx}`)) {
+        marks.set(`${entry.kind}:${idx}`, mark);
+      }
+    }
+    return marks;
+  }, [aiEditEnabled, aiWorkflowReview, cutplan, transcript, overlays, bgm]);
+
+  const flatDiffEvents =
+    aiEditEnabled && aiWorkflowReview
+      ? aiReviewEvents
+          .filter((e) => e.timeRange)
+          .sort((a, b) => {
+            if (!a.timeRange || !b.timeRange) return 0;
+            return a.timeRange.startSec - b.timeRange.startSec;
+          })
+      : [];
+  const diffStills =
+    aiWorkflowReview?.reviewBundle?.stills.map((still, i) => ({
+      eventId: aiReviewEvents[i]?.id ?? "",
+      beforeFile: still.before.file,
+      afterFile: still.after.file,
+    })) ?? [];
+  /* F3: 折りたたみは廃止。diff レーンは常時展開 */
+
   /** タイムラインに実際に見せるトラック。映像(cut)は常時、他は要素が1つでもある
    * または「今インスペクタで編集中のテロップトラック」、またはプリセットの
    * ドラッグ中でその行が対象トラックのときだけ表示(OpenCut 流)。 */
   const visibleTracks = useMemo(() => {
     if (shortMode) return timelineTracks;
     const occupied = new Set(clips.map((c) => c.track));
+    // F3: AI提案のあるトラックは、まだクリップが1つも無くても表示する
+    const hasDiff = new Set(diffTracks.map((dt) => dt.sourceTrack.id));
     return timelineTracks.filter(
       (t) =>
         t.id === "cut" ||
         occupied.has(t.id) ||
+        hasDiff.has(t.id) ||
         t.id === presetDrag?.track ||
         (t.renamableCaption !== undefined &&
           selection?.kind === "captionTrack" &&
           selection.index === t.renamableCaption),
     );
-  }, [timelineTracks, clips, shortMode, selection, presetDrag]);
+  }, [timelineTracks, clips, shortMode, selection, presetDrag, diffTracks]);
 
   /* ---------------- カット編集(分割・keep⇄cut・復元) ----------------
    * cut 区間は削除せず記録として残す(plan の候補と同じ扱い)。だから
@@ -4212,6 +4470,7 @@ export const App = () => {
           resolution: new Map(),
           saved: false,
         });
+        setAiEditEnabled(false);   // F6: 見せる diff が無いので Copilot は閉じる
         addToast({ kind: "info", message: "AI 提案に差分はありませんでした", ttlMs: TOAST_TTL_MS.info });
         return;
       }
@@ -4222,8 +4481,16 @@ export const App = () => {
         response,
         diff,
         resolution: new Map(diff.hunks.map((h) => [h, "theirs"] as const)),
+        settled: new Set(),
         autoReviewRequested: false,
       });
+      // F1: 提案が返ったらそのまま Copilot モード(インライン diff レビュー)に
+      // 入る。モーダルは出さないので、ここで ON にしないと提案が一切見えない
+      setAiEditEnabled(shouldEnterCopilotMode({ hunkCount: diff.hunks.length, externalChanged: externalChange }));
+      setFocusedDiffEventId(null);
+      setFocusedDiffTrackId(null);
+      setDiffPreviewMode("after");
+      setDiffBoundedPlayback(true);
     } catch (e) {
       const message = (e as Error).message;
       setAiWorkflow({ phase: "failed", instruction, scope, error: message });
@@ -4350,6 +4617,7 @@ export const App = () => {
         response,
         diff,
         resolution: new Map(diff.hunks.map((h) => [h, "theirs"] as const)),
+        settled: new Set(),
         refineMode: undefined,
       });
     } catch (e) {
@@ -4376,6 +4644,7 @@ export const App = () => {
     let saveSucceeded = false;
     try {
       applyLiveDocs(merged);
+      setAiEditEnabled(false);   // F1: 反映したら Copilot モードを抜ける
       if (!save) {
         setAiWorkflow({
           ...aiWorkflowReview,
@@ -4975,9 +5244,96 @@ export const App = () => {
         // ここでは再生・削除などのグローバルショートカットだけを止める。
         return;
       }
+      // ---- AI Copilot Diff: キーボードナビゲーション ----
+      // 入力欄(テロップ本文など)では効かせない。効かせると「j」が打てない
+      if (aiEditEnabled && !inField) {
+        const DIFF_TRACK_PREFIX = "diff:";
+
+        if (e.key === "j" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+          e.preventDefault();
+          if (flatDiffEvents.length === 0) return;
+          const currentIdx = focusedDiffEventId
+            ? flatDiffEvents.findIndex((ev) => ev.id === focusedDiffEventId)
+            : -1;
+          const nextIdx = currentIdx + 1 >= flatDiffEvents.length ? 0 : currentIdx + 1;
+          const nextEvent = flatDiffEvents[nextIdx];
+          setFocusedDiffEventId(nextEvent.id);
+          const trackId = diffTrackIdForEvent(nextEvent);
+          if (trackId) setFocusedDiffTrackId(`${DIFF_TRACK_PREFIX}${trackId}`);
+          if (nextEvent.timeRange) {
+            const outSec = snapToOutput(nextEvent.timeRange.startSec, curTimeline);
+          }
+          return;
+        }
+
+        if (e.key === "k" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+          e.preventDefault();
+          if (flatDiffEvents.length === 0) return;
+          const currentIdx = focusedDiffEventId
+            ? flatDiffEvents.findIndex((ev) => ev.id === focusedDiffEventId)
+            : -1;
+          const prevIdx = currentIdx <= 0 ? flatDiffEvents.length - 1 : currentIdx - 1;
+          const prevEvent = flatDiffEvents[prevIdx];
+          setFocusedDiffEventId(prevEvent.id);
+          const trackId = diffTrackIdForEvent(prevEvent);
+          if (trackId) setFocusedDiffTrackId(`${DIFF_TRACK_PREFIX}${trackId}`);
+          if (prevEvent.timeRange) {
+            const outSec = snapToOutput(prevEvent.timeRange.startSec, curTimeline);
+          }
+          return;
+        }
+
+        if (e.key === "Enter" && !e.metaKey && !e.shiftKey && focusedDiffEventId) {
+          e.preventDefault();
+          const event = flatDiffEvents.find((ev) => ev.id === focusedDiffEventId);
+          if (event && aiWorkflowReview) {
+            const hunks = event.hunkIndexes
+              .map((i) => aiWorkflowReview.diff.hunks[i])
+              .filter((h): h is typeof aiWorkflowReview.diff.hunks[number] => Boolean(h));
+            settleAiHunks(hunks, "theirs");
+          }
+          return;
+        }
+
+        if (e.key === "Escape" && focusedDiffEventId) {
+          e.preventDefault();
+          const event = flatDiffEvents.find((ev) => ev.id === focusedDiffEventId);
+          if (event && aiWorkflowReview) {
+            const hunks = event.hunkIndexes
+              .map((i) => aiWorkflowReview.diff.hunks[i])
+              .filter((h): h is typeof aiWorkflowReview.diff.hunks[number] => Boolean(h));
+            settleAiHunks(hunks, "mine");
+          }
+          return;
+        }
+
+        if (e.key === "Enter" && e.shiftKey && !e.metaKey && focusedDiffTrackId) {
+          e.preventDefault();
+          if (aiWorkflowReview) {
+            const trackEvents = aiReviewEvents.filter((ev) =>
+              diffTrackIdForEvent(ev) === focusedDiffTrackId.replace(DIFF_TRACK_PREFIX, "")
+            );
+            const hunks = trackEvents.flatMap((ev) =>
+              ev.hunkIndexes
+                .map((i) => aiWorkflowReview.diff.hunks[i])
+                .filter((h): h is typeof aiWorkflowReview.diff.hunks[number] => Boolean(h))
+            );
+            settleAiHunks(hunks, "theirs");
+          }
+          return;
+        }
+
+        if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
+          e.preventDefault();
+          if (aiWorkflowReview) {
+            settleAiHunks(pendingHunks, "theirs");
+          }
+          return;
+        }
+      }
+
       if (
         (diffReview !== null && diffPanelOpen) ||
-        aiWorkflowReview !== null ||
         onboardingVisible
       ) {
         // Modal review/authoring/onboarding owns Space, Escape, and its focus
@@ -5094,24 +5450,48 @@ export const App = () => {
   const aiFrameParse = aiWorkflowReview
     ? aiWorkflowReview.response.proposal.review.frames.map(formatReviewFrame)
     : [];
-  const aiReviewEvents = aiWorkflowReview
-    ? buildReviewEvents({
-        hunks: aiWorkflowReview.diff.hunks,
-        reviewBundle: aiWorkflowReview.reviewBundle,
-        aiNotes: aiWorkflowReview.response.proposal.review.notes,
-        applyWarnings: aiWorkflowReview.response.proposal.applyPlan.warnings.map(
-          (warning) => `${warning.file} ${warning.where}: ${warning.message}`,
-        ),
-      })
+  /** F8: まだ決着していない hunk。UI(レーン・パネル・サマリー)はこれだけを見る */
+  const pendingHunks = aiWorkflowReview
+    ? aiWorkflowReview.diff.hunks.filter((h) => !aiWorkflowReview.settled.has(h))
     : [];
-  const aiWarningSummary = warningSummary(aiReviewEvents);
-  const setAiWorkflowHunks = (hunks: ProposalDiffResult["hunks"], side: "theirs" | "mine") => {
+
+  /**
+   * F8: hunk を決着させる。承認(theirs)ならその場で編集へ反映し、
+   * 却下(mine)なら何もせず捨てる。どちらも UI からは消える。
+   * 反映は1回の applyLiveDocs にまとめる(= undo 1回で戻せる)。
+   * ディスクには書かない(保存は人間の ⌘S)。
+   */
+  const settleAiHunks = (hunks: Hunk[], side: "theirs" | "mine") => {
+    const review = aiWorkflowReview;
+    if (!review || hunks.length === 0 || !proj) return;
+
+    if (side === "theirs") {
+      const merged = applyProposalResolution(
+        { cutplan, overlays, transcript, bgm, shorts },
+        review.response.proposal.proposedDocs,
+        review.diff,
+        resolutionForOnly(review.diff.hunks, hunks),
+      );
+      applyLiveDocs(merged);
+    }
+
     setAiWorkflow((prev) => {
-      if (!prev?.resolution) return prev;
-      const next = new Map(prev.resolution);
-      for (const hunk of hunks) next.set(hunk, side);
-      return { ...prev, resolution: next, reviewStale: prev.reviewBundle ? true : prev.reviewStale };
+      if (!prev?.settled || !prev.resolution) return prev;
+      const settled = new Set(prev.settled);
+      const resolution = new Map(prev.resolution);
+      for (const h of hunks) {
+        settled.add(h);
+        resolution.set(h, side);
+      }
+      if (prev.diff && settled.size >= prev.diff.hunks.length) return null;
+      return { ...prev, settled, resolution };
     });
+
+    if (review.settled.size + hunks.length >= review.diff.hunks.length) {
+      setAiEditEnabled(false);
+      setFocusedDiffEventId(null);
+      setFocusedDiffTrackId(null);
+    }
   };
 
   // 開閉・最大化でも Panel の children は常時 mount したまま保つ。
@@ -5160,23 +5540,49 @@ export const App = () => {
           <TooltipTrigger asChild>
             <Button
               ref={aiCommandLauncherRef}
-              variant="secondary"
+              variant={aiEditEnabled ? "default" : "secondary"}
               size="sm"
-              className="aiCommandLauncher"
+              className={`aiCommandLauncher${aiEditEnabled ? " on" : ""}`}
               disabled={aiWorkflowLocked}
-              title={aiWorkflowLocked ? aiWorkflowTitle : anyDirty ? "保存してから AI 一発編集" : "AI 一発編集を開く"}
+              title={
+                aiWorkflowLocked
+                  ? aiWorkflowTitle
+                  : aiEditEnabled
+                    ? "AI編集モードを終了"
+                    : anyDirty
+                      ? "保存してから AI 一発編集"
+                      : "AI 一発編集を開く"
+              }
               onClick={() => {
-                setAiCommandScope("global");
-                setAiCommandOpen(true);
+                if (aiEditEnabled) {
+                  setAiEditEnabled(false);
+                } else if (isAiWorkflowReviewState(aiWorkflow)) {
+                  setAiEditEnabled(true);
+                  setFocusedDiffEventId(null);
+                  setFocusedDiffTrackId(null);
+                  setDiffPreviewMode("after");
+                  setDiffBoundedPlayback(true);
+                } else {
+                  setAiCommandScope("global");
+                  setAiCommandOpen(true);
+                }
               }}
             >
               {aiWorkflowLocked
                 ? <img className="aiCommandLauncherIcon" src="/particle_loop_icon.svg" alt="" />
                 : <Sparkles size={14} aria-hidden />}
-              {aiWorkflowLocked ? "編集中" : "AI編集"}
+              {aiWorkflowLocked ? "編集中" : aiEditEnabled ? "AI編集 ON" : "AI編集"}
             </Button>
           </TooltipTrigger>
-          <TooltipContent>{aiWorkflowLocked ? aiWorkflowTitle : anyDirty ? "保存してから AI 一発編集" : "AI 一発編集を開く"}</TooltipContent>
+          <TooltipContent>
+            {aiWorkflowLocked
+              ? aiWorkflowTitle
+              : aiEditEnabled
+                ? "AI編集モードを終了"
+                : anyDirty
+                  ? "保存してから AI 一発編集"
+                  : "AI 一発編集を開く"}
+          </TooltipContent>
         </Tooltip>
         {/* レイアウト切替(VSCode 風)。アイコンの塗られた面 = 表示中のパネル。
             閉じてもデータ・編集状態には影響しない(表示だけの切替) */}
@@ -5322,8 +5728,37 @@ export const App = () => {
         </Popover>
       </header>
 
+      {aiEditEnabled && aiWorkflowReview && (
+        <div className="aiSummaryBar ocAiSummaryBar">
+          <span className="aiSummaryCount">
+            AI編集・残り {pendingHunks.length} 件
+          </span>
+          {aiHunksDegraded && (
+            <span className="aiSummaryWarn" title="この収録の JSON 要素に @id が無いため、AI の提案を1件ずつテロップ行へ割り当てられません。一度 ⌘S で保存すると id が採番され、次回から行ごとに表示できます">
+              ⚠ 行ごとの表示は不可(@id 未採番)
+            </span>
+          )}
+          <span className="aiSummaryHint dim">
+            ✓ で反映・✗ で破棄(どちらも即時。⌘Z で取り消せます)
+          </span>
+          <span className="spacer" />
+          <button
+            className="aiSummaryBulk primary"
+            onClick={() => settleAiHunks(pendingHunks, "theirs")}
+          >
+            すべて承認して反映
+          </button>
+          <button
+            className="aiSummaryBulk"
+            onClick={() => settleAiHunks(pendingHunks, "mine")}
+          >
+            すべて却下
+          </button>
+        </div>
+      )}
+
       {/* 要対応の継続条件(トーストにしない=時間で消えない)。header と stage の
-          間に、いずれかが真のときだけ描画する。複数同時は縦積み(T4) */}
+           間に、いずれかが真のときだけ描画する。複数同時は縦積み(T4) */}
       <HeaderBanners
         draftOffer={draftOffer}
         externalChange={externalChange}
@@ -5449,58 +5884,7 @@ export const App = () => {
         />
       )}
 
-      {aiWorkflowReview && (
-        <AiVisualReview
-          proposalId={aiWorkflowReview.response.proposalId}
-          title="AI 一発編集を確認"
-          description={
-            aiWorkflowReview.response.proposal.summary.length > 0
-              ? aiWorkflowReview.response.proposal.summary.join(" / ")
-              : "適用する変更だけを選んでください。保存と確認はこの画面から続けて行えます。"
-          }
-          events={aiReviewEvents}
-          hunks={aiWorkflowReview.diff.hunks}
-          resolution={aiWorkflowReview.resolution}
-          globalWarnings={[
-            ...(
-              aiWorkflowReview.error
-                ? [{ label: "比較エラー", tone: "warn" as const, items: [aiWorkflowReview.error] }]
-                : []
-            ),
-            ...(
-              aiWorkflowReview.response.proposal.applyPlan.warnings.length > 0
-                ? [{
-                    label: "既存の検証警告(この変更由来ではありません)",
-                    tone: "muted" as const,
-                    items: aiWorkflowReview.response.proposal.applyPlan.warnings.map((w) => `${w.file} ${w.where}: ${w.message}`),
-                  }]
-                : []
-            ),
-            ...(
-              aiWorkflowReview.response.proposal.review.notes.length > 0
-                ? [{ label: "AIメモ", tone: "muted" as const, items: aiWorkflowReview.response.proposal.review.notes }]
-                : []
-            ),
-          ]}
-          frameChecks={aiFrameParse}
-          reviewBundle={aiWorkflowReview.reviewBundle}
-          reviewStale={aiReviewStale}
-          warningSummary={aiWarningSummary}
-          checkingFrames={aiWorkflowReview.phase === "verifying"}
-          refining={aiWorkflowReview.phase === "refining"}
-          refiningMode={aiWorkflowReview.refineMode}
-          onSetHunks={setAiWorkflowHunks}
-          onBulk={(side) => {
-            if (!aiWorkflowReview) return;
-            setAiWorkflowHunks(aiWorkflowReview.diff.hunks, side);
-          }}
-          onGenerateReview={({ withVlm }) => void generateAiReview({ withVlm })}
-          onRefine={(options) => void refineAiWorkflow(options)}
-          onFixWarnings={({ withVlm }) => void refineAiWorkflow({ mode: "warning-fix", withVlm })}
-          onApply={() => void applyAiWorkflow({ save: true, reviewFirst: false })}
-          onCancel={() => setAiWorkflow(null)}
-        />
-      )}
+      {/* F1: AiVisualReview のモーダルは廃止。サマリーバーで操作 */}
 
       {settingsOpen && (
           <SettingsModal
@@ -5650,6 +6034,12 @@ export const App = () => {
                   onSeekSrc={seekToSrc}
                   onCutRange={cutScriptRange}
                   onRestoreRange={restoreScriptRange}
+                  aiHunks={aiEditEnabled ? transcriptAiHunks : []}
+                  aiResolution={aiEditEnabled ? aiWorkflowReview?.resolution : undefined}
+                  transcript={transcript}
+                  // F8: パネルの ✓/✗ もその場で編集へ反映して決着させる
+                  // (resolution に書くだけだと何も適用されず diff も消えない)
+                  onAiSetHunk={(hunk, side) => settleAiHunks([hunk], side)}
                 />
               </>
             )}
@@ -5668,6 +6058,11 @@ export const App = () => {
                   updateCaption={(i, patch) =>
                     updateCaption(i, patch, `caption:${i}:text`)
                   }
+                  aiHunks={aiEditEnabled ? transcriptAiHunks : []}
+                  aiResolution={aiEditEnabled ? aiWorkflowReview?.resolution : undefined}
+                  // F8: パネルの ✓/✗ もその場で編集へ反映して決着させる
+                  // (resolution に書くだけだと何も適用されず diff も消えない)
+                  onAiSetHunk={(hunk, side) => settleAiHunks([hunk], side)}
                 />
               </>
             )}
@@ -6036,6 +6431,60 @@ export const App = () => {
         </div>
         </div>
         </div>
+        {aiEditEnabled && aiWorkflowReview && (
+          <div className="diffPlaybackBar ocDiffPlaybackBar">
+            <div className="diffPlaybackToggle">
+              <button
+                className={`diffPlaybackBtn${diffPreviewMode === "before" ? " on" : ""}`}
+                disabled={!focusedDiffEvent}
+                title="この提案を当てない絵(今の編集内容そのまま)"
+                onClick={() => setDiffPreviewMode("before")}
+              >
+                この提案なし
+              </button>
+              <button
+                className={`diffPlaybackBtn${diffPreviewMode === "after" ? " on" : ""}`}
+                disabled={!focusedDiffEvent}
+                title="この提案を当てた絵"
+                onClick={() => setDiffPreviewMode("after")}
+              >
+                この提案あり
+              </button>
+            </div>
+
+            {diffPreviewRangeValue && diffPreviewRangeValue.mode === "bounded" && (
+              <div className="diffPlaybackBounds">
+                <label className="diffPlaybackLoop">
+                  <input
+                    type="checkbox"
+                    checked={diffBoundedPlayback}
+                    onChange={(e) => setDiffBoundedPlayback(e.target.checked)}
+                  />
+                  区間ループ再生
+                </label>
+                <span className="diffPlaybackRange mono dim">
+                  {fmtTime(diffPreviewRangeValue.startSec)} &rarr; {fmtTime(diffPreviewRangeValue.endSec)}
+                </span>
+                {!diffBoundedPlayback && (
+                  <button
+                    className="diffPlaybackContinue"
+                    onClick={() => setDiffBoundedPlayback(true)}
+                  >
+                    ループに戻す
+                  </button>
+                )}
+              </div>
+            )}
+
+            {diffPreviewRangeValue && diffPreviewRangeValue.mode === "full-clip" && (
+              <div className="diffPlaybackBounds">
+                <span className="diffPlaybackRange mono dim">
+                  クリップ全体: {fmtTime(diffPreviewRangeValue.startSec)} &rarr; {fmtTime(diffPreviewRangeValue.endSec)}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
               </div>
             </ResizablePanel>
             <ResizableHandle
@@ -6189,6 +6638,34 @@ export const App = () => {
         hiddenLayers={hiddenLayers}
         onToggleTrackHide={toggleTrackHide}
               defaultDurationSec={defaultImgSec}
+              diffTracks={diffTracks}
+              onDiffSetHunk={(hunks, side) => {
+                settleAiHunks(hunks, side);
+              }}
+              onDiffPreview={(event) => {
+                if (!event.timeRange) return;
+                // F2: seekOut はカット後秒を取るので、先に換算する
+                const mapped = diffTimeToOutput(
+                  event.timeRange.startSec,
+                  event.timeRange.endSec,
+                );
+                if (!mapped) return;
+                const range = diffPreviewRange(
+                  { startSec: mapped.start, endSec: mapped.end },
+                  event.kind,
+                );
+                if (!range) return;
+                const seekTarget = Math.max(0, range.startSec - 1);
+                seekOut(Math.min(seekTarget, duration));
+                playerRef.current?.play();
+                setDiffBoundedPlayback(true);
+                setDiffPreviewMode("after");
+                setFocusedDiffEventId(event.id);
+              }}
+              aiClipMarks={aiEditEnabled ? aiClipMarks : undefined}
+              diffStills={aiEditEnabled ? diffStills : []}
+              aiWorkflowHunks={aiWorkflowReview?.diff.hunks}
+              aiResolution={aiWorkflowReview?.resolution}
             />
           </div>
         </ResizablePanel>

@@ -81,10 +81,15 @@ test("AI propose, review, refine, apply, and warning-fix routing remains intact"
     "instruction: options.instruction?.trim() || undefined",
     "vlm: options.withVlm",
     "mode,",
-    "onGenerateReview={({ withVlm }) => void generateAiReview({ withVlm })}",
-    "onRefine={(options) => void refineAiWorkflow(options)}",
-    'onFixWarnings={({ withVlm }) => void refineAiWorkflow({ mode: "warning-fix", withVlm })}',
-    "onApply={() => void applyAiWorkflow({ save: true, reviewFirst: false })}",
+    // F1 でモーダル(AiVisualReview)の描画をやめたので、これらを繋いでいた
+    // JSX の props は無くなった。ルーティング本体(API を叩く関数)が残って
+    // いることを固定する。generateAiReview は自動レビューの effect から今も
+    // 呼ばれる。refineAiWorkflow / applyAiWorkflow は F1・F8 で UI 側の入口が
+    // 無くなり現在は未参照(再提案 UI の置き場所は未決。消す前にここが落ちる)
+    "const generateAiReview = async (",
+    "const refineAiWorkflow = async (",
+    "const applyAiWorkflow = async (",
+    "void generateAiReview({ withVlm: false })",
   ]) assert.ok(app.includes(contract), `lost AI workflow route: ${contract}`);
 });
 

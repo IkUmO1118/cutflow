@@ -3,6 +3,7 @@ import type { ReviewDocs } from "./docDiff.ts";
 import type { Problem } from "../stages/validate.ts";
 import type { DescribeProjection } from "../stages/describe.ts";
 import type { AiScope } from "../stages/editorAi.ts";
+import type { ReviewEventKind } from "./reviewEvents.ts";
 
 export interface EditSnapshot {
   cutplan: CutPlan;
@@ -374,4 +375,64 @@ function buildFrameCandidates(
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+// ============================================================
+// AI Copilot Diff レビュー: プレビュー挙動マッピング (§8.1)
+// ============================================================
+
+export type DiffPreviewMode = "bounded" | "full-clip";
+
+export interface DiffPreviewBehavior {
+  mode: DiffPreviewMode;
+  padSec: number;
+}
+
+function secondCount(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+export const DIFF_PREVIEW_BEHAVIOR: Record<ReviewEventKind, DiffPreviewBehavior> = {
+  cut: { mode: "bounded", padSec: 4 },
+  caption: { mode: "bounded", padSec: 3 },
+  overlay: { mode: "full-clip", padSec: 0 },
+  insert: { mode: "full-clip", padSec: 0 },
+  zoom: { mode: "bounded", padSec: 3 },
+  blur: { mode: "bounded", padSec: 3 },
+  annotation: { mode: "bounded", padSec: 3 },
+  wipe: { mode: "bounded", padSec: 3 },
+  "caption-track": { mode: "bounded", padSec: 3 },
+  bgm: { mode: "bounded", padSec: 4 },
+  short: { mode: "bounded", padSec: 3 },
+  json: { mode: "bounded", padSec: 3 },
+};
+
+export interface DiffPreviewRange {
+  startSec: number;
+  endSec: number;
+  mode: "bounded" | "full-clip";
+  padSec: number;
+}
+
+export function diffPreviewRange(
+  timeRange: { startSec: number; endSec: number } | undefined,
+  kind: ReviewEventKind,
+): DiffPreviewRange | null {
+  if (!timeRange) return null;
+  const behavior = DIFF_PREVIEW_BEHAVIOR[kind];
+  if (behavior.mode === "full-clip") {
+    return {
+      startSec: timeRange.startSec,
+      endSec: timeRange.endSec,
+      mode: "full-clip",
+      padSec: 0,
+    };
+  }
+  const pad = behavior.padSec;
+  return {
+    startSec: Math.max(0, secondCount(timeRange.startSec - pad)),
+    endSec: secondCount(timeRange.endSec + pad),
+    mode: "bounded",
+    padSec: pad,
+  };
 }

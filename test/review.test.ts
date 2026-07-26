@@ -1,3 +1,4 @@
+import { describe, it } from "node:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +9,8 @@ import {
   normalizeReviewSpec,
   sliceReviewContext,
   validateReviewSpec,
+  diffPreviewRange,
+  DIFF_PREVIEW_BEHAVIOR,
   type EditSnapshot,
 } from "../src/lib/review.ts";
 import { reviewEdit } from "../src/stages/review.ts";
@@ -221,5 +224,65 @@ test("reviewEdit: editable files と approval を変えずに review.probe を�
     assert.ok(existsSync(join(dir, "review.probe", "index.json")));
     assert.equal(statSync(join(dir, "transcript.json")).mtimeMs, transcriptBefore);
     assert.equal(readFileSync(join(dir, "approvals.json"), "utf8"), approvalsBefore);
+  });
+});
+
+describe("diffPreviewRange", () => {
+  it("undefined timeRange は null を返す", () => {
+    assert.equal(diffPreviewRange(undefined, "cut"), null);
+  });
+
+  it("cut は前後4秒に拡張", () => {
+    const range = diffPreviewRange({ startSec: 10, endSec: 15 }, "cut");
+    assert.equal(range!.mode, "bounded");
+    assert.equal(range!.padSec, 4);
+    assert.equal(range!.startSec, 6);
+    assert.equal(range!.endSec, 19);
+  });
+
+  it("caption は前後3秒", () => {
+    const range = diffPreviewRange({ startSec: 10, endSec: 15 }, "caption");
+    assert.equal(range!.startSec, 7);
+    assert.equal(range!.endSec, 18);
+  });
+
+  it("overlay は full-clip", () => {
+    const range = diffPreviewRange({ startSec: 10, endSec: 15 }, "overlay");
+    assert.equal(range!.mode, "full-clip");
+    assert.equal(range!.startSec, 10);
+    assert.equal(range!.endSec, 15);
+    assert.equal(range!.padSec, 0);
+  });
+
+  it("insert は full-clip", () => {
+    const range = diffPreviewRange({ startSec: 5, endSec: 20 }, "insert");
+    assert.equal(range!.mode, "full-clip");
+    assert.equal(range!.startSec, 5);
+    assert.equal(range!.endSec, 20);
+  });
+
+  it("bgm は前後4秒", () => {
+    const range = diffPreviewRange({ startSec: 30, endSec: 40 }, "bgm");
+    assert.equal(range!.startSec, 26);
+    assert.equal(range!.endSec, 44);
+  });
+
+  it("先頭付近は 0 未満にならない", () => {
+    const range = diffPreviewRange({ startSec: 1, endSec: 3 }, "cut");
+    assert.equal(range!.startSec, 0);
+    assert.equal(range!.endSec, 7);
+  });
+
+  it("全 kind が DIFF_PREVIEW_BEHAVIOR に定義されている", () => {
+    const allKinds: string[] = [
+      "cut", "caption", "overlay", "insert", "zoom", "blur",
+      "annotation", "wipe", "caption-track", "bgm", "short", "json",
+    ];
+    for (const kind of allKinds) {
+      assert.ok(
+        kind in DIFF_PREVIEW_BEHAVIOR,
+        `${kind} が DIFF_PREVIEW_BEHAVIOR に未定義です`,
+      );
+    }
   });
 });

@@ -657,6 +657,59 @@
     position: fixed; inset: 0; z-index: 24;
     background: rgba(0, 0, 0, 0.42);
   }
+  /* AI Copilot diff: サマリーバー */
+  .aiSummaryBar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    background: hsl(var(--oc-accent) / 0.12);
+    border-bottom: 1px solid hsl(var(--oc-border));
+    font-size: 13px;
+  }
+  .aiSummaryCount {
+    font-weight: 600;
+    color: hsl(var(--oc-foreground));
+  }
+  button.aiSummaryBulk {
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    border: 1px solid hsl(var(--oc-border));
+    background: hsl(var(--oc-background));
+    color: hsl(var(--oc-foreground));
+    cursor: pointer;
+  }
+  /* F1: サマリーバーの適用・破棄ボタン */
+  .aiSummaryAccepted { font-size: 11px; margin-left: 10px; }
+  .aiSummaryWarn {
+    font-size: 11px;
+    margin-left: 10px;
+    color: hsl(38 92% 45%);
+  }
+  .aiSummaryBulk:disabled { opacity: 0.45; cursor: not-allowed; }
+  .aiSummaryBulk.ghost {
+    border-color: transparent;
+    color: hsl(var(--oc-muted-foreground));
+  }
+  .aiSummaryBulk.ghost:hover:not(:disabled) {
+    border-color: hsl(var(--oc-border));
+    color: hsl(var(--oc-foreground));
+  }
+  button.aiSummaryBulk.primary {
+    background: hsl(var(--oc-primary));
+    color: hsl(var(--oc-primary-foreground));
+    border-color: hsl(var(--oc-primary));
+  }
+  button.aiSummaryBulk:hover {
+    opacity: 0.85;
+  }
+  /* AI編集ボタン ON状態 */
+  .aiCommandLauncher.on {
+    background: hsl(var(--oc-primary) / 0.18);
+    border-color: hsl(var(--oc-primary));
+    color: hsl(var(--oc-primary));
+  }
   .diffModal {
     position: fixed; left: 50%; top: 20px; bottom: 20px; transform: translateX(-50%);
     z-index: 25; width: 1020px; max-width: calc(100vw - 40px);
@@ -6349,4 +6402,323 @@
   }
 
   .mobileGateCard button { margin-top: 0.2rem; }
+}
+
+/* AI Copilot diff: テロップパネル インラインdiff(F7: 外枠なし・重複なし) */
+/* 行そのものを種別で淡く染める。左ボーダーは選択表示(.capRow.sel)が
+   使っているので触らない */
+.capRow.ai.add { background: hsl(var(--oc-success) / 0.06); }
+.capRow.ai.modify { background: hsl(38 92% 50% / 0.06); }
+.capRow.ai.remove { background: hsl(var(--oc-destructive) / 0.06); }
+.capRow.ai.sel { background: hsl(var(--oc-secondary)); }
+
+.capAiChip {
+  padding: 0 5px;
+  border-radius: 7px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 15px;
+}
+.capAiChip.add { background: hsl(var(--oc-success) / 0.22); color: hsl(var(--oc-success)); }
+.capAiChip.modify { background: hsl(38 92% 50% / 0.22); color: hsl(38 92% 45%); }
+.capAiChip.remove { background: hsl(var(--oc-destructive) / 0.22); color: hsl(var(--oc-destructive)); }
+
+.capAiActions { display: flex; gap: 4px; margin-left: auto; }
+
+/* 提案後の本文。textarea と同じ寸法で真下に積み、視線移動なしで比べられる */
+.capRow .capProposed {
+  display: block; width: 100%;
+  margin-top: 4px;
+  box-sizing: border-box;
+  border: 1px solid hsl(var(--oc-success) / 0.5);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-family: inherit; font-size: 13px;
+  background: hsl(var(--oc-success) / 0.10);
+  color: hsl(var(--oc-success));
+  white-space: pre-wrap;
+}
+/* 変更/削除の提案: 元の文章を赤く落とす。textarea(削除)と div(変更)の両方に対応 */
+.capRow .capEdit.aiDel {
+  border-color: hsl(var(--oc-destructive) / 0.6);
+  background: hsl(var(--oc-destructive) / 0.10);
+  color: hsl(var(--oc-destructive));
+  text-decoration: line-through;
+  white-space: pre-wrap;
+}
+
+.capDiffBtn {
+  width: 22px; height: 22px;
+  border: 1px solid hsl(var(--oc-border));
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0;
+}
+.capDiffBtn.accept.on { background: hsl(var(--oc-success)); color: white; border-color: hsl(var(--oc-success)); }
+.capDiffBtn.reject.on { background: hsl(var(--oc-destructive)); color: white; border-color: hsl(var(--oc-destructive)); }
+.capDiffBtn:hover { opacity: 0.8; }
+
+/* AI Copilot diff: タイムライン diffレーン(F3: 開閉なし・本体とセット表示) */
+.diffTrack {
+  position: relative;
+  overflow: hidden;
+}
+/* セット表示: diff レーン(上)と本体トラック(下)を左罫と背景で括る。
+   間には境界線を引かず、セットの外側にだけ引く */
+.diffTrack.setTop,
+.tlTrack.setBottom,
+.tlLabelDiff.setTop,
+.tlLabel.setBottom {
+  background: hsl(var(--oc-accent) / 0.05);
+  box-shadow: inset 2px 0 0 0 hsl(var(--oc-primary) / 0.7);
+}
+.diffTrack.setTop,
+.tlLabelDiff.setTop {
+  border-top: 1px solid hsl(var(--oc-border));
+  border-bottom: none;
+}
+.tlTrack.setBottom,
+.tlLabel.setBottom {
+  border-bottom: 1px solid hsl(var(--oc-border));
+}
+
+/* diffクリップ */
+.tlDiffClip {
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  cursor: pointer;
+  overflow: hidden;
+  border: 1.5px dashed;
+}
+.tlDiffClip.add { border-color: hsl(var(--oc-success)); background: hsl(var(--oc-success) / 0.12); }
+.tlDiffClip.remove { border-color: hsl(var(--oc-destructive)); background: hsl(var(--oc-destructive) / 0.12); }
+.tlDiffClip.change { border-color: hsl(38 92% 50%); background: hsl(38 92% 50% / 0.12); border-style: solid; }
+.tlDiffClip.accepted { opacity: 0.5; border-style: solid; }
+.tlDiffClip.rejected { opacity: 0.25; }
+.tlDiffClip.inCut {
+  border-style: dotted;
+  padding: 0;
+  min-width: 3px;
+}
+.tlDiffClip.inCut .tlDiffClipLabel { display: none; }
+.tlDiffClip:hover { filter: brightness(1.1); }
+.tlDiffClipLabel {
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: hsl(var(--oc-foreground));
+}
+
+/* F7: AI提案の影響を受ける本体クリップの印 */
+.tlClip.aiMark.remove {
+  outline: 1.5px solid hsl(var(--oc-destructive) / 0.9);
+  outline-offset: -1.5px;
+}
+.tlClip.aiMark.remove::after {
+  content: "";
+  position: absolute;
+  left: 2px; right: 2px; top: 50%;
+  height: 1.5px;
+  background: hsl(var(--oc-destructive));
+  pointer-events: none;
+}
+.tlClip.aiMark.modify {
+  outline: 1.5px solid hsl(38 92% 50% / 0.9);
+  outline-offset: -1.5px;
+}
+
+/* diffレーン ラベル列 */
+.tlLabelDiff {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px 2px 10px;
+  user-select: none;
+  font-size: 12px;
+  box-sizing: border-box;
+}
+.tlDiffBadge {
+  background: hsl(var(--oc-primary));
+  color: hsl(var(--oc-primary-foreground));
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 600;
+}
+.tlDiffLabelText { color: hsl(var(--oc-muted-foreground)); font-size: 11px; }
+
+/* AI Copilot diff: プレイヤー下の前後トグル + バウンド再生 */
+.diffPlaybackBar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+  background: hsl(var(--oc-accent) / 0.06);
+  border-top: 1px solid hsl(var(--oc-border));
+  border-bottom: 1px solid hsl(var(--oc-border));
+  font-size: 12px;
+}
+.diffPlaybackToggle {
+  display: flex;
+  gap: 0;
+  border: 1px solid hsl(var(--oc-border));
+  border-radius: 4px;
+  overflow: hidden;
+}
+.diffPlaybackBtn {
+  padding: 3px 12px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  color: hsl(var(--oc-muted-foreground));
+}
+.diffPlaybackBtn:not(:last-child) { border-right: 1px solid hsl(var(--oc-border)); }
+.diffPlaybackBtn.on {
+  background: hsl(var(--oc-primary));
+  color: hsl(var(--oc-primary-foreground));
+}
+.diffPlaybackBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+.diffPlaybackBounds {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diffPlaybackLoop {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.diffPlaybackRange {
+  font-size: 11px;
+}
+.diffPlaybackContinue {
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid hsl(var(--oc-border));
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+}
+.diffPlaybackContinue:hover { background: hsl(var(--oc-accent) / 0.1); }
+
+/* AI Copilot diff: ホバーサムネイル */
+.tlDiffHoverThumb {
+  background: hsl(var(--oc-popover));
+  border: 1px solid hsl(var(--oc-border));
+  border-radius: 8px;
+  padding: 8px;
+  box-shadow: 0 4px 16px hsl(0 0% 0% / 0.2);
+  pointer-events: none;
+}
+.tlDiffHoverThumbLabel {
+  font-size: 10px;
+  color: hsl(var(--oc-muted-foreground));
+  margin-bottom: 4px;
+  text-align: center;
+}
+.tlDiffHoverThumbPair {
+  display: flex;
+  gap: 4px;
+}
+.tlDiffHoverThumbImg {
+  width: 140px;
+  height: auto;
+  border-radius: 4px;
+  border: 1px solid hsl(var(--oc-border));
+  object-fit: cover;
+}
+
+/* F8: diff クリップのポップオーバー。主操作(承認)を塗りで1つだけ立て、
+   他は地味な枠線に落とす。ボタンは折り返さない */
+.tlDiffPopover {
+  min-width: 240px;
+  max-width: 320px;
+  padding: 10px 12px 11px;
+  border: 1px solid hsl(var(--oc-border));
+  border-radius: 8px;
+  background: hsl(var(--oc-popover));
+  color: hsl(var(--oc-popover-foreground));
+  box-shadow: 0 8px 24px hsl(0 0% 0% / 0.35);
+}
+.tlDiffPopoverTitle {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  margin-bottom: 2px;
+}
+.tlDiffPopoverMeta {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: hsl(var(--oc-muted-foreground));
+  margin-bottom: 10px;
+}
+.tlDiffPopoverActions {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+.tlDiffPopoverActions button {
+  flex: 1 1 auto;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid hsl(var(--oc-border));
+  background: transparent;
+  color: hsl(var(--oc-foreground));
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+/* 主操作だけ塗る */
+.tlDiffPopoverActions button.accept {
+  flex: 1.3 1 auto;
+  background: hsl(var(--oc-success));
+  border-color: hsl(var(--oc-success));
+  color: white;
+  font-weight: 600;
+}
+.tlDiffPopoverActions button.accept:hover { filter: brightness(1.08); }
+.tlDiffPopoverActions button.preview:hover {
+  background: hsl(var(--oc-accent) / 0.12);
+  border-color: hsl(var(--oc-primary) / 0.6);
+}
+.tlDiffPopoverActions button.reject { color: hsl(var(--oc-destructive)); }
+.tlDiffPopoverActions button.reject:hover {
+  background: hsl(var(--oc-destructive) / 0.12);
+  border-color: hsl(var(--oc-destructive) / 0.6);
+}
+
+/* AI Copilot diff: スクリプトパネル 簡易インジケータ */
+.scriptAiIndicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  margin-bottom: 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  background: hsl(38 92% 50% / 0.1);
+  border: 1px solid hsl(38 92% 50% / 0.3);
+}
+.scriptAiIndicator.accepted { background: hsl(var(--oc-success) / 0.1); border-color: hsl(var(--oc-success) / 0.3); }
+.scriptAiIndicator.rejected { background: hsl(var(--oc-destructive) / 0.1); border-color: hsl(var(--oc-destructive) / 0.3); opacity: 0.5; }
+.scriptAiIndicator button {
+  width: 20px; height: 20px;
+  border: 1px solid hsl(var(--oc-border));
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 11px;
+  display: flex; align-items: center; justify-content: center;
 }

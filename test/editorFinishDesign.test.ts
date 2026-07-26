@@ -149,7 +149,11 @@ test("P5 onboarding is local-only, conflict-prioritized, dismissible, and guarde
   assert.doesNotMatch(dialog, /\/api\/|postSave|postDraft|fetch\(/);
   assert.match(app, /draftOffer === null && !externalChange && !diffPanelOpen/);
   assert.match(app, /onboardingOpen && onboardingEligible/);
-  assert.match(app, /\(diffReview !== null && diffPanelOpen\) \|\|[\s\S]*aiWorkflowReview !== null \|\|[\s\S]*onboardingVisible/);
+  assert.match(app, /\(diffReview !== null && diffPanelOpen\) \|\|[\s\S]{0,80}onboardingVisible/);
+  // F1: AI編集はモーダルではなくインライン(Copilot)になったので、
+  // aiWorkflowReview が非 null でも Space 再生・⌘Z・Delete は生かす。
+  // この guard に aiWorkflowReview を戻すと Copilot モード中の操作が全部死ぬ
+  assert.doesNotMatch(app, /aiWorkflowReview !== null \|\|/);
   assert.ok(app.indexOf('e.key === "s"') < app.indexOf("diffReview !== null && diffPanelOpen"));
   assert.ok(app.indexOf('e.key === ","') < app.indexOf("diffReview !== null && diffPanelOpen"));
   assert.ok(!app.includes("hyperframeAuthorOpen"), "hyperframeAuthorOpen modal state should be removed");

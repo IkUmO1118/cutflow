@@ -50,7 +50,9 @@ test("header migration preserves AI, layout, settings, save, approval, and expor
   const app = read("editor/client/App.tsx");
 
   assert.match(app, /disabled=\{aiWorkflowLocked\}/);
-  assert.match(app, /title=\{aiWorkflowLocked \? aiWorkflowTitle : anyDirty \? "保存してから AI 一発編集" : "AI 一発編集を開く"\}/);
+  // F1 で aiEditEnabled(トグル)の分岐が入り複数行になった。ロック中・未保存・
+  // 通常の3つの文言が生きていることだけを固定する
+  assert.match(app, /title=\{[\s\S]*aiWorkflowLocked[\s\S]*aiWorkflowTitle[\s\S]*anyDirty[\s\S]*"保存してから AI 一発編集"[\s\S]*"AI 一発編集を開く"[\s\S]*\}/);
   assert.match(app, /setAiCommandScope\("global"\);\s+setAiCommandOpen\(true\);/);
   assert.match(app, /className=\{anyDirty \? "saveStatus dirty" : "saveStatus"\}/);
   assert.match(app, /busy === "save" \? "保存中…" : anyDirty \? "● 未保存 \(⌘S\)" : "保存済み"/);

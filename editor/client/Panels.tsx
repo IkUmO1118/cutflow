@@ -7,6 +7,7 @@ import type {
   SyntheticEvent as ReactSyntheticEvent,
 } from "react";
 import { captionTrack } from "../../src/types.ts";
+import type { Hunk } from "../../src/lib/docDiff.ts";
 import type { Interval, Overlays, Shorts, Transcript } from "../../src/types.ts";
 import { toSourceTime } from "../../src/lib/timeline.ts";
 import type { TimelineEntry } from "../../src/lib/timeline.ts";
@@ -847,6 +848,9 @@ export const CaptionsPanel = ({
   onRowToggle,
   onRowFocus,
   updateCaption,
+  aiHunks: transcriptAiHunks = [],
+  aiResolution: transcriptAiResolution,
+  onAiSetHunk: transcriptOnAiSetHunk,
 }: {
   transcript: Transcript;
   overlays: Overlays;
@@ -861,6 +865,12 @@ export const CaptionsPanel = ({
   /** textarea フォーカス: 選択だけする(シークで再生位置を飛ばさない) */
   onRowFocus: (i: number) => void;
   updateCaption: (i: number, patch: Partial<Transcript["segments"][number]>) => void;
+  /** AI編集diffモード用: transcript.segments に対する提案 Hunk */
+  aiHunks?: Hunk[];
+  /** AI編集diffモード用: 承認状態 */
+  aiResolution?: Map<Hunk, "theirs" | "mine">;
+  /** AI編集diffモード用: Hunk の承認/却下 */
+  onAiSetHunk?: (hunk: Hunk, side: "theirs" | "mine") => void;
 }) => {
   const selRef = useRef<HTMLDivElement>(null);
   // タイムライン側でクリップを選んだときは該当行まで自動スクロール
@@ -876,6 +886,33 @@ export const CaptionsPanel = ({
     .map((s, i) => ({ s, i }))
     .filter(({ s }) => captionTrack(s) !== chapterTrack);
 
+  /** F7: 追加の提案(現在の transcript に無い要素)を、時刻順の位置へ
+   * 擬似行として差し込む。ghost = true の行は編集不可・承認/却下だけできる */
+  const rowsWithAiAdds = useMemo(() => {
+    const adds = transcriptAiHunks.filter(
+      (h) =>
+        h.kind === "element-add" &&
+        h.theirs &&
+        typeof h.theirs === "object" &&
+        typeof (h.theirs as Record<string, unknown>).text === "string",
+    );
+    if (adds.length === 0) return rows.map((r) => ({ ...r, ghost: null as Hunk | null }));
+    const merged = rows.map((r) => ({ ...r, ghost: null as Hunk | null }));
+    for (const h of adds) {
+      const t = h.theirs as Record<string, unknown>;
+      const start = typeof t.start === "number" ? t.start : 0;
+      const at = merged.findIndex((r) => r.s.start > start);
+      const ghostRow = {
+        s: { ...(t as object) } as (typeof rows)[number]["s"],
+        i: -1,
+        ghost: h,
+      };
+      if (at < 0) merged.push(ghostRow);
+      else merged.splice(at, 0, ghostRow);
+    }
+    return merged;
+  }, [rows, transcriptAiHunks]);
+
   if (rows.length === 0) {
     return (
       <EmptyState
@@ -887,11 +924,64 @@ export const CaptionsPanel = ({
   }
   return (
     <div className="capList">
-      {rows.map(({ s, i }) => {
+      {rowsWithAiAdds.map(({ s, i, ghost }) => {
+        if (ghost) {
+          const gAccepted = (transcriptAiResolution?.get(ghost) ?? "theirs") === "theirs";
+          return (
+            <div className="capRow ai add" key={`ghost-${ghost.address.label}`}>
+              <div className="capRowMeta mono">
+                <span>{fmtTime(s.start)}</span>
+                <span className="dim">→ {fmtTime(s.end)}</span>
+                <span className="capAiChip add">追加</span>
+                <span className="capAiActions">
+                  <button
+                    className={`capDiffBtn accept${gAccepted ? " on" : ""}`}
+                    title="この追加を承認"
+                    onClick={(e) => { e.stopPropagation(); transcriptOnAiSetHunk?.(ghost, "theirs"); }}
+                  >{"✓"}</button>
+                  <button
+                    className={`capDiffBtn reject${!gAccepted ? " on" : ""}`}
+                    title="この追加を却下"
+                    onClick={(e) => { e.stopPropagation(); transcriptOnAiSetHunk?.(ghost, "mine"); }}
+                  >{"✗"}</button>
+                </span>
+              </div>
+              <div className="capProposed">{s.text}</div>
+            </div>
+          );
+        }
+
         const sel = i === selectedIndex || multiSelected.includes(i);
+        const rowHunks =
+          transcriptAiHunks.length > 0 && s.id
+            ? transcriptAiHunks.filter((h) => h.address.elementId === s.id)
+            : [];
+
+        const aiHunk =
+          rowHunks.find((h) => h.kind === "element-remove") ??
+          rowHunks.find(
+            (h) =>
+              (h.kind === "element-modify" || h.kind === "field") &&
+              h.address.field === "text" &&
+              typeof h.theirs === "string",
+          ) ??
+          rowHunks[0];
+        const aiKind = !aiHunk
+          ? null
+          : aiHunk.kind === "element-remove"
+            ? "remove"
+            : "modify";
+        const aiAccepted = aiHunk
+          ? (transcriptAiResolution?.get(aiHunk) ?? "theirs") === "theirs"
+          : false;
+        const aiProposedText =
+          aiHunk && aiKind === "modify" && typeof aiHunk.theirs === "string"
+            ? aiHunk.theirs
+            : null;
+
         return (
           <div
-            className={`capRow${sel ? " sel" : ""}`}
+            className={`capRow${sel ? " sel" : ""}${aiKind ? ` ai ${aiKind}` : ""}`}
             key={i}
             ref={i === selectedIndex ? selRef : undefined}
             onClick={(e) =>
@@ -901,15 +991,45 @@ export const CaptionsPanel = ({
             <div className="capRowMeta mono">
               <span>{fmtTime(s.start)}</span>
               <span className="dim">→ {fmtTime(s.end)}</span>
+              {aiKind && (
+                <>
+                  <span className={`capAiChip ${aiKind}`}>
+                    {aiKind === "remove" ? "削除" : "変更"}
+                  </span>
+                  <span className="capAiActions">
+                    <button
+                      className={`capDiffBtn accept${aiAccepted ? " on" : ""}`}
+                      title="この提案を承認"
+                      onClick={(e) => { e.stopPropagation(); transcriptOnAiSetHunk?.(aiHunk!, "theirs"); }}
+                    >{"✓"}</button>
+                    <button
+                      className={`capDiffBtn reject${!aiAccepted ? " on" : ""}`}
+                      title="この提案を却下"
+                      onClick={(e) => { e.stopPropagation(); transcriptOnAiSetHunk?.(aiHunk!, "mine"); }}
+                    >{"✗"}</button>
+                  </span>
+                </>
+              )}
             </div>
-            <textarea
-              className="capEdit"
-              rows={Math.min(4, Math.max(1, s.text.split("\n").length))}
-              value={s.text}
-              onClick={(e) => e.stopPropagation()}
-              onFocus={() => onRowFocus(i)}
-              onChange={(e) => updateCaption(i, { text: e.target.value })}
-            />
+            {aiKind === "modify" ? (
+              <>
+                <div className="capEdit aiDel">{s.text}</div>
+                {aiProposedText !== null && (
+                  <div className="capProposed" title="AI の提案(承認すると本文がこれに変わります)">
+                    {aiProposedText}
+                  </div>
+                )}
+              </>
+            ) : (
+              <textarea
+                className={`capEdit${aiKind === "remove" ? " aiDel" : ""}`}
+                rows={Math.min(4, Math.max(1, s.text.split("\n").length))}
+                value={s.text}
+                onClick={(e) => e.stopPropagation()}
+                onFocus={() => onRowFocus(i)}
+                onChange={(e) => updateCaption(i, { text: e.target.value })}
+              />
+            )}
           </div>
         );
       })}
@@ -1066,6 +1186,9 @@ const ScriptRow = memo(function ScriptRow({
   active,
   follow,
   onSeekSrc,
+  aiHunk,
+  aiResolution,
+  onAiSetHunk,
 }: {
   row: ScriptBlock;
   rowIdx: number;
@@ -1077,6 +1200,12 @@ const ScriptRow = memo(function ScriptRow({
   /** 再生中だけ true(active なブロックへの自動スクロールを再生追従に限る) */
   follow: boolean;
   onSeekSrc: (src: number) => void;
+  /** この行に対応する AI 提案 Hunk（あれば） */
+  aiHunk?: Hunk;
+  /** AI編集diffモード用: 承認状態 */
+  aiResolution?: Map<Hunk, "theirs" | "mine">;
+  /** AI編集diffモード用: Hunk の承認/却下 */
+  onAiSetHunk?: (hunk: Hunk, side: "theirs" | "mine") => void;
 }) {
   const code = usePlayheadSelector((outT) => {
     const src = srcProgressAt(outT, timeline);
@@ -1113,6 +1242,17 @@ const ScriptRow = memo(function ScriptRow({
         <span>{fmtTime(row.start)}</span>
         <span className="dim">→ {fmtTime(row.end)}</span>
       </div>
+      {aiHunk && (
+        <div className={`scriptAiIndicator${(aiResolution?.get(aiHunk) ?? "theirs") === "theirs" ? " accepted" : " rejected"}`}>
+          <span>AI提案あり</span>
+          {onAiSetHunk && (
+            <>
+              <button onClick={(e) => { e.stopPropagation(); onAiSetHunk(aiHunk, "theirs"); }}>{"\u2713"}</button>
+              <button onClick={(e) => { e.stopPropagation(); onAiSetHunk(aiHunk, "mine"); }}>{"\u2717"}</button>
+            </>
+          )}
+        </div>
+      )}
       <div className="scriptText">
         {row.items.map((it, j) => {
           const seek = () => {
@@ -1176,6 +1316,10 @@ export const ScriptPanel = ({
   onSeekSrc,
   onCutRange,
   onRestoreRange,
+  aiHunks: scriptAiHunks = [],
+  aiResolution: scriptAiResolution,
+  onAiSetHunk: scriptOnAiSetHunk,
+  transcript,
 }: {
   /** GET /api/script の結果。null = 読み込み中 */
   script: ScriptData | null;
@@ -1198,7 +1342,30 @@ export const ScriptPanel = ({
   onCutRange: (start: number, end: number) => void;
   /** 選択した語の範囲(元収録の秒)を keep へ戻す */
   onRestoreRange: (start: number, end: number) => void;
+  /** AI編集diffモード用: transcript.segments に対する提案 Hunk */
+  aiHunks?: Hunk[];
+  /** AI編集diffモード用: 承認状態 */
+  aiResolution?: Map<Hunk, "theirs" | "mine">;
+  /** AI編集diffモード用: Hunk の承認/却下 */
+  onAiSetHunk?: (hunk: Hunk, side: "theirs" | "mine") => void;
+  /** F4: hunk elementId → transcript segment 時刻の解決 */
+  transcript?: { segments: { id?: string; start: number; end: number }[] };
 }) => {
+  /** F4: hunk → 対象 transcript segment の元収録秒 */
+  const scriptAiHunkTimes = useMemo(() => {
+    const byId = new Map<string, { start: number; end: number }>();
+    for (const seg of transcript?.segments ?? []) {
+      if (seg.id) byId.set(seg.id, { start: seg.start, end: seg.end });
+    }
+    const m = new Map<Hunk, { start: number; end: number }>();
+    for (const h of scriptAiHunks) {
+      const id = h.address.elementId;
+      if (!id) continue;
+      const t = byId.get(id);
+      if (t) m.set(h, t);
+    }
+    return m;
+  }, [scriptAiHunks, transcript]);
   const rootRef = useRef<HTMLDivElement>(null);
   /** 現在の文字選択(語 span に解決できたときだけ)。a/b = 元収録の秒 */
   const [sel, setSel] = useState<{
@@ -1367,18 +1534,28 @@ export const ScriptPanel = ({
         )}
       </div>
       <div className="scriptList">
-        {rows.map((r, i) => (
-          <ScriptRow
-            key={i}
-            row={r}
-            rowIdx={i}
-            kept={keptFlags[i]}
-            timeline={timeline}
-            active={i === activeRow}
-            follow={playing}
-            onSeekSrc={onSeekSrc}
-          />
-        ))}
+        {rows.map((r, i) => {
+          // F4: 行(元収録秒の区間)に時間が重なる提案だけを出す
+          const rowHunk = scriptAiHunks.find((h) => {
+            const t = scriptAiHunkTimes.get(h);
+            return t !== undefined && t.start < r.end && r.start < t.end;
+          });
+          return (
+            <ScriptRow
+              key={i}
+              row={r}
+              rowIdx={i}
+              kept={keptFlags[i]}
+              timeline={timeline}
+              active={i === activeRow}
+              follow={playing}
+              onSeekSrc={onSeekSrc}
+              aiHunk={rowHunk}
+              aiResolution={scriptAiResolution}
+              onAiSetHunk={scriptOnAiSetHunk}
+            />
+          );
+        })}
       </div>
       {script.source === "transcript" && (
         <p className="dim hint" style={{ padding: "0 14px 10px" }}>

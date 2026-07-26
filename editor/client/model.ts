@@ -12,6 +12,8 @@
 import { capNum, ovNum } from "../../src/types.ts";
 import type { AnnotationType, CaptionPos, Interval, LayerId, PlanSegment, Region, SpotlightShape } from "../../src/types.ts";
 import type { ScriptSegment } from "./apiTypes.ts";
+import type { Hunk } from "../../src/lib/docDiff.ts";
+import type { ReviewEvent, ReviewEventKind } from "../../src/lib/reviewEvents.ts";
 
 /** overlays.json のどの配列か(hide 系はエディタ非表示の手書き互換)。
  * "short" はショートモードの ranges 帯(shorts.json のショート単位)。
@@ -855,3 +857,154 @@ export function splitSpanAt(
   if (a <= s + minSpan || a >= e - minSpan) return null;
   return { left: { start: s, end: a }, right: { start: a, end: e } };
 }
+
+// ============================================================
+// AI Copilot Diff レビュー: diffレーン用 TrackDef
+// ============================================================
+
+/** diffレーンのトラックIDプレフィックス */
+export const DIFF_TRACK_PREFIX = "diff:";
+
+/** F2: diff レーンに置く1クリップ。event は元収録秒(source)のままで、
+ * outStart/outEnd はカット後秒(output)へ換算した表示座標。
+ * inCut = 現在は全部カットされている区間の提案(幅ゼロの印で出す) */
+export interface DiffLaneClip {
+  event: ReviewEvent;
+  outStart: number;
+  outEnd: number;
+  inCut: boolean;
+}
+
+/** diffレーンの TrackDef。id は "diff:zoom" のように既存トラックIDに前置する */
+export interface DiffTrackDef {
+  track: TrackDef;
+  /** このdiffレーンに対応する元トラックの TrackDef */
+  sourceTrack: TrackDef;
+  /** F2: 表示座標(output 秒)まで解決済みのクリップ列。時系列順 */
+  clips: DiffLaneClip[];
+  /** 提案件数（バッジ表示用） */
+  eventCount: number;
+}
+
+/**
+ * ReviewEvent[] と既存 tracks から、diffレーンの TrackDef 配列を作る。
+ * 変更のあるトラックに対してのみ diffレーンを生成する。
+ *
+ * F2: toOut は「元収録秒の区間 → カット後秒の区間(複数可)」の換算。
+ * App が remapInterval / snapToOutput を束ねて渡す。ここで換算まで
+ * 済ませるのは、Timeline に source 軸の値を一切渡さないため。
+ */
+export function buildDiffTracks(
+  events: readonly ReviewEvent[],
+  existingTracks: readonly TrackDef[],
+  toOut: (startSec: number, endSec: number) => { start: number; end: number; inCut: boolean } | null,
+): DiffTrackDef[] {
+  const trackIdToClips = new Map<TrackId, DiffLaneClip[]>();
+
+  for (const event of events) {
+    const trackId = diffTrackIdForEventKind(event.kind);
+    if (!trackId) continue;
+    const exists = existingTracks.some((t) => t.id === trackId);
+    if (!exists) continue;
+    if (!event.timeRange) continue;
+    const mapped = toOut(event.timeRange.startSec, event.timeRange.endSec);
+    if (!mapped) continue;
+    const arr = trackIdToClips.get(trackId) ?? [];
+    arr.push({ event, outStart: mapped.start, outEnd: mapped.end, inCut: mapped.inCut });
+    trackIdToClips.set(trackId, arr);
+  }
+
+  const result: DiffTrackDef[] = [];
+  for (const [trackId, clips] of trackIdToClips) {
+    const sourceTrack = existingTracks.find((t) => t.id === trackId);
+    if (!sourceTrack) continue;
+    clips.sort((a, b) => a.outStart - b.outStart);
+    result.push({
+      track: {
+        id: `${DIFF_TRACK_PREFIX}${trackId}` as TrackId,
+        label: "AI提案",
+        hint: "AI編集の提案。クリックでプレビュー・承認・却下",
+      },
+      sourceTrack,
+      clips,
+      eventCount: clips.length,
+    });
+  }
+
+  const orderMap = new Map<TrackId, number>();
+  existingTracks.forEach((t, i) => orderMap.set(t.id, i));
+  result.sort(
+    (a, b) =>
+      (orderMap.get(a.sourceTrack.id) ?? 0) -
+      (orderMap.get(b.sourceTrack.id) ?? 0),
+  );
+
+  return result;
+}
+
+/**
+ * F7: この提案を diff レーンに出すか。
+ * 「時間軸上の位置で判断する変更」だけを通す。テロップの文言だけの変更は
+ * パネルのインライン diff に任せ、レーンには出さない(量が多く、クリップ幅
+ * では読めないため)。テロップでも削除・追加・時刻変更は通す。
+ */
+export function isLaneWorthy(
+  event: { kind: string; hunkIndexes: readonly number[] },
+  hunks: readonly Hunk[],
+): boolean {
+  if (event.kind === "caption-track" || event.kind === "json") return false;
+  if (event.kind !== "caption") return true;
+  const own = event.hunkIndexes.map((i) => hunks[i]).filter(Boolean);
+  if (own.length === 0) return false;
+  if (own.some((h) => h.kind === "element-add" || h.kind === "element-remove")) return true;
+  return own.some((h) => h.address.field !== "text");
+}
+
+/** ReviewEventKind → 対応する TrackId */
+function diffTrackIdForEventKind(kind: string): TrackId | null {
+  switch (kind) {
+    case "cut": return "cut";
+    case "caption": return "caption";
+    case "overlay": return "ov1";
+    case "insert": return "cut";
+    case "annotation": return "annotation";
+    case "blur": return "blur";
+    case "zoom": return "zoom";
+    case "wipe": return "wipe";
+    case "caption-track": return "caption";
+    case "bgm": return "bgm";
+    case "short": return "short";
+    default: return null;
+  }
+}
+
+/**
+ * F6: AI編集モード(Copilot)を開いてよいか。
+ * - 提案が無い / 差分ゼロ件 → 開かない
+ * - 外部変更を検知している → 開かない(古い base への提案になるため)
+ */
+export function shouldEnterCopilotMode(args: {
+  hunkCount: number;
+  externalChanged: boolean;
+}): boolean {
+  if (args.externalChanged) return false;
+  return args.hunkCount > 0;
+}
+
+/**
+ * F8: 単一(または複数)hunk だけを当てるための resolution を作る。
+ * applyProposalResolution は resolution に無い hunk を既定で "theirs" として
+ * 当ててしまうので、当てたいもの以外を明示的に "mine" で塞ぐ必要がある
+ */
+export function resolutionForOnly(
+  allHunks: readonly Hunk[],
+  targets: readonly Hunk[],
+): Map<Hunk, "theirs" | "mine"> {
+  const m = new Map<Hunk, "theirs" | "mine">();
+  for (const h of allHunks) m.set(h, "mine");
+  for (const h of targets) m.set(h, "theirs");
+  return m;
+}
+
+/** diffレーンの行高(px)。開閉は無く常にこの高さ(F3) */
+export const DIFF_ROW_H = 28;
