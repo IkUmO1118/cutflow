@@ -91,7 +91,7 @@ import { buildReviewEvents, warningSummary } from "../../src/lib/reviewEvents.ts
 import { diffPreviewRange } from "../../src/lib/review.ts";
 import { previewCutKeepSignature } from "../../src/lib/previewCutSignature.ts";
 import { AiCommand } from "./AiCommand.tsx";
-import { AiVisualReview } from "./AiVisualReview.tsx";
+// F1: AiVisualReview はモーダルを出さなくなったので参照しない
 import { ArrowOverlay } from "./ArrowOverlay.tsx";
 import type { OverlayArrow } from "./ArrowOverlay.tsx";
 import { CaptionOverlay } from "./CaptionOverlay.tsx";
@@ -2036,6 +2036,32 @@ export const App = () => {
   const [presetDrag, setPresetDrag] = useState<EditorPreset | null>(null);
   const onPresetDragBegin = (preset: EditorPreset) => setPresetDrag(preset);
   const onPresetDragEnd = () => setPresetDrag(null);
+
+  const transcriptAiHunks = aiWorkflowReview
+    ? aiWorkflowReview.diff.hunks.filter(
+        (h) => h.address.file === "transcript" && h.address.arrayKey === "segments"
+      )
+    : [];
+  const diffTracks =
+    aiEditEnabled && aiWorkflowReview && built
+      ? buildDiffTracks(aiReviewEvents, timelineTracks)
+      : [];
+  const flatDiffEvents =
+    aiEditEnabled && aiWorkflowReview
+      ? aiReviewEvents
+          .filter((e) => e.timeRange)
+          .sort((a, b) => {
+            if (!a.timeRange || !b.timeRange) return 0;
+            return a.timeRange.startSec - b.timeRange.startSec;
+          })
+      : [];
+  const diffStills =
+    aiWorkflowReview?.reviewBundle?.stills.map((still, i) => ({
+      eventId: aiReviewEvents[i]?.id ?? "",
+      beforeFile: still.before.file,
+      afterFile: still.after.file,
+    })) ?? [];
+  const [diffCollapsed, setDiffCollapsed] = useState<Record<string, boolean>>({});
 
   /** タイムラインに実際に見せるトラック。映像(cut)は常時、他は要素が1つでもある
    * または「今インスペクタで編集中のテロップトラック」、またはプリセットの
@@ -4336,6 +4362,13 @@ export const App = () => {
         resolution: new Map(diff.hunks.map((h) => [h, "theirs"] as const)),
         autoReviewRequested: false,
       });
+      // F1: 提案が返ったらそのまま Copilot モード(インライン diff レビュー)に
+      // 入る。モーダルは出さないので、ここで ON にしないと提案が一切見えない
+      setAiEditEnabled(true);
+      setFocusedDiffEventId(null);
+      setFocusedDiffTrackId(null);
+      setDiffPreviewMode("after");
+      setDiffBoundedPlayback(true);
     } catch (e) {
       const message = (e as Error).message;
       setAiWorkflow({ phase: "failed", instruction, scope, error: message });
@@ -4488,6 +4521,7 @@ export const App = () => {
     let saveSucceeded = false;
     try {
       applyLiveDocs(merged);
+      setAiEditEnabled(false);   // F1: 反映したら Copilot モードを抜ける
       if (!save) {
         setAiWorkflow({
           ...aiWorkflowReview,
@@ -5088,7 +5122,8 @@ export const App = () => {
         return;
       }
       // ---- AI Copilot Diff: キーボードナビゲーション ----
-      if (aiEditEnabled) {
+      // 入力欄(テロップ本文など)では効かせない。効かせると「j」が打てない
+      if (aiEditEnabled && !inField) {
         const DIFF_TRACK_PREFIX = "diff:";
 
         if (e.key === "j" && !e.metaKey && !e.ctrlKey && !e.altKey) {
@@ -5186,7 +5221,6 @@ export const App = () => {
 
       if (
         (diffReview !== null && diffPanelOpen) ||
-        aiWorkflowReview !== null ||
         onboardingVisible
       ) {
         // Modal review/authoring/onboarding owns Space, Escape, and its focus
@@ -5303,43 +5337,19 @@ export const App = () => {
   const aiFrameParse = aiWorkflowReview
     ? aiWorkflowReview.response.proposal.review.frames.map(formatReviewFrame)
     : [];
-  const transcriptAiHunks = useMemo(
-    () => aiWorkflowReview
-      ? aiWorkflowReview.diff.hunks.filter(
-          (h) => h.address.file === "transcript" && h.address.arrayKey === "segments"
-        )
-      : [],
-    [aiWorkflowReview],
-  );
-  const diffTracks = useMemo(
-    () =>
-      aiEditEnabled && aiWorkflowReview && built
-        ? buildDiffTracks(aiReviewEvents, timelineTracks)
-        : [],
-    [aiEditEnabled, aiWorkflowReview, aiReviewEvents, built],
-  );
-  const flatDiffEvents = useMemo(
-    () =>
-      aiEditEnabled && aiWorkflowReview
-        ? aiReviewEvents
-            .filter((e) => e.timeRange)
-            .sort((a, b) => {
-              if (!a.timeRange || !b.timeRange) return 0;
-              return a.timeRange.startSec - b.timeRange.startSec;
-            })
-        : [],
-    [aiEditEnabled, aiWorkflowReview, aiReviewEvents],
-  );
-  const diffStills = useMemo(
-    () =>
-      aiWorkflowReview?.reviewBundle?.stills.map((still, i) => ({
-        eventId: aiReviewEvents[i]?.id ?? "",
-        beforeFile: still.before.file,
-        afterFile: still.after.file,
-      })) ?? [],
-    [aiWorkflowReview?.reviewBundle, aiReviewEvents],
-  );
-  const [diffCollapsed, setDiffCollapsed] = useState<Record<string, boolean>>({});
+  /** F1: 承認(theirs)側になっている hunk の件数 */
+  const aiAcceptedCount = aiWorkflowReview
+    ? aiWorkflowReview.diff.hunks.filter(
+        (h) => (aiWorkflowReview.resolution.get(h) ?? "theirs") === "theirs",
+      ).length
+    : 0;
+  /** F1: 適用・保存・検証の実行中(二重押し防止) */
+  const aiWorkflowBusy =
+    aiWorkflow !== null &&
+    (aiWorkflow.phase === "applying" ||
+      aiWorkflow.phase === "saving" ||
+      aiWorkflow.phase === "verifying" ||
+      aiWorkflow.phase === "refining");
   const setAiWorkflowHunks = (hunks: ProposalDiffResult["hunks"], side: "theirs" | "mine") => {
     setAiWorkflow((prev) => {
       if (!prev?.resolution) return prev;
@@ -5588,9 +5598,13 @@ export const App = () => {
           <span className="aiSummaryCount">
             AI編集・{aiWorkflowReview.diff.hunks.length}件の提案
           </span>
+          <span className="aiSummaryAccepted mono dim">
+            承認 {aiAcceptedCount} / 却下 {aiWorkflowReview.diff.hunks.length - aiAcceptedCount}
+          </span>
           <span className="spacer" />
           <button
-            className="aiSummaryBulk primary"
+            className="aiSummaryBulk"
+            disabled={aiWorkflowBusy}
             onClick={() => {
               if (!aiWorkflowReview) return;
               setAiWorkflowHunks(aiWorkflowReview.diff.hunks, "theirs");
@@ -5600,12 +5614,38 @@ export const App = () => {
           </button>
           <button
             className="aiSummaryBulk"
+            disabled={aiWorkflowBusy}
             onClick={() => {
               if (!aiWorkflowReview) return;
               setAiWorkflowHunks(aiWorkflowReview.diff.hunks, "mine");
             }}
           >
             すべて却下
+          </button>
+          <button
+            className="aiSummaryBulk primary"
+            disabled={aiWorkflowBusy || aiAcceptedCount === 0}
+            title={
+              aiAcceptedCount === 0
+                ? "承認された提案がありません"
+                : "承認した提案だけを編集内容へ反映して保存します"
+            }
+            onClick={() => void applyAiWorkflow({ save: true, reviewFirst: false })}
+          >
+            {aiWorkflowBusy ? "適用中…" : `承認した ${aiAcceptedCount} 件を適用`}
+          </button>
+          <button
+            className="aiSummaryBulk ghost"
+            disabled={aiWorkflowBusy}
+            title="提案を破棄して AI編集モードを終了します(編集内容は変わりません)"
+            onClick={() => {
+              setAiWorkflow(null);
+              setAiEditEnabled(false);
+              setFocusedDiffEventId(null);
+              setFocusedDiffTrackId(null);
+            }}
+          >
+            やめる
           </button>
         </div>
       )}
@@ -5737,58 +5777,7 @@ export const App = () => {
         />
       )}
 
-      {aiWorkflowReview && (
-        <AiVisualReview
-          proposalId={aiWorkflowReview.response.proposalId}
-          title="AI 一発編集を確認"
-          description={
-            aiWorkflowReview.response.proposal.summary.length > 0
-              ? aiWorkflowReview.response.proposal.summary.join(" / ")
-              : "適用する変更だけを選んでください。保存と確認はこの画面から続けて行えます。"
-          }
-          events={aiReviewEvents}
-          hunks={aiWorkflowReview.diff.hunks}
-          resolution={aiWorkflowReview.resolution}
-          globalWarnings={[
-            ...(
-              aiWorkflowReview.error
-                ? [{ label: "比較エラー", tone: "warn" as const, items: [aiWorkflowReview.error] }]
-                : []
-            ),
-            ...(
-              aiWorkflowReview.response.proposal.applyPlan.warnings.length > 0
-                ? [{
-                    label: "既存の検証警告(この変更由来ではありません)",
-                    tone: "muted" as const,
-                    items: aiWorkflowReview.response.proposal.applyPlan.warnings.map((w) => `${w.file} ${w.where}: ${w.message}`),
-                  }]
-                : []
-            ),
-            ...(
-              aiWorkflowReview.response.proposal.review.notes.length > 0
-                ? [{ label: "AIメモ", tone: "muted" as const, items: aiWorkflowReview.response.proposal.review.notes }]
-                : []
-            ),
-          ]}
-          frameChecks={aiFrameParse}
-          reviewBundle={aiWorkflowReview.reviewBundle}
-          reviewStale={aiReviewStale}
-          warningSummary={aiWarningSummary}
-          checkingFrames={aiWorkflowReview.phase === "verifying"}
-          refining={aiWorkflowReview.phase === "refining"}
-          refiningMode={aiWorkflowReview.refineMode}
-          onSetHunks={setAiWorkflowHunks}
-          onBulk={(side) => {
-            if (!aiWorkflowReview) return;
-            setAiWorkflowHunks(aiWorkflowReview.diff.hunks, side);
-          }}
-          onGenerateReview={({ withVlm }) => void generateAiReview({ withVlm })}
-          onRefine={(options) => void refineAiWorkflow(options)}
-          onFixWarnings={({ withVlm }) => void refineAiWorkflow({ mode: "warning-fix", withVlm })}
-          onApply={() => void applyAiWorkflow({ save: true, reviewFirst: false })}
-          onCancel={() => setAiWorkflow(null)}
-        />
-      )}
+      {/* F1: AiVisualReview のモーダルは廃止。サマリーバーで操作 */}
 
       {settingsOpen && (
           <SettingsModal

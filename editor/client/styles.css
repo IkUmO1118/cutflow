@@ -680,6 +680,17 @@
     color: hsl(var(--oc-foreground));
     cursor: pointer;
   }
+  /* F1: サマリーバーの適用・破棄ボタン */
+  .aiSummaryAccepted { font-size: 11px; margin-left: 10px; }
+  .aiSummaryBulk:disabled { opacity: 0.45; cursor: not-allowed; }
+  .aiSummaryBulk.ghost {
+    border-color: transparent;
+    color: hsl(var(--oc-muted-foreground));
+  }
+  .aiSummaryBulk.ghost:hover:not(:disabled) {
+    border-color: hsl(var(--oc-border));
+    color: hsl(var(--oc-foreground));
+  }
   button.aiSummaryBulk.primary {
     background: hsl(var(--oc-primary));
     color: hsl(var(--oc-primary-foreground));
