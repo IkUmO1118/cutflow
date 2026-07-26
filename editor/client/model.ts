@@ -865,13 +865,23 @@ export function splitSpanAt(
 /** diffレーンのトラックIDプレフィックス */
 export const DIFF_TRACK_PREFIX = "diff:";
 
+/** F2: diff レーンに置く1クリップ。event は元収録秒(source)のままで、
+ * outStart/outEnd はカット後秒(output)へ換算した表示座標。
+ * inCut = 現在は全部カットされている区間の提案(幅ゼロの印で出す) */
+export interface DiffLaneClip {
+  event: ReviewEvent;
+  outStart: number;
+  outEnd: number;
+  inCut: boolean;
+}
+
 /** diffレーンの TrackDef。id は "diff:zoom" のように既存トラックIDに前置する */
 export interface DiffTrackDef {
   track: TrackDef;
   /** このdiffレーンに対応する元トラックの TrackDef */
   sourceTrack: TrackDef;
-  /** このdiffレーンが表示する変更イベント */
-  events: ReviewEvent[];
+  /** F2: 表示座標(output 秒)まで解決済みのクリップ列。時系列順 */
+  clips: DiffLaneClip[];
   /** 提案件数（バッジ表示用） */
   eventCount: number;
   /** 折りたたみ状態（初期値 true） */
@@ -881,37 +891,46 @@ export interface DiffTrackDef {
 /**
  * ReviewEvent[] と既存 tracks から、diffレーンの TrackDef 配列を作る。
  * 変更のあるトラックに対してのみ diffレーンを生成する。
+ *
+ * F2: toOut は「元収録秒の区間 → カット後秒の区間(複数可)」の換算。
+ * App が remapInterval / snapToOutput を束ねて渡す。ここで換算まで
+ * 済ませるのは、Timeline に source 軸の値を一切渡さないため。
  */
 export function buildDiffTracks(
   events: readonly ReviewEvent[],
   existingTracks: readonly TrackDef[],
+  toOut: (startSec: number, endSec: number) => { start: number; end: number; inCut: boolean } | null,
 ): DiffTrackDef[] {
-  const trackIdToEvents = new Map<TrackId, ReviewEvent[]>();
+  const trackIdToClips = new Map<TrackId, DiffLaneClip[]>();
 
   for (const event of events) {
     const trackId = diffTrackIdForEventKind(event.kind);
     if (!trackId) continue;
     const exists = existingTracks.some((t) => t.id === trackId);
     if (!exists) continue;
-    const arr = trackIdToEvents.get(trackId) ?? [];
-    arr.push(event);
-    trackIdToEvents.set(trackId, arr);
+    if (!event.timeRange) continue;
+    const mapped = toOut(event.timeRange.startSec, event.timeRange.endSec);
+    if (!mapped) continue;
+    const arr = trackIdToClips.get(trackId) ?? [];
+    arr.push({ event, outStart: mapped.start, outEnd: mapped.end, inCut: mapped.inCut });
+    trackIdToClips.set(trackId, arr);
   }
 
   const result: DiffTrackDef[] = [];
-  for (const [trackId, trackEvents] of trackIdToEvents) {
+  for (const [trackId, clips] of trackIdToClips) {
     const sourceTrack = existingTracks.find((t) => t.id === trackId);
     if (!sourceTrack) continue;
+    clips.sort((a, b) => a.outStart - b.outStart);
     result.push({
       track: {
         id: `${DIFF_TRACK_PREFIX}${trackId}` as TrackId,
         label: "AI提案",
-        hint: "AI編集の提案を確認します。クリックで展開/折りたたみ",
+        hint: "AI編集の提案。クリックでプレビュー・承認・却下",
       },
       sourceTrack,
-      events: trackEvents,
-      eventCount: trackEvents.length,
-      collapsed: true,
+      clips,
+      eventCount: clips.length,
+      collapsed: false,
     });
   }
 

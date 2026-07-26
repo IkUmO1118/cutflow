@@ -147,6 +147,9 @@ const ROW_H_STORE = "cutflow.editor.trackHeights";
 /** ドロップ吸着 ON/OFF の保存キー(既定 ON) */
 const SNAP_STORE = "cutflow.editor.snapEnabled";
 
+/** F2: 現在カットされている区間の提案を示す細い印の幅(px) */
+const DIFF_CUT_MARK_W = 3;
+
 /**
  * 画面下部のマルチトラックタイムライン。横軸はカット後の秒、上=前面。
  * ここは「見た目とポインタ操作」だけを持ち、ドキュメントの変換・更新は
@@ -200,6 +203,7 @@ export const Timeline = ({
   onDiffPreview,
   diffStills,
   aiWorkflowHunks,
+  aiResolution,
 }: {
   height: number;
   duration: number;
@@ -283,6 +287,8 @@ export const Timeline = ({
   onDiffPreview?: (event: import("../../src/lib/reviewEvents.ts").ReviewEvent) => void;
   diffStills?: { eventId: string; beforeFile: string; afterFile: string }[];
   aiWorkflowHunks?: Hunk[];
+  /** F2: hunk ごとの承認状態。diff クリップの色(承認済み/却下)に使う */
+  aiResolution?: Map<Hunk, "theirs" | "mine">;
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   /** 左のラベル列(縦スクロールを tlScroll と同期させる) */
@@ -1221,12 +1227,15 @@ export const Timeline = ({
                       <span className="tlDiffLabel">{diffDef.track.label}</span>
                       <span className="tlDiffArrow">{collapsed ? "\u25B8" : "\u25BE"}</span>
                     </div>
-                    {!collapsed && diffDef.events.map((event) => {
-                      const timeRange = event.timeRange;
-                      if (!timeRange) return null;
+                    {!collapsed && diffDef.clips.map(({ event, outStart, outEnd, inCut }) => {
+                      // F2: outStart/outEnd はカット後秒。既存クリップと同じ
+                      // 絶対配置(winLeftPx を引かない)にする
+                      const left = outStart * pps;
+                      const width = inCut
+                        ? DIFF_CUT_MARK_W
+                        : Math.max(12, (outEnd - outStart) * pps);
 
-                      const left = timeRange.startSec * pps;
-                      const width = Math.max(12, (timeRange.endSec - timeRange.startSec) * pps);
+                      if (outEnd < winStart || outStart > winEnd) return null;
 
                       const kindClass =
                         event.kind === "cut" ? "change" :
@@ -1234,41 +1243,35 @@ export const Timeline = ({
                         event.hunkLabels.some((l) => l.includes("remove")) ? "remove" :
                         "change";
 
-                      const eventHunks = event.hunkIndexes
-                        .map((i) => aiWorkflowHunks?.[i])
-                        .filter((h): h is Hunk => Boolean(h));
-
                       const status = reviewEventStatus({
                         event,
                         hunks: aiWorkflowHunks ?? [],
-                        resolution: new Map(),
+                        resolution: aiResolution ?? new Map(),
                       });
                       const statusClass =
                         status === "use" ? "accepted" :
                         status === "skip" ? "rejected" :
                         "pending";
 
-                      if (left + width <= winLeftPx || left >= winLeftPx + (winEnd - winStart) * pps) return null;
-
                       return (
                         <div
                           key={event.id}
-                          className={`tlDiffClip ${kindClass} ${statusClass}`}
+                          className={`tlDiffClip ${kindClass} ${statusClass}${inCut ? " inCut" : ""}`}
                           style={{
                             position: "absolute",
-                            left: Math.max(0, left - winLeftPx),
+                            left,
                             width,
                             top: 4,
                             height: DIFF_ROW_H - 8,
                           }}
-                          title={`${event.title}\n${event.subtitle}`}
+                          title={
+                            inCut
+                              ? `${event.title}\n${event.subtitle}\n(現在カットされている区間の提案)`
+                              : `${event.title}\n${event.subtitle}`
+                          }
                           onClick={(e) => {
                             e.stopPropagation();
-                            setPopoverEvent({
-                              event,
-                              x: e.clientX,
-                              y: e.clientY,
-                            });
+                            setPopoverEvent({ event, x: e.clientX, y: e.clientY });
                           }}
                           onPointerEnter={(e) => {
                             const still = diffStills?.find((s) => s.eventId === event.id);

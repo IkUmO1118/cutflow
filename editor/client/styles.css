@@ -6481,6 +6481,12 @@
 .tlDiffClip.change { border-color: hsl(38 92% 50%); background: hsl(38 92% 50% / 0.12); border-style: solid; }
 .tlDiffClip.accepted { opacity: 0.5; border-style: solid; }
 .tlDiffClip.rejected { opacity: 0.25; }
+.tlDiffClip.inCut {
+  border-style: dotted;
+  padding: 0;
+  min-width: 3px;
+}
+.tlDiffClip.inCut .tlDiffClipLabel { display: none; }
 .tlDiffClip:hover { filter: brightness(1.1); }
 .tlDiffClipLabel {
   font-size: 10px;

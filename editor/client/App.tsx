@@ -1577,13 +1577,17 @@ export const App = () => {
         : null,
     [focusedDiffEventId, aiReviewEvents],
   );
-  const diffPreviewRangeValue = useMemo(
-    () =>
-      focusedDiffEvent
-        ? diffPreviewRange(focusedDiffEvent.timeRange, focusedDiffEvent.kind)
-        : null,
-    [focusedDiffEvent],
-  );
+  const diffPreviewRangeValue = useMemo(() => {
+    const tr = focusedDiffEvent?.timeRange;
+    if (!tr || !focusedDiffEvent) return null;
+    // F2: バウンド再生の範囲もカット後秒で持つ(playhead と同じ軸)
+    const pieces = remapInterval(tr.startSec, tr.endSec, curTimeline);
+    if (pieces.length === 0) return null;
+    return diffPreviewRange(
+      { startSec: pieces[0].start, endSec: pieces[pieces.length - 1].end },
+      focusedDiffEvent.kind,
+    );
+  }, [focusedDiffEvent, curTimeline]);
 
   /** AI編集diffモード用: 変更前(base)のレンダーprops */
   const baseBuilt = useMemo(() => {
@@ -2042,9 +2046,23 @@ export const App = () => {
         (h) => h.address.file === "transcript" && h.address.arrayKey === "segments"
       )
     : [];
+  /** F2: 元収録秒の区間をカット後秒へ */
+  const diffTimeToOutput = (startSec: number, endSec: number) => {
+    const pieces = remapInterval(startSec, endSec, curTimeline);
+    if (pieces.length > 0) {
+      return {
+        start: pieces[0].start,
+        end: pieces[pieces.length - 1].end,
+        inCut: false,
+      };
+    }
+    const snapped = snapToOutput(startSec, curTimeline);
+    if (snapped === null) return null;
+    return { start: snapped, end: snapped, inCut: true };
+  };
   const diffTracks =
     aiEditEnabled && aiWorkflowReview && built
-      ? buildDiffTracks(aiReviewEvents, timelineTracks)
+      ? buildDiffTracks(aiReviewEvents, timelineTracks, diffTimeToOutput)
       : [];
   const flatDiffEvents =
     aiEditEnabled && aiWorkflowReview
@@ -5142,8 +5160,7 @@ export const App = () => {
             setDiffCollapsed((prev) => ({ ...prev, [diffTrackId]: false }));
           }
           if (nextEvent.timeRange) {
-            const outSec = toOutputTime(nextEvent.timeRange.startSec, curTimeline);
-            if (outSec !== null) seekOut(Math.max(0, Math.min(outSec, duration)));
+            const outSec = snapToOutput(nextEvent.timeRange.startSec, curTimeline);
           }
           return;
         }
@@ -5164,8 +5181,7 @@ export const App = () => {
             setDiffCollapsed((prev) => ({ ...prev, [diffTrackId]: false }));
           }
           if (prevEvent.timeRange) {
-            const outSec = toOutputTime(prevEvent.timeRange.startSec, curTimeline);
-            if (outSec !== null) seekOut(Math.max(0, Math.min(outSec, duration)));
+            const outSec = snapToOutput(prevEvent.timeRange.startSec, curTimeline);
           }
           return;
         }
@@ -6548,7 +6564,16 @@ export const App = () => {
               }}
               onDiffPreview={(event) => {
                 if (!event.timeRange) return;
-                const range = diffPreviewRange(event.timeRange, event.kind);
+                // F2: seekOut はカット後秒を取るので、先に換算する
+                const mapped = diffTimeToOutput(
+                  event.timeRange.startSec,
+                  event.timeRange.endSec,
+                );
+                if (!mapped) return;
+                const range = diffPreviewRange(
+                  { startSec: mapped.start, endSec: mapped.end },
+                  event.kind,
+                );
                 if (!range) return;
                 const seekTarget = Math.max(0, range.startSec - 1);
                 seekOut(Math.min(seekTarget, duration));
@@ -6559,6 +6584,7 @@ export const App = () => {
               }}
               diffStills={aiEditEnabled ? diffStills : []}
               aiWorkflowHunks={aiWorkflowReview?.diff.hunks}
+              aiResolution={aiWorkflowReview?.resolution}
             />
           </div>
         </ResizablePanel>
