@@ -354,26 +354,38 @@ function frameReasonsFor(timeRange: ReviewEventTimeRange | undefined, reviewBund
   return [...reasons].sort((a, b) => a.localeCompare(b));
 }
 
-function timeRangeOf(hunks: Hunk[]): ReviewEventTimeRange | undefined {
-  const start = numberField(hunks, "start") ?? numberFromObject(hunks, "start");
-  const end = numberField(hunks, "end") ?? numberFromObject(hunks, "end");
-  if (start === undefined && end === undefined) return undefined;
-  if (start !== undefined && end !== undefined) return normalizeRange(start, end);
-  if (start !== undefined) return normalizeRange(start, start + 2);
-  const resolvedEnd = end as number;
-  return normalizeRange(Math.max(0, resolvedEnd - 2), resolvedEnd);
-}
+/** F7: hunk のどの側から時刻を読むか。theirs(提案後)を最優先にし、
+ * 削除の提案(theirs === undefined)では mine → base へ落とす。
+ * これで「消える要素が今どこにあるか」をレーンに出せる */
+type HunkSide = "theirs" | "mine" | "base";
+const TIME_SIDES: HunkSide[] = ["theirs", "mine", "base"];
 
-function numberField(hunks: Hunk[], field: string): number | undefined {
-  for (const hunk of hunks) {
-    if (hunk.address.field === field && typeof hunk.theirs === "number") return hunk.theirs;
+function timeRangeOf(hunks: Hunk[]): ReviewEventTimeRange | undefined {
+  for (const side of TIME_SIDES) {
+    const start = numberField(hunks, "start", side) ?? numberFromObject(hunks, "start", side);
+    const end = numberField(hunks, "end", side) ?? numberFromObject(hunks, "end", side);
+    if (start === undefined && end === undefined) continue;
+    if (start !== undefined && end !== undefined) return normalizeRange(start, end);
+    if (start !== undefined) return normalizeRange(start, start + 2);
+    const resolvedEnd = end as number;
+    return normalizeRange(Math.max(0, resolvedEnd - 2), resolvedEnd);
   }
   return undefined;
 }
 
-function numberFromObject(hunks: Hunk[], field: string): number | undefined {
+function numberField(hunks: Hunk[], field: string, side: HunkSide): number | undefined {
   for (const hunk of hunks) {
-    if (isRecord(hunk.theirs) && typeof hunk.theirs[field] === "number") return hunk.theirs[field] as number;
+    if (hunk.address.field === field && typeof hunk[side] === "number") {
+      return hunk[side] as number;
+    }
+  }
+  return undefined;
+}
+
+function numberFromObject(hunks: Hunk[], field: string, side: HunkSide): number | undefined {
+  for (const hunk of hunks) {
+    const v = hunk[side];
+    if (isRecord(v) && typeof v[field] === "number") return v[field] as number;
   }
   return undefined;
 }

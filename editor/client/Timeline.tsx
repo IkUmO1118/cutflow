@@ -200,6 +200,7 @@ export const Timeline = ({
   onDiffSetHunk,
   onDiffPreview,
   diffStills,
+  aiClipMarks,
   aiWorkflowHunks,
   aiResolution,
 }: {
@@ -282,6 +283,8 @@ export const Timeline = ({
   onDiffSetHunk?: (hunks: Hunk[], side: "theirs" | "mine") => void;
   onDiffPreview?: (event: import("../../src/lib/reviewEvents.ts").ReviewEvent) => void;
   diffStills?: { eventId: string; beforeFile: string; afterFile: string }[];
+  /** F7: AI提案の影響を受ける本体クリップ。キーは `${kind}:${index}` */
+  aiClipMarks?: Map<string, "remove" | "modify">;
   aiWorkflowHunks?: Hunk[];
   /** F2: hunk ごとの承認状態。diff クリップの色(承認済み/却下)に使う */
   aiResolution?: Map<Hunk, "theirs" | "mine">;
@@ -1312,7 +1315,11 @@ export const Timeline = ({
                       nodes.push(
                         <div
                           key={g.keys[i]}
-                          className={`tlClip ${clip.kind}${isSel(clip) ? " sel" : ""}${clip.static ? " static" : ""}`}
+                          className={`tlClip ${clip.kind}${isSel(clip) ? " sel" : ""}${clip.static ? " static" : ""}${
+                            aiClipMarks?.get(`${clip.kind}:${clip.index}`)
+                              ? ` aiMark ${aiClipMarks.get(`${clip.kind}:${clip.index}`)}`
+                              : ""
+                          }`}
                           style={{
                             left: clip.outStart * pps,
                             width: Math.max(6, (clip.outEnd - clip.outStart) * pps),

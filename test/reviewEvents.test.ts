@@ -293,3 +293,19 @@ test("warningSummary: effectWarnings の merge を反映する", () => {
   assert.equal(summary.total, 1);
   assert.deepEqual(summary.groups, [{ label: "ぼかし", count: 1 }]);
 });
+
+test("F7: 削除の提案(theirs=undefined)でも timeRange が取れる", () => {
+  const zoom = { id: "zm_1", start: 10, end: 14, rect: { x: 0, y: 0, w: 960, h: 540 } };
+  const hunk = {
+    address: { file: "overlays", arrayKey: "zooms", elementId: "zm_1", label: "overlays zooms zm_1" },
+    kind: "element-remove" as const,
+    base: zoom,
+    mine: zoom,
+    theirs: undefined,
+    conflict: false,
+  };
+  const events = buildReviewEvents({ hunks: [hunk] });
+  assert.equal(events.length, 1);
+  assert.equal(events[0].timeRange?.startSec, 10);
+  assert.equal(events[0].timeRange?.endSec, 14);
+});

@@ -886,6 +886,33 @@ export const CaptionsPanel = ({
     .map((s, i) => ({ s, i }))
     .filter(({ s }) => captionTrack(s) !== chapterTrack);
 
+  /** F7: 追加の提案(現在の transcript に無い要素)を、時刻順の位置へ
+   * 擬似行として差し込む。ghost = true の行は編集不可・承認/却下だけできる */
+  const rowsWithAiAdds = useMemo(() => {
+    const adds = transcriptAiHunks.filter(
+      (h) =>
+        h.kind === "element-add" &&
+        h.theirs &&
+        typeof h.theirs === "object" &&
+        typeof (h.theirs as Record<string, unknown>).text === "string",
+    );
+    if (adds.length === 0) return rows.map((r) => ({ ...r, ghost: null as Hunk | null }));
+    const merged = rows.map((r) => ({ ...r, ghost: null as Hunk | null }));
+    for (const h of adds) {
+      const t = h.theirs as Record<string, unknown>;
+      const start = typeof t.start === "number" ? t.start : 0;
+      const at = merged.findIndex((r) => r.s.start > start);
+      const ghostRow = {
+        s: { ...(t as object) } as (typeof rows)[number]["s"],
+        i: -1,
+        ghost: h,
+      };
+      if (at < 0) merged.push(ghostRow);
+      else merged.splice(at, 0, ghostRow);
+    }
+    return merged;
+  }, [rows, transcriptAiHunks]);
+
   if (rows.length === 0) {
     return (
       <EmptyState
@@ -897,18 +924,64 @@ export const CaptionsPanel = ({
   }
   return (
     <div className="capList">
-      {rows.map(({ s, i }) => {
+      {rowsWithAiAdds.map(({ s, i, ghost }) => {
+        if (ghost) {
+          const gAccepted = (transcriptAiResolution?.get(ghost) ?? "theirs") === "theirs";
+          return (
+            <div className="capRow ai add" key={`ghost-${ghost.address.label}`}>
+              <div className="capRowMeta mono">
+                <span>{fmtTime(s.start)}</span>
+                <span className="dim">→ {fmtTime(s.end)}</span>
+                <span className="capAiChip add">追加</span>
+                <span className="capAiActions">
+                  <button
+                    className={`capDiffBtn accept${gAccepted ? " on" : ""}`}
+                    title="この追加を承認"
+                    onClick={(e) => { e.stopPropagation(); transcriptOnAiSetHunk?.(ghost, "theirs"); }}
+                  >{"✓"}</button>
+                  <button
+                    className={`capDiffBtn reject${!gAccepted ? " on" : ""}`}
+                    title="この追加を却下"
+                    onClick={(e) => { e.stopPropagation(); transcriptOnAiSetHunk?.(ghost, "mine"); }}
+                  >{"✗"}</button>
+                </span>
+              </div>
+              <div className="capProposed">{s.text}</div>
+            </div>
+          );
+        }
+
         const sel = i === selectedIndex || multiSelected.includes(i);
-        // F4: elementId が一致する hunk だけをこの行に出す。
-        // elementId の無い hunk(= 配列まるごとの退化 hunk)は特定の行を
-        // 指していないので、ここでは拾わない(サマリーバーが告知する)
         const rowHunks =
           transcriptAiHunks.length > 0 && s.id
             ? transcriptAiHunks.filter((h) => h.address.elementId === s.id)
             : [];
+
+        const aiHunk =
+          rowHunks.find((h) => h.kind === "element-remove") ??
+          rowHunks.find(
+            (h) =>
+              (h.kind === "element-modify" || h.kind === "field") &&
+              h.address.field === "text" &&
+              typeof h.theirs === "string",
+          ) ??
+          rowHunks[0];
+        const aiKind = !aiHunk
+          ? null
+          : aiHunk.kind === "element-remove"
+            ? "remove"
+            : "modify";
+        const aiAccepted = aiHunk
+          ? (transcriptAiResolution?.get(aiHunk) ?? "theirs") === "theirs"
+          : false;
+        const aiProposedText =
+          aiHunk && aiKind === "modify" && typeof aiHunk.theirs === "string"
+            ? aiHunk.theirs
+            : null;
+
         return (
           <div
-            className={`capRow${sel ? " sel" : ""}`}
+            className={`capRow${sel ? " sel" : ""}${aiKind ? ` ai ${aiKind}` : ""}`}
             key={i}
             ref={i === selectedIndex ? selRef : undefined}
             onClick={(e) =>
@@ -918,74 +991,39 @@ export const CaptionsPanel = ({
             <div className="capRowMeta mono">
               <span>{fmtTime(s.start)}</span>
               <span className="dim">→ {fmtTime(s.end)}</span>
+              {aiKind && (
+                <>
+                  <span className={`capAiChip ${aiKind}`}>
+                    {aiKind === "remove" ? "削除" : "変更"}
+                  </span>
+                  <span className="capAiActions">
+                    <button
+                      className={`capDiffBtn accept${aiAccepted ? " on" : ""}`}
+                      title="この提案を承認"
+                      onClick={(e) => { e.stopPropagation(); transcriptOnAiSetHunk?.(aiHunk!, "theirs"); }}
+                    >{"✓"}</button>
+                    <button
+                      className={`capDiffBtn reject${!aiAccepted ? " on" : ""}`}
+                      title="この提案を却下"
+                      onClick={(e) => { e.stopPropagation(); transcriptOnAiSetHunk?.(aiHunk!, "mine"); }}
+                    >{"✗"}</button>
+                  </span>
+                </>
+              )}
             </div>
             <textarea
-              className="capEdit"
+              className={`capEdit${aiKind === "remove" ? " aiDel" : ""}`}
               rows={Math.min(4, Math.max(1, s.text.split("\n").length))}
               value={s.text}
               onClick={(e) => e.stopPropagation()}
               onFocus={() => onRowFocus(i)}
               onChange={(e) => updateCaption(i, { text: e.target.value })}
             />
-            {transcriptAiHunks.length > 0 && rowHunks.map((hunk) => {
-              const side = transcriptAiResolution?.get(hunk) ?? "theirs";
-              const isAccepted = side === "theirs";
-
-              if (hunk.kind === "element-add" && hunk.theirs && typeof hunk.theirs === "object") {
-                const theirs = hunk.theirs as Record<string, unknown>;
-                if (typeof theirs.text === "string") {
-                  return (
-                    <div key={`${hunk.address.label}#${hunk.kind}#${hunk.address.field ?? ""}`} className={`capDiffRow add${isAccepted ? " accepted" : ""}`}>
-                      <div className="capDiffMeta mono"><span>AI提案: 追加</span></div>
-                      <div className="capDiffText">{theirs.text}</div>
-                      <div className="capDiffActions">
-                        <button className={`capDiffBtn accept${isAccepted ? " on" : ""}`}
-                          onClick={(e) => { e.stopPropagation(); transcriptOnAiSetHunk?.(hunk, "theirs"); }}>{"\u2713"}</button>
-                        <button className={`capDiffBtn reject${!isAccepted ? " on" : ""}`}
-                          onClick={(e) => { e.stopPropagation(); transcriptOnAiSetHunk?.(hunk, "mine"); }}>{"\u2717"}</button>
-                      </div>
-                    </div>
-                  );
-                }
-              }
-
-              if (hunk.kind === "element-remove") {
-                return (
-                  <div key={`${hunk.address.label}#${hunk.kind}#${hunk.address.field ?? ""}`} className={`capDiffRow remove${isAccepted ? " accepted" : " rejected"}`}>
-                    <div className="capDiffMeta mono"><span>AI提案: 削除</span></div>
-                    <div className="capDiffText del">{s.text}</div>
-                    <div className="capDiffActions">
-                      <button className={`capDiffBtn accept${isAccepted ? " on" : ""}`}
-                        onClick={(e) => { e.stopPropagation(); transcriptOnAiSetHunk?.(hunk, "theirs"); }}>{"\u2713"}</button>
-                      <button className={`capDiffBtn reject${!isAccepted ? " on" : ""}`}
-                        onClick={(e) => { e.stopPropagation(); transcriptOnAiSetHunk?.(hunk, "mine"); }}>{"\u2717"}</button>
-                    </div>
-                  </div>
-                );
-              }
-
-              if (
-                (hunk.kind === "element-modify" || hunk.kind === "field") &&
-                hunk.address.field === "text" &&
-                typeof hunk.theirs === "string"
-              ) {
-                return (
-                  <div key={`${hunk.address.label}#${hunk.kind}#${hunk.address.field ?? ""}`} className={`capDiffRow modify${isAccepted ? " accepted" : ""}`}>
-                    <div className="capDiffMeta mono"><span>AI提案: 文言変更</span></div>
-                    <div className="capDiffText del">{String(hunk.mine ?? s.text)}</div>
-                    <div className="capDiffText add">{hunk.theirs}</div>
-                    <div className="capDiffActions">
-                      <button className={`capDiffBtn accept${isAccepted ? " on" : ""}`}
-                        onClick={(e) => { e.stopPropagation(); transcriptOnAiSetHunk?.(hunk, "theirs"); }}>{"\u2713"}</button>
-                      <button className={`capDiffBtn reject${!isAccepted ? " on" : ""}`}
-                        onClick={(e) => { e.stopPropagation(); transcriptOnAiSetHunk?.(hunk, "mine"); }}>{"\u2717"}</button>
-                    </div>
-                  </div>
-                );
-              }
-
-              return null;
-            })}
+            {aiProposedText !== null && (
+              <div className="capProposed" title="AI の提案(承認すると本文がこれに変わります)">
+                {aiProposedText}
+              </div>
+            )}
           </div>
         );
       })}

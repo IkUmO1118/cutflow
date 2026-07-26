@@ -6404,39 +6404,57 @@
   .mobileGateCard button { margin-top: 0.2rem; }
 }
 
-/* AI Copilot diff: テロップパネル インラインdiff */
-.capDiffRow {
-  border-left: 3px solid hsl(var(--oc-muted-foreground) / 0.3);
-  padding: 6px 8px 6px 12px;
-  margin: 4px 0;
-  border-radius: 4px;
-  font-size: 13px;
-}
-.capDiffRow.add { border-left-color: hsl(var(--oc-success)); background: hsl(var(--oc-success) / 0.06); }
-.capDiffRow.remove { border-left-color: hsl(var(--oc-destructive)); background: hsl(var(--oc-destructive) / 0.06); }
-.capDiffRow.modify { border-left-color: hsl(38 92% 50%); background: hsl(38 92% 50% / 0.06); }
-.capDiffRow.rejected { opacity: 0.45; }
+/* AI Copilot diff: テロップパネル インラインdiff(F7: 外枠なし・重複なし) */
+/* 行そのものを種別で淡く染める。左ボーダーは選択表示(.capRow.sel)が
+   使っているので触らない */
+.capRow.ai.add { background: hsl(var(--oc-success) / 0.06); }
+.capRow.ai.modify { background: hsl(38 92% 50% / 0.06); }
+.capRow.ai.remove { background: hsl(var(--oc-destructive) / 0.06); }
+.capRow.ai.sel { background: hsl(var(--oc-secondary)); }
 
-.capDiffMeta { display: flex; gap: 6px; margin-bottom: 3px; font-size: 11px; color: hsl(var(--oc-muted-foreground)); }
-.capDiffText { padding: 3px 6px; border-radius: 3px; margin-bottom: 2px; }
-.capDiffText.del {
-  background: hsl(var(--oc-destructive) / 0.12);
+.capAiChip {
+  padding: 0 5px;
+  border-radius: 7px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 15px;
+}
+.capAiChip.add { background: hsl(var(--oc-success) / 0.22); color: hsl(var(--oc-success)); }
+.capAiChip.modify { background: hsl(38 92% 50% / 0.22); color: hsl(38 92% 45%); }
+.capAiChip.remove { background: hsl(var(--oc-destructive) / 0.22); color: hsl(var(--oc-destructive)); }
+
+.capAiActions { display: flex; gap: 4px; margin-left: auto; }
+
+/* 提案後の本文。textarea と同じ寸法で真下に積み、視線移動なしで比べられる */
+.capRow .capProposed {
+  display: block; width: 100%;
+  margin-top: 4px;
+  box-sizing: border-box;
+  border: 1px solid hsl(var(--oc-success) / 0.5);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-family: inherit; font-size: 13px;
+  background: hsl(var(--oc-success) / 0.10);
+  color: hsl(var(--oc-success));
+  white-space: pre-wrap;
+}
+/* 削除の提案: textarea 自身を変更前として赤く落とす(重複表示をしない) */
+.capRow .capEdit.aiDel {
+  border-color: hsl(var(--oc-destructive) / 0.6);
+  background: hsl(var(--oc-destructive) / 0.10);
   color: hsl(var(--oc-destructive));
   text-decoration: line-through;
 }
-.capDiffText.add {
-  background: hsl(var(--oc-success) / 0.12);
-  color: hsl(var(--oc-success));
-}
-.capDiffActions { display: flex; gap: 4px; justify-content: flex-end; }
+
 .capDiffBtn {
-  width: 24px; height: 24px;
+  width: 22px; height: 22px;
   border: 1px solid hsl(var(--oc-border));
   border-radius: 4px;
   background: transparent;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
   display: flex; align-items: center; justify-content: center;
+  padding: 0;
 }
 .capDiffBtn.accept.on { background: hsl(var(--oc-success)); color: white; border-color: hsl(var(--oc-success)); }
 .capDiffBtn.reject.on { background: hsl(var(--oc-destructive)); color: white; border-color: hsl(var(--oc-destructive)); }
@@ -6494,6 +6512,24 @@
   overflow: hidden;
   text-overflow: ellipsis;
   color: hsl(var(--oc-foreground));
+}
+
+/* F7: AI提案の影響を受ける本体クリップの印 */
+.tlClip.aiMark.remove {
+  outline: 1.5px solid hsl(var(--oc-destructive) / 0.9);
+  outline-offset: -1.5px;
+}
+.tlClip.aiMark.remove::after {
+  content: "";
+  position: absolute;
+  left: 2px; right: 2px; top: 50%;
+  height: 1.5px;
+  background: hsl(var(--oc-destructive));
+  pointer-events: none;
+}
+.tlClip.aiMark.modify {
+  outline: 1.5px solid hsl(38 92% 50% / 0.9);
+  outline-offset: -1.5px;
 }
 
 /* diffレーン ラベル列 */

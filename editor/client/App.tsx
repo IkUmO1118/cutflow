@@ -185,6 +185,7 @@ import {
   cutSourceRange,
   buildDiffTracks,
   canApplyProposal,
+  isLaneWorthy,
   fitZoomSpan,
   restoreSourceRange,
   shouldEnterCopilotMode,
@@ -2101,10 +2102,49 @@ export const App = () => {
     if (snapped === null) return null;
     return { start: snapped, end: snapped, inCut: true };
   };
+  const laneEvents =
+    aiEditEnabled && aiWorkflowReview
+      ? aiReviewEvents.filter((ev) =>
+          isLaneWorthy(ev, aiWorkflowReview.diff.hunks),
+        )
+      : [];
   const diffTracks =
     aiEditEnabled && aiWorkflowReview && built
-      ? buildDiffTracks(aiReviewEvents, timelineTracks, diffTimeToOutput)
+      ? buildDiffTracks(laneEvents, timelineTracks, diffTimeToOutput)
       : [];
+  /** F7: AI提案の影響を受ける本体クリップ。キーは `${kind}:${index}`
+   * (Clip の identity と同じ)。削除は取り消し線、変更は枠だけを付ける */
+  const aiClipMarks = useMemo(() => {
+    const marks = new Map<string, "remove" | "modify">();
+    if (!aiEditEnabled || !aiWorkflowReview) return marks;
+    const lookup: { key: string; kind: SelKind; arr: unknown[] | undefined }[] = [
+      { key: "cutplan.segments", kind: "cut", arr: cutplan?.segments },
+      { key: "transcript.segments", kind: "caption", arr: transcript?.segments },
+      { key: "overlays.overlays", kind: "overlays", arr: overlays?.overlays },
+      { key: "overlays.inserts", kind: "insert", arr: overlays?.inserts },
+      { key: "overlays.wipeFull", kind: "wipeFull", arr: overlays?.wipeFull },
+      { key: "overlays.zooms", kind: "zoom", arr: overlays?.zooms },
+      { key: "overlays.blurs", kind: "blur", arr: overlays?.blurs },
+      { key: "overlays.annotations", kind: "annotation", arr: overlays?.annotations },
+      { key: "bgm.tracks", kind: "bgm", arr: bgm?.tracks },
+    ];
+    for (const h of aiWorkflowReview.diff.hunks) {
+      const id = h.address.elementId;
+      if (!id || !h.address.arrayKey) continue;
+      const entry = lookup.find((l) => l.key === `${h.address.file}.${h.address.arrayKey}`);
+      if (!entry?.arr) continue;
+      const idx = entry.arr.findIndex(
+        (x) => typeof x === "object" && x !== null && (x as { id?: string }).id === id,
+      );
+      if (idx < 0) continue;
+      const mark = h.kind === "element-remove" ? "remove" : "modify";
+      if (mark === "remove" || !marks.has(`${entry.kind}:${idx}`)) {
+        marks.set(`${entry.kind}:${idx}`, mark);
+      }
+    }
+    return marks;
+  }, [aiEditEnabled, aiWorkflowReview, cutplan, transcript, overlays, bgm]);
+
   const flatDiffEvents =
     aiEditEnabled && aiWorkflowReview
       ? aiReviewEvents
@@ -6621,6 +6661,7 @@ export const App = () => {
                 setDiffPreviewMode("after");
                 setFocusedDiffEventId(event.id);
               }}
+              aiClipMarks={aiEditEnabled ? aiClipMarks : undefined}
               diffStills={aiEditEnabled ? diffStills : []}
               aiWorkflowHunks={aiWorkflowReview?.diff.hunks}
               aiResolution={aiWorkflowReview?.resolution}

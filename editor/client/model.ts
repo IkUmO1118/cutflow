@@ -942,6 +942,24 @@ export function buildDiffTracks(
   return result;
 }
 
+/**
+ * F7: この提案を diff レーンに出すか。
+ * 「時間軸上の位置で判断する変更」だけを通す。テロップの文言だけの変更は
+ * パネルのインライン diff に任せ、レーンには出さない(量が多く、クリップ幅
+ * では読めないため)。テロップでも削除・追加・時刻変更は通す。
+ */
+export function isLaneWorthy(
+  event: { kind: string; hunkIndexes: readonly number[] },
+  hunks: readonly Hunk[],
+): boolean {
+  if (event.kind === "caption-track" || event.kind === "json") return false;
+  if (event.kind !== "caption") return true;
+  const own = event.hunkIndexes.map((i) => hunks[i]).filter(Boolean);
+  if (own.length === 0) return false;
+  if (own.some((h) => h.kind === "element-add" || h.kind === "element-remove")) return true;
+  return own.some((h) => h.address.field !== "text");
+}
+
 /** ReviewEventKind → 対応する TrackId */
 function diffTrackIdForEventKind(kind: string): TrackId | null {
   switch (kind) {
