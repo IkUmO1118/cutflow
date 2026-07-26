@@ -37,16 +37,20 @@ test("the first design-system component is a native CVA Button using cn", () => 
 
 test("the header AI launcher keeps its behavior props during the P2 header migration", () => {
   const app = read("editor/client/App.tsx");
-  const classAt = app.indexOf('className="aiCommandLauncher"');
+  // F1 で AI編集はトグルになった(aiEditEnabled)。className / variant / ラベルは
+  // 素の文字列から aiEditEnabled 分岐の式へ変わっているが、ref / size / disabled と
+  // 「未提案なら AiCommand を開く」導線はそのまま保つ、というのがこの test の意図
+  const classAt = app.indexOf("className={`aiCommandLauncher");
+  assert.ok(classAt >= 0, "AI launcher の className が見つからない");
   const launcher = app.slice(app.lastIndexOf("<Button", classAt), app.indexOf("onClick=", classAt));
-  assert.match(launcher, /variant="secondary"/);
+  assert.match(launcher, /variant=\{aiEditEnabled \? "default" : "secondary"\}/);
   assert.match(launcher, /size="sm"/);
-  assert.match(launcher, /className="aiCommandLauncher"/);
+  assert.match(launcher, /className=\{`aiCommandLauncher\$\{aiEditEnabled \? " on" : ""\}`\}/);
   assert.match(launcher, /ref=\{aiCommandLauncherRef\}/);
   assert.match(launcher, /disabled=\{aiWorkflowLocked\}/);
-  assert.match(app, /title=\{aiWorkflowLocked \? aiWorkflowTitle : anyDirty \? "保存してから AI 一発編集" : "AI 一発編集を開く"\}/);
+  assert.match(launcher, /title=\{[\s\S]*aiWorkflowLocked[\s\S]*aiWorkflowTitle[\s\S]*aiEditEnabled[\s\S]*"AI編集モードを終了"[\s\S]*anyDirty[\s\S]*"保存してから AI 一発編集"[\s\S]*"AI 一発編集を開く"[\s\S]*\}/);
   assert.match(app, /setAiCommandScope\("global"\);\s+setAiCommandOpen\(true\);/);
-  assert.match(app, /\{aiWorkflowLocked \? "編集中" : "AI編集"\}/);
+  assert.match(app, /\{aiWorkflowLocked\s+\? "編集中" : aiEditEnabled \? "AI編集 ON" : "AI編集"\}/);
 });
 
 test("editor HTML bootstraps the resolved theme before one generated stylesheet", () => {

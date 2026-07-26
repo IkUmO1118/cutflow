@@ -6037,14 +6037,9 @@ export const App = () => {
                   aiHunks={aiEditEnabled ? transcriptAiHunks : []}
                   aiResolution={aiEditEnabled ? aiWorkflowReview?.resolution : undefined}
                   transcript={transcript}
-                  onAiSetHunk={(hunk, side) => {
-                    setAiWorkflow((prev) => {
-                      if (!prev?.resolution) return prev;
-                      const next = new Map(prev.resolution);
-                      next.set(hunk, side);
-                      return { ...prev, resolution: next };
-                    });
-                  }}
+                  // F8: パネルの ✓/✗ もその場で編集へ反映して決着させる
+                  // (resolution に書くだけだと何も適用されず diff も消えない)
+                  onAiSetHunk={(hunk, side) => settleAiHunks([hunk], side)}
                 />
               </>
             )}
@@ -6065,14 +6060,9 @@ export const App = () => {
                   }
                   aiHunks={aiEditEnabled ? transcriptAiHunks : []}
                   aiResolution={aiEditEnabled ? aiWorkflowReview?.resolution : undefined}
-                  onAiSetHunk={(hunk, side) => {
-                    setAiWorkflow((prev) => {
-                      if (!prev?.resolution) return prev;
-                      const next = new Map(prev.resolution);
-                      next.set(hunk, side);
-                      return { ...prev, resolution: next };
-                    });
-                  }}
+                  // F8: パネルの ✓/✗ もその場で編集へ反映して決着させる
+                  // (resolution に書くだけだと何も適用されず diff も消えない)
+                  onAiSetHunk={(hunk, side) => settleAiHunks([hunk], side)}
                 />
               </>
             )}
