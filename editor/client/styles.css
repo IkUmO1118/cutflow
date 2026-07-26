@@ -6438,12 +6438,13 @@
   color: hsl(var(--oc-success));
   white-space: pre-wrap;
 }
-/* 削除の提案: textarea 自身を変更前として赤く落とす(重複表示をしない) */
+/* 変更/削除の提案: 元の文章を赤く落とす。textarea(削除)と div(変更)の両方に対応 */
 .capRow .capEdit.aiDel {
   border-color: hsl(var(--oc-destructive) / 0.6);
   background: hsl(var(--oc-destructive) / 0.10);
   color: hsl(var(--oc-destructive));
   text-decoration: line-through;
+  white-space: pre-wrap;
 }
 
 .capDiffBtn {

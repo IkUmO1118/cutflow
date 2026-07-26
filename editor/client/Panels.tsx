@@ -1011,18 +1011,24 @@ export const CaptionsPanel = ({
                 </>
               )}
             </div>
-            <textarea
-              className={`capEdit${aiKind === "remove" ? " aiDel" : ""}`}
-              rows={Math.min(4, Math.max(1, s.text.split("\n").length))}
-              value={s.text}
-              onClick={(e) => e.stopPropagation()}
-              onFocus={() => onRowFocus(i)}
-              onChange={(e) => updateCaption(i, { text: e.target.value })}
-            />
-            {aiProposedText !== null && (
-              <div className="capProposed" title="AI の提案(承認すると本文がこれに変わります)">
-                {aiProposedText}
-              </div>
+            {aiKind === "modify" ? (
+              <>
+                <div className="capEdit aiDel">{s.text}</div>
+                {aiProposedText !== null && (
+                  <div className="capProposed" title="AI の提案(承認すると本文がこれに変わります)">
+                    {aiProposedText}
+                  </div>
+                )}
+              </>
+            ) : (
+              <textarea
+                className={`capEdit${aiKind === "remove" ? " aiDel" : ""}`}
+                rows={Math.min(4, Math.max(1, s.text.split("\n").length))}
+                value={s.text}
+                onClick={(e) => e.stopPropagation()}
+                onFocus={() => onRowFocus(i)}
+                onChange={(e) => updateCaption(i, { text: e.target.value })}
+              />
             )}
           </div>
         );
