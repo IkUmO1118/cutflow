@@ -3,7 +3,8 @@ import { cliCmd } from "./lib/cliName.ts";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
-import { Command } from "commander";
+import { Command, Help } from "commander";
+import { commandSummaries, formatCommandList, formatRootHelp } from "./lib/cliHelp.ts";
 import { backupEditableFiles } from "./lib/backup.ts";
 import { EDITABLE_FILES } from "./lib/files.ts";
 import {
@@ -79,7 +80,7 @@ import { buildRetrievalIndex } from "./stages/retrievalIndex.ts";
 import { retrievalSearch } from "./stages/retrievalSearch.ts";
 import type { AiRoute, Config } from "./lib/config.ts";
 import { envDoctor, formatDoctorReport } from "./stages/doctor.ts";
-import { planClean, executeClean, formatCleanReport } from "./stages/clean.ts";
+import { planCleanWithRemuxDup, executeClean, formatCleanReport } from "./stages/clean.ts";
 import { boundaryCheck, formatBoundaryCheckReport } from "./stages/boundaryCheck.ts";
 import { formatSilenceSweepReport, silenceSweep } from "./stages/silenceSweep.ts";
 import { floorCalibration, formatFloorCalibrationReport } from "./stages/floorCalibration.ts";
@@ -95,7 +96,23 @@ program
   )
   .option("--config <path>", "config.yaml のパス")
   .option("-v, --verbose", "外部ツール(ffmpeg/whisper/remotion)まで stderr に出す")
-  .option("-q, --quiet", "workflow ログを抑止する(エラーは除く)");
+  .option("-q, --quiet", "workflow ログを抑止する(エラーは除く)")
+  .helpOption("-h, --help", "ヘルプを表示する");
+
+// ヘルプは2段構え(理由と分類は src/lib/cliHelp.ts)。ルートだけ短い案内へ
+// 差し替え、各コマンドの `--help` は commander 既定のまま(詳細な
+// .description() と全オプションが要るのはそちら)。
+program.configureHelp({
+  formatHelp(cmd, helper) {
+    if (cmd !== program) return Help.prototype.formatHelp.call(helper, cmd, helper);
+    const terms = helper.visibleOptions(cmd).map((o) => helper.optionTerm(o));
+    const width = Math.max(...terms.map((t) => t.length)) + 3;
+    const lines = helper
+      .visibleOptions(cmd)
+      .map((o) => helper.optionTerm(o).padEnd(width) + helper.optionDescription(o));
+    return formatRootHelp(cliCmd(), lines);
+  },
+});
 
 /** グローバル --verbose/--quiet・環境変数 CUTFLOW_LOG・config.yaml の log.level から
  *  ログレベルを解決する(優先順位: flag > env > config > 既定 normal)。
@@ -122,6 +139,8 @@ program.hook("preAction", () => {
   setLogLevel(resolveCliLogLevel());
 });
 program.hook("postAction", (_thisCommand, actionCommand) => {
+  // `commands` はヘルプの続き(何も実行していない)なので所要時間を出さない
+  if (actionCommand.name() === "commands") return;
   const sec = ((Date.now() - commandStartedAt) / 1000).toFixed(1);
   const line = `(所要時間: ${sec}秒)`;
   // JSON 射影はパイプ可能な純 JSON を stdout に出すので、診断行だけ stderr へ逃がす。
@@ -339,6 +358,13 @@ function ensurePlanVlmReady(cfg: Parameters<typeof loadConfig>[0] extends never 
     maxImages: secondaryCfg.maxImages,
   };
 }
+
+program
+  .command("commands")
+  .description("全コマンドを分類つきで一覧表示する(収録フォルダ不要・read-only)")
+  .action(() => {
+    console.log(formatCommandList(cliCmd()));
+  });
 
 program
   .command("doctor")
@@ -1791,7 +1817,9 @@ program
   .command("clean <dir>")
   .description(
     "収録フォルダの中間生成物・キャッシュを安全に削除(分類は files.ts の GENERATED_FILES/fileRole 由来。" +
-      "編集ファイル・approvals.json・素材(materials/)・元収録には絶対に触れない)",
+      "編集ファイル・approvals.json・素材(materials/)・成果物には絶対に触れない)。" +
+      "manifest が指す元収録も触れないが、その自動リマックス複製(OBS が .mkv の隣に残す同一内容の .mp4)は" +
+      "ffprobe で内容一致を確認したうえで削除する(--logs-only では対象外)",
   )
   .option("--dry-run", "削除せず、削除対象の一覧と解放バイトだけを表示する")
   .option(
@@ -1806,9 +1834,15 @@ program
       "リレンダー最適化(cut/render.*)・proxy・whisper-out.*・manifest.json・shorts/ は残す。--cache-only とは排他",
   )
   .option("--json", "CleanPlan を JSON で標準出力に出す(パイプ可。--dry-run と併用で機械可読な削除計画)")
-  .action((dir: string, opts: { dryRun?: boolean; cacheOnly?: boolean; logsOnly?: boolean; json?: boolean }) => {
+  .action(async (dir: string, opts: { dryRun?: boolean; cacheOnly?: boolean; logsOnly?: boolean; json?: boolean }) => {
     const abs = resolveDir(dir);
-    const plan = planClean(abs, { cacheOnly: opts.cacheOnly === true, logsOnly: opts.logsOnly === true });
+    const plan = await planCleanWithRemuxDup(abs, {
+      cacheOnly: opts.cacheOnly === true,
+      logsOnly: opts.logsOnly === true,
+      // remux 複製を「消さなかった理由」は掃除の判断材料なので黙って捨てない。
+      // --json のときは stdout を純 JSON に保つため stderr へ逃がす
+      onSkip: (reason) => console.warn(`警告: ${reason}`),
+    });
     if (opts.dryRun !== true) executeClean(abs, plan);
     if (opts.json === true) {
       console.log(JSON.stringify({ ...plan, dryRun: opts.dryRun === true }, null, 2));
@@ -1954,6 +1988,13 @@ function printPlanSummary(
     "\n次のステップ: preview で確認し、cutplan.json を必要に応じて編集、" +
       "approved を true にしてから render を実行してください。",
   );
+}
+
+// 一覧表示用の1行要約を流し込む(commander の .summary()。詳細な
+// .description() は各コマンドの --help に残る)。全コマンド登録後に一度だけ。
+// 未登録名・要約漏れは test/cliHelp.test.ts が落として気づかせる
+for (const [name, summary] of commandSummaries()) {
+  program.commands.find((c) => c.name() === name)?.summary(summary);
 }
 
 program.parseAsync().catch((err: Error) => {

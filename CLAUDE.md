@@ -525,6 +525,12 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
 常にこちらを使う**=どの環境でも動く)と `cutflow <cmd>`(`npm link` 済みの
 人間向け)。人間が `cutflow …` と書いてきたら同じコマンドを指している。
 
+以下はよく使うものの抜粋。**全コマンドは `node src/cli.ts commands`**(分類つき
+一覧。出所は `src/lib/cliHelp.ts`)、個別の全オプションは
+`node src/cli.ts <cmd> --help`、「いつ使うか」は
+`docs/guides/command-reference.md` を見る(`--help` 単体は基本の流れだけの
+短い案内で、全コマンドは出ない)。
+
 ```sh
 node src/cli.ts doctor            # 環境プリフライト(read-only)。node/ffmpeg/ffprobe/エンコーダ/whisper/AI到達性を検査
 node src/cli.ts validate <dir>    # JSON 編集後は必ず(エラーで exit 1)
