@@ -40,7 +40,7 @@
 
 | コマンド | 使う場面 |
 |---|---|
-| `editor <dir>` | **GUI で編集したい**とき。カット境界のドラッグ・テロップの配置と文言・素材の挿入・承認・プレビュー生成・レンダーまでブラウザで完結する。外部(手編集や AI)の JSON 変更はホットリロードで反映される。`--detach` でバックグラウンド起動(`--status` / `--stop`) |
+| `editor <dir>` | **GUI で編集したい**とき。カット境界のドラッグ・テロップの配置と文言・素材の挿入・承認・プレビュー生成・レンダーまでブラウザで完結する。外部(手編集や AI)の JSON 変更はホットリロードで反映される。`--detach` でバックグラウンド起動(`--status` / `--stop`)。**画面と操作の一覧は [editor.md](editor.md)**(画面内はヘッダーの「?」) |
 | `preview <dir>` | cutplan.json を編集するたび。承認前でも動く |
 | `approve <dir>` / `approve <dir> --short <name>` | preview(または縦動画)を確認して承認したいとき。`approvals.json` に keep 集合のハッシュを記録し、`cutplan.approved`(または該当ショートの `approved`)を true に同期する。対話操作で、非対話環境からは `--yes` が無いと拒否される |
 | `unapprove <dir>` / `--short <name>` | 承認を取り消したいとき。`approvals.json` のレコードを消し、boolean を false に戻す(安全側の操作なので確認プロンプトは無い) |

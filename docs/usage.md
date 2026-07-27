@@ -618,6 +618,7 @@ node(>=23.6)/ffmpeg/ffprobe/有効エンコーダの整合/whisper バイナリ�
 
 | 何をしたいか | ガイド |
 |---|---|
+| GUI エディタの画面と操作(カット・テロップ・素材・承認) | [guides/editor.md](guides/editor.md) |
 | コマンドを「いつ使うか」で引く(全コマンドの分類つき早見表) | [guides/command-reference.md](guides/command-reference.md) |
 | AI のカット案を作って育てる(plan / cutplan、知覚・候補格子・harness・editMode・システム音声) | [guides/cut-planning.md](guides/cut-planning.md) |
 | 字幕・帯・ベースレイアウト・カット境界演出・見た目調整 | [guides/captions-layout.md](guides/captions-layout.md) |

@@ -156,8 +156,11 @@ GUI はブラウザ上でカット境界のドラッグ・テロップの配置�
 プレビュー生成・レンダーまで完結でき、外部(手編集や AI)による JSON の変更は
 ホットリロードで反映されます。AI コマンドは「提案だけ」で終わらず、差分確認
 → 適用 → 保存 → 必要ならフレーム確認までを 1 回の workflow として扱います。
-手順の詳細は [docs/guides/tools-and-ops.md](docs/guides/tools-and-ops.md)(索引は
-[docs/usage.md](docs/usage.md))を参照してください。
+エディタの画面と操作(カットのドラッグ・文字からのカット・テロップ・素材・承認)は
+[docs/guides/editor.md](docs/guides/editor.md) にまとまっています(エディタ内でも
+ヘッダーの「?」から同じ内容を開けます)。運用まわりは
+[docs/guides/tools-and-ops.md](docs/guides/tools-and-ops.md)、索引は
+[docs/usage.md](docs/usage.md)。
 
 **AI エージェントに編集させる(MCP)**: Claude Desktop / Claude Code / Cursor など
 MCP 対応ホストから、この収録フォルダを直接編集させられます。`node src/cli.ts mcp <dir>`
