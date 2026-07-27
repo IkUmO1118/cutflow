@@ -2,9 +2,10 @@
 
 撮影後の編集をエディタ起点で進める、ローカルファーストな動画パイプライン。
 
-手元の動画1本(スマホで撮った縦動画・画面録画・カメラ動画、または OBS 収録)から、
+手元の動画1本(スマホで撮った縦動画・画面録画・カメラ動画など)から、
 文字起こし → カット案の生成 → **人間の承認** → 最終レンダーまでを CLI で行います。
-まず試すだけなら OBS も特別な収録設定も要りません(→ [すぐに触ってみる](#すぐに触ってみるサンプル))。
+特別な収録設定は要りません。動画を1本フォルダに置けば始められます
+(→ [すぐに触ってみる](#すぐに触ってみるサンプル))。
 文字起こしと無音検出は完全ローカル(無料)。LLM を使うのは意味的な
 カット判断・章立てのみで、Claude Code のサブスク(`claude` CLI)、
 Codex CLI、従量課金 API のいずれでも動きます。
@@ -14,7 +15,7 @@ LLM に渡るのは**文字起こしテキスト**(と任意の `brief.md`)だ�
 ## パイプライン
 
 ```
-OBS収録 (raw.mkv)
+収録した動画1本 (mp4 / mkv / mov)
   │
   ├─ ingest      映像解析・マイク音声抽出          → manifest.json
   ├─ transcribe  whisper.cpp で文字起こし          → transcript.json / .srt
@@ -94,19 +95,18 @@ node src/cli.ts doctor    # リンク不要。リポジトリのルートから
 > (→ [設定](#設定) の「AI provider」)。文字起こし・無音検出・レンダーは
 > LLM 不要です。
 
-> **まず動かすだけなら OBS は不要です。** スマホの縦動画・QuickTime 等の画面録画・
+> **収録は普通の動画1本で構いません。** スマホの縦動画・QuickTime 等の画面録画・
 > カメラ動画を1本、収録フォルダに入れて `editor` で開けば、そのまま **plain レイアウト**
 > (カメラワイプ無し・収録の実寸のまま)で編集できます。手元に動画がまだ無くても、
 > [すぐに触ってみる](#すぐに触ってみるサンプル)の同梱サンプルで `editor`→`render` を
-> 体験できます。OBS で画面+カメラを同時に録って右下ワイプを合成する
-> 「拡張キャンバス方式」は発展的な使い方で、
-> [発展: OBS 拡張キャンバス方式](#発展-obs-拡張キャンバス方式画面カメラ)にまとめました。
+> 体験できます。画面とカメラを1つのキャンバスに同時収録して右下ワイプに合成する
+> 使い方は[発展: 画面+カメラを1本に収録する(拡張キャンバス)](#発展-画面カメラを1本に収録する拡張キャンバス)にまとめました。
 
 ## 使い方
 
 ### すぐに触ってみる(サンプル)
 
-OBS も whisper モデルのダウンロードも無しで、`editor`→`render` を最短で体験できます。
+収録した動画も whisper モデルのダウンロードも無しで、`editor`→`render` を最短で体験できます。
 `ffmpeg` で数秒のサンプル動画を合成し、編集可能な収録フォルダ(`examples/sample/`)を
 用意します。
 
@@ -126,25 +126,30 @@ npm run sample        # = bash scripts/make-sample.sh
 # まずエディタで開く(自動カットなし。動画は全編 keep のまま)
 node src/cli.ts editor ~/Movies/cutflow/2026-07-02-my-recording
 
-# OBS 拡張キャンバス(画面+カメラ横並び)として開く場合
-node src/cli.ts editor ~/Movies/cutflow/2026-07-02-my-recording --layout obs-canvas
-
 # 自動カット案までまとめて作る上級/バッチ用
 node src/cli.ts run ~/Movies/cutflow/2026-07-02-my-recording
-
-# ステージ個別実行
-node src/cli.ts ingest     <dir>
-node src/cli.ts transcribe <dir>
-node src/cli.ts detect     <dir>
-node src/cli.ts plan       <dir>
-node src/cli.ts remeta     <dir>   # 章立て・タイトル案・概要欄だけ作り直す(カットは触らない)
-node src/cli.ts editor     <dir>   # GUI エディタをブラウザで開く(カット・テロップ・演出を編集)
-node src/cli.ts preview    <dir>   # カット結果の確認用動画(承認前に見る)
-node src/cli.ts validate   <dir>   # 編集した JSON の整合性チェック(手編集・AI編集の後に)
-node src/cli.ts describe   <dir>   # タイムラインのテキスト要約(元秒⇔カット後秒の対応付き)
-node src/cli.ts frames     <dir> --t 90,2:30  # 指定時刻を最終合成の見た目で frames/*.png に
-node src/cli.ts render     <dir>   # 承認後の最終レンダー(要 approved: true)
 ```
+
+### コマンドの全体像
+
+コマンドは50本以上ありますが、日常的に叩くのは下の「基本の流れ」だけです。
+残りは目的別のグループに分かれていて、**`node src/cli.ts commands` で分類つきの
+全一覧**が、**`node src/cli.ts <コマンド> --help` で個別の詳細**が読めます
+(`node src/cli.ts --help` は基本の流れだけの短い案内です)。
+
+| グループ | 代表的なコマンド | 何のためか |
+|---|---|---|
+| 基本の流れ | `doctor` / `editor` / `run` / `preview` / `approve` / `render` | 環境確認 → 編集 → 承認 → 書き出し |
+| 取り込み〜カット案 | `ingest` / `transcribe` / `detect` / `plan` / `remeta` | `run` の各段を個別にやり直す |
+| 編集を当てる | `validate` / `describe` / `apply` / `id-stamp` / `assert` | JSON 編集の検査・要約・アトミック適用 |
+| 中身を知る(知覚) | `frames` / `materials` / `av` / `search` | 人間や AI が動画の中身を確認する |
+| AI に下書きさせる | `plan-shorts` / `plan-materials` / `plan-effects` / `plan-bgm` | ショート・素材・演出・BGM の下書き(カットと承認には触れない) |
+| 検品する | `material-fit` / `effect-check` / `bgm-fit` / `style-check` | 編集の不整合を検出し修正案を出す(書き込まない) |
+| HyperFrames | `hyperframe` ほか | 無音の作図素材(章タイトル・図解)を作る |
+| エージェント連携 | `mcp` | MCP 対応エージェントにこのフォルダを開かせる |
+
+使い分けの詳細は [docs/guides/command-reference.md](docs/guides/command-reference.md)、
+目的別の索引は [docs/usage.md](docs/usage.md) にあります。
 
 編集は GUI エディタ(`editor`)でも、収録フォルダ内の JSON 直接編集でも行えます。
 GUI はブラウザ上でカット境界のドラッグ・テロップの配置・素材の挿入・承認・
@@ -163,20 +168,29 @@ MCP 対応ホストから、この収録フォルダを直接編集させられ�
 `.claude/settings.json` の deny テンプレ(`docs/examples/claude-settings-deny.json`)は
 [docs/guides/ai-agents.md の「MCP サーバ」](docs/guides/ai-agents.md) を参照してください。
 
-新規取り込みの既定レイアウトは通常動画(`plain`)です。OBS の 3840x1080
-拡張キャンバス(左=画面、右=カメラ)としてワイプを使う場合は、
-`editor` / `ingest` / `run` に `--layout obs-canvas` を付けてください。
+新規取り込みの既定レイアウトは通常動画(`plain`)=1画面・カメラワイプ無し・
+収録の実寸のままです。画面とカメラを1本に同時収録した横長素材を左右に分けて
+使う場合だけ、[拡張キャンバス](#発展-画面カメラを1本に収録する拡張キャンバス)の
+`--layout obs-canvas` を付けます。
 
 render は2段構成です。まず ffmpeg が keep 区間をフル解像度のまま結合して
-`cut.mp4` を作り(音声はマイクと**システム音声(OBS トラック2)の自動ミックス**を
-ツーパスの loudnorm で **-14 LUFS に自動正規化**)、
-次に Remotion がその上に「画面クロップ+右下ワイプ+字幕+章カード」を
-合成して `final.mp4` を出力します。収録フォルダに `bgm.mp3` を置けば
+`cut.mp4` を作り(音声はマイクと**システム音声(収録の2トラック目)の自動ミックス**を
+ツーパスの loudnorm で **-14 LUFS に自動正規化**。音声トラックが1本の収録では
+そのままマイク扱いになります)、
+次に Remotion がその上に「画面クロップ+字幕+章カード」(拡張キャンバスなら
+右下ワイプも)を合成して `final.mp4` を出力します。収録フォルダに `bgm.mp3` を置けば
 **BGM も自動で合成**されます(ループ+終端フェードアウト+**発話中の自動
 ダッキング**)。
-ワイプの大きさ・字幕サイズ・目標音量・BGM音量は config.yaml の `render`
-セクションで変更できます。初回実行時は Remotion が headless Chrome を
-自動ダウンロードします(数分)。
+字幕サイズ・目標音量・BGM音量(拡張キャンバスならワイプの大きさも)は
+config.yaml の `render` セクションで変更できます。初回実行時は Remotion が
+headless Chrome を自動ダウンロードします(数分)。
+
+plan は LLM に「残す候補区間」の番号リストを渡し、番号単位で
+カット判断させます(理由付き)。結果の `cutplan.json` を確認・編集し、
+`approve` で承認すると render に進めます。収録フォルダに
+`brief.md`(企画ブリーフのコピー)を置いておくと、その「見せ場リスト」が
+誤カット防止の材料として LLM に渡ります。プロンプトは
+[prompts/plan.md](prompts/plan.md) で自由に調整できます。
 
 **人間がテロップやカットを調整しながら使う手順は [docs/usage.md](docs/usage.md)
 (概要+目的別索引)を参照してください。目的別ガイドは [docs/guides/](docs/guides/):
@@ -184,13 +198,17 @@ render は2段構成です。まず ffmpeg が keep 区間をフル解像度の�
 [cut-planning.md](docs/guides/cut-planning.md)、Remotion Studio の使い方は
 [captions-layout.md](docs/guides/captions-layout.md)。**
 
-## 発展: OBS 拡張キャンバス方式(画面+カメラ)
+標準 `config.yaml` は `plan.perception.audio/ocr` を明示オンにしており、
+`plan` / `remeta` / `run` は実行時に今回の知覚状態を表示します。古い config で
+`plan.perception` が無い場合は、互換のため知覚はオフのまま動作し、その旨を警告します。
 
-画面とカメラを同時に録って**右下ワイプ**として合成したい場合は、OBS の
-**キャンバスを 3840x1080** にして左半分に画面・右半分にカメラを並べる
-「拡張キャンバス方式」で収録します。これは plain より手間のかかる**発展的な**
-使い方で、必須ではありません。OBS の初期設定(約30分)と撮影チェックリストは
-[docs/recording-guide.md](docs/recording-guide.md) を参照してください。
+## 発展: 画面+カメラを1本に収録する(拡張キャンバス)
+
+画面とカメラを同時に録って**右下ワイプ**として合成したい場合は、収録側の
+**キャンバスを 3840x1080** にして左半分に画面・右半分にカメラを並べた1本の
+動画として録ります(「拡張キャンバス方式」)。これは plain より手間のかかる
+**発展的な**使い方で、必須ではありません。OBS を使う場合の初期設定(約30分)と
+撮影チェックリストは [docs/recording-guide.md](docs/recording-guide.md) にあります。
 
 拡張キャンバスの収録は、取り込み時に `--layout obs-canvas` を付けます:
 
@@ -203,16 +221,6 @@ node src/cli.ts run    <dir> --layout obs-canvas
 `--layout auto` でも 3840x1080 のような超横長素材は obs-canvas と判定されます
 (既定は plain)。plain との違い(ワイプの有無・出力解像度・使える演出)は
 [docs/getting-started.md](docs/getting-started.md#通常動画スマホカメラ画面録画の場合) を参照。
-
-plan は LLM に「残す候補区間」の番号リストを渡し、番号単位で
-カット判断させます(理由付き)。結果の `cutplan.json` を確認・編集して
-`approved` を `true` にすると render に進めます。収録フォルダに
-`brief.md`(企画ブリーフのコピー)を置いておくと、その「見せ場リスト」が
-誤カット防止の材料として LLM に渡ります。プロンプトは
-[prompts/plan.md](prompts/plan.md) で自由に調整できます。標準 `config.yaml` は
-`plan.perception.audio/ocr` を明示オンにしており、`plan` / `remeta` / `run` は
-実行時に今回の知覚状態を表示します。古い config で `plan.perception` が無い場合は、
-互換のため知覚はオフのまま動作し、その旨を警告します。
 
 ## 設定
 
@@ -234,7 +242,7 @@ AI provider:
 
 ## スコープ(できること / 意図的に持たないこと)
 
-CutFlow は「OBS の画面収録+カメラ → YouTube」という**単一ワークフローに特化**した
+CutFlow は「画面デモ+解説の収録 → YouTube」という**単一ワークフローに特化**した
 オピニオネイテッドな道具です。汎用 NLE(Premiere / Final Cut)の代替ではなく、
 その前段の「一次編集を自動化して人が仕上げる」層を担います。
 
