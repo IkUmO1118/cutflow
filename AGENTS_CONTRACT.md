@@ -236,6 +236,24 @@ artifact from the physical recording session and cannot be regenerated after
 the fact. Like `materials/`, its `fileRole` is `"other"`: an agent must not
 edit it, and `clean` never removes it.
 
+`.remotion/` (the headless Chrome `chrome-headless-shell` that Remotion
+downloads under the recording folder for `render`/`frames`) **is** a generated
+directory: roughly 200MB duplicated per recording, purely re-fetchable, and
+irrelevant to editing or approval. Deleting it makes the next `render`/`frames`
+download it again.
+
+The raw recording named by `manifest.json`'s `source` is never touched. Its
+**automatic remux duplicate** is the one exception to name-based
+classification: OBS records to `.mkv` and leaves a stream-copied `.mp4` of the
+same content beside it, and only one of the two is ever read. `clean` removes
+that duplicate after verifying at runtime (never by name alone) that the
+manifest source is a non-`.mp4` file that still exists, that the candidate's
+`fileRole` is `"other"`, and that ffprobe reports identical video codec /
+dimensions / fps / audio codec / audio presence with duration within 1s and
+size within 5% **or** 1MB. Any mismatch keeps the file and reports why on
+stderr; a missing or failing ffprobe simply skips the check. See
+`src/lib/remuxDup.ts` for the normative conditions.
+
 `node src/lib/files.ts` (`GENERATED_FILES` + the generated-name patterns and
 directories) is the single source of truth for this list; this file's
 enumeration is pinned to it by `test/agentsMd.test.ts`.
@@ -394,7 +412,7 @@ without `--force`; with `--force`, hand-edited files are moved to
 | `approve <dir>` | Approve the cutplan (or `--short <name>`) into `approvals.json` (interactive; requires `--yes` non-interactively) |
 | `unapprove <dir>` | Revoke an approval record |
 | `render <dir>` | Final render; requires a valid approval record (`--short <name>` / `--shorts` for short-form outputs) |
-| `clean <dir>` | Delete a recording folder's generated intermediates/caches. Classification derives solely from `src/lib/files.ts` (`GENERATED_FILES` / `fileRole`): only top-level entries whose role is `generated` are removed. Never touches editable files, `approvals.json`, the human `materials/` folder, raw recordings, or products (`final.mp4`/`thumbnail.png`). `--dry-run` lists without deleting; `--cache-only` removes only heavy re-derivable caches (`proxy.mp4`/`preview-cut.*`/`cut*.mp4`/`render.chunks/`/`frames/`/`shorts/`/`*.probe/`) and keeps small/expensive-to-regenerate intermediates (`manifest.json`/`cuts.auto.json`/`whisper-out.*`); `--logs-only` removes only logs, disposable drafts, and inspection results (`*.raw.txt`/`plan.loop.json`/`cuts.auto.json`/`*-fit.suggested.json`/`effect-check.json`/`bgm-fit.json`/`style-check.json`/`preview.mp4`/`frames/`) and keeps re-render optimization caches (`preview-cut.*`/`cut*.mp4`/`render.*`), `proxy.*`, expensive perceptions (`whisper-out.*`/`transcript.system.json`/`*.probe/`), `manifest.json`, and products (`shorts/`) — mutually exclusive with `--cache-only`; `--json` emits the machine-readable plan (idempotent; always exit 0) |
+| `clean <dir>` | Delete a recording folder's generated intermediates/caches. Classification derives solely from `src/lib/files.ts` (`GENERATED_FILES` / `fileRole`): only top-level entries whose role is `generated` are removed. Never touches editable files, `approvals.json`, the human `materials/` folder, the raw recording named by `manifest.source`, or products (`final.mp4`/`thumbnail.png`) — but it does remove that recording's automatic remux duplicate (the stream-copied `.mp4` OBS leaves beside the `.mkv`) after verifying content identity with ffprobe at runtime (conditions in §4; excluded under `--logs-only`; skipped entirely when ffprobe is unavailable). `--dry-run` lists without deleting; `--cache-only` removes only heavy re-derivable caches (`proxy.mp4`/`preview-cut.*`/`cut*.mp4`/`render.chunks/`/`frames/`/`shorts/`/`*.probe/`/`.remotion/`) and keeps small/expensive-to-regenerate intermediates (`manifest.json`/`cuts.auto.json`/`whisper-out.*`); `--logs-only` removes only logs, disposable drafts, and inspection results (`*.raw.txt`/`plan.loop.json`/`cuts.auto.json`/`*-fit.suggested.json`/`effect-check.json`/`bgm-fit.json`/`style-check.json`/`preview.mp4`/`frames/`) and keeps re-render optimization caches (`preview-cut.*`/`cut*.mp4`/`render.*`), `proxy.*`, expensive perceptions (`whisper-out.*`/`transcript.system.json`/`*.probe/`), `manifest.json`, and products (`shorts/`) — mutually exclusive with `--cache-only`; `--json` emits the machine-readable plan (idempotent; always exit 0) |
 | `editor <dir>` | Launch the GUI editor |
 | `mcp <dir>` | Launch a Model Context Protocol server over stdio, bound to this one recording folder (§11) |
 | `run <dir>` | First-time bulk pipeline: ingest → transcribe → detect → plan → id-stamp, then non-destructively invokes `autozoom`'s logic if fresh (§9: do not re-run casually) |

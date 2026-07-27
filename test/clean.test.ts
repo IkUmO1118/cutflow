@@ -47,6 +47,8 @@ function makeFixture(): string {
   put("materials.probe/index.json"); put("av.probe/motion.json"); put("review.probe/index.json");
   put("hyperframe.probe/intro/index.json");
   put("render.fast/captions/ab12cd34.png");
+  // Remotion が収録フォルダへ落とす headless Chrome(再取得可能・約200MB)
+  put(".remotion/chrome-headless-shell/chrome-headless-shell");
   // generated だが「重いキャッシュ」ではない使い捨て DRAFT ディレクトリ(logs-only 対象)
   put("hyperframe-freeze.suggested/intro.html");
   return dir;
@@ -98,7 +100,7 @@ test("executeClean: generated だけ消え、editable/approval/other/素材は�
       "cut.mp4", "cut.highlight-1.mp4",
       "frames", "render.chunks", "render.fast", "shorts", "materials.probe", "av.probe", "review.probe",
       "hyperframe.probe", "hyperframe-freeze.suggested", "whisper-out.json", "preview.mp4",
-      "effect-check.json", "plan.first.json", "plan-effects.first.json"]) {
+      "effect-check.json", "plan.first.json", "plan-effects.first.json", ".remotion"]) {
       assert.ok(!existsSync(join(dir, gone)), `${gone} が残っている`);
     }
   } finally {
@@ -114,7 +116,7 @@ test("planClean --cache-only: 重いキャッシュだけ選び、軽い中間�
       "cut.mp4", "cut.keeps.json",
       "preview.mp4", "render.props.json", "render.key.json", "cut.highlight-1.mp4",
       "render.highlight-1.props.json", "frames", "render.chunks", "render.fast", "shorts",
-      "materials.probe", "av.probe", "review.probe", "hyperframe.probe"]) {
+      "materials.probe", "av.probe", "review.probe", "hyperframe.probe", ".remotion"]) {
       assert.ok(picked.has(cache), `${cache} が cache-only 対象に無い`);
     }
     for (const keepInCacheOnly of ["manifest.json", "cuts.auto.json", "whisper-out.json",
@@ -144,7 +146,7 @@ test("planClean --logs-only: ログ・下書き・検品結果だけ選び、レ
       "render.chunks", "render.fast", "cut.highlight-1.mp4", "render.highlight-1.key.json",
       "proxy.mp4", "proxy.key.json", "whisper-out.json", "whisper-out.srt",
       "transcript.system.json", "manifest.json", "shorts", "materials.probe", "av.probe",
-      "hyperframe.probe", "plan.first.json", "plan-effects.first.json"]) {
+      "hyperframe.probe", "plan.first.json", "plan-effects.first.json", ".remotion"]) {
       assert.ok(!picked.has(keep), `${keep} を logs-only で消そうとした`);
     }
   } finally {

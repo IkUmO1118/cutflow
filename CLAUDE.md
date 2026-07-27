@@ -204,8 +204,18 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
   黙って上書きされる。採用したい項目は人間が読んで手で `rules.md` に転記する。
   `learn` はこのファイルにしか書かず、channel の `rules.md` を自分で
   書き換えることは絶対にしない)も編集・削除以外では触らない
+  `.remotion/`(Remotion が render / frames のために収録フォルダへダウンロードする
+  headless Chrome 本体。収録フォルダごとに約200MB重複する純粋な再取得可能キャッシュで、
+  消せば次の render / frames が自動で取り直す)も中間生成物。
   これらの中間生成物・キャッシュはまとめて `node src/cli.ts clean <dir>` で安全に削除できる
   (削除は files.ts の generated 分類だけが対象で、編集ファイル・approvals.json は触れない)。
+  **唯一の例外が「元収録の自動リマックス複製」**: OBS は既定で `.mkv` に録画し、停止後に
+  同じ内容を `.mp4` へストリームコピーした複製を隣に残すが、CutFlow が読むのは
+  `manifest.json` の `source` が指す1本だけなので、もう一方は収録フォルダ内で最大級の
+  純粋な重複になる。`clean` はこれを名前ではなく**実行時の内容照合**(manifest の source が
+  `.mp4` 以外で実在する・候補の `fileRole` が other・ffprobe で codec/解像度/fps/音声が
+  完全一致し尺差1秒以内・サイズ差が5%以内または1MB以内)で確認したうえで削除する。
+  1つでも欠ければ残し、理由を警告に出す(判定は `src/lib/remuxDup.ts` が正)。
 - GUI エディタ(`npm run editor`)が起動中でも JSON を直接編集してよい。
   保存された変更はホットリロードで GUI に自動反映される(人間側に未保存の
   編集がある場合は GUI にバナーが出る)。同じ区間・フィールドを双方が触った
@@ -562,7 +572,7 @@ node src/cli.ts unapprove <dir> [--short <name>]  # 承認を取り消す
 node src/cli.ts render <dir>      # 最終レンダー(approvals.json の承認レコードが必要。boolean approved だけでは通らない)
 node src/cli.ts render <dir> --short <name>  # ショート1本だけレンダー(shorts/<name>.mp4)
 node src/cli.ts render <dir> --shorts        # approved な全ショートをレンダー(未承認はスキップ)
-node src/cli.ts clean <dir>       # 中間生成物/キャッシュを安全削除(files.ts 分類由来。編集ファイル・approvals.json・materials/・元収録・成果物は触れない)。--dry-run / --cache-only(重いキャッシュだけ) / --logs-only(ログ・使い捨て下書き・検品結果・preview・frames だけ。リレンダー最適化 cut/render.*・proxy・whisper-out.*・manifest・shorts は残す。--cache-only と排他) / --json
+node src/cli.ts clean <dir>       # 中間生成物/キャッシュを安全削除(files.ts 分類由来。編集ファイル・approvals.json・materials/・元収録・成果物は触れない。ただし元収録の remux 複製(OBS が .mkv の隣に残す同一内容の .mp4)は ffprobe で内容一致を確認のうえ削除する)。--dry-run / --cache-only(重いキャッシュだけ) / --logs-only(ログ・使い捨て下書き・検品結果・preview・frames だけ。リレンダー最適化 cut/render.*・proxy・whisper-out.*・manifest・shorts は残す。--cache-only と排他) / --json
 node src/cli.ts editor <dir>      # GUI エディタ(npm run editor と同じ。終了は Ctrl+C)
 node src/cli.ts editor <dir> --detach  # バックグラウンド起動でターミナルを返す(--status / --stop で確認・停止。待受情報とログは ~/.cutflow/editor/)
 node src/cli.ts mcp <dir>         # MCP サーバ(stdio。1収録フォルダに束縛。describe/validate/frames/materials/assert/apply/id-stamp だけを露出。承認/render/plan 等は露出しない)

@@ -105,12 +105,33 @@ AI のカット判断を使いたくない回は、plan を1回走らせてか�
 (`final.mp4` / `thumbnail.png` / `bgm.*`)には1バイトも触れない。非 generated ディレクトリ
 (`materials/` / `backups/`)には降りないので、その配下は常に安全。
 
+**唯一の例外が「元収録の自動リマックス複製」**(role は `other` だが削除される)。
+OBS は既定で `.mkv` に録画し、停止後に同じ内容を `.mp4` へストリームコピーした複製を
+隣に残す。CutFlow が読むのは `manifest.json` の `source` が指す1本だけなので、もう一方は
+収録フォルダ内で最大級の純粋な重複になる(実測: 3.0GB の収録に対し 3.0GB の複製)。
+これだけは名前ではなく**実行時の内容照合**で対象に入り、次の条件を**全て**満たしたときに
+限られる(判定は `src/lib/remuxDup.ts` が正):
+
+1. `manifest.json` の `source` が実在し、拡張子が `.mp4` **ではない**
+   (=消す側は常に複製で、CutFlow が実際に読む元収録では絶対にない)
+2. 複製候補 `<source の basename>.mp4` が実在する通常ファイルで、`fileRole` が `other`
+3. ffprobe で映像 codec・幅・高さ・fps・音声 codec・音声有無が完全一致し、尺の差が 1秒以内
+4. サイズ差が 5% 以内 **または** 1MB 以内(=ストリームコピーの複製。同じ内容を低ビット
+   レートで再エンコードした「配布用の軽い mp4」は 3 を満たしてもここで弾かれ、残る)
+
+条件が1つでも欠ければ複製は残り、「なぜ残したか」が警告として stderr に出る。ffprobe が
+無い/失敗する環境では検出をスキップするだけ(=この機能の導入前と同じ結果)。削除の直前に
+「manifest が指す元収録が別名で今も実在するか」をもう一度確かめる belt もある。
+`--logs-only` では対象外(ログでも使い捨て下書きでもないため)。
+
 - 既定: すべての中間生成物(`manifest.json` / `cuts.auto.json` / `proxy.mp4` /
   `cut*.mp4` / `render.chunks/` / `frames/` / `shorts/` / 各 `*.probe/` / `whisper-out.*` /
-  `*.suggested.json` / `plan.first.json` / `plan-effects.first.json` 等)を削除。
+  `*.suggested.json` / `plan.first.json` / `plan-effects.first.json` /
+  `.remotion/`(Remotion が収録フォルダへ落とす headless Chrome。収録ごとに約200MB
+  重複し、次の render / frames が自動で取り直す) 等)を削除。
 - `--cache-only`: 再生成の重いキャッシュ(`proxy.mp4` / `cut*.mp4` / `render.chunks/` /
   `frames/` / `shorts/` / `materials.probe/` / `av.probe/` / `review.probe/` /
-  `preview.mp4` / `*.key.json` / `render.props.json`)だけを消す。再文字起こしが数分かかる
+  `.remotion/` / `preview.mp4` / `*.key.json` / `render.props.json`)だけを消す。再文字起こしが数分かかる
   `whisper-out.*` や `manifest.json` / `cuts.auto.json` 等の**軽くて再生成が高価**な
   中間生成物は残す。write-once初版の`plan.first.json` / `plan-effects.first.json`も残す。
 - `--logs-only`: ログ・検品結果・使い捨て下書きだけを消す。write-once初版の
