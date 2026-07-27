@@ -5,7 +5,7 @@
 // カット境界シーク用の短 GOP)が -g に反映されることを固定する。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PROXY_GOP_FRAMES, videoEncodeArgs } from "../src/lib/videoEncode.ts";
+import { PROXY_GOP_FRAMES, proxyGopFrames, videoEncodeArgs } from "../src/lib/videoEncode.ts";
 import type { Config } from "../src/lib/config.ts";
 
 test("videoEncodeArgs: 省略時は videotoolbox(新既定)", () => {
@@ -43,4 +43,42 @@ test("videoEncodeArgs: gopFrames 指定が -g に反映される(プロキシの
     );
     assert.equal(args[args.indexOf("-g") + 1], String(PROXY_GOP_FRAMES));
   }
+});
+
+/* ------------------------------------------------------------------ */
+/* M1: preview.proxyIntra(オールイントラ proxy)。
+ * §docs/plans/2026-07-28-engine-m1-media-metrics-design.md Phase 1 */
+
+test("videoEncodeArgs: gopFrames:1(オールイントラ)は libx264 に -x264-params を追加する", () => {
+  const args = videoEncodeArgs(
+    { preview: { width: 1280, videoEncoder: "libx264" } } as Config,
+    { gopFrames: 1 },
+  );
+  assert.equal(args[args.indexOf("-g") + 1], "1");
+  assert.ok(args.includes("-x264-params"));
+  assert.equal(args[args.indexOf("-x264-params") + 1], "keyint=1:min-keyint=1:scenecut=0");
+});
+
+test("videoEncodeArgs: gopFrames:1 は videotoolbox には -x264-params を追加しない(-g 1 のみ)", () => {
+  const args = videoEncodeArgs(
+    { preview: { width: 1280, videoEncoder: "videotoolbox" } } as Config,
+    { gopFrames: 1 },
+  );
+  assert.equal(args[args.indexOf("-g") + 1], "1");
+  assert.ok(!args.includes("-x264-params"));
+});
+
+test("proxyGopFrames: proxyIntra:true は 1、false/未設定は PROXY_GOP_FRAMES", () => {
+  assert.equal(
+    proxyGopFrames({ preview: { width: 1280, proxyIntra: true } } as Config),
+    1,
+  );
+  assert.equal(
+    proxyGopFrames({ preview: { width: 1280, proxyIntra: false } } as Config),
+    PROXY_GOP_FRAMES,
+  );
+  assert.equal(
+    proxyGopFrames({ preview: { width: 1280 } } as Config),
+    PROXY_GOP_FRAMES,
+  );
 });

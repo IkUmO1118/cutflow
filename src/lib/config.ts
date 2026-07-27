@@ -554,6 +554,13 @@ export interface Config {
      * ファイルサイズが小さい)。"libx264" で従来の ultrafast+CRF に戻せる。
      * 実測は docs/perf.md 参照 */
     videoEncoder?: "libx264" | "videotoolbox";
+    /** proxy.mp4 をオールイントラ(GOP=1。全フレーム I)でエンコードするか。
+     * 省略時 true。エディタはカット境界ごとに proxy.mp4 をシークして繋ぐため、
+     * オールイントラだと直前キーフレームからのデコード待ちが無くなる
+     * (代償はファイルサイズ増。proxy は再生成可能なキャッシュなので許容)。
+     * false で従来の GOP=PROXY_GOP_FRAMES(0.2秒)エンコードに戻せる。
+     * preview.mp4 / preview-cut.mp4 には影響しない(proxy.mp4 専用) */
+    proxyIntra?: boolean;
   };
   /** エディタ(GUI)設定。省略可(古い config.yaml との互換) */
   editor?: {
@@ -1972,6 +1979,9 @@ export function loadConfig(explicitPath?: string): Config {
   cfg.whisper.model = expandHome(cfg.whisper.model);
   cfg.whisper.wordTimestamps ??= true;
   cfg.whisper.systemAudio ??= false;
+  // preview はテスト用の最小 config では省略されることがある(このセクション
+  // 自体は require しない=既存挙動を壊さない)。あるときだけ既定値を補う
+  if (cfg.preview) cfg.preview.proxyIntra ??= true;
   cfg.ocr ??= {};
   cfg.ocr.languages ??= [...DEFAULT_OCR_LANGUAGES];
   return cfg;

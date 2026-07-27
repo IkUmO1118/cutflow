@@ -138,8 +138,9 @@ bgm)・hardwareAcceleration 設定が前回と同じなら render は Remotion �
 ログ。レンダーの副産物で編集対象ではない) / `proxy.key.json`
 (proxy.mp4 の陳腐化を判定するキャッシュキー。ラウドネス(targetLufs)・
 システム音声(systemAudio)・ノイズ除去(denoise)・プレビュー幅・エンコーダ・
-元収録ファイルが前回の生成と同じなら陳腐化なしと判定する。無ければ常に
-「陳腐化なし」扱いになる) / `render.chunks/`(チャンク差分レンダーのキャッシュ。
+オールイントラ設定(`preview.proxyIntra`。既定 true=GOP1の全フレーム I。
+false で従来の短 GOP に戻る)・元収録ファイルが前回の生成と同じなら陳腐化
+なしと判定する。無ければ常に「陳腐化なし」扱いになる) / `render.chunks/`(チャンク差分レンダーのキャッシュ。
 config.yaml の `render.chunkSec` > 0 のときだけ使う。`vNNN.mp4` =
 チャンク映像・`audio.m4a` = 直前フルレンダーの連続音声・`chunks.key.json` =
 再利用可否を判定するキー。映像に効く要素(テロップ・位置・ワイプ等)だけを

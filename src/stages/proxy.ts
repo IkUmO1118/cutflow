@@ -7,7 +7,7 @@ import {
   measuredLoudnormFilter,
 } from "../lib/loudness.ts";
 import { buildProxyCacheKey, proxyCacheKeyEquals } from "../lib/proxyCache.ts";
-import { PROXY_GOP_FRAMES, scaleFilter, videoEncodeArgs } from "../lib/videoEncode.ts";
+import { proxyGopFrames, scaleFilter, videoEncodeArgs } from "../lib/videoEncode.ts";
 import type { ProxyCacheKey } from "../lib/proxyCache.ts";
 import type { Config } from "../lib/config.ts";
 import type { Manifest } from "../types.ts";
@@ -52,10 +52,10 @@ export async function buildProxy(dir: string, cfg: Config): Promise<string> {
       `[a0]${loudnorm}[aout]`,
     ].join(";"),
     "-map", "[vout]", "-map", "[aout]",
-    // GOP 0.2秒(PROXY_GOP_FRAMES)。カット境界ごとに Player が <video> を
-    // シークして繋ぐ方式なので、キーフレーム間隔がそのまま境界のデコード
-    // 待ち(=カット毎のヒッチ)になる。詳細は videoEncode.ts のコメント参照
-    ...videoEncodeArgs(cfg, { gopFrames: PROXY_GOP_FRAMES }),
+    // GOP はカット境界ごとに Player が <video> をシークして繋ぐ方式の
+    // デコード待ちを左右する。既定(proxyIntra:true)はオールイントラ(1)、
+    // false なら従来の PROXY_GOP_FRAMES(0.2秒)。詳細は videoEncode.ts 参照
+    ...videoEncodeArgs(cfg, { gopFrames: proxyGopFrames(cfg) }),
     // loudnorm は内部で 192kHz にアップサンプルするため 48kHz に戻す
     "-c:a", "aac", "-ar", "48000",
     output,

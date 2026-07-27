@@ -1,5 +1,5 @@
 import type { Config } from "./config.ts";
-import { PROXY_GOP_FRAMES, resolveVideoEncoder, videoEncodeArgs } from "./videoEncode.ts";
+import { proxyGopFrames, resolveVideoEncoder, videoEncodeArgs } from "./videoEncode.ts";
 
 /**
  * proxy.mp4 の陳腐化を決めるキャッシュキー(proxy.key.json の内容)。
@@ -16,6 +16,9 @@ export interface ProxyCacheKey {
   denoise: { mic: boolean; noiseFloorDb: number };
   previewWidth: number;
   videoEncoder: "libx264" | "videotoolbox";
+  /** オールイントラ(GOP=1)エンコードか。videoArgs の GOP と重複するが、
+   *  videoEncoder と同じく可読性のため明示フィールドとして残す */
+  proxyIntra: boolean;
   videoArgs: string[];
   source: { file: string; mtimeMs: number; size: number };
 }
@@ -39,7 +42,8 @@ export function buildProxyCacheKey(args: {
     },
     previewWidth: cfg.preview.width,
     videoEncoder: resolveVideoEncoder(cfg),
-    videoArgs: videoEncodeArgs(cfg, { gopFrames: PROXY_GOP_FRAMES }),
+    proxyIntra: cfg.preview.proxyIntra ?? false,
+    videoArgs: videoEncodeArgs(cfg, { gopFrames: proxyGopFrames(cfg) }),
     source: { file: sourceFile, mtimeMs: sourceMtimeMs, size: sourceSize },
   };
 }
