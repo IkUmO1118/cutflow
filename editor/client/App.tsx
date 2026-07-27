@@ -5544,11 +5544,12 @@ export const App = () => {
             <Button
               variant="ghost"
               size="icon"
+              className="helpBtn"
               aria-label="使い方を見る"
               title="使い方・ショートカット"
               onClick={() => setOnboardingOpen(true)}
             >
-              <HelpCircle size={16} aria-hidden />
+              <HelpCircle size={15} aria-hidden />
             </Button>
           </TooltipTrigger>
           <TooltipContent>使い方・ショートカット</TooltipContent>
