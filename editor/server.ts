@@ -257,6 +257,9 @@ export async function startEditor(
 
   const url = `http://127.0.0.1:${port}`;
   console.log(`エディタ起動: ${url}(対象: ${dir})`);
+  // 使い方への唯一の入口になりがちな行(GUI を開いた人は README へ戻らない)。
+  // 画面内からはヘッダーの「?」でも同じ内容を引ける
+  console.log("使い方: docs/guides/editor.md(画面内はヘッダーの「?」)");
   console.log("終了は Ctrl+C");
   spawn("open", [url], { stdio: "ignore" }).on("error", () => {});
 }

@@ -166,6 +166,7 @@ import {
   Download,
   FileText,
   Folder,
+  HelpCircle,
   Monitor,
   Moon,
   PanelBottom,
@@ -5535,6 +5536,22 @@ export const App = () => {
             </span>
           </TooltipTrigger>
           <TooltipContent>変更は ⌘S で保存。未保存の編集は自動退避されます</TooltipContent>
+        </Tooltip>
+        {/* 使い方への常設の戻り道。初回の案内は localStorage で二度と出ないので、
+            ここが無いと「素材はどう入れるんだっけ」の行き先が画面から消える */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="使い方を見る"
+              title="使い方・ショートカット"
+              onClick={() => setOnboardingOpen(true)}
+            >
+              <HelpCircle size={16} aria-hidden />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>使い方・ショートカット</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>

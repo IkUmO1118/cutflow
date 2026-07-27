@@ -5011,6 +5011,59 @@
   line-height: 1.5;
 }
 
+/* 「よく使う操作」= 二度目以降にヘッダーの ? から引きに来る層。
+   初回の3ステップより視覚的な重みを落として、流し読みできる密度にする */
+.onboardingSubhead {
+  margin: 0 0 0.5rem;
+  font-size: var(--oc-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: hsl(var(--oc-muted-foreground));
+  text-transform: uppercase;
+}
+
+.onboardingKeys {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0 0 0.9rem;
+}
+
+.onboardingKeys > div {
+  display: grid;
+  grid-template-columns: minmax(7.5rem, auto) 1fr;
+  align-items: baseline;
+  gap: 0.7rem;
+}
+
+.onboardingKeys dt {
+  color: hsl(var(--oc-foreground));
+  font-size: var(--oc-text-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.onboardingKeys dd {
+  margin: 0;
+  color: hsl(var(--oc-muted-foreground));
+  font-size: var(--oc-text-xs);
+  line-height: 1.5;
+}
+
+.onboardingMore {
+  margin: 0 0 0.9rem;
+  color: hsl(var(--oc-muted-foreground));
+  font-size: var(--oc-text-xs);
+  line-height: 1.6;
+}
+
+.onboardingMore code {
+  margin-left: 0.3em;
+  padding: 0.1em 0.35em;
+  background: hsl(var(--oc-muted) / 0.6);
+  border-radius: calc(var(--oc-radius) - 0.2rem);
+  font-size: 0.95em;
+}
+
 .onboardingActions {
   display: flex;
   justify-content: flex-end;

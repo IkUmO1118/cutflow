@@ -1,3 +1,7 @@
+// 初回の案内と、ヘッダーの「?」から何度でも開ける使い方パネルを兼ねる。
+// 「編集フロー」(初めて開いた人が知りたい順序)と「よく使う操作」
+// (二度目以降に引きに来るショートカット)を1枚に置き、詳細は
+// docs/guides/editor.md へ送る。
 import { Clapperboard, MousePointer2, Save, X } from "lucide-react";
 import { Button } from "./components/ui/button.tsx";
 import {
@@ -14,6 +18,17 @@ export {
   isOnboardingSeen,
   shouldShowOnboarding,
 } from "./onboardingRules.ts";
+
+/** 二度目以降に引きに来る操作。画面を見ながら読む前提なので、説明ではなく
+ *  「どこを触るか」だけを書く(詳細は docs/guides/editor.md) */
+const SHORTCUTS: readonly (readonly [string, string])[] = [
+  ["⌘S / ⌘Z", "保存 / 元に戻す"],
+  ["Delete", "選択したクリップ・素材・テロップを消す"],
+  ["ドラッグ", "クリップの移動、端をつまんでトリム"],
+  ["⌘ を押しながら", "ドラッグ中だけ吸着(マグネット)を反転"],
+  ["スクリプトタブ", "文字を選んで「選択をカット」"],
+  ["プレビュー上でドラッグ", "テロップ・素材の位置とサイズ"],
+];
 
 export const OnboardingDialog = ({
   open,
@@ -61,6 +76,19 @@ export const OnboardingDialog = ({
               <div><strong>プレビュー → 承認 → レンダー</strong><span>結果を確認して承認したあと、最終動画を書き出します。</span></div>
             </li>
           </ol>
+          <h2 className="onboardingSubhead">よく使う操作</h2>
+          <dl className="onboardingKeys">
+            {SHORTCUTS.map(([keys, what]) => (
+              <div key={what}>
+                <dt>{keys}</dt>
+                <dd>{what}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="onboardingMore">
+            素材の入れ方・テロップの見た目・承認とレンダーの詳細は
+            <code>docs/guides/editor.md</code>
+          </p>
           <div className="onboardingActions">
             <DialogClose asChild><Button>編集を始める</Button></DialogClose>
           </div>
