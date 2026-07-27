@@ -7,6 +7,11 @@
 > ・エージェントでも必ず動く形だからで、優劣ではない。CLI が出すヒント
 > (「先に `… materials <dir>` を実行してください」等)は、実際に使われた
 > 入口に合わせて自動で書き分けられる。
+>
+> **コマンドの探し方**: `node src/cli.ts --help` は基本の流れだけの短い案内、
+> `node src/cli.ts commands` が分類つきの全一覧、`node src/cli.ts <コマンド> --help`
+> が個別の全オプション。「いつ使うか」で引く早見表は
+> [guides/command-reference.md](guides/command-reference.md)。
 
 CutFlow は「全部AI任せ」のツールではない。**まずエディタで全編 keep の動画を開き、
 必要な自動処理だけを明示実行し、以降は人間が JSON を直しながら preview / render と
@@ -613,6 +618,7 @@ node(>=23.6)/ffmpeg/ffprobe/有効エンコーダの整合/whisper バイナリ�
 
 | 何をしたいか | ガイド |
 |---|---|
+| コマンドを「いつ使うか」で引く(全コマンドの分類つき早見表) | [guides/command-reference.md](guides/command-reference.md) |
 | AI のカット案を作って育てる(plan / cutplan、知覚・候補格子・harness・editMode・システム音声) | [guides/cut-planning.md](guides/cut-planning.md) |
 | 字幕・帯・ベースレイアウト・カット境界演出・見た目調整 | [guides/captions-layout.md](guides/captions-layout.md) |
 | 素材(B-roll)を把握して差し込む(materials / plan-materials / material-fit) | [guides/materials.md](guides/materials.md) |
@@ -623,7 +629,6 @@ node(>=23.6)/ffmpeg/ffprobe/有効エンコーダの整合/whisper バイナリ�
 | AI プロバイダ・MCP・GUI の AI 提案/検索をつなぐ | [guides/ai-agents.md](guides/ai-agents.md) |
 | AI やスクリプトで安全に編集する(id / apply / assert / 契約) | [guides/safe-editing.md](guides/safe-editing.md) |
 | GUI エディタ運用・frames-serve・掃除(clean) | [guides/tools-and-ops.md](guides/tools-and-ops.md) |
-| コマンドを「いつ使うか」で引く早見表 | [guides/command-reference.md](guides/command-reference.md) |
 
 ### 旧セクションの移動先
 
