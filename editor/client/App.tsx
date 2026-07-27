@@ -5,6 +5,8 @@ import { Player } from "@remotion/player";
 import type { CallbackListener, PlayerRef } from "@remotion/player";
 import { Main } from "../../remotion/Main.tsx";
 import { designForPlayer } from "./designAssets.ts";
+import { mountMetricsHud, startMetricsHarness } from "./metrics.ts";
+import type { MetricsHandle } from "./metrics.ts";
 import {
   buildRenderProps,
   capCountOf,
@@ -689,6 +691,27 @@ export const App = () => {
    * OS のフルスクリーンにする。実寸での最終目視用 */
   const [fullscreen, setFullscreen] = useState(false);
   const viewerColRef = useRef<HTMLDivElement>(null);
+
+  /** プレビュー(proxy.mp4)の体感計測(M1)。既存の Player/<video> 挙動には
+   *  触れない観測専用ハーネスで、HUD は URL に ?metrics=1 のときだけ出す */
+  const metricsRef = useRef<MetricsHandle | null>(null);
+  useEffect(() => {
+    const handle = startMetricsHarness(document.body);
+    metricsRef.current = handle;
+    const disposeHud =
+      new URLSearchParams(location.search).get("metrics") === "1"
+        ? mountMetricsHud(handle)
+        : null;
+    return () => {
+      handle.dispose();
+      disposeHud?.();
+      metricsRef.current = null;
+    };
+  }, []);
+  useEffect(() => {
+    if (!proj) return;
+    metricsRef.current?.setRecording(proj.dir.replace(/\/+$/, "").split("/").pop() ?? proj.dir);
+  }, [proj?.dir]);
 
   useEffect(() => {
     getProject()

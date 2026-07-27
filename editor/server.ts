@@ -19,6 +19,7 @@ import { basename, dirname, extname, join, normalize, resolve, sep } from "node:
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { appendMetricsBatch } from "../src/lib/editorMetrics.ts";
 import { renderCfgWithDesign } from "../src/lib/designAsset.ts";
 import { resolveDesign } from "../src/lib/design.ts";
 import { existingDesignAssets, prepareDesignAssetBundle } from "../src/lib/designStill.ts";
@@ -375,6 +376,17 @@ async function handle(
     // dir も返すのは、portfile が stale で別プロセスが同じ port を掴んでいる
     // ケースを取り違えないため
     sendJson(res, 200, { ok: true, pid: process.pid, dir });
+    return;
+  }
+  if (req.method === "POST" && path === "/metrics") {
+    // プレビュー体感計測(M1)のバッチ受信。保存・保存系 API(save/draft 等)とは
+    // 完全に独立させる(観測専用・失敗しても編集フローに影響させない)
+    const body = await readBody(req);
+    appendMetricsBatch(
+      (body as { recording?: unknown } | null)?.recording,
+      body,
+    );
+    sendJson(res, 200, { ok: true });
     return;
   }
   if (req.method === "GET" && path === "/api/project") {
