@@ -177,8 +177,13 @@ export const EnginePreview = forwardRef<PreviewHandle, EnginePreviewProps>(funct
         return;
       }
 
-      compositor.canvas.style.width = "100%";
-      compositor.canvas.style.height = "auto";
+      // 親いっぱいの箱にレターボックス内接+中央(R4 Phase3)。host 側は
+      // 常に flex 中央寄せ(下の JSX)にしてあるので、canvas はここで
+      // max-width/max-height だけ指定すれば固有比(canvas 属性の width/height)
+      // を保ったまま自動的に内接する。編集オーバーレイ側(CaptionOverlay等)の
+      // scale/dx/dy 計算はこの前提(Player と同じ内接+中央)を変えずに使う
+      compositor.canvas.style.maxWidth = "100%";
+      compositor.canvas.style.maxHeight = "100%";
       host?.appendChild(compositor.canvas);
       compositorRef.current = compositor;
       sourcePoolRef.current = sourcePool;
@@ -302,5 +307,16 @@ export const EnginePreview = forwardRef<PreviewHandle, EnginePreviewProps>(funct
     [],
   );
 
-  return <div ref={hostRef} style={{ width: "100%", height: "100%" }} />;
+  return (
+    <div
+      ref={hostRef}
+      style={{
+        width: "100%",
+        height: "100%",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    />
+  );
 });
