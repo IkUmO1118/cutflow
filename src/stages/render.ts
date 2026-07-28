@@ -34,7 +34,9 @@ import {
   globalVideoKey,
 } from "../lib/chunkPlan.ts";
 import { buildCutCacheKey, cutCacheKeyEquals } from "../lib/cutCache.ts";
+import { colorTagArgs, colorTagsOfProbe, type ColorTags } from "../lib/colorTags.ts";
 import { run } from "../lib/exec.ts";
+import { probe } from "../lib/ffmpeg.ts";
 import { decideFastPath, runFastRender } from "../lib/fastRender.ts";
 import { resolveFastBaseCapability } from "../lib/fastBaseCapability.ts";
 import { renderEngine } from "./renderEngine.ts";
@@ -237,7 +239,9 @@ async function runRenderMain(
   //    削除すれば常にフル再生成に戻る)
   const cutPath = join(dir, "cut.mp4");
   const cutKeepsPath = join(dir, "cut.keeps.json");
-  const sourceStat = statSync(join(dir, manifest.source));
+  const sourcePath = join(dir, manifest.source);
+  const sourceStat = statSync(sourcePath);
+  const colorTags = colorTagsOfProbe(await probe(sourcePath));
   const cacheKey = buildCutCacheKey({
     keeps,
     manifest,
@@ -245,6 +249,7 @@ async function runRenderMain(
     sourceMtimeMs: sourceStat.mtimeMs,
     sourceSize: sourceStat.size,
     composite,
+    colorTags,
   });
   const cachedKey = existsSync(cutKeepsPath)
     ? (JSON.parse(readFileSync(cutKeepsPath, "utf8")) as CutCacheKey)
@@ -256,9 +261,9 @@ async function runRenderMain(
     await publishAsTransaction({
       finalPath: cutPath,
       inputs: [
-        { path: join(dir, manifest.source), mtimeMs: sourceStat.mtimeMs, size: sourceStat.size },
+        { path: sourcePath, mtimeMs: sourceStat.mtimeMs, size: sourceStat.size },
       ],
-      produce: (tmp) => cutFullRes(dir, manifest, keeps, tmp, cfg, { composite }),
+      produce: (tmp) => cutFullRes(dir, manifest, keeps, tmp, cfg, { composite, colorTags }),
       verify: (tmp) => verifyPlayableVideo(tmp),
       commit: () => writeFileSync(cutKeepsPath, JSON.stringify(cacheKey, null, 2)),
     });
@@ -929,10 +934,11 @@ async function cutFullRes(
   keeps: { start: number; end: number; speed: number }[],
   output: string,
   cfg: Config,
-  opts: { composite?: boolean } = {},
+  opts: { composite?: boolean; colorTags?: ColorTags } = {},
 ): Promise<void> {
   const input = join(dir, manifest.source);
   const source = audioSourceOf(manifest, cfg);
+  const colorTags = opts.colorTags ?? colorTagsOfProbe(await probe(input));
 
   const videoParts = keeps.map(
     (k, i) => `[0:v]trim=start=${k.start}:end=${k.end},setpts=${
@@ -992,6 +998,7 @@ async function cutFullRes(
       "-filter_complex", parts.join(";"),
       "-map", videoOut, "-map", "[aout]",
       ...cutCodecArgs,
+      ...colorTagArgs(colorTags),
       "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
       output,
     ]),
