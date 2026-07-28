@@ -15,12 +15,19 @@ import { AudioScheduler } from "../../src/engine/runtime/audioScheduler.ts";
 import type { RenderProps } from "../../remotion/props.ts";
 import { audioSignatureOf, timelineFromBaseSegments } from "./enginePreviewTimeline.ts";
 
-/** engineDev.ts と同じ規約: videoFile("media/proxy.mp4")はそのまま
- * `/media/proxy.mp4`、それ以外(素材/design 背景)は `/media/` を足す */
+/** App.tsx の built props memo は videoFile("media/proxy.mp4")に加え、
+ * overlays[].file / inserts[].file / bgm[].file / design の背景・素材ファイルを
+ * すべて `media/${元パス}` へ書き換え済み(Player の staticFile 用の付け替え。
+ * App.tsx:1580 付近)。EnginePreview はこの**書き換え後**の props を受け取る
+ * ため、sourceId は常にこの "media/" 接頭辞を含む(engineDev.ts の単体ページは
+ * buildRenderProps を直接呼ぶため未加工の sourceId で、resolveUrl 側で
+ * `/media/` を足していた=同じ関数名でも規約が違う。混同しないこと)。
+ * encodeURIComponent は Timeline.tsx/AiVisualReview.tsx の mediaUrl と同じ
+ * 規約(素材ファイル名の空白/日本語等を安全に URL 化する) */
 const VIDEO_FILE = "media/proxy.mp4";
 
 function resolveUrl(sourceId: string): string {
-  return sourceId === VIDEO_FILE ? `/${sourceId}` : `/media/${sourceId}`;
+  return `/${encodeURIComponent(sourceId).replace(/%2F/g, "/")}`;
 }
 
 function sourceTimeOf(item: ExternalItem): number {
