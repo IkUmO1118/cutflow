@@ -3,7 +3,7 @@
 // cssFilterOf 相当)と数値が一致することをクロスチェックする。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { describeBaseLayer, describeFrame } from "../src/engine/describeFrame.ts";
+import { describeBaseLayer, describeFrame, describeLayerOrderStack } from "../src/engine/describeFrame.ts";
 import { resolveDesign } from "../src/lib/design.ts";
 import { zoomTransformAt } from "../src/lib/zoom.ts";
 import type { ZoomSpan } from "../src/lib/zoom.ts";
@@ -164,4 +164,47 @@ test("describeFrame: size/backgroundColor を持ち、items にベース映像�
   assert.deepEqual(d.size, { w: 1920, h: 1080 });
   assert.equal(d.backgroundColor, "black"); // design 無しの既定
   assert.equal(d.items.length, 1);
+});
+
+test("describeLayerOrderStack: hiddenLayers 未指定のとき items が従来と同一", () => {
+  const props: RenderProps = {
+    ...base,
+    cameraRegion: { x: 0, y: 0, w: 400, h: 400 },
+    captions: [{ track: 1, start: 0, end: 10, text: "hello" }],
+    layerOrder: ["wipe", "cap1"],
+  };
+  const items1 = describeLayerOrderStack({ ...props, hiddenLayers: undefined }, 5);
+  const items2 = describeLayerOrderStack({ ...props }, 5);
+  assert.deepEqual(items1, items2);
+});
+
+test("describeLayerOrderStack: hiddenLayers: ['wipe'] でワイプ item が消える", () => {
+  const props: RenderProps = {
+    ...base,
+    cameraRegion: { x: 0, y: 0, w: 400, h: 400 },
+    captions: [{ track: 1, start: 0, end: 10, text: "hello" }],
+    layerOrder: ["wipe", "cap1"],
+  };
+  const withHidden = describeLayerOrderStack({ ...props, hiddenLayers: ["wipe"] }, 5);
+  const withoutHidden = describeLayerOrderStack(props, 5);
+  // wipe は hidden でも cap1 は残る
+  assert.ok(withHidden.length < withoutHidden.length);
+  // wipe 由来の external item が除去されている
+  const wipeItem = withHidden.find((i) => i.kind === "external" && !("content" in i));
+  assert.equal(wipeItem, undefined);
+});
+
+test("describeLayerOrderStack: hiddenLayers: ['cap1'] でキャプション item が消える", () => {
+  const props: RenderProps = {
+    ...base,
+    cameraRegion: { x: 0, y: 0, w: 400, h: 400 },
+    captions: [{ track: 1, start: 0, end: 10, text: "hello" }],
+    layerOrder: ["wipe", "cap1"],
+  };
+  const withHidden = describeLayerOrderStack({ ...props, hiddenLayers: ["cap1"] }, 5);
+  const withoutHidden = describeLayerOrderStack(props, 5);
+  assert.ok(withHidden.length < withoutHidden.length);
+  // caption 由来の rendered item が除去されている
+  const capItem = withHidden.find((i) => i.kind === "rendered");
+  assert.equal(capItem, undefined);
 });

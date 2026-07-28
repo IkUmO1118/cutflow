@@ -633,12 +633,14 @@ export function describeAnnotationItems(props: RenderProps, tOut: number): Frame
  * normalizeLayerOrder 済みの完全な配列(props.layerOrder。無ければ
  * DEFAULT_LAYER_ORDER)を下から順に辿り、各 id に対応する現在時刻の
  * item を積む(ov<N>=そのトラックの素材、wipe=カメラ、caption/cap<N>=
- * そのトラックのテロップ)。Main.tsx の layerNode(id) 分岐の逐語移植
- * (hiddenLayers はエディタのプレビュー専用フラグなので descriptor では
- * 扱わない=§Phase0記録のとおり)
+ * そのトラックのテロップ)。Main.tsx の layerNode(id) 分岐と
+ * hiddenLayers filter の逐語移植(完全一致で除外)。
+ * 書き出しの props に hiddenLayers が載ることは無いため、
+ * 既存 descriptor golden は不変。
  */
 export function describeLayerOrderStack(props: RenderProps, tOut: number): FrameItem[] {
-  const layerOrder = props.layerOrder ?? DEFAULT_LAYER_ORDER;
+  const layerOrder = (props.layerOrder ?? DEFAULT_LAYER_ORDER)
+    .filter((id) => !props.hiddenLayers?.includes(id));
   const items: FrameItem[] = [];
   for (const id of layerOrder) {
     const ovTrack = ovNum(id);
