@@ -2,7 +2,7 @@
 // の翻訳を固定する。wipe.ts/design.ts の実式とクロスチェックする。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { describeWipeLayer } from "../src/engine/describeFrame.ts";
+import { describeBaseLayer, describeWipeLayer } from "../src/engine/describeFrame.ts";
 import { resolveDesign, shrinkRectBottomRight, wipeRectAt } from "../src/lib/design.ts";
 import { wipeProgressAt } from "../src/lib/wipe.ts";
 import { defaultProps } from "../remotion/props.ts";
@@ -39,6 +39,27 @@ test("describeWipeLayer: 挿入クリップの穴(baseSourceTimeAt null)は空�
     baseSegments: [{ start: 0, videoStart: 0, durationSec: 5 }],
   };
   assert.deepEqual(describeWipeLayer(withInsert, 6), []);
+});
+
+test("describeWipeLayer: colorFilter が既定値なら effects は出ない", () => {
+  const items = describeWipeLayer({ ...base, colorFilter: { saturate: 1 } }, 5);
+  assert.equal(items.length, 1);
+  const item = items[0];
+  if (item.kind !== "external") throw new Error("unreachable");
+  assert.equal(item.effects, undefined);
+});
+
+test("describeWipeLayer: camera item に base と同じ colorFilter effects を載せる", () => {
+  const props: RenderProps = { ...base, colorFilter: { saturate: 1.8 } };
+  const wipeItems = describeWipeLayer(props, 5);
+  const baseItems = describeBaseLayer(props, 5);
+  const wipeItem = wipeItems[0];
+  const screenItem = baseItems.find((item) => item.kind === "external" && item.sourceKind === "video");
+  if (wipeItem.kind !== "external" || screenItem?.kind !== "external") throw new Error("unreachable");
+  assert.deepEqual(wipeItem.effects, [
+    { kind: "colorFilter", brightness: 1, contrast: 1, saturate: 1.8 },
+  ]);
+  assert.deepEqual(wipeItem.effects, screenItem.effects);
 });
 
 test("describeWipeLayer: design無し・wipeFull無し・zoom無しは右下 flush の素の矩形", () => {

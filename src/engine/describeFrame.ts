@@ -291,6 +291,7 @@ export function describeWipeLayer(props: RenderProps, tOut: number): FrameItem[]
       quad: { x: box.x + quad.x, y: box.y + quad.y, w: quad.w, h: quad.h },
     },
     opacity: 1,
+    effects: colorFilterEffects(props),
     radiusPx,
   };
   return [camera];
