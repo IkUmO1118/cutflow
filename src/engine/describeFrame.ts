@@ -9,15 +9,28 @@ import { zoomProgressAt, zoomTransformAt } from "../lib/zoom.ts";
 import type { ZoomSpan, ZoomTransform } from "../lib/zoom.ts";
 import { panelRect, shrinkRectBottomRight, wipeRectAt } from "../lib/design.ts";
 import { wipeProgressAt } from "../lib/wipe.ts";
+import { alignKaraoke, animStateAt, karaokeActiveAt, karaokeFillProgress } from "../lib/captionAnim.ts";
+import {
+  CAPTION_DEFAULT_COLOR,
+  CAPTION_DEFAULT_FONT_FAMILY,
+  CAPTION_DEFAULT_FONT_WEIGHT,
+  CAPTION_DEFAULT_OUTLINE,
+  KARAOKE_DEFAULT_ACTIVE,
+  resolveCaptionBackground,
+} from "../types.ts";
+import { contentHashOf } from "./hash.ts";
 import type {
+  CaptionContent,
+  CaptionWord,
   ColorFilterEffect,
   Effect,
   ExternalItem,
   FrameDescriptor,
   FrameItem,
   Rect,
+  RenderedItem,
 } from "./descriptor.ts";
-import type { RenderProps } from "../../remotion/props.ts";
+import type { Caption, RenderProps } from "../../remotion/props.ts";
 
 const IDENTITY_ZOOM: ZoomTransform = { scale: 1, translateX: 0, translateY: 0 };
 
@@ -273,10 +286,140 @@ export function describeWipeLayer(props: RenderProps, tOut: number): FrameItem[]
   return [camera];
 }
 
+/** spans のいずれかが [start,end) で t を含むか(Main.tsx の inSpan 逐語) */
+function inSpan(spans: { start: number; end: number }[], t: number): boolean {
+  return spans.some((s) => t >= s.start && t < s.end);
+}
+
+/**
+ * 1件のテロップ(caption)の見た目を解決する(CaptionLayer.tsx の
+ * PositionedCaption/OutlinedText が毎フレーム行う解決の逐語移植)。
+ * 優先順は「セグメント個別 → トラック標準(buildRenderProps で解決済みの
+ * caption.style)→ config 既定(defaults)」。karaoke は語単位の状態を
+ * この時刻 tOut で解決して content.words に展開する(hash が語境界でだけ
+ * 変わる契約)
+ */
+function resolveCaptionContent(
+  caption: Caption,
+  defaults: RenderProps["caption"],
+  tOut: number,
+): CaptionContent {
+  const style = caption.style;
+  const fontSizePx = style?.fontSizePx ?? defaults.fontSizePx;
+  const color = style?.color ?? defaults.color ?? CAPTION_DEFAULT_COLOR;
+  const outlineColor = style?.outlineColor ?? defaults.outlineColor ?? CAPTION_DEFAULT_OUTLINE;
+  const outlineWidthPx =
+    style?.outlineWidthPx !== undefined ? style.outlineWidthPx : Math.round(fontSizePx * 0.25);
+  const fontFamily = style?.fontFamily ?? defaults.fontFamily ?? CAPTION_DEFAULT_FONT_FAMILY;
+  const fontWeight = style?.fontWeight ?? defaults.fontWeight ?? CAPTION_DEFAULT_FONT_WEIGHT;
+  const resolvedBg = resolveCaptionBackground(style?.background, defaults.background);
+  const background = resolvedBg
+    ? {
+        color: resolvedBg.color,
+        paddingPx: resolvedBg.paddingPx ?? Math.round(fontSizePx * 0.35),
+        radiusPx: resolvedBg.radiusPx ?? 8,
+      }
+    : undefined;
+
+  const content: CaptionContent = {
+    kind: "caption",
+    text: caption.text,
+    fontSizePx,
+    color,
+    outlineColor,
+    outlineWidthPx,
+    fontFamily,
+    fontWeight,
+    ...(background ? { background } : {}),
+  };
+
+  const karaokeStyle = style?.karaoke;
+  if (karaokeStyle && caption.words && caption.words.length > 0) {
+    const pieces = alignKaraoke(caption.text, caption.words);
+    const mode = karaokeStyle.mode ?? "word";
+    const activeFlags = karaokeActiveAt(pieces, tOut);
+    const words: CaptionWord[] = pieces.map((p, i) => {
+      if (mode === "fill" && p.start !== null && p.end !== null && tOut >= p.start && tOut < p.end) {
+        return { text: p.text, active: true, fillProgress: karaokeFillProgress(p.start, p.end, tOut) };
+      }
+      return { text: p.text, active: activeFlags[i] };
+    });
+    content.words = words;
+    content.karaokeMode = mode;
+    content.karaokeActiveColor = karaokeStyle.activeColor ?? KARAOKE_DEFAULT_ACTIVE;
+    content.karaokeInactiveColor = karaokeStyle.inactiveColor ?? color;
+    if (karaokeStyle.inactiveOpacity !== undefined) {
+      content.karaokeInactiveOpacity = karaokeStyle.inactiveOpacity;
+    }
+  }
+
+  return content;
+}
+
+/**
+ * グループ3: テロップ(caption)。トラックごとに「その時刻に表示中の1件」を
+ * 探し(CaptionLayer.tsx の lookupCaption と同じ .find 優先度=配列順で最初の
+ * 一致)、位置(pos/captionDefaultPos/下部中央フォールバック)・スタイル・
+ * anim・karaoke を解決する。hideCaption 区間は全トラック非表示
+ * (Main.tsx:354 の `if (!caption || inSpan(props.hideCaption)) return null` 相当)。
+ *
+ * layerOrder による他レイヤーとの重なり順の反映はグループ5で行う
+ * (このグループはトラック番号昇順で積むだけ)
+ */
+export function describeCaptionLayer(props: RenderProps, tOut: number): FrameItem[] {
+  if (inSpan(props.hideCaption, tOut)) return [];
+
+  const tracks = Array.from(new Set(props.captions.map((c) => c.track))).sort((a, b) => a - b);
+  const items: FrameItem[] = [];
+  for (const track of tracks) {
+    const caption = props.captions.find((c) => c.track === track && tOut >= c.start && tOut < c.end);
+    if (!caption) continue;
+
+    const content = resolveCaptionContent(caption, props.caption, tOut);
+    const contentHash = contentHashOf(content, { w: props.width, h: props.height });
+
+    const anim = caption.style?.anim;
+    const a = animStateAt(anim, caption.start, caption.end, tOut, content.fontSizePx);
+
+    const pos = caption.pos ?? props.captionDefaultPos;
+    let placement: RenderedItem["placement"];
+    if (pos) {
+      const resolvedAnchor = caption.pos ? caption.anchor : props.captionDefaultPos?.anchor;
+      placement = {
+        mode: "anchor",
+        point: { x: pos.x, y: pos.y },
+        anchor: resolvedAnchor === "topLeft" ? "topLeft" : "center",
+      };
+    } else {
+      // カメラがあるときだけワイプと重ならないよう右側を空ける(B1: plain は予約ゼロ)
+      const reserve = props.cameraRegion ? props.wipe.widthPx + props.wipe.marginPx * 2 : 0;
+      const bandWidth = props.width - reserve;
+      placement = {
+        mode: "anchor",
+        point: { x: bandWidth / 2, y: props.height - props.wipe.marginPx },
+        anchor: "bottomCenter",
+        maxWidthPx: bandWidth * 0.9,
+      };
+    }
+
+    const item: RenderedItem = {
+      kind: "rendered",
+      content,
+      contentHash,
+      placement,
+      opacity: a.opacity,
+      ...(anim ? { transform: { translateX: a.translateX, translateY: a.translateY, scale: a.scale } } : {}),
+    };
+    items.push(item);
+  }
+  return items;
+}
+
 export function describeFrame(props: RenderProps, tOut: number): FrameDescriptor {
   const items: FrameItem[] = [];
   items.push(...describeBaseLayer(props, tOut));
   items.push(...describeWipeLayer(props, tOut));
+  items.push(...describeCaptionLayer(props, tOut));
   return {
     tOut,
     size: { w: props.width, h: props.height },

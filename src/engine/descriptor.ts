@@ -186,6 +186,17 @@ export type RenderedPlacement =
       maxWidthPx?: number;
     };
 
+/** placement(quad/anchor)で決まる位置の上から追加でかける平行移動・拡縮
+ * (caption の登場/退場アニメ用。CSS `transform: translate() scale()` /
+ * `transform-origin: center` と同じ意味論。テキストの実サイズが決まる
+ * 描画時にならないと中心=pivot が定まらないため、値だけをそのまま渡し
+ * 実際の適用は描画側(参照ペインタ/バックエンド)が行う) */
+export interface Transform {
+  translateX: number;
+  translateY: number;
+  scale: number;
+}
+
 export interface RenderedItem {
   kind: "rendered";
   content: RenderedContent;
@@ -197,6 +208,9 @@ export interface RenderedItem {
   opacity: number;
   blend?: BlendMode;
   effects?: Effect[];
+  /** caption の anim(登場/退場)が指定されているときだけ載る。
+   * 省略時は恒等(anim 未指定=器を包まない、という Main.tsx の契約と対応) */
+  transform?: Transform;
 }
 
 export type FrameItem = ExternalItem | RenderedItem;
