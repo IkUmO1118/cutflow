@@ -176,6 +176,36 @@ test("buildHyperframeCards: 壊れた sidecar はそのカードだけ error + s
   assert.equal(cards[1].stale, false);
 });
 
+test("buildHyperframeCards: sidecar 不在のときは stale のみで error は立てない", () => {
+  const [card] = buildHyperframeCards({
+    htmlByName: { card: SAMPLE_HTML },
+    mp4Names: ["card"],
+  });
+  assert.equal(card.stale, true);
+  assert.equal(card.error, undefined);
+});
+
+test("buildHyperframeCards: sidecar の key が非文字列のときは error を立てる", () => {
+  const [card] = buildHyperframeCards({
+    htmlByName: { card: SAMPLE_HTML },
+    mp4Names: ["card"],
+    sidecarByName: { card: JSON.stringify({ key: 123 }) },
+  });
+  assert.equal(card.stale, true);
+  assert.match(card.error ?? "", /生成情報が不正です/);
+});
+
+test("buildHyperframeCards: key が期待値と不一致のときは stale のみで error は立てない", () => {
+  const changed = SAMPLE_HTML.replace('"default":"CutFlow"', '"default":"Changed"');
+  const [card] = buildHyperframeCards({
+    htmlByName: { card: changed },
+    mp4Names: ["card"],
+    sidecarByName: { card: freshHyperframeSidecar(SAMPLE_HTML) },
+  });
+  assert.equal(card.stale, true);
+  assert.equal(card.error, undefined);
+});
+
 test("validateHyperframeRenderRequest: name だけを厳格に受理する", () => {
   assert.deepEqual(validateHyperframeRenderRequest({ name: "ending-card.v2" }), []);
   assert.match(validateHyperframeRenderRequest({ name: "../escape" }).join(" / "), /英数字/);

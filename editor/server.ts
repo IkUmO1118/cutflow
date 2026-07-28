@@ -1116,11 +1116,14 @@ export function buildHyperframeCards(sources: HyperframeCardSources): Hyperframe
       };
       if (!rendered) return { ...card, ...details };
       if (!sidecar) {
+        // hyperframe.<name>.key.json は再利用可否を判定するだけの純キャッシュで、
+        // clean の削除対象。不在は「再利用できるか判定できない(=作り直しが要る)」
+        // であって異常ではない。stale だけを立て、error は立てない。
+        // (error は読めない/壊れている/解析できないに限る)
         return {
           ...card,
           ...details,
           stale: true,
-          error: `素材「${name}」の生成情報がありません`,
         };
       }
       if (typeof sidecar.key !== "string") {
