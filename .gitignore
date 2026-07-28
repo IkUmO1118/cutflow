@@ -18,6 +18,7 @@ public/
 # scripts/engine-parity.mjs の生成物(比較グリッドPNG・esbuildバンドル・
 # ffmpeg切り出し静止画。開発時の使い捨て。リポジトリ配布物ではない)
 scripts/.parity-out/
+scripts/.pixel-parity-out/
 
 # swiftc が事前ビルドする OCR バイナリ(ソースは bin/ocr/vision-ocr.swift を追跡。
 # 初回実行時に src/lib/ocr.ts が自動ビルドする)
