@@ -44,9 +44,11 @@ fn vs(@builtin(vertex_index) vi: u32) -> VOut {
     vec2f(-0.5, -0.5), vec2f(0.5, -0.5), vec2f(-0.5, 0.5),
     vec2f(-0.5, 0.5), vec2f(0.5, -0.5), vec2f(0.5, 0.5),
   );
+  // pixelPos は y 下向き。テクスチャの v も下向き(v=0 が上端)。
+  // よって local.y と uv.y は同符号で対応する
   var uvs = array<vec2f, 6>(
-    vec2f(0.0, 1.0), vec2f(1.0, 1.0), vec2f(0.0, 0.0),
-    vec2f(0.0, 0.0), vec2f(1.0, 1.0), vec2f(1.0, 0.0),
+    vec2f(0.0, 0.0), vec2f(1.0, 0.0), vec2f(0.0, 1.0),
+    vec2f(0.0, 1.0), vec2f(1.0, 0.0), vec2f(1.0, 1.0),
   );
   let local = positions[vi];
   let pixelPos = u.center + local * u.size;
@@ -160,11 +162,14 @@ export function getCompositorCanvas(): HTMLCanvasElement {
 // 正常終了しテクスチャも正しくアップロードされているのに読み戻しだけ黒い
 // ("Multiple readback operations" 警告は出るが例外は出ない)。CDP の
 // `Page.captureScreenshot`(clip を canvas の getBoundingClientRect に絞る)
-// なら正しい絵が撮れることを確認済み(ただし上下反転して撮れるため、
-// 撮影直前に一時的に `canvas.style.transform = "scaleY(-1)"` を当てて
-// 打ち消す必要がある)。M4 で frames/thumbnail をこの経路へ統合するとき、
+// なら正しい絵が撮れる。M4 で frames/thumbnail をこの経路へ統合するとき、
 // 静止画抽出は drawImage 経由ではなく captureScreenshot 経由にすること
 // (scripts/engine-parity.mjs の比較器を M3a 用に拡張する際も同様)。
+//
+// ※ 過去に captureScreenshot が上下反転して撮れると誤診し scaleY(-1) で
+//    打ち消したが、真因は頂点シェーダの UV v が逆順(テクスチャの上下反転)
+//    だった。上記の「正しい絵が撮れる」は UV 訂正後の事実であり、
+//    scaleY(-1) 等の打ち消しは不要(再発防止のため記録)。
 
 export function resizeCompositor(width: number, height: number): void {
   const c = requireCompositor();
