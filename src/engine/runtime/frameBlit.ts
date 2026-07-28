@@ -98,28 +98,35 @@ function integerSize(w: number, h: number): { w: number; h: number } {
   return { w: Math.max(1, Math.round(w)), h: Math.max(1, Math.round(h)) };
 }
 
+export interface BlitVideoResult {
+  canvas: OffscreenCanvas;
+  /** このテクスチャを置くべき絶対フレーム座標の矩形(GPU レイヤーの
+   * transform に直結する。w/h は canvas の実ピクセルサイズと一致) */
+  quad: Rect;
+}
+
 /**
  * VideoSample を OffscreenCanvas へ blit する。同期処理(このコールバック内で
  * サンプルのピクセルを消費し終える)なので、呼び出し側は返り値を受け取ったら
  * すぐに sample.close() してよい。
  */
-export function blitVideoSample(sample: VideoSample, opts: BlitVideoOptions): OffscreenCanvas {
+export function blitVideoSample(sample: VideoSample, opts: BlitVideoOptions): BlitVideoResult {
   const natural = { w: sample.displayWidth, h: sample.displayHeight };
 
   let sourceRect: Rect;
-  let destSize: { w: number; h: number };
+  let quad: Rect;
   if (opts.placement.mode === "resolved") {
     const canvasSize = opts.canvasSize ?? natural;
-    const quad = opts.placement.quad;
+    quad = opts.placement.quad;
     sourceRect = opts.placement.sourceRect
       ? scaleRectToPixelSpace(opts.placement.sourceRect, canvasSize, natural)
       : { x: 0, y: 0, w: natural.w, h: natural.h };
-    destSize = integerSize(quad.w, quad.h);
   } else {
-    const { sourceRect: r, quad } = resolveFitFromNatural(natural, opts.placement.box, opts.placement.fit);
-    sourceRect = r;
-    destSize = integerSize(quad.w, quad.h);
+    const resolved = resolveFitFromNatural(natural, opts.placement.box, opts.placement.fit);
+    sourceRect = resolved.sourceRect;
+    quad = resolved.quad;
   }
+  const destSize = integerSize(quad.w, quad.h);
 
   const canvas = new OffscreenCanvas(destSize.w, destSize.h);
   const ctx = canvas.getContext("2d", { colorSpace: "srgb" }) as OffscreenCanvasRenderingContext2D | null;
@@ -137,5 +144,7 @@ export function blitVideoSample(sample: VideoSample, opts: BlitVideoOptions): Of
   sample.draw(ctx, sourceRect.x, sourceRect.y, sourceRect.w, sourceRect.h, 0, 0, destSize.w, destSize.h);
   ctx.restore();
 
-  return canvas;
+  // GPU レイヤーの transform(§3 compositor.ts)は絶対フレーム座標の quad を要る
+  // ため、blit 先の実ピクセルサイズ(destSize)とあわせて返す
+  return { canvas, quad: { x: quad.x, y: quad.y, w: destSize.w, h: destSize.h } };
 }

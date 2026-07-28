@@ -317,7 +317,10 @@ function drawFill(ctx: CanvasRenderingContext2D, content: FillContent, quad: Rec
   ctx.restore();
 }
 
-function drawRendered(ctx: CanvasRenderingContext2D, item: RenderedItem): void {
+/** rendered item 1件だけを絶対フレーム座標で描く(M3a textureCache.ts が
+ * 各アイテムを独立テクスチャへラスタライズする際の入口として昇格。
+ * paintDescriptor のループ本体と同じ関数=挙動は不変) */
+export function drawRendered(ctx: CanvasRenderingContext2D, item: RenderedItem): void {
   const { content } = item;
   switch (content.kind) {
     case "caption":
