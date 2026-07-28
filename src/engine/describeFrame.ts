@@ -32,6 +32,7 @@ import type {
   ColorFilterEffect,
   Effect,
   ExternalItem,
+  FillContent,
   FrameDescriptor,
   FrameItem,
   Rect,
@@ -699,6 +700,32 @@ export function describeShortPanelsLayer(props: RenderProps, tOut: number): Fram
   return items;
 }
 
+/**
+ * カット境界のディップ・トゥ・ブラック(config.yaml の render.cutTransition
+ * が dip-to-black のときだけ props に載る)。Main.tsx:157-165 の逐語移植:
+ * 各境界 tb の前後 cutHalf 秒で 0→1→0 の三角波。最上層(annotation より上)
+ * の黒い全画面 fill として1件だけ出す(opacity<=0 なら出さない)
+ */
+export function describeCutTransition(props: RenderProps, tOut: number): FrameItem[] {
+  const cutHalf = (props.cutTransition?.sec ?? 0) / 2;
+  if (cutHalf <= 0) return [];
+  const cutOpacity = (props.cutBoundarySecs ?? []).reduce((max, tb) => {
+    if (tOut < tb - cutHalf || tOut > tb + cutHalf) return max;
+    const p = tOut <= tb ? (tOut - (tb - cutHalf)) / cutHalf : (tb + cutHalf - tOut) / cutHalf;
+    return Math.max(max, p);
+  }, 0);
+  if (cutOpacity <= 0) return [];
+  const content: FillContent = { kind: "fill", color: "black" };
+  const item: RenderedItem = {
+    kind: "rendered",
+    content,
+    contentHash: contentHashOf(content, { w: props.width, h: props.height }),
+    placement: { mode: "quad", quad: { x: 0, y: 0, w: props.width, h: props.height } },
+    opacity: cutOpacity,
+  };
+  return [item];
+}
+
 export function describeFrame(props: RenderProps, tOut: number): FrameDescriptor {
   const items: FrameItem[] = [];
   items.push(...describeBaseLayer(props, tOut));
@@ -707,6 +734,7 @@ export function describeFrame(props: RenderProps, tOut: number): FrameDescriptor
   items.push(...describeBlurItems(props, tOut));
   items.push(...describeLayerOrderStack(props, tOut));
   items.push(...describeAnnotationItems(props, tOut));
+  items.push(...describeCutTransition(props, tOut));
   return {
     tOut,
     size: { w: props.width, h: props.height },
