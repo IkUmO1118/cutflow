@@ -561,6 +561,12 @@ export interface Config {
      * false で従来の GOP=PROXY_GOP_FRAMES(0.2秒)エンコードに戻せる。
      * preview.mp4 / preview-cut.mp4 には影響しない(proxy.mp4 専用) */
     proxyIntra?: boolean;
+    /** エディタのプレビュー描画エンジン。省略時 "canvas"(WebCodecs+自前WGSL
+     * コンポジタ。M3b)。"legacy" で従来の Remotion Player + bake 経路に戻せる。
+     * "canvas" 指定でも navigator.gpu 不在/初期化失敗時は実行時に "legacy" へ
+     * 自動フォールバックする(WebGL2 フォールバックは無い。M3a §2 の決定)。
+     * 書き出し(preview.mp4/final.mp4)には影響しない(エディタのプレビューのみ) */
+    engine?: "canvas" | "legacy";
   };
   /** エディタ(GUI)設定。省略可(古い config.yaml との互換) */
   editor?: {
@@ -1981,7 +1987,10 @@ export function loadConfig(explicitPath?: string): Config {
   cfg.whisper.systemAudio ??= false;
   // preview はテスト用の最小 config では省略されることがある(このセクション
   // 自体は require しない=既存挙動を壊さない)。あるときだけ既定値を補う
-  if (cfg.preview) cfg.preview.proxyIntra ??= true;
+  if (cfg.preview) {
+    cfg.preview.proxyIntra ??= true;
+    cfg.preview.engine ??= "canvas";
+  }
   cfg.ocr ??= {};
   cfg.ocr.languages ??= [...DEFAULT_OCR_LANGUAGES];
   return cfg;

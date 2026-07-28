@@ -571,6 +571,22 @@ plan:
 止まるのは `run` の自動挿入だけ)。`autozoom <dir>` コマンド単体はこの
 フラグを無視して常に実行する(明示操作を優先)。
 
+## エディタのプレビュー描画エンジン(config.yaml の preview.engine)
+
+`preview.engine`(既定 `"canvas"`)は GUI エディタ(`npm run editor`)の
+プレビュー描画をどちらの経路にするか選ぶ。`"canvas"` は WebCodecs デコード+
+自前 WGSL コンポジタ(M3b 統合)で、カット境界を跨ぐ連結ファイル(bake)を
+作らず `proxy.mp4` を直接シークして描く。`"legacy"` にすると従来の
+Remotion Player + bake 経路(`usePreviewCutRebake`)に戻る。書き出し
+(`preview` / `render` コマンドの `preview.mp4` / `final.mp4`)には一切
+影響しない(エディタのプレビュー表示だけが対象)。
+
+自前 WGSL コンポジタは **WebGPU 専用**(WebGL2 フォールバックは無い)ため、
+`"canvas"` を指定していてもブラウザが `navigator.gpu` を持たない、または
+GPU 初期化に失敗したときはエディタが実行時に自動で `"legacy"` へフォール
+バックし、プレビュー上部にその旨のバナーを出す。Safari など WebGPU 非対応
+環境はこれで自動的に従来経路のまま使える。
+
 ## 環境プリフライト(doctor)
 
 `node src/cli.ts doctor` は収録に入る前の環境チェック(読み取り専用)。
