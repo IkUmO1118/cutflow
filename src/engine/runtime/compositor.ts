@@ -80,6 +80,11 @@ export function cssColorToRgba(color: string): [number, number, number, number] 
 
 export interface RenderStats {
   elapsedMs: number;
+  /** frameSource.getSampleAt(デコード/seek待ち)の合計ms。§6完了基準の
+   * 「blit+uploadのper-frameコスト」実測に使う */
+  decodeMs: number;
+  /** frameBlit.blitVideoSample(crop+colorFilter+アップロード用canvas化)の合計ms */
+  blitMs: number;
   externalCount: number;
   renderedCount: number;
   twoPassBlur: boolean;
@@ -120,6 +125,8 @@ export class EngineCompositor {
   private readonly imageCache = new ImageCache();
   private readonly sourcePool: SourcePool;
   private readonly canvasSize?: { w: number; h: number };
+  private decodeMsAccum = 0;
+  private blitMsAccum = 0;
 
   private constructor(canvas: HTMLCanvasElement, sourcePool: SourcePool, canvasSize?: { w: number; h: number }) {
     this.canvas = canvas;
@@ -148,9 +155,12 @@ export class EngineCompositor {
   private async resolveExternalLayer(item: ExternalItem, sourceTimeOf: SourceTimeResolver): Promise<CompositorLayerInput | null> {
     if (item.sourceKind === "image") return this.resolveImageLayer(item);
     const source = this.sourcePool.acquire(item.sourceId);
+    const tDecode0 = performance.now();
     const sample = await source.getSampleAt(sourceTimeOf(item));
+    this.decodeMsAccum += performance.now() - tDecode0;
     if (!sample) return null;
     const colorFilter = item.effects?.find((e): e is ColorFilterEffect => e.kind === "colorFilter");
+    const tBlit0 = performance.now();
     const { canvas, quad } = blitVideoSample(sample, {
       placement: item.placement,
       canvasSize: this.canvasSize,
@@ -162,6 +172,7 @@ export class EngineCompositor {
     // 即 close してよい(§5 落とし穴。所有権: frameSource→blit→close)
     sample.close();
     this.textures.ensureRaw(id, canvas);
+    this.blitMsAccum += performance.now() - tBlit0;
     return { textureId: id, transform: quadToTransform(quad), opacity: item.opacity };
   }
 
@@ -234,6 +245,8 @@ export class EngineCompositor {
 
   async renderDescriptor(descriptor: FrameDescriptor, sourceTimeOf: SourceTimeResolver): Promise<RenderStats> {
     const t0 = performance.now();
+    this.decodeMsAccum = 0;
+    this.blitMsAccum = 0;
     const clear = cssColorToRgba(descriptor.backgroundColor);
     const { below, blurs, above } = splitLayersForBlur(descriptor.items);
 
@@ -275,6 +288,8 @@ export class EngineCompositor {
 
     return {
       elapsedMs: performance.now() - t0,
+      decodeMs: this.decodeMsAccum,
+      blitMs: this.blitMsAccum,
       externalCount: descriptor.items.filter((i) => i.kind === "external").length,
       renderedCount: descriptor.items.filter((i) => i.kind === "rendered").length,
       twoPassBlur: blurs.length > 0,
