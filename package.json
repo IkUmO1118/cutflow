@@ -15,7 +15,8 @@
     "editor": "node src/cli.ts editor",
     "sample": "bash scripts/make-sample.sh",
     "test": "node --test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "gate:pixel": "node scripts/engine-pixel-gate.mjs"
   },
   "dependencies": {
     "@remotion/bundler": "^4.0.484",

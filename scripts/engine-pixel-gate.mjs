@@ -17,12 +17,28 @@ import { createHash } from "node:crypto";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { buildTempConfigWithRemotion } from "./lib/pixelCompare.mjs";
+import {
+  buildTempConfigWithRemotion,
+  startServer,
+  findHeadlessShell,
+  launchHeadlessShell,
+  connectCdp,
+  newPageWs,
+  pageScript,
+  TILE_DS_W,
+  TILE_COLS,
+  TILE_ROWS,
+  TILE_DIFF_THRESHOLD,
+  DIFF_THRESHOLD,
+} from "./lib/pixelCompare.mjs";
 
 const repoRoot = resolve(fileURLToPath(import.meta.url), "..", "..");
 const FIXTURE_DIR = join(repoRoot, "test/fixtures/engine/parity-project");
 const CONFIG_PATH = join(repoRoot, "test/fixtures/engine/parity.config.yaml");
 const GOLDEN_DIR = join(repoRoot, "test/fixtures/engine/pixel-golden");
+const GATE_OUT_DIR = join(repoRoot, "scripts/.pixel-gate-out");
+const LAST_RUN_PATH = join(GOLDEN_DIR, "last-run.json");
+const FIXTURE_FILES = ["cutplan.json", "transcript.json", "overlays.json", "shorts.json"];
 
 // シーン表(§4 Phase2)の検証時刻(元収録の秒。本編11点のうち10点はそのまま
 // source axis でスナップして撮れる)。#6(インサート)だけは別枠(下記)。
@@ -124,9 +140,8 @@ async function captureOracle() {
   const goldenHashes = {};
   for (const f of goldenFiles) goldenHashes[f] = sha256File(join(GOLDEN_DIR, f));
 
-  const fixtureFiles = ["cutplan.json", "transcript.json", "overlays.json", "shorts.json"];
   const fixtureHashes = {};
-  for (const f of fixtureFiles) fixtureHashes[f] = sha256File(join(FIXTURE_DIR, f));
+  for (const f of FIXTURE_FILES) fixtureHashes[f] = sha256File(join(FIXTURE_DIR, f));
 
   const provenance = {
     capturedAtCommit: gitHeadSha(),
@@ -146,17 +161,137 @@ async function captureOracle() {
   console.log(`\n✅ golden 捕獲完了: ${GOLDEN_DIR}/ (${goldenFiles.length}枚 + provenance.json)`);
 }
 
+/** エンジン既定経路(config の engineExport は触らない)で golden と同じ3系統
+ * (本編source axis・#6インサートoutput axis・ショート)を撮り、destDir配下へ
+ * golden と同じファイル名でコピーする(比較を単純な同名突き合わせにするため) */
+function captureEngineOutputs(destDir) {
+  const files = [];
+  runFrames(CONFIG_PATH, { times: SCENE_TIMES });
+  files.push(...copyFramesTo(destDir, ""));
+  runFrames(CONFIG_PATH, { times: [INSERT_CHECK_OUT_TIME], outputAxis: true });
+  files.push(...copyFramesTo(destDir, ""));
+  runFrames(CONFIG_PATH, { times: [SHORT_TIME], short: SHORT_NAME });
+  files.push(...copyFramesTo(destDir, `short-${SHORT_NAME}-`));
+  return files;
+}
+
+async function verify() {
+  if (!existsSync(join(FIXTURE_DIR, "raw.mp4"))) {
+    console.error("✖ フィクスチャがありません。先に  bash scripts/make-parity-fixture.sh  を実行してください。");
+    process.exit(1);
+  }
+  if (!existsSync(GOLDEN_DIR) || readdirSync(GOLDEN_DIR).filter((f) => f.endsWith(".png")).length === 0) {
+    console.error("✖ golden がありません(test/fixtures/engine/pixel-golden/)。リポジトリの golden が壊れています。");
+    process.exit(1);
+  }
+
+  rmSync(GATE_OUT_DIR, { recursive: true, force: true });
+  mkdirSync(GATE_OUT_DIR, { recursive: true });
+  const capturedDir = join(GATE_OUT_DIR, "captured");
+  const goldenCopyDir = join(GATE_OUT_DIR, "golden");
+  mkdirSync(capturedDir, { recursive: true });
+  mkdirSync(goldenCopyDir, { recursive: true });
+
+  console.log("[1/4] エンジン既定経路で撮影(本編source axis + #6インサートoutput axis + ショート)");
+  const capturedFiles = captureEngineOutputs(capturedDir);
+  console.log(`  ${capturedFiles.length}枚を撮影`);
+
+  const goldenPngs = readdirSync(GOLDEN_DIR).filter((f) => f.endsWith(".png")).sort();
+  for (const f of goldenPngs) copyFileSync(join(GOLDEN_DIR, f), join(goldenCopyDir, f));
+
+  const missing = goldenPngs.filter((f) => !existsSync(join(capturedDir, f)));
+  if (missing.length > 0) {
+    console.error(`✖ エンジン撮影に golden と対応するファイルがありません: ${missing.join(", ")}`);
+    process.exit(1);
+  }
+
+  console.log("[2/4] HTTPサーバ起動 + chrome-headless-shell 起動");
+  const server = await startServer(GATE_OUT_DIR);
+  const port = server.address().port;
+  const execPath = findHeadlessShell();
+  const { proc: chromeProc, wsUrl: browserWsUrl } = await launchHeadlessShell(execPath);
+
+  let anyFlipped = false;
+  let anyMismatch = false;
+  const results = [];
+  try {
+    const pageWsUrl = await newPageWs(browserWsUrl);
+    const cdp = connectCdp(pageWsUrl);
+    await cdp.send("Page.enable");
+    await cdp.send("Runtime.enable");
+    const harnessUrl = `http://127.0.0.1:${port}/`;
+    writeFileSync(join(GATE_OUT_DIR, "index.html"), `<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>`);
+    const loadDone = new Promise((r) => cdp.on("Page.loadEventFired", r));
+    await cdp.send("Page.navigate", { url: harnessUrl });
+    await loadDone;
+
+    console.log(`[3/4] ${goldenPngs.length}枚を golden と比較(TILE_DIFF_THRESHOLD=${TILE_DIFF_THRESHOLD})`);
+    const baseUrl = `http://127.0.0.1:${port}`;
+    for (const pngName of goldenPngs) {
+      const remotionUrl = `${baseUrl}/golden/${pngName}`;
+      const engineUrl = `${baseUrl}/captured/${pngName}`;
+      const expr = pageScript({
+        remotionUrl, engineUrl, label: pngName, outDir: GATE_OUT_DIR, strictTopLeft: false,
+        tileDsW: TILE_DS_W, tileCols: TILE_COLS, tileRows: TILE_ROWS,
+      });
+      const evalResult = await cdp.send("Runtime.evaluate", {
+        expression: expr, awaitPromise: true, returnByValue: true,
+      });
+      if (evalResult.exceptionDetails) {
+        throw new Error(`${pngName}: ${JSON.stringify(evalResult.exceptionDetails.exception?.description ?? evalResult.exceptionDetails)}`);
+      }
+      const { diffNormal, diffFlipped, tileDiffMax, worstTile, gridDataUrl } = evalResult.result.value;
+      const flippedFlag = diffFlipped < diffNormal;
+      const tileMismatch = tileDiffMax > TILE_DIFF_THRESHOLD;
+      const status = flippedFlag ? "上下反転を検出" : tileMismatch ? "不一致" : "一致";
+      const worstStr = `tileDiffMax=${tileDiffMax.toFixed(2)}(タイル[${worstTile.tx},${worstTile.ty}] ` +
+        `= 出力px矩形 x=${worstTile.rect.x},y=${worstTile.rect.y},w=${worstTile.rect.w},h=${worstTile.rect.h})`;
+      console.log(`  ${pngName}: diffNormal=${diffNormal.toFixed(2)}(参考) ${worstStr} → ${status}`);
+      results.push({ pngName, diffNormal, tileDiffMax, status });
+      if (flippedFlag || tileMismatch) {
+        const gridPath = join(GATE_OUT_DIR, `diff-${pngName}`);
+        writeFileSync(gridPath, Buffer.from(gridDataUrl.split(",")[1], "base64"));
+        console.log(`    差分グリッド(golden|captured|captured反転): ${gridPath}`);
+      }
+      if (flippedFlag) anyFlipped = true;
+      if (tileMismatch) anyMismatch = true;
+    }
+    cdp.close();
+  } finally {
+    chromeProc.kill();
+    server.close();
+  }
+
+  if (anyFlipped || anyMismatch) {
+    console.log(`\n結果: ${anyFlipped ? "上下反転" : "不一致"}を検出しました(exit 1)`);
+    process.exit(1);
+  }
+
+  console.log("[4/4] 全一致。last-run.json を書きます(陳腐化検知の基準)");
+  const fixtureHashes = {};
+  for (const f of FIXTURE_FILES) fixtureHashes[f] = sha256File(join(FIXTURE_DIR, f));
+  const goldenHashes = {};
+  for (const f of goldenPngs) goldenHashes[f] = sha256File(join(GOLDEN_DIR, f));
+  const manifest = JSON.parse(readFileSync(join(FIXTURE_DIR, "manifest.json"), "utf8"));
+  const lastRun = {
+    ranAt: new Date().toISOString(),
+    parityConfigSha256: sha256File(CONFIG_PATH),
+    fixtureFileSha256: fixtureHashes,
+    goldenFileSha256: goldenHashes,
+    goldenFiles: goldenPngs,
+    mainResolution: { w: manifest.video.screenRegion.w, h: manifest.video.screenRegion.h },
+  };
+  writeFileSync(LAST_RUN_PATH, JSON.stringify(lastRun, null, 2));
+  console.log(`\n結果: 全フレーム一致(exit 0)。${results.length}枚。last-run.json: ${LAST_RUN_PATH}`);
+}
+
 async function main() {
   const args = process.argv.slice(2);
   if (args.includes("--capture-oracle")) {
     await captureOracle();
     return;
   }
-  console.error(
-    "既定モード(エンジン版との比較検証)は T-6 で実装予定です。" +
-      "golden を捕獲するには --capture-oracle を付けてください。",
-  );
-  process.exit(1);
+  await verify();
 }
 
 main().catch((err) => {

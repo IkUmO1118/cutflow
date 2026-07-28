@@ -43,3 +43,9 @@ test/fixtures/engine/parity-project/*
 !test/fixtures/engine/parity-project/overlays.json
 !test/fixtures/engine/parity-project/shorts.json
 
+# G1 画素ゲート本体(scripts/engine-pixel-gate.mjs)の実行ログ・差分グリッド出力
+scripts/.pixel-gate-out/
+# ゲート実行のたびに書く陳腐化検知用フィンガープリント(D6)。golden 本体
+# (pixel-golden/*.png・provenance.json)はコミットするがこれは実行ごとの
+# 生成物なのでコミットしない
+test/fixtures/engine/pixel-golden/last-run.json
