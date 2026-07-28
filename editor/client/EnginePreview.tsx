@@ -129,6 +129,8 @@ export const EnginePreview = forwardRef<PreviewHandle, EnginePreviewProps>(funct
           fps: fpsRef.current,
           muteBase: props.muteBase,
           muteBgm: props.muteBgm,
+          overlays: props.overlays,
+          inserts: props.inserts,
         });
         scheduler.setVolume(volumeRef.current);
         schedulerRef.current = scheduler;
@@ -194,6 +196,8 @@ export const EnginePreview = forwardRef<PreviewHandle, EnginePreviewProps>(funct
         fps,
         muteBase: props.muteBase,
         muteBgm: props.muteBgm,
+        overlays: props.overlays,
+        inserts: props.inserts,
       });
       scheduler.setVolume(volumeRef.current);
       schedulerRef.current = scheduler;

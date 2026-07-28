@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import {
   AudioScheduler,
   buildBgmGainAutomation,
+  buildClipGainAutomation,
   concatAudioBuffers,
   contextTimeForOutputSec,
   shouldScheduleEntry,
@@ -301,4 +302,56 @@ test("buildBgmGainAutomation: duck spansの境界(前後fadeSec込み)で折れ�
   // duck 区間内(14〜16)の折れ点は volumeDb=0 に duckDb=-20dB がかかり 0.1 倍程度
   const duckPoint = points.find((p) => p.atSec === 14);
   assert.ok(duckPoint && duckPoint.gain < 0.2, "duck開始直後は音量が下がっているはず");
+});
+
+test("buildClipGainAutomation: フェード無しでvolume一定の2点", () => {
+  const points = buildClipGainAutomation(10, 20, 30, 0.8);
+  assert.equal(points.length, 2);
+  assert.equal(points[0].atSec, 10);
+  assert.equal(points[1].atSec, 20);
+  assert.ok(Math.abs(points[0].gain - 0.8) < 1e-9);
+  assert.ok(Math.abs(points[1].gain - 0.8) < 1e-9);
+});
+
+test("buildClipGainAutomation: fadeInで頭が0からvolumeへ上がる", () => {
+  const points = buildClipGainAutomation(10, 20, 30, 1, 1, 0);
+  assert.equal(points.length, 3);
+  assert.equal(points[0].atSec, 10);
+  assert.ok(points[0].gain < 0.01);
+  assert.equal(points[1].atSec, 11);
+  assert.ok(Math.abs(points[1].gain - 1) < 1e-9);
+  assert.equal(points[2].atSec, 20);
+});
+
+test("buildClipGainAutomation: fadeOutで末尾がvolumeから0へ下がる", () => {
+  const points = buildClipGainAutomation(10, 20, 30, 1, 0, 1);
+  assert.equal(points.length, 3);
+  assert.equal(points[0].atSec, 10);
+  assert.ok(Math.abs(points[0].gain - 1) < 1e-9);
+  assert.equal(points[1].atSec, 19);
+  assert.ok(Math.abs(points[1].gain - 1) < 1e-9);
+  assert.equal(points[2].atSec, 20);
+  assert.ok(points[2].gain < 0.01);
+});
+
+test("buildClipGainAutomation: fadeIn+fadeOutの両方で4点", () => {
+  const points = buildClipGainAutomation(10, 20, 30, 0.5, 1, 1);
+  assert.equal(points.length, 4);
+  assert.equal(points[0].atSec, 10);
+  assert.ok(points[0].gain < 0.01);
+  assert.equal(points[1].atSec, 11);
+  assert.ok(Math.abs(points[1].gain - 0.5) < 1e-9);
+  assert.equal(points[2].atSec, 19);
+  assert.ok(Math.abs(points[2].gain - 0.5) < 1e-9);
+  assert.equal(points[3].atSec, 20);
+  assert.ok(points[3].gain < 0.01);
+});
+
+test("buildClipGainAutomation: 頻度を変えても結果は秒ベースで一致", () => {
+  const p30 = buildClipGainAutomation(10, 20, 30, 1, 2, 2);
+  const p60 = buildClipGainAutomation(10, 20, 60, 1, 2, 2);
+  assert.equal(p30.length, p60.length);
+  for (let i = 0; i < p30.length; i++) {
+    assert.ok(Math.abs(p30[i].atSec - p60[i].atSec) < 1e-3);
+  }
 });

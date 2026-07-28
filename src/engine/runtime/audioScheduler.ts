@@ -9,7 +9,8 @@
 import { ALL_FORMATS, AudioBufferSink, Input, UrlSource } from "mediabunny";
 import type { TimelineEntry } from "../../lib/timeline.ts";
 import { bgmVolumeAtFrame } from "../../lib/bgmEnvelope.ts";
-import type { RenderProps } from "../../../remotion/props.ts";
+import { fadeFactor, isImageFile } from "../../lib/overlayFade.ts";
+import type { OverlayItem, RenderProps } from "../../../remotion/props.ts";
 import type { ClockMapping } from "./clock.ts";
 
 type BgmTrack = RenderProps["bgm"][number];
@@ -63,6 +64,31 @@ export function buildBgmGainAutomation(track: BgmTrack, fps: number): GainAutoma
     atSec: t,
     gain: bgmVolumeAtFrame(track, Math.round((t - track.start) * fps), fps),
   }));
+}
+
+export function buildClipGainAutomation(
+  startSec: number,
+  endSec: number,
+  fps: number,
+  volume: number,
+  fadeInSec?: number,
+  fadeOutSec?: number,
+): GainAutomationPoint[] {
+  const durFrames = Math.max(1, Math.round((endSec - startSec) * fps));
+  const fin = fadeInSec ?? 0;
+  const fout = fadeOutSec ?? 0;
+  const breakpoints = new Set<number>([startSec, endSec]);
+  if (fin > 0 && startSec + fin < endSec) breakpoints.add(startSec + fin);
+  if (fout > 0 && endSec - fout > startSec) breakpoints.add(endSec - fout);
+  const sorted = [...breakpoints].sort((a, b) => a - b);
+  return sorted.map((t) => {
+    const frame = Math.round((t - startSec) * fps);
+    const f = Math.min(durFrames, Math.max(0, frame));
+    return {
+      atSec: t,
+      gain: volume * fadeFactor(f, durFrames, fps, fadeInSec, fadeOutSec),
+    };
+  });
 }
 
 const LOOKAHEAD_SEC = 2;
@@ -133,6 +159,8 @@ export interface AudioSchedulerOptions {
   fps: number;
   muteBase?: boolean;
   muteBgm?: boolean;
+  overlays?: OverlayItem[];
+  inserts?: NonNullable<RenderProps["inserts"]>;
 }
 
 /** proxy.mp4 の keep セグメントを鳴らす base 音声 + bgm.json のトラックを
@@ -149,15 +177,25 @@ export class AudioScheduler {
   private baseInput: InstanceType<typeof Input> | null = null;
   private baseSink: AudioBufferSink | null = null;
   private readonly bgmSinks = new Map<string, { input: InstanceType<typeof Input>; sink: AudioBufferSink }>();
+  private readonly overlaySinks = new Map<string, { input: InstanceType<typeof Input>; sink: AudioBufferSink }>();
+  private readonly insertSinks = new Map<string, { input: InstanceType<typeof Input>; sink: AudioBufferSink }>();
+  private readonly overlayAudioItems: OverlayItem[];
+  private readonly insertAudioItems: NonNullable<RenderProps["inserts"]>;
 
   private mapping: ClockMapping = { startOutputSec: 0, startContextTime: 0 };
   private scheduling = false;
   private sessionId = 0;
   private scheduledBaseKeys = new Set<string>();
   private scheduledBgmKeys = new Set<string>();
+  private scheduledOverlayKeys = new Set<string>();
+  private scheduledInsertKeys = new Set<string>();
   private queuedBaseNodes = new Set<AudioBufferSourceNode>();
   private queuedBgmNodes = new Set<AudioBufferSourceNode>();
+  private queuedOverlayNodes = new Set<AudioBufferSourceNode>();
+  private queuedInsertNodes = new Set<AudioBufferSourceNode>();
   private bgmGainNodes = new Map<number, GainNode>();
+  private overlayGainNodes = new Map<number, GainNode>();
+  private insertGainNodes = new Map<number, GainNode>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private mutedBase: boolean;
   private mutedBgm: boolean;
@@ -169,6 +207,12 @@ export class AudioScheduler {
     this.masterGain.connect(opts.audioContext.destination);
     this.mutedBase = opts.muteBase ?? false;
     this.mutedBgm = opts.muteBgm ?? false;
+    this.overlayAudioItems = (opts.overlays ?? []).filter(
+      (o) => !isImageFile(o.file) && (o.volume ?? 0) > 0,
+    );
+    this.insertAudioItems = (opts.inserts ?? []).filter(
+      (ins) => !isImageFile(ins.file) && (ins.volume ?? 1) > 0,
+    );
   }
 
   private async ensureBaseSink(): Promise<AudioBufferSink | null> {
@@ -198,20 +242,44 @@ export class AudioScheduler {
     return sink;
   }
 
+  private async ensureClipSink(
+    file: string,
+    resolveUrl: (file: string) => string,
+    cache: Map<string, { input: InstanceType<typeof Input>; sink: AudioBufferSink }>,
+  ): Promise<AudioBufferSink | null> {
+    const existing = cache.get(file);
+    if (existing) return existing.sink;
+    const input = new Input({ source: new UrlSource(resolveUrl(file)), formats: ALL_FORMATS });
+    const track = await input.getPrimaryAudioTrack();
+    if (!track) {
+      input.dispose();
+      return null;
+    }
+    const sink = new AudioBufferSink(track);
+    cache.set(file, { input, sink });
+    return sink;
+  }
+
   /** 再生開始/シークのたびに呼ぶ。mapping は clock.ts と同じものを渡す
    * (音がマスター=マッピングの正はそこ1つ) */
-  start(mapping: ClockMapping, resolveBgmUrl: (file: string) => string): void {
+  start(mapping: ClockMapping, resolveUrl: (file: string) => string): void {
     this.stopScheduledNodes();
     for (const gn of this.bgmGainNodes.values()) gn.disconnect();
+    for (const gn of this.overlayGainNodes.values()) gn.disconnect();
+    for (const gn of this.insertGainNodes.values()) gn.disconnect();
     this.bgmGainNodes.clear();
+    this.overlayGainNodes.clear();
+    this.insertGainNodes.clear();
     this.sessionId++;
     this.mapping = mapping;
     this.scheduledBaseKeys = new Set();
     this.scheduledBgmKeys = new Set();
+    this.scheduledOverlayKeys = new Set();
+    this.scheduledInsertKeys = new Set();
     // BGM の sink と track-level GainNode を事前に作る
     for (let i = 0; i < this.opts.bgm.length; i++) {
       const track = this.opts.bgm[i];
-      void this.ensureBgmSink(track.file, resolveBgmUrl);
+      void this.ensureBgmSink(track.file, resolveUrl);
       const gain = this.audioContext.createGain();
       gain.connect(this.masterGain);
       const startAt = contextTimeForOutputSec(this.mapping, track.start);
@@ -227,12 +295,49 @@ export class AudioScheduler {
       }
       this.bgmGainNodes.set(i, gain);
     }
-    this.scheduleWindow(mapping.startOutputSec, resolveBgmUrl);
+    // overlay/insert の clip-level GainNode を事前に作る
+    for (let i = 0; i < this.overlayAudioItems.length; i++) {
+      const o = this.overlayAudioItems[i];
+      void this.ensureClipSink(o.file, resolveUrl, this.overlaySinks);
+      const gain = this.audioContext.createGain();
+      gain.connect(this.masterGain);
+      const points = buildClipGainAutomation(o.start, o.end, this.opts.fps, o.volume ?? 1, o.fadeInSec, o.fadeOutSec);
+      const startAt = contextTimeForOutputSec(this.mapping, o.start);
+      gain.gain.cancelScheduledValues(startAt);
+      for (const p of points) {
+        const t = contextTimeForOutputSec(this.mapping, p.atSec);
+        if (t < this.audioContext.currentTime) continue;
+        gain.gain.linearRampToValueAtTime(p.gain, t);
+      }
+      if (points.length > 0 && contextTimeForOutputSec(this.mapping, points[0].atSec) >= this.audioContext.currentTime) {
+        gain.gain.setValueAtTime(points[0].gain, contextTimeForOutputSec(this.mapping, points[0].atSec));
+      }
+      this.overlayGainNodes.set(i, gain);
+    }
+    for (let i = 0; i < this.insertAudioItems.length; i++) {
+      const ins = this.insertAudioItems[i];
+      void this.ensureClipSink(ins.file, resolveUrl, this.insertSinks);
+      const gain = this.audioContext.createGain();
+      gain.connect(this.masterGain);
+      const points = buildClipGainAutomation(ins.start, ins.end, this.opts.fps, ins.volume ?? 1, ins.fadeInSec, ins.fadeOutSec);
+      const startAt = contextTimeForOutputSec(this.mapping, ins.start);
+      gain.gain.cancelScheduledValues(startAt);
+      for (const p of points) {
+        const t = contextTimeForOutputSec(this.mapping, p.atSec);
+        if (t < this.audioContext.currentTime) continue;
+        gain.gain.linearRampToValueAtTime(p.gain, t);
+      }
+      if (points.length > 0 && contextTimeForOutputSec(this.mapping, points[0].atSec) >= this.audioContext.currentTime) {
+        gain.gain.setValueAtTime(points[0].gain, contextTimeForOutputSec(this.mapping, points[0].atSec));
+      }
+      this.insertGainNodes.set(i, gain);
+    }
+    this.scheduleWindow(mapping.startOutputSec, resolveUrl);
     if (this.timer !== null) clearInterval(this.timer);
     this.timer = setInterval(() => {
       const currentSec =
         this.mapping.startOutputSec + (this.audioContext.currentTime - this.mapping.startContextTime);
-      this.scheduleWindow(currentSec, resolveBgmUrl);
+      this.scheduleWindow(currentSec, resolveUrl);
     }, SCHEDULE_INTERVAL_MS);
   }
 
@@ -245,11 +350,15 @@ export class AudioScheduler {
     }
     this.stopScheduledNodes();
     for (const gn of this.bgmGainNodes.values()) gn.disconnect();
+    for (const gn of this.overlayGainNodes.values()) gn.disconnect();
+    for (const gn of this.insertGainNodes.values()) gn.disconnect();
     this.bgmGainNodes.clear();
+    this.overlayGainNodes.clear();
+    this.insertGainNodes.clear();
   }
 
   private stopScheduledNodes(): void {
-    for (const nodes of [this.queuedBaseNodes, this.queuedBgmNodes]) {
+    for (const nodes of [this.queuedBaseNodes, this.queuedBgmNodes, this.queuedOverlayNodes, this.queuedInsertNodes]) {
       for (const node of nodes) {
         try {
           node.stop();
@@ -262,7 +371,7 @@ export class AudioScheduler {
     }
   }
 
-  private scheduleWindow(currentSec: number, resolveBgmUrl: (file: string) => string): void {
+  private scheduleWindow(currentSec: number, resolveUrl: (file: string) => string): void {
     if (this.scheduling) return;
     this.scheduling = true;
     const sessionId = this.sessionId;
@@ -296,7 +405,47 @@ export class AudioScheduler {
         };
         const windows = splitEntryIntoWindows(srcEntry, WINDOW_SEC);
         for (let wi = 0; wi < windows.length; wi++) {
-          void this.scheduleBgmTrack(track, windows[wi], sessionId, index, resolveBgmUrl);
+          void this.scheduleBgmTrack(track, windows[wi], sessionId, index, resolveUrl);
+        }
+      });
+    }
+
+    if (!this.mutedBase) {
+      this.overlayAudioItems.forEach((o, index) => {
+        const key = String(index);
+        if (this.scheduledOverlayKeys.has(key)) return;
+        if (!shouldScheduleEntry({ outputStart: o.start, outputEnd: o.end }, currentSec, windowEnd)) return;
+        this.scheduledOverlayKeys.add(key);
+        const srcEntry: TimelineEntry = {
+          outputStart: o.start,
+          outputEnd: o.end,
+          sourceStart: o.startFrom ?? 0,
+          sourceEnd: (o.startFrom ?? 0) + (o.end - o.start),
+          speed: 1,
+        };
+        const windows = splitEntryIntoWindows(srcEntry, WINDOW_SEC);
+        for (let wi = 0; wi < windows.length; wi++) {
+          void this.scheduleClipEntry(o.file, windows[wi], sessionId, index, resolveUrl, this.overlaySinks, this.overlayGainNodes, this.queuedOverlayNodes, false);
+        }
+      });
+    }
+
+    if (!this.mutedBase) {
+      this.insertAudioItems.forEach((ins, index) => {
+        const key = String(index);
+        if (this.scheduledInsertKeys.has(key)) return;
+        if (!shouldScheduleEntry({ outputStart: ins.start, outputEnd: ins.end }, currentSec, windowEnd)) return;
+        this.scheduledInsertKeys.add(key);
+        const srcEntry: TimelineEntry = {
+          outputStart: ins.start,
+          outputEnd: ins.end,
+          sourceStart: ins.startFrom ?? 0,
+          sourceEnd: (ins.startFrom ?? 0) + (ins.end - ins.start),
+          speed: 1,
+        };
+        const windows = splitEntryIntoWindows(srcEntry, WINDOW_SEC);
+        for (let wi = 0; wi < windows.length; wi++) {
+          void this.scheduleClipEntry(ins.file, windows[wi], sessionId, index, resolveUrl, this.insertSinks, this.insertGainNodes, this.queuedInsertNodes, false);
         }
       });
     }
@@ -383,6 +532,59 @@ export class AudioScheduler {
     });
   }
 
+  private async scheduleClipEntry(
+    file: string,
+    entry: TimelineEntry,
+    sessionId: number,
+    index: number,
+    resolveUrl: (file: string) => string,
+    sinks: Map<string, { input: InstanceType<typeof Input>; sink: AudioBufferSink }>,
+    gainNodes: Map<number, GainNode>,
+    queuedSet: Set<AudioBufferSourceNode>,
+    applyRate: boolean,
+  ): Promise<void> {
+    if (sessionId !== this.sessionId) return;
+    const gainNode = gainNodes.get(index);
+    if (!gainNode) return;
+    let cached = sinks.get(file);
+    if (!cached) {
+      const sink = await this.ensureClipSink(file, resolveUrl, sinks);
+      if (!sink) return;
+      cached = sinks.get(file);
+      if (!cached) return;
+    }
+    const { sink } = cached;
+    const chunks: AudioBuffer[] = [];
+    for await (const chunk of sink.buffers(entry.sourceStart, entry.sourceEnd)) {
+      if (sessionId !== this.sessionId) return;
+      chunks.push(chunk.buffer);
+    }
+    const buffer = concatAudioBuffers(chunks, this.audioContext);
+    if (!buffer || sessionId !== this.sessionId) return;
+
+    const node = this.audioContext.createBufferSource();
+    node.buffer = buffer;
+    if (applyRate) {
+      const rate = this.mapping.rate ?? 1;
+      if (rate !== 1) node.playbackRate.value = rate;
+    }
+    node.connect(gainNode);
+
+    const startAt = contextTimeForOutputSec(this.mapping, entry.outputStart);
+    if (startAt >= this.audioContext.currentTime) {
+      node.start(startAt, 0);
+    } else {
+      const offset = this.audioContext.currentTime - startAt;
+      if (offset < buffer.duration) node.start(this.audioContext.currentTime, offset);
+      else return;
+    }
+    queuedSet.add(node);
+    node.addEventListener("ended", () => {
+      node.disconnect();
+      queuedSet.delete(node);
+    });
+  }
+
   /** マスター音量を即時反映する(0..1。EnginePreview の setVolume 用) */
   setVolume(v: number): void {
     this.masterGain.gain.value = v;
@@ -390,13 +592,18 @@ export class AudioScheduler {
 
   setMute(muteBase: boolean, muteBgm: boolean): void {
     if (muteBase && !this.mutedBase) {
-      for (const node of this.queuedBaseNodes) {
-        try { node.stop(); } catch {}
-        node.disconnect();
+      for (const nodes of [this.queuedBaseNodes, this.queuedInsertNodes]) {
+        for (const node of nodes) {
+          try { node.stop(); } catch {}
+          node.disconnect();
+        }
+        nodes.clear();
       }
-      this.queuedBaseNodes.clear();
     }
-    if (!muteBase) this.scheduledBaseKeys.clear();
+    if (!muteBase) {
+      this.scheduledBaseKeys.clear();
+      this.scheduledInsertKeys.clear();
+    }
     if (muteBgm && !this.mutedBgm) {
       for (const node of this.queuedBgmNodes) {
         try { node.stop(); } catch {}
@@ -415,7 +622,11 @@ export class AudioScheduler {
     this.baseInput = null;
     this.baseSink = null;
     for (const { input } of this.bgmSinks.values()) input.dispose();
+    for (const { input } of this.overlaySinks.values()) input.dispose();
+    for (const { input } of this.insertSinks.values()) input.dispose();
     this.bgmSinks.clear();
+    this.overlaySinks.clear();
+    this.insertSinks.clear();
     this.masterGain.disconnect();
   }
 }
