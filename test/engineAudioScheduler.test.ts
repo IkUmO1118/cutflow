@@ -1,19 +1,73 @@
 // src/engine/runtime/audioScheduler.ts の純関数部分を固定する。
 // AudioScheduler 本体(AudioContext/mediabunny が要る)は実 movie で
-// M3a Phase5 の開発ページで実測する(設計書どおり)。
+// M3a Phase5 の開発ページで実測する(設計書どおり)。M3b の setVolume/dispose
+// だけは masterGain の配線のみで mediabunny(ネットワークfetch)を要さないため、
+// 最小モック AudioContext で単体テストする。
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  AudioScheduler,
   buildBgmGainAutomation,
   contextTimeForOutputSec,
   shouldScheduleEntry,
 } from "../src/engine/runtime/audioScheduler.ts";
+
+/** AudioScheduler が constructor で使う分(createGain/destination)だけを
+ * 備えた最小モック。setVolume/dispose の配線確認にはこれで足りる */
+function mockAudioContext() {
+  const gainNodes: Array<{ gain: { value: number }; connect: () => void; disconnect: () => void }> = [];
+  const audioContext = {
+    destination: {},
+    createGain: () => {
+      const node = { gain: { value: 1 }, connect: () => {}, disconnect: () => {} };
+      gainNodes.push(node);
+      return node;
+    },
+  };
+  return { audioContext: audioContext as unknown as AudioContext, gainNodes };
+}
 
 test("contextTimeForOutputSec: 開始マッピングからの相対時刻を絶対AudioContext時刻へ", () => {
   const mapping = { startOutputSec: 10, startContextTime: 100 };
   assert.equal(contextTimeForOutputSec(mapping, 10), 100);
   assert.equal(contextTimeForOutputSec(mapping, 12.5), 102.5);
   assert.equal(contextTimeForOutputSec(mapping, 5), 95);
+});
+
+test("contextTimeForOutputSec: rate:2(倍速)は半分の経過時間で到達する", () => {
+  const mapping = { startOutputSec: 10, startContextTime: 100, rate: 2 };
+  assert.equal(contextTimeForOutputSec(mapping, 20), 105);
+});
+
+test("contextTimeForOutputSec: rate:0.5(半速)は倍の経過時間がかかる", () => {
+  const mapping = { startOutputSec: 10, startContextTime: 100, rate: 0.5 };
+  assert.equal(contextTimeForOutputSec(mapping, 15), 110);
+});
+
+test("AudioScheduler.setVolume: masterGain.gain.value へ即時反映する", () => {
+  const { audioContext, gainNodes } = mockAudioContext();
+  const scheduler = new AudioScheduler({
+    audioContext,
+    baseAudioUrl: "/media/proxy.mp4",
+    timeline: [],
+    bgm: [],
+    fps: 30,
+  });
+  scheduler.setVolume(0.25);
+  assert.equal(gainNodes[0].gain.value, 0.25);
+});
+
+test("AudioScheduler.dispose: masterGain を disconnect し、2重呼び出しでも例外を投げない", () => {
+  const { audioContext } = mockAudioContext();
+  const scheduler = new AudioScheduler({
+    audioContext,
+    baseAudioUrl: "/media/proxy.mp4",
+    timeline: [],
+    bgm: [],
+    fps: 30,
+  });
+  scheduler.dispose();
+  assert.doesNotThrow(() => scheduler.dispose());
 });
 
 test("shouldScheduleEntry: 先読み窓に入っていればtrue", () => {

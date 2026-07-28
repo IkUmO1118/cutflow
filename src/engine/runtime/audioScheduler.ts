@@ -16,9 +16,10 @@ type BgmTrack = RenderProps["bgm"][number];
 
 /** 出力秒 → その瞬間に対応する AudioContext 絶対時刻。clock.ts の
  * PresentationClock と同じマッピングを共有する(音がマスターなので
- * この式1つに正規化する。二重に持たない) */
+ * この式1つに正規化する。二重に持たない)。rate 省略時は従来どおり等速
+ * (M3b: playbackRate 対応で mapping.rate を分母に反映) */
 export function contextTimeForOutputSec(mapping: ClockMapping, sec: number): number {
-  return mapping.startContextTime + (sec - mapping.startOutputSec);
+  return mapping.startContextTime + (sec - mapping.startOutputSec) / (mapping.rate ?? 1);
 }
 
 /** 先読み窓 [currentSec, windowEnd] にこのエントリをスケジュールすべきか
@@ -215,7 +216,10 @@ export class AudioScheduler {
     if (!buffer || sessionId !== this.sessionId) return;
     const node = this.audioContext.createBufferSource();
     node.buffer = buffer;
-    if (entry.speed !== 1) node.playbackRate.value = entry.speed;
+    // entry.speed(cutplan の区間速度)と mapping.rate(プレビューの全体再生速度。
+    // M3b)は独立な倍率なので掛け合わせる
+    const combinedRate = entry.speed * (this.mapping.rate ?? 1);
+    if (combinedRate !== 1) node.playbackRate.value = combinedRate;
     node.connect(this.masterGain);
     const startAt = contextTimeForOutputSec(this.mapping, entry.outputStart);
     if (startAt >= this.audioContext.currentTime) {
@@ -249,6 +253,8 @@ export class AudioScheduler {
 
     const node = this.audioContext.createBufferSource();
     node.buffer = buffer;
+    const rate = this.mapping.rate ?? 1;
+    if (rate !== 1) node.playbackRate.value = rate;
     const gain = this.audioContext.createGain();
     node.connect(gain);
     gain.connect(this.masterGain);
@@ -278,6 +284,11 @@ export class AudioScheduler {
       gain.disconnect();
       this.queuedNodes.delete(node);
     });
+  }
+
+  /** マスター音量を即時反映する(0..1。EnginePreview の setVolume 用) */
+  setVolume(v: number): void {
+    this.masterGain.gain.value = v;
   }
 
   dispose(): void {
