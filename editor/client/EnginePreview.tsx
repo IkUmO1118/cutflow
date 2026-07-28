@@ -26,6 +26,11 @@ import { audioSignatureOf, timelineFromBaseSegments } from "./enginePreviewTimel
  * 規約(素材ファイル名の空白/日本語等を安全に URL 化する) */
 const VIDEO_FILE = "media/proxy.mp4";
 
+/** 描画がこの回数だけ**連続で**失敗したら legacy(Player)へ落とす。
+ * 1〜2回は frameSource 側のデコーダ作り直しで自力復帰できるため、
+ * すぐには落とさない */
+const REPAINT_FAILURE_LIMIT = 3;
+
 function resolveUrl(sourceId: string): string {
   return `/${encodeURIComponent(sourceId).replace(/%2F/g, "/")}`;
 }
@@ -101,12 +106,39 @@ export const EnginePreview = forwardRef<PreviewHandle, EnginePreviewProps>(funct
     for (const cb of set) cb({ detail } as Parameters<Listener<T>>[0]);
   };
 
+  /** 連続で描画に失敗した回数。1回の失敗(デコーダの一過性の詰まり・
+   * frameSource 側の作り直し)では諦めず、続けて失敗したときだけ legacy へ
+   * 落とす。成功したら 0 に戻す */
+  const repaintFailuresRef = useRef(0);
+
+  /**
+   * **この関数は決して reject しない**。描画は rAF tick・props 変更・seek の
+   * 3経路から呼ばれ、そのいずれも await されない(`void repaintAt(...)`)ため、
+   * ここで投げると未処理の Promise 拒否になってコンソールに出るだけで、
+   * ユーザーには「プレビューが黙って静止する」としか見えない
+   * (Safari の `EncodingError: Decoder failure` が実際にこれで隠れていた)。
+   * 失敗は握り潰さず、連続 REPAINT_FAILURE_LIMIT 回で legacy 経路へ落として
+   * バナーに理由を出す。
+   */
   const repaintAt = async (sec: number): Promise<void> => {
     const compositor = compositorRef.current;
     if (!compositor) return;
     const durationSec = durationFramesRef.current / fpsRef.current;
-    const descriptor = describeFrame(propsRef.current, Math.min(Math.max(sec, 0), durationSec));
-    await compositor.renderDescriptor(descriptor, sourceTimeOf);
+    try {
+      const descriptor = describeFrame(propsRef.current, Math.min(Math.max(sec, 0), durationSec));
+      await compositor.renderDescriptor(descriptor, sourceTimeOf);
+      repaintFailuresRef.current = 0;
+    } catch (err) {
+      repaintFailuresRef.current++;
+      const message = String((err as Error)?.message ?? err);
+      console.warn(
+        `EnginePreview: ${sec.toFixed(2)}s の描画に失敗しました` +
+          `(連続${repaintFailuresRef.current}回目): ${message}`,
+      );
+      if (repaintFailuresRef.current >= REPAINT_FAILURE_LIMIT) {
+        onFallback(`描画が連続${repaintFailuresRef.current}回失敗しました: ${message}`);
+      }
+    }
   };
 
   // props(caption/overlay/bgm 等の JSON 編集・ドラッグ draft・hot-reload)が
@@ -234,7 +266,12 @@ export const EnginePreview = forwardRef<PreviewHandle, EnginePreviewProps>(funct
       // 最初の1枚(再生を待たずに絵が出ている状態にする。engineDev と同じ)
       await repaintAt(0);
       dispatch("frameupdate", { frame: 0 });
-    })();
+    })().catch((err: unknown) => {
+      // 初期化(AudioContext/Scheduler/Clock 組み立て)の失敗も黙って消さない。
+      // ここを握らないと「canvas が黒いまま・コンソールに未処理拒否だけ」になる
+      if (cancelled) return;
+      onFallback(`エンジンの初期化に失敗しました: ${String((err as Error)?.message ?? err)}`);
+    });
 
     return () => {
       cancelled = true;
