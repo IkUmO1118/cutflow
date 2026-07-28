@@ -28,7 +28,24 @@ export interface PresentationStats {
   lastIntervalMs: number;
   /** 直近 INTERVAL_HISTORY_LIMIT 件の提示間隔(ms)。p50/p95 は呼び出し側で算出 */
   intervalsMs: number[];
+  /** 描画の詰まりで強制復帰した回数(R4 Phase5)。0 が理想。0 でなければ
+   * 詰まりが実在する証拠なので、回数と発生位置を計測して報告する(§3) */
+  forcedResets: number;
+  /** 直近の強制復帰までにかかった詰まり時間(ms)。強制復帰が一度も
+   * 無ければ 0 */
+  lastStallMs: number;
 }
+
+/** 描画が詰まってから強制復帰すべきかを決める純関数(§4 Phase5「検証」で
+ * 固定する)。stallMs を超えて rendering 状態が続いていたら true */
+export function shouldForceReset(renderStartedMs: number, nowMs: number, stallMs: number): boolean {
+  return nowMs - renderStartedMs > stallMs;
+}
+
+/** 描画の詰まりを検知する閾値(ms)。通常の1フレームは数〜数十msで終わる
+ * ため、1000ms は「本当に詰まった」判定として十分保守的(誤検知で
+ * 正常なフレームを打ち切らない)一方、詰まったままにはしない値 */
+const STALL_MS = 1000;
 
 /** 1フレーム分の提示処理。descriptor 要求→合成までを行い、実際に
  * 描画した(=ドロップしなかった)かを呼び出し側の都合で判定して返す。
@@ -45,13 +62,22 @@ export class PresentationClock {
   private mapping: ClockMapping = { startOutputSec: 0, startContextTime: 0, rate: 1 };
   private rafHandle: number | null = null;
   private lastTickMs: number | null = null;
-  private rendering = false;
+  /** 現在 in-flight な描画の世代トークン。null なら空き(§2 決定6: 真偽値
+   * ではなく世代トークンにして、強制復帰後に来る「古い」finally() が
+   * 新しい in-flight 状態を誤ってクリアしないようにする) */
+  private activeGeneration: number | null = null;
+  private renderGenerationCounter = 0;
+  /** 現在 in-flight な描画が始まった時刻(performance.now()。強制復帰の
+   * 詰まり時間判定に使う。activeGeneration が null なら無効) */
+  private renderStartedMs: number | null = null;
 
   readonly stats: PresentationStats = {
     presentedFrames: 0,
     droppedFrames: 0,
     lastIntervalMs: 0,
     intervalsMs: [],
+    forcedResets: 0,
+    lastStallMs: 0,
   };
 
   constructor(audioContext: AudioContext, onFrame: PresentFrame) {
@@ -127,15 +153,35 @@ export class PresentationClock {
 
     // 前回の合成がまだ終わっていない=ドロップ(遅れた映像フレームは
     // 描かず捨てる。§2 不変条件)。新しい合成を重ねて開始しない
-    if (this.rendering) {
-      this.stats.droppedFrames++;
-      return;
+    if (this.activeGeneration !== null) {
+      if (this.renderStartedMs !== null && shouldForceReset(this.renderStartedMs, now, STALL_MS)) {
+        // 詰まりを黙って直さない(§2 決定6): 強制復帰の事実と時間を必ず記録する。
+        // 古い in-flight の finally() は自分の世代トークンが現行と一致しない
+        // ため、後から解決してもこの状態を壊さない
+        this.stats.forcedResets++;
+        this.stats.lastStallMs = now - this.renderStartedMs;
+        console.warn(
+          `PresentationClock: 描画が${this.stats.lastStallMs.toFixed(0)}ms詰まったため強制復帰します` +
+            `(forcedResets=${this.stats.forcedResets})`,
+        );
+        this.activeGeneration = null;
+        this.renderStartedMs = null;
+        // このtickでそのまま次フレームの描画を開始する(下続く)
+      } else {
+        this.stats.droppedFrames++;
+        return;
+      }
     }
 
-    this.rendering = true;
+    const myGeneration = ++this.renderGenerationCounter;
+    this.activeGeneration = myGeneration;
+    this.renderStartedMs = now;
     this.stats.presentedFrames++;
     void this.onFrame(this.currentOutputSec()).finally(() => {
-      this.rendering = false;
+      if (this.activeGeneration === myGeneration) {
+        this.activeGeneration = null;
+        this.renderStartedMs = null;
+      }
     });
   };
 

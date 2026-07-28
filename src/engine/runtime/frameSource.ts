@@ -56,7 +56,16 @@ export interface FrameSourceStats {
   seeks: number;
   advances: number;
   reuses: number;
+  /** getSampleAt がタイムアウトで打ち切った回数(R4 Phase5)。0 が理想。
+   * 0 でなければ decode の詰まりが実在する証拠 */
+  timeouts: number;
 }
+
+/** getSampleAt の1回分の解決を待つ上限(ms)。通常の seek/advance は
+ * 数十〜数百msで終わるため、3000ms は「本当に詰まった」判定として
+ * 保守的な値(§4 Phase5「検証」。this.chain が永久に詰まらないようにする
+ * ための安全弁で、通常経路の速さには影響しない) */
+const GET_SAMPLE_TIMEOUT_MS = 3000;
 
 /**
  * 所有権の契約(§5 落とし穴): `getSampleAt` が返す VideoSample は**呼び出し側が
@@ -76,7 +85,7 @@ export class FrameSource {
   private current: VideoSample | null = null;
   private generation = 0;
   private chain: Promise<unknown> = Promise.resolve();
-  readonly stats: FrameSourceStats = { seeks: 0, advances: 0, reuses: 0 };
+  readonly stats: FrameSourceStats = { seeks: 0, advances: 0, reuses: 0, timeouts: 0 };
 
   constructor(sourceId: string, url: string) {
     this.sourceId = sourceId;
@@ -116,11 +125,38 @@ export class FrameSource {
         // 世代番号だけ進めて現在値を返す(古い結果で上書きしない)
         return this.current ? this.current.clone() : null;
       }
-      const sample = await this.resolve(time);
+      const sample = await this.resolveWithTimeout(time);
       return sample ? sample.clone() : null;
     });
+    // タイムアウトで reject しても this.chain 自体は必ず解決させる
+    // (R4 Phase5。§落とし穴: this.chain が永久に詰まらないようにする)
     this.chain = run.catch(() => undefined);
     return run;
+  }
+
+  /** resolve(time) が GET_SAMPLE_TIMEOUT_MS を超えて解決しないときは
+   * reject して呼び出し側(getSampleAt)へ伝える。1つの未解決 Promise が
+   * this.chain(直列化キュー)全体をデッドロックさせないための安全弁
+   * (R4 §1.3(b))。タイムアウト時はイテレータを破棄し、次回の呼び出しが
+   * 必ず reseek(sink.samples 呼び直し)から再開するようにする */
+  private async resolveWithTimeout(time: number): Promise<VideoSample | null> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        this.stats.timeouts++;
+        this.iterator = null;
+        reject(
+          new Error(
+            `frameSource: ${this.sourceId} の取得が ${GET_SAMPLE_TIMEOUT_MS}ms を超えたためタイムアウトしました`,
+          ),
+        );
+      }, GET_SAMPLE_TIMEOUT_MS);
+    });
+    try {
+      return await Promise.race([this.resolve(time), timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   private async resolve(time: number): Promise<VideoSample | null> {
