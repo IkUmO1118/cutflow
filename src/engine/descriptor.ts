@@ -39,12 +39,22 @@ export interface ColorFilterEffect {
 export type Effect = ColorFilterEffect;
 
 /**
- * 映像フレーム参照(素材ファイルをデコードしてそのまま貼る)。
- * sourceRect はソースのピクセル座標系(動画なら canvas.w/h 基準)での
- * クロップ範囲、quad はそれを出力px へ配置する矩形。contain/cover の
- * 違いは describeFrame が sourceRect+quad の組へ解決済みにする
- * (fit 種別そのものは descriptor に残らない)。
+ * external item の配置。
+ *
+ * - "resolved": ソースの実ピクセル寸法が JSON 側で既知(ベース映像=
+ *   manifest.video の canvas.w/h)なときだけ、describeFrame が
+ *   sourceRect(ソースのクロップ範囲)+ quad(出力px の最終矩形)まで
+ *   解決する(cropFitStyle 相当の計算を逐語移植)。
+ * - "fit": 素材ファイル(overlay/insert/design 背景の画像・動画)は
+ *   実ピクセル寸法が描画時にしか分からない(CutFlow は素材を事前
+ *   probe しない)。この場合は箱(box)+fit をそのまま渡し、実寸に
+ *   基づくクロップはペインタ(実際にデコードした側)が解決する。
  */
+export type ExternalPlacement =
+  | { mode: "resolved"; sourceRect?: Rect; quad: Quad }
+  | { mode: "fit"; fit: "contain" | "cover"; box: Rect };
+
+/** 映像フレーム参照(素材ファイルをデコードしてそのまま貼る) */
 export interface ExternalItem {
   kind: "external";
   /** ソースを一意に指す識別子。通常は publicDir 相対のファイルパス
@@ -54,9 +64,7 @@ export interface ExternalItem {
   sourceTimeSec: number;
   /** 動画か画像か(ペインタがデコード方式を分けるために必要) */
   sourceKind: "video" | "image";
-  /** ソース側のクロップ範囲(ピクセル座標)。省略時はソース全体 */
-  sourceRect?: Rect;
-  quad: Quad;
+  placement: ExternalPlacement;
   opacity: number;
   blend?: BlendMode;
   effects?: Effect[];
@@ -154,6 +162,30 @@ export type RenderedContent =
   | BlurRegionContent
   | FillContent;
 
+/**
+ * rendered item の配置。
+ *
+ * - "quad": 完全に解決済みの矩形(annotation の rect / blur の rect /
+ *   fill 等。JSON の値をそのままカット後秒へ写像しただけで実サイズが
+ *   決まるもの)。
+ * - "anchor": テキストの実サイズ(フォント計測・折り返し)に依存するため
+ *   矩形を決め切れない(caption 専用)。アンカー点+アンカーの意味
+ *   (CaptionLayer.tsx の3パターン: topLeft=左上を点に置く / center=
+ *   中心を点に置く / bottomCenter=水平中央・下端を点に置く。無指定
+ *   テロップの下部中央フォールバックが bottomCenter)だけを渡し、
+ *   実サイズは描画側(参照ペインタ/バックエンド)が決める。maxWidthPx は
+ *   bottomCenter のときだけ意味を持つ(横幅の90%で自動折り返し。
+ *   位置指定テロップは手動改行のみで自動折り返みしない=maxWidthPx 省略)
+ */
+export type RenderedPlacement =
+  | { mode: "quad"; quad: Quad }
+  | {
+      mode: "anchor";
+      point: { x: number; y: number };
+      anchor: "topLeft" | "center" | "bottomCenter";
+      maxWidthPx?: number;
+    };
+
 export interface RenderedItem {
   kind: "rendered";
   content: RenderedContent;
@@ -161,7 +193,7 @@ export interface RenderedItem {
    * 同一ハッシュ = 同一ラスタ結果になることがバックエンドのテクスチャ
    * キャッシュ判定の前提 */
   contentHash: string;
-  quad: Quad;
+  placement: RenderedPlacement;
   opacity: number;
   blend?: BlendMode;
   effects?: Effect[];
