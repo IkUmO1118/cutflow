@@ -5,13 +5,15 @@
 import { spawn, execSync } from "node:child_process";
 import { createServer } from "node:http";
 import {
+  createReadStream,
   existsSync,
   mkdtempSync,
   readFileSync,
+  statSync,
   writeFileSync,
   rmSync,
 } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, normalize, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import * as esbuild from "esbuild";
@@ -157,28 +159,70 @@ function buildExportHtml(outDir: string, configJson: string): void {
 }
 
 function startExportServer(dir: string, outDir: string): Promise<{ server: ReturnType<typeof createServer>; port: number }> {
-  const mime = (p: string) =>
-    p.endsWith(".html") ? "text/html" : p.endsWith(".js") ? "text/javascript" :
-    p.endsWith(".mp4") ? "video/mp4" : p.endsWith(".png") ? "image/png" :
-    "application/octet-stream";
+  const MIME: Record<string, string> = {
+    ".html": "text/html",
+    ".js": "text/javascript",
+    ".mp4": "video/mp4",
+    ".mov": "video/quicktime",
+    ".mkv": "video/x-matroska",
+    ".m4a": "audio/mp4",
+    ".wav": "audio/wav",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+  };
+  const mime = (p: string) => MIME[p.slice(p.lastIndexOf(".")).toLowerCase()] ?? "application/octet-stream";
+
+  const absDir = resolve(dir);
 
   const server = createServer((req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://localhost");
       if (url.pathname === "/" || url.pathname === "/export.html") {
         const data = readFileSync(join(outDir, "export.html"));
-        res.writeHead(200, { "Content-Type": "text/html" }); res.end(data); return;
+        res.writeHead(200, { "Content-Type": "text/html", "Content-Length": String(data.length) });
+        res.end(data); return;
       }
       if (url.pathname === "/export-bundle.js") {
         const data = readFileSync(join(outDir, "export-bundle.js"));
-        res.writeHead(200, { "Content-Type": "text/javascript" }); res.end(data); return;
+        res.writeHead(200, { "Content-Type": "text/javascript", "Content-Length": String(data.length) });
+        res.end(data); return;
       }
-      const filePath = join(dir, url.pathname.replace(/^\//, ""));
-      try {
-        const data = readFileSync(filePath);
-        res.writeHead(200, { "Content-Type": mime(filePath) }); res.end(data);
-      } catch {
+      const rel = url.pathname.replace(/^\//, "");
+      const filePath = join(dir, rel);
+      const abs = normalize(filePath);
+      if (!abs.startsWith(absDir + sep)) {
+        res.writeHead(403); res.end();
+        return;
+      }
+      if (!existsSync(abs)) {
         res.writeHead(404); res.end();
+        return;
+      }
+      const st = statSync(abs);
+      const size = st.size;
+      const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? "");
+      if (range && (range[1] || range[2])) {
+        const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
+        const end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
+        if (start >= size || start > end) {
+          res.writeHead(416, { "Content-Range": `bytes */${size}` });
+          res.end(); return;
+        }
+        res.writeHead(206, {
+          "Content-Type": mime(filePath),
+          "Accept-Ranges": "bytes",
+          "Content-Range": `bytes ${start}-${end}/${size}`,
+          "Content-Length": String(end - start + 1),
+        });
+        createReadStream(abs, { start, end }).pipe(res);
+      } else {
+        res.writeHead(200, {
+          "Content-Type": mime(filePath),
+          "Accept-Ranges": "bytes",
+          "Content-Length": String(size),
+        });
+        createReadStream(abs).pipe(res);
       }
     } catch {
       res.writeHead(500); res.end();
