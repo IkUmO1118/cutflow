@@ -3,13 +3,9 @@
 // ワイプとの被り・素材の見え方をこれで自己確認する(人間の確認は preview /
 // エディタが担い、これは「AI が自分の編集結果を見る目」)。
 //
-// 仕組み: render と同じ Remotion コンポジション(remotion/Main.tsx)を
-// @remotion/renderer の Node API で1フレームずつレンダーする。バンドルと
-// headless Chrome は1回だけ用意して全フレームで使い回す(CLI の
-// `remotion still` を時刻ごとに spawn すると、その両方が枚数ぶん発生して
-// 遅いため)。ベース映像はエディタのプレビューと同じ proxy.mp4
-// (videoIsSource: true。無ければ自動生成)なので、cut.mp4 を作らずに
-// 現在の cutplan/transcript/overlays が即反映される。
+// 仕組み: 2経路。M4 エンジン(WebGPU compositor + CDP capture)が既定。
+// 失敗時は Remotion 経路(remotion/Main.tsx → @remotion/renderer still API)へ
+// フォールバックする。config の render.engineExport: false で Remotion 固定。
 //
 // frames/ 内の PNG は実行のたびに全削除してから書き直す。ファイル名が
 // 出力秒ベースなので、cutplan 編集で時刻の写像が変わると旧ファイルが
@@ -55,6 +51,7 @@ import { runOcr } from "../lib/ocr.ts";
 import { panelRect, resolveDesign, screenRectToOutput } from "../lib/design.ts";
 import { buildScreenStill } from "../lib/screenStill.ts";
 import { buildProxy, isProxyStale } from "./proxy.ts";
+import { createEngineSession } from "../lib/engineSession.ts";
 import type { TimelineEntry } from "../lib/timeline.ts";
 import type { Config } from "../lib/config.ts";
 import type { Manifest } from "../types.ts";
@@ -97,8 +94,17 @@ export async function frames(
   ocr?: boolean,
   fullRes?: boolean,
 ): Promise<FrameShot[]> {
-  // バンドル(webpack)とブラウザは1回だけ用意して全フレームで使い回す。
-  // 収録フォルダ(publicDir)はコピーせず symlink で参照する
+  // M4: エンジン経路を既定で試す(render.engineExport: false で Remotion 固定)
+  const useEngine = cfg.render.engineExport !== false;
+  if (useEngine) {
+    try {
+      return await framesEngine(dir, req, cfg, shortName, ocr, fullRes);
+    } catch (e) {
+      console.warn(`エンジン frames 失敗 → Remotion へフォールバック: ${(e as Error).message}`);
+    }
+  }
+
+  // Remotion 経路(フォールバック / engineExport: false)
   await ensureBrowser();
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
   const serveUrl = await bundle({
@@ -111,6 +117,107 @@ export async function frames(
     return await renderFrames(dir, req, cfg, { short: shortName, ocr, fullRes }, { serveUrl, browser });
   } finally {
     await browser.close({ silent: true });
+  }
+}
+
+/** M4: エンジン経路の frames 実装。createEngineSession でヘッドレス Chrome を
+ * 起動し、各 target フレームを renderAndCapture → PNG に書き出す。
+ * OCR は既存の ffmpeg 生クロップ経路なので触らない(無関係)。
+ * warmSession を渡すと起動済み session を使い回す(frames-serve が使う)。
+ * 省略時は自前で session を作り finally で閉じる(frames CLI が使う)。 */
+export async function framesEngine(
+  dir: string,
+  req: FrameRequest,
+  cfg: Config,
+  shortName?: string,
+  ocr?: boolean,
+  fullRes?: boolean,
+  warmSession?: Awaited<ReturnType<typeof createEngineSession>>,
+): Promise<FrameShot[]> {
+  const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")) as Manifest;
+  const snapshot = readEditSnapshot(dir);
+
+  const renderCtx = resolveSnapshotRenderContext({ dir, cfg, snapshot, shortName, fullRes });
+  const { keeps, overlays } = renderCtx;
+
+  const props = await prepareDesignAssetsForProps({
+    dir,
+    props: renderCtx.props,
+    warn: (message) => console.warn(`警告: ${message}`),
+  });
+
+  const timeline = buildTimeline(
+    keeps,
+    (overlays.inserts ?? []).filter((i) => existsSync(join(dir, i.file))),
+  );
+  const maxOut = Math.max(0, props.durationSec - 1 / props.fps);
+  const targets = buildTargets(req, props, maxOut, timeline);
+  if (targets.length === 0) {
+    throw new Error(
+      req.mode === "captions"
+        ? "テロップが0件です(transcript.json を確認してください)"
+        : "撮るフレームが0件です",
+    );
+  }
+
+  const byFrame = new Map<number, Target>();
+  for (const t of targets) {
+    const frame = Math.round(t.outSec * props.fps);
+    const prev = byFrame.get(frame);
+    if (prev) prev.notes.push(...t.notes);
+    else byFrame.set(frame, { ...t, notes: [...t.notes] });
+  }
+  const unique = [...byFrame.entries()].sort((a, b) => a[0] - b[0]);
+
+  const outDir = join(dir, "frames");
+  mkdirSync(outDir, { recursive: true });
+  for (const f of readdirSync(outDir)) {
+    if (f.endsWith(".png") || f.endsWith(".ocr.json")) rmSync(join(outDir, f));
+  }
+
+  const sourceUrls: Record<string, string> = {
+    [props.videoFile]: `/${props.videoFile}`,
+  };
+  for (const o of props.overlays) sourceUrls[o.file] = `/${o.file}`;
+  for (const i of props.inserts ?? []) sourceUrls[i.file] = `/${i.file}`;
+
+  const ownSession = !warmSession;
+  const session = warmSession ?? (await createEngineSession(dir, {
+    props,
+    durationSec: maxOut + props.fps > 0 ? props.durationSec : 0,
+    sourceUrls,
+  }));
+
+  try {
+    const shots: FrameShot[] = [];
+    for (const [frame, t] of unique) {
+      const pngBase64 = await session.renderAndCapture(t.outSec);
+      const outPath = join(outDir, `out${t.outSec.toFixed(2)}s.png`);
+      writeFileSync(outPath, Buffer.from(pngBase64, "base64"));
+      const notes = [...t.notes];
+      let ocrFile: string | undefined;
+      if (ocr) {
+        ocrFile = await ocrFrame(dir, manifest, timeline, t.outSec, outDir, notes, cfg);
+      }
+      const note = notes.join(" / ");
+      shots.push({
+        requested: t.requested,
+        outSec: t.outSec,
+        file: outPath,
+        ...(note ? { note } : {}),
+        ...(ocrFile ? { ocrFile } : {}),
+      });
+    }
+    writeFramesIndex(dir, {
+      mode: req.mode,
+      short: shortName ?? null,
+      ocr: ocr ?? false,
+      fullRes: fullRes ?? false,
+      count: unique.length,
+    });
+    return shots;
+  } finally {
+    if (ownSession) await session.close();
   }
 }
 

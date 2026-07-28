@@ -37,6 +37,7 @@ import { buildCutCacheKey, cutCacheKeyEquals } from "../lib/cutCache.ts";
 import { run } from "../lib/exec.ts";
 import { decideFastPath, runFastRender } from "../lib/fastRender.ts";
 import { resolveFastBaseCapability } from "../lib/fastBaseCapability.ts";
+import { renderEngine } from "./renderEngine.ts";
 import {
   audioSourceOf,
   keepAudioParts,
@@ -369,6 +370,26 @@ async function runRenderMain(
     collector.finalFullSkip = true;
     collector.output = probeOutput(outPath, props);
     return outPath;
+  }
+
+  // M4 エンジン経路(新旧比較検証のため opt-in)。新エンジン(WebGPU compositor +
+  // CDP capture + ffmpeg intermediate)でレンダーし、成功すれば従来経路を
+  // スキップする。失敗時は警告を出して下の従来経路へフォールバックする。
+  // render.engineExport が明示的に false でなければ試行する(既定で試す)。
+  const engineExport = cfg.render.engineExport !== false;
+  if (engineExport) {
+    try {
+      const engineResult = await timed("エンジン書き出し 合計", () =>
+        renderEngine(dir, cfg, manifest, cutplan, transcript, overlaysIn, cutPath, outPath),
+      );
+      collector.setPath("engine");
+      collector.output = probeOutput(outPath, props);
+      writeFileSync(renderKeyPath, JSON.stringify(renderKey, null, 2));
+      return outPath;
+    } catch (e) {
+      console.warn(`エンジン書き出し失敗 → 従来経路へフォールバック: ${(e as Error).message}`);
+      collector.setFallback(`engine: ${(e as Error).message}`);
+    }
   }
 
   // チャンク差分レンダー(docs/render-chunk-cache.md)。render.chunkSec > 0 の

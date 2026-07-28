@@ -29,7 +29,7 @@ import { fileURLToPath } from "node:url";
 import { bundle } from "@remotion/bundler";
 import { ensureBrowser, openBrowser } from "@remotion/renderer";
 import { loadConfig } from "../lib/config.ts";
-import { renderFrames } from "./frames.ts";
+import { renderFrames, framesEngine } from "./frames.ts";
 import type { FrameRequest, FrameShot, WarmAssets } from "./frames.ts";
 
 /** frames/ 内、常駐サーバの待受情報を書くファイル(中間生成物。frames/*.png
@@ -195,12 +195,28 @@ export async function startFramesServe(
     } catch (e) {
       throw new HttpError(400, (e as Error).message);
     }
+    const cfg = loadConfig(explicitConfigPath);
+
+    // M4: エンジン経路(framesEngine)が既定。render.engineExport: false のとき
+    // だけ Remotion 経路(renderFrames)を使う
+    const useEngine = cfg.render.engineExport !== false;
+    if (useEngine) {
+      try {
+        const shots = await framesEngine(
+          dir, parsed.req, cfg,
+          parsed.opts.short, parsed.opts.ocr, parsed.opts.fullRes,
+        );
+        sendJson(res, 200, { shots });
+        return;
+      } catch (e) {
+        console.warn(`エンジン frames 失敗 → Remotion へフォールバック: ${(e as Error).message}`);
+      }
+    }
+
+    // Remotion 経路(フォールバック)
     const currentMtime = remotionMaxMtimeMs(remotionDir);
     if (currentMtime > bundleMtime) await rebundle();
 
-    // config・編集 JSON は毎リクエスト読み直す(論点2-B。デーモンが暖めるのは
-    // bundle+browser だけ=単発実行と出る絵は同一)
-    const cfg = loadConfig(explicitConfigPath);
     const warm: WarmAssets = { serveUrl, browser };
     let shots: FrameShot[];
     try {

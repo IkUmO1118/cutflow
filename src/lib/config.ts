@@ -725,6 +725,10 @@ export interface Config {
      * 通常のRemotionレンダーへ保守的にフォールバックする
      * (§src/lib/design.ts。docs/programs/render-fastpath-program.md) */
     design?: DesignConfig;
+    /** M4 エンジン書き出し(WebGPU compositor + CDP capture + ffmpeg)。
+     * 省略時 true(エンジン経路を試行し、失敗時は従来経路へフォールバック)。
+     * false で従来の Remotion 経路のみを使う(新旧比較検証用) */
+    engineExport?: boolean;
   };
   /** 画面 OCR(frames --ocr)。Apple Vision の認識設定のうち、収録の言語構成で
    * 変わりうるものだけを置く(認識レベル・言語補正はコード内の閉じた定数。

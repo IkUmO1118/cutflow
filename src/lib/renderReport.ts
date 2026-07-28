@@ -12,7 +12,7 @@ export const RENDER_REPORT_FILE = "render.report.json";
 export const RENDER_REPORT_SCHEMA_VERSION = 1;
 
 /** 採用された render 経路 */
-export type RenderPathKind = "full-skip" | "chunk-diff" | "fast" | "full-remotion";
+export type RenderPathKind = "full-skip" | "engine" | "chunk-diff" | "fast" | "full-remotion";
 
 /** 段階ごとの所要時間・成否(lib/timing.ts の TimingEvent をそのまま記録する) */
 export interface StageTiming {
