@@ -22,10 +22,16 @@
   thumbnail/editor の4箇所で**恒久 dual-path として既定有効**になっている
   （§1-10「恒久 dual-path にしない」に対する後退。降格は `console.warn` だけで
   可視化されない）。
-- **次の一手**: (1) 画素 parity を `npm test`/CI のゲートに入れる
-  （`scripts/engine-pixel-parity.mjs` は手動実行のままで、R1 が根因と認定した
-  「画素を見る仕組みが無い」は未解消）→ (2) その上で §7 の一括削除と
-  自動降格の撤去。順序を逆にすると比較オラクルを先に失う。
+- **次の一手**: G1（`docs/plans/2026-07-29-engine-g1-pixel-gate-design.md`）を
+  実装し `npm run gate:pixel`（独立ゲート。D1 により `npm test` には入れない）を
+  新設した。**Phase 0〜Phase 4 完了・T-6 でゲート実行まで到達したが、
+  golden（Remotion オラクル）とエンジン版が 12 枚中 10 枚で不一致(赤)**。
+  原因は特定済み: カメラ(ワイプ)映像が写る領域だけ画素値が中間グレーへ圧縮される
+  （YUV limited/full range の解釈違いとみられる。screenRegion 側は無傷。
+  `mediabunny` の `VideoSampleSink`/WebCodecs `VideoDecoder` 側の色空間解決が
+  疑わしいが特定できていない。詳細は §9）。**次の一手はこのバグの修正**
+  （閾値は上げない・D8）。修正後 `npm run gate:pixel` が緑になったら
+  §7 の一括削除と自動降格の撤去へ進む。順序を逆にすると比較オラクルを先に失う。
 - **実行順**: M1 → M2 → M3a → M3b → M4 → **R1 → R2 → R3 → R4**
   （→ M5 は条件付き。plan 未起草＝発動時に起草）。
   順序は「様子見の段階化」ではなく**新エンジンの依存関係の順**。乗り換え自体は決定済みで、
@@ -93,7 +99,8 @@ OffscreenCanvas → 画面        VideoEncoder(HW) → mux → ffmpeg CRF → fi
 | 6 | `2026-07-28-engine-r1-picture-correctness-design.md` | **R1（是正）**: GPU 画素 parity ハーネス新設 → 頂点シェーダ UV 反転修正 → 書き出しページの DOM 文字焼き込み除去 → `hiddenLayers` の逐語移植 | ハーネスが**修正前は反転を検出して落ち・修正後に通る**（両方のログ提示）・演出込みの実データで parity 合格・実機で絵の向きを目視確認 |
 | 7 | `2026-07-28-engine-r2-audio-design.md` | **R2（是正）**: 先読みの1パケット問題（全チャンク連結→窓分割）・トラックミュート配線・素材/挿入クリップ音声 | 実機で全編通して音が鳴る・シーク/再生速度/ミュートが Player 経路と同等・書き出し音声経路に差分ゼロ |
 | 8 | `2026-07-28-engine-r3-guards-and-followups-design.md` | **R3（是正+再発防止）**: キャッシュ不在のエラー表示・書き出しサーバ Range 対応・`manifest.json` を `clean` から保護・検証収録の記述修正・`render.engineExport` の文書化 | ピン留めテスト追随込みで緑・`clean --dry-run` に manifest が出ない・2026-07-12 の復旧手順が提示済み |
-| 9 | （未起草） | M5: ネイティブ wgpu へのスワップ（フル or 書き出しのみ） | 発動条件: 4K 多層でデッドラインを外す実測が出た時だけ |
+| 9 | `2026-07-29-engine-g1-pixel-gate-design.md` | **G1**: Remotion オラクルの画素 golden を凍結（合成 parity フィクスチャ・`test/fixtures/engine/pixel-golden/`）+ `npm run gate:pixel` 新設（`npm test` には入れない独立ゲート。D1） | `gate:pixel` が単独コマンドで完走し全 golden 一致で exit 0。**現状: 未達（赤）**——カメラ/ワイプ領域だけ色が中間グレーへ圧縮される未修正バグを検出中（§9 参照）。この行が緑にならない限り §7 の削除（次行）へ進んではならない |
+| 10 | （未起草） | M5: ネイティブ wgpu へのスワップ（フル or 書き出しのみ） | 発動条件: 4K 多層でデッドラインを外す実測が出た時だけ |
 
 - クロス依存: M2 の参照ペインタは M3a の rendered テクスチャ描画（テロップ等の
   ラスタライズ）にそのまま昇格する＝捨てにならない。
@@ -160,6 +167,10 @@ OffscreenCanvas → 画面        VideoEncoder(HW) → mux → ffmpeg CRF → fi
 6. **MIT 順守**（lift 部品は PROVENANCE / LICENSE を残す）
 
 ## 7. M4 完了時の削除リスト（完全乗り換えの証憑）
+
+**前提: G1 完了（画素ゲート `npm run gate:pixel` が緑であること）。
+2026-07-29 時点では未達（赤。§0・§9 参照）——このバグを直して緑化するまで
+以下は一切実行しない。**
 
 - `remotion/Main.tsx` ほか本編 composition 一式（HF interpreter が使う分は残す）
 - editor の Remotion `<Player>`・`<video>` 経路・remount 再 seek ハック（App.tsx:1500 付近）
@@ -363,4 +374,46 @@ OffscreenCanvas → 画面        VideoEncoder(HW) → mux → ffmpeg CRF → fi
   （§1-10 の「恒久 dual-path にしない」に反する）。§0 の「次の一手」を
   「画素 parity のゲート化 →（その後に）§7 の一括削除と自動降格の撤去」に
   更新した。
+- **2026-07-29（G1: golden 凍結+ゲート実装完了・ゲート判定は赤。原因特定済み）**:
+  `docs/plans/2026-07-29-engine-g1-pixel-gate-design.md` の Phase 0〜5 を実装。
+  合成 parity フィクスチャ（1920x540・obs-canvas・960x540 出力・24秒・12シーン）を
+  `test/fixtures/engine/parity-project/`（編集 JSON のみコミット）に用意し、
+  Remotion オラクルから `test/fixtures/engine/pixel-golden/`(12枚+provenance.json・
+  合計1.2MB)を捕獲。`npm run gate:pixel`(独立ゲート。D1)を新設した。
+  **設計時の想定と異なり、#6(インサート)は元収録秒(source axis)からは原理的に
+  到達できない**(挿入区間は出力秒専用のスパン。`toOutputTime()`はアンカー
+  ちょうどの時刻を「挿入後」へ解決する)ため、この1点だけ`--out`(出力軸)で
+  挿入区間内の時刻を直接指定する方式に変更した(シーン表の他11点は元収録秒のまま)。
+  **較正実測(T-6)**: 12枚中10枚が不一致(exit 1)。tileDiffMax実測値:
+  out1.00s=32.12 / out2.50s=41.36 / out4.00s=39.50 / out5.50s=33.76 /
+  out7.00s=31.87 / out9.00s(インサート)=1.95(一致) / out12.20s(ワイプ中)=39.06 /
+  out14.20s=32.02 / out16.20s=42.20 / out18.20s=40.52 / out20.20s=32.13 /
+  short-s1=19.98(僅差で一致)。**不一致タイルは例外なくカメラ(ワイプ)映像が
+  写っている領域に集中し、画面(screenRegion)側は無傷**(diffNormal全体は
+  0.9〜4.8と低いのにカメラのタイルだけ突出)。実ピクセル値を直接比較すると
+  カメラ領域だけ全チャンネルが中間グレーへ圧縮されていた
+  (例: golden(0,223,217)→captured(0,173,191)、golden(255,0,255)→
+  captured(205,30,197)。画面領域は golden(255,255,0)→captured(255,251,0)で
+  誤差4=無視できる)。振幅が中央へ潰れるこのパターンは**YUVのlimited-range
+  (16–235)⇔full-rangeの解釈違い**の典型症状。実収録(`2026-07-21`。
+  `color_range=tv, color_space=bt709`とタグ付き)でも本セッション冒頭の
+  T-1完了確認で同種の症状(ワイプ領域のtileDiffMax=51.98/75.07)が出ていたため、
+  **合成フィクスチャ固有ではなく実収録でも起きる可能性が高い既存バグ**と判断。
+  画面もカメラも`src/engine/runtime/frameBlit.ts`の同じ`blitVideoSample()`を
+  通るが、実デコードは`mediabunny`パッケージの`VideoSampleSink`(WebCodecs
+  `VideoDecoder`のラッパー)任せで、本リポジトリのコードに`colorSpace`設定は
+  見当たらない(カメラ素材が0/255に近い極端な配色を含むためだけ誤差が
+  可視化されている可能性が高い=画面素材側にバグが無いのではなく単に
+  誤差が隠れているだけ、という仮説)。**このバグの修正は本plan(G1)のスコープ外**。
+  ユーザー判断(2026-07-29)によりG1は「ゲート基盤は完成・判定は赤」の状態で
+  コミットし、バグ修正は別issueへ切り出した。
+  **T-7(赤→緑の実証)は前提が崩れたため適応して実施**: 頂点シェーダのUVを
+  わざとV反転させたところ、8枚が明示的に「上下反転を検出」に変わり
+  diffNormal/tileDiffMaxとも全面的に悪化(例: out2.50s tileDiffMax 41.36→95.48・
+  それまで一致していたout9.00s/short-s1も不一致化)。変更を戻すと**全12枚の
+  tileDiffMaxが一字一句、変更前と完全に同じ値へ復帰**(残留無し・決定論的)。
+  「クリーンな緑」の実証はできなかったが、「ゲートは実際のコード変更に反応し、
+  復元後は元の状態(ここでは既知バグによる赤)へ正確に戻る」ことは実証できた。
+  **次の一手**: このカメラ色圧縮バグを直し、`npm run gate:pixel`を緑にしてから
+  §7 の一括削除へ進む(§0 更新済み)。
 - （以降、各 plan の完了・ゲート判定・実測値をここへ追記する）

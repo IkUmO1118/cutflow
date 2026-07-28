@@ -607,6 +607,9 @@ tool 一覧・信頼モデル宣言は `AGENTS_CONTRACT.md` §11 と `docs/usage
 - テスト: `npm test`(`node --test`。純関数の単体テストが `test/*.test.ts`。
   `lib/timeline.ts` の時刻写像・`stages/validate.ts` の検査・`lib/renderProps.ts`・
   `lib/fmt.ts` を固定している。ロジックを変えたら追随する)
+- エンジンの合成(`src/engine/`・`remotion/` の描画)を変えたら `npm run gate:pixel`
+  (画素ゲート。`npm test` には入っていない独立コマンド。golden との画素比較。
+  2026-07-29 時点でカメラ/ワイプ領域の色圧縮バグにより赤=既知)
 - 構成: `src/stages/`(パイプライン各段。JSON in → JSON out)、
   `src/lib/`(共有ロジック。時刻写像は `lib/timeline.ts`)、
   `editor/`(GUI。server.ts + client/ の React。正のデータは常にファイル側)、
