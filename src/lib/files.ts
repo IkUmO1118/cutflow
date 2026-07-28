@@ -223,3 +223,18 @@ export function isGeneratedLog(relPath: string): boolean {
   if (GENERATED_LOG_DIRS.includes(top)) return true;
   return (GENERATED_LOG_FILES as readonly string[]).includes(relPath);
 }
+
+/** GENERATED_FILES の一員(=手編集しない中間生成物)だが、収録フォルダの中身
+ * だけからは復元できないため、clean はフルでも削除しない。ingest の再実行は
+ * --layout を知らないと screenRegion/cameraRegion を失う
+ * (2026-07-28 に実際に事故として発生)。同じく再生成不可能な plan.first.json /
+ * plan-effects.first.json は clean フルで削除される(=再生成不可能な測定資産
+ * だが manifest.json のような編集不可逆損害ではない) */
+export const CLEAN_PROTECTED_FILES = ["manifest.json"] as const;
+
+/** relPath が clean の保護対象(=generated だが削除してはいけない)かどうか。
+ * 前提として generated であること(generated 以外は常に false=belt)。
+ * CLEAN_PROTECTED_FILES に載るものだけが true。 */
+export function isCleanProtected(relPath: string): boolean {
+  return (CLEAN_PROTECTED_FILES as readonly string[]).includes(relPath);
+}

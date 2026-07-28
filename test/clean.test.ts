@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from "node:
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { planClean, executeClean } from "../src/stages/clean.ts";
-import { fileRole } from "../src/lib/files.ts";
+import { fileRole, isCleanProtected } from "../src/lib/files.ts";
 
 /** 一時収録フォルダに editable + approval + other + generated を1件ずつ置く */
 function makeFixture(): string {
@@ -64,7 +64,7 @@ test("planClean: 選ぶのは全て generated、editable/approval/other は1件�
     }
     const picked = new Set(plan.targets.map((t) => t.relPath));
     // 消えるべき代表が入っている
-    for (const g of ["manifest.json", "cuts.auto.json", "proxy.mp4", "preview-cut.mp4",
+    for (const g of ["cuts.auto.json", "proxy.mp4", "preview-cut.mp4",
       "preview-cut.key.json", "cut.mp4",
       "cut.highlight-1.mp4", "frames", "render.chunks", "render.fast", "shorts", "materials.probe",
       "av.probe", "review.probe", "hyperframe.probe", "hyperframe-freeze.suggested",
@@ -92,11 +92,12 @@ test("executeClean: generated だけ消え、editable/approval/other/素材は�
     for (const keep of ["cutplan.json", "chapters.json", "meta.json", "transcript.json",
       "overlays.json", "approvals.json", "final.mp4", "thumbnail.png", "thumbnail.json",
       "bgm.json", "shorts.json", "bgm.mp3", "rules.md",
-      "materials/broll.mp4", "backups/20260101-000000/cutplan.json"]) {
+      "materials/broll.mp4", "backups/20260101-000000/cutplan.json",
+      "manifest.json"]) {
       assert.ok(existsSync(join(dir, keep)), `${keep} が消えた`);
     }
     // 消えるべき
-    for (const gone of ["manifest.json", "proxy.mp4", "preview-cut.mp4", "preview-cut.key.json",
+    for (const gone of ["proxy.mp4", "preview-cut.mp4", "preview-cut.key.json",
       "cut.mp4", "cut.highlight-1.mp4",
       "frames", "render.chunks", "render.fast", "shorts", "materials.probe", "av.probe", "review.probe",
       "hyperframe.probe", "hyperframe-freeze.suggested", "whisper-out.json", "preview.mp4",
@@ -183,5 +184,28 @@ test("planClean: 空/存在しないフォルダでも空計画を返す(安全)
     assert.equal(planClean(join(empty, "no-such")).targets.length, 0);
   } finally {
     rmSync(empty, { recursive: true, force: true });
+  }
+});
+
+test("planClean: manifest.json はフル clean でも保護されて選ばれない", () => {
+  const dir = makeFixture();
+  try {
+    const plan = planClean(dir);
+    const relPaths = new Set(plan.targets.map((t) => t.relPath));
+    assert.ok(!relPaths.has("manifest.json"), "manifest.json を削除対象に選んでいる");
+    assert.equal(isCleanProtected("manifest.json"), true);
+    assert.equal(isCleanProtected("proxy.mp4"), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("executeClean: manifest.json は削除後も残っている", () => {
+  const dir = makeFixture();
+  try {
+    executeClean(dir, planClean(dir));
+    assert.ok(existsSync(join(dir, "manifest.json")), "manifest.json が消えた");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });

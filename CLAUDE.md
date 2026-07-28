@@ -48,7 +48,9 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
   直接編集しない**(cutplan.json 等の編集ワークフローにも中間生成物にも
   属さない第3カテゴリ。書けるのは `approve`/`unapprove` コマンドと GUI
   エディタの保存(チェックボックス)だけ)
-- 中間生成物は編集しない(再実行で上書きされる): `manifest.json` /
+- 中間生成物は編集しない(再実行で上書きされる): `manifest.json`(**`clean` では削除されない**。
+  収録フォルダの中身だけからは復元できず、`ingest` の再実行は `--layout` を
+  知らないと `screenRegion`/`cameraRegion` を失う) /
   `cuts.auto.json` / `plan.raw.txt` / `plan.loop.json`(plan --cuts-only の
   反復ログ。ループ有効時のみ) / `plan-shorts.raw.txt`(plan-shorts の
   LLM 生応答の記録。plan.raw.txt と同じ用途) / `plan-materials.raw.txt`
@@ -208,7 +210,8 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
   headless Chrome 本体。収録フォルダごとに約200MB重複する純粋な再取得可能キャッシュで、
   消せば次の render / frames が自動で取り直す)も中間生成物。
   これらの中間生成物・キャッシュはまとめて `node src/cli.ts clean <dir>` で安全に削除できる
-  (削除は files.ts の generated 分類だけが対象で、編集ファイル・approvals.json は触れない)。
+   (削除は files.ts の generated 分類だけが対象で、編集ファイル・approvals.json は触れない。
+   **`manifest.json` は `clean` の保護対象でフルでも削除されない**)。
   **唯一の例外が「元収録の自動リマックス複製」**: OBS は既定で `.mkv` に録画し、停止後に
   同じ内容を `.mp4` へストリームコピーした複製を隣に残すが、CutFlow が読むのは
   `manifest.json` の `source` が指す1本だけなので、もう一方は収録フォルダ内で最大級の
