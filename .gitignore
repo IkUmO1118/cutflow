@@ -15,6 +15,10 @@ docs/programs/
 # Remotion Studio 用の一時ファイル置き場(動画は収録フォルダに置く)
 public/
 
+# scripts/engine-parity.mjs の生成物(比較グリッドPNG・esbuildバンドル・
+# ffmpeg切り出し静止画。開発時の使い捨て。リポジトリ配布物ではない)
+scripts/.parity-out/
+
 # swiftc が事前ビルドする OCR バイナリ(ソースは bin/ocr/vision-ocr.swift を追跡。
 # 初回実行時に src/lib/ocr.ts が自動ビルドする)
 bin/ocr/.build/
