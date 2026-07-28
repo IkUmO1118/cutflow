@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 // scripts/engine-pixel-parity.mjs — R1 Phase1: GPU画素parityハーネス(開発スクリプト。
-// リポジトリ配布物ではない)。
+// リポジトリ配布物ではない)。R4 Phase1でタイル別判定を追加(§1.2 是正)。
 //
 // Remotion オラクル(一時configで engineExport:false に倒した frames)と
 // エンジン版(frames 既定)の出力PNGを chrome-headless-shell + CDP で画素比較する。
-// ダウンサンプル輝度の平均絶対差を出し、反転検出も行う。Phase1 では
-// **未修正の上下反転を検出して exit 1 すること**が合格基準。
+// 上下反転検出は全体平均(R1 の資産・そのまま残す)。合否判定はタイル別
+// (TILE_COLS×TILE_ROWS分割)の輝度差**最大値**で決める(R4 決定2)。全体平均
+// (diffNormal)は補助値として出力に残すが、合否には使わない——ワイプのような
+// 画面の一部(面積比 3.4%)だけが壊れている欠陥は全体平均にはほぼ出ない
+// (R4 §1.2)ため。
 //
 // 使い方: node scripts/engine-pixel-parity.mjs --dir <収録フォルダ> --t 30,90 [--out <出力先>]
 import { spawn, execFileSync } from "node:child_process";
@@ -17,17 +20,36 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(fileURLToPath(import.meta.url), "..", "..");
 
-// 画素差分の閾値(96px幅ダウンサンプル輝度の平均絶対差、0-255 スケール)。
-// 同一画像なら 0。Remotion が使う Chrome(headless-shell @remotion/renderer
-// 由来)と headless-shell Chrome(direct launch)ではフォントラスタ・
-// アンチエイリアス・色管理に ~10 ポイントの baseline 差が出る。
-// 15.0 はこの baseline に 50% の余裕を加えた値で、domain text 消失・
-// design 画像位置・パネル角丸等の微小差を許容しつつ、反転(50+)や
-// レイアウト崩れ(30+)を確実に捕らえる。
+// 全体平均の画素差分(参考値。合否には使わない。0-255 スケール)。
 // 根拠: R1 Phase2 実測で修正後の diffNormal が両記録とも 8〜12 程度。
-// engine-parity.mjs(M2 Phase4)の refPainter(canvas2d)比較(2〜4)より
-// 大きいのは、headless Chrome 間の renderer 差 + WebGPU context の違い。
+// 15.0 はこの baseline に 50% の余裕を加えた値(反転(50+)やレイアウト
+// 崩れ(30+)は確実に捕らえるが、局所的な破綻には鈍い。§1.2 参照)。
 const DIFF_THRESHOLD = 15.0;
+
+// タイル分割の合否判定はここに集約(R4 Phase1)。
+// ダウンサンプル幅。旧 96px ではワイプ(1920px中375px=19.5%幅)がタイル
+// 分割後わずか数pxしか残らず輝度平均のノイズに埋もれる。480px(4倍)に
+// 上げると 16 分割で1タイルあたり 30px 幅(9分割で高さ方向も約30px)=
+// 900px 程度がタイルの平均に残り、局所的な破綻(内容が丸ごと別物)を
+// フォント差程度のノイズから切り分けられる。
+const TILE_DS_W = 480;
+// タイル分割数。16×9(グリッド出力時に見やすいアスペクト比)。
+const TILE_COLS = 16;
+const TILE_ROWS = 9;
+// タイル最大輝度差の閾値。較正実測(2026-07-28。未修正HEAD=§1.1のID衝突あり):
+//   2026-07-12 t=120   : tileDiffMax=126.03(ワイプタイル[13,8])diffNormal=10.92
+//   2026-07-21 t=150   : tileDiffMax= 87.07(ワイプタイル[7,8] )diffNormal= 8.76
+//   2026-07-21 t=72    : tileDiffMax= 55.07(ワイプタイル[5,8] )diffNormal= 7.81
+//   test        t=30   : tileDiffMax= 26.92(ワイプタイル[8,8] )diffNormal= 2.69
+//   test        t=50   : tileDiffMax= 27.88(ワイプタイル[7,8] )diffNormal= 2.70
+// いずれも最悪タイルは実際のワイプ位置(フレーム右下〜下部)と一致した。
+// 全体平均(diffNormal)は2.7〜10.9とR1較正時のbaseline(8〜12)と同水準なのに
+// タイル最大は27〜126と大きく外れる=「画面の一部だけが壊れている」を
+// タイル分割が的確に切り出せている証拠。20.0 はこの最小値(26.92)にまだ
+// 余裕があるが、フォント/AA差の baseline(全体平均と同水準の8〜12)は
+// タイル単位でも同程度以下になるはずなので、20.0 で無害な差を通しつつ
+// 全実測ケースの取り違えを落とせる。Phase2修正後の実測値は完了基準に記載
+const TILE_DIFF_THRESHOLD = 20.0;
 
 function parseArgs(argv) {
   const out = { dir: null, times: [], outDir: null, strictTopLeft: false };
@@ -197,7 +219,7 @@ async function newPageWs(browserWsUrl) {
   return info.webSocketDebuggerUrl;
 }
 
-function pageScript({ remotionUrl, engineUrl, label, outDir, strictTopLeft }) {
+function pageScript({ remotionUrl, engineUrl, label, outDir, strictTopLeft, tileDsW, tileCols, tileRows }) {
   return `
 (async () => {
   function loadImage(url) {
@@ -234,8 +256,7 @@ function pageScript({ remotionUrl, engineUrl, label, outDir, strictTopLeft }) {
   gctx.drawImage(ec, W, 0);
   gctx.drawImage(efc, W * 2, 0);
 
-  function downsample(c) {
-    const dsW = 96, dsH = Math.round((dsW * H) / W);
+  function downsampleTo(c, dsW, dsH) {
     const ds = document.createElement("canvas"); ds.width = dsW; ds.height = dsH;
     ds.getContext("2d").drawImage(c, 0, 0, dsW, dsH);
     return ds.getContext("2d").getImageData(0, 0, dsW, dsH).data;
@@ -257,11 +278,52 @@ function pageScript({ remotionUrl, engineUrl, label, outDir, strictTopLeft }) {
     return sum / (dataA.length / 4);
   }
 
-  const dataR = downsample(rc);
-  const dataE = downsample(ec);
-  const dataEF = downsample(efc);
-  const diffNormal = lumDiff(dataR, dataE);
-  const diffFlipped = lumDiff(dataR, dataEF);
+  // タイル別輝度差(R4 Phase1)。ダウンサンプル画像を cols×rows のタイルに
+  // 割り、各タイル内の輝度平均絶対差を出す。最大値を呼び出し側で拾う
+  function tileDiffs(dataA, dataB, dsW, dsH, cols, rows) {
+    const tiles = [];
+    for (let ty = 0; ty < rows; ty++) {
+      const y0 = Math.floor((ty * dsH) / rows);
+      const y1 = Math.floor(((ty + 1) * dsH) / rows);
+      for (let tx = 0; tx < cols; tx++) {
+        const x0 = Math.floor((tx * dsW) / cols);
+        const x1 = Math.floor(((tx + 1) * dsW) / cols);
+        let sum = 0, count = 0;
+        for (let y = y0; y < y1; y++) {
+          for (let x = x0; x < x1; x++) {
+            const i = (y * dsW + x) * 4;
+            const la = 0.299 * dataA[i] + 0.587 * dataA[i + 1] + 0.114 * dataA[i + 2];
+            const lb = 0.299 * dataB[i] + 0.587 * dataB[i + 1] + 0.114 * dataB[i + 2];
+            sum += Math.abs(la - lb);
+            count++;
+          }
+        }
+        tiles.push({ tx, ty, diff: count > 0 ? sum / count : 0 });
+      }
+    }
+    return tiles;
+  }
+
+  // 全体平均(参考値。反転検出にも使う)は従来どおり96px幅ダウンサンプルで
+  const dataR96 = downsampleTo(rc, 96, Math.round((96 * H) / W));
+  const dataE96 = downsampleTo(ec, 96, Math.round((96 * H) / W));
+  const dataEF96 = downsampleTo(efc, 96, Math.round((96 * H) / W));
+  const diffNormal = lumDiff(dataR96, dataE96);
+  const diffFlipped = lumDiff(dataR96, dataEF96);
+
+  // タイル判定は解像度を上げたダウンサンプルで行う(合否の主判定)
+  const tileDsH = Math.round((${tileDsW} * H) / W);
+  const dataRtile = downsampleTo(rc, ${tileDsW}, tileDsH);
+  const dataEtile = downsampleTo(ec, ${tileDsW}, tileDsH);
+  const tiles = tileDiffs(dataRtile, dataEtile, ${tileDsW}, tileDsH, ${tileCols}, ${tileRows});
+  let worstTile = tiles[0];
+  for (const t of tiles) if (t.diff > worstTile.diff) worstTile = t;
+  const worstTileRect = {
+    x: Math.round((worstTile.tx * W) / ${tileCols}),
+    y: Math.round((worstTile.ty * H) / ${tileRows}),
+    w: Math.round(W / ${tileCols}),
+    h: Math.round(H / ${tileRows}),
+  };
 
   let topleftDiff = null;
   if (${strictTopLeft}) {
@@ -271,7 +333,14 @@ function pageScript({ remotionUrl, engineUrl, label, outDir, strictTopLeft }) {
     topleftDiff = lumDiff(dataRtl, dataEtl);
   }
 
-  return { diffNormal, diffFlipped, topleftDiff, gridDataUrl: gc.toDataURL("image/png") };
+  return {
+    diffNormal,
+    diffFlipped,
+    topleftDiff,
+    tileDiffMax: worstTile.diff,
+    worstTile: { tx: worstTile.tx, ty: worstTile.ty, rect: worstTileRect },
+    gridDataUrl: gc.toDataURL("image/png"),
+  };
 })()`;
 }
 
@@ -336,25 +405,31 @@ window.__PNGS = ${JSON.stringify(pngs)};
       const remotionUrl = `${baseUrl}/remotion/${pngName}`;
       const engineUrl = `${baseUrl}/engine/${pngName}`;
       const label = pngName.replace(/^out/, "").replace(/s\.png$/, "");
-      const expr = pageScript({ remotionUrl, engineUrl, label, outDir, strictTopLeft });
+      const expr = pageScript({
+        remotionUrl, engineUrl, label, outDir, strictTopLeft,
+        tileDsW: TILE_DS_W, tileCols: TILE_COLS, tileRows: TILE_ROWS,
+      });
       const evalResult = await cdp.send("Runtime.evaluate", {
         expression: expr, awaitPromise: true, returnByValue: true,
       });
       if (evalResult.exceptionDetails) {
         throw new Error(`t=${label}: ${JSON.stringify(evalResult.exceptionDetails.exception?.description ?? evalResult.exceptionDetails)}`);
       }
-      const { diffNormal, diffFlipped, topleftDiff, gridDataUrl } = evalResult.result.value;
+      const { diffNormal, diffFlipped, topleftDiff, tileDiffMax, worstTile, gridDataUrl } = evalResult.result.value;
       const gridPath = join(outDir, `grid-t${label}.png`);
       writeFileSync(gridPath, Buffer.from(gridDataUrl.split(",")[1], "base64"));
 
       const flippedFlag = diffFlipped < diffNormal;
-      const mismatchFlag = diffNormal > DIFF_THRESHOLD;
+      // 合否はタイル最大差で決める(R4 決定3。全体平均は参考値のみ)
+      const tileMismatch = tileDiffMax > TILE_DIFF_THRESHOLD;
       const tlMismatch = topleftDiff !== null && topleftDiff > DIFF_THRESHOLD;
-      const status = flippedFlag ? "上下反転を検出" : (mismatchFlag || tlMismatch) ? "不一致" : "一致";
+      const status = flippedFlag ? "上下反転を検出" : (tileMismatch || tlMismatch) ? "不一致" : "一致";
       const tlStr = topleftDiff !== null ? ` topleftDiff=${topleftDiff.toFixed(2)}` : "";
-      console.log(`  t=${label}s: diffNormal=${diffNormal.toFixed(2)} diffFlipped=${diffFlipped.toFixed(2)}${tlStr} → ${status}`);
+      const worstStr = ` tileDiffMax=${tileDiffMax.toFixed(2)}(タイル[${worstTile.tx},${worstTile.ty}] ` +
+        `= 出力px矩形 x=${worstTile.rect.x},y=${worstTile.rect.y},w=${worstTile.rect.w},h=${worstTile.rect.h})`;
+      console.log(`  t=${label}s: diffNormal=${diffNormal.toFixed(2)}(参考) diffFlipped=${diffFlipped.toFixed(2)}${tlStr}${worstStr} → ${status}`);
       if (flippedFlag) anyFlipped = true;
-      if (mismatchFlag || tlMismatch) anyMismatch = true;
+      if (tileMismatch || tlMismatch) anyMismatch = true;
     }
 
     cdp.close();
