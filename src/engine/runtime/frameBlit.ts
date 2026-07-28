@@ -158,7 +158,24 @@ export function blitVideoSample(source: BlitSource, opts: BlitVideoOptions): Bli
     ctx.clip();
   }
   if (isVideoSample(source)) {
-    source.draw(ctx, sourceRect.x, sourceRect.y, sourceRect.w, sourceRect.h, 0, 0, destSize.w, destSize.h);
+    // Safari(WebKit)は drawImage の元矩形(sx,sy,sWidth,sHeight)を、ソースが
+    // VideoFrame のときだけ無視してフレーム全体を宛先へ引き伸ばす(Chromium は
+    // 仕様どおり切り出す)。mediabunny の draw() は最終的に
+    // ctx.drawImage(VideoFrame, sx,sy,sw,sh, ...) を呼ぶので、元矩形で切り出す
+    // 書き方は Safari では効かない=画面パネルもワイプも全景の幅圧縮になる。
+    // よって元矩形を渡さない 4 引数形式(内部の元矩形はフレーム全体=切り出し
+    // 無し)を使い、フレーム全体を destSize/sourceRect 倍に拡大して sourceRect の
+    // 左上が原点に来るよう負のオフセットで置く。canvas は destSize ちょうどなので
+    // はみ出しはキャンバス境界で捨てられ、結果は9引数形式と同じになる。
+    const scaleX = destSize.w / sourceRect.w;
+    const scaleY = destSize.h / sourceRect.h;
+    source.draw(
+      ctx,
+      -sourceRect.x * scaleX,
+      -sourceRect.y * scaleY,
+      natural.w * scaleX,
+      natural.h * scaleY,
+    );
   } else {
     ctx.drawImage(source, sourceRect.x, sourceRect.y, sourceRect.w, sourceRect.h, 0, 0, destSize.w, destSize.h);
   }
