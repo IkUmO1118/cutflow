@@ -587,6 +587,24 @@ GPU 初期化に失敗したときはエディタが実行時に自動で `"lega
 バックし、プレビュー上部にその旨のバナーを出す。Safari など WebGPU 非対応
 環境はこれで自動的に従来経路のまま使える。
 
+## 書き出しの合成エンジン(config.yaml の render.engineExport)
+
+`render.engineExport`(既定 `true`)は `render` / `frames` / `thumbnail` の
+**3コマンド**に共通で効く、書き出し側の合成エンジン切り替え。`preview.engine`
+がエディタのプレビュー表示だけを対象にするのに対し、こちらは実際に
+`final.mp4` / `frames/*.png` / `thumbnail.png` を作る側。
+
+既定 `true` では新エンジン(WebGPU compositor + CDP capture + ffmpeg)を
+まず試す。エンジン経路が失敗したとき(GPU 初期化失敗・実装欠陥等)は
+警告を出して自動的に従来の Remotion 経路へフォールバックするため、
+既定のままで安全に使える。`false` にすると常に Remotion 経路に固定される
+(新旧比較検証用。フォールバックの有無を切り分けたいときに使う)。
+
+```yaml
+render:
+  engineExport: false   # 常に Remotion 経路を使う(検証用)
+```
+
 ## 環境プリフライト(doctor)
 
 `node src/cli.ts doctor` は収録に入る前の環境チェック(読み取り専用)。
