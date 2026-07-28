@@ -142,14 +142,11 @@ function bundleExporterFile(outDir: string): string {
 function buildExportHtml(outDir: string, configJson: string): void {
   bundleExporterFile(outDir);
   const bundleName = "export-bundle.js";
-  if (join(outDir, bundleName) !== join(outDir, bundleName)) {
-    // bundle already written by bundleExporterFile, just write html
-  }
   const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>CutFlow Engine</title>
 <style>body{margin:0;background:#000;overflow:hidden}
 #canvas-host{position:absolute;top:0;left:0}
-#export-status{position:fixed;top:8px;left:8px;color:#fff;font:12px monospace;z-index:1}
+#export-status{position:fixed;top:8px;left:8px;color:#fff;font:12px monospace}
 </style></head><body>
 <div id="canvas-host"></div>
 <div id="export-status">初期化中…</div>

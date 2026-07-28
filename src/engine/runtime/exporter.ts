@@ -79,11 +79,12 @@ async function init(): Promise<void> {
     host.innerHTML = "";
     host.appendChild(compositor.canvas);
   } catch (e) {
+    statusEl.style.display = "";
     statusEl.textContent = `GPU init failed: ${String(e)}`;
     throw e;
   }
   ready = true;
-  statusEl.textContent = "準備完了";
+  statusEl.style.display = "none";
 }
 
 async function renderFrame(tOut: number): Promise<FrameEntry> {
