@@ -199,6 +199,7 @@ export class AudioScheduler {
   private timer: ReturnType<typeof setInterval> | null = null;
   private mutedBase: boolean;
   private mutedBgm: boolean;
+  private _queuedDurationSec = 0;
 
   constructor(opts: AudioSchedulerOptions) {
     this.opts = opts;
@@ -369,6 +370,7 @@ export class AudioScheduler {
       }
       nodes.clear();
     }
+    this._queuedDurationSec = 0;
   }
 
   private scheduleWindow(currentSec: number, resolveUrl: (file: string) => string): void {
@@ -453,6 +455,28 @@ export class AudioScheduler {
     this.scheduling = false;
   }
 
+  private trackNode(
+    node: AudioBufferSourceNode,
+    dur: number,
+    set: Set<AudioBufferSourceNode>,
+  ): void {
+    set.add(node);
+    this._queuedDurationSec += dur;
+    node.addEventListener("ended", () => {
+      node.disconnect();
+      set.delete(node);
+      this._queuedDurationSec -= dur;
+    });
+  }
+
+  queuedNodeCount(): number {
+    return this.queuedBaseNodes.size + this.queuedBgmNodes.size + this.queuedOverlayNodes.size + this.queuedInsertNodes.size;
+  }
+
+  scheduledOutputSec(): number {
+    return this._queuedDurationSec;
+  }
+
   private async scheduleBaseEntry(entry: TimelineEntry, sessionId: number): Promise<void> {
     const sink = await this.ensureBaseSink();
     if (!sink || sessionId !== this.sessionId) return;
@@ -465,8 +489,6 @@ export class AudioScheduler {
     if (!buffer || sessionId !== this.sessionId) return;
     const node = this.audioContext.createBufferSource();
     node.buffer = buffer;
-    // entry.speed(cutplan の区間速度)と mapping.rate(プレビューの全体再生速度。
-    // M3b)は独立な倍率なので掛け合わせる
     const combinedRate = entry.speed * (this.mapping.rate ?? 1);
     if (combinedRate !== 1) node.playbackRate.value = combinedRate;
     node.connect(this.masterGain);
@@ -478,11 +500,7 @@ export class AudioScheduler {
       if (offset < buffer.duration) node.start(this.audioContext.currentTime, offset);
       else return;
     }
-    this.queuedBaseNodes.add(node);
-    node.addEventListener("ended", () => {
-      node.disconnect();
-      this.queuedBaseNodes.delete(node);
-    });
+    this.trackNode(node, buffer.duration, this.queuedBaseNodes);
   }
 
   private async scheduleBgmTrack(
@@ -525,11 +543,7 @@ export class AudioScheduler {
       if (offset < buffer.duration) node.start(this.audioContext.currentTime, offset);
       else return;
     }
-    this.queuedBgmNodes.add(node);
-    node.addEventListener("ended", () => {
-      node.disconnect();
-      this.queuedBgmNodes.delete(node);
-    });
+    this.trackNode(node, buffer.duration, this.queuedBgmNodes);
   }
 
   private async scheduleClipEntry(
@@ -578,11 +592,7 @@ export class AudioScheduler {
       if (offset < buffer.duration) node.start(this.audioContext.currentTime, offset);
       else return;
     }
-    queuedSet.add(node);
-    node.addEventListener("ended", () => {
-      node.disconnect();
-      queuedSet.delete(node);
-    });
+    this.trackNode(node, buffer.duration, queuedSet);
   }
 
   /** マスター音量を即時反映する(0..1。EnginePreview の setVolume 用) */
@@ -599,6 +609,7 @@ export class AudioScheduler {
         }
         nodes.clear();
       }
+      this._queuedDurationSec = 0;
     }
     if (!muteBase) {
       this.scheduledBaseKeys.clear();
@@ -610,6 +621,7 @@ export class AudioScheduler {
         node.disconnect();
       }
       this.queuedBgmNodes.clear();
+      this._queuedDurationSec = 0;
     }
     if (!muteBgm) this.scheduledBgmKeys.clear();
     this.mutedBase = muteBase;
