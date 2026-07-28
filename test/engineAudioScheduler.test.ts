@@ -59,6 +59,39 @@ test("AudioScheduler.setVolume: masterGain.gain.value へ即時反映する", ()
   assert.equal(gainNodes[0].gain.value, 0.25);
 });
 
+test("AudioScheduler.setMute: ミュート有効時の予約キークリアと状態遷移が例外を投げない", () => {
+  const { audioContext } = mockAudioContext();
+  const scheduler = new AudioScheduler({
+    audioContext,
+    baseAudioUrl: "/media/proxy.mp4",
+    timeline: [],
+    bgm: [],
+    fps: 30,
+    muteBase: false,
+    muteBgm: false,
+  });
+  scheduler.setMute(true, false);
+  scheduler.setMute(false, true);
+  scheduler.setMute(false, false);
+  scheduler.setMute(true, true);
+  assert.doesNotThrow(() => scheduler.setMute(false, false));
+});
+
+test("AudioScheduler: constructorでmuteBase/muteBgmが初期化されsetMuteで例外なく遷移する", () => {
+  const { audioContext } = mockAudioContext();
+  const s1 = new AudioScheduler({
+    audioContext,
+    baseAudioUrl: "/media/proxy.mp4",
+    timeline: [],
+    bgm: [],
+    fps: 30,
+    muteBase: true,
+    muteBgm: true,
+  });
+  assert.doesNotThrow(() => s1.setMute(false, false));
+  assert.doesNotThrow(() => s1.setMute(true, true));
+});
+
 test("AudioScheduler.dispose: masterGain を disconnect し、2重呼び出しでも例外を投げない", () => {
   const { audioContext } = mockAudioContext();
   const scheduler = new AudioScheduler({

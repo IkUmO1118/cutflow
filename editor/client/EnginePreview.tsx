@@ -127,6 +127,8 @@ export const EnginePreview = forwardRef<PreviewHandle, EnginePreviewProps>(funct
           timeline: timelineFromBaseSegments(props),
           bgm: props.bgm,
           fps: fpsRef.current,
+          muteBase: props.muteBase,
+          muteBgm: props.muteBgm,
         });
         scheduler.setVolume(volumeRef.current);
         schedulerRef.current = scheduler;
@@ -136,6 +138,11 @@ export const EnginePreview = forwardRef<PreviewHandle, EnginePreviewProps>(funct
     if (!playingRef.current) void repaintAt(clockRef.current?.currentOutputSec() ?? 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props]);
+
+  // トラックミュート: mute のたびにスケジューラを作り直さず setMute で反映
+  useEffect(() => {
+    schedulerRef.current?.setMute(props.muteBase ?? false, props.muteBgm ?? false);
+  }, [props.muteBase, props.muteBgm]);
 
   // playbackRate の変更: clock の rate を切り替え、再生中なら scheduler の
   // 予約をその rate で引き直す(T1-1/T1-2 が担保する mapping.rate 経由)
@@ -185,6 +192,8 @@ export const EnginePreview = forwardRef<PreviewHandle, EnginePreviewProps>(funct
         timeline: initialTimeline,
         bgm: props.bgm,
         fps,
+        muteBase: props.muteBase,
+        muteBgm: props.muteBgm,
       });
       scheduler.setVolume(volumeRef.current);
       schedulerRef.current = scheduler;

@@ -155,15 +155,20 @@ export class AudioScheduler {
   private sessionId = 0;
   private scheduledBaseKeys = new Set<string>();
   private scheduledBgmKeys = new Set<string>();
-  private queuedNodes = new Set<AudioBufferSourceNode>();
+  private queuedBaseNodes = new Set<AudioBufferSourceNode>();
+  private queuedBgmNodes = new Set<AudioBufferSourceNode>();
   private bgmGainNodes = new Map<number, GainNode>();
   private timer: ReturnType<typeof setInterval> | null = null;
+  private mutedBase: boolean;
+  private mutedBgm: boolean;
 
   constructor(opts: AudioSchedulerOptions) {
     this.opts = opts;
     this.audioContext = opts.audioContext;
     this.masterGain = opts.audioContext.createGain();
     this.masterGain.connect(opts.audioContext.destination);
+    this.mutedBase = opts.muteBase ?? false;
+    this.mutedBgm = opts.muteBgm ?? false;
   }
 
   private async ensureBaseSink(): Promise<AudioBufferSink | null> {
@@ -244,15 +249,17 @@ export class AudioScheduler {
   }
 
   private stopScheduledNodes(): void {
-    for (const node of this.queuedNodes) {
-      try {
-        node.stop();
-      } catch {
-        // 既に終わっている場合は無視
+    for (const nodes of [this.queuedBaseNodes, this.queuedBgmNodes]) {
+      for (const node of nodes) {
+        try {
+          node.stop();
+        } catch {
+          // 既に終わっている場合は無視
+        }
+        node.disconnect();
       }
-      node.disconnect();
+      nodes.clear();
     }
-    this.queuedNodes.clear();
   }
 
   private scheduleWindow(currentSec: number, resolveBgmUrl: (file: string) => string): void {
@@ -261,7 +268,7 @@ export class AudioScheduler {
     const sessionId = this.sessionId;
     const windowEnd = currentSec + LOOKAHEAD_SEC;
 
-    if (!this.opts.muteBase) {
+    if (!this.mutedBase) {
       this.opts.timeline.forEach((entry, index) => {
         const key = String(index);
         if (this.scheduledBaseKeys.has(key)) return;
@@ -274,7 +281,7 @@ export class AudioScheduler {
       });
     }
 
-    if (!this.opts.muteBgm) {
+    if (!this.mutedBgm) {
       this.opts.bgm.forEach((track, index) => {
         const key = String(index);
         if (this.scheduledBgmKeys.has(key)) return;
@@ -322,10 +329,10 @@ export class AudioScheduler {
       if (offset < buffer.duration) node.start(this.audioContext.currentTime, offset);
       else return;
     }
-    this.queuedNodes.add(node);
+    this.queuedBaseNodes.add(node);
     node.addEventListener("ended", () => {
       node.disconnect();
-      this.queuedNodes.delete(node);
+      this.queuedBaseNodes.delete(node);
     });
   }
 
@@ -369,16 +376,37 @@ export class AudioScheduler {
       if (offset < buffer.duration) node.start(this.audioContext.currentTime, offset);
       else return;
     }
-    this.queuedNodes.add(node);
+    this.queuedBgmNodes.add(node);
     node.addEventListener("ended", () => {
       node.disconnect();
-      this.queuedNodes.delete(node);
+      this.queuedBgmNodes.delete(node);
     });
   }
 
   /** マスター音量を即時反映する(0..1。EnginePreview の setVolume 用) */
   setVolume(v: number): void {
     this.masterGain.gain.value = v;
+  }
+
+  setMute(muteBase: boolean, muteBgm: boolean): void {
+    if (muteBase && !this.mutedBase) {
+      for (const node of this.queuedBaseNodes) {
+        try { node.stop(); } catch {}
+        node.disconnect();
+      }
+      this.queuedBaseNodes.clear();
+    }
+    if (!muteBase) this.scheduledBaseKeys.clear();
+    if (muteBgm && !this.mutedBgm) {
+      for (const node of this.queuedBgmNodes) {
+        try { node.stop(); } catch {}
+        node.disconnect();
+      }
+      this.queuedBgmNodes.clear();
+    }
+    if (!muteBgm) this.scheduledBgmKeys.clear();
+    this.mutedBase = muteBase;
+    this.mutedBgm = muteBgm;
   }
 
   dispose(): void {
