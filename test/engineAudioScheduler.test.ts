@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import {
   AudioScheduler,
   buildBgmGainAutomation,
+  concatAudioBuffers,
   contextTimeForOutputSec,
   shouldScheduleEntry,
 } from "../src/engine/runtime/audioScheduler.ts";
@@ -113,6 +114,55 @@ test("buildBgmGainAutomation: fadeInSecの終端でフル音量に達する折�
   const atStart = points.find((p) => p.atSec === 10);
   assert.ok(atStart);
   assert.ok((atStart as { gain: number }).gain < 0.01, "fadeIn開始直後はほぼ無音のはず");
+});
+
+function fakeCreateBuffer() {
+  return (channels: number, length: number, sampleRate: number): AudioBuffer => {
+    const data: Float32Array[] = [];
+    for (let c = 0; c < channels; c++) data.push(new Float32Array(length));
+    return {
+      sampleRate,
+      length,
+      duration: length / sampleRate,
+      numberOfChannels: channels,
+      getChannelData: (c: number) => data[c],
+      copyFromChannel: () => {},
+      copyToChannel: () => {},
+    } as unknown as AudioBuffer;
+  };
+}
+
+test("concatAudioBuffers: 3枚の連結で長さと値が連続する", () => {
+  const ctx = { createBuffer: fakeCreateBuffer() };
+  const b1 = ctx.createBuffer(1, 3, 48000);
+  b1.getChannelData(0).set([1, 2, 3]);
+  const b2 = ctx.createBuffer(1, 2, 48000);
+  b2.getChannelData(0).set([4, 5]);
+  const b3 = ctx.createBuffer(1, 4, 48000);
+  b3.getChannelData(0).set([6, 7, 8, 9]);
+  const out = concatAudioBuffers([b1, b2, b3], ctx);
+  assert.ok(out);
+  assert.equal(out!.length, 9);
+  assert.deepEqual(Array.from(out!.getChannelData(0)), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+});
+
+test("concatAudioBuffers: 空配列はnull", () => {
+  const ctx = { createBuffer: fakeCreateBuffer() };
+  assert.equal(concatAudioBuffers([], ctx), null);
+});
+
+test("concatAudioBuffers: sampleRate不一致は例外", () => {
+  const ctx = { createBuffer: fakeCreateBuffer() };
+  const b1 = ctx.createBuffer(1, 1, 48000);
+  const b2 = ctx.createBuffer(1, 1, 44100);
+  assert.throws(() => concatAudioBuffers([b1, b2], ctx), /mismatched sampleRate/);
+});
+
+test("concatAudioBuffers: channel数不一致は例外", () => {
+  const ctx = { createBuffer: fakeCreateBuffer() };
+  const b1 = ctx.createBuffer(1, 1, 48000);
+  const b2 = ctx.createBuffer(2, 1, 48000);
+  assert.throws(() => concatAudioBuffers([b1, b2], ctx), /mismatched numberOfChannels/);
 });
 
 test("buildBgmGainAutomation: duck spansの境界(前後fadeSec込み)で折れ点が入る", () => {

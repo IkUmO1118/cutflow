@@ -68,6 +68,33 @@ export function buildBgmGainAutomation(track: BgmTrack, fps: number): GainAutoma
 const LOOKAHEAD_SEC = 2;
 const SCHEDULE_INTERVAL_MS = 500;
 
+export interface CreateBuffer {
+  createBuffer(channels: number, length: number, sampleRate: number): AudioBuffer;
+}
+
+export function concatAudioBuffers(
+  buffers: AudioBuffer[],
+  ctx: CreateBuffer,
+): AudioBuffer | null {
+  if (buffers.length === 0) return null;
+  const sr = buffers[0].sampleRate;
+  const ch = buffers[0].numberOfChannels;
+  for (const b of buffers) {
+    if (b.sampleRate !== sr) throw new Error("concatAudioBuffers: mismatched sampleRate");
+    if (b.numberOfChannels !== ch) throw new Error("concatAudioBuffers: mismatched numberOfChannels");
+  }
+  const totalLen = buffers.reduce((sum, b) => sum + b.length, 0);
+  const out = ctx.createBuffer(ch, totalLen, sr);
+  let offset = 0;
+  for (const b of buffers) {
+    for (let c = 0; c < ch; c++) {
+      out.getChannelData(c).set(b.getChannelData(c), offset);
+    }
+    offset += b.length;
+  }
+  return out;
+}
+
 export interface AudioSchedulerOptions {
   audioContext: AudioContext;
   /** proxy.mp4(音声トラック込み)の URL。keep セグメントの音源 */
@@ -205,14 +232,12 @@ export class AudioScheduler {
   private async scheduleBaseEntry(entry: TimelineEntry, sessionId: number): Promise<void> {
     const sink = await this.ensureBaseSink();
     if (!sink || sessionId !== this.sessionId) return;
-    // keep セグメント全体を1つの AudioBuffer として取り出す(再生位置=
-    // entry.sourceStart から entry.sourceEnd まで)。区間は数秒〜数十秒が
-    // 通常でありメモリ上問題ない前提(cut.mp4 と同じ粒度)
-    let buffer: AudioBuffer | null = null;
+    const chunks: AudioBuffer[] = [];
     for await (const chunk of sink.buffers(entry.sourceStart, entry.sourceEnd)) {
-      buffer = chunk.buffer;
-      break; // 先頭チャンクだけで足りるかは §5 検証課題。Phase5 で実測して分割要否を決める
+      if (sessionId !== this.sessionId) return;
+      chunks.push(chunk.buffer);
     }
+    const buffer = concatAudioBuffers(chunks, this.audioContext);
     if (!buffer || sessionId !== this.sessionId) return;
     const node = this.audioContext.createBufferSource();
     node.buffer = buffer;
@@ -244,11 +269,12 @@ export class AudioScheduler {
     const sink = await this.ensureBgmSink(track.file, resolveBgmUrl);
     if (!sink || sessionId !== this.sessionId) return;
     const startFrom = track.startFrom ?? 0;
-    let buffer: AudioBuffer | null = null;
+    const chunks: AudioBuffer[] = [];
     for await (const chunk of sink.buffers(startFrom, startFrom + (track.end - track.start))) {
-      buffer = chunk.buffer;
-      break;
+      if (sessionId !== this.sessionId) return;
+      chunks.push(chunk.buffer);
     }
+    const buffer = concatAudioBuffers(chunks, this.audioContext);
     if (!buffer || sessionId !== this.sessionId) return;
 
     const node = this.audioContext.createBufferSource();
