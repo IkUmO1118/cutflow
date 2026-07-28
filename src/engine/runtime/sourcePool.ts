@@ -38,6 +38,12 @@ export class SourcePool {
     this.maxConcurrent = maxConcurrent;
   }
 
+  /** 画像 external item(design 背景・画像 overlay)も同じ URL 解決規則を
+   * 使うため、compositor.ts のImageCache から呼べるように公開する */
+  urlOf(sourceId: string): string {
+    return this.resolveUrl(sourceId);
+  }
+
   /** sourceId に対応する FrameSource を返す(無ければ作る)。LRU 順を更新する */
   acquire(sourceId: string): FrameSource {
     this.touch(sourceId);

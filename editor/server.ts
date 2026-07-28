@@ -25,10 +25,11 @@ import { resolveDesign } from "../src/lib/design.ts";
 import { existingDesignAssets, prepareDesignAssetBundle } from "../src/lib/designStill.ts";
 import {
   buildEditorClientAssets,
+  buildEngineDevAssets,
   createEditorClientReloader,
   editorAssetResponse,
 } from "./clientBuild.ts";
-import type { MutableEditorClientAssets } from "./clientBuild.ts";
+import type { EngineDevAssets, MutableEditorClientAssets } from "./clientBuild.ts";
 import {
   clearCutplanApproval,
   clearShortApproval,
@@ -159,6 +160,9 @@ export async function startEditor(
   const assets: MutableEditorClientAssets = {
     current: await buildEditorClientAssets(editorDir, 1),
   };
+  // M3a Phase5 の開発専用ページ(GET /engine-dev)。ホットリロード無し
+  // (変更後はサーバ再起動が要る。§clientBuild.ts buildEngineDevAssets)
+  const engineDevAssets = await buildEngineDevAssets(editorDir);
   const clientReloader = createEditorClientReloader({
     assets,
     build: async (revision) => await buildEditorClientAssets(editorDir, revision),
@@ -196,7 +200,7 @@ export async function startEditor(
   });
 
   const server = createServer((req, res) => {
-    handle(req, res, dir, cfg, cfgPath, assets, hub).catch((err: Error) => {
+    handle(req, res, dir, cfg, cfgPath, assets, hub, engineDevAssets).catch((err: Error) => {
       // HttpError は想定内の拒否(不正な保存=400、大きすぎる素材=413 等)。
       // それ以外は想定外なのでログに残して 500 で返す
       if (err instanceof HttpError) {
@@ -340,6 +344,7 @@ async function handle(
   cfgPath: string,
   assets: MutableEditorClientAssets,
   hub: EventHub,
+  engineDevAssets: EngineDevAssets,
 ): Promise<void> {
   const url = new URL(req.url ?? "/", "http://localhost");
   const path = url.pathname;
@@ -873,6 +878,31 @@ async function handle(
   }
   if (req.method === "GET" && path.startsWith("/media/")) {
     serveMedia(req, res, dir, decodeURIComponent(path.slice("/media/".length)));
+    return;
+  }
+  // M3a Phase5 の開発専用ページ(docs/plans/2026-07-28-engine-m3a-engine-core-design.md
+  // §4 Phase5)。リンクは張らない。?dir= はこのサーバが束縛している収録
+  // フォルダと一致することを要求する(誤って別インスタンスへ迷い込むことの
+  // 防止。実データは常にこのプロセスが起動時に束縛した dir から取る)
+  if (req.method === "GET" && path === "/engine-dev") {
+    const requestedDir = url.searchParams.get("dir");
+    if (!requestedDir) {
+      sendJson(res, 400, { error: "?dir= が必要です(このサーバが束縛している収録フォルダの絶対パス)" });
+      return;
+    }
+    if (resolve(requestedDir) !== resolve(dir)) {
+      sendJson(res, 400, {
+        error: `?dir= がこのサーバの収録フォルダと一致しません(このサーバ: ${dir})`,
+      });
+      return;
+    }
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+    res.end(engineDevAssets.indexHtml);
+    return;
+  }
+  if (req.method === "GET" && path === "/engine-dev/bundle.js") {
+    res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store" });
+    res.end(engineDevAssets.bundleJs);
     return;
   }
   sendJson(res, 404, { error: `not found: ${path}` });

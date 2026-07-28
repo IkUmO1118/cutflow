@@ -90,9 +90,34 @@ export interface RenderStats {
  * 呼び出し側(engine-dev ページ)が timeline.ts の写像から組み立てる */
 export type SourceTimeResolver = (item: ExternalItem) => number;
 
+/** 静止画(sourceId)→ デコード済み ImageBitmap のキャッシュ。1度取得したら
+ * 保持し続ける(サイズも件数も小さい前提=design 背景・画像 overlay のみ) */
+class ImageCache {
+  private readonly bitmaps = new Map<string, Promise<ImageBitmap | null>>();
+
+  async get(sourceId: string, url: string): Promise<ImageBitmap | null> {
+    let promise = this.bitmaps.get(sourceId);
+    if (!promise) {
+      promise = fetch(url)
+        .then((res) => {
+          if (!res.ok) throw new Error(`image fetch failed: ${url} (${res.status})`);
+          return res.blob();
+        })
+        .then((blob) => createImageBitmap(blob))
+        .catch((e) => {
+          console.error(`ImageCache: ${sourceId} (${url}) のデコードに失敗`, e);
+          return null;
+        });
+      this.bitmaps.set(sourceId, promise);
+    }
+    return promise;
+  }
+}
+
 export class EngineCompositor {
   readonly canvas: HTMLCanvasElement;
   private readonly textures = new TextureCache();
+  private readonly imageCache = new ImageCache();
   private readonly sourcePool: SourcePool;
   private readonly canvasSize?: { w: number; h: number };
 
@@ -121,6 +146,7 @@ export class EngineCompositor {
   }
 
   private async resolveExternalLayer(item: ExternalItem, sourceTimeOf: SourceTimeResolver): Promise<CompositorLayerInput | null> {
+    if (item.sourceKind === "image") return this.resolveImageLayer(item);
     const source = this.sourcePool.acquire(item.sourceId);
     const sample = await source.getSampleAt(sourceTimeOf(item));
     if (!sample) return null;
@@ -135,6 +161,26 @@ export class EngineCompositor {
     // blit は同期処理で完結している(frameBlit.ts の契約)ので、ここで
     // 即 close してよい(§5 落とし穴。所有権: frameSource→blit→close)
     sample.close();
+    this.textures.ensureRaw(id, canvas);
+    return { textureId: id, transform: quadToTransform(quad), opacity: item.opacity };
+  }
+
+  /** 静止画(design 背景・画像 overlay)。時間軸を持たないため mediabunny の
+   * VideoSampleSink は使わず fetch+createImageBitmap で1度だけデコードして
+   * キャッシュする(ImageBitmap は close() が要らない=§5 落とし穴の対象外) */
+  private async resolveImageLayer(item: ExternalItem): Promise<CompositorLayerInput | null> {
+    const bitmap = await this.imageCache.get(item.sourceId, this.sourcePool.urlOf(item.sourceId));
+    if (!bitmap) return null;
+    const colorFilter = item.effects?.find((e): e is ColorFilterEffect => e.kind === "colorFilter");
+    const { canvas, quad } = blitVideoSample(bitmap, {
+      placement: item.placement,
+      canvasSize: this.canvasSize,
+      colorFilter,
+      radiusPx: item.radiusPx,
+    });
+    // 画像は時間軸が無いので timestamp の代わりに固定値(0)を使う
+    // (sourceId+colorFilter だけで内容が一意に決まる)
+    const id = externalTextureId(item.sourceId, 0, colorFilter);
     this.textures.ensureRaw(id, canvas);
     return { textureId: id, transform: quadToTransform(quad), opacity: item.opacity };
   }

@@ -105,13 +105,24 @@ export interface BlitVideoResult {
   quad: Rect;
 }
 
+/** 動画フレーム(VideoSample)か静止画(ImageBitmap。design 背景・画像
+ * overlay 用)のどちらかを受け付ける。close() が要るのは VideoSample だけ
+ * (§5 落とし穴。ImageBitmap は呼び出し側でキャッシュし続けてよい) */
+export type BlitSource = VideoSample | ImageBitmap;
+
+function isVideoSample(source: BlitSource): source is VideoSample {
+  return "displayWidth" in source && "draw" in source;
+}
+
 /**
- * VideoSample を OffscreenCanvas へ blit する。同期処理(このコールバック内で
- * サンプルのピクセルを消費し終える)なので、呼び出し側は返り値を受け取ったら
- * すぐに sample.close() してよい。
+ * VideoSample または ImageBitmap を OffscreenCanvas へ blit する。同期処理
+ * (このコールバック内でソースのピクセルを消費し終える)なので、
+ * VideoSample の場合は呼び出し側が返り値を受け取ったらすぐ close() してよい。
  */
-export function blitVideoSample(sample: VideoSample, opts: BlitVideoOptions): BlitVideoResult {
-  const natural = { w: sample.displayWidth, h: sample.displayHeight };
+export function blitVideoSample(source: BlitSource, opts: BlitVideoOptions): BlitVideoResult {
+  const natural = isVideoSample(source)
+    ? { w: source.displayWidth, h: source.displayHeight }
+    : { w: source.width, h: source.height };
 
   let sourceRect: Rect;
   let quad: Rect;
@@ -141,7 +152,11 @@ export function blitVideoSample(sample: VideoSample, opts: BlitVideoOptions): Bl
     ctx.roundRect(0, 0, destSize.w, destSize.h, Math.min(opts.radiusPx, destSize.w / 2, destSize.h / 2));
     ctx.clip();
   }
-  sample.draw(ctx, sourceRect.x, sourceRect.y, sourceRect.w, sourceRect.h, 0, 0, destSize.w, destSize.h);
+  if (isVideoSample(source)) {
+    source.draw(ctx, sourceRect.x, sourceRect.y, sourceRect.w, sourceRect.h, 0, 0, destSize.w, destSize.h);
+  } else {
+    ctx.drawImage(source, sourceRect.x, sourceRect.y, sourceRect.w, sourceRect.h, 0, 0, destSize.w, destSize.h);
+  }
   ctx.restore();
 
   // GPU レイヤーの transform(§3 compositor.ts)は絶対フレーム座標の quad を要る

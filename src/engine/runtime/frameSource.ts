@@ -86,10 +86,17 @@ export class FrameSource {
   private async ensureInit(): Promise<void> {
     if (this.sink) return;
     const input = new Input({ source: new UrlSource(this.url), formats: ALL_FORMATS });
-    const track = await input.getPrimaryVideoTrack();
+    let track;
+    try {
+      track = await input.getPrimaryVideoTrack();
+    } catch (e) {
+      throw new Error(`frameSource: ${this.sourceId} (${this.url}) の初期化に失敗: ${(e as Error).message}`, {
+        cause: e,
+      });
+    }
     if (!track) {
       input.dispose();
-      throw new Error(`frameSource: ${this.sourceId} に映像トラックが無い`);
+      throw new Error(`frameSource: ${this.sourceId} (${this.url}) に映像トラックが無い`);
     }
     this.input = input;
     this.sink = new VideoSampleSink(track);
