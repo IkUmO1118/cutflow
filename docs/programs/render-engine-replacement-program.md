@@ -13,20 +13,20 @@
 
 ## 0. 他エージェント向け: 現在地と次の一手
 
-- **現在地**: **M1〜M4 実装済み・ただし重大欠陥3件で是正中（R1〜R3）**（2026-07-28）。
-  乗り換え自体は動いている（プレビューも書き出しも新エンジンを通る）が、
-  ①合成が上下反転（頂点シェーダの UV が V 反転）②プレビュー音声が各区間
-  21ms しか鳴らない（先読みが1パケットで break）③書き出しフレームに DOM の
-  ステータス文字が焼き込まれる、が実測で判明した。詳細は §9 末尾の
-  「R1〜R3 起草」ログ。**根因は共通で、WebGPU の出力を画素で検証する仕組みが
-  M1〜M4 のどこにも無かったこと**（parity ハーネスは canvas2d 参照ペインタ
-  との比較で GPU を通っていない／決定性 CI は画素を見ない）。
-- **次の一手**: **R1**（`2026-07-28-engine-r1-picture-correctness-design.md`。
-  GPU 画素 parity ハーネス新設 → UV 反転修正 → 書き出しページ汚染除去）。
-  続いて R2（音）→ R3（周辺と再発防止）。
-- **暫定回避**（R1/R2 完了までユーザーが使う逃げ道）: `config.yaml` の
-  `preview.engine: legacy` / `render.engineExport: false`。
-- **実行順**: M1 → M2 → M3a → M3b → M4 → **R1 → R2 → R3**
+- **現在地**: **M1〜M4 + R1〜R4 実装済み・Safari 実機の是正まで完了**（2026-07-29 に
+  親セッションで再検証: `npx tsc --noEmit` 緑・`npm test` 2867/2867・実収録の
+  scratch コピーで `frames` がエンジン経路 0.7秒・分割/背景/テロップとも正常）。
+  **ただし §7 の削除リスト（＝完全乗り換えの証憑）は1件も実行されていない**:
+  `previewCutCache`/`<Player>`/`remotion/Main.tsx`/`render.fast`/`render.chunks`
+  はすべて現存し、さらに「エンジン失敗→旧経路へ自動降格」が render/frames/
+  thumbnail/editor の4箇所で**恒久 dual-path として既定有効**になっている
+  （§1-10「恒久 dual-path にしない」に対する後退。降格は `console.warn` だけで
+  可視化されない）。
+- **次の一手**: (1) 画素 parity を `npm test`/CI のゲートに入れる
+  （`scripts/engine-pixel-parity.mjs` は手動実行のままで、R1 が根因と認定した
+  「画素を見る仕組みが無い」は未解消）→ (2) その上で §7 の一括削除と
+  自動降格の撤去。順序を逆にすると比較オラクルを先に失う。
+- **実行順**: M1 → M2 → M3a → M3b → M4 → **R1 → R2 → R3 → R4**
   （→ M5 は条件付き。plan 未起草＝発動時に起草）。
   順序は「様子見の段階化」ではなく**新エンジンの依存関係の順**。乗り換え自体は決定済みで、
   各ゲートは中止判断ではなく品質関門（§3）。
@@ -334,4 +334,33 @@ OffscreenCanvas → 画面        VideoEncoder(HW) → mux → ffmpeg CRF → fi
   実装セッションが実収録で代用したことが引き金）。R3 で
   `manifest.json` を `clean` の削除対象から外し（フォルダの中身だけからは
   復元できないため）、検証収録の指定を実在するものへ直す。
+- **2026-07-29（Safari 実機の保証水準を実測で決定。§8「Safari プレビュー」への回答）**:
+  ユーザーの実機 Safari 26.5.2 で canvas プレビューが `EncodingError:
+  Decoder failure` を連発した件を、専用ハーネス（mediabunny 経由と生
+  `VideoDecoder` 直叩きの2段構え）で切り分けた。結論は **「Safari でも
+  WebCodecs は動く。落ちていた真因は CutFlow 側のデコーダ閉じ忘れ（枯渇）」**。
+  決め手は、エディタのタブが開いている間は **320x240 Constrained Baseline の
+  2秒クリップですら**復号できず（同じファイルを `<video>` では
+  `readyState=4` で再生できる）、その後は **実物の 2560x720 全イントラ proxy が
+  11ms で復号できた**という反転。`VideoDecoder` の VideoToolbox セッションは
+  タブ単位ではなく**プロセス全体で共有**されるため、`frameSource` が seek の
+  たびにイテレータを `return()` せず放置していると、他タブの復号まで巻き添えで
+  落ちる。修正: 捨てるときは必ず `return()`（`discardIterator`）・`seekTo` は
+  前のデコーダが閉じ切るのを **await** してから次を作る・落ちたら sink ごと
+  作り直して1度リトライ（`stats.recoveries`）。あわせて、失敗が
+  未処理 Promise 拒否として消えて「プレビューが黙って静止」していた
+  `EnginePreview.repaintAt` を、記録＋連続3回で legacy へフォールバックする形に
+  変えた。**符号化（解像度/全イントラ/profile/level）・Annex-B か avcC か・
+  `hardwareAcceleration` はいずれも無関係**（1280x360 Main@3.1 や Annex-B でも
+  同様に落ち、枯渇解消後は全部通る）。
+  **教訓2件**: (a) `VideoDecoder.isConfigSupported` は当てにならない
+  （枯渇状態でも `supported:true` を返し続けた＝対応判定に使ってはいけない）。
+  (b) この class の欠陥は Chromium では一切表面化しない（CLI・headless 検証・
+  parity ハーネスは全部 Chromium）。**ブラウザ差は検証面の空白のままである**。
+- **2026-07-29（親セッションの再検証で判明した実装状態のずれ）**: M4 Phase5
+  （§7 の削除リスト）が未実行のまま「M4 完了」として扱われていた。加えて
+  render/frames/thumbnail/editor の4箇所で旧経路への自動降格が既定有効
+  （§1-10 の「恒久 dual-path にしない」に反する）。§0 の「次の一手」を
+  「画素 parity のゲート化 →（その後に）§7 の一括削除と自動降格の撤去」に
+  更新した。
 - （以降、各 plan の完了・ゲート判定・実測値をここへ追記する）
