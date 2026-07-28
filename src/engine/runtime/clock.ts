@@ -8,6 +8,14 @@
 export interface ClockMapping {
   startOutputSec: number;
   startContextTime: number;
+  /** 再生速度倍率。省略時1(等速)。M3b で追加(playbackRate 対応) */
+  rate?: number;
+}
+
+/** mapping + 現在の AudioContext 時刻から出力秒を算出する純関数
+ * (rate 対応。rate 省略時は従来どおり等速)。テスト用に切り出す */
+export function outputSecFromMapping(mapping: ClockMapping, contextTime: number): number {
+  return mapping.startOutputSec + (contextTime - mapping.startContextTime) * (mapping.rate ?? 1);
 }
 
 /** 直近の提示間隔を固定長のリングバッファで保持する(p50/p95 計算用。
@@ -33,7 +41,8 @@ export class PresentationClock {
   private readonly onFrame: PresentFrame;
   private playing = false;
   private pausedAtSec = 0;
-  private mapping: ClockMapping = { startOutputSec: 0, startContextTime: 0 };
+  private rate = 1;
+  private mapping: ClockMapping = { startOutputSec: 0, startContextTime: 0, rate: 1 };
   private rafHandle: number | null = null;
   private lastTickMs: number | null = null;
   private rendering = false;
@@ -54,7 +63,7 @@ export class PresentationClock {
    * 一時停止中は最後に確定した秒をそのまま返す */
   currentOutputSec(): number {
     if (!this.playing) return this.pausedAtSec;
-    return this.mapping.startOutputSec + (this.audioContext.currentTime - this.mapping.startContextTime);
+    return outputSecFromMapping(this.mapping, this.audioContext.currentTime);
   }
 
   getMapping(): ClockMapping {
@@ -64,16 +73,33 @@ export class PresentationClock {
   seek(sec: number): void {
     this.pausedAtSec = sec;
     if (this.playing) {
-      this.mapping = { startOutputSec: sec, startContextTime: this.audioContext.currentTime };
+      this.mapping = { startOutputSec: sec, startContextTime: this.audioContext.currentTime, rate: this.rate };
     }
   }
 
   play(): void {
     if (this.playing) return;
     this.playing = true;
-    this.mapping = { startOutputSec: this.pausedAtSec, startContextTime: this.audioContext.currentTime };
+    this.mapping = {
+      startOutputSec: this.pausedAtSec,
+      startContextTime: this.audioContext.currentTime,
+      rate: this.rate,
+    };
     this.lastTickMs = null;
     this.rafHandle = requestAnimationFrame(this.tick);
+  }
+
+  /** 再生速度を変更する。再生中は現在秒を保ったまま mapping を切り直す
+   * (音声側は AudioScheduler.start が呼び直され、その予約時刻計算も
+   * 同じ rate を使う=映像・音声が同じ倍率で進む) */
+  setRate(rate: number): void {
+    if (this.playing) {
+      const sec = this.currentOutputSec();
+      this.rate = rate;
+      this.mapping = { startOutputSec: sec, startContextTime: this.audioContext.currentTime, rate };
+    } else {
+      this.rate = rate;
+    }
   }
 
   pause(): void {
