@@ -1,4 +1,5 @@
 import type { Config } from "./config.ts";
+import { colorTagArgs, type ColorTags } from "./colorTags.ts";
 
 /**
  * 有効なビデオエンコーダを platform + config から一意に決める単一の出所。
@@ -66,7 +67,7 @@ export const PROXY_GOP_FRAMES = 6;
  */
 export function videoEncodeArgs(
   cfg: Pick<Config, "preview">,
-  opts?: { gopFrames?: number },
+  opts?: { gopFrames?: number; colorTags?: ColorTags },
 ): string[] {
   const gopFrames = opts?.gopFrames ?? 30;
   const codecArgs =
@@ -78,7 +79,12 @@ export function videoEncodeArgs(
           ...(gopFrames === 1 ? ["-x264-params", "keyint=1:min-keyint=1:scenecut=0"] : []),
         ]
       : ["-c:v", "h264_videotoolbox", "-q:v", "65"];
-  return [...codecArgs, "-g", String(gopFrames), "-movflags", "+faststart"];
+  return [
+    ...codecArgs,
+    "-g", String(gopFrames),
+    "-movflags", "+faststart",
+    ...(opts?.colorTags ? colorTagArgs(opts.colorTags) : []),
+  ];
 }
 
 /**

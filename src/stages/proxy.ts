@@ -1,6 +1,9 @@
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { run } from "../lib/exec.ts";
+import { colorTagsOfProbe } from "../lib/colorTags.ts";
+import { probe } from "../lib/ffmpeg.ts";
 import {
   audioSourceOf,
   keepAudioParts,
@@ -11,6 +14,16 @@ import { proxyGopFrames, scaleFilter, videoEncodeArgs } from "../lib/videoEncode
 import type { ProxyCacheKey } from "../lib/proxyCache.ts";
 import type { Config } from "../lib/config.ts";
 import type { Manifest } from "../types.ts";
+
+function probeSync(file: string) {
+  return JSON.parse(execFileSync("ffprobe", [
+    "-v", "error",
+    "-print_format", "json",
+    "-show_streams",
+    "-show_format",
+    file,
+  ], { encoding: "utf8" }));
+}
 
 /**
  * エディタ用の軽量プロキシ(proxy.mp4)。元収録の全尺を縮小エンコード
@@ -33,6 +46,7 @@ export async function buildProxy(dir: string, cfg: Config): Promise<string> {
   }
   // 音声はマイク+システム音声のミックス(cut.mp4 / preview.mp4 と共通の構成)
   const source = audioSourceOf(manifest, cfg);
+  const colorTags = colorTagsOfProbe(await probe(input));
   const whole = [{ start: 0, end: manifest.durationSec, speed: 1 }];
   const loudnorm = await measuredLoudnormFilter({
     input,
@@ -55,7 +69,7 @@ export async function buildProxy(dir: string, cfg: Config): Promise<string> {
     // GOP はカット境界ごとに Player が <video> をシークして繋ぐ方式の
     // デコード待ちを左右する。既定(proxyIntra:true)はオールイントラ(1)、
     // false なら従来の PROXY_GOP_FRAMES(0.2秒)。詳細は videoEncode.ts 参照
-    ...videoEncodeArgs(cfg, { gopFrames: proxyGopFrames(cfg) }),
+    ...videoEncodeArgs(cfg, { gopFrames: proxyGopFrames(cfg), colorTags }),
     // loudnorm は内部で 192kHz にアップサンプルするため 48kHz に戻す
     "-c:a", "aac", "-ar", "48000",
     output,
@@ -71,6 +85,7 @@ export async function buildProxy(dir: string, cfg: Config): Promise<string> {
         sourceFile: manifest.source,
         sourceMtimeMs: sourceStat.mtimeMs,
         sourceSize: sourceStat.size,
+        colorTags,
       }),
       null,
       2,
@@ -94,11 +109,13 @@ export function isProxyStale(dir: string, cfg: Config): boolean {
   const input = join(dir, manifest.source);
   if (!existsSync(input)) return false;
   const sourceStat = statSync(input);
+  const colorTags = colorTagsOfProbe(probeSync(input));
   const currentKey = buildProxyCacheKey({
     cfg,
     sourceFile: manifest.source,
     sourceMtimeMs: sourceStat.mtimeMs,
     sourceSize: sourceStat.size,
+    colorTags,
   });
   const cachedKey = JSON.parse(readFileSync(keyPath, "utf8")) as ProxyCacheKey;
   return !proxyCacheKeyEquals(cachedKey, currentKey);
