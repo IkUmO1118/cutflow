@@ -1,0 +1,19 @@
+# G1 画素ゲート専用の固定 config。リポジトリの config.yaml が変わっても
+# golden が陳腐化しないよう、絵に効くキーだけをここで固定する。
+ingest:
+  layout: obs-canvas
+  screenRegion: { x: 0,   y: 0, w: 960, h: 540 }
+  cameraRegion: { x: 960, y: 0, w: 960, h: 540 }
+render:
+  wipeWidthPx: 240
+  wipeMarginPx: 16
+  wipeTransitionSec: 0.3
+  captionFontSizePx: 24
+  captionColor: "#ffffff"
+  cutTransition:
+    type: none
+    sec: 0.3
+  zoom:
+    easeInSec: 1.5
+    easeOutSec: 1.0
+    wipeScale: 0.8
