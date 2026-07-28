@@ -166,6 +166,7 @@ async function main(): Promise<void> {
       return (async () => {
         const descriptor = describeFrame(props, sec);
         lastStats = await compositor.renderDescriptor(descriptor, sourceTimeOf);
+        return lastStats;
       })();
     },
     play: () => playBtn.click(),

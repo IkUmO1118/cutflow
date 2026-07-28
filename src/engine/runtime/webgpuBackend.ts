@@ -141,6 +141,18 @@ export function getCompositorCanvas(): HTMLCanvasElement {
   return requireCompositor().canvas;
 }
 
+// 検証メモ(母艦§9「M3a Phase5」実測。headless Chrome + WebGPU 特有の癖):
+// この canvas を `ctx2d.drawImage(getCompositorCanvas(), ...)` で読み戻すと
+// (chrome-headless-shell では)常に透明黒([0,0,0,0])になる。renderFrame は
+// 正常終了しテクスチャも正しくアップロードされているのに読み戻しだけ黒い
+// ("Multiple readback operations" 警告は出るが例外は出ない)。CDP の
+// `Page.captureScreenshot`(clip を canvas の getBoundingClientRect に絞る)
+// なら正しい絵が撮れることを確認済み(ただし上下反転して撮れるため、
+// 撮影直前に一時的に `canvas.style.transform = "scaleY(-1)"` を当てて
+// 打ち消す必要がある)。M4 で frames/thumbnail をこの経路へ統合するとき、
+// 静止画抽出は drawImage 経由ではなく captureScreenshot 経由にすること
+// (scripts/engine-parity.mjs の比較器を M3a 用に拡張する際も同様)。
+
 export function resizeCompositor(width: number, height: number): void {
   const c = requireCompositor();
   const rt = requireRuntime();
