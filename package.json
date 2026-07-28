@@ -29,7 +29,6 @@
     "lucide-react": "1.25.0",
     "mediabunny": "1.51.0",
     "motion": "^12.42.2",
-    "opencut-wasm": "0.2.10",
     "radix-ui": "1.6.4",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
@@ -44,6 +43,7 @@
     "@types/node": "^24.0.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
+    "@webgpu/types": "0.1.71",
     "esbuild": "^0.28.1",
     "typescript": "^5.8.0"
   }

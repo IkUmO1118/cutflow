@@ -2,20 +2,28 @@
 
 CutFlow は依存追加ゼロ主義だが、render エンジン置換（
 `docs/programs/render-engine-replacement-program.md`）の M3a だけは意図的例外として
-2つの npm パッケージを追加する（母艦§5参照）。追加のたびにここへ1段落ずつ記録する。
+npm パッケージを追加する（母艦§5参照）。追加のたびにここへ1段落ずつ記録する。
 
-## opencut-wasm@0.2.10
+## opencut-wasm@0.2.10（**2026-07-28 削除・不採用に変更**）
 
-出所: [OpenCut](https://github.com/opencut/opencut) プロジェクトが公開する prebuilt
-WebAssembly バイナリ（Rust の `compositor`/`gpu`/`effects`/`masks` クレートを wasm-bindgen で
-ビルドしたもの）。ライセンス: MIT。CutFlow はこれを WebGPU/WebGL2 コンポジタとして
-`renderFrame`/`uploadTexture`/`initCompositor` 等の公開 API 経由でのみ利用する
-（fork のソースは読むが Rust 側には一切手を入れない。母艦§4「実装セッション共通ルール」）。
-`0.2.10` に固定する理由: 2026-07-28 の Phase 0 被覆確認（母艦§9「M3a Phase0」ログ）で
-このバージョンの registry 実装（`gaussian-blur` シェーダ1本・`LayerDescriptor` の
-transform/opacity/blendMode/mask）を実地に検証済みであり、それ以外のバージョンは
-未検証。upstream は開発が止まっている prebuilt のため、意図せぬ挙動変化を避けるため
-exact pin（`^`/`~` を使わない）とする。
+一時導入していたが、CutFlow の唯一のバンドラ esbuild でも実ブラウザの
+ネイティブ ES Module 機構でもロードできないと判明したため削除した
+（詳細は母艦§9「M3a Phase5 直前・重大発見」ログ）。理由: このパッケージの
+JS エントリ（wasm-bindgen の "bundler" ターゲット出力）が
+`import * as wasm from "./opencut_wasm_bg.wasm"` という WASM の ES Module
+直 import 構文を使っており、(1) chrome-headless-shell(Remotion 同梱)へ
+`<script type=module>` で読ませると
+`Failed to load module script: ... MIME type of "application/wasm"` で
+失敗する(WASM/ESM integration はどのブラウザにも既定で入っていない未成熟
+仕様)。(2) esbuild は `.wasm` 用の loader を持たず、`--loader:.wasm=file`
+を強制しても `import * as wasm` の中身が `{default: "url文字列"}` という
+静的アセット参照になるだけで、wasm-bindgen が要求する実際の wasm exports
+オブジェクトにならない(実行時に確実に壊れる)。Vite/webpack 等の特定
+bundler 前提の出力で、esbuild へのネイティブ対応が無い。ユーザー判断で
+**自前 WGSL バックエンドへ切替**（`src/engine/runtime/webgpuBackend.ts`）。
+FrameDescriptor が継ぎ目のため、frameSource/sourcePool/frameBlit/
+audioScheduler/clock(Phase2・Phase4)は無改変で流用できた。npm からは
+`npm uninstall opencut-wasm` で削除済み（package.json に残っていない）。
 
 ## mediabunny@1.51.0
 

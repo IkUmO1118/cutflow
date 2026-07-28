@@ -1,4 +1,4 @@
-// src/engine/runtime/textureCache.ts — opencut-wasm への GPU テクスチャ
+// src/engine/runtime/textureCache.ts — webgpuBackend.ts への GPU テクスチャ
 // アップロード+キャッシュ(M3a Phase3)。2種の外部テクスチャIDキーで
 // contentHash/座標が変わらない限り再アップロードを省く(母艦§9「M3a方針確定」):
 //   - external: 「sourceId + サンプル timestamp + colorFilter 値」
@@ -6,8 +6,8 @@
 // blur 2パスの中間テクスチャ(下層スナップショット)は `ensureRaw` で
 // 同じキャッシュ機構に相乗りさせる。
 //
-// ブラウザ専用(opencut-wasm・OffscreenCanvas 前提)。
-import { releaseTexture, uploadTexture } from "opencut-wasm";
+// ブラウザ専用(webgpuBackend・OffscreenCanvas 前提)。
+import { releaseTexture, uploadTexture } from "./webgpuBackend.ts";
 import { drawRendered } from "../refPainter.ts";
 import type { ColorFilterEffect, RenderedItem } from "../descriptor.ts";
 

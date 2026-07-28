@@ -1,22 +1,14 @@
 // src/engine/runtime/compositor.ts の純関数(OffscreenCanvas を使わない部分)を固定する。
-// EngineCompositor 本体(opencut-wasm/OffscreenCanvas が要る)は実 movie で
+// EngineCompositor 本体(webgpuBackend/OffscreenCanvas が要る)は実 movie で
 // M3a Phase5 の開発ページ+画素 parity で検証する(設計書どおり)。
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { quadToTransform, splitLayersForBlur } from "../src/engine/runtime/compositor.ts";
 import type { ExternalItem, FrameItem, RenderedItem } from "../src/engine/descriptor.ts";
 
-test("quadToTransform: 中心/幅高さ/回転無しへ変換する", () => {
+test("quadToTransform: 中心/幅高さへ変換する", () => {
   const t = quadToTransform({ x: 100, y: 50, w: 200, h: 80 });
-  assert.deepEqual(t, {
-    centerX: 200,
-    centerY: 90,
-    width: 200,
-    height: 80,
-    rotationDegrees: 0,
-    flipX: false,
-    flipY: false,
-  });
+  assert.deepEqual(t, { centerX: 200, centerY: 90, width: 200, height: 80 });
 });
 
 function externalItem(sourceId: string): ExternalItem {

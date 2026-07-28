@@ -1,12 +1,21 @@
-// src/engine/runtime/compositor.ts — opencut-wasm をメインスレッドで動かす
-// コンポジタ(M3a Phase3)。`initCompositor`/`renderFrame` は document 束縛の
-// 自前 canvas でしか動作しない(Worker 不可。母艦§9「M3a Phase 3 前・構成修正」)
-// ため、ここはブラウザのメインスレッドから呼ぶ前提で書く。
+// src/engine/runtime/compositor.ts — 自前 WGSL コンポジタ(webgpuBackend.ts)を
+// メインスレッドで動かすオーケストレーション層(M3a Phase3)。
+// `initCompositor`/`renderFrame` は document 束縛の自前 canvas でしか
+// 動作しない(Worker 不可。母艦§9「M3a Phase 3 前・構成修正」)ため、
+// ここはブラウザのメインスレッドから呼ぶ前提で書く。
 //
 // FrameDescriptor(src/engine/descriptor.ts。CutFlow 側の抽象)→ このファイルが
-// opencut-wasm の Rust 側 FrameDescriptor(camelCase・タグ付き union。
-// docs/vendor-provenance.md 参照)へ組み立てて `renderFrame` を呼ぶ。
-import { getCompositorCanvas, initCompositor, initializeGpu, renderFrame as wasmRenderFrame, resizeCompositor } from "opencut-wasm";
+// webgpuBackend.ts の CompositorFrameInput(テクスチャ付き矩形の配列)へ
+// 組み立てて `renderFrame` を呼ぶ。
+import {
+  getCompositorCanvas,
+  initCompositor,
+  initializeGpu,
+  renderFrame as backendRenderFrame,
+  resizeCompositor,
+  type CompositorFrameInput,
+  type CompositorLayerInput,
+} from "./webgpuBackend.ts";
 import type {
   ColorFilterEffect,
   ExternalItem,
@@ -19,44 +28,12 @@ import { blitVideoSample } from "./frameBlit.ts";
 import type { SourcePool } from "./sourcePool.ts";
 import { externalTextureId, TextureCache } from "./textureCache.ts";
 
-/** opencut-wasm(Rust)の FrameDescriptor/LayerDescriptor/QuadTransformDescriptor
- * (`rust/crates/compositor/src/frame.rs`。`#[serde(rename_all = "camelCase")]`)
- * の JS 側最小ミラー。CutFlow 側は `blendMode: "normal"` しか使わない
- * (descriptor.ts の BlendMode 型どおり)ため BlendMode の17種は文字列のまま渡す */
-export interface CompositorTransform {
-  centerX: number;
-  centerY: number;
-  width: number;
-  height: number;
-  rotationDegrees: number;
-  flipX: boolean;
-  flipY: boolean;
-}
-export interface CompositorLayer {
-  type: "layer";
-  textureId: string;
-  transform: CompositorTransform;
-  opacity: number;
-  blendMode: "normal";
-  effectPassGroups: never[];
-  mask: null;
-}
-export interface CompositorFrame {
-  width: number;
-  height: number;
-  clear: { color: [number, number, number, number] };
-  items: CompositorLayer[];
-}
-
-export function quadToTransform(quad: Rect): CompositorTransform {
+export function quadToTransform(quad: Rect): CompositorLayerInput["transform"] {
   return {
     centerX: quad.x + quad.w / 2,
     centerY: quad.y + quad.h / 2,
     width: quad.w,
     height: quad.h,
-    rotationDegrees: 0,
-    flipX: false,
-    flipY: false,
   };
 }
 
@@ -125,7 +102,7 @@ export class EngineCompositor {
     this.canvasSize = canvasSize;
   }
 
-  /** GPU コンテキスト+コンポジタを初期化する。canvas は opencut-wasm が
+  /** GPU コンテキスト+コンポジタを初期化する。canvas は webgpuBackend が
    * 自前で作る(document 束縛)ものをそのまま使う=呼び出し側で作って
    * 渡さない(§5 落とし穴)。呼び出し側は返り値の `.canvas` を mount する */
   static async create(
@@ -143,7 +120,7 @@ export class EngineCompositor {
     resizeCompositor(width, height);
   }
 
-  private async resolveExternalLayer(item: ExternalItem, sourceTimeOf: SourceTimeResolver): Promise<CompositorLayer | null> {
+  private async resolveExternalLayer(item: ExternalItem, sourceTimeOf: SourceTimeResolver): Promise<CompositorLayerInput | null> {
     const source = this.sourcePool.acquire(item.sourceId);
     const sample = await source.getSampleAt(sourceTimeOf(item));
     if (!sample) return null;
@@ -159,27 +136,15 @@ export class EngineCompositor {
     // 即 close してよい(§5 落とし穴。所有権: frameSource→blit→close)
     sample.close();
     this.textures.ensureRaw(id, canvas);
-    return {
-      type: "layer",
-      textureId: id,
-      transform: quadToTransform(quad),
-      opacity: item.opacity,
-      blendMode: "normal",
-      effectPassGroups: [],
-      mask: null,
-    };
+    return { textureId: id, transform: quadToTransform(quad), opacity: item.opacity };
   }
 
-  private resolveRenderedLayer(item: RenderedItem, frameSize: { w: number; h: number }): CompositorLayer {
+  private resolveRenderedLayer(item: RenderedItem, frameSize: { w: number; h: number }): CompositorLayerInput {
     const id = this.textures.ensureRendered(item, frameSize);
     return {
-      type: "layer",
       textureId: id,
       transform: quadToTransform({ x: 0, y: 0, w: frameSize.w, h: frameSize.h }),
       opacity: 1,
-      blendMode: "normal",
-      effectPassGroups: [],
-      mask: null,
     };
   }
 
@@ -187,8 +152,8 @@ export class EngineCompositor {
     items: FrameItem[],
     frameSize: { w: number; h: number },
     sourceTimeOf: SourceTimeResolver,
-  ): Promise<CompositorLayer[]> {
-    const layers: CompositorLayer[] = [];
+  ): Promise<CompositorLayerInput[]> {
+    const layers: CompositorLayerInput[] = [];
     for (const item of items) {
       const layer =
         item.kind === "external"
@@ -226,17 +191,17 @@ export class EngineCompositor {
     const clear = cssColorToRgba(descriptor.backgroundColor);
     const { below, blurs, above } = splitLayersForBlur(descriptor.items);
 
-    let layers: CompositorLayer[];
+    let layers: CompositorLayerInput[];
     if (blurs.length === 0) {
       layers = await this.resolveLayers(descriptor.items, descriptor.size, sourceTimeOf);
     } else {
       const belowLayers = await this.resolveLayers(below, descriptor.size, sourceTimeOf);
-      wasmRenderFrame({
+      backendRenderFrame({
         width: descriptor.size.w,
         height: descriptor.size.h,
         clear: { color: clear },
         items: belowLayers,
-      } satisfies CompositorFrame);
+      } satisfies CompositorFrameInput);
       const snapshot = this.snapshotBlurredBelow(descriptor.size, blurs);
       // tOut ごとに id を変える(下層は毎フレーム変わるため。§2「hash一致なら
       // 再アップロード省略」の対象は rendered/external のみで、この
@@ -246,24 +211,20 @@ export class EngineCompositor {
       const aboveLayers = await this.resolveLayers(above, descriptor.size, sourceTimeOf);
       layers = [
         {
-          type: "layer",
           textureId: snapshotId,
           transform: quadToTransform({ x: 0, y: 0, w: descriptor.size.w, h: descriptor.size.h }),
           opacity: 1,
-          blendMode: "normal",
-          effectPassGroups: [],
-          mask: null,
         },
         ...aboveLayers,
       ];
     }
 
-    wasmRenderFrame({
+    backendRenderFrame({
       width: descriptor.size.w,
       height: descriptor.size.h,
       clear: { color: clear },
       items: layers,
-    } satisfies CompositorFrame);
+    } satisfies CompositorFrameInput);
     this.textures.endFrame();
 
     return {
