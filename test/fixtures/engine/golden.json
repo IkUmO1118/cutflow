@@ -57,7 +57,15 @@
             "h": 270
           }
         },
-        "opacity": 1
+        "opacity": 1,
+        "effects": [
+          {
+            "kind": "colorFilter",
+            "brightness": 1,
+            "contrast": 1,
+            "saturate": 1.68
+          }
+        ]
       },
       {
         "kind": "rendered",
@@ -195,7 +203,15 @@
             "h": 270
           }
         },
-        "opacity": 1
+        "opacity": 1,
+        "effects": [
+          {
+            "kind": "colorFilter",
+            "brightness": 1,
+            "contrast": 1,
+            "saturate": 1.68
+          }
+        ]
       },
       {
         "kind": "rendered",
@@ -299,7 +315,15 @@
             "h": 216
           }
         },
-        "opacity": 1
+        "opacity": 1,
+        "effects": [
+          {
+            "kind": "colorFilter",
+            "brightness": 1,
+            "contrast": 1,
+            "saturate": 1.68
+          }
+        ]
       }
     ]
   },
@@ -361,7 +385,15 @@
             "h": 675
           }
         },
-        "opacity": 1
+        "opacity": 1,
+        "effects": [
+          {
+            "kind": "colorFilter",
+            "brightness": 1,
+            "contrast": 1,
+            "saturate": 1.68
+          }
+        ]
       }
     ]
   },
@@ -423,7 +455,15 @@
             "h": 270
           }
         },
-        "opacity": 1
+        "opacity": 1,
+        "effects": [
+          {
+            "kind": "colorFilter",
+            "brightness": 1,
+            "contrast": 1,
+            "saturate": 1.68
+          }
+        ]
       },
       {
         "kind": "rendered",
@@ -529,7 +569,15 @@
             "h": 270
           }
         },
-        "opacity": 1
+        "opacity": 1,
+        "effects": [
+          {
+            "kind": "colorFilter",
+            "brightness": 1,
+            "contrast": 1,
+            "saturate": 1.68
+          }
+        ]
       }
     ]
   },
@@ -591,7 +639,15 @@
             "h": 270
           }
         },
-        "opacity": 1
+        "opacity": 1,
+        "effects": [
+          {
+            "kind": "colorFilter",
+            "brightness": 1,
+            "contrast": 1,
+            "saturate": 1.68
+          }
+        ]
       },
       {
         "kind": "rendered",
@@ -704,7 +760,15 @@
             "h": 270
           }
         },
-        "opacity": 1
+        "opacity": 1,
+        "effects": [
+          {
+            "kind": "colorFilter",
+            "brightness": 1,
+            "contrast": 1,
+            "saturate": 1.68
+          }
+        ]
       },
       {
         "kind": "rendered",
@@ -802,7 +866,15 @@
             "h": 270
           }
         },
-        "opacity": 1
+        "opacity": 1,
+        "effects": [
+          {
+            "kind": "colorFilter",
+            "brightness": 1,
+            "contrast": 1,
+            "saturate": 1.68
+          }
+        ]
       },
       {
         "kind": "external",
@@ -910,7 +982,15 @@
             "h": 270
           }
         },
-        "opacity": 1
+        "opacity": 1,
+        "effects": [
+          {
+            "kind": "colorFilter",
+            "brightness": 1,
+            "contrast": 1,
+            "saturate": 1.68
+          }
+        ]
       },
       {
         "kind": "rendered",
