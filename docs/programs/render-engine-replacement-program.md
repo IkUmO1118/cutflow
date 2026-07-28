@@ -13,7 +13,7 @@
 
 ## 0. 他エージェント向け: 現在地と次の一手
 
-- **現在地**: **M1〜M4 + R1〜R4 実装済み・Safari 実機の是正まで完了**（2026-07-29 に
+- **現在地**: **M1〜M4 + R1〜R4 + G1/G2 実装済み・画素ゲート緑化まで完了**（2026-07-29 に
   親セッションで再検証: `npx tsc --noEmit` 緑・`npm test` 2867/2867・実収録の
   scratch コピーで `frames` がエンジン経路 0.7秒・分割/背景/テロップとも正常）。
   **ただし §7 の削除リスト（＝完全乗り換えの証憑）は1件も実行されていない**:
@@ -22,16 +22,11 @@
   thumbnail/editor の4箇所で**恒久 dual-path として既定有効**になっている
   （§1-10「恒久 dual-path にしない」に対する後退。降格は `console.warn` だけで
   可視化されない）。
-- **次の一手**: G1（`docs/plans/2026-07-29-engine-g1-pixel-gate-design.md`）を
-  実装し `npm run gate:pixel`（独立ゲート。D1 により `npm test` には入れない）を
-  新設した。**Phase 0〜Phase 4 完了・T-6 でゲート実行まで到達したが、
-  golden（Remotion オラクル）とエンジン版が 12 枚中 10 枚で不一致(赤)**。
-  原因は特定済み: カメラ(ワイプ)映像が写る領域だけ画素値が中間グレーへ圧縮される
-  （YUV limited/full range の解釈違いとみられる。screenRegion 側は無傷。
-  `mediabunny` の `VideoSampleSink`/WebCodecs `VideoDecoder` 側の色空間解決が
-  疑わしいが特定できていない。詳細は §9）。**次の一手はこのバグの修正**
-  （閾値は上げない・D8）。修正後 `npm run gate:pixel` が緑になったら
-  §7 の一括削除と自動降格の撤去へ進む。順序を逆にすると比較オラクルを先に失う。
+- **次の一手**: `npm run gate:pixel` は G2
+  （`docs/plans/2026-07-29-engine-g2-wipe-color-parity-design.md`）で
+  **全12枚一致・exit 0**まで緑化済み。次は §7 の一括削除と、render/frames/
+  thumbnail/editor の4箇所に残る「エンジン失敗→旧経路へ自動降格」の撤去。
+  削除前に最後の確認として `npm run gate:pixel` を必ず1回通す。
 - **実行順**: M1 → M2 → M3a → M3b → M4 → **R1 → R2 → R3 → R4**
   （→ M5 は条件付き。plan 未起草＝発動時に起草）。
   順序は「様子見の段階化」ではなく**新エンジンの依存関係の順**。乗り換え自体は決定済みで、
@@ -99,8 +94,9 @@ OffscreenCanvas → 画面        VideoEncoder(HW) → mux → ffmpeg CRF → fi
 | 6 | `2026-07-28-engine-r1-picture-correctness-design.md` | **R1（是正）**: GPU 画素 parity ハーネス新設 → 頂点シェーダ UV 反転修正 → 書き出しページの DOM 文字焼き込み除去 → `hiddenLayers` の逐語移植 | ハーネスが**修正前は反転を検出して落ち・修正後に通る**（両方のログ提示）・演出込みの実データで parity 合格・実機で絵の向きを目視確認 |
 | 7 | `2026-07-28-engine-r2-audio-design.md` | **R2（是正）**: 先読みの1パケット問題（全チャンク連結→窓分割）・トラックミュート配線・素材/挿入クリップ音声 | 実機で全編通して音が鳴る・シーク/再生速度/ミュートが Player 経路と同等・書き出し音声経路に差分ゼロ |
 | 8 | `2026-07-28-engine-r3-guards-and-followups-design.md` | **R3（是正+再発防止）**: キャッシュ不在のエラー表示・書き出しサーバ Range 対応・`manifest.json` を `clean` から保護・検証収録の記述修正・`render.engineExport` の文書化 | ピン留めテスト追随込みで緑・`clean --dry-run` に manifest が出ない・2026-07-12 の復旧手順が提示済み |
-| 9 | `2026-07-29-engine-g1-pixel-gate-design.md` | **G1**: Remotion オラクルの画素 golden を凍結（合成 parity フィクスチャ・`test/fixtures/engine/pixel-golden/`）+ `npm run gate:pixel` 新設（`npm test` には入れない独立ゲート。D1） | `gate:pixel` が単独コマンドで完走し全 golden 一致で exit 0。**現状: 未達（赤）**——カメラ/ワイプ領域だけ色が中間グレーへ圧縮される未修正バグを検出中（§9 参照）。この行が緑にならない限り §7 の削除（次行）へ進んではならない |
-| 10 | （未起草） | M5: ネイティブ wgpu へのスワップ（フル or 書き出しのみ） | 発動条件: 4K 多層でデッドラインを外す実測が出た時だけ |
+| 9 | `2026-07-29-engine-g1-pixel-gate-design.md` | **G1**: Remotion オラクルの画素 golden を凍結（合成 parity フィクスチャ・`test/fixtures/engine/pixel-golden/`）+ `npm run gate:pixel` 新設（`npm test` には入れない独立ゲート。D1） | ゲート基盤完成。判定は G2 で緑化済み |
+| 10 | `2026-07-29-engine-g2-wipe-color-parity-design.md` | **G2**: ワイプの `colorFilter` 欠落修正 + 中間動画への YUV matrix/range VUI タグ焼き込み | `npm run gate:pixel` が全12枚一致で exit 0。閾値・golden PNG は未変更 |
+| 11 | （未起草） | M5: ネイティブ wgpu へのスワップ（フル or 書き出しのみ） | 発動条件: 4K 多層でデッドラインを外す実測が出た時だけ |
 
 - クロス依存: M2 の参照ペインタは M3a の rendered テクスチャ描画（テロップ等の
   ラスタライズ）にそのまま昇格する＝捨てにならない。
@@ -168,9 +164,8 @@ OffscreenCanvas → 画面        VideoEncoder(HW) → mux → ffmpeg CRF → fi
 
 ## 7. M4 完了時の削除リスト（完全乗り換えの証憑）
 
-**前提: G1 完了（画素ゲート `npm run gate:pixel` が緑であること）。
-2026-07-29 時点では未達（赤。§0・§9 参照）——このバグを直して緑化するまで
-以下は一切実行しない。**
+**前提: G1/G2 完了（画素ゲート `npm run gate:pixel` が緑であること）。
+2026-07-29 に達成済み。削除作業の直前にも `npm run gate:pixel` を1回通す。**
 
 - `remotion/Main.tsx` ほか本編 composition 一式（HF interpreter が使う分は残す）
 - editor の Remotion `<Player>`・`<video>` 経路・remount 再 seek ハック（App.tsx:1500 付近）
@@ -414,6 +409,33 @@ OffscreenCanvas → 画面        VideoEncoder(HW) → mux → ffmpeg CRF → fi
   tileDiffMaxが一字一句、変更前と完全に同じ値へ復帰**(残留無し・決定論的)。
   「クリーンな緑」の実証はできなかったが、「ゲートは実際のコード変更に反応し、
   復元後は元の状態(ここでは既知バグによる赤)へ正確に戻る」ことは実証できた。
-  **次の一手**: このカメラ色圧縮バグを直し、`npm run gate:pixel`を緑にしてから
-  §7 の一括削除へ進む(§0 更新済み)。
+  この赤判定は後続 G2 で原因訂正込みで解消済み（次項）。
+- **2026-07-29（G2: 画素ゲート緑化。G1原因記録の訂正）**:
+  `docs/plans/2026-07-29-engine-g2-wipe-color-parity-design.md` を実装。
+  G1時点の `npm run gate:pixel` ベースラインは12枚中10枚赤:
+  `out1.00=32.12` / `out12.20=39.06` / `out14.20=32.02` /
+  `out16.20=42.20` / `out18.20=40.52` / `out2.50=41.36` /
+  `out20.20=32.13` / `out4.00=39.50` / `out5.50=33.76` /
+  `out7.00=31.87`。`out9.00=1.95` と `short-s1-out1.50=19.98` は一致。
+  **原因訂正**: limited/full range ではなく、主因はワイプ(camera) descriptor だけ
+  `colorFilter` を落としていたこと。独立要因として未タグ 540p 中間動画の
+  YUV matrix が Remotion/ffmpeg 側では BT.601、WebCodecs 側では BT.709 と
+  解釈されていた。screenRegion も無傷ではなく、原色が `saturate` 後にクランプ
+  されて差が見えにくかっただけ。
+  T-3（ワイプ `colorFilter` 修正後）は12枚中5枚赤:
+  `out1.00=12.38` / `out12.20=17.54` / `out14.20=12.27` /
+  `out16.20=42.20` / `out18.20=40.52` / `out2.50=41.36` /
+  `out20.20=12.44` / `out4.00=39.50` / `out5.50=33.76` /
+  `out7.00=12.05` / `out9.00=1.95` / `short-s1-out1.50=19.98`。
+  proxy/preview/preview-cut/cut.mp4 に `-colorspace <matrix> -color_range <range>` を
+  焼く配線を追加し、フィクスチャ proxy 再生成後は全12枚一致:
+  `out1.00=0.00` / `out12.20=0.00` / `out14.20=0.00` /
+  `out16.20=0.00` / `out18.20=0.00` / `out2.50=0.00` /
+  `out20.20=0.00` / `out4.00=0.00` / `out5.50=0.00` /
+  `out7.00=0.00` / `out9.00=1.95` / `short-s1-out1.50=11.17`。
+  再生成 proxy は mp4 コンテナと Annex B elementary stream の両方で
+  `color_space=smpte170m, color_range=tv` を確認。タグ有り/無しエンコードを
+  BT.601/tv 明示で raw RGB 比較した画素不変検証は `maxdiff=0`。
+  残件: `frames --full-res` は proxy を通らず未タグ SD 素材では同じ 601/709 差が
+  残りうる。ただし実収録は HD で双方 709 に落ちるため、§7 の削除前提からは外す。
 - （以降、各 plan の完了・ゲート判定・実測値をここへ追記する）
