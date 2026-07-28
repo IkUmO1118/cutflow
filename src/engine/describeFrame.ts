@@ -5,9 +5,10 @@
 //
 // 演出グループはコミット単位(docs/plans/2026-07-28-engine-m2-frame-descriptor-design.md
 // §Phase2)。このファイルは各グループの内部関数を追記していく形で育つ。
-import { zoomTransformAt } from "../lib/zoom.ts";
+import { zoomProgressAt, zoomTransformAt } from "../lib/zoom.ts";
 import type { ZoomSpan, ZoomTransform } from "../lib/zoom.ts";
-import { panelRect } from "../lib/design.ts";
+import { panelRect, shrinkRectBottomRight, wipeRectAt } from "../lib/design.ts";
+import { wipeProgressAt } from "../lib/wipe.ts";
 import type {
   ColorFilterEffect,
   Effect,
@@ -29,7 +30,7 @@ const IDENTITY_ZOOM: ZoomTransform = { scale: 1, translateX: 0, translateY: 0 };
  * descriptor の時刻キーからその配列へ橋渡しする一点に限る)。
  */
 function zoomTransformAtOut(props: RenderProps, tOut: number): ZoomTransform {
-  const zoomSpans = (props.zooms ?? []) as ZoomSpan[];
+  const zoomSpans: ZoomSpan[] = props.zooms ?? [];
   if (props.zoomTransformTrack) {
     const frame = Math.round(tOut * props.fps);
     const tt = props.zoomTransformTrack;
@@ -189,9 +190,93 @@ export function describeBaseLayer(props: RenderProps, tOut: number): FrameItem[]
   return items;
 }
 
+/**
+ * zoom 連動のワイプ縮小率(0..1。Main.tsx:130-140 の逐語移植)。baked 経路
+ * (zoomTransformTrack)は OpenScreen 逐語の reactiveWebcamScale を
+ * zoomT.scale から直接駆動、legacy 経路は区間の wipeScale ×
+ * zoomProgressAt を使う(§Phase0 記録のとおり2経路で式が分岐する)
+ */
+function wipeReactiveShrink(
+  props: RenderProps,
+  tOut: number,
+  zoomT: ZoomTransform,
+  wipeEase: number,
+): number {
+  const reactiveMin = props.wipe.reactiveMinScale ?? 0.35;
+  const reactiveFactor = Math.max(
+    reactiveMin,
+    Math.min(1, Number.isFinite(zoomT.scale) && zoomT.scale > 0 ? 1 / zoomT.scale : 1),
+  );
+  if (props.zoomTransformTrack) {
+    return 1 - (1 - reactiveFactor) * (1 - wipeEase);
+  }
+  const zoomSpans = props.zooms ?? [];
+  const activeWipeScale = zoomSpans.find((z) => tOut >= z.start && tOut < z.end)?.wipeScale ?? 1;
+  return 1 - (1 - activeWipeScale) * zoomProgressAt(tOut, zoomSpans) * (1 - wipeEase);
+}
+
+/**
+ * グループ2: カメラ(ワイプ)+ wipeFull(全画面化の遷移)+ zoom 連動のワイプ
+ * 縮小。design 有無で矩形の式が分岐する(design.camera があれば
+ * wipeRectAt+shrinkRectBottomRight、無ければ右下 flush の素の矩形)。
+ * ショート(layout あり)・カメラ無し・wipeBurnedIn(render 高速パスで
+ * cut.mp4 に焼き込み済み)のいずれかなら何も出さない
+ * (Main.tsx:370-372 の layerNode("wipe") 分岐の逐語移植)。
+ *
+ * カメラは zoom transform を受けない(zoom 器の外側にある独立レイヤー。
+ * Main.tsx の DOM 構造どおり)。layerOrder での重なり順の反映は
+ * グループ5(layerOrder)で行う(このグループでは items 配列末尾に積むだけ)
+ */
+export function describeWipeLayer(props: RenderProps, tOut: number): FrameItem[] {
+  if (props.layout || !props.cameraRegion || props.wipeBurnedIn) return [];
+  const sourceTimeSec = baseSourceTimeAt(props, tOut);
+  if (sourceTimeSec === null) return [];
+
+  const cameraRegion = props.cameraRegion;
+  const wipeH = Math.round((props.wipe.widthPx * cameraRegion.h) / cameraRegion.w);
+  const wipeT = props.wipe.transitionSec ?? 0;
+  const wipeEase = wipeProgressAt(tOut, props.wipeFull, wipeT);
+  const wipeW = Math.round(props.wipe.widthPx + (props.width - props.wipe.widthPx) * wipeEase);
+  const wipeHNow = Math.round(wipeH + (props.height - wipeH) * wipeEase);
+
+  const zoomT = zoomTransformAtOut(props, tOut);
+  const shrinkS = wipeReactiveShrink(props, tOut, zoomT, wipeEase);
+
+  const designCamera = props.design?.camera;
+  let box: Rect;
+  let radiusPx: number | undefined;
+  if (designCamera) {
+    const designWipe = wipeRectAt(designCamera, props.width, props.height, wipeEase);
+    const shrunk = shrinkRectBottomRight(designWipe.rect, designWipe.radiusPx, shrinkS);
+    box = shrunk.rect;
+    radiusPx = shrunk.radiusPx;
+  } else {
+    const wipeWNow = Math.round(wipeW * shrinkS);
+    const wipeHShrunk = Math.round(wipeHNow * shrinkS);
+    box = { x: props.width - wipeWNow, y: props.height - wipeHShrunk, w: wipeWNow, h: wipeHShrunk };
+  }
+
+  const { sourceRect, quad } = resolveFit(cameraRegion, box, "cover");
+  const camera: ExternalItem = {
+    kind: "external",
+    sourceId: props.videoFile,
+    sourceTimeSec,
+    sourceKind: "video",
+    placement: {
+      mode: "resolved",
+      sourceRect,
+      quad: { x: box.x + quad.x, y: box.y + quad.y, w: quad.w, h: quad.h },
+    },
+    opacity: 1,
+    radiusPx,
+  };
+  return [camera];
+}
+
 export function describeFrame(props: RenderProps, tOut: number): FrameDescriptor {
   const items: FrameItem[] = [];
   items.push(...describeBaseLayer(props, tOut));
+  items.push(...describeWipeLayer(props, tOut));
   return {
     tOut,
     size: { w: props.width, h: props.height },

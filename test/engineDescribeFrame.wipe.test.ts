@@ -1,0 +1,137 @@
+// src/engine/describeFrame.ts グループ2(カメラ/ワイプ+wipeFull+zoom連動縮小)
+// の翻訳を固定する。wipe.ts/design.ts の実式とクロスチェックする。
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { describeWipeLayer } from "../src/engine/describeFrame.ts";
+import { resolveDesign, shrinkRectBottomRight, wipeRectAt } from "../src/lib/design.ts";
+import { wipeProgressAt } from "../src/lib/wipe.ts";
+import { defaultProps } from "../remotion/props.ts";
+import type { RenderProps } from "../remotion/props.ts";
+
+const base: RenderProps = {
+  ...defaultProps,
+  videoFile: "cut.mp4",
+  width: 1920,
+  height: 1080,
+  canvas: { w: 1920, h: 1080 },
+  screenRegion: { x: 0, y: 0, w: 1920, h: 1080 },
+  cameraRegion: { x: 1920, y: 0, w: 960, h: 1080 }, // 拡張キャンバスの右側にカメラ
+  wipe: { widthPx: 480, marginPx: 32 },
+  durationSec: 30,
+};
+
+test("describeWipeLayer: cameraRegion が無ければ空配列", () => {
+  assert.deepEqual(describeWipeLayer({ ...base, cameraRegion: undefined }, 5), []);
+});
+
+test("describeWipeLayer: wipeBurnedIn は空配列(render高速パスで焼き込み済み)", () => {
+  assert.deepEqual(describeWipeLayer({ ...base, wipeBurnedIn: true }, 5), []);
+});
+
+test("describeWipeLayer: layout(ショート)は空配列", () => {
+  const withLayout: RenderProps = { ...base, layout: { panels: [] } };
+  assert.deepEqual(describeWipeLayer(withLayout, 5), []);
+});
+
+test("describeWipeLayer: 挿入クリップの穴(baseSourceTimeAt null)は空配列", () => {
+  const withInsert: RenderProps = {
+    ...base,
+    baseSegments: [{ start: 0, videoStart: 0, durationSec: 5 }],
+  };
+  assert.deepEqual(describeWipeLayer(withInsert, 6), []);
+});
+
+test("describeWipeLayer: design無し・wipeFull無し・zoom無しは右下 flush の素の矩形", () => {
+  const items = describeWipeLayer(base, 5);
+  assert.equal(items.length, 1);
+  const item = items[0];
+  if (item.kind !== "external" || item.placement.mode !== "resolved") throw new Error("unreachable");
+  assert.equal(item.sourceId, "cut.mp4");
+  assert.equal(item.sourceTimeSec, 5);
+  const wipeH = Math.round((base.wipe.widthPx * base.cameraRegion!.h) / base.cameraRegion!.w);
+  assert.deepEqual(item.placement.quad, {
+    x: base.width - base.wipe.widthPx,
+    y: base.height - wipeH,
+    w: base.wipe.widthPx,
+    h: wipeH,
+  });
+  assert.equal(item.radiusPx, undefined); // design 無し=角丸無し
+});
+
+test("describeWipeLayer: wipeFull 全画面到達(ease=1)時は quad が出力全面", () => {
+  const props: RenderProps = { ...base, wipeFull: [{ start: 0, end: 10 }] };
+  const items = describeWipeLayer(props, 5); // 区間中盤=遷移完了
+  if (items[0].kind !== "external" || items[0].placement.mode !== "resolved") {
+    throw new Error("unreachable");
+  }
+  assert.deepEqual(items[0].placement.quad, { x: 0, y: 0, w: 1920, h: 1080 });
+});
+
+test("describeWipeLayer: wipeFull 遷移中は wipeProgressAt の値と一致する幅で補間される", () => {
+  const wipeFull = [{ start: 0, end: 10, transitionInSec: 2 }];
+  const props: RenderProps = { ...base, wipeFull };
+  const tOut = 1; // 遷移途中
+  const ease = wipeProgressAt(tOut, wipeFull, 0);
+  const wipeH = Math.round((props.wipe.widthPx * props.cameraRegion!.h) / props.cameraRegion!.w);
+  const expectedW = Math.round(props.wipe.widthPx + (props.width - props.wipe.widthPx) * ease);
+  const expectedH = Math.round(wipeH + (props.height - wipeH) * ease);
+  const items = describeWipeLayer(props, tOut);
+  if (items[0].kind !== "external" || items[0].placement.mode !== "resolved") {
+    throw new Error("unreachable");
+  }
+  assert.deepEqual(items[0].placement.quad, {
+    x: props.width - expectedW,
+    y: props.height - expectedH,
+    w: expectedW,
+    h: expectedH,
+  });
+});
+
+test("describeWipeLayer: design.camera 有効時は wipeRectAt+shrinkRectBottomRight と一致", () => {
+  const design = resolveDesign(
+    { enabled: true, camera: { sizePx: 300, marginPx: 28, radiusPx: 96, shadow: true } },
+    1920,
+    1080,
+    true,
+  );
+  const props: RenderProps = { ...base, design };
+  const items = describeWipeLayer(props, 5);
+  if (items[0].kind !== "external" || items[0].placement.mode !== "resolved") {
+    throw new Error("unreachable");
+  }
+  const designWipe = wipeRectAt(design!.camera, 1920, 1080, 0); // ease=0(wipeFull無し)
+  const shrunk = shrinkRectBottomRight(designWipe.rect, designWipe.radiusPx, 1); // shrinkS=1(zoom無し)
+  assert.deepEqual(items[0].placement.quad, shrunk.rect);
+  assert.equal(items[0].radiusPx, shrunk.radiusPx);
+});
+
+test("describeWipeLayer: zoom 中の legacy 経路は wipeScale × zoomProgressAt で右下アンカーのまま縮む", () => {
+  const props: RenderProps = {
+    ...base,
+    zooms: [
+      {
+        start: 0,
+        end: 10,
+        rect: { x: 0, y: 0, w: 960, h: 540 },
+        easeSec: 0,
+        easeOutSec: 0,
+        wipeScale: 0.5,
+      },
+    ],
+  };
+  const tOut = 5; // イーズ完了(easeSec=0なので即フル)= zoomProgressAt=1
+  const items = describeWipeLayer(props, tOut);
+  if (items[0].kind !== "external" || items[0].placement.mode !== "resolved") {
+    throw new Error("unreachable");
+  }
+  // shrinkS = 1-(1-0.5)*1*(1-0) = 0.5。右下アンカーを保ったまま w/h が半分
+  const wipeH = Math.round((props.wipe.widthPx * props.cameraRegion!.h) / props.cameraRegion!.w);
+  const expectedW = Math.round(props.wipe.widthPx * 0.5);
+  const expectedH = Math.round(wipeH * 0.5);
+  assert.deepEqual(items[0].placement.quad, {
+    x: props.width - expectedW,
+    y: props.height - expectedH,
+    w: expectedW,
+    h: expectedH,
+  });
+});
