@@ -121,8 +121,21 @@ function requireRuntime(): Runtime {
   return runtime;
 }
 
+/** 既存 compositor(あれば)の GPU テクスチャを全解放する。runtime(device/
+ * pipeline)はモジュールシングルトンのまま保つ(破棄しない)。canvas 自体の
+ * DOM からの取り外しは呼び出し側(EngineCompositor.dispose→mount 側)の責務 */
+function releaseCompositorTextures(): void {
+  if (!compositor) return;
+  for (const texture of compositor.textures.values()) texture.destroy();
+  compositor.textures.clear();
+}
+
+/** GPU コンテキスト+テクスチャキャッシュを初期化する。**既に初期化済みなら
+ * 旧リソースを破棄してから作り直す**(再入可能。M3b T1-4: EnginePreview の
+ * unmount→remount で複数回呼ばれても安全に通す) */
 export function initCompositor(width: number, height: number): void {
   const rt = requireRuntime();
+  releaseCompositorTextures();
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;

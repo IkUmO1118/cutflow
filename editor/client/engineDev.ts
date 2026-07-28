@@ -78,11 +78,15 @@ async function main(): Promise<void> {
   });
 
   statusEl.textContent = "GPU 初期化中…";
-  const sourcePool = new SourcePool(resolveUrl);
-  const compositor = await EngineCompositor.create(props.width, props.height, sourcePool, props.canvas);
-  canvasHost.appendChild(compositor.canvas);
-  compositor.canvas.style.width = "100%";
-  compositor.canvas.style.height = "auto";
+  let sourcePool = new SourcePool(resolveUrl);
+  let compositor = await EngineCompositor.create(props.width, props.height, sourcePool, props.canvas);
+  const mountCompositorCanvas = () => {
+    canvasHost.innerHTML = "";
+    canvasHost.appendChild(compositor.canvas);
+    compositor.canvas.style.width = "100%";
+    compositor.canvas.style.height = "auto";
+  };
+  mountCompositorCanvas();
 
   const audioContext = new AudioContext();
   const audioScheduler = new AudioScheduler({
@@ -153,12 +157,18 @@ async function main(): Promise<void> {
     );
   }, 500);
 
-  // headless 計測スクリプト(scripts/engine-bench.mjs)からの参照点
+  // headless 計測スクリプト(scripts/engine-bench.mjs)からの参照点。
+  // compositor/sourcePool は reinitCompositor 後に差し替わるため getter で
+  // 常に最新を返す(M3b T1-4 検証: dispose→create の再入確認に使う)
   (window as unknown as { __engineDev: unknown }).__engineDev = {
     clock,
-    compositor,
+    get compositor() {
+      return compositor;
+    },
     audioScheduler,
-    sourcePool,
+    get sourcePool() {
+      return sourcePool;
+    },
     props,
     durationSec,
     seekTo: (sec: number) => {
@@ -172,6 +182,19 @@ async function main(): Promise<void> {
     play: () => playBtn.click(),
     pause: () => {
       if (playing) playBtn.click();
+    },
+    // M3b T1-4 検証専用: 現在の compositor を dispose し、新しい
+    // SourcePool/EngineCompositor をもう1周作り直して1枚描く
+    // (webgpuBackend の再入可能化 + EngineCompositor.dispose の sourcePool
+    // close を、実 GPU で確認するための開発フック)
+    reinitCompositor: async (sec: number) => {
+      compositor.dispose();
+      sourcePool = new SourcePool(resolveUrl);
+      compositor = await EngineCompositor.create(props.width, props.height, sourcePool, props.canvas);
+      mountCompositorCanvas();
+      const descriptor = describeFrame(props, sec);
+      lastStats = await compositor.renderDescriptor(descriptor, sourceTimeOf);
+      return lastStats;
     },
   };
 }

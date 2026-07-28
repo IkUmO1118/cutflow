@@ -296,7 +296,12 @@ export class EngineCompositor {
     };
   }
 
+  /** unmount 用。保持テクスチャを全解放し、sourcePool の全デコーダも閉じる
+   * (M3b T1-4)。GPU の runtime(device/pipeline)自体は webgpuBackend の
+   * モジュールシングルトンのまま残るが、次の `EngineCompositor.create` の
+   * `initCompositor` が再入可能(旧テクスチャ解放込み)なので安全に作り直せる */
   dispose(): void {
     this.textures.disposeAll();
+    this.sourcePool.disposeAll();
   }
 }
