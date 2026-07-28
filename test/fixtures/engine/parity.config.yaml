@@ -7,6 +7,13 @@ recordingsDir: ~/Movies/cutflow
 whisper:
   bin: whisper-cli
   model: ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin
+# proxy.mp4 生成(videoEncode.ts/proxyCache.ts)が無条件参照する必須キー
+# (config.yaml の既定値を複製。フィクスチャ映像は1920x540でこれより小さいため
+# 実質縮小されない=絵に影響しない)
+preview:
+  width: 2560
+  videoEncoder: videotoolbox
+  proxyIntra: true
 ingest:
   layout: obs-canvas
   screenRegion: { x: 0,   y: 0, w: 960, h: 540 }
@@ -19,6 +26,8 @@ render:
   wipeTransitionSec: 0.3
   captionFontSizePx: 24
   captionColor: "#ffffff"
+  # proxy.mp4 生成(loudnorm)が無条件参照する必須キー(config.yaml の既定値を複製)
+  targetLufs: -14
   cutTransition:
     type: none
     sec: 0.3
@@ -26,3 +35,12 @@ render:
     easeInSec: 1.5
     easeOutSec: 1.0
     wipeScale: 0.8
+  # renderProps.ts が render.bgm.{volumeDb,ducking} を無条件参照するための必須ブロック
+  # (このフィクスチャに bgm.json/bgm.* は無いので実際には無音のまま。値そのものは
+  # 絵に影響しない。config.yaml の既定値をそのまま複製)
+  bgm:
+    volumeDb: -14
+    fadeOutSec: 2
+    ducking:
+      duckDb: -8
+      fadeSec: 0.4

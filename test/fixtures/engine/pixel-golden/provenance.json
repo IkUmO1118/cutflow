@@ -1,0 +1,49 @@
+{
+  "capturedAtCommit": "7a8bef108296446e809e7882e4b0dbd0e8182f46",
+  "capturedAt": "2026-07-28T17:16:44.072Z",
+  "ffmpegVersion": "ffmpeg version 8.1.2 Copyright (c) 2000-2026 the FFmpeg developers",
+  "parityConfigSha256": "dba04a171d904d35a09eaeefed062f9d74fe24077d4b0b67cb03bda21c5a625d",
+  "fixtureFileSha256": {
+    "cutplan.json": "a29e8fc4844907ca380c9de9558d7cd8e722a23d3f42672454c68b871ae8769b",
+    "transcript.json": "3b534600be1d3898697471fe7fce0548704e00fa3c8dea86f3ac935d5cc92421",
+    "overlays.json": "be225b5bb024f4d8b2174df17cc95931002c1044c9a1ef3554f74fc2494faa16",
+    "shorts.json": "f2edbf074bfc5490f4221974d16b8637a3f4b36ac00dbc4d9b50ef01307b4f47"
+  },
+  "goldenFileSha256": {
+    "out1.00s.png": "4da31a45f89fb09b00026fbfe3bafd7d4d12217833e2ed09ab36dc02387a6fc3",
+    "out12.20s.png": "3dfaeec402612a4a85b16e6abd2c8471686b8200014463ebffade43998b8d5df",
+    "out14.20s.png": "f3b23d86f51e328dd9ab48e1003dbdc6c245e8e7b95606fc422ee5ca3865a4c5",
+    "out16.20s.png": "7f82592c3c5e30aa0643a4114e8b72034221b937b59bb1344964d419232ec412",
+    "out18.20s.png": "69262eda20781672876152e5760fc17b60be77a4c9fb0b581b96a2137412dbc5",
+    "out2.50s.png": "2002c06047b24a17f80a5a613dcc828af5e575e49a4de03b099af5dd7486c8d6",
+    "out20.20s.png": "5375546da65e415e0ad3a10f4338b35021cfd50dfc640eb2b07f221101283608",
+    "out4.00s.png": "dae324aeab981e0c546bc2a4c7cace4788daa400ddef0ef1474f8e7e288e8d48",
+    "out5.50s.png": "81bb0973151f69663584cf18c45ad192904826cc2d59939053691812fc6f8c88",
+    "out7.00s.png": "f877a839cf32a5d4a0f32407830d7618b707b7fe372e4d655a20d436ba31b9f5",
+    "out9.00s.png": "c3642f50d81ccdd2d124e37db460cf75ac710ce91f14b7d22c89da4c8bcc29a0",
+    "short-s1-out1.50s.png": "fa0b4c885c62917f3d0ae2585e42261fc47f467bc88ae1ed53e9c7d13014b408"
+  },
+  "mainResolution": {
+    "w": 960,
+    "h": 540
+  },
+  "shortResolution": {
+    "w": 1080,
+    "h": 1920
+  },
+  "sceneTimes": [
+    1,
+    2.5,
+    4,
+    5.5,
+    7,
+    13,
+    15,
+    17,
+    19,
+    21
+  ],
+  "insertCheckOutTime": 9,
+  "shortName": "s1",
+  "shortTime": 2.5
+}
