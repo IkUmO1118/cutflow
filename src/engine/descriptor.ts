@@ -52,7 +52,16 @@ export type Effect = ColorFilterEffect;
  */
 export type ExternalPlacement =
   | { mode: "resolved"; sourceRect?: Rect; quad: Quad }
-  | { mode: "fit"; fit: "contain" | "cover"; box: Rect };
+  | {
+      mode: "fit";
+      fit: "contain" | "cover";
+      box: Rect;
+      /** contain フィットで余る余白(レターボックス)の色。省略時は透過
+       * (rect 指定のオーバーレイ=PiP のように、余白が下層を透かす配置)。
+       * 全画面のオーバーレイ/挿入クリップは Main.tsx が AbsoluteFill の
+       * backgroundColor:"black" を敷くため "black" になる */
+      letterboxColor?: string;
+    };
 
 /** 映像フレーム参照(素材ファイルをデコードしてそのまま貼る) */
 export interface ExternalItem {

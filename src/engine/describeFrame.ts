@@ -10,6 +10,8 @@ import type { ZoomSpan, ZoomTransform } from "../lib/zoom.ts";
 import { panelRect, shrinkRectBottomRight, wipeRectAt } from "../lib/design.ts";
 import { wipeProgressAt } from "../lib/wipe.ts";
 import { alignKaraoke, animStateAt, karaokeActiveAt, karaokeFillProgress } from "../lib/captionAnim.ts";
+import { isImageFile } from "../lib/overlayFade.ts";
+import { valuesAt } from "../lib/keyframes.ts";
 import {
   CAPTION_DEFAULT_COLOR,
   CAPTION_DEFAULT_FONT_FAMILY,
@@ -415,11 +417,86 @@ export function describeCaptionLayer(props: RenderProps, tOut: number): FrameIte
   return items;
 }
 
+/** フェード係数(0〜1)。overlayFade.ts の fadeFactor(フレーム量子化)の
+ * 連続時間版(descriptor は時刻キーなのでフレームを経由しない。区間の頭
+ * fadeInSec 秒で 0→1、末尾 fadeOutSec 秒で 1→0。両方重なる短い区間では
+ * 小さい方= min を採る、という意味論は完全に同じ) */
+function fadeFactorAt(t: number, start: number, end: number, fadeInSec?: number, fadeOutSec?: number): number {
+  let g = 1;
+  if (fadeInSec && fadeInSec > 0) g = Math.min(g, Math.max(0, Math.min(1, (t - start) / fadeInSec)));
+  if (fadeOutSec && fadeOutSec > 0) g = Math.min(g, Math.max(0, Math.min(1, (end - t) / fadeOutSec)));
+  return g;
+}
+
+/**
+ * グループ4a: 素材オーバーレイ(overlays.json の overlays[])。
+ * OverlayItemView(OverlayLayer.tsx)の逐語移植。rect 指定は部分配置
+ * (PiP。contain の余白は透過)、無指定は全画面+黒余白(letterboxColor)。
+ * keyframes は valuesAt(既に出力秒へ写像済み)でこの時刻の値を解決する。
+ * 音は descriptor 対象外(絵のみ。CLAUDE.md の overlays.json 表どおり)
+ */
+export function describeOverlayItems(props: RenderProps, tOut: number): FrameItem[] {
+  const items: FrameItem[] = [];
+  for (const o of props.overlays) {
+    if (tOut < o.start || tOut >= o.end) continue;
+    const fade = fadeFactorAt(tOut, o.start, o.end, o.fadeInSec, o.fadeOutSec);
+    const base = o.rect ? { x: o.rect.x, y: o.rect.y, w: o.rect.w, h: o.rect.h, opacity: o.opacity ?? 1 } : null;
+    const now = base && o.keyframes ? valuesAt(base, o.keyframes, tOut) : base;
+    const opacity = (now?.opacity ?? o.opacity ?? 1) * fade;
+    const box = now ? { x: now.x, y: now.y, w: now.w, h: now.h } : { x: 0, y: 0, w: props.width, h: props.height };
+    const item: ExternalItem = {
+      kind: "external",
+      sourceId: o.file,
+      sourceTimeSec: (o.startFrom ?? 0) + (tOut - o.start),
+      sourceKind: isImageFile(o.file) ? "image" : "video",
+      placement: {
+        mode: "fit",
+        fit: o.fit,
+        box,
+        ...(now ? {} : { letterboxColor: "black" }),
+      },
+      opacity,
+    };
+    items.push(item);
+  }
+  return items;
+}
+
+/**
+ * グループ4b: 挿入クリップ(overlays.json の inserts[])。InsertView
+ * (Main.tsx)の逐語移植。常に全画面+黒背景、keyframes・rect 概念は無い。
+ * 音は descriptor 対象外(絵のみ)
+ */
+export function describeInsertItems(props: RenderProps, tOut: number): FrameItem[] {
+  const items: FrameItem[] = [];
+  for (const ins of props.inserts ?? []) {
+    if (tOut < ins.start || tOut >= ins.end) continue;
+    const fade = fadeFactorAt(tOut, ins.start, ins.end, ins.fadeInSec, ins.fadeOutSec);
+    const item: ExternalItem = {
+      kind: "external",
+      sourceId: ins.file,
+      sourceTimeSec: (ins.startFrom ?? 0) + (tOut - ins.start),
+      sourceKind: isImageFile(ins.file) ? "image" : "video",
+      placement: {
+        mode: "fit",
+        fit: ins.fit,
+        box: { x: 0, y: 0, w: props.width, h: props.height },
+        letterboxColor: "black",
+      },
+      opacity: fade,
+    };
+    items.push(item);
+  }
+  return items;
+}
+
 export function describeFrame(props: RenderProps, tOut: number): FrameDescriptor {
   const items: FrameItem[] = [];
   items.push(...describeBaseLayer(props, tOut));
   items.push(...describeWipeLayer(props, tOut));
   items.push(...describeCaptionLayer(props, tOut));
+  items.push(...describeOverlayItems(props, tOut));
+  items.push(...describeInsertItems(props, tOut));
   return {
     tOut,
     size: { w: props.width, h: props.height },
