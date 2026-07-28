@@ -1,9 +1,18 @@
 # G1 画素ゲート専用の固定 config。リポジトリの config.yaml が変わっても
 # golden が陳腐化しないよう、絵に効くキーだけをここで固定する。
+# recordingsDir / whisper.model は loadConfig() が無条件に参照する必須キー
+# (config.minimal.yaml と同じ理由。値そのものはこのフィクスチャでは未使用
+# ＝ whisper は呼ばれない。transcript.json は手書き)。
+recordingsDir: ~/Movies/cutflow
+whisper:
+  bin: whisper-cli
+  model: ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin
 ingest:
   layout: obs-canvas
   screenRegion: { x: 0,   y: 0, w: 960, h: 540 }
   cameraRegion: { x: 960, y: 0, w: 960, h: 540 }
+  micTrack: 1
+  systemTrack: 2
 render:
   wipeWidthPx: 240
   wipeMarginPx: 16
