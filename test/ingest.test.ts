@@ -2,8 +2,9 @@
 // auto は寸法/縦横比による OBS 判定)を固定する。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { resolveLayout, resolveAudioTracks } from "../src/stages/ingest.ts";
+import { resolveLayout, resolveAudioTracks, layoutChangeWarning } from "../src/stages/ingest.ts";
 import type { Config } from "../src/lib/config.ts";
+import type { Manifest } from "../src/types.ts";
 
 const cfg = {
   ingest: {
@@ -109,4 +110,70 @@ test("resolveAudioTracks: 範囲内だがメタ食い違い → 抽出は不変�
   assert.equal(r.ok, true);
   assert.equal((r as any).resolution.micIndex, 0); // 抽出は変えない(バイト等価)
   assert.ok((r as any).resolution.warnings.length > 0); // stderr 助言だけ足す
+});
+
+function obsManifest(): Manifest {
+  return {
+    dir: "/tmp",
+    source: "rec.mkv",
+    durationSec: 60,
+    layout: "obs-canvas",
+    video: {
+      width: 3840, height: 1080, fps: 60,
+      screenRegion: { x: 0, y: 0, w: 1920, h: 1080 },
+      cameraRegion: { x: 1920, y: 0, w: 1920, h: 1080 },
+    },
+    audio: { micStream: 0, systemStream: null, micWav: "audio/mic.wav" },
+    createdAt: new Date().toISOString(),
+  };
+}
+
+test("layoutChangeWarning: 既存 manifest が無ければ null", () => {
+  assert.equal(
+    layoutChangeWarning(null, "plain", { screenRegion: { x: 0, y: 0, w: 1920, h: 1080 } }),
+    null,
+  );
+});
+
+test("layoutChangeWarning: レイアウトが同じなら null", () => {
+  const old = obsManifest();
+  assert.equal(
+    layoutChangeWarning(old, "obs-canvas", {
+      screenRegion: { x: 0, y: 0, w: 1920, h: 1080 },
+      cameraRegion: { x: 1920, y: 0, w: 1920, h: 1080 },
+    }),
+    null,
+  );
+});
+
+test("layoutChangeWarning: obs-canvas → plain で警告文を出す", () => {
+  const old = obsManifest();
+  const w = layoutChangeWarning(old, "plain", {
+    screenRegion: { x: 0, y: 0, w: 3840, h: 1080 },
+  });
+  assert.ok(w !== null);
+  assert.match(w!, /異なり/);
+  assert.match(w!, /obs-canvas/);
+  assert.match(w!, /plain/);
+  assert.match(w!, /--layout obs-canvas/);
+});
+
+test("layoutChangeWarning: plain → obs-canvas で警告文を出す", () => {
+  const old: Manifest = {
+    ...obsManifest(),
+    layout: "plain",
+    video: {
+      width: 1920, height: 1080, fps: 60,
+      screenRegion: { x: 0, y: 0, w: 1920, h: 1080 },
+    },
+  };
+  const w = layoutChangeWarning(old, "obs-canvas", {
+    screenRegion: { x: 0, y: 0, w: 1920, h: 1080 },
+    cameraRegion: { x: 1920, y: 0, w: 1920, h: 1080 },
+  });
+  assert.ok(w !== null);
+  assert.match(w!, /異なり/);
+  assert.match(w!, /plain/);
+  assert.match(w!, /obs-canvas/);
+  assert.match(w!, /--layout plain/);
 });

@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { probe, extractAudio, parseFps } from "../lib/ffmpeg.ts";
 import type { Config } from "../lib/config.ts";
@@ -167,6 +167,31 @@ export function resolveAudioTracks(
   return { ok: false, message: trackGuidance(streams, micTrack) };
 }
 
+/** 新旧 manifest のレイアウトが異なるときの警告文を生成する純関数。
+ * 一致していれば null。テストからこの関数を直接呼び出すため export する。
+ * inget 関数内では reads した既存 manifest(無ければ null) + 書き込もうとしている
+ * effectiveLayout と videoInfo で呼ぶ。 */
+export function layoutChangeWarning(
+  oldManifest: Manifest | null,
+  newLayout: "obs-canvas" | "plain",
+  newVideoInfo: { screenRegion: { x: number; y: number; w: number; h: number }; cameraRegion?: { x: number; y: number; w: number; h: number } },
+): string | null {
+  if (!oldManifest) return null;
+  if (oldManifest.layout === newLayout) return null;
+  const oldScreen = `screenRegion {x:${oldManifest.video.screenRegion.x}, y:${oldManifest.video.screenRegion.y}, w:${oldManifest.video.screenRegion.w}, h:${oldManifest.video.screenRegion.h}}`;
+  const newScreen = `screenRegion {x:${newVideoInfo.screenRegion.x}, y:${newVideoInfo.screenRegion.y}, w:${newVideoInfo.screenRegion.w}, h:${newVideoInfo.screenRegion.h}}`;
+  const oldCam = oldManifest.video.cameraRegion
+    ? `, cameraRegion {x:${oldManifest.video.cameraRegion.x}, y:${oldManifest.video.cameraRegion.y}, w:${oldManifest.video.cameraRegion.w}, h:${oldManifest.video.cameraRegion.h}}` : "、cameraRegion なし";
+  const newCam = newVideoInfo.cameraRegion
+    ? `, cameraRegion {x:${newVideoInfo.cameraRegion.x}, y:${newVideoInfo.cameraRegion.y}, w:${newVideoInfo.cameraRegion.w}, h:${newVideoInfo.cameraRegion.h}}` : "、cameraRegion なし";
+  return [
+    `警告: 既存の manifest.json とレイアウトが異なります。`,
+    `  旧: layout="${oldManifest.layout}"、${oldScreen}${oldCam}`,
+    `  新: layout="${newLayout}"、${newScreen}${newCam}`,
+    `  意図した変更でなければ node src/cli.ts ingest <dir> --layout ${oldManifest.layout} を付けて再実行してください。`,
+  ].join("\n");
+}
+
 /**
  * 収録フォルダの raw ファイルを解析し、manifest.json とマイク音声
  * (16kHz mono wav)を生成する。
@@ -261,6 +286,15 @@ export async function ingest(
     createdAt: new Date().toISOString(),
   };
 
-  writeFileSync(join(dir, "manifest.json"), JSON.stringify(manifest, null, 2));
+  const manifestPath = join(dir, "manifest.json");
+  if (existsSync(manifestPath)) {
+    try {
+      const old = JSON.parse(readFileSync(manifestPath, "utf8")) as Manifest;
+      const warning = layoutChangeWarning(old, effectiveLayout, videoInfo);
+      if (warning) console.warn(warning);
+    } catch { /* 既存 manifest が壊れていても警告は出さずに進む */ }
+  }
+
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
   return manifest;
 }
