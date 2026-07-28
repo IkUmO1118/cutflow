@@ -607,6 +607,11 @@ export const App = () => {
    * (M3b §2-2)。一度フォールバックしたらこのセッション中は戻さない
    * (videoVersion remount のたびに EnginePreview を再試行させない) */
   const [engineFallback, setEngineFallback] = useState<string | null>(null);
+  /** config.yaml の preview.engine(既定 canvas)。usePreviewCutRebake の
+   * enabled 判定・built props memo の videoFile 選択の両方より前に要る
+   * ため proj 読み込み直後に置く(M3b T3-2) */
+  const engineMode = proj?.previewCfg.engine ?? "canvas";
+  const engineActive = engineMode === "canvas" && !engineFallback;
   // 再生ヘッドの現在位置は React state ではなく playhead ストアが持つ
   // (毎フレームの setState は UI 全体の再レンダー = 再生の乱れになる)
   /** プレビューの音量(%)。書き出しには影響しない。ベースの音量自体は
@@ -1422,7 +1427,9 @@ export const App = () => {
     keepSignature: currentPreviewKeepSignature,
     ready: proj?.previewCut.ready ?? false,
     readySignature: proj?.previewCut.keepSignature ?? "",
-    enabled: !!proj?.proxyExists && !proxyStale && !shortMode,
+    // canvas プレビューは keep→元収録秒写像を descriptor 側(describeFrame)で
+    // 解決するため連結ファイル(bake)が要らない=canvas 時は起動しない(M3b T3-2)
+    enabled: !!proj?.proxyExists && !proxyStale && !shortMode && !engineActive,
     sourceVersion: previewCutSourceVersion,
     request: requestPreviewCut,
     onReady: acceptPreviewCut,
@@ -1498,11 +1505,15 @@ export const App = () => {
       width: proj.output.w,
       height: proj.output.h,
       // fresh な連続ベイクはカット後時刻で1本として再生する。欠落・陳腐・
-      // keep 編集直後は source proxy へ即時フォールバックする
-      ...(previewBaseVideo ?? {
-        videoFile: "media/proxy.mp4" as const,
-        videoIsSource: true,
-      }),
+      // keep 編集直後は source proxy へ即時フォールバックする。canvas
+      // プレビューは bake 自体が起動しない(前段のガード)ので常に生
+      // proxy.mp4 を使う(previewBaseVideo の baked 選択を通さない。M3b T3-2)
+      ...(!engineActive && previewBaseVideo
+        ? previewBaseVideo
+        : {
+            videoFile: "media/proxy.mp4" as const,
+            videoIsSource: true,
+          }),
       // bgm.json(区間配置)を優先。無ければ収録フォルダ直下の bgm.* を
       // 全編1曲で流す(後方互換)。素材ファイルはこの後 media/ 経由に付け替える
       bgm,
@@ -1593,7 +1604,7 @@ export const App = () => {
     };
   }, [
     proj, cutplan, overlays, transcript, bgm, keeps, shortMode, activeShort, shortKeepsMerged,
-    shorts, mediaCodecFacts, previewBaseVideo,
+    shorts, mediaCodecFacts, previewBaseVideo, engineActive,
   ]);
 
   const aiWorkflowReview = isAiWorkflowReviewState(aiWorkflow) ? aiWorkflow : null;
@@ -1705,11 +1716,6 @@ export const App = () => {
   const duration = built?.props.durationSec ?? 0;
   const durationInFrames = Math.max(1, Math.round(duration * fps));
   const srcDur = proj?.manifest.durationSec ?? 0;
-  /** config.yaml の preview.engine(既定 canvas)。実行時に WebGPU 非対応/
-   * 初期化失敗を検知すると engineFallback が立ち、このセッションでは
-   * legacy(Player)へ固定される(M3b §2-2) */
-  const engineMode = proj?.previewCfg.engine ?? "canvas";
-  const engineActive = engineMode === "canvas" && !engineFallback;
   /** 画像素材・尺不明素材を置くときの既定の尺(秒)。config で変更できる */
   const defaultImgSec = proj?.editorCfg.defaultImageDurationSec ?? 4;
   /** ショート新規追加(addShort)で、選択中の keep クリップもプレイヘッドの
