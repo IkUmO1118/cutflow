@@ -68,6 +68,14 @@ export function buildBgmGainAutomation(track: BgmTrack, fps: number): GainAutoma
 const LOOKAHEAD_SEC = 2;
 const SCHEDULE_INTERVAL_MS = 500;
 
+/** 窓長(秒)。LOOKAHEAD_SEC(2秒)より短く、かつ短すぎて予約ノードと
+ *  decode 呼び出しが爆発しない値を選ぶ。1秒は LOOKAHEAD_SEC の半分で、
+ *  keep 区間(最大 15-20s)を 15-20 枚に分割する。各窓は aac パケット
+ *  (21.3ms)を約47枚連結する。SCHEDULE_INTERVAL_MS(500ms)の倍なので、
+ *  毎回のタイマーで窓1.5枚ぶんのソースノードを予約する形になり、
+ *  先読みとスケジュール間隔のバランスが取れる。 */
+const WINDOW_SEC = 1.0;
+
 export interface CreateBuffer {
   createBuffer(channels: number, length: number, sampleRate: number): AudioBuffer;
 }
@@ -93,6 +101,27 @@ export function concatAudioBuffers(
     offset += b.length;
   }
   return out;
+}
+
+export function splitEntryIntoWindows(entry: TimelineEntry, windowSec: number): TimelineEntry[] {
+  const dur = entry.outputEnd - entry.outputStart;
+  if (dur <= windowSec) return [entry];
+  const count = Math.ceil(dur / windowSec);
+  const result: TimelineEntry[] = [];
+  for (let i = 0; i < count; i++) {
+    const outputStart = entry.outputStart + i * windowSec;
+    const outputEnd = Math.min(entry.outputEnd, outputStart + windowSec);
+    const relStart = (i * windowSec) * entry.speed;
+    const relEnd = relStart + (outputEnd - outputStart) * entry.speed;
+    result.push({
+      outputStart,
+      outputEnd,
+      sourceStart: entry.sourceStart + relStart,
+      sourceEnd: entry.sourceStart + relEnd,
+      speed: entry.speed,
+    });
+  }
+  return result;
 }
 
 export interface AudioSchedulerOptions {
@@ -124,9 +153,10 @@ export class AudioScheduler {
   private mapping: ClockMapping = { startOutputSec: 0, startContextTime: 0 };
   private scheduling = false;
   private sessionId = 0;
-  private scheduledBaseIndices = new Set<number>();
-  private scheduledBgmIndices = new Set<number>();
+  private scheduledBaseKeys = new Set<string>();
+  private scheduledBgmKeys = new Set<string>();
   private queuedNodes = new Set<AudioBufferSourceNode>();
+  private bgmGainNodes = new Map<number, GainNode>();
   private timer: ReturnType<typeof setInterval> | null = null;
 
   constructor(opts: AudioSchedulerOptions) {
@@ -167,10 +197,31 @@ export class AudioScheduler {
    * (音がマスター=マッピングの正はそこ1つ) */
   start(mapping: ClockMapping, resolveBgmUrl: (file: string) => string): void {
     this.stopScheduledNodes();
+    for (const gn of this.bgmGainNodes.values()) gn.disconnect();
+    this.bgmGainNodes.clear();
     this.sessionId++;
     this.mapping = mapping;
-    this.scheduledBaseIndices = new Set();
-    this.scheduledBgmIndices = new Set();
+    this.scheduledBaseKeys = new Set();
+    this.scheduledBgmKeys = new Set();
+    // BGM の sink と track-level GainNode を事前に作る
+    for (let i = 0; i < this.opts.bgm.length; i++) {
+      const track = this.opts.bgm[i];
+      void this.ensureBgmSink(track.file, resolveBgmUrl);
+      const gain = this.audioContext.createGain();
+      gain.connect(this.masterGain);
+      const startAt = contextTimeForOutputSec(this.mapping, track.start);
+      const points = buildBgmGainAutomation(track, this.opts.fps);
+      gain.gain.cancelScheduledValues(startAt);
+      for (const p of points) {
+        const t = contextTimeForOutputSec(this.mapping, p.atSec);
+        if (t < this.audioContext.currentTime) continue;
+        gain.gain.linearRampToValueAtTime(p.gain, t);
+      }
+      if (points.length > 0 && contextTimeForOutputSec(this.mapping, points[0].atSec) >= this.audioContext.currentTime) {
+        gain.gain.setValueAtTime(points[0].gain, contextTimeForOutputSec(this.mapping, points[0].atSec));
+      }
+      this.bgmGainNodes.set(i, gain);
+    }
     this.scheduleWindow(mapping.startOutputSec, resolveBgmUrl);
     if (this.timer !== null) clearInterval(this.timer);
     this.timer = setInterval(() => {
@@ -188,6 +239,8 @@ export class AudioScheduler {
       this.timer = null;
     }
     this.stopScheduledNodes();
+    for (const gn of this.bgmGainNodes.values()) gn.disconnect();
+    this.bgmGainNodes.clear();
   }
 
   private stopScheduledNodes(): void {
@@ -210,19 +263,34 @@ export class AudioScheduler {
 
     if (!this.opts.muteBase) {
       this.opts.timeline.forEach((entry, index) => {
-        if (this.scheduledBaseIndices.has(index)) return;
+        const key = String(index);
+        if (this.scheduledBaseKeys.has(key)) return;
         if (!shouldScheduleEntry(entry, currentSec, windowEnd)) return;
-        this.scheduledBaseIndices.add(index);
-        void this.scheduleBaseEntry(entry, sessionId);
+        this.scheduledBaseKeys.add(key);
+        const windows = splitEntryIntoWindows(entry, WINDOW_SEC);
+        for (let wi = 0; wi < windows.length; wi++) {
+          void this.scheduleBaseEntry(windows[wi], sessionId);
+        }
       });
     }
 
     if (!this.opts.muteBgm) {
       this.opts.bgm.forEach((track, index) => {
-        if (this.scheduledBgmIndices.has(index)) return;
+        const key = String(index);
+        if (this.scheduledBgmKeys.has(key)) return;
         if (!shouldScheduleEntry({ outputStart: track.start, outputEnd: track.end }, currentSec, windowEnd)) return;
-        this.scheduledBgmIndices.add(index);
-        void this.scheduleBgmTrack(track, sessionId, resolveBgmUrl);
+        this.scheduledBgmKeys.add(key);
+        const srcEntry: TimelineEntry = {
+          outputStart: track.start,
+          outputEnd: track.end,
+          sourceStart: track.startFrom ?? 0,
+          sourceEnd: (track.startFrom ?? 0) + (track.end - track.start),
+          speed: 1,
+        };
+        const windows = splitEntryIntoWindows(srcEntry, WINDOW_SEC);
+        for (let wi = 0; wi < windows.length; wi++) {
+          void this.scheduleBgmTrack(track, windows[wi], sessionId, index, resolveBgmUrl);
+        }
       });
     }
 
@@ -263,14 +331,24 @@ export class AudioScheduler {
 
   private async scheduleBgmTrack(
     track: BgmTrack,
+    entry: TimelineEntry,
     sessionId: number,
+    trackIndex: number,
     resolveBgmUrl: (file: string) => string,
   ): Promise<void> {
-    const sink = await this.ensureBgmSink(track.file, resolveBgmUrl);
-    if (!sink || sessionId !== this.sessionId) return;
-    const startFrom = track.startFrom ?? 0;
+    if (sessionId !== this.sessionId) return;
+    const gainNode = this.bgmGainNodes.get(trackIndex);
+    if (!gainNode) return;
+    let cached = this.bgmSinks.get(track.file);
+    if (!cached) {
+      const sink = await this.ensureBgmSink(track.file, resolveBgmUrl);
+      if (!sink) return;
+      cached = this.bgmSinks.get(track.file);
+      if (!cached) return;
+    }
+    const { sink } = cached;
     const chunks: AudioBuffer[] = [];
-    for await (const chunk of sink.buffers(startFrom, startFrom + (track.end - track.start))) {
+    for await (const chunk of sink.buffers(entry.sourceStart, entry.sourceEnd)) {
       if (sessionId !== this.sessionId) return;
       chunks.push(chunk.buffer);
     }
@@ -281,22 +359,9 @@ export class AudioScheduler {
     node.buffer = buffer;
     const rate = this.mapping.rate ?? 1;
     if (rate !== 1) node.playbackRate.value = rate;
-    const gain = this.audioContext.createGain();
-    node.connect(gain);
-    gain.connect(this.masterGain);
+    node.connect(gainNode);
 
-    const startAt = contextTimeForOutputSec(this.mapping, track.start);
-    const points = buildBgmGainAutomation(track, this.opts.fps);
-    gain.gain.cancelScheduledValues(startAt);
-    for (const p of points) {
-      const t = contextTimeForOutputSec(this.mapping, p.atSec);
-      if (t < this.audioContext.currentTime) continue;
-      gain.gain.linearRampToValueAtTime(p.gain, t);
-    }
-    if (points.length > 0 && contextTimeForOutputSec(this.mapping, points[0].atSec) >= this.audioContext.currentTime) {
-      gain.gain.setValueAtTime(points[0].gain, contextTimeForOutputSec(this.mapping, points[0].atSec));
-    }
-
+    const startAt = contextTimeForOutputSec(this.mapping, entry.outputStart);
     if (startAt >= this.audioContext.currentTime) {
       node.start(startAt, 0);
     } else {
@@ -307,7 +372,6 @@ export class AudioScheduler {
     this.queuedNodes.add(node);
     node.addEventListener("ended", () => {
       node.disconnect();
-      gain.disconnect();
       this.queuedNodes.delete(node);
     });
   }

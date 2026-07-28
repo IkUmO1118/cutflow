@@ -11,6 +11,7 @@ import {
   concatAudioBuffers,
   contextTimeForOutputSec,
   shouldScheduleEntry,
+  splitEntryIntoWindows,
 } from "../src/engine/runtime/audioScheduler.ts";
 
 /** AudioScheduler が constructor で使う分(createGain/destination)だけを
@@ -85,6 +86,94 @@ test("shouldScheduleEntry: 窓より先に始まる区間はfalse", () => {
 
 test("shouldScheduleEntry: 境界(outputStart===windowEnd)はtrue", () => {
   assert.equal(shouldScheduleEntry({ outputStart: 5, outputEnd: 10 }, 0, 5), true);
+});
+
+import type { TimelineEntry } from "../src/lib/timeline.ts";
+
+function entry(overrides: Partial<TimelineEntry> = {}): TimelineEntry {
+  return {
+    outputStart: 0,
+    outputEnd: 4,
+    sourceStart: 0,
+    sourceEnd: 4,
+    speed: 1,
+    ...overrides,
+  };
+}
+
+test("splitEntryIntoWindows: 窓長以下の区間は1個だけ返す", () => {
+  const e = entry({ outputStart: 0, outputEnd: 0.5, sourceStart: 10, sourceEnd: 10.5 });
+  const w = splitEntryIntoWindows(e, 1);
+  assert.equal(w.length, 1);
+  assert.equal(w[0].outputStart, 0);
+  assert.equal(w[0].outputEnd, 0.5);
+  assert.equal(w[0].sourceStart, 10);
+  assert.equal(w[0].sourceEnd, 10.5);
+});
+
+test("splitEntryIntoWindows: 4秒区間を1秒窓で4等分", () => {
+  const e = entry({ outputStart: 0, outputEnd: 4, sourceStart: 0, sourceEnd: 4, speed: 1 });
+  const w = splitEntryIntoWindows(e, 1);
+  assert.equal(w.length, 4);
+  for (let i = 0; i < 4; i++) {
+    assert.equal(w[i].outputStart, i);
+    assert.equal(w[i].outputEnd, i + 1);
+    assert.equal(w[i].sourceStart, i);
+    assert.equal(w[i].sourceEnd, i + 1);
+    assert.equal(w[i].speed, 1);
+  }
+});
+
+test("splitEntryIntoWindows: 端数が最後の窓で短くなる", () => {
+  const e = entry({ outputStart: 0, outputEnd: 3.7, sourceStart: 5, sourceEnd: 8.7, speed: 1 });
+  const w = splitEntryIntoWindows(e, 1);
+  assert.equal(w.length, 4);
+  assert.equal(w[0].outputEnd, 1);
+  assert.equal(w[1].outputEnd, 2);
+  assert.equal(w[2].outputEnd, 3);
+  assert.equal(w[3].outputStart, 3);
+  assert.equal(w[3].outputEnd, 3.7);
+  assert.equal(w[3].sourceStart, 8);
+  assert.equal(w[3].sourceEnd, 8.7);
+});
+
+test("splitEntryIntoWindows: speed 2 で source が output の倍速で進む", () => {
+  const e = entry({ outputStart: 0, outputEnd: 3, sourceStart: 0, sourceEnd: 6, speed: 2 });
+  const w = splitEntryIntoWindows(e, 1);
+  assert.equal(w.length, 3);
+  assert.equal(w[0].outputStart, 0);
+  assert.equal(w[0].outputEnd, 1);
+  assert.equal(w[0].sourceStart, 0);
+  assert.equal(w[0].sourceEnd, 2);
+  assert.equal(w[1].outputStart, 1);
+  assert.equal(w[1].outputEnd, 2);
+  assert.equal(w[1].sourceStart, 2);
+  assert.equal(w[1].sourceEnd, 4);
+  assert.equal(w[2].outputStart, 2);
+  assert.equal(w[2].outputEnd, 3);
+  assert.equal(w[2].sourceStart, 4);
+  assert.equal(w[2].sourceEnd, 6);
+});
+
+test("splitEntryIntoWindows: 窓の連結が元の区間と厳密に一致する(境界の連続性)", () => {
+  const e = entry({ outputStart: 2, outputEnd: 9, sourceStart: 100, sourceEnd: 114, speed: 2 });
+  const w = splitEntryIntoWindows(e, 1.5);
+  assert.equal(w[0].outputStart, e.outputStart);
+  assert.equal(w[w.length - 1].outputEnd, e.outputEnd);
+  assert.equal(w[0].sourceStart, e.sourceStart);
+  assert.equal(w[w.length - 1].sourceEnd, e.sourceEnd);
+  // 隣接窓の境界が一致する
+  for (let i = 0; i < w.length - 1; i++) {
+    assert.equal(w[i].outputEnd, w[i + 1].outputStart);
+    assert.equal(w[i].sourceEnd, w[i + 1].sourceStart);
+    assert.equal(w[i].speed, w[i + 1].speed);
+  }
+});
+
+test("splitEntryIntoWindows: 窓長が区間と一致すると1個", () => {
+  const e = entry({ outputStart: 0, outputEnd: 1, sourceStart: 0, sourceEnd: 1 });
+  const w = splitEntryIntoWindows(e, 1);
+  assert.equal(w.length, 1);
 });
 
 function track(overrides: Partial<Parameters<typeof buildBgmGainAutomation>[0]> = {}) {
