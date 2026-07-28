@@ -1,0 +1,111 @@
+{
+  "videoFile": "cut.mp4",
+  "bgm": [],
+  "durationSec": 200,
+  "fps": 30,
+  "width": 1920,
+  "height": 1080,
+  "canvas": { "w": 3840, "h": 1080 },
+  "screenRegion": { "x": 0, "y": 0, "w": 1920, "h": 1080 },
+  "cameraRegion": { "x": 1920, "y": 0, "w": 1920, "h": 1080 },
+  "wipe": { "widthPx": 480, "marginPx": 32, "transitionSec": 0.3 },
+  "colorFilter": { "saturate": 1.68 },
+  "caption": { "fontSizePx": 44 },
+  "captions": [
+    {
+      "start": 0,
+      "end": 50,
+      "text": "通常のテロップです。下部中央に表示されます",
+      "track": 1
+    },
+    {
+      "start": 60,
+      "end": 70,
+      "text": "こんにちは今日は良い天気です",
+      "track": 1,
+      "style": { "karaoke": { "mode": "fill" } },
+      "words": [
+        { "text": "こんにちは", "start": 60, "end": 63 },
+        { "text": "今日は", "start": 63, "end": 66 },
+        { "text": "良い天気です", "start": 66, "end": 70 }
+      ]
+    },
+    {
+      "start": 150,
+      "end": 160,
+      "text": "スライドフェード登場のテロップです",
+      "track": 1,
+      "style": { "anim": { "in": "slide-up", "durationSec": 1 } }
+    },
+    {
+      "start": 80,
+      "end": 90,
+      "text": "第1章 セットアップ",
+      "track": 2,
+      "pos": { "x": 32, "y": 32 },
+      "anchor": "topLeft",
+      "style": { "fontSizePx": 32, "fontWeight": 400 }
+    }
+  ],
+  "overlays": [
+    {
+      "start": 155,
+      "end": 165,
+      "file": "materials/demo.mp4",
+      "track": 1,
+      "fit": "cover",
+      "rect": { "x": 1200, "y": 700, "w": 600, "h": 300 },
+      "fadeInSec": 1
+    }
+  ],
+  "wipeFull": [
+    { "start": 120, "end": 124, "transitionInSec": 0.4 }
+  ],
+  "zooms": [
+    {
+      "start": 100,
+      "end": 103,
+      "rect": { "x": 300, "y": 234, "w": 960, "h": 540 },
+      "easeSec": 1.5,
+      "easeOutSec": 1.0,
+      "chainGapSec": 1.5,
+      "leadSec": 0.5,
+      "chainPanSec": 1.0,
+      "wipeScale": 0.8
+    }
+  ],
+  "blurs": [
+    { "start": 130, "end": 140, "rect": { "x": 600, "y": 600, "w": 400, "h": 300 }, "strength": 0.6 }
+  ],
+  "annotations": [
+    {
+      "type": "arrow",
+      "start": 136,
+      "end": 145,
+      "from": { "x": 100, "y": 900 },
+      "to": { "x": 400, "y": 950 },
+      "color": "#ffcc00",
+      "widthPx": 4,
+      "headPx": 14
+    },
+    {
+      "type": "box",
+      "start": 136,
+      "end": 145,
+      "rect": { "x": 50, "y": 50, "w": 300, "h": 200 },
+      "color": "#ff0000",
+      "widthPx": 3,
+      "radiusPx": 8
+    }
+  ],
+  "cutTransition": { "sec": 0.6 },
+  "cutBoundarySecs": [190],
+  "hideCaption": [],
+  "layerOrder": ["wipe", "ov1", "caption", "cap2"],
+  "baseSegments": [
+    { "start": 5, "videoStart": 0, "durationSec": 195 }
+  ],
+  "inserts": [
+    { "start": 0, "end": 5, "file": "materials/intro.mp4", "fit": "cover", "fadeInSec": 1 }
+  ]
+}

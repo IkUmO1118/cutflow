@@ -1,0 +1,1121 @@
+{
+  "keep_normal": {
+    "tOut": 10,
+    "size": {
+      "w": 1920,
+      "h": 1080
+    },
+    "backgroundColor": "black",
+    "items": [
+      {
+        "kind": "external",
+        "sourceId": "cut.mp4",
+        "sourceTimeSec": 5,
+        "sourceKind": "video",
+        "placement": {
+          "mode": "resolved",
+          "sourceRect": {
+            "x": 0,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          },
+          "quad": {
+            "x": 0,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          }
+        },
+        "opacity": 1,
+        "effects": [
+          {
+            "kind": "colorFilter",
+            "brightness": 1,
+            "contrast": 1,
+            "saturate": 1.68
+          }
+        ]
+      },
+      {
+        "kind": "external",
+        "sourceId": "cut.mp4",
+        "sourceTimeSec": 5,
+        "sourceKind": "video",
+        "placement": {
+          "mode": "resolved",
+          "sourceRect": {
+            "x": 1920,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          },
+          "quad": {
+            "x": 1440,
+            "y": 810,
+            "w": 480,
+            "h": 270
+          }
+        },
+        "opacity": 1
+      },
+      {
+        "kind": "rendered",
+        "content": {
+          "kind": "caption",
+          "text": "通常のテロップです。下部中央に表示されます",
+          "fontSizePx": 44,
+          "color": "#ffffff",
+          "outlineColor": "#2563eb",
+          "outlineWidthPx": 11,
+          "fontFamily": "\"Noto Sans JP\", \"Hiragino Sans\", \"Hiragino Kaku Gothic ProN\", sans-serif",
+          "fontWeight": 700
+        },
+        "contentHash": "e8d75605f0d82798",
+        "placement": {
+          "mode": "anchor",
+          "point": {
+            "x": 688,
+            "y": 1048
+          },
+          "anchor": "bottomCenter",
+          "maxWidthPx": 1238.4
+        },
+        "opacity": 1
+      }
+    ]
+  },
+  "insert_mid": {
+    "tOut": 0.5,
+    "size": {
+      "w": 1920,
+      "h": 1080
+    },
+    "backgroundColor": "black",
+    "items": [
+      {
+        "kind": "external",
+        "sourceId": "materials/intro.mp4",
+        "sourceTimeSec": 0.5,
+        "sourceKind": "video",
+        "placement": {
+          "mode": "fit",
+          "fit": "cover",
+          "box": {
+            "x": 0,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          },
+          "letterboxColor": "black"
+        },
+        "opacity": 0.5
+      },
+      {
+        "kind": "rendered",
+        "content": {
+          "kind": "caption",
+          "text": "通常のテロップです。下部中央に表示されます",
+          "fontSizePx": 44,
+          "color": "#ffffff",
+          "outlineColor": "#2563eb",
+          "outlineWidthPx": 11,
+          "fontFamily": "\"Noto Sans JP\", \"Hiragino Sans\", \"Hiragino Kaku Gothic ProN\", sans-serif",
+          "fontWeight": 700
+        },
+        "contentHash": "e8d75605f0d82798",
+        "placement": {
+          "mode": "anchor",
+          "point": {
+            "x": 688,
+            "y": 1048
+          },
+          "anchor": "bottomCenter",
+          "maxWidthPx": 1238.4
+        },
+        "opacity": 1
+      }
+    ]
+  },
+  "karaoke_mid": {
+    "tOut": 64.5,
+    "size": {
+      "w": 1920,
+      "h": 1080
+    },
+    "backgroundColor": "black",
+    "items": [
+      {
+        "kind": "external",
+        "sourceId": "cut.mp4",
+        "sourceTimeSec": 59.5,
+        "sourceKind": "video",
+        "placement": {
+          "mode": "resolved",
+          "sourceRect": {
+            "x": 0,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          },
+          "quad": {
+            "x": 0,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          }
+        },
+        "opacity": 1,
+        "effects": [
+          {
+            "kind": "colorFilter",
+            "brightness": 1,
+            "contrast": 1,
+            "saturate": 1.68
+          }
+        ]
+      },
+      {
+        "kind": "external",
+        "sourceId": "cut.mp4",
+        "sourceTimeSec": 59.5,
+        "sourceKind": "video",
+        "placement": {
+          "mode": "resolved",
+          "sourceRect": {
+            "x": 1920,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          },
+          "quad": {
+            "x": 1440,
+            "y": 810,
+            "w": 480,
+            "h": 270
+          }
+        },
+        "opacity": 1
+      },
+      {
+        "kind": "rendered",
+        "content": {
+          "kind": "caption",
+          "text": "こんにちは今日は良い天気です",
+          "fontSizePx": 44,
+          "color": "#ffffff",
+          "outlineColor": "#2563eb",
+          "outlineWidthPx": 11,
+          "fontFamily": "\"Noto Sans JP\", \"Hiragino Sans\", \"Hiragino Kaku Gothic ProN\", sans-serif",
+          "fontWeight": 700,
+          "words": [
+            {
+              "text": "こんにちは",
+              "active": true
+            },
+            {
+              "text": "今日は",
+              "active": true,
+              "fillProgress": 0.5
+            },
+            {
+              "text": "良い天気です",
+              "active": false
+            }
+          ],
+          "karaokeMode": "fill",
+          "karaokeActiveColor": "#ffe14d",
+          "karaokeInactiveColor": "#ffffff"
+        },
+        "contentHash": "a1f843ae7a987c75",
+        "placement": {
+          "mode": "anchor",
+          "point": {
+            "x": 688,
+            "y": 1048
+          },
+          "anchor": "bottomCenter",
+          "maxWidthPx": 1238.4
+        },
+        "opacity": 1
+      }
+    ]
+  },
+  "zoom_mid": {
+    "tOut": 101.5,
+    "size": {
+      "w": 1920,
+      "h": 1080
+    },
+    "backgroundColor": "black",
+    "items": [
+      {
+        "kind": "external",
+        "sourceId": "cut.mp4",
+        "sourceTimeSec": 96.5,
+        "sourceKind": "video",
+        "placement": {
+          "mode": "resolved",
+          "sourceRect": {
+            "x": 0,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          },
+          "quad": {
+            "x": -600,
+            "y": -468,
+            "w": 3840,
+            "h": 2160
+          }
+        },
+        "opacity": 1,
+        "effects": [
+          {
+            "kind": "colorFilter",
+            "brightness": 1,
+            "contrast": 1,
+            "saturate": 1.68
+          }
+        ]
+      },
+      {
+        "kind": "external",
+        "sourceId": "cut.mp4",
+        "sourceTimeSec": 96.5,
+        "sourceKind": "video",
+        "placement": {
+          "mode": "resolved",
+          "sourceRect": {
+            "x": 1920,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          },
+          "quad": {
+            "x": 1536,
+            "y": 864,
+            "w": 384,
+            "h": 216
+          }
+        },
+        "opacity": 1
+      }
+    ]
+  },
+  "wipe_mid": {
+    "tOut": 120.2,
+    "size": {
+      "w": 1920,
+      "h": 1080
+    },
+    "backgroundColor": "black",
+    "items": [
+      {
+        "kind": "external",
+        "sourceId": "cut.mp4",
+        "sourceTimeSec": 115.2,
+        "sourceKind": "video",
+        "placement": {
+          "mode": "resolved",
+          "sourceRect": {
+            "x": 0,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          },
+          "quad": {
+            "x": 0,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          }
+        },
+        "opacity": 1,
+        "effects": [
+          {
+            "kind": "colorFilter",
+            "brightness": 1,
+            "contrast": 1,
+            "saturate": 1.68
+          }
+        ]
+      },
+      {
+        "kind": "external",
+        "sourceId": "cut.mp4",
+        "sourceTimeSec": 115.2,
+        "sourceKind": "video",
+        "placement": {
+          "mode": "resolved",
+          "sourceRect": {
+            "x": 1920,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          },
+          "quad": {
+            "x": 720,
+            "y": 405,
+            "w": 1200,
+            "h": 675
+          }
+        },
+        "opacity": 1
+      }
+    ]
+  },
+  "caption_anim_mid": {
+    "tOut": 150.5,
+    "size": {
+      "w": 1920,
+      "h": 1080
+    },
+    "backgroundColor": "black",
+    "items": [
+      {
+        "kind": "external",
+        "sourceId": "cut.mp4",
+        "sourceTimeSec": 145.5,
+        "sourceKind": "video",
+        "placement": {
+          "mode": "resolved",
+          "sourceRect": {
+            "x": 0,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          },
+          "quad": {
+            "x": 0,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          }
+        },
+        "opacity": 1,
+        "effects": [
+          {
+            "kind": "colorFilter",
+            "brightness": 1,
+            "contrast": 1,
+            "saturate": 1.68
+          }
+        ]
+      },
+      {
+        "kind": "external",
+        "sourceId": "cut.mp4",
+        "sourceTimeSec": 145.5,
+        "sourceKind": "video",
+        "placement": {
+          "mode": "resolved",
+          "sourceRect": {
+            "x": 1920,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          },
+          "quad": {
+            "x": 1440,
+            "y": 810,
+            "w": 480,
+            "h": 270
+          }
+        },
+        "opacity": 1
+      },
+      {
+        "kind": "rendered",
+        "content": {
+          "kind": "caption",
+          "text": "スライドフェード登場のテロップです",
+          "fontSizePx": 44,
+          "color": "#ffffff",
+          "outlineColor": "#2563eb",
+          "outlineWidthPx": 11,
+          "fontFamily": "\"Noto Sans JP\", \"Hiragino Sans\", \"Hiragino Kaku Gothic ProN\", sans-serif",
+          "fontWeight": 700
+        },
+        "contentHash": "c8be7a216c5808e8",
+        "placement": {
+          "mode": "anchor",
+          "point": {
+            "x": 688,
+            "y": 1048
+          },
+          "anchor": "bottomCenter",
+          "maxWidthPx": 1238.4
+        },
+        "opacity": 0.5,
+        "transform": {
+          "translateX": 0,
+          "translateY": 15.399999999999999,
+          "scale": 1
+        }
+      }
+    ]
+  },
+  "blur_visible": {
+    "tOut": 132,
+    "size": {
+      "w": 1920,
+      "h": 1080
+    },
+    "backgroundColor": "black",
+    "items": [
+      {
+        "kind": "external",
+        "sourceId": "cut.mp4",
+        "sourceTimeSec": 127,
+        "sourceKind": "video",
+        "placement": {
+          "mode": "resolved",
+          "sourceRect": {
+            "x": 0,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          },
+          "quad": {
+            "x": 0,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          }
+        },
+        "opacity": 1,
+        "effects": [
+          {
+            "kind": "colorFilter",
+            "brightness": 1,
+            "contrast": 1,
+            "saturate": 1.68
+          }
+        ]
+      },
+      {
+        "kind": "rendered",
+        "content": {
+          "kind": "blurRegion",
+          "rect": {
+            "x": 600,
+            "y": 600,
+            "w": 400,
+            "h": 300
+          },
+          "radiusPx": 26
+        },
+        "contentHash": "94be5858f4efe953",
+        "opacity": 1
+      },
+      {
+        "kind": "external",
+        "sourceId": "cut.mp4",
+        "sourceTimeSec": 127,
+        "sourceKind": "video",
+        "placement": {
+          "mode": "resolved",
+          "sourceRect": {
+            "x": 1920,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          },
+          "quad": {
+            "x": 1440,
+            "y": 810,
+            "w": 480,
+            "h": 270
+          }
+        },
+        "opacity": 1
+      }
+    ]
+  },
+  "annotation_visible": {
+    "tOut": 142,
+    "size": {
+      "w": 1920,
+      "h": 1080
+    },
+    "backgroundColor": "black",
+    "items": [
+      {
+        "kind": "external",
+        "sourceId": "cut.mp4",
+        "sourceTimeSec": 137,
+        "sourceKind": "video",
+        "placement": {
+          "mode": "resolved",
+          "sourceRect": {
+            "x": 0,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          },
+          "quad": {
+            "x": 0,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          }
+        },
+        "opacity": 1,
+        "effects": [
+          {
+            "kind": "colorFilter",
+            "brightness": 1,
+            "contrast": 1,
+            "saturate": 1.68
+          }
+        ]
+      },
+      {
+        "kind": "external",
+        "sourceId": "cut.mp4",
+        "sourceTimeSec": 137,
+        "sourceKind": "video",
+        "placement": {
+          "mode": "resolved",
+          "sourceRect": {
+            "x": 1920,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          },
+          "quad": {
+            "x": 1440,
+            "y": 810,
+            "w": 480,
+            "h": 270
+          }
+        },
+        "opacity": 1
+      },
+      {
+        "kind": "rendered",
+        "content": {
+          "kind": "annotationArrow",
+          "from": {
+            "x": 100,
+            "y": 900
+          },
+          "to": {
+            "x": 400,
+            "y": 950
+          },
+          "color": "#ffcc00",
+          "widthPx": 4,
+          "headPx": 14
+        },
+        "contentHash": "916b6d699e07448b",
+        "opacity": 1
+      },
+      {
+        "kind": "rendered",
+        "content": {
+          "kind": "annotationBox",
+          "rect": {
+            "x": 50,
+            "y": 50,
+            "w": 300,
+            "h": 200
+          },
+          "color": "#ff0000",
+          "widthPx": 3,
+          "radiusPx": 8
+        },
+        "contentHash": "6025432096600dbd",
+        "opacity": 1
+      }
+    ]
+  },
+  "blur_and_annotation": {
+    "tOut": 137,
+    "size": {
+      "w": 1920,
+      "h": 1080
+    },
+    "backgroundColor": "black",
+    "items": [
+      {
+        "kind": "external",
+        "sourceId": "cut.mp4",
+        "sourceTimeSec": 132,
+        "sourceKind": "video",
+        "placement": {
+          "mode": "resolved",
+          "sourceRect": {
+            "x": 0,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          },
+          "quad": {
+            "x": 0,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          }
+        },
+        "opacity": 1,
+        "effects": [
+          {
+            "kind": "colorFilter",
+            "brightness": 1,
+            "contrast": 1,
+            "saturate": 1.68
+          }
+        ]
+      },
+      {
+        "kind": "rendered",
+        "content": {
+          "kind": "blurRegion",
+          "rect": {
+            "x": 600,
+            "y": 600,
+            "w": 400,
+            "h": 300
+          },
+          "radiusPx": 26
+        },
+        "contentHash": "94be5858f4efe953",
+        "opacity": 1
+      },
+      {
+        "kind": "external",
+        "sourceId": "cut.mp4",
+        "sourceTimeSec": 132,
+        "sourceKind": "video",
+        "placement": {
+          "mode": "resolved",
+          "sourceRect": {
+            "x": 1920,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          },
+          "quad": {
+            "x": 1440,
+            "y": 810,
+            "w": 480,
+            "h": 270
+          }
+        },
+        "opacity": 1
+      },
+      {
+        "kind": "rendered",
+        "content": {
+          "kind": "annotationArrow",
+          "from": {
+            "x": 100,
+            "y": 900
+          },
+          "to": {
+            "x": 400,
+            "y": 950
+          },
+          "color": "#ffcc00",
+          "widthPx": 4,
+          "headPx": 14
+        },
+        "contentHash": "916b6d699e07448b",
+        "opacity": 1
+      },
+      {
+        "kind": "rendered",
+        "content": {
+          "kind": "annotationBox",
+          "rect": {
+            "x": 50,
+            "y": 50,
+            "w": 300,
+            "h": 200
+          },
+          "color": "#ff0000",
+          "widthPx": 3,
+          "radiusPx": 8
+        },
+        "contentHash": "6025432096600dbd",
+        "opacity": 1
+      }
+    ]
+  },
+  "overlay_pip": {
+    "tOut": 155.5,
+    "size": {
+      "w": 1920,
+      "h": 1080
+    },
+    "backgroundColor": "black",
+    "items": [
+      {
+        "kind": "external",
+        "sourceId": "cut.mp4",
+        "sourceTimeSec": 150.5,
+        "sourceKind": "video",
+        "placement": {
+          "mode": "resolved",
+          "sourceRect": {
+            "x": 0,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          },
+          "quad": {
+            "x": 0,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          }
+        },
+        "opacity": 1,
+        "effects": [
+          {
+            "kind": "colorFilter",
+            "brightness": 1,
+            "contrast": 1,
+            "saturate": 1.68
+          }
+        ]
+      },
+      {
+        "kind": "external",
+        "sourceId": "cut.mp4",
+        "sourceTimeSec": 150.5,
+        "sourceKind": "video",
+        "placement": {
+          "mode": "resolved",
+          "sourceRect": {
+            "x": 1920,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          },
+          "quad": {
+            "x": 1440,
+            "y": 810,
+            "w": 480,
+            "h": 270
+          }
+        },
+        "opacity": 1
+      },
+      {
+        "kind": "external",
+        "sourceId": "materials/demo.mp4",
+        "sourceTimeSec": 0.5,
+        "sourceKind": "video",
+        "placement": {
+          "mode": "fit",
+          "fit": "cover",
+          "box": {
+            "x": 1200,
+            "y": 700,
+            "w": 600,
+            "h": 300
+          }
+        },
+        "opacity": 0.5
+      },
+      {
+        "kind": "rendered",
+        "content": {
+          "kind": "caption",
+          "text": "スライドフェード登場のテロップです",
+          "fontSizePx": 44,
+          "color": "#ffffff",
+          "outlineColor": "#2563eb",
+          "outlineWidthPx": 11,
+          "fontFamily": "\"Noto Sans JP\", \"Hiragino Sans\", \"Hiragino Kaku Gothic ProN\", sans-serif",
+          "fontWeight": 700
+        },
+        "contentHash": "c8be7a216c5808e8",
+        "placement": {
+          "mode": "anchor",
+          "point": {
+            "x": 688,
+            "y": 1048
+          },
+          "anchor": "bottomCenter",
+          "maxWidthPx": 1238.4
+        },
+        "opacity": 1,
+        "transform": {
+          "translateX": 0,
+          "translateY": 0,
+          "scale": 1
+        }
+      }
+    ]
+  },
+  "cut_boundary": {
+    "tOut": 190,
+    "size": {
+      "w": 1920,
+      "h": 1080
+    },
+    "backgroundColor": "black",
+    "items": [
+      {
+        "kind": "external",
+        "sourceId": "cut.mp4",
+        "sourceTimeSec": 185,
+        "sourceKind": "video",
+        "placement": {
+          "mode": "resolved",
+          "sourceRect": {
+            "x": 0,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          },
+          "quad": {
+            "x": 0,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          }
+        },
+        "opacity": 1,
+        "effects": [
+          {
+            "kind": "colorFilter",
+            "brightness": 1,
+            "contrast": 1,
+            "saturate": 1.68
+          }
+        ]
+      },
+      {
+        "kind": "external",
+        "sourceId": "cut.mp4",
+        "sourceTimeSec": 185,
+        "sourceKind": "video",
+        "placement": {
+          "mode": "resolved",
+          "sourceRect": {
+            "x": 1920,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          },
+          "quad": {
+            "x": 1440,
+            "y": 810,
+            "w": 480,
+            "h": 270
+          }
+        },
+        "opacity": 1
+      },
+      {
+        "kind": "rendered",
+        "content": {
+          "kind": "fill",
+          "color": "black"
+        },
+        "contentHash": "3e314ffae457b71a",
+        "placement": {
+          "mode": "quad",
+          "quad": {
+            "x": 0,
+            "y": 0,
+            "w": 1920,
+            "h": 1080
+          }
+        },
+        "opacity": 1.000000000000038
+      }
+    ]
+  },
+  "short_default_pos": {
+    "tOut": 10,
+    "size": {
+      "w": 1080,
+      "h": 1920
+    },
+    "backgroundColor": "black",
+    "items": [
+      {
+        "kind": "external",
+        "sourceId": "cut.mp4",
+        "sourceTimeSec": 10,
+        "sourceKind": "video",
+        "placement": {
+          "mode": "resolved",
+          "sourceRect": {
+            "x": 1920,
+            "y": 0.4444444444444571,
+            "w": 1920,
+            "h": 1079.111111111111
+          },
+          "quad": {
+            "x": 0,
+            "y": 0,
+            "w": 1080,
+            "h": 607
+          }
+        },
+        "opacity": 1,
+        "effects": [
+          {
+            "kind": "colorFilter",
+            "brightness": 1,
+            "contrast": 1,
+            "saturate": 1.68
+          }
+        ]
+      },
+      {
+        "kind": "external",
+        "sourceId": "cut.mp4",
+        "sourceTimeSec": 10,
+        "sourceKind": "video",
+        "placement": {
+          "mode": "resolved",
+          "sourceRect": {
+            "x": 0,
+            "y": 0.4444444444444571,
+            "w": 1920,
+            "h": 1079.111111111111
+          },
+          "quad": {
+            "x": 0,
+            "y": 607,
+            "w": 1080,
+            "h": 607
+          }
+        },
+        "opacity": 1,
+        "effects": [
+          {
+            "kind": "colorFilter",
+            "brightness": 1,
+            "contrast": 1,
+            "saturate": 1.68
+          }
+        ]
+      },
+      {
+        "kind": "rendered",
+        "content": {
+          "kind": "caption",
+          "text": "ショートの下部中央テロップ(既定位置)",
+          "fontSizePx": 70,
+          "color": "#ffffff",
+          "outlineColor": "#2563eb",
+          "outlineWidthPx": 18,
+          "fontFamily": "\"Noto Sans JP\", \"Hiragino Sans\", \"Hiragino Kaku Gothic ProN\", sans-serif",
+          "fontWeight": 700
+        },
+        "contentHash": "6678e9ab687bef43",
+        "placement": {
+          "mode": "anchor",
+          "point": {
+            "x": 540,
+            "y": 1560
+          },
+          "anchor": "center"
+        },
+        "opacity": 1
+      }
+    ]
+  },
+  "short_explicit_pos": {
+    "tOut": 30,
+    "size": {
+      "w": 1080,
+      "h": 1920
+    },
+    "backgroundColor": "black",
+    "items": [
+      {
+        "kind": "external",
+        "sourceId": "cut.mp4",
+        "sourceTimeSec": 30,
+        "sourceKind": "video",
+        "placement": {
+          "mode": "resolved",
+          "sourceRect": {
+            "x": 1920,
+            "y": 0.4444444444444571,
+            "w": 1920,
+            "h": 1079.111111111111
+          },
+          "quad": {
+            "x": 0,
+            "y": 0,
+            "w": 1080,
+            "h": 607
+          }
+        },
+        "opacity": 1,
+        "effects": [
+          {
+            "kind": "colorFilter",
+            "brightness": 1,
+            "contrast": 1,
+            "saturate": 1.68
+          }
+        ]
+      },
+      {
+        "kind": "external",
+        "sourceId": "cut.mp4",
+        "sourceTimeSec": 30,
+        "sourceKind": "video",
+        "placement": {
+          "mode": "resolved",
+          "sourceRect": {
+            "x": 0,
+            "y": 0.4444444444444571,
+            "w": 1920,
+            "h": 1079.111111111111
+          },
+          "quad": {
+            "x": 0,
+            "y": 607,
+            "w": 1080,
+            "h": 607
+          }
+        },
+        "opacity": 1,
+        "effects": [
+          {
+            "kind": "colorFilter",
+            "brightness": 1,
+            "contrast": 1,
+            "saturate": 1.68
+          }
+        ]
+      },
+      {
+        "kind": "rendered",
+        "content": {
+          "kind": "caption",
+          "text": "位置指定テロップ",
+          "fontSizePx": 70,
+          "color": "#ffffff",
+          "outlineColor": "#2563eb",
+          "outlineWidthPx": 18,
+          "fontFamily": "\"Noto Sans JP\", \"Hiragino Sans\", \"Hiragino Kaku Gothic ProN\", sans-serif",
+          "fontWeight": 700
+        },
+        "contentHash": "70061a742e180971",
+        "placement": {
+          "mode": "anchor",
+          "point": {
+            "x": 300,
+            "y": 400
+          },
+          "anchor": "center"
+        },
+        "opacity": 1
+      }
+    ]
+  }
+}
