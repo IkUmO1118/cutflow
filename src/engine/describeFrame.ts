@@ -658,9 +658,51 @@ export function describeLayerOrderStack(props: RenderProps, tOut: number): Frame
   return items;
 }
 
+/**
+ * グループ6: ショート(props.layout がある縦プリセット経路)のパネル合成。
+ * Main.tsx:245-268 の renderPanels の逐語移植。パネルは配列順(下→上)に
+ * screen/camera を crop して並べるだけ(zoom・design は縦プリセットには
+ * 乗らない=既存の描画分岐どおり。他方 colorFilter は renderBase を共有
+ * するため例外的に乗る=CLAUDE.md の overlays.json 表の注記どおり)。
+ *
+ * ショート用の RenderProps 自体は呼び出し側が buildRenderProps に
+ * profile を渡して構築済みのものを渡す想定(shorts.json の `name` は
+ * 出力ファイル名の決定にしか使わず翻訳の数式には関与しないため、
+ * describeFrame に `name` 引数は持たせない=「入口 describeShortFrame」は
+ * この関数と props の組み合わせと等価)
+ */
+export function describeShortPanelsLayer(props: RenderProps, tOut: number): FrameItem[] {
+  if (!props.layout || props.videoFile === "") return [];
+  const sourceTimeSec = baseSourceTimeAt(props, tOut);
+  if (sourceTimeSec === null) return [];
+
+  const items: FrameItem[] = [];
+  for (const panel of props.layout.panels) {
+    const region = panel.source === "screen" ? props.screenRegion : (props.cameraRegion ?? props.screenRegion);
+    const rect = panel.rect ?? { x: 0, y: 0, w: props.width, h: props.height };
+    const { sourceRect, quad } = resolveFit(region, rect, panel.fit);
+    const item: ExternalItem = {
+      kind: "external",
+      sourceId: props.videoFile,
+      sourceTimeSec,
+      sourceKind: "video",
+      placement: {
+        mode: "resolved",
+        sourceRect,
+        quad: { x: rect.x + quad.x, y: rect.y + quad.y, w: quad.w, h: quad.h },
+      },
+      opacity: 1,
+      effects: colorFilterEffects(props),
+    };
+    items.push(item);
+  }
+  return items;
+}
+
 export function describeFrame(props: RenderProps, tOut: number): FrameDescriptor {
   const items: FrameItem[] = [];
   items.push(...describeBaseLayer(props, tOut));
+  items.push(...describeShortPanelsLayer(props, tOut));
   items.push(...describeInsertItems(props, tOut));
   items.push(...describeBlurItems(props, tOut));
   items.push(...describeLayerOrderStack(props, tOut));
