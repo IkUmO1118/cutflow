@@ -59,6 +59,9 @@ export interface FrameSourceStats {
   /** getSampleAt がタイムアウトで打ち切った回数(R4 Phase5)。0 が理想。
    * 0 でなければ decode の詰まりが実在する証拠 */
   timeouts: number;
+  /** デコーダが致命的に落ちて sink を作り直した回数。Safari では
+   * EncodingError: Decoder failure がこれに当たる。0 が理想 */
+  recoveries: number;
 }
 
 /** getSampleAt の1回分の解決を待つ上限(ms)。通常の seek/advance は
@@ -85,7 +88,7 @@ export class FrameSource {
   private current: VideoSample | null = null;
   private generation = 0;
   private chain: Promise<unknown> = Promise.resolve();
-  readonly stats: FrameSourceStats = { seeks: 0, advances: 0, reuses: 0, timeouts: 0 };
+  readonly stats: FrameSourceStats = { seeks: 0, advances: 0, reuses: 0, timeouts: 0, recoveries: 0 };
 
   constructor(sourceId: string, url: string) {
     this.sourceId = sourceId;
@@ -144,7 +147,7 @@ export class FrameSource {
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
         this.stats.timeouts++;
-        this.iterator = null;
+        this.discardIterator();
         reject(
           new Error(
             `frameSource: ${this.sourceId} の取得が ${GET_SAMPLE_TIMEOUT_MS}ms を超えたためタイムアウトしました`,
@@ -153,10 +156,61 @@ export class FrameSource {
       }, GET_SAMPLE_TIMEOUT_MS);
     });
     try {
-      return await Promise.race([this.resolve(time), timeout]);
+      return await Promise.race([this.resolveWithRecovery(time), timeout]);
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /**
+   * デコーダが致命的に落ちたとき(Safari の `EncodingError: Decoder failure`
+   * など)は、その VideoDecoder はもう使えない=同じ sink を叩き続けても
+   * 二度と復帰しない。sink/input ごと作り直して1度だけやり直す。
+   * ここで復帰させないと、プレビューはその瞬間から永久に静止する。
+   */
+  private async resolveWithRecovery(time: number): Promise<VideoSample | null> {
+    try {
+      return await this.resolve(time);
+    } catch (e) {
+      this.stats.recoveries++;
+      console.warn(
+        `frameSource: ${this.sourceId} のデコードが失敗したためデコーダを作り直します` +
+          `(recoveries=${this.stats.recoveries}): ${(e as Error).message}`,
+      );
+      this.resetSink();
+      await this.ensureInit();
+      return this.resolve(time);
+    }
+  }
+
+  /**
+   * イテレータを捨てるときは必ず `return()` する。generator を放置すると
+   * 内部の VideoDecoder が close されないまま残り、Safari(VideoToolbox)は
+   * 同時デコーダ数の上限が厳しいため、次の decode が
+   * `EncodingError: Decoder failure` で落ちる(Chromium は上限が緩く
+   * 表面化しないので CLI 経路・headless 検証では出ない)。
+   * `return()` 自体の reject は握り潰す(捨てる対象の後始末なので、
+   * ここで未処理 Promise 拒否を増やさない)。
+   */
+  private discardIterator(): Promise<void> {
+    const it = this.iterator;
+    this.iterator = null;
+    if (!it) return Promise.resolve();
+    return it.return(undefined).then(
+      () => undefined,
+      () => undefined,
+    );
+  }
+
+  /** sink/input/保持サンプルを破棄する(url は保つ)。次の ensureInit で
+   * 新しいデコーダから作り直される */
+  private resetSink(): void {
+    this.discardIterator();
+    if (this.current) this.current.close();
+    this.current = null;
+    this.input?.dispose();
+    this.input = null;
+    this.sink = null;
   }
 
   private async resolve(time: number): Promise<VideoSample | null> {
@@ -187,7 +241,7 @@ export class FrameSource {
     for (let i = 0; i < 64; i++) {
       const { value, done } = await this.iterator.next();
       if (done || !value) {
-        this.iterator = null;
+        this.discardIterator();
         return null;
       }
       this.setCurrent(value);
@@ -200,10 +254,12 @@ export class FrameSource {
 
   private async seekTo(time: number): Promise<VideoSample | null> {
     if (!this.sink) return null;
-    if (this.iterator) {
-      await this.iterator.return(undefined);
-      this.iterator = null;
-    }
+    // **await する**のが要点。前のイテレータのデコーダが閉じ切る前に次を
+    // 作ると、スクラブ中に一時的にデコーダが積み上がる。Safari は同時
+    // デコーダ数の上限が厳しく、超えると以後どのデコードも
+    // EncodingError: Decoder failure になる(しかもプロセス全体に波及して
+    // 別タブの 320x240 すら復号できなくなることを実測した)
+    await this.discardIterator();
     this.iterator = this.sink.samples(Math.max(0, time));
     this.stats.seeks++;
     const { value } = await this.iterator.next();
@@ -218,12 +274,6 @@ export class FrameSource {
   }
 
   dispose(): void {
-    if (this.iterator) void this.iterator.return(undefined);
-    this.iterator = null;
-    if (this.current) this.current.close();
-    this.current = null;
-    this.input?.dispose();
-    this.input = null;
-    this.sink = null;
+    this.resetSink();
   }
 }
