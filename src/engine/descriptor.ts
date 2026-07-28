@@ -213,7 +213,10 @@ export interface RenderedItem {
    * 同一ハッシュ = 同一ラスタ結果になることがバックエンドのテクスチャ
    * キャッシュ判定の前提 */
   contentHash: string;
-  placement: RenderedPlacement;
+  /** content 自身に幾何が無い(caption のテキスト・fill の単色矩形)ときだけ
+   * 指定する。annotation(box/spotlight/arrow)・blurRegion は rect/from-to を
+   * content 自身が持つため省略(placement で重複させない) */
+  placement?: RenderedPlacement;
   opacity: number;
   blend?: BlendMode;
   effects?: Effect[];

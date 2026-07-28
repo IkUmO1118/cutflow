@@ -12,16 +12,21 @@ import { wipeProgressAt } from "../lib/wipe.ts";
 import { alignKaraoke, animStateAt, karaokeActiveAt, karaokeFillProgress } from "../lib/captionAnim.ts";
 import { isImageFile } from "../lib/overlayFade.ts";
 import { valuesAt } from "../lib/keyframes.ts";
+import { blurRadiusPx } from "../lib/blur.ts";
 import {
   CAPTION_DEFAULT_COLOR,
   CAPTION_DEFAULT_FONT_FAMILY,
   CAPTION_DEFAULT_FONT_WEIGHT,
   CAPTION_DEFAULT_OUTLINE,
+  DEFAULT_LAYER_ORDER,
   KARAOKE_DEFAULT_ACTIVE,
+  capNum,
+  ovNum,
   resolveCaptionBackground,
 } from "../types.ts";
 import { contentHashOf } from "./hash.ts";
 import type {
+  BlurRegionContent,
   CaptionContent,
   CaptionWord,
   ColorFilterEffect,
@@ -30,7 +35,9 @@ import type {
   FrameDescriptor,
   FrameItem,
   Rect,
+  RenderedContent,
   RenderedItem,
+  RenderedPlacement,
 } from "./descriptor.ts";
 import type { Caption, RenderProps } from "../../remotion/props.ts";
 
@@ -358,61 +365,69 @@ function resolveCaptionContent(
   return content;
 }
 
+/** props.captions に登場するトラック番号の一覧(昇順・重複無し) */
+function captionTracksOf(props: RenderProps): number[] {
+  return Array.from(new Set(props.captions.map((c) => c.track))).sort((a, b) => a - b);
+}
+
 /**
- * グループ3: テロップ(caption)。トラックごとに「その時刻に表示中の1件」を
- * 探し(CaptionLayer.tsx の lookupCaption と同じ .find 優先度=配列順で最初の
- * 一致)、位置(pos/captionDefaultPos/下部中央フォールバック)・スタイル・
- * anim・karaoke を解決する。hideCaption 区間は全トラック非表示
- * (Main.tsx:354 の `if (!caption || inSpan(props.hideCaption)) return null` 相当)。
- *
- * layerOrder による他レイヤーとの重なり順の反映はグループ5で行う
- * (このグループはトラック番号昇順で積むだけ)
+ * 指定トラックの、その時刻に表示中のテロップ1件を解決する(無ければ null)。
+ * CaptionLayer.tsx の lookupCaption と同じ優先度(配列順で最初の一致)。
+ * hideCaption 区間は常に null(Main.tsx:354 の
+ * `if (!caption || inSpan(props.hideCaption)) return null` 相当)
+ */
+function captionItemForTrack(props: RenderProps, tOut: number, track: number): RenderedItem | null {
+  if (inSpan(props.hideCaption, tOut)) return null;
+  const caption = props.captions.find((c) => c.track === track && tOut >= c.start && tOut < c.end);
+  if (!caption) return null;
+
+  const content = resolveCaptionContent(caption, props.caption, tOut);
+  const contentHash = contentHashOf(content, { w: props.width, h: props.height });
+
+  const anim = caption.style?.anim;
+  const a = animStateAt(anim, caption.start, caption.end, tOut, content.fontSizePx);
+
+  const pos = caption.pos ?? props.captionDefaultPos;
+  let placement: RenderedPlacement;
+  if (pos) {
+    const resolvedAnchor = caption.pos ? caption.anchor : props.captionDefaultPos?.anchor;
+    placement = {
+      mode: "anchor",
+      point: { x: pos.x, y: pos.y },
+      anchor: resolvedAnchor === "topLeft" ? "topLeft" : "center",
+    };
+  } else {
+    // カメラがあるときだけワイプと重ならないよう右側を空ける(B1: plain は予約ゼロ)
+    const reserve = props.cameraRegion ? props.wipe.widthPx + props.wipe.marginPx * 2 : 0;
+    const bandWidth = props.width - reserve;
+    placement = {
+      mode: "anchor",
+      point: { x: bandWidth / 2, y: props.height - props.wipe.marginPx },
+      anchor: "bottomCenter",
+      maxWidthPx: bandWidth * 0.9,
+    };
+  }
+
+  return {
+    kind: "rendered",
+    content,
+    contentHash,
+    placement,
+    opacity: a.opacity,
+    ...(anim ? { transform: { translateX: a.translateX, translateY: a.translateY, scale: a.scale } } : {}),
+  };
+}
+
+/**
+ * グループ3: テロップ(caption)。トラック番号昇順で「その時刻に表示中の
+ * 1件」を積む。layerOrder による他レイヤーとの重なり順の反映はグループ5の
+ * describeLayerOrderStack が行う(このグループ単体はトラック順のまま)
  */
 export function describeCaptionLayer(props: RenderProps, tOut: number): FrameItem[] {
-  if (inSpan(props.hideCaption, tOut)) return [];
-
-  const tracks = Array.from(new Set(props.captions.map((c) => c.track))).sort((a, b) => a - b);
   const items: FrameItem[] = [];
-  for (const track of tracks) {
-    const caption = props.captions.find((c) => c.track === track && tOut >= c.start && tOut < c.end);
-    if (!caption) continue;
-
-    const content = resolveCaptionContent(caption, props.caption, tOut);
-    const contentHash = contentHashOf(content, { w: props.width, h: props.height });
-
-    const anim = caption.style?.anim;
-    const a = animStateAt(anim, caption.start, caption.end, tOut, content.fontSizePx);
-
-    const pos = caption.pos ?? props.captionDefaultPos;
-    let placement: RenderedItem["placement"];
-    if (pos) {
-      const resolvedAnchor = caption.pos ? caption.anchor : props.captionDefaultPos?.anchor;
-      placement = {
-        mode: "anchor",
-        point: { x: pos.x, y: pos.y },
-        anchor: resolvedAnchor === "topLeft" ? "topLeft" : "center",
-      };
-    } else {
-      // カメラがあるときだけワイプと重ならないよう右側を空ける(B1: plain は予約ゼロ)
-      const reserve = props.cameraRegion ? props.wipe.widthPx + props.wipe.marginPx * 2 : 0;
-      const bandWidth = props.width - reserve;
-      placement = {
-        mode: "anchor",
-        point: { x: bandWidth / 2, y: props.height - props.wipe.marginPx },
-        anchor: "bottomCenter",
-        maxWidthPx: bandWidth * 0.9,
-      };
-    }
-
-    const item: RenderedItem = {
-      kind: "rendered",
-      content,
-      contentHash,
-      placement,
-      opacity: a.opacity,
-      ...(anim ? { transform: { translateX: a.translateX, translateY: a.translateY, scale: a.scale } } : {}),
-    };
-    items.push(item);
+  for (const track of captionTracksOf(props)) {
+    const item = captionItemForTrack(props, tOut, track);
+    if (item) items.push(item);
   }
   return items;
 }
@@ -428,36 +443,60 @@ function fadeFactorAt(t: number, start: number, end: number, fadeInSec?: number,
   return g;
 }
 
+/** 1件の素材オーバーレイを描画する時刻の外側で呼び、その時刻での見た目に
+ * 解決する(OverlayItemView の逐語移植)。区間外は null */
+function overlayItemAt(
+  o: RenderProps["overlays"][number],
+  props: RenderProps,
+  tOut: number,
+): ExternalItem | null {
+  if (tOut < o.start || tOut >= o.end) return null;
+  const fade = fadeFactorAt(tOut, o.start, o.end, o.fadeInSec, o.fadeOutSec);
+  const base = o.rect ? { x: o.rect.x, y: o.rect.y, w: o.rect.w, h: o.rect.h, opacity: o.opacity ?? 1 } : null;
+  const now = base && o.keyframes ? valuesAt(base, o.keyframes, tOut) : base;
+  const opacity = (now?.opacity ?? o.opacity ?? 1) * fade;
+  const box = now ? { x: now.x, y: now.y, w: now.w, h: now.h } : { x: 0, y: 0, w: props.width, h: props.height };
+  return {
+    kind: "external",
+    sourceId: o.file,
+    sourceTimeSec: (o.startFrom ?? 0) + (tOut - o.start),
+    sourceKind: isImageFile(o.file) ? "image" : "video",
+    placement: {
+      mode: "fit",
+      fit: o.fit,
+      box,
+      ...(now ? {} : { letterboxColor: "black" }),
+    },
+    opacity,
+  };
+}
+
+/** 指定トラックの素材オーバーレイのうち、この時刻に表示中のものを
+ * (overlays.json の記載順のまま)集める */
+function overlayItemsForTrack(props: RenderProps, tOut: number, track: number): ExternalItem[] {
+  const items: ExternalItem[] = [];
+  for (const o of props.overlays) {
+    if (o.track !== track) continue;
+    const item = overlayItemAt(o, props, tOut);
+    if (item) items.push(item);
+  }
+  return items;
+}
+
 /**
  * グループ4a: 素材オーバーレイ(overlays.json の overlays[])。
  * OverlayItemView(OverlayLayer.tsx)の逐語移植。rect 指定は部分配置
  * (PiP。contain の余白は透過)、無指定は全画面+黒余白(letterboxColor)。
  * keyframes は valuesAt(既に出力秒へ写像済み)でこの時刻の値を解決する。
- * 音は descriptor 対象外(絵のみ。CLAUDE.md の overlays.json 表どおり)
+ * 音は descriptor 対象外(絵のみ。CLAUDE.md の overlays.json 表どおり)。
+ * layerOrder による重なり順の反映はグループ5の describeLayerOrderStack が
+ * 行う(このグループ単体は overlays.json の記載順のまま)
  */
 export function describeOverlayItems(props: RenderProps, tOut: number): FrameItem[] {
   const items: FrameItem[] = [];
   for (const o of props.overlays) {
-    if (tOut < o.start || tOut >= o.end) continue;
-    const fade = fadeFactorAt(tOut, o.start, o.end, o.fadeInSec, o.fadeOutSec);
-    const base = o.rect ? { x: o.rect.x, y: o.rect.y, w: o.rect.w, h: o.rect.h, opacity: o.opacity ?? 1 } : null;
-    const now = base && o.keyframes ? valuesAt(base, o.keyframes, tOut) : base;
-    const opacity = (now?.opacity ?? o.opacity ?? 1) * fade;
-    const box = now ? { x: now.x, y: now.y, w: now.w, h: now.h } : { x: 0, y: 0, w: props.width, h: props.height };
-    const item: ExternalItem = {
-      kind: "external",
-      sourceId: o.file,
-      sourceTimeSec: (o.startFrom ?? 0) + (tOut - o.start),
-      sourceKind: isImageFile(o.file) ? "image" : "video",
-      placement: {
-        mode: "fit",
-        fit: o.fit,
-        box,
-        ...(now ? {} : { letterboxColor: "black" }),
-      },
-      opacity,
-    };
-    items.push(item);
+    const item = overlayItemAt(o, props, tOut);
+    if (item) items.push(item);
   }
   return items;
 }
@@ -490,13 +529,142 @@ export function describeInsertItems(props: RenderProps, tOut: number): FrameItem
   return items;
 }
 
+/**
+ * グループ5a: 領域ぼかし(overlays.json の blurs)。Main.tsx:441-483 の
+ * 逐語移植。硬い ON/OFF(遷移無し)、strength<=0 は「効果なし」で出さない。
+ * rect は zoom に追従せず出力px固定。本編のみ(ショート/videoFile空は対象外)
+ */
+export function describeBlurItems(props: RenderProps, tOut: number): FrameItem[] {
+  if (props.layout || props.videoFile === "") return [];
+  const items: FrameItem[] = [];
+  for (const b of props.blurs ?? []) {
+    if (tOut < b.start || tOut >= b.end) continue;
+    const now = b.keyframes
+      ? valuesAt({ x: b.rect.x, y: b.rect.y, w: b.rect.w, h: b.rect.h, strength: b.strength }, b.keyframes, tOut)
+      : null;
+    const rect = now ? { x: now.x, y: now.y, w: now.w, h: now.h } : b.rect;
+    const strength = now?.strength ?? b.strength;
+    if (strength <= 0) continue; // 効果なし(スライダ0=消える、の直感に合わせる)
+    const content: BlurRegionContent = { kind: "blurRegion", rect, radiusPx: blurRadiusPx(strength) };
+    items.push({
+      kind: "rendered",
+      content,
+      contentHash: contentHashOf(content, { w: props.width, h: props.height }),
+      opacity: 1,
+    });
+  }
+  return items;
+}
+
+/**
+ * グループ5b: 注釈グラフィック(overlays.json の annotations)。
+ * AnnotationLayer.tsx の3種別(arrow/box/spotlight)の逐語移植。硬い
+ * ON/OFF(遷移無し)。zoom には追従せず出力px固定。最前面固定(layerOrder
+ * には載らない)。本編のみ(ショート/videoFile空は対象外)
+ */
+export function describeAnnotationItems(props: RenderProps, tOut: number): FrameItem[] {
+  if (props.layout || props.videoFile === "") return [];
+  const items: FrameItem[] = [];
+  for (const a of props.annotations ?? []) {
+    if (tOut < a.start || tOut >= a.end) continue;
+    let content: RenderedContent;
+    if (a.type === "arrow") {
+      const now = a.keyframes
+        ? valuesAt(
+            { fromX: a.from.x, fromY: a.from.y, toX: a.to.x, toY: a.to.y, widthPx: a.widthPx, headPx: a.headPx },
+            a.keyframes,
+            tOut,
+          )
+        : null;
+      content = {
+        kind: "annotationArrow",
+        from: now ? { x: now.fromX, y: now.fromY } : a.from,
+        to: now ? { x: now.toX, y: now.toY } : a.to,
+        color: a.color,
+        widthPx: now?.widthPx ?? a.widthPx,
+        headPx: now?.headPx ?? a.headPx,
+      };
+    } else if (a.type === "box") {
+      const now = a.keyframes
+        ? valuesAt(
+            { x: a.rect.x, y: a.rect.y, w: a.rect.w, h: a.rect.h, widthPx: a.widthPx, radiusPx: a.radiusPx },
+            a.keyframes,
+            tOut,
+          )
+        : null;
+      content = {
+        kind: "annotationBox",
+        rect: now ? { x: now.x, y: now.y, w: now.w, h: now.h } : a.rect,
+        color: a.color,
+        widthPx: now?.widthPx ?? a.widthPx,
+        radiusPx: now?.radiusPx ?? a.radiusPx,
+        ...(a.fill !== undefined ? { fill: a.fill } : {}),
+      };
+    } else {
+      const now = a.keyframes
+        ? valuesAt(
+            { x: a.rect.x, y: a.rect.y, w: a.rect.w, h: a.rect.h, dim: a.dim, featherPx: a.featherPx, radiusPx: a.radiusPx },
+            a.keyframes,
+            tOut,
+          )
+        : null;
+      content = {
+        kind: "annotationSpotlight",
+        rect: now ? { x: now.x, y: now.y, w: now.w, h: now.h } : a.rect,
+        shape: a.shape,
+        dim: now?.dim ?? a.dim,
+        featherPx: now?.featherPx ?? a.featherPx,
+        radiusPx: now?.radiusPx ?? a.radiusPx,
+      };
+    }
+    items.push({
+      kind: "rendered",
+      content,
+      contentHash: contentHashOf(content, { w: props.width, h: props.height }),
+      opacity: 1,
+    });
+  }
+  return items;
+}
+
+/**
+ * グループ5c: layerOrder(素材/wipe/テロップの重なり順)。
+ * normalizeLayerOrder 済みの完全な配列(props.layerOrder。無ければ
+ * DEFAULT_LAYER_ORDER)を下から順に辿り、各 id に対応する現在時刻の
+ * item を積む(ov<N>=そのトラックの素材、wipe=カメラ、caption/cap<N>=
+ * そのトラックのテロップ)。Main.tsx の layerNode(id) 分岐の逐語移植
+ * (hiddenLayers はエディタのプレビュー専用フラグなので descriptor では
+ * 扱わない=§Phase0記録のとおり)
+ */
+export function describeLayerOrderStack(props: RenderProps, tOut: number): FrameItem[] {
+  const layerOrder = props.layerOrder ?? DEFAULT_LAYER_ORDER;
+  const items: FrameItem[] = [];
+  for (const id of layerOrder) {
+    const ovTrack = ovNum(id);
+    if (ovTrack !== null) {
+      items.push(...overlayItemsForTrack(props, tOut, ovTrack));
+      continue;
+    }
+    const capTrack = capNum(id);
+    if (capTrack !== null) {
+      const item = captionItemForTrack(props, tOut, capTrack);
+      if (item) items.push(item);
+      continue;
+    }
+    if (id === "wipe") {
+      items.push(...describeWipeLayer(props, tOut));
+    }
+  }
+  return items;
+}
+
 export function describeFrame(props: RenderProps, tOut: number): FrameDescriptor {
   const items: FrameItem[] = [];
   items.push(...describeBaseLayer(props, tOut));
-  items.push(...describeWipeLayer(props, tOut));
-  items.push(...describeCaptionLayer(props, tOut));
-  items.push(...describeOverlayItems(props, tOut));
   items.push(...describeInsertItems(props, tOut));
+  items.push(...describeBlurItems(props, tOut));
+  items.push(...describeLayerOrderStack(props, tOut));
+  items.push(...describeAnnotationItems(props, tOut));
   return {
     tOut,
     size: { w: props.width, h: props.height },
