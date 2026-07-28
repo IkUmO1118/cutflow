@@ -94,6 +94,13 @@ export function buildClipGainAutomation(
 const LOOKAHEAD_SEC = 2;
 const SCHEDULE_INTERVAL_MS = 500;
 
+/** reseek() の合体待ち(R4 Phase4。§2 決定5)。スクラブ(pointermove起点の
+ * 連続シーク)は SCHEDULE_INTERVAL_MS(500ms)よりずっと速い頻度で来るため、
+ * それより十分短い 150ms を「入力が止まった」判定に使う。この間は
+ * reseek() の呼び出しがタイマーを張り直すだけで合体し、実際の
+ * decode/schedule はスクラブが止まってから1回だけ走る */
+const RESEEK_SETTLE_MS = 150;
+
 /** 窓長(秒)。LOOKAHEAD_SEC(2秒)より短く、かつ短すぎて予約ノードと
  *  decode 呼び出しが爆発しない値を選ぶ。1秒は LOOKAHEAD_SEC の半分で、
  *  keep 区間(最大 15-20s)を 15-20 枚に分割する。各窓は aac パケット
@@ -197,6 +204,11 @@ export class AudioScheduler {
   private overlayGainNodes = new Map<number, GainNode>();
   private insertGainNodes = new Map<number, GainNode>();
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** reseek() の合体待ちタイマー(R4 Phase4)。setTimeout 中に新たな reseek()
+   * が来たら張り直す(スクラブ対応) */
+  private reseekTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 合体待ち中に確定させた resolveUrl(settle 時にそのまま使う) */
+  private pendingReseekResolveUrl: ((file: string) => string) | null = null;
   private mutedBase: boolean;
   private mutedBgm: boolean;
   private _queuedDurationSec = 0;
@@ -261,22 +273,10 @@ export class AudioScheduler {
     return sink;
   }
 
-  /** 再生開始/シークのたびに呼ぶ。mapping は clock.ts と同じものを渡す
-   * (音がマスター=マッピングの正はそこ1つ) */
-  start(mapping: ClockMapping, resolveUrl: (file: string) => string): void {
-    this.stopScheduledNodes();
-    for (const gn of this.bgmGainNodes.values()) gn.disconnect();
-    for (const gn of this.overlayGainNodes.values()) gn.disconnect();
-    for (const gn of this.insertGainNodes.values()) gn.disconnect();
-    this.bgmGainNodes.clear();
-    this.overlayGainNodes.clear();
-    this.insertGainNodes.clear();
-    this.sessionId++;
-    this.mapping = mapping;
-    this.scheduledBaseKeys = new Set();
-    this.scheduledBgmKeys = new Set();
-    this.scheduledOverlayKeys = new Set();
-    this.scheduledInsertKeys = new Set();
+  /** bgm/overlay/insert の track-level GainNode をゲイン自動化込みで
+   * 組み立て直す(start()/reseek() 共通。呼び出し前に disconnectAllGainNodes()
+   * 済みで this.mapping が確定している前提) */
+  private buildGainNodes(resolveUrl: (file: string) => string): void {
     // BGM の sink と track-level GainNode を事前に作る
     for (let i = 0; i < this.opts.bgm.length; i++) {
       const track = this.opts.bgm[i];
@@ -333,13 +333,81 @@ export class AudioScheduler {
       }
       this.insertGainNodes.set(i, gain);
     }
-    this.scheduleWindow(mapping.startOutputSec, resolveUrl);
+  }
+
+  private disconnectAllGainNodes(): void {
+    for (const gn of this.bgmGainNodes.values()) gn.disconnect();
+    for (const gn of this.overlayGainNodes.values()) gn.disconnect();
+    for (const gn of this.insertGainNodes.values()) gn.disconnect();
+    this.bgmGainNodes.clear();
+    this.overlayGainNodes.clear();
+    this.insertGainNodes.clear();
+  }
+
+  private clearScheduledKeys(): void {
+    this.scheduledBaseKeys = new Set();
+    this.scheduledBgmKeys = new Set();
+    this.scheduledOverlayKeys = new Set();
+    this.scheduledInsertKeys = new Set();
+  }
+
+  /** 通常の先読みタイマー(SCHEDULE_INTERVAL_MS間隔)を張り直す。
+   * start()/reseek() の settle 後で共通に使う */
+  private startScheduleLoop(resolveUrl: (file: string) => string): void {
     if (this.timer !== null) clearInterval(this.timer);
     this.timer = setInterval(() => {
       const currentSec =
         this.mapping.startOutputSec + (this.audioContext.currentTime - this.mapping.startContextTime);
       this.scheduleWindow(currentSec, resolveUrl);
     }, SCHEDULE_INTERVAL_MS);
+  }
+
+  /** 再生開始/シークのたびに呼ぶ。mapping は clock.ts と同じものを渡す
+   * (音がマスター=マッピングの正はそこ1つ) */
+  start(mapping: ClockMapping, resolveUrl: (file: string) => string): void {
+    this.stopScheduledNodes();
+    this.disconnectAllGainNodes();
+    // 進行中の reseek() 合体待ちは、通常の start() が来た以上は不要
+    if (this.reseekTimer !== null) {
+      clearTimeout(this.reseekTimer);
+      this.reseekTimer = null;
+      this.pendingReseekResolveUrl = null;
+    }
+    this.sessionId++;
+    this.mapping = mapping;
+    this.clearScheduledKeys();
+    this.buildGainNodes(resolveUrl);
+    this.scheduleWindow(mapping.startOutputSec, resolveUrl);
+    this.startScheduleLoop(resolveUrl);
+  }
+
+  /** 再生中のシークで呼ぶ(R4 Phase4。§2 決定5)。予約済みノードを即時停止し
+   * mapping を差し替えるが、再スケジュールはすぐに行わない
+   * (先読みタイマーも一旦止める=古いmappingのまま動かないように)。
+   * RESEEK_SETTLE_MS だけ入力が止まってから初めて1回だけ
+   * ゲインノードの組み立て直し+先読みタイマーの再開を行う。
+   * 連続呼び出し(スクラブ)はタイマーを張り直すだけで合体する */
+  reseek(mapping: ClockMapping, resolveUrl: (file: string) => string): void {
+    this.stopScheduledNodes();
+    this.disconnectAllGainNodes();
+    if (this.timer !== null) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+    this.sessionId++;
+    this.mapping = mapping;
+    this.clearScheduledKeys();
+    this.pendingReseekResolveUrl = resolveUrl;
+    if (this.reseekTimer !== null) clearTimeout(this.reseekTimer);
+    this.reseekTimer = setTimeout(() => {
+      this.reseekTimer = null;
+      const rUrl = this.pendingReseekResolveUrl;
+      this.pendingReseekResolveUrl = null;
+      if (!rUrl) return;
+      this.buildGainNodes(rUrl);
+      this.scheduleWindow(this.mapping.startOutputSec, rUrl);
+      this.startScheduleLoop(rUrl);
+    }, RESEEK_SETTLE_MS);
   }
 
   /** 一時停止/停止。予約済みノードを全部止める */
@@ -349,13 +417,13 @@ export class AudioScheduler {
       clearInterval(this.timer);
       this.timer = null;
     }
+    if (this.reseekTimer !== null) {
+      clearTimeout(this.reseekTimer);
+      this.reseekTimer = null;
+      this.pendingReseekResolveUrl = null;
+    }
     this.stopScheduledNodes();
-    for (const gn of this.bgmGainNodes.values()) gn.disconnect();
-    for (const gn of this.overlayGainNodes.values()) gn.disconnect();
-    for (const gn of this.insertGainNodes.values()) gn.disconnect();
-    this.bgmGainNodes.clear();
-    this.overlayGainNodes.clear();
-    this.insertGainNodes.clear();
+    this.disconnectAllGainNodes();
   }
 
   private stopScheduledNodes(): void {
@@ -475,6 +543,11 @@ export class AudioScheduler {
 
   scheduledOutputSec(): number {
     return this._queuedDurationSec;
+  }
+
+  /** 現在の mapping(読み取り専用。R4 Phase4: reseek() の検証・デバッグ用) */
+  getMapping(): ClockMapping {
+    return this.mapping;
   }
 
   private async scheduleBaseEntry(entry: TimelineEntry, sessionId: number): Promise<void> {

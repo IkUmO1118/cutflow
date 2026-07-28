@@ -260,7 +260,15 @@ export const EnginePreview = forwardRef<PreviewHandle, EnginePreviewProps>(funct
       seekTo(frame: number) {
         const sec = frame / fpsRef.current;
         clockRef.current?.seek(sec);
-        if (!playingRef.current) void repaintAt(sec);
+        if (playingRef.current) {
+          // 再生中のシーク: 音声も引き直す(R4 Phase4)。予約済みノードを
+          // 即時停止し、スクラブが落ち着いてから1回だけ鳴らし直す
+          // (AudioScheduler.reseek 内で合体待ちする)
+          const clock = clockRef.current;
+          if (clock) schedulerRef.current?.reseek(clock.getMapping(), resolveUrl);
+        } else {
+          void repaintAt(sec);
+        }
         dispatch("frameupdate", { frame });
       },
       play() {

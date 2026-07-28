@@ -93,6 +93,68 @@ test("AudioScheduler: constructorでmuteBase/muteBgmが初期化されsetMuteで
   assert.doesNotThrow(() => s1.setMute(true, true));
 });
 
+// R4 Phase4: 再生中のシークで音声を引き直す reseek()。timeline/bgm/overlays/
+// inserts を空にしてテストする(空なら scheduleWindow/buildGainNodes が
+// mediabunny の Input/UrlSource(ネットワーク要)へ一切触れない。既存の
+// setVolume/setMute/dispose テストと同じ回避パターン)。
+
+test("AudioScheduler.reseek: mappingが即座に差し替わる", () => {
+  const { audioContext } = mockAudioContext();
+  const scheduler = new AudioScheduler({
+    audioContext, baseAudioUrl: "/media/proxy.mp4", timeline: [], bgm: [], fps: 30,
+  });
+  scheduler.reseek({ startOutputSec: 42, startContextTime: 1.5 }, (f) => f);
+  assert.deepEqual(scheduler.getMapping(), { startOutputSec: 42, startContextTime: 1.5 });
+  scheduler.dispose();
+});
+
+test("AudioScheduler.reseek: 呼び出し直後は予約済みノードが残らない(queuedNodeCount/scheduledOutputSecが0)", () => {
+  const { audioContext } = mockAudioContext();
+  const scheduler = new AudioScheduler({
+    audioContext, baseAudioUrl: "/media/proxy.mp4", timeline: [], bgm: [], fps: 30,
+  });
+  scheduler.reseek({ startOutputSec: 10, startContextTime: 0 }, (f) => f);
+  assert.equal(scheduler.queuedNodeCount(), 0);
+  assert.equal(scheduler.scheduledOutputSec(), 0);
+  scheduler.dispose();
+});
+
+test("AudioScheduler.reseek: 連続呼び出しは実際のscheduleWindowを1回に合体する(スクラブ対応)", async () => {
+  const { audioContext } = mockAudioContext();
+  const scheduler = new AudioScheduler({
+    audioContext, baseAudioUrl: "/media/proxy.mp4", timeline: [], bgm: [], fps: 30,
+  });
+  let scheduleCalls = 0;
+  // scheduleWindow は TS private だが実行時はただの prototype メソッドなので、
+  // インスタンス自身のプロパティで覆ってスパイにする(モック生成不要)
+  (scheduler as unknown as { scheduleWindow: (sec: number, r: (f: string) => string) => void }).scheduleWindow =
+    () => { scheduleCalls++; };
+  const resolveUrl = (f: string) => f;
+  scheduler.reseek({ startOutputSec: 1, startContextTime: 0 }, resolveUrl);
+  scheduler.reseek({ startOutputSec: 2, startContextTime: 0 }, resolveUrl);
+  scheduler.reseek({ startOutputSec: 3, startContextTime: 0 }, resolveUrl);
+  assert.equal(scheduleCalls, 0, "settle(150ms)前はまだ呼ばれない");
+  await new Promise((r) => setTimeout(r, 260));
+  assert.equal(scheduleCalls, 1, "3回reseekしても実際のscheduleWindowは1回だけ(スクラブが合体した)");
+  assert.deepEqual(scheduler.getMapping(), { startOutputSec: 3, startContextTime: 0 }, "mappingは最後の呼び出しの値");
+  scheduler.dispose();
+});
+
+test("AudioScheduler.stop: 進行中のreseek合体待ちを打ち切る(settle後もscheduleWindowが呼ばれない)", async () => {
+  const { audioContext } = mockAudioContext();
+  const scheduler = new AudioScheduler({
+    audioContext, baseAudioUrl: "/media/proxy.mp4", timeline: [], bgm: [], fps: 30,
+  });
+  let scheduleCalls = 0;
+  (scheduler as unknown as { scheduleWindow: (sec: number, r: (f: string) => string) => void }).scheduleWindow =
+    () => { scheduleCalls++; };
+  scheduler.reseek({ startOutputSec: 1, startContextTime: 0 }, (f) => f);
+  scheduler.stop();
+  await new Promise((r) => setTimeout(r, 260));
+  assert.equal(scheduleCalls, 0, "stop()後はreseekの合体待ちタイマーが打ち切られ、settleしても呼ばれない");
+  scheduler.dispose();
+});
+
 test("AudioScheduler.dispose: masterGain を disconnect し、2重呼び出しでも例外を投げない", () => {
   const { audioContext } = mockAudioContext();
   const scheduler = new AudioScheduler({
