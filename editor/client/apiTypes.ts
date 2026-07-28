@@ -110,7 +110,7 @@ export interface ProjectData {
   /** server が現在の design key と全 PNG の存在を検証した静的資産 */
   designAssets?: PreparedDesignAssets;
   /** カット確認用プレビュー動画・プロキシの横幅(config の preview.width) */
-  previewCfg: { width: number; videoEncoder?: "libx264" | "videotoolbox" };
+  previewCfg: { width: number; videoEncoder?: "libx264" | "videotoolbox"; engine?: "canvas" | "legacy" };
   /** エディタ設定(サーバー側で省略時の既定値まで解決した実値) */
   editorCfg: EditorCfg;
   /** 最終レンダーの出力解像度(manifest の screenRegion) */
@@ -196,7 +196,7 @@ export interface ConfigSaveResult {
   ok: true;
   renderCfg: Config["render"];
   designAssets?: PreparedDesignAssets;
-  previewCfg: { width: number; videoEncoder?: "libx264" | "videotoolbox" };
+  previewCfg: { width: number; videoEncoder?: "libx264" | "videotoolbox"; engine?: "canvas" | "legacy" };
   editorCfg: EditorCfg;
   aiProfiles: AiProfileStatus[];
   aiRoutes: { text: string; structured: string; vision?: string };

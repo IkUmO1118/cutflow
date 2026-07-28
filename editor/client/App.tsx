@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from "react";
+import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent, Ref } from "react";
 import type { LayoutChangedMeta, PanelImperativeHandle } from "react-resizable-panels";
 import { Player } from "@remotion/player";
 import type { CallbackListener, PlayerRef } from "@remotion/player";
+import { EnginePreview } from "./EnginePreview.tsx";
+import type { PreviewHandle } from "./EnginePreview.tsx";
 import { Main } from "../../remotion/Main.tsx";
 import { designForPlayer } from "./designAssets.ts";
 import { mountMetricsHud, startMetricsHarness } from "./metrics.ts";
@@ -600,6 +602,11 @@ export const App = () => {
   /** ループ再生(プレビューのみ。末尾まで行ったら先頭へ戻る) */
   const [loop, setLoop] = useState(false);
   const [videoVersion, setVideoVersion] = useState(0);
+  /** canvas プレビュー(preview.engine)が実行時に WebGPU 非対応/初期化失敗で
+   * legacy(Player)へ自動フォールバックした理由。null なら未フォールバック
+   * (M3b §2-2)。一度フォールバックしたらこのセッション中は戻さない
+   * (videoVersion remount のたびに EnginePreview を再試行させない) */
+  const [engineFallback, setEngineFallback] = useState<string | null>(null);
   // 再生ヘッドの現在位置は React state ではなく playhead ストアが持つ
   // (毎フレームの setState は UI 全体の再レンダー = 再生の乱れになる)
   /** プレビューの音量(%)。書き出しには影響しない。ベースの音量自体は
@@ -629,7 +636,10 @@ export const App = () => {
   const [peaksMap, setPeaksMap] = useState<Record<string, Peaks | null>>({});
   /** 取得済み(進行中含む)のピークのキー。二重リクエストを避ける */
   const peaksRequestedRef = useRef(new Set<string>());
-  const playerRef = useRef<PlayerRef>(null);
+  // Player(legacy)/EnginePreview(canvas)どちらの ref も同じ形で受ける
+  // (PreviewHandle は PlayerRef から実際に使うメソッドだけを Pick した型。
+  // M3b §2-1)。呼び出し側(このファイルの下の方)は無改造のまま動く
+  const playerRef = useRef<PreviewHandle>(null);
   /** プレビューの表示倍率(プレビューのみ。書き出し・合成には影響しない) */
   const [previewZoom, setPreviewZoom] = useState<"fit" | number>("fit");
   const [tab, setTab] = useState<PanelTab>("materials");
@@ -1695,6 +1705,11 @@ export const App = () => {
   const duration = built?.props.durationSec ?? 0;
   const durationInFrames = Math.max(1, Math.round(duration * fps));
   const srcDur = proj?.manifest.durationSec ?? 0;
+  /** config.yaml の preview.engine(既定 canvas)。実行時に WebGPU 非対応/
+   * 初期化失敗を検知すると engineFallback が立ち、このセッションでは
+   * legacy(Player)へ固定される(M3b §2-2) */
+  const engineMode = proj?.previewCfg.engine ?? "canvas";
+  const engineActive = engineMode === "canvas" && !engineFallback;
   /** 画像素材・尺不明素材を置くときの既定の尺(秒)。config で変更できる */
   const defaultImgSec = proj?.editorCfg.defaultImageDurationSec ?? 4;
   /** ショート新規追加(addShort)で、選択中の keep クリップもプレイヘッドの
@@ -5807,6 +5822,7 @@ export const App = () => {
         proxyStale={proxyStale && !proxyStaleDismissed}
         proxyBusy={proxyBusy}
         previewCutRebake={previewCutRebake.state}
+        engineFallback={engineFallback}
         warnings={built?.warnings ?? []}
         onRestore={restoreDraft}
         onDiscard={discardDraft}
@@ -6191,26 +6207,40 @@ export const App = () => {
               className="viewerScale"
               style={previewZoom === "fit" ? undefined : { transform: `scale(${previewZoom})` }}
             >
-              <Player
-                key={videoVersion}
-                ref={playerRef}
-                component={Main}
-                inputProps={playerProps ?? built.props}
-                durationInFrames={durationInFrames}
-                compositionWidth={built.props.width}
-                compositionHeight={built.props.height}
-                fps={fps}
-                loop={loop}
-                playbackRate={playbackRate}
-                initialVolume={playerVolume}
-                // 共有 <audio> タグのプールは AudioContext の作り直しで登録が
-                // ずれて落ちる(unregisterAudio の TypeError / No audio ref found)。
-                // モバイルの自動再生制限対策の仕組みで、ここでは再生が常に
-                // ユーザー操作起点なので不要。0 でプールを無効化する
-                numberOfSharedAudioTags={0}
-                spaceKeyToPlayOrPause={false}
-                style={{ width: "100%", height: "100%" }}
-              />
+              {engineActive ? (
+                <EnginePreview
+                  key={videoVersion}
+                  ref={playerRef}
+                  props={playerProps ?? built.props}
+                  durationInFrames={durationInFrames}
+                  fps={fps}
+                  loop={loop}
+                  playbackRate={playbackRate}
+                  initialVolume={playerVolume}
+                  onFallback={setEngineFallback}
+                />
+              ) : (
+                <Player
+                  key={videoVersion}
+                  ref={playerRef as unknown as Ref<PlayerRef>}
+                  component={Main}
+                  inputProps={playerProps ?? built.props}
+                  durationInFrames={durationInFrames}
+                  compositionWidth={built.props.width}
+                  compositionHeight={built.props.height}
+                  fps={fps}
+                  loop={loop}
+                  playbackRate={playbackRate}
+                  initialVolume={playerVolume}
+                  // 共有 <audio> タグのプールは AudioContext の作り直しで登録が
+                  // ずれて落ちる(unregisterAudio の TypeError / No audio ref found)。
+                  // モバイルの自動再生制限対策の仕組みで、ここでは再生が常に
+                  // ユーザー操作起点なので不要。0 でプールを無効化する
+                  numberOfSharedAudioTags={0}
+                  spaceKeyToPlayOrPause={false}
+                  style={{ width: "100%", height: "100%" }}
+                />
+              )}
               {/* 素材(部分配置)の移動・リサイズ枠。テロップ枠より下(DOM 前)に
                   置き、重なったときはテロップのドラッグを優先させる */}
               <LiveMaterialOverlay
@@ -6732,6 +6762,7 @@ const HeaderBanners = ({
   proxyStale,
   proxyBusy,
   previewCutRebake,
+  engineFallback,
   warnings,
   onRestore,
   onDiscard,
@@ -6747,6 +6778,9 @@ const HeaderBanners = ({
   proxyStale: boolean;
   proxyBusy: boolean;
   previewCutRebake: PreviewCutRebakeState;
+  /** canvas プレビューが実行時に legacy へ自動フォールバックした理由
+   * (M3b §2-2)。null なら未フォールバック */
+  engineFallback: string | null;
   warnings: string[];
   onRestore: () => void;
   onDiscard: () => void;
@@ -6756,10 +6790,20 @@ const HeaderBanners = ({
   onDismissProxyStale: () => void;
   onRetryPreviewCut: () => void;
 }) => {
-  if (!draftOffer && !externalChange && !proxyStale &&
+  if (!draftOffer && !externalChange && !proxyStale && !engineFallback &&
       previewCutRebake.status === "idle" && warnings.length === 0) return null;
   return (
     <>
+      {engineFallback && (
+        <div
+          className="banner"
+          title={`WebGPU 初期化に失敗しました: ${engineFallback}`}
+        >
+          <span className="msg">
+            このブラウザは WebGPU 非対応のため従来プレビューで表示中
+          </span>
+        </div>
+      )}
       {warnings.map((w) => (
         <div className="banner" key={w}>
           <span className="msg">⚠ {w}</span>
