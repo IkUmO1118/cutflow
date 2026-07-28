@@ -103,6 +103,11 @@ export interface BlitVideoResult {
   /** このテクスチャを置くべき絶対フレーム座標の矩形(GPU レイヤーの
    * transform に直結する。w/h は canvas の実ピクセルサイズと一致) */
   quad: Rect;
+  /** 実際に描画へ使ったクロップ矩形(実デコード解像度のピクセル空間。
+   * "resolved" は scaleRectToPixelSpace 後、"fit" は resolveFitFromNatural の
+   * 結果)。textureCache.externalTextureId のキーに含める(R4 Phase2。
+   * §2 決定2「そのテクスチャの画を決める全入力」) */
+  sourceRect: Rect;
 }
 
 /** 動画フレーム(VideoSample)か静止画(ImageBitmap。design 背景・画像
@@ -161,5 +166,5 @@ export function blitVideoSample(source: BlitSource, opts: BlitVideoOptions): Bli
 
   // GPU レイヤーの transform(§3 compositor.ts)は絶対フレーム座標の quad を要る
   // ため、blit 先の実ピクセルサイズ(destSize)とあわせて返す
-  return { canvas, quad: { x: quad.x, y: quad.y, w: destSize.w, h: destSize.h } };
+  return { canvas, quad: { x: quad.x, y: quad.y, w: destSize.w, h: destSize.h }, sourceRect };
 }

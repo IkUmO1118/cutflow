@@ -161,13 +161,20 @@ export class EngineCompositor {
     if (!sample) return null;
     const colorFilter = item.effects?.find((e): e is ColorFilterEffect => e.kind === "colorFilter");
     const tBlit0 = performance.now();
-    const { canvas, quad } = blitVideoSample(sample, {
+    const { canvas, quad, sourceRect } = blitVideoSample(sample, {
       placement: item.placement,
       canvasSize: this.canvasSize,
       colorFilter,
       radiusPx: item.radiusPx,
     });
-    const id = externalTextureId(item.sourceId, sample.timestamp, colorFilter);
+    const id = externalTextureId(
+      item.sourceId,
+      sample.timestamp,
+      colorFilter,
+      sourceRect,
+      { w: quad.w, h: quad.h },
+      item.radiusPx,
+    );
     // blit は同期処理で完結している(frameBlit.ts の契約)ので、ここで
     // 即 close してよい(§5 落とし穴。所有権: frameSource→blit→close)
     sample.close();
@@ -183,15 +190,22 @@ export class EngineCompositor {
     const bitmap = await this.imageCache.get(item.sourceId, this.sourcePool.urlOf(item.sourceId));
     if (!bitmap) return null;
     const colorFilter = item.effects?.find((e): e is ColorFilterEffect => e.kind === "colorFilter");
-    const { canvas, quad } = blitVideoSample(bitmap, {
+    const { canvas, quad, sourceRect } = blitVideoSample(bitmap, {
       placement: item.placement,
       canvasSize: this.canvasSize,
       colorFilter,
       radiusPx: item.radiusPx,
     });
     // 画像は時間軸が無いので timestamp の代わりに固定値(0)を使う
-    // (sourceId+colorFilter だけで内容が一意に決まる)
-    const id = externalTextureId(item.sourceId, 0, colorFilter);
+    // (sourceId+colorFilter+crop だけで内容が一意に決まる)
+    const id = externalTextureId(
+      item.sourceId,
+      0,
+      colorFilter,
+      sourceRect,
+      { w: quad.w, h: quad.h },
+      item.radiusPx,
+    );
     this.textures.ensureRaw(id, canvas);
     return { textureId: id, transform: quadToTransform(quad), opacity: item.opacity };
   }

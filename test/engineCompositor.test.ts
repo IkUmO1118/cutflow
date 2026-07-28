@@ -4,6 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { quadToTransform, splitLayersForBlur } from "../src/engine/runtime/compositor.ts";
+import { externalTextureId } from "../src/engine/runtime/textureCache.ts";
 import type { ExternalItem, FrameItem, RenderedItem } from "../src/engine/descriptor.ts";
 
 test("quadToTransform: 中心/幅高さへ変換する", () => {
@@ -91,4 +92,52 @@ test("splitLayersForBlur: 複数blurRegionは連続ブロックとしてまと�
   assert.deepEqual(below, [base]);
   assert.deepEqual(blurs, [blurA, blurB]);
   assert.deepEqual(above, [caption]);
+});
+
+// R4 Phase2: externalTextureId にクロップ(sourceRect/quad寸法/radiusPx)を
+// 含めることで、同一sourceId+同一timestampでも配置が違えばIDが分かれる
+// ことを固定する(§1.1: obs-canvas の画面パネル+カメラワイプが同じソース・
+// 同じサンプル時刻から作られ、旧IDが完全一致していたことの再発防止)。
+test("externalTextureId: 同一source+同一timestampでもsourceRectが違えばIDが異なる(§1.1再発防止)", () => {
+  const screenPanelId = externalTextureId(
+    "media/proxy.mp4", 160.09, undefined,
+    { x: 0.5, y: 0, w: 1919, h: 1080 }, { w: 1920, h: 1080 }, undefined,
+  );
+  const wipeId = externalTextureId(
+    "media/proxy.mp4", 160.09, undefined,
+    { x: 2340, y: 0, w: 1080, h: 1080 }, { w: 375, h: 375 }, undefined,
+  );
+  assert.notEqual(screenPanelId, wipeId);
+});
+
+test("externalTextureId: sourceId・timestamp・colorFilter・sourceRect・quad・radiusPxが全て同一ならIDが一致する(キャッシュが効く)", () => {
+  const rect = { x: 10, y: 20, w: 300, h: 200 };
+  const cf = { kind: "colorFilter" as const, brightness: 1.1, contrast: 1, saturate: 1 };
+  const a = externalTextureId("media/proxy.mp4", 5.5, cf, rect, { w: 300, h: 200 }, 12);
+  const b = externalTextureId("media/proxy.mp4", 5.5, cf, { ...rect }, { w: 300, h: 200 }, 12);
+  assert.equal(a, b);
+});
+
+test("externalTextureId: radiusPxの違いがIDに効く", () => {
+  const rect = { x: 0, y: 0, w: 100, h: 100 };
+  const a = externalTextureId("media/proxy.mp4", 0, undefined, rect, { w: 100, h: 100 }, 0);
+  const b = externalTextureId("media/proxy.mp4", 0, undefined, rect, { w: 100, h: 100 }, 20);
+  assert.notEqual(a, b);
+});
+
+test("externalTextureId: colorFilterの違いがIDに効く", () => {
+  const rect = { x: 0, y: 0, w: 100, h: 100 };
+  const a = externalTextureId("media/proxy.mp4", 0, undefined, rect, { w: 100, h: 100 }, undefined);
+  const b = externalTextureId(
+    "media/proxy.mp4", 0, { kind: "colorFilter", brightness: 1.2, contrast: 1, saturate: 1 },
+    rect, { w: 100, h: 100 }, undefined,
+  );
+  assert.notEqual(a, b);
+});
+
+test("externalTextureId: quadの寸法の違いがIDに効く(同じsourceRectでも出力サイズが違えば別テクスチャ)", () => {
+  const rect = { x: 0, y: 0, w: 100, h: 100 };
+  const a = externalTextureId("media/proxy.mp4", 0, undefined, rect, { w: 100, h: 100 }, undefined);
+  const b = externalTextureId("media/proxy.mp4", 0, undefined, rect, { w: 200, h: 200 }, undefined);
+  assert.notEqual(a, b);
 });
