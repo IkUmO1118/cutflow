@@ -12,6 +12,7 @@ import type {
 import { designStillCanvas, designStillHtml } from "./designAssetHtml.ts";
 import { createStillCaptureSession, type StillCaptureSession } from "./stillCapture.ts";
 
+// 歴史的な名前。src/lib/files.ts の GENERATED_DIRS の render.fast と対応する。
 export const DESIGN_STILL_DIR = "render.fast/design";
 export const DESIGN_STILL_GENERATOR_VERSION = 1;
 

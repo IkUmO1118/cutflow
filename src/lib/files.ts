@@ -88,10 +88,15 @@ const GENERATED_NAME_PATTERNS: readonly RegExp[] = [
  * 集約。生成物)・hyperframe.probe/(`hyperframe-check` が書く動的監査
  * レポート+still の集約。materials.probe/ 等と同じ差分更新型キャッシュ。
  * `hyperframe.probe/<name>/index.json` の形でカード名ごとのサブディレクトリを持つ)・
- * .remotion/(Remotion が render/frames のために収録フォルダ配下へダウンロードする
- * headless Chrome 本体(`chrome-headless-shell`)。収録フォルダごとに約 200MB
- * 重複する純粋な再取得可能キャッシュで、消せば次の render/frames が自動で
- * 取り直す。編集にも承認にも一切関与しない)・
+ * render.fast/(歴史的な名前。かつての高速パスの置き場だった。現在の中身は
+ * design 静的資産 render.fast/design/<key>.<role>.png(背景・影・角丸 mask の
+ * 内容アドレス式キャッシュ。再生成が高価な「重いキャッシュ」)と、
+ * BGM/インサート音声ミックスの一時 PCM(正常終了時は消える)。
+ * ディレクトリ名を変えると既存収録の資産が全部無効化されるため名前は据え置く)・
+ * .remotion/(レガシー。旧 Remotion 経路が収録フォルダ配下へ落とした
+ * headless Chrome 本体(`chrome-headless-shell`)の残骸。CutFlow はもう作らないが、
+ * 既存収録に約 200MB 残っているので `clean` の回収対象として残す。
+ * 編集にも承認にも一切関与しない)・
  * hyperframe-freeze.suggested/(`hyperframe-freeze <dir> --name <name>` が書く
  * 使い捨ての DRAFT。中身は `<name>.html`(skeletonize 済みカード)+
  * `<name>.md`(採用手順+根拠)。material-fit.suggested.json 等と同じ
@@ -109,6 +114,7 @@ const GENERATED_DIRS: readonly string[] = [
   "style.probe",
   "hyperframe.probe",
   "hyperframe-freeze.suggested",
+  "render.fast",
   ".remotion",
 ];
 
