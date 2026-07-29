@@ -217,7 +217,7 @@ function matchEnd(z: ZoomSpan, zooms: ZoomSpan[]): number {
  *  zoomTransformAt / wipeReactiveShrink が**同じ**区間を見るための単一の定義。
  *  effectiveZoomRange とは別物(あちらは focusMode 指定時にさらに広い窓を返す
  *  ので、進行度と連動させたい用途ではこちらを使う) */
-export function activeZoomSpanAt(t: number, zooms: ZoomSpan[]): ZoomSpan | undefined {
+export function activeZoomSpanAt<T extends ZoomSpan>(t: number, zooms: T[]): T | undefined {
   return zooms.find((z) => t >= matchStart(z, zooms) && t < matchEnd(z, zooms));
 }
 
