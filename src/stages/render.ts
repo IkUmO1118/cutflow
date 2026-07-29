@@ -67,7 +67,7 @@ import type {
   Short,
   Transcript,
 } from "../types.ts";
-import type { RenderProps } from "../../remotion/props.ts";
+import type { RenderProps } from "../lib/renderPropsTypes.ts";
 import type { Region } from "../types.ts";
 
 /** ワイプ焼き込みの幾何(Main.tsx の wipeLayer と一致させる。camera 前提)。

@@ -12,7 +12,7 @@ import { EngineCompositor } from "../../src/engine/runtime/compositor.ts";
 import { SourcePool } from "../../src/engine/runtime/sourcePool.ts";
 import { PresentationClock } from "../../src/engine/runtime/clock.ts";
 import { AudioScheduler } from "../../src/engine/runtime/audioScheduler.ts";
-import type { RenderProps } from "../../remotion/props.ts";
+import type { RenderProps } from "../../src/lib/renderPropsTypes.ts";
 import { audioSignatureOf, timelineFromBaseSegments } from "./enginePreviewTimeline.ts";
 
 /** App.tsx の built props memo は videoFile("media/proxy.mp4")に加え、

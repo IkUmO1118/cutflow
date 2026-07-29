@@ -23,7 +23,7 @@ import { resolveProfile } from "../lib/profile.ts";
 import { compositionDurationInFrames } from "../lib/renderFrameMath.ts";
 import { createEngineSession } from "../lib/engineSession.ts";
 import type { Config } from "../lib/config.ts";
-import type { RenderProps } from "../../remotion/props.ts";
+import type { RenderProps } from "../lib/renderPropsTypes.ts";
 import type {
   CutPlan, Manifest, Overlays, Transcript, Bgm, AutoCuts,
 } from "../types.ts";

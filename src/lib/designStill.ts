@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { bundle } from "@remotion/bundler";
 import { ensureBrowser, openBrowser, renderStill, selectComposition } from "@remotion/renderer";
 import type { WarmAssets } from "../stages/frames.ts";
-import type { RenderProps } from "../../remotion/props.ts";
+import type { RenderProps } from "./renderPropsTypes.ts";
 import type { DesignAssetRefs, DesignProps, PreparedDesignAssets } from "./design.ts";
 import type {
   DesignStillDesign,

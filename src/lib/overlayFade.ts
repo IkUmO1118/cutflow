@@ -4,7 +4,7 @@
 // 引き込まれる**ので、node 専用モジュール(node:fs / node:crypto /
 // @remotion/renderer 等)を絶対に import しないこと(webpack が解決できずに
 // frames / editor / render のバンドルが丸ごと壊れる)。
-import type { OverlayItem } from "../../remotion/props.ts";
+import type { OverlayItem } from "./renderPropsTypes.ts";
 
 /** フェード秒 → フレーム(Remotion の fadeFactor と同じ Math.round) */
 export const fadeFrames = (sec: number | undefined, fps: number): number =>

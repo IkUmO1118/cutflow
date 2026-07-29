@@ -55,7 +55,7 @@ import { createEngineSession } from "../lib/engineSession.ts";
 import type { TimelineEntry } from "../lib/timeline.ts";
 import type { Config } from "../lib/config.ts";
 import type { Manifest } from "../types.ts";
-import type { RenderProps } from "../../remotion/props.ts";
+import type { RenderProps } from "../lib/renderPropsTypes.ts";
 
 export interface FrameShot {
   /** 指定された時刻(秒。times は axis の軸 / captions・every は出力の秒) */

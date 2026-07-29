@@ -15,7 +15,7 @@ import {
   globalVideoKey,
   overlapsChunk,
 } from "../src/lib/chunkPlan.ts";
-import type { RenderProps } from "../remotion/props.ts";
+import type { RenderProps } from "../src/lib/renderPropsTypes.ts";
 
 const FPS = 30;
 // 2チャンク: [0,150) と [150,300)(5秒ずつ)

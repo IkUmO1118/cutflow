@@ -57,7 +57,7 @@ import type {
   RenderProps,
   ResolvedKeyframe,
   Span,
-} from "../../remotion/props.ts";
+} from "./renderPropsTypes.ts";
 
 type NumericBaseline = Record<string, number>;
 

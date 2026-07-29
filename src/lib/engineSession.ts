@@ -16,7 +16,7 @@ import { dirname, join, normalize, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import * as esbuild from "esbuild";
-import type { RenderProps } from "../../remotion/props.ts";
+import type { RenderProps } from "./renderPropsTypes.ts";
 import {
   connectCdp,
   evalJs,

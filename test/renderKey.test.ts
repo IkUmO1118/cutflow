@@ -9,7 +9,7 @@ import {
   materialFilesOf,
   renderCacheKeyEquals,
 } from "../src/lib/renderKey.ts";
-import type { RenderProps } from "../remotion/props.ts";
+import type { RenderProps } from "../src/lib/renderPropsTypes.ts";
 
 const PROPS = {
   videoFile: "cut.mp4",

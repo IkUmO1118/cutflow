@@ -22,8 +22,8 @@ import {
 } from "../src/lib/designStill.ts";
 import type { WarmAssets } from "../src/stages/frames.ts";
 import type { DesignStillDesign } from "../remotion/DesignStill.tsx";
-import { defaultProps } from "../remotion/props.ts";
-import type { RenderProps } from "../remotion/props.ts";
+import { defaultProps } from "../src/lib/renderPropsTypes.ts";
+import type { RenderProps } from "../src/lib/renderPropsTypes.ts";
 
 let dir: string;
 

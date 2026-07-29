@@ -1,4 +1,4 @@
-import type { Caption } from "../../remotion/props.ts";
+import type { Caption } from "./renderPropsTypes.ts";
 
 /**
  * テロップの「今どれが表示中か」を毎フレーム引く索引。

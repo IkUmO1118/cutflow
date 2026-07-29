@@ -5,8 +5,8 @@ import assert from "node:assert/strict";
 import { describeBaseLayer, describeWipeLayer } from "../src/engine/describeFrame.ts";
 import { resolveDesign, shrinkRectBottomRight, wipeRectAt } from "../src/lib/design.ts";
 import { wipeProgressAt } from "../src/lib/wipe.ts";
-import { defaultProps } from "../remotion/props.ts";
-import type { RenderProps } from "../remotion/props.ts";
+import { defaultProps } from "../src/lib/renderPropsTypes.ts";
+import type { RenderProps } from "../src/lib/renderPropsTypes.ts";
 
 const base: RenderProps = {
   ...defaultProps,

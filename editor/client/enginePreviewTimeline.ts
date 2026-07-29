@@ -2,7 +2,7 @@
 // AudioScheduler へ渡す base timeline を RenderProps から作る純関数。
 // JSX を含まない(node:test が直接 import してテストできるようにする理由)。
 import type { TimelineEntry } from "../../src/lib/timeline.ts";
-import type { RenderProps } from "../../remotion/props.ts";
+import type { RenderProps } from "../../src/lib/renderPropsTypes.ts";
 
 /** AudioScheduler の base timeline は props.baseSegments(renderProps.ts が
  * 書く「カット後開始秒+videoFile内秒+尺(+速度)」の連結済み区間)から作る。

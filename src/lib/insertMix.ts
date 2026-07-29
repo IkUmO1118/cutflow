@@ -20,7 +20,7 @@ import { probe, summarizeProbe } from "./ffmpeg.ts";
 import { compositionDurationInFrames } from "./renderFrameMath.ts";
 import { frameSpans } from "./renderProps.ts";
 import type { DecodedBgmTrack } from "./bgmMix.ts";
-import type { RenderProps } from "../../remotion/props.ts";
+import type { RenderProps } from "./renderPropsTypes.ts";
 
 /** 1素材ぶんのデコード済み PCM(48kHz stereo interleaved f32) */
 export interface DecodedSource {

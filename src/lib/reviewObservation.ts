@@ -1,6 +1,6 @@
 import type { EditSnapshot } from "./review.ts";
 import type { Problem } from "../stages/validate.ts";
-import type { RenderProps } from "../../remotion/props.ts";
+import type { RenderProps } from "./renderPropsTypes.ts";
 
 export interface SideObservation {
   durationSec: number;

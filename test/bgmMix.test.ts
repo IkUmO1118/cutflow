@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { RenderProps } from "../remotion/props.ts";
+import type { RenderProps } from "../src/lib/renderPropsTypes.ts";
 import {
   bgmMixEncodedAudioDurationSec,
   bgmMixSampleCount,

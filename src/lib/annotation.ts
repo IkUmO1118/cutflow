@@ -12,7 +12,7 @@ import {
   DEFAULT_SPOTLIGHT_SHAPE,
 } from "../types.ts";
 import type { Annotation } from "../types.ts";
-import type { ResolvedAnnotation } from "../../remotion/props.ts";
+import type { ResolvedAnnotation } from "./renderPropsTypes.ts";
 
 /**
  * 種別ごとの既定値を埋め、start/end を差し替えた解決済み annotation を返す。

@@ -40,7 +40,7 @@ import type {
   RenderedItem,
   RenderedPlacement,
 } from "./descriptor.ts";
-import type { Caption, RenderProps } from "../../remotion/props.ts";
+import type { Caption, RenderProps } from "../lib/renderPropsTypes.ts";
 
 const IDENTITY_ZOOM: ZoomTransform = { scale: 1, translateX: 0, translateY: 0 };
 

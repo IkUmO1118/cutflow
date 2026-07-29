@@ -12,7 +12,7 @@ import { describeFrame } from "../describeFrame.ts";
 import type { ExternalItem, FrameDescriptor } from "../descriptor.ts";
 import { EngineCompositor } from "./compositor.ts";
 import { SourcePool } from "./sourcePool.ts";
-import type { RenderProps } from "../../../remotion/props.ts";
+import type { RenderProps } from "../../lib/renderPropsTypes.ts";
 
 declare global {
   interface Window {

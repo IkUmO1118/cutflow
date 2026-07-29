@@ -7,8 +7,8 @@ import { describeBaseLayer, describeFrame, describeLayerOrderStack } from "../sr
 import { resolveDesign } from "../src/lib/design.ts";
 import { zoomTransformAt } from "../src/lib/zoom.ts";
 import type { ZoomSpan } from "../src/lib/zoom.ts";
-import { defaultProps } from "../remotion/props.ts";
-import type { RenderProps } from "../remotion/props.ts";
+import { defaultProps } from "../src/lib/renderPropsTypes.ts";
+import type { RenderProps } from "../src/lib/renderPropsTypes.ts";
 
 const base: RenderProps = {
   ...defaultProps,

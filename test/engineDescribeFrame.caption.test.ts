@@ -4,8 +4,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { describeCaptionLayer } from "../src/engine/describeFrame.ts";
 import { alignKaraoke, animStateAt, karaokeActiveAt, karaokeFillProgress } from "../src/lib/captionAnim.ts";
-import { defaultProps } from "../remotion/props.ts";
-import type { Caption, RenderProps } from "../remotion/props.ts";
+import { defaultProps } from "../src/lib/renderPropsTypes.ts";
+import type { Caption, RenderProps } from "../src/lib/renderPropsTypes.ts";
 
 const base: RenderProps = {
   ...defaultProps,

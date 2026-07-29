@@ -13,7 +13,7 @@ import {
 import { PROFILES } from "../src/lib/profile.ts";
 import { mergeIntervals } from "../src/lib/timeline.ts";
 import { cutplanApprovalHash } from "../src/lib/approval.ts";
-import { defaultProps } from "../remotion/props.ts";
+import { defaultProps } from "../src/lib/renderPropsTypes.ts";
 import type { Config } from "../src/lib/config.ts";
 import type { Manifest, Overlays, Transcript } from "../src/types.ts";
 

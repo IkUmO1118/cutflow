@@ -3,21 +3,24 @@
 // 背景: chunk 差分レンダーの globalVideoProps は手書きの射影なので、RenderProps に
 // キーを足して射影へ入れ忘れると「旧デザインのまま黙って concat」型の正確性バグに
 // なる(render.design 導入時に実際に起きた。docs/programs/render-design-program.md §2.3)。
-// FAST 側も同型: fastPlan が知らない時間変化キーは FAST span が黙って描き落とす。
+// 旧 FAST 側も同型だった: fastPlan が知らない時間変化キーは FAST span が黙って描き落とす。
 //
-// このテストは remotion/props.ts のソースから RenderProps のトップレベルキーを
+// このテストは src/lib/renderPropsTypes.ts のソースから RenderProps のトップレベルキーを
 // 実行時に抽出し、下の分類表と一致しない限り npm test を落とす。キーを足すときは:
-//   1. src/lib/fastPlan.ts — FAST での扱いを決める(基底/レイヤーで消費するか、
-//      SLOW/全編フォールバックの引き金にするか)
-//   2. src/lib/chunkPlan.ts — globalVideoProps(全域)/ chunkVideoKey(局所)/
+//   1. src/lib/chunkPlan.ts — globalVideoProps(全域)/ chunkVideoKey(局所)/
 //      audioKey(音声)のどれに入れるかを決める
-//   3. ファイル参照を持つキーなら src/lib/renderKey.ts の materialFilesOf にも追加
-//   4. この分類表と MUTATIONS に追記する(chunk 分類は下の挙動テストで実測に固定される)
+//   2. ファイル参照を持つキーなら src/lib/renderKey.ts の materialFilesOf にも追加
+//   3. この分類表と MUTATIONS に追記する(chunk 分類は下の挙動テストで実測に固定される)
+//
+// fast 分類は削除済み FAST 経路の historical marker。X1 中は分類表の形を保ち、
+// 後続で不要になった分類軸ごと整理する。
+//   旧 1. src/lib/fastPlan.ts — FAST での扱いを決める(基底/レイヤーで消費するか、
+//      SLOW/全編フォールバックの引き金にするか)
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { audioKey, chunkVideoKey, globalVideoKey } from "../src/lib/chunkPlan.ts";
-import type { RenderProps } from "../remotion/props.ts";
+import type { RenderProps } from "../src/lib/renderPropsTypes.ts";
 
 /** chunk 差分レンダーでの扱い(挙動テストで実測に固定する) */
 type ChunkClass =
@@ -180,13 +183,13 @@ function classifiedKeys(chunk: ChunkClass): (keyof RenderProps)[] {
   );
 }
 
-/** remotion/props.ts のソースから RenderProps のトップレベルキーを抽出する
+/** src/lib/renderPropsTypes.ts のソースから RenderProps のトップレベルキーを抽出する
  * (2スペースインデントの識別子行。ネストのフィールドは4スペース以上なので
  * 拾わない)。型は実行時に消えるので、ソースを実行時の正とする */
 function renderPropsKeysFromSource(): string[] {
-  const src = readFileSync(new URL("../remotion/props.ts", import.meta.url), "utf8");
+  const src = readFileSync(new URL("../src/lib/renderPropsTypes.ts", import.meta.url), "utf8");
   const start = src.indexOf("export type RenderProps = {");
-  assert.ok(start >= 0, "remotion/props.ts に export type RenderProps が見つからない");
+  assert.ok(start >= 0, "src/lib/renderPropsTypes.ts に export type RenderProps が見つからない");
   const end = src.indexOf("\n};", start);
   assert.ok(end > start, "RenderProps の閉じ '};' が見つからない");
   const block = src.slice(start, end);
