@@ -32,7 +32,9 @@ import {
   type ReviewSpec,
 } from "../lib/review.ts";
 import { resolveSnapshotRenderContext } from "../lib/renderSnapshot.ts";
-import { captureEngineStills } from "../lib/engineStill.ts";
+import { captureEngineStills, sourceUrlsOf } from "../lib/engineStill.ts";
+import { createEngineSession } from "../lib/engineSession.ts";
+import { startFramePipe } from "../lib/framePipe.ts";
 import {
   parseAstats,
   parseEbur128,
@@ -495,37 +497,25 @@ async function renderReviewClips(args: {
         : {}),
     };
   }
-  await ensureBrowser();
-  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-  const serveUrl = await bundle({
-    entryPoint: join(repoRoot, "remotion", "index.ts"),
-    publicDir: dirname(args.outDir),
-    symlinkPublicDir: true,
-  });
-  const browser = await openBrowser("chrome");
   try {
     if (args.clip.includeBefore) {
       await renderClipDefault({
+        dir: dirname(args.outDir),
         outFile: beforeFile,
         ctx: args.beforeCtx,
         frameRange: [beforeRange.startFrame, beforeRange.endFrame],
-        serveUrl,
-        browser,
       });
     }
     if (args.clip.includeAfter) {
       await renderClipDefault({
+        dir: dirname(args.outDir),
         outFile: afterFile,
         ctx: args.afterCtx,
         frameRange: [afterRange.startFrame, afterRange.endFrame],
-        serveUrl,
-        browser,
       });
     }
   } catch (error) {
     args.warnings.push(`review clip の生成に失敗しました: ${(error as Error).message}`);
-  } finally {
-    await browser.close({ silent: true });
   }
   if (!args.keepArtifacts) {
     return {
@@ -540,30 +530,32 @@ async function renderReviewClips(args: {
 }
 
 async function renderClipDefault(args: {
+  dir: string;
   outFile: string;
   ctx: ReviewRenderContext;
   frameRange: [number, number];
-  serveUrl: string;
-  browser: Awaited<ReturnType<typeof openBrowser>>;
 }): Promise<void> {
-  const composition = await selectComposition({
-    serveUrl: args.serveUrl,
-    id: "Main",
-    inputProps: args.ctx.props,
-    puppeteerInstance: args.browser,
-    logLevel: "warn",
+  const session = await createEngineSession(args.dir, {
+    props: args.ctx.props,
+    durationSec: args.ctx.durationSec,
+    sourceUrls: sourceUrlsOf(args.ctx.props),
   });
-  await renderMedia({
-    composition,
-    serveUrl: args.serveUrl,
-    outputLocation: args.outFile,
-    codec: "h264",
-    frameRange: args.frameRange,
-    inputProps: args.ctx.props,
-    puppeteerInstance: args.browser,
-    overwrite: true,
-    logLevel: "warn",
-  });
+  const pipe = startFramePipe({ fps: args.ctx.fps, outPath: args.outFile });
+  let finished = false;
+  try {
+    const [startFrame, endFrame] = args.frameRange;
+    for (let f = startFrame; f <= endFrame; f++) {
+      const pngBase64 = await session.renderAndCapture(f / args.ctx.fps);
+      await pipe.write(Buffer.from(pngBase64, "base64"));
+    }
+    await pipe.finish();
+    finished = true;
+  } finally {
+    await session.close();
+    if (!finished) {
+      try { await pipe.finish(); } catch { /* ignore cleanup failure */ }
+    }
+  }
 }
 
 function resolveFrameTarget(
