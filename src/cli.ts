@@ -601,7 +601,7 @@ program
 program
   .command("hyperframe <dir>")
   .description(
-    "HyperFrames カード(無音の作図素材)を生成・render する。native Remotion interpreter で" +
+    "HyperFrames カード(無音の作図素材)を生成・render する。native HyperFrames interpreter で" +
       "check ゲート通過済みの composition だけを render する(cut/承認には触れない)",
   )
   .requiredOption("--name <name>", "カード名(出力ファイル名の元。英数字・.・_・- のみ)")
