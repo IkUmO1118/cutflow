@@ -103,6 +103,11 @@ preview:
   # ハードウェアエンコーダ。生成時間はほぼ同等でファイルサイズが小さい。
   # libx264 で従来の ultrafast+CRF に戻せる(実測は docs/perf.md 参照)
   videoEncoder: videotoolbox
+  # proxy.mp4 をオールイントラ(GOP=1。全フレーム I)でエンコードするか。
+  # エディタはカット境界ごとに proxy.mp4 をシークして繋ぐため、オールイントラだと
+  # 直前キーフレームからのデコード待ちが無くなる(代償はファイルサイズ増)。
+  # false で従来の短 GOP エンコードに戻せる。preview.mp4 には影響しない
+  proxyIntra: true
 
 # 最終レンダー(Remotion 合成)のレイアウト
 render:
@@ -275,7 +280,7 @@ render:
 ocr:
   # 認識言語の優先順(Vision の recognitionLanguages)。開発画面は英語コードが
   # 主で日本語テロップ/コメントが混在するので en 優先・ja 併記
-  languages: [ en, ja ]
+  languages: [ ja, en ]
 
 # 常駐フレームサーバ(frames-serve コマンド)。省略可(既定 4311)。
 # 有効化フラグはここには置かない(opt-in は frames-serve の明示起動で
@@ -486,9 +491,12 @@ ai:
     cloud-vision:
       adapter: openai
       model: gpt-5.4-mini
+    openai-main:
+      adapter: openai
+      model: gpt-4.1
   routes:
-    text: claude-code
-    structured: claude-code
+    text: openai-main
+    structured: openai-main
     vision: cloud-vision
   # 旧形式(後方互換):
   # provider: codex
