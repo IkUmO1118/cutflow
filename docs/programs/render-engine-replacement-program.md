@@ -176,8 +176,9 @@ OffscreenCanvas → 画面        VideoEncoder(HW) → mux → ffmpeg CRF → fi
 - 追随更新: `src/lib/files.ts` → `AGENTS_CONTRACT.md` → `CLAUDE.md` → `docs/usage.md`
   （`test/agentsMd.test.ts` がピン留めしているため機械的に検出される）
 
-2026-07-29 の X6 で `remotion/`、`remotion.config.ts`、`remotion` /
-`@remotion/*` 5パッケージの削除は完了済み。契約・文書追随は X7 が引き継ぐ。
+2026-07-29 の `remotion-elimination-program.md` X0〜X7 で、`remotion/`、
+`remotion.config.ts`、`remotion` / `@remotion/*` 5パッケージの削除と
+契約・文書追随まで完了済み。
 
 ## 8. リスクと置換判定
 
@@ -198,8 +199,8 @@ OffscreenCanvas → 画面        VideoEncoder(HW) → mux → ffmpeg CRF → fi
 - **HF サイドカー**: Remotion 依存が残る唯一の場所。本母艦では一切触らない。
   依存スリム化（chrome 取得機構の脱 Remotion 化）は M4 後の別課題
   → **`docs/programs/remotion-elimination-program.md`（2026-07-29 起草）が引き取った**。
-  同書は §7 の削除リストも引き取り、2026-07-29 の X6 で Remotion パッケージ削除まで完了した
-  （本編経路の削除に関しては同書が優先）。
+  同書は §7 の削除リストも引き取り、2026-07-29 の X0〜X7 で Remotion パッケージ削除、
+  `remotion/` 消滅、契約・文書追随まで完了した（本編経路の削除に関しては同書が優先）。
 
 ## 9. 意思決定ログ
 

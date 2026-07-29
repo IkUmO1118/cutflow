@@ -1,7 +1,7 @@
 # Remotion 完全排除母艦 — HyperFrames も含めて `remotion` / `@remotion/*` を依存から消す
 
-> 状態: **READY（2026-07-29・設計完了・実装未着手）**
-> — §5 の決定（headless Chrome の取得方法）はユーザー批准済み。
+> 状態: **CLOSED（2026-07-29・全フェーズ完了）**
+> — §5 の決定（headless Chrome の取得方法）はユーザー批准済み、X0〜X7 は実装済み。
 > X0〜X7 の実装 plan は `docs/plans/2026-07-29-remotion-x*-*.md`（§5.1 の表）。
 >
 > 位置づけ: `docs/programs/render-engine-replacement-program.md`（以下「置換母艦」）の
@@ -113,16 +113,16 @@ remotion/ ディレクトリは消滅。残す中身の行き先:
 
 **実行順は依存順**。X0 は他のすべてに先行する（D の結び目を解かないと A すら安全に消せない）。
 
-| 順 | ID | 内容 | 完了ゲート |
-|---|---|---|---|
-| 1 | **X0** | `src/lib/browser.ts` 新設。chrome-headless-shell の**取得**（§5 の決定に従う）・起動・CDP 接続を1箇所へ集約。`engineSession.ts` の `findHeadlessShell`/`launchHeadlessShell`/`connectCdp` をここへ移し、`node_modules/.remotion` 依存を切る。取得先は `~/.cutflow/chrome/<buildId>/` | `rm -rf node_modules/.remotion` した状態から `node src/cli.ts frames <dir> --t 10` が通る（＝Remotion の取得物ゼロで自前エンジンが動く）。`npm run gate:pixel` 緑 |
-| 2 | **X1** | 死にコード一括削除（§1-A）。`@remotion/player` 型のローカル化。`remotion/props.ts` → `src/lib/renderPropsTypes.ts` 移設（import 元の一括書き換え。約20ファイル） | `npx tsc --noEmit` 緑・`npm test` 緑（削除したテスト分だけ件数が減る。**残ったテストの書き換えはゼロであること**）・`npm run gate:pixel` 緑 |
-| 3 | **X2** | design 静的資産を脱 Remotion 化。`DesignStill.tsx` の DOM/CSS を**逐語で** HTML 文字列生成へ写し、X0 の browser で4 PNG を焼く。`captionStill.ts`（＝`withCaptionStillAssets`）を削除 | 移行前後で4 PNG が**画素一致**（`scripts/lib/pixelCompare.mjs` で `maxdiff=0`）・`npm run gate:pixel` 緑・`test/designStill.test.ts` は renderer 差し替えフックのまま通る |
-| 4 | **X3** | `review.ts` の before/after still を `createEngineSession().renderAndCapture()` へ差し替え。`bundle`/`openBrowser`/`selectComposition`/`renderStill` を撤去 | エディタの AI copilot diff review が実収録で動作（before/after が出る）・still が `frames` の出力と一致 |
-| 5 | **X4** | 本編の Remotion 経路を全撤去。`renderOneShort` をエンジン化（`resolveSnapshotRenderContext` + 書き出しループ共有）・frames/thumbnail/framesServe の自動降格削除・`render.engineExport` config 削除・`remotionResourceArgs` 削除 | `render --short <name>` がエンジンでショートを出す（フレーム数＋video stream duration 検証。**container duration は使わない**）・`frames`/`thumbnail` が Remotion 不在で通る・`npm run gate:pixel` 緑 |
-| 6 | **X5** | HF render の脱 Remotion 化。`src/lib/hyperframeSession.ts` 新設（X0 browser → カード HTML を iframe に流す → `__isReady()` 待ち → 毎フレーム `__seek(tMs)` + 2×rAF → `Page.captureScreenshot` → ffmpeg `image2pipe` → h264）。`hyperframeAudit.ts` の `openBrowser` を X0 browser へ差し替え。profile の `chromiumGl:"angle"` は起動フラグへ写す | 既存 HF カード（`test/fixtures/` の全 recipe + 実カード）が render でき、`hyperframe-check` の warn 件数が移行前と同じ。`--from-brief` → `hyperframe` → `hyperframe-place` の鎖が実収録で通る |
-| 7 | **X6** | `remotion/` ディレクトリ消滅（残す中身は §2 の行き先へ）。`package.json` から5パッケージ削除。`remotion.config.ts` 削除。検証スクリプト3本を X0/X5 ベースへ書き換え | `grep -rn "@remotion\|from \"remotion\"" src/ editor/ scripts/ test/` が**0件**・`npm ls remotion` が空・`node_modules` 再作成後に全コマンドが動く |
-| 8 | **X7** | 契約・文書の追随。`src/lib/files.ts`（`.remotion` の扱い）→ `AGENTS_CONTRACT.md` → `CLAUDE.md` → `docs/usage.md` → `config.yaml` | `test/agentsMd.test.ts` 緑・`node src/cli.ts clean <dir> --dry-run` が既存収録の `.remotion/` を**引き続き掃除できる**（レガシー残骸の回収） |
+| 順 | ID | 完了 | 内容 | 完了ゲート |
+|---|---|---|---|---|
+| 1 | **X0** | 2026-07-29 | `src/lib/browser.ts` 新設。chrome-headless-shell の**取得**（§5 の決定に従う）・起動・CDP 接続を1箇所へ集約。`engineSession.ts` の `findHeadlessShell`/`launchHeadlessShell`/`connectCdp` をここへ移し、`node_modules/.remotion` 依存を切る。取得先は `~/.cutflow/chrome/<buildId>/` | `rm -rf node_modules/.remotion` した状態から `node src/cli.ts frames <dir> --t 10` が通る（＝Remotion の取得物ゼロで自前エンジンが動く）。`npm run gate:pixel` 緑 |
+| 2 | **X1** | 2026-07-29 | 死にコード一括削除（§1-A）。`@remotion/player` 型のローカル化。`remotion/props.ts` → `src/lib/renderPropsTypes.ts` 移設（import 元の一括書き換え。約20ファイル） | `npx tsc --noEmit` 緑・`npm test` 緑（削除したテスト分だけ件数が減る。**残ったテストの書き換えはゼロであること**）・`npm run gate:pixel` 緑 |
+| 3 | **X2** | 2026-07-29 | design 静的資産を脱 Remotion 化。`DesignStill.tsx` の DOM/CSS を**逐語で** HTML 文字列生成へ写し、X0 の browser で4 PNG を焼く。`captionStill.ts`（＝`withCaptionStillAssets`）を削除 | 移行前後で4 PNG が**画素一致**（`scripts/lib/pixelCompare.mjs` で `maxdiff=0`）・`npm run gate:pixel` 緑・`test/designStill.test.ts` は renderer 差し替えフックのまま通る |
+| 4 | **X3** | 2026-07-29 | `review.ts` の before/after still を `createEngineSession().renderAndCapture()` へ差し替え。`bundle`/`openBrowser`/`selectComposition`/`renderStill` を撤去 | エディタの AI copilot diff review が実収録で動作（before/after が出る）・still が `frames` の出力と一致 |
+| 5 | **X4** | 2026-07-29 | 本編の Remotion 経路を全撤去。`renderOneShort` をエンジン化（`resolveSnapshotRenderContext` + 書き出しループ共有）・frames/thumbnail/framesServe の自動降格削除・`render.engineExport` config 削除・`remotionResourceArgs` 削除 | `render --short <name>` がエンジンでショートを出す（フレーム数＋video stream duration 検証。**container duration は使わない**）・`frames`/`thumbnail` が Remotion 不在で通る・`npm run gate:pixel` 緑 |
+| 6 | **X5** | 2026-07-29 | HF render の脱 Remotion 化。`src/lib/hyperframeSession.ts` 新設（X0 browser → カード HTML を iframe に流す → `__isReady()` 待ち → 毎フレーム `__seek(tMs)` + 2×rAF → `Page.captureScreenshot` → ffmpeg `image2pipe` → h264）。`hyperframeAudit.ts` の `openBrowser` を X0 browser へ差し替え。profile の `chromiumGl:"angle"` は起動フラグへ写す | 既存 HF カード（`test/fixtures/` の全 recipe + 実カード）が render でき、`hyperframe-check` の warn 件数が移行前と同じ。`--from-brief` → `hyperframe` → `hyperframe-place` の鎖が実収録で通る |
+| 7 | **X6** | 2026-07-29 | `remotion/` ディレクトリ消滅（残す中身は §2 の行き先へ）。`package.json` から5パッケージ削除。`remotion.config.ts` 削除。検証スクリプト3本を X0/X5 ベースへ書き換え | `grep -rn "@remotion\|from \"remotion\"" src/ editor/ scripts/ test/` が**0件**・`npm ls remotion` が空・`node_modules` 再作成後に全コマンドが動く |
+| 8 | **X7** | 2026-07-29 | 契約・文書の追随。`src/lib/files.ts`（`.remotion` の扱い）→ `AGENTS_CONTRACT.md` → `CLAUDE.md` → `docs/usage.md` → `config.yaml` | `test/agentsMd.test.ts` 緑・`node src/cli.ts clean <dir> --dry-run` が既存収録の `.remotion/` を**引き続き掃除できる**（レガシー残骸の回収） |
 
 各ゲートで `npm run gate:pixel`（画素ゲート）を通すのは置換母艦 §7 と同じ規律。
 **G1/G2 で緑化済みの物差しを、Remotion オラクルが消える前に毎回使う**のがこの母艦の安全装置。
@@ -238,6 +238,24 @@ du -sh node_modules/@remotion node_modules/remotion node_modules/.remotion      
 npx tsc --noEmit && npm test && npm run gate:pixel                              # → 全緑
 ```
 
+2026-07-29 X7 完了時の実測:
+
+- `rg -n "@remotion|from \"remotion\"" src editor scripts test` → 0件（exit 1）
+- `test ! -e remotion` → exit 0
+- `grep -n "remotion" package.json` → 0件（exit 1）
+- `du -sh node_modules/@remotion node_modules/remotion node_modules/.remotion` →
+  3パスとも `No such file or directory`
+- `node src/cli.ts clean /private/tmp/cutflow-x4-scratch --dry-run --json` →
+  `.remotion/` と `render.fast/` を削除対象に含む。編集ファイル・`approvals.json`・
+  `materials/`・`manifest.json`・`final.mp4`・`thumbnail.png` は対象外
+- `node src/cli.ts clean /private/tmp/cutflow-x4-scratch --dry-run --cache-only --json` →
+  `.remotion/` と `render.fast/` を削除対象に含む
+- `node src/cli.ts clean /private/tmp/cutflow-x4-scratch --dry-run --logs-only --json` →
+  `render.fast/` と `.remotion/` は対象外（`frames/` と `render.report.json` のみ）
+- `npx tsc --noEmit` → exit 0
+- `npm test` → 2725 tests / 2725 pass
+- `npm run gate:pixel` → 12枚すべて一致、exit 0
+
 追随更新（`test/agentsMd.test.ts` がピン留めしているので機械的に検出される）:
 `src/lib/files.ts` → `AGENTS_CONTRACT.md` → `CLAUDE.md` → `docs/usage.md` → `config.yaml`。
 
@@ -336,4 +354,10 @@ npx tsc --noEmit && npm test && npm run gate:pixel                              
   `editor` 起動確認が通過した。
   `test/fixtures/engine/pixel-golden/provenance.json` に、X6 後は Remotion
   オラクルでの再捕獲ができず、将来の golden 更新は人間の目視承認で行う旨を記録した。
-- （以降、各フェーズの完了・ゲート判定・実測値をここへ追記する）
+- **2026-07-29（X7 完了）**: `render.fast/` を generated cache として
+  `src/lib/files.ts` に分類追加し、`.remotion/` は旧 Remotion 経路のレガシー残骸として
+  `clean` の回収対象に残した。`AGENTS_CONTRACT.md` / `CLAUDE.md` /
+  `docs/usage.md` / `config.yaml` を実態へ追随させ、母艦と X0〜X7 plan を
+  CLOSED / 実装済みに更新した。証憑は §8。
+  残件: `render.fast/` という歴史的名称は紛らわしいが、改名するなら
+  キャッシュ鍵・`files.ts`・契約文書を含む独立 plan で扱う。
