@@ -35,57 +35,15 @@ export interface EngineRenderResult {
   frameCount: number;
 }
 
-export async function renderEngine(
-  dir: string,
-  cfg: Config,
-  manifest: Manifest,
-  cutplan: CutPlan,
-  transcript: Transcript,
-  overlaysIn: Overlays,
-  cutPath: string,
-  outPath: string,
-): Promise<EngineRenderResult> {
-  const keeps = cutplan.segments.filter((s) => s.action === "keep");
-  const timeline = buildTimeline(keeps);
-  const durationSec = timeline.length > 0 ? timeline[timeline.length - 1].outputEnd : 0;
-
-  const bgmPath = join(dir, "bgm.json");
-  const bgm = existsSync(bgmPath) ? (JSON.parse(readFileSync(bgmPath, "utf8")) as Bgm) : null;
-  const bgmFile = ["bgm.mp3", "bgm.m4a", "bgm.wav"].find((f) => existsSync(join(dir, f))) ?? null;
-
-  const autoCutsPath = join(dir, "cuts.auto.json");
-  const silences = existsSync(autoCutsPath)
-    ? (JSON.parse(readFileSync(autoCutsPath, "utf8")) as AutoCuts).silences
-    : null;
-
-  const profile = resolveProfile(manifest.video.screenRegion, "default");
-  const sourceFile = manifest.source;
-
-  let props = buildRenderProps({
-    manifest,
-    keeps,
-    transcript,
-    overlays: overlaysIn,
-    renderCfg: renderCfgWithDesign(dir, cfg),
-    width: profile.width,
-    height: profile.height,
-    videoFile: sourceFile,
-    videoIsSource: true,
-    bgm,
-    bgmFallbackFile: bgmFile,
-    silences,
-    overlayExists: (f) => existsSync(join(dir, f)),
-    warn: (msg) => console.warn(`警告: ${msg}`),
-  });
-
-  props = await timed("design静的資産準備", () =>
-    prepareDesignAssetsForProps({
-      dir,
-      props,
-      warn: (message) => console.warn(`警告: ${message}`),
-    }),
-  );
-
+export async function renderEngineFromProps(args: {
+  dir: string;
+  props: RenderProps;
+  durationSec: number;
+  cutPath: string;
+  outPath: string;
+  label?: string;
+}): Promise<EngineRenderResult> {
+  const { dir, props, durationSec, cutPath, outPath } = args;
   const totalFrames = compositionDurationInFrames(props.durationSec, props.fps);
   const fps = props.fps;
   const outputWidth = props.width;
@@ -94,7 +52,7 @@ export async function renderEngine(
   console.log(`エンジン書き出し: ${totalFrames}フレーム ${fps}fps ${outputWidth}x${outputHeight}`);
 
   // Source URL マップ (engineDev.ts と同じパターン)
-  const sourceUrls = sourceUrlsOf(props, sourceFile);
+  const sourceUrls = sourceUrlsOf(props);
 
   const session = await createEngineSession(dir, { props, durationSec, sourceUrls });
 
@@ -146,4 +104,65 @@ export async function renderEngine(
   } finally {
     await session.close();
   }
+}
+
+export async function renderEngine(
+  dir: string,
+  cfg: Config,
+  manifest: Manifest,
+  cutplan: CutPlan,
+  transcript: Transcript,
+  overlaysIn: Overlays,
+  cutPath: string,
+  outPath: string,
+): Promise<EngineRenderResult> {
+  const keeps = cutplan.segments.filter((s) => s.action === "keep");
+  const timeline = buildTimeline(keeps);
+  const durationSec = timeline.length > 0 ? timeline[timeline.length - 1].outputEnd : 0;
+
+  const bgmPath = join(dir, "bgm.json");
+  const bgm = existsSync(bgmPath) ? (JSON.parse(readFileSync(bgmPath, "utf8")) as Bgm) : null;
+  const bgmFile = ["bgm.mp3", "bgm.m4a", "bgm.wav"].find((f) => existsSync(join(dir, f))) ?? null;
+
+  const autoCutsPath = join(dir, "cuts.auto.json");
+  const silences = existsSync(autoCutsPath)
+    ? (JSON.parse(readFileSync(autoCutsPath, "utf8")) as AutoCuts).silences
+    : null;
+
+  const profile = resolveProfile(manifest.video.screenRegion, "default");
+  const sourceFile = manifest.source;
+
+  let props = buildRenderProps({
+    manifest,
+    keeps,
+    transcript,
+    overlays: overlaysIn,
+    renderCfg: renderCfgWithDesign(dir, cfg),
+    width: profile.width,
+    height: profile.height,
+    videoFile: sourceFile,
+    videoIsSource: true,
+    bgm,
+    bgmFallbackFile: bgmFile,
+    silences,
+    overlayExists: (f) => existsSync(join(dir, f)),
+    warn: (msg) => console.warn(`警告: ${msg}`),
+  });
+
+  props = await timed("design静的資産準備", () =>
+    prepareDesignAssetsForProps({
+      dir,
+      props,
+      warn: (message) => console.warn(`警告: ${message}`),
+    }),
+  );
+
+  return renderEngineFromProps({
+    dir,
+    props,
+    durationSec,
+    cutPath,
+    outPath,
+    label: "本編",
+  });
 }
