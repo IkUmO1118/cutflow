@@ -19,6 +19,7 @@
     "gate:pixel": "node scripts/engine-pixel-gate.mjs"
   },
   "dependencies": {
+    "@puppeteer/browsers": "^3.0.6",
     "@remotion/bundler": "^4.0.484",
     "@remotion/cli": "^4.0.484",
     "@remotion/player": "^4.0.484",
