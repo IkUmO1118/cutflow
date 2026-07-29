@@ -1,4 +1,4 @@
-// remotion/Main.tsx の背景レイヤーが使う純関数。zooms(overlays.json 由来。
+// src/engine/describeFrame.ts の背景レイヤーが使う純関数。zooms(overlays.json 由来。
 // カット後の秒・rect・easeSec/easeOutSec 解決済み)から、時刻 t における
 // 背景レイヤーの拡大・平行移動を求める。区間外は恒等(scale=1, translate=0)。
 // 区間の頭 easeSec 秒でイーズイン、末尾 easeOutSec 秒でイーズアウトし、

@@ -158,7 +158,8 @@ export interface ProjectObservation {
   captionDisplaySecs: number[]; // 各 caption の出力表示秒(avgDisplaySec 用)
   /** この観測自身の canvasHeight で分類済みの位置バケット数。observeOwnProject が
    *  captionBucketOf で数え上げる(明示 pos も track 既定も無ければ bottom 既定。
-   *  レンダラー既定フォールバック=remotion/Main.tsx:326-329 と一致させるため)。
+   *  レンダラー既定フォールバック=src/engine/describeFrame.ts の
+   *  captionDefaultPos 不在フォールバックと一致させるため)。
    *  merge はフィールドごとに合算するだけ(異解像度混在でも分母がズレない) */
   positionHistogram: { top: number; center: number; bottom: number };
   captionCount: number; // 全 caption 数(pos 有無問わず)
@@ -509,7 +510,7 @@ function computeSceneChangesPerMin(args: {
 }
 
 /** caption の描画位置バケット。明示 pos.y → track 既定 y → どちらも無ければ
- *  レンダラー既定(本編は下部中央)= "bottom"(remotion/Main.tsx:326-329 の
+ *  レンダラー既定(本編は下部中央)= "bottom"(src/engine/describeFrame.ts の
  *  captionDefaultPos 不在フォールバックと一致させる。無ければ positionHistogram
  *  から実質除外され、実データで多数派の bottom が top に化けるバグになる)。
  *  canvasHeight で top/center/bottom に分ける(観測自身の canvasHeight を使う=

@@ -13,7 +13,8 @@
 //   materials/xxx.jpg           … その収録フォルダ内のファイル(取り込み不要)
 //
 // 収録フォルダ相対のパス(従来の書き方)はそのまま素通しする。fs を触るので
-// remotion/Main.tsx が import する design.ts(ブラウザで動く純関数)とは別モジュール。
+// src/engine/describeFrame.ts が import する design.ts(ブラウザでも動く純関数)
+// とは別モジュール。
 import { copyFileSync, existsSync, mkdirSync, statSync, utimesSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";

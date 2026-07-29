@@ -1,5 +1,5 @@
 // lib/annotation.ts — 注釈グラフィック(overlays.json の annotations)の
-// 既定値解決と矢尻ポリゴンの算出。remotion/Main.tsx と renderProps.ts が使う
+// 既定値解決と矢尻ポリゴンの算出。src/engine/describeFrame.ts と renderProps.ts が使う
 // 純関数。blur.ts と同じ流儀でテストの数値を固定する。
 import {
   DEFAULT_ANNOTATION_COLOR,

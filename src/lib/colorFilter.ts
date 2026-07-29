@@ -1,5 +1,5 @@
 // lib/colorFilter.ts — 簡易カラー調整(overlays.json の colorFilter)を CSS
-// filter 文字列に変換する純関数。remotion/Main.tsx がベース映像(画面クロップ+
+// filter 文字列に変換する純関数。src/engine/describeFrame.ts がベース映像(画面クロップ+
 // カメラ=同一収録動画)だけに適用する。未指定・全既定(1.0)なら undefined
 // (フィルタ無し=既存の描画と完全に同じ)。
 import type { ColorFilter } from "../types.ts";
@@ -20,9 +20,9 @@ export function cssFilterOf(cf?: ColorFilter): string | undefined {
 // Chrome と ffmpeg を直接突き合わせて実測(PSNR 55.5dB)した写像を実装する
 // (design-T3.md §1・§2。数式・係数・差し込み位置は再導出しない)。
 //
-// 【制約】このファイルは remotion/Main.tsx が import する = ブラウザバンドルに
-// 載る。node:* や旧 renderer 等の node 専用モジュールを絶対に
-// import しないこと(webpack が壊れ、typecheck も npm test もすり抜ける)。
+// 【制約】このファイルは src/engine/describeFrame.ts 経由でブラウザプレビューにも
+// 入りうる。node:* や旧 renderer 等の node 専用モジュールを絶対に
+// import しないこと(バンドルが壊れ、typecheck も npm test もすり抜ける)。
 
 /** ffmpeg 側の colorFilter 写像の結果。
  * - none        : 無補正(cssFilterOf が undefined を返すのと同値)

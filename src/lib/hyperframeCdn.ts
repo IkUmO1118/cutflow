@@ -1,6 +1,6 @@
 // lib/hyperframeCdn.ts — B2: pinned CDN script table for HyperFrames
-// composition cards. Browser-safe (imported from remotion/HyperFrame.tsx's
-// bundle indirectly via hyperframe.ts) — NO `node:` imports here.
+// composition cards. Browser-safe (used by the HyperFrame session srcdoc path
+// indirectly via hyperframe.ts) — NO `node:` imports here.
 //
 // Invariant: every pixel-affecting input to a composition is either inlined
 // in the HTML body (author CSS/JS/data:) or SRI-fixed via this table (a

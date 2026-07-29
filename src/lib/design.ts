@@ -1,7 +1,7 @@
 // lib/design.ts — ベースレイアウトのデザイン(背景画像 + 画面パネル + カメラワイプ)。
 // 既定(config.yaml の render.design 無し / enabled: false)では resolveDesign が
 // undefined を返し、props.design が載らない = 従来の「画面全面 + 右下ワイプ」と
-// バイト等価。remotion/Main.tsx と src/lib/renderProps.ts が使う純関数
+// バイト等価。src/engine/describeFrame.ts と src/lib/renderProps.ts が使う純関数
 // (fs は触らない=ブラウザでも動く。背景画像の取り込みは designAsset.ts)。
 import type { Region } from "../types.ts";
 
@@ -111,7 +111,7 @@ export const DEFAULT_DESIGN = {
 } as const;
 
 /** 落ち影の CSS(近接の締まり + 広がりのぼけ の重ね)。shadow: true のときだけ
- * 各レイヤーの box-shadow に載る(remotion/Main.tsx) */
+ * 各レイヤーの box-shadow に載る */
 export const SCREEN_SHADOW_CSS = "0 24px 80px rgba(0,0,0,0.35)";
 export const CAMERA_SHADOW_CSS = "0 8px 20px rgba(0,0,0,0.22), 0 24px 64px rgba(0,0,0,0.32)";
 

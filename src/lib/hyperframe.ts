@@ -1,7 +1,7 @@
 // lib/hyperframe.ts — HyperFrames 作図契約(spec)の最小パーサ+マージ+
-// srcdoc ビルダー。remotion/HyperFrame.tsx(ブラウザバンドル)から import
+// srcdoc ビルダー。HyperFrame セッションのブラウザ実行経路から import
 // されるため **node: の import は一切禁止**(annotation.ts と同じ流儀。
-// node 専用ロジックは annotationStill.ts のように分離する)。
+// node 専用ロジックは別モジュールへ分離する)。
 //
 // buildIframeSrcdoc は CSP <meta> の script-src 外部 source を
 // hyperframeCdn.ts の CDN_SCRIPT_URLS から完全 URL 単位で導出する
@@ -28,7 +28,7 @@ export interface VarDecl {
 }
 
 /** HyperFrame コンポジションのサンプル契約(1920x1080・30fps・4秒)。
- * remotion/HyperFrame.tsx の defaultProps と scripts/hyperframe-verify.ts の
+ * HyperFrame セッションの defaultProps と scripts/hyperframe-verify.ts の
  * 両方から共有される(.tsx から node が直接 import できないため、ここ
  * (browser-safe な .ts)を唯一の置き場にする) */
 export const SAMPLE_HTML = `<!doctype html>

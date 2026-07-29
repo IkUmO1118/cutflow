@@ -1,5 +1,5 @@
 // lib/captionAnim.ts — テロップの登場/退場アニメとカラオケ表示の純関数。
-// remotion/Main.tsx(描画)から使う。ブラウザ(エディタのプレビュー相当)にも
+// src/engine/describeFrame.ts(描画)から使う。ブラウザ(エディタのプレビュー相当)にも
 // 入りうるため node 依存(node:fs 等)は禁止。
 //
 // - animStateAt: t(カット後秒)における登場/退場アニメの状態(opacity/transform)。
