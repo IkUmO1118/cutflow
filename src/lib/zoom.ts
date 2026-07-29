@@ -213,6 +213,14 @@ function matchEnd(z: ZoomSpan, zooms: ZoomSpan[]): number {
   return next ? Math.max(z.end, next.start) : z.end;
 }
 
+/** 時刻 t を担当するズーム区間(pre-roll・gap 延長込み)。zoomProgressAt /
+ *  zoomTransformAt / wipeReactiveShrink が**同じ**区間を見るための単一の定義。
+ *  effectiveZoomRange とは別物(あちらは focusMode 指定時にさらに広い窓を返す
+ *  ので、進行度と連動させたい用途ではこちらを使う) */
+export function activeZoomSpanAt(t: number, zooms: ZoomSpan[]): ZoomSpan | undefined {
+  return zooms.find((z) => t >= matchStart(z, zooms) && t < matchEnd(z, zooms));
+}
+
 /**
  * z が「gap のある連鎖」の後続側か(contiguousPrev があり、かつその gap が
  * ZOOM_CONTIG_EPS を超える=完全隣接ではない)。true なら D2b のパン
@@ -372,7 +380,7 @@ function easeWindows(z: ZoomSpan): { easeIn: number; easeOut: number } {
  * zooms は重ならない前提(validate がエラーにする)なので、該当区間は高々1つ。
  */
 export function zoomProgressAt(t: number, zooms: ZoomSpan[]): number {
-  const z = zooms.find((z) => t >= matchStart(z, zooms) && t < matchEnd(z, zooms));
+  const z = activeZoomSpanAt(t, zooms);
   if (!z) return 0;
   const { easeIn, easeOut } = easeWindows(z);
   const inRaw = contiguousPrev(z, zooms)
@@ -407,7 +415,7 @@ export function zoomTransformAt(
   width: number,
   height: number,
 ): ZoomTransform {
-  const z = zooms.find((z) => t >= matchStart(z, zooms) && t < matchEnd(z, zooms));
+  const z = activeZoomSpanAt(t, zooms);
   if (!z) return IDENTITY;
   const prev = contiguousPrev(z, zooms);
   const { easeIn, easeOut } = easeWindows(z);
