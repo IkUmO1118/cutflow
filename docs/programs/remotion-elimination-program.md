@@ -280,4 +280,13 @@ npx tsc --noEmit && npm test && npm run gate:pixel                              
   `chrome-headless-shell` buildId `149.0.7790.0`（Google Chrome for Testing
   `149.0.7790.0`）を `~/.cutflow/chrome` に取得。`node_modules/.remotion` 退避状態で
   `frames test/fixtures/engine/parity-project --t 10` と `npm run gate:pixel`（12枚一致）が通過。
+- **2026-07-29（X1 完了）**: 死にコードの `render.fast` 経路、Remotion 本編
+  composition（`Main` / 各 Layer / 各 Still）、`@remotion/player` 型 import、
+  `remotion/props.ts` 配置、死んだ `render.fastPath` 設定を削除・移設した。
+  `remotion/fonts/` は X6 まで保持。`render.fast/` ディレクトリ名は
+  `bgmMix` / `insertMix` / `designStill` の現役用途として保持。
+  この時点で `Main` composition が無いため Remotion fallback 経路は機能しない
+  （X4 で fallback 自体を削除する）。検証: `npx tsc --noEmit` 緑、
+  `npm test` 2880→2716 件 pass、`npm run gate:pixel` 緑、scratch で
+  `frames --t 10` / `thumbnail` / `editor --detach --status --stop` 通過。
 - （以降、各フェーズの完了・ゲート判定・実測値をここへ追記する）
