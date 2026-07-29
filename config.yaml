@@ -109,7 +109,7 @@ preview:
   # false で従来の短 GOP エンコードに戻せる。preview.mp4 には影響しない
   proxyIntra: true
 
-# 最終レンダー(Remotion 合成)のレイアウト
+# 最終レンダー(engine 合成)のレイアウト
 render:
   # 右下ワイプ(カメラ)の横幅(px、1920x1080基準)。ワイプは右下角に隙間なく配置される
   wipeWidthPx: 480
@@ -129,7 +129,7 @@ render:
   # 個別のテロップ・トラック標準スタイルで指定の無い項目に効く
   captionColor: "#ffffff"
   captionOutlineColor: "none" # "none" で縁取りなし
-  # Noto Sans JP を先頭に。同梱の可変フォント(remotion/fonts/NotoSansJP.woff2、
+  # Noto Sans JP を先頭に。同梱の可変フォント(assets/fonts/NotoSansJP.woff2、
   # wght 100〜900)なので fontWeight の 300/500/600/800 等の中間ウェイトが実際に
   # 描き分けられる。Hiragino は同梱フォント読込失敗時のフォールバック
   captionFontFamily: '"Noto Sans JP", "Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif'
@@ -170,20 +170,10 @@ render:
       duckDb: -8
       # 下げ・戻しにかける秒数
       fadeSec: 0.4
-  # Remotion 合成段のハードウェアエンコーダ利用。if-possible: 使えれば使う
+  # engine 合成段のハードウェアエンコーダ利用。if-possible: 使えれば使う
   # (macOS は VideoToolbox。使えない環境はソフトウェアへ自動フォールバック)。
   # disable: 常にソフトウェアエンコード(従来動作)。実測は docs/perf.md 参照
   hardwareAcceleration: if-possible
-  # Remotion 合成段(OffthreadVideo)のフレームキャッシュ上限(MB)。
-  # Remotion の既定は「利用可能メモリの半分」で、16GB 機では render 中に
-  # compositor が数GBまで成長しマシン全体が重くなる(スワップ・他アプリの
-  # 鈍化。実測は docs/perf.md フェーズ9)。512MB でも render 速度は不変。
-  # 0 で Remotion 既定(無制限)に戻す。出力の画・音には影響しない
-  offthreadVideoCacheMb: 512
-  # Remotion 合成段の並列レンダータブ数。省略時は Remotion 既定(CPU コア数の
-  # 半分。M5 なら 5)。1タブ ≈ 350〜400MB なので、render 中のメモリをさらに
-  # 絞りたいときだけ下げる(速度と引き換え)。出力には影響しない
-  # concurrency: 4
   # チャンク単位の差分レンダー(render chunk cache)。直前フルレンダー以降、
   # 映像に効く要素(テロップ・位置・ワイプ等)だけを変えた再実行で、変わった
   # チャンクだけを再レンダーして連結する。音声・keeps・全域設定を変えたときは
@@ -231,7 +221,7 @@ render:
     #   ~/Movies/obs/xxx.jpg       … 自分のデザイン素材(絶対パス。~ は展開される)
     #   materials/xxx.jpg          … その収録フォルダ内のファイル
     # 収録フォルダ外のファイルは render.design/ へ自動コピーされてから合成される
-    # (Remotion は publicDir = 収録フォルダの中しか読めないため。§src/lib/designAsset.ts)
+    # (書き出しページは収録フォルダ配下を publicDir として読むため。§src/lib/designAsset.ts)
     backgroundFile: assets/backgrounds/teal.jpg
     backgroundColor: "#1b1b1f"
     screen:
@@ -509,7 +499,7 @@ ai:
 
   # ログ/可観測性。workflow(AI 呼び出し・ステージ・外部ツール)を stderr にどれだけ
   # 出すか。quiet=AI 行も抑止 / normal=AI+ステージ(既定) / verbose=ffmpeg・whisper・
-  # remotion まで1行ずつ。環境変数 CUTFLOW_LOG とグローバル --verbose/--quiet が
+  # headless Chrome まで1行ずつ。環境変数 CUTFLOW_LOG とグローバル --verbose/--quiet が
   # この設定より優先。stdout(describe --json 等の JSON 射影)は level に関わらず不変。
 log:
   level: normal
