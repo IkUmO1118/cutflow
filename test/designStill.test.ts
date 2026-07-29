@@ -20,8 +20,8 @@ import {
   prepareDesignAssetsForProps,
   prepareDesignStillAssets,
 } from "../src/lib/designStill.ts";
-import type { WarmAssets } from "../src/stages/frames.ts";
-import type { DesignStillDesign } from "../remotion/DesignStill.tsx";
+import type { DesignStillDesign } from "../src/lib/designAssetHtml.ts";
+import type { StillCaptureSession } from "../src/lib/stillCapture.ts";
 import { defaultProps } from "../src/lib/renderPropsTypes.ts";
 import type { RenderProps } from "../src/lib/renderPropsTypes.ts";
 
@@ -51,7 +51,7 @@ const DESIGN: DesignStillDesign = {
   },
 };
 
-const fakeWarm = {} as WarmAssets;
+const fakeSession = {} as StillCaptureSession;
 
 test("designStillKey: generator version を固定し design 全値・解像度をキーに含める", () => {
   assert.equal(DESIGN_STILL_GENERATOR_VERSION, 1);
@@ -130,7 +130,7 @@ test("prepareDesignStillAssets: 4役を全て一時出力した後だけ完成�
     design: DESIGN,
     width: 1920,
     height: 1080,
-    warm: fakeWarm,
+    session: fakeSession,
     renderer: async ({ output }) => {
       calls += 1;
       assert.ok(output.includes(".tmp-"));
@@ -149,7 +149,7 @@ test("prepareDesignStillAssets: cache hit は renderer を呼ばない", async (
     design: DESIGN,
     width: 1920,
     height: 1080,
-    warm: fakeWarm,
+    session: fakeSession,
     renderer: async () => { calls += 1; },
   });
   assert.equal(calls, 0);
@@ -171,7 +171,7 @@ test("prepareDesignStillAssets: 途中失敗では完成名を公開せず一時
       design: failedDesign,
       width: 1920,
       height: 1080,
-      warm: fakeWarm,
+      session: fakeSession,
       renderer: async ({ output }) => {
         calls += 1;
         if (calls === 3) throw new Error("render failed");
@@ -213,7 +213,7 @@ test("DesignStill: 実 bundleで4 PNGを生成する", async () => {
 
 test("prepareDesignAssetsForProps: 完備cacheをattachし、design無しは同一参照", async () => {
   const props = { ...defaultProps, design: DESIGN };
-  const prepared = await prepareDesignAssetsForProps({ dir, props, warm: fakeWarm });
+  const prepared = await prepareDesignAssetsForProps({ dir, props, session: fakeSession });
   assert.equal(prepared.design?.assets?.key, designStillKey({
     dir,
     design: DESIGN,
@@ -236,7 +236,7 @@ test("prepareDesignAssetsForProps: 生成失敗はassets無しCSS fallback + war
   const prepared = await prepareDesignAssetsForProps({
     dir,
     props,
-    warm: fakeWarm,
+    session: fakeSession,
     renderer: async () => { throw new Error("still failed"); },
     warn: (message) => warnings.push(message),
   });

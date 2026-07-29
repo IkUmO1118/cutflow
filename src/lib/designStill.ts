@@ -1,19 +1,16 @@
 // lib/designStill.ts — design の背景・影・角丸 mask を内容アドレス式で生成する。
-// Node 専用。browser-safe な描画本体は remotion/DesignStill.tsx に置く。
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { bundle } from "@remotion/bundler";
-import { ensureBrowser, openBrowser, renderStill, selectComposition } from "@remotion/renderer";
-import type { WarmAssets } from "../stages/frames.ts";
+import { dirname, join } from "node:path";
 import type { RenderProps } from "./renderPropsTypes.ts";
 import type { DesignAssetRefs, DesignProps, PreparedDesignAssets } from "./design.ts";
 import type {
   DesignStillDesign,
   DesignStillProps,
   DesignStillRole,
-} from "../../remotion/DesignStill.tsx";
+} from "./designAssetHtml.ts";
+import { designStillCanvas, designStillHtml } from "./designAssetHtml.ts";
+import { createStillCaptureSession, type StillCaptureSession } from "./stillCapture.ts";
 
 export const DESIGN_STILL_DIR = "render.fast/design";
 export const DESIGN_STILL_GENERATOR_VERSION = 1;
@@ -104,61 +101,37 @@ export function existingDesignAssets(args: DesignStillKeyArgs): PreparedDesignAs
 }
 
 export type DesignStillRenderRequest = {
-  warm: WarmAssets;
+  session: StillCaptureSession;
   props: DesignStillProps;
   output: string;
 };
 
 export type DesignStillRenderer = (request: DesignStillRenderRequest) => Promise<void>;
 
-const defaultRenderer: DesignStillRenderer = async ({ warm, props, output }) => {
-  const inputProps = props as unknown as Record<string, unknown>;
-  const composition = await selectComposition({
-    serveUrl: warm.serveUrl,
-    id: "DesignStill",
-    inputProps,
-    puppeteerInstance: warm.browser,
-    logLevel: "warn",
-  });
-  await renderStill({
-    composition,
-    serveUrl: warm.serveUrl,
-    output,
-    frame: 0,
-    inputProps,
-    imageFormat: "png",
-    puppeteerInstance: warm.browser,
-    overwrite: true,
-    logLevel: "warn",
+function publicUrl(path: string): string {
+  return `/${path.split("/").map((part) => encodeURIComponent(part)).join("/")}`;
+}
+
+const defaultRenderer: DesignStillRenderer = async ({ session, props, output }) => {
+  const canvas = designStillCanvas(props.role, props.design, props.width, props.height);
+  await session.capture({
+    html: designStillHtml({
+      ...props,
+      backgroundSrc: props.design.backgroundFile ? publicUrl(props.design.backgroundFile) : undefined,
+    }),
+    width: canvas.width,
+    height: canvas.height,
+    outFile: output,
   });
 };
-
-async function withCaptionStillAssets<T>(
-  dir: string,
-  fn: (warm: WarmAssets) => Promise<T>,
-): Promise<T> {
-  await ensureBrowser();
-  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-  const serveUrl = await bundle({
-    entryPoint: join(repoRoot, "remotion", "index.ts"),
-    publicDir: dir,
-    symlinkPublicDir: true,
-  });
-  const browser = await openBrowser("chrome");
-  try {
-    return await fn({ serveUrl, browser });
-  } finally {
-    await browser.close({ silent: true });
-  }
-}
 
 /** 全 role が揃っていれば Chrome に触れず refs を返す。miss 時は全 PNG を
  * 一時名へ生成し、すべて成功してから rename で完成名を公開する */
 export async function prepareDesignStillAssets(args: DesignStillKeyArgs & {
-  warm: WarmAssets;
+  session?: StillCaptureSession;
   renderer?: DesignStillRenderer;
 }): Promise<DesignAssetRefs> {
-  const { dir, design, width, height, warm, renderer = defaultRenderer } = args;
+  const { dir, design, width, height, renderer = defaultRenderer } = args;
   const refs = designAssetRefs({ dir, design, width, height });
   const roles = DESIGN_STILL_ROLES;
   const finalPaths = roles.map((role) => join(dir, relativePath(refs.key, role)));
@@ -167,10 +140,12 @@ export async function prepareDesignStillAssets(args: DesignStillKeyArgs & {
   mkdirSync(dirname(finalPaths[0]), { recursive: true });
   const nonce = `${process.pid}-${randomUUID()}`;
   const tempPaths = finalPaths.map((path) => `${path}.tmp-${nonce}`);
+  let ownedSession: StillCaptureSession | undefined;
+  const session = args.session ?? (ownedSession = await createStillCaptureSession(dir));
   try {
     for (let i = 0; i < roles.length; i += 1) {
       await renderer({
-        warm,
+        session,
         props: { width, height, role: roles[i], design },
         output: tempPaths[i],
       });
@@ -182,28 +157,29 @@ export async function prepareDesignStillAssets(args: DesignStillKeyArgs & {
     return refs;
   } finally {
     for (const path of tempPaths) rmSync(path, { force: true });
+    await ownedSession?.close();
   }
 }
 
 export async function prepareDesignAssetsForProps(args: {
   dir: string;
   props: RenderProps;
-  warm?: WarmAssets;
+  session?: StillCaptureSession;
   warn?: (message: string) => void;
   renderer?: DesignStillRenderer;
 }): Promise<RenderProps> {
-  const { dir, props, warm, renderer, warn = () => {} } = args;
+  const { dir, props, session, renderer, warn = () => {} } = args;
   if (!props.design || props.layout) return props;
   const design = stillDesign(props.design);
   const keyArgs = { dir, design, width: props.width, height: props.height };
   const cached = existingDesignAssets(keyArgs);
   if (cached) return { ...props, design: { ...design, assets: cached.refs } };
   try {
-    const refs = warm
-      ? await prepareDesignStillAssets({ ...keyArgs, warm, ...(renderer ? { renderer } : {}) })
-      : await withCaptionStillAssets(dir, (assets) =>
-          prepareDesignStillAssets({ ...keyArgs, warm: assets, ...(renderer ? { renderer } : {}) })
-        );
+    const refs = await prepareDesignStillAssets({
+      ...keyArgs,
+      ...(session ? { session } : {}),
+      ...(renderer ? { renderer } : {}),
+    });
     return { ...props, design: { ...design, assets: refs } };
   } catch (error) {
     warn(`design 静的資産を生成できませんでした。CSS描画へ戻します: ${(error as Error).message}`);
@@ -217,9 +193,7 @@ export async function prepareDesignAssetBundle(args: DesignStillKeyArgs & {
   const cached = existingDesignAssets(args);
   if (cached) return cached;
   try {
-    const refs = await withCaptionStillAssets(args.dir, (warm) =>
-      prepareDesignStillAssets({ ...args, warm })
-    );
+    const refs = await prepareDesignStillAssets(args);
     return {
       width: args.width,
       height: args.height,

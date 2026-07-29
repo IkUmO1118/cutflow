@@ -244,7 +244,6 @@ export async function renderFrames(
   const props = await prepareDesignAssetsForProps({
     dir,
     props: renderCtx.props,
-    warm,
     warn: (message) => console.warn(`警告: ${message}`),
   });
 
