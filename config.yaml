@@ -90,7 +90,7 @@ detect:
   #   padSec: 0.1       # 発話エッジの外側へ残す余白(秒)
   #   maxTrimSec: 1.5   # 1辺あたりの最大トリム量(秒)
 
-# カット確認用プレビュー動画
+  # カット確認用プレビュー動画
 preview:
   # 出力する横幅(px)の上限。拡張キャンバス全体(画面+カメラ横並び=3840px)を
   # この幅へ縮小するので、画面領域の実効解像度はこの半分になる。
@@ -160,7 +160,7 @@ render:
   bgm:
     # BGMの音量(dB)。0で原音量。声より20dB前後小さくするのが目安。
     # bgm.json の各区間で volumeDb を省いたときの既定にもなる
-    volumeDb: -14
+    volumeDb: -20
     # 全編1曲(後方互換)のときの動画終端フェードアウト秒数。
     # bgm.json では各区間の fadeOutSec で終端フェードを付ける
     fadeOutSec: 2
@@ -370,22 +370,22 @@ plan:
   # 9.4秒の静止すらあった)を丸ごと除外し、dwell候補が7件しか出ない。上限を
   # 8000ms へ上げると10件に増える。長い注視こそズームしたい対象なので上限を緩和。
   cursor:
-    minDwellMs: 450      # 停留とみなす最小継続時間
-    maxDwellMs: 8000     # これを超えると意図的な作業とみなし除外(既定2600→8000。上記メモ)
-    moveThreshold: 0.02  # 隣接サンプル間でこれを超える移動があれば停留を打ち切る
-    spacingMs: 1800      # 採用済み候補の中心からこの間隔未満は間引く
-    defaultScale: 2.5    # focus点からズーム rect を作るときの倍率
-    clickBoost: 1.5      # クリック起点の dwell に与える strength 倍率(1で無効化)
-    maxWindowMs: 3500    # dwell窓長の上限(ms)。clamp(総尺の5%,1000,これ)。追従(枝A)前の長尺ドリフト対策。A後は緩めてOpenScreenの5%へ戻せる
-    scrollMotionThreshold: 0.4  # スクロール誤爆抑制の scene score 閾値。av.probe/motion.json があるときだけ効く。明白なスクロールだけ落とすゆるめの既定。誤爆が続くなら下げる
-    autoZoom: true  # 省略時 true。run(収録直後の初回一括)末尾でカーソル dwell 由来の
+    minDwellMs: 450 # 停留とみなす最小継続時間
+    maxDwellMs: 8000 # これを超えると意図的な作業とみなし除外(既定2600→8000。上記メモ)
+    moveThreshold: 0.02 # 隣接サンプル間でこれを超える移動があれば停留を打ち切る
+    spacingMs: 1800 # 採用済み候補の中心からこの間隔未満は間引く
+    defaultScale: 2.5 # focus点からズーム rect を作るときの倍率
+    clickBoost: 1.5 # クリック起点の dwell に与える strength 倍率(1で無効化)
+    maxWindowMs: 3500 # dwell窓長の上限(ms)。clamp(総尺の5%,1000,これ)。追従(枝A)前の長尺ドリフト対策。A後は緩めてOpenScreenの5%へ戻せる
+    scrollMotionThreshold: 0.4 # スクロール誤爆抑制の scene score 閾値。av.probe/motion.json があるときだけ効く。明白なスクロールだけ落とすゆるめの既定。誤爆が続くなら下げる
+    autoZoom: true # 省略時 true。run(収録直後の初回一括)末尾でカーソル dwell 由来の
     #   zoom を自動配置する(cursorサイドカー有り・overlays.json の zooms 空のときだけ。
     #   手編集済みは絶対に上書きしない)。false で run の自動挿入だけを止める(閾値は
     #   plan-effects/autozoom コマンド自体には効き続ける別軸)
 
-  # plan の候補格子を語タイムスタンプ(要 whisper.wordTimestamps)由来の語境界で
-  # 細分化する(C1)+ 候補テキストを実際に残る語だけにする(C8)。
-  # 既定 false=無音境界のみ(従来とバイト等価)。回帰基準線で on 比較してから既定化を検討
+    # plan の候補格子を語タイムスタンプ(要 whisper.wordTimestamps)由来の語境界で
+    # 細分化する(C1)+ 候補テキストを実際に残る語だけにする(C8)。
+    # 既定 false=無音境界のみ(従来とバイト等価)。回帰基準線で on 比較してから既定化を検討
 candidates:
   enabled: true
   splitOnlyLongerThanSec: 6 # これより長い候補だけを分割
@@ -466,8 +466,8 @@ ai:
       adapter: openai
       model: gpt-4.1
   routes:
-    text: openai-main
-    structured: openai-main
+    text: claude-code
+    structured: claude-code
     vision: cloud-vision
   # 旧形式(後方互換):
   # provider: codex
