@@ -70,6 +70,7 @@ import { aiDoctor } from "../src/stages/aiDoctor.ts";
 import {
   authorHyperframe,
   hyperframeCacheKey,
+  HYPERFRAME_RENDERER_GENERATION,
   renderHyperframe,
   resolveHyperframeBuild,
 } from "../src/stages/hyperframe.ts";
@@ -1135,6 +1136,7 @@ export function buildHyperframeCards(sources: HyperframeCardSources): Hyperframe
         };
       }
       const expectedKey = hyperframeCacheKey({
+        rendererGeneration: HYPERFRAME_RENDERER_GENERATION,
         htmlSha256: sha256Hex(html),
         variables: build.variables,
         width: build.width,

@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { checkComposition } from "../src/lib/hyperframeCheck.ts";
-import { hyperframeCacheKey } from "../src/stages/hyperframe.ts";
+import { hyperframeCacheKey, HYPERFRAME_RENDERER_GENERATION } from "../src/stages/hyperframe.ts";
 import {
   buildLottieCard,
   embedLottieHyperframe,
@@ -285,6 +285,7 @@ test("source JSON changes rewrite HTML and invalidate the render cache key", () 
   assert.notEqual(firstHtml, secondHtml);
 
   const keyFor = (html: string) => hyperframeCacheKey({
+    rendererGeneration: HYPERFRAME_RENDERER_GENERATION,
     htmlSha256: createHash("sha256").update(html).digest("hex"),
     variables: {},
     width: 640,

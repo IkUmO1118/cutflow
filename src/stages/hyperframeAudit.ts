@@ -18,14 +18,9 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { ensureBrowser, openBrowser } from "@remotion/renderer";
-import type { HeadlessBrowser } from "@remotion/renderer";
-import { buildIframeSrcdoc, parseComposition } from "../lib/hyperframe.ts";
+import { parseComposition } from "../lib/hyperframe.ts";
 import { resolveHyperframeBuild } from "./hyperframe.ts";
-import {
-  HYPERFRAME_RENDER_PROFILE_CONFIG,
-  resolveHyperframeRenderProfile,
-} from "../lib/hyperframeRenderProfile.ts";
+import { resolveHyperframeRenderProfile } from "../lib/hyperframeRenderProfile.ts";
 import type { HyperframeRenderProfile } from "../lib/hyperframeRenderProfile.ts";
 import { compositionDurationInFrames } from "../lib/renderFrameMath.ts";
 import { resolveHyperframeAuditCfg } from "../lib/config.ts";
@@ -34,6 +29,12 @@ import { run } from "../lib/exec.ts";
 import { completeImageReview, supportsImageReview } from "../lib/llm.ts";
 import type { AiImagePart } from "../lib/ai/types.ts";
 import { auditFindings, selectStillTimes, vlmItemsToFindings } from "../lib/hyperframeAudit.ts";
+import {
+  createHyperframeCdpSession,
+  navigateHyperframeCdp,
+  readHyperframeFailures,
+} from "../lib/hyperframeSession.ts";
+import { evalJs, type CdpConnection } from "../lib/browser.ts";
 import type {
   AuditInput,
   AuditSample,
@@ -78,6 +79,13 @@ export interface HyperframeAuditResult {
   loadFailed: boolean;
 }
 
+type RawAuditSample = Omit<AuditSample, "waapi"> & {
+  waapi: Array<Omit<AuditSample["waapi"][number], "endTimeMs" | "iterations"> & {
+    endTimeMs: number | "inf";
+    iterations: number | "inf";
+  }>;
+};
+
 function sha256Hex(data: Buffer | string): string {
   return createHash("sha256").update(data).digest("hex");
 }
@@ -88,7 +96,7 @@ function sha256Hex(data: Buffer | string): string {
  * 両方から呼ばれる共有ロジック。ブラウザ操作の失敗はここでは捕まえない
  * (呼び出し側がそれぞれの粒度で try/catch する) */
 export async function collectAuditSamplesForHtml(
-  page: Awaited<ReturnType<HeadlessBrowser["newPage"]>>,
+  cdp: CdpConnection,
   html: string,
   variables: Record<string, unknown>,
   profile: HyperframeRenderProfile,
@@ -96,19 +104,13 @@ export async function collectAuditSamplesForHtml(
   stepSec: number,
 ): Promise<{ samples: AuditSample[]; drivers: DriverCounts; failures: string[]; loadFailed: boolean }> {
   const { width, height, fps, durationSec } = dims;
-  await page.setViewport({ width, height, deviceScaleFactor: 1 });
-  const srcdoc = buildIframeSrcdoc(html, variables, profile);
-  const dataUrl = "data:text/html;charset=utf-8;base64," + Buffer.from(srcdoc, "utf8").toString("base64");
-  await page.goto({ url: dataUrl, timeout: 30000 } as never);
+  await navigateHyperframeCdp(cdp, { html, variables, profile, width, height });
 
-  await page.evaluate(() => (window as any).__hyperframes?.__isReady?.() ?? Promise.resolve()); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await evalJs(cdp, "window.__hyperframes?.__isReady?.() ?? Promise.resolve()", true);
 
-  const failed = await page.evaluate(
-    () =>
-      (((window as any).__hyperframes?.__failed ?? []) as Array<{ message: string; fatal?: boolean }>) // eslint-disable-line @typescript-eslint/no-explicit-any
-        .filter((f) => f.fatal !== false)
-        .map((f) => f.message),
-  );
+  const failed = ((await readHyperframeFailures(cdp)) as Array<{ message: string; fatal?: boolean }> ?? [])
+    .filter((f) => f.fatal !== false)
+    .map((f) => f.message);
   if (failed.length > 0) {
     return {
       samples: [],
@@ -118,15 +120,15 @@ export async function collectAuditSamplesForHtml(
     };
   }
 
-  const drivers = await page.evaluate(() => {
-    const w = window as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const drivers = await evalJs(cdp, `(() => {
+    const w = window;
     return {
       waapi: document.getAnimations().length,
       gsap: w.__timelines ? Object.keys(w.__timelines).length : 0,
       lottie: w.__hfLottie ? w.__hfLottie.length : 0,
       clips: document.querySelectorAll(".clip").length,
     };
-  });
+  })()`) as DriverCounts;
 
   const lastFrameMs = ((compositionDurationInFrames(durationSec, fps) - 1) / fps) * 1000;
   const stepMs = Math.max(1, stepSec * 1000);
@@ -138,15 +140,14 @@ export async function collectAuditSamplesForHtml(
 
   const samples: AuditSample[] = [];
   for (const tMs of times) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sample = await page.evaluate((requestedMs: number) => {
-      const w = window as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const sample = await evalJs(cdp, `((requestedMs) => {
+      const w = window;
       w.__hyperframes.__seek(requestedMs);
 
       const root = document.querySelector("#root");
       const hasRoot = !!root;
       const prefix = hasRoot ? "#root " : "";
-      const selector = `${prefix}[id], ${prefix}.clip, ${prefix}[data-start]`;
+      const selector = prefix + "[id], " + prefix + ".clip, " + prefix + "[data-start]";
       const nodeList = document.querySelectorAll(selector);
       const anims = document.getAnimations();
 
@@ -156,15 +157,15 @@ export async function collectAuditSamplesForHtml(
       // 追跡できるようにする)。要素の同一性(identity)で dedup し、
       // #root がある場合はその配下でない target(あり得ないはずだが保険)を
       // 除外する
-      const seen = new Set<Element>();
-      const tracked: Element[] = [];
+      const seen = new Set();
+      const tracked = [];
       nodeList.forEach((el) => {
         if (seen.has(el)) return;
         seen.add(el);
         tracked.push(el);
       });
       anims.forEach((a) => {
-        const target = (a as any).effect?.target as Element | null | undefined; // eslint-disable-line @typescript-eslint/no-explicit-any
+        const target = a.effect?.target;
         if (!target) return;
         if (hasRoot && root && !root.contains(target)) return;
         if (seen.has(target)) return;
@@ -172,16 +173,10 @@ export async function collectAuditSamplesForHtml(
         tracked.push(target);
       });
 
-      const elements: Array<{
-        key: string;
-        visible: boolean;
-        opacity: number;
-        rect: { x: number; y: number; w: number; h: number };
-        text: string;
-      }> = [];
+      const elements = [];
       tracked.forEach((el, index) => {
-        const htmlEl = el as HTMLElement;
-        const key = htmlEl.id || `idx${index}`;
+        const htmlEl = el;
+        const key = htmlEl.id || "idx" + index;
         const rect = htmlEl.getBoundingClientRect();
         const style = getComputedStyle(htmlEl);
         const visible = style.visibility !== "hidden" && style.display !== "none";
@@ -196,11 +191,11 @@ export async function collectAuditSamplesForHtml(
         });
       });
 
-      const waapi: Array<{ key: string; currentTimeMs: number; endTimeMs: number | string; iterations: number | string }> = [];
+      const waapi = [];
       anims.forEach((a, i) => {
-        const target = (a as any).effect?.target as HTMLElement | undefined; // eslint-disable-line @typescript-eslint/no-explicit-any
-        const key = target?.id || `waapi${i}`;
-        const timing = (a as any).effect?.getComputedTiming?.() ?? {}; // eslint-disable-line @typescript-eslint/no-explicit-any
+        const target = a.effect?.target;
+        const key = target?.id || "waapi" + i;
+        const timing = a.effect?.getComputedTiming?.() ?? {};
         const rawIterations = typeof timing.iterations === "number" ? timing.iterations : 1;
         const rawEndTime = typeof timing.endTime === "number" ? timing.endTime : 0;
         const currentTime = typeof a.currentTime === "number" ? a.currentTime : 0;
@@ -212,13 +207,7 @@ export async function collectAuditSamplesForHtml(
         });
       });
 
-      const timelines: Array<{
-        key: string;
-        progress: number;
-        totalDurationSec: number;
-        repeat: number;
-        yoyo: boolean;
-      }> = [];
+      const timelines = [];
       const tls = w.__timelines;
       if (tls) {
         for (const key of Object.keys(tls)) {
@@ -241,14 +230,14 @@ export async function collectAuditSamplesForHtml(
         }
       }
 
-      const lottie: Array<{ key: string; currentFrame: number; totalFrames: number; frameRate: number }> = [];
+      const lottie = [];
       const las = w.__hfLottie;
       if (las && las.length) {
         for (let i = 0; i < las.length; i++) {
           const an = las[i];
           if (!an) continue;
           lottie.push({
-            key: `lottie${i}`,
+            key: "lottie" + i,
             currentFrame: typeof an.currentFrame === "number" ? an.currentFrame : 0,
             totalFrames: typeof an.totalFrames === "number" ? an.totalFrames : 0,
             frameRate: typeof an.frameRate === "number" ? an.frameRate : 0,
@@ -256,16 +245,16 @@ export async function collectAuditSamplesForHtml(
         }
       }
 
-      const clipVisibleKeys: string[] = [];
+      const clipVisibleKeys = [];
       document.querySelectorAll(".clip").forEach((el, i) => {
-        const htmlEl = el as HTMLElement;
+        const htmlEl = el;
         if (htmlEl.style.visibility !== "hidden") {
-          clipVisibleKeys.push(htmlEl.id || `clip${i}`);
+          clipVisibleKeys.push(htmlEl.id || "clip" + i);
         }
       });
 
       return { tMs: requestedMs, elements, waapi, timelines, lottie, clipVisibleKeys };
-    }, tMs);
+    })(${JSON.stringify(tMs)})`) as RawAuditSample;
 
     samples.push({
       tMs: sample.tMs,
@@ -286,8 +275,8 @@ export async function collectAuditSamplesForHtml(
 }
 
 /** 1枚の HyperFrames カードのために browser を1つ開き、閉じるところまでを
- * 面倒見る(auditHyperframe 専用。calibration script は browser を使い回すため
- * collectAuditSamplesForHtml を直接呼ぶ) */
+ * 面倒見る(auditHyperframe 専用。calibration script は CDP session を
+ * 使い回すため collectAuditSamplesForHtml を直接呼ぶ) */
 async function collectAuditSamples(
   html: string,
   variables: Record<string, unknown>,
@@ -295,23 +284,11 @@ async function collectAuditSamples(
   dims: { width: number; height: number; fps: number; durationSec: number },
   stepSec: number,
 ): Promise<{ samples: AuditSample[]; drivers: DriverCounts; failures: string[]; loadFailed: boolean }> {
-  await ensureBrowser();
-  const profileConfig = HYPERFRAME_RENDER_PROFILE_CONFIG[profile];
-  const browser = profileConfig?.chromiumGl === "angle"
-    ? await openBrowser("chrome", { chromiumOptions: { gl: "angle" } })
-    : await openBrowser("chrome");
+  const session = await createHyperframeCdpSession({ html, variables, profile, width: dims.width, height: dims.height });
   try {
-    const page = await browser.newPage({
-      context: () => null,
-      logLevel: "warn",
-      indent: false,
-      pageIndex: 0,
-      onBrowserLog: null,
-      onLog: () => undefined,
-    } as never);
-    return await collectAuditSamplesForHtml(page, html, variables, profile, dims, stepSec);
+    return await collectAuditSamplesForHtml(session.cdp, html, variables, profile, dims, stepSec);
   } finally {
-    await browser.close({ silent: true });
+    await session.close();
   }
 }
 

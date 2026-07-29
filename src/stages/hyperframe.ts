@@ -1,12 +1,10 @@
 // stages/hyperframe.ts — C4: HyperFrames カード(無音の作図素材)を
 // (a) LLM で下書き(authorHyperframe: hyperframes/<name>.html)し、
-// (b) native Remotion interpreter(remotion/HyperFrame.tsx)で
+// (b) native HyperFrames CDP driver(src/lib/hyperframeSession.ts)で
 // materials/hyperframes/<name>.mp4 へ render する(renderHyperframe)。
 // docs/programs/hyperframes-integration-program.md の C4。
 //
 // node 専用モジュール(node:fs / node:crypto / node:child_process を使う)。
-// ブラウザバンドルへは絶対に import されない(remotion/HyperFrame.tsx から
-// import されるのは src/lib/hyperframe.ts の方)。
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import {
@@ -19,22 +17,13 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { bundle } from "@remotion/bundler";
-import {
-  ensureBrowser,
-  openBrowser,
-  renderMedia,
-  selectComposition,
-} from "@remotion/renderer";
 import { mergeVariables, parseComposition } from "../lib/hyperframe.ts";
 import type { ParsedComposition, VarDecl } from "../lib/hyperframe.ts";
 import { checkComposition } from "../lib/hyperframeCheck.ts";
-import {
-  HYPERFRAME_RENDER_PROFILE_CONFIG,
-  resolveHyperframeRenderProfile,
-} from "../lib/hyperframeRenderProfile.ts";
+import { resolveHyperframeRenderProfile } from "../lib/hyperframeRenderProfile.ts";
 import type { HyperframeRenderProfile } from "../lib/hyperframeRenderProfile.ts";
 import { compositionDurationInFrames } from "../lib/renderFrameMath.ts";
+import { startFramePipe } from "../lib/framePipe.ts";
 import {
   captureSnapshot,
   publishAsTransaction,
@@ -52,7 +41,9 @@ import {
 import type { HyperframeAssetInput } from "../lib/hyperframeAssets.ts";
 import { readRules } from "./plan.ts";
 import { loadFrozenSeedMenu } from "./hyperframeFreeze.ts";
-import type { HyperFrameProps } from "../../remotion/HyperFrame.tsx";
+import { createHyperframeSession, type HyperFrameProps } from "../lib/hyperframeSession.ts";
+
+export const HYPERFRAME_RENDERER_GENERATION = 2;
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -137,6 +128,7 @@ export function resolveHyperframeBuild(args: {
 /** キャッシュキー(hyperframe.<name>.key.json の `key` フィールド)。
  * 入力のいずれかが変われば別のキーになる(sha256 hex) */
 export function hyperframeCacheKey(inputs: {
+  rendererGeneration: number;
   htmlSha256: string;
   variables: Record<string, unknown>;
   width: number;
@@ -329,45 +321,27 @@ export interface RenderHyperframeResult {
   determinismMessage?: string;
 }
 
-/** bundle + headless Chrome + renderMedia の実 render(scripts/hyperframe-verify.ts と
- * 同じパターン)。テストでは RenderHyperframeDeps.produce で差し替える */
+/** headless Chrome + CDP + ffmpeg image2pipe の実 render。
+ * テストでは RenderHyperframeDeps.produce で差し替える */
 async function renderHyperframeMp4(
   dir: string,
   outPath: string,
   inputProps: HyperFrameProps,
   profile: HyperframeRenderProfile,
 ): Promise<void> {
-  await ensureBrowser();
-  const serveUrl = await bundle({
-    entryPoint: join(REPO_ROOT, "remotion", "index.ts"),
-    publicDir: dir,
-    symlinkPublicDir: true,
-  });
-  const profileConfig = HYPERFRAME_RENDER_PROFILE_CONFIG[profile];
-  if (!profileConfig) throw new Error(`HyperFrame render profile is not wired: ${profile}`);
-  const browser = profileConfig.chromiumGl === "angle"
-    ? await openBrowser("chrome", { chromiumOptions: { gl: "angle" } })
-    : await openBrowser("chrome");
+  void dir;
+  void profile;
+  const session = await createHyperframeSession(inputProps);
+  const pipe = startFramePipe({ fps: inputProps.fps, outPath });
   try {
-    const composition = await selectComposition({
-      serveUrl,
-      id: "HyperFrame",
-      inputProps,
-      puppeteerInstance: browser,
-      logLevel: "warn",
-    });
-    await renderMedia({
-      composition,
-      serveUrl,
-      codec: "h264",
-      outputLocation: outPath,
-      inputProps,
-      puppeteerInstance: browser,
-      overwrite: true,
-      logLevel: "warn",
-    });
+    const totalFrames = compositionDurationInFrames(inputProps.durationSec, inputProps.fps);
+    for (let frame = 0; frame < totalFrames; frame++) {
+      const png = await session.seekAndCapture(frame / inputProps.fps);
+      await pipe.write(Buffer.from(png, "base64"));
+    }
+    await pipe.finish();
   } finally {
-    await browser.close({ silent: true });
+    await session.close();
   }
 }
 
@@ -429,6 +403,7 @@ export async function renderHyperframe(
 
   const htmlSha256 = sha256Hex(html);
   const key = hyperframeCacheKey({
+    rendererGeneration: HYPERFRAME_RENDERER_GENERATION,
     htmlSha256,
     variables,
     width,
@@ -506,6 +481,7 @@ export async function renderHyperframe(
           JSON.stringify(
             {
               key,
+              rendererGeneration: HYPERFRAME_RENDERER_GENERATION,
               htmlSha256,
               variables,
               width,
