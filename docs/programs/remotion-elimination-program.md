@@ -289,4 +289,13 @@ npx tsc --noEmit && npm test && npm run gate:pixel                              
   （X4 で fallback 自体を削除する）。検証: `npx tsc --noEmit` 緑、
   `npm test` 2880→2716 件 pass、`npm run gate:pixel` 緑、scratch で
   `frames --t 10` / `thumbnail` / `editor --detach --status --stop` 通過。
+- **2026-07-29（X2 完了）**: design 静的資産の生成を `DesignStill` composition から
+  `src/lib/designAssetHtml.ts` + `src/lib/stillCapture.ts` の自前 CDP capture へ移した。
+  T-4 では旧 Remotion 出力（commit `4f1f54c`）と新実装出力を
+  `/private/tmp/cutflow-x2-archive-51827` の scratch recording で比較し、
+  `backdrop` / `screenMask` / `cameraShadow` / `cameraMask` の4 role すべて
+  `maxdiff=0`（差分画素数0）を確認した。Remotion 側の `DesignStill.tsx` と
+  `Root.tsx` の `DesignStill` composition 登録は削除済みで、`Root.tsx` に残る
+  composition は `HyperFrame` のみ。検証: `npx tsc --noEmit` 緑、
+  `npm test` 2724 件 pass、`npm run gate:pixel` 緑（12枚一致）。
 - （以降、各フェーズの完了・ゲート判定・実測値をここへ追記する）
