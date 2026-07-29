@@ -298,4 +298,14 @@ npx tsc --noEmit && npm test && npm run gate:pixel                              
   `Root.tsx` の `DesignStill` composition 登録は削除済みで、`Root.tsx` に残る
   composition は `HyperFrame` のみ。検証: `npx tsc --noEmit` 緑、
   `npm test` 2724 件 pass、`npm run gate:pixel` 緑（12枚一致）。
+- **2026-07-29（X3 完了）**: AI copilot review の before/after still と clip を
+  Remotion `Main` composition から自前エンジンへ移した。scratch
+  `/private/tmp/cutflow-x3-review-scratch` で旧実装は
+  `Could not find composition with ID Main. Available compositions: HyperFrame` で失敗することを確認。
+  新実装では `review.probe/before/source-0.00s.png` と `frames/out0.00s.png`、
+  `review.probe/before/source-4.41s.png` と `frames/out4.41s.png` が SHA-256 完全一致。
+  docs example の clip 範囲では before/after 各 253 フレーム、30fps、8.433秒の
+  H.264 video-only mp4 を生成し、scratch review 全体の所要時間は 53.8秒。
+  review clip は用途を動き確認に限定し、音声なしへ変更した。検証:
+  `npx tsc --noEmit` 緑、`npm test` 2724 件 pass、`npm run gate:pixel` 緑（12枚一致）。
 - （以降、各フェーズの完了・ゲート判定・実測値をここへ追記する）

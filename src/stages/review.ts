@@ -1,23 +1,13 @@
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { bundle } from "@remotion/bundler";
-import {
-  ensureBrowser,
-  openBrowser,
-  renderMedia,
-  selectComposition,
-} from "@remotion/renderer";
+import { dirname, join } from "node:path";
 import { resolveAvCfg } from "../lib/config.ts";
 import { resolveAiReviewCfg } from "../lib/config.ts";
 import { run } from "../lib/exec.ts";
