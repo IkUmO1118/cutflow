@@ -1,13 +1,9 @@
 // chrome-headless-shell の取得・起動・CDP 接続の唯一の出所。
-// Remotion の ensureBrowser() へは依存しない。
-import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { Browser, computeExecutablePath, install } from "@puppeteer/browsers";
-
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 // Pixel golden は Chrome の描画差分に敏感なため、実行時の stable 解決ではなく
 // ソース内で buildId を pin して再現性を保つ。
@@ -52,35 +48,9 @@ function pinnedExecutablePath(): string {
   });
 }
 
-function findLegacyHeadlessShell(): string | null {
-  const roots = [
-    join(repoRoot, "node_modules/.remotion"),
-    join(process.env.HOME ?? "/tmp", "Library/Caches/ms-playwright"),
-    join(process.env.HOME ?? "/tmp", "Library/Caches/remotion"),
-  ];
-  for (const root of roots) {
-    try {
-      const out = execFileSync("find", [
-        root,
-        "-maxdepth",
-        "8",
-        "-iname",
-        "chrome-headless-shell",
-        "-type",
-        "f",
-      ], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
-      const hit = out.trim().split("\n").filter(Boolean)[0];
-      if (hit) return hit;
-    } catch {
-      // try next root
-    }
-  }
-  return null;
-}
-
 /** pin した chrome-headless-shell の実行ファイル絶対パスを返す。
  *  優先順: CUTFLOW_CHROME_PATH（実在時） → ~/.cutflow/chrome の既存 →
- *  ダウンロード → （移行期の砦）node_modules/.remotion 等の旧経路 */
+ *  ダウンロード */
 export async function ensureHeadlessShell(): Promise<string> {
   const envPath = process.env.CUTFLOW_CHROME_PATH;
   if (envPath && existsSync(envPath)) return envPath;
@@ -96,15 +66,10 @@ export async function ensureHeadlessShell(): Promise<string> {
       cacheDir: chromeCacheDir(),
     });
     return installed.executablePath;
-  } catch (e) {
-    const legacy = findLegacyHeadlessShell();
-    if (legacy) {
-      console.warn(`警告: 取得に失敗したため既存の Remotion 由来 Chrome を使います: ${legacy}`);
-      return legacy;
-    }
+  } catch {
     throw new Error(
       "chrome-headless-shell を取得できませんでした（ネットワークを確認するか、" +
-      `CUTFLOW_CHROME_PATH で実行ファイルを指定してください）: ${(e as Error).message}`,
+      "CUTFLOW_CHROME_PATH で実行ファイルを指定してください）",
     );
   }
 }
