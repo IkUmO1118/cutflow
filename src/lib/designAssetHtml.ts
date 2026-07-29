@@ -36,7 +36,7 @@ function px(value: number): string {
 }
 
 function fillStyle(extra: string): string {
-  return `position:absolute;top:0px;left:0px;right:0px;bottom:0px;width:100%;height:100%;display:flex;flex-direction:column${extra}`;
+  return `position:absolute;inset:0px;width:100%;height:100%;display:flex;flex-direction:column${extra}`;
 }
 
 function mask(width: number, height: number, radiusPx: number): string {
