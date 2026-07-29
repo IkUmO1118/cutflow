@@ -2,10 +2,11 @@
 // Node 専用。browser-safe な描画本体は remotion/DesignStill.tsx に置く。
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { renderStill, selectComposition } from "@remotion/renderer";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { bundle } from "@remotion/bundler";
+import { ensureBrowser, openBrowser, renderStill, selectComposition } from "@remotion/renderer";
 import type { WarmAssets } from "../stages/frames.ts";
-import { withCaptionStillAssets } from "./captionStill.ts";
 import type { RenderProps } from "../../remotion/props.ts";
 import type { DesignAssetRefs, DesignProps, PreparedDesignAssets } from "./design.ts";
 import type {
@@ -131,6 +132,25 @@ const defaultRenderer: DesignStillRenderer = async ({ warm, props, output }) => 
     logLevel: "warn",
   });
 };
+
+async function withCaptionStillAssets<T>(
+  dir: string,
+  fn: (warm: WarmAssets) => Promise<T>,
+): Promise<T> {
+  await ensureBrowser();
+  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+  const serveUrl = await bundle({
+    entryPoint: join(repoRoot, "remotion", "index.ts"),
+    publicDir: dir,
+    symlinkPublicDir: true,
+  });
+  const browser = await openBrowser("chrome");
+  try {
+    return await fn({ serveUrl, browser });
+  } finally {
+    await browser.close({ silent: true });
+  }
+}
 
 /** 全 role が揃っていれば Chrome に触れず refs を返す。miss 時は全 PNG を
  * 一時名へ生成し、すべて成功してから rename で完成名を公開する */
