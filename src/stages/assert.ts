@@ -477,7 +477,7 @@ async function collectOcrSamples(
     }
     const cropPath = join(
       tmpdir(),
-      `cutflow-assert-ocr-${process.pid}-${index}-${sourceSec.toFixed(2)}.png`,
+      `framewright-assert-ocr-${process.pid}-${index}-${sourceSec.toFixed(2)}.png`,
     );
     try {
       await buildScreenStill(dir, manifest, sourceSec, cropPath);

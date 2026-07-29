@@ -10,7 +10,7 @@ import { designAssetRefs } from "../src/lib/designStill.ts";
 import type { Config } from "../src/lib/config.ts";
 
 function fixture(backgroundFile?: string) {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-editor-design-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-editor-design-"));
   const write = (file: string, value: unknown) =>
     writeFileSync(join(dir, file), JSON.stringify(value, null, 2));
   // design は OBS 拡張キャンバス収録(cameraRegion を持つ)だけに載る。

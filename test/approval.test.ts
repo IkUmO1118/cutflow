@@ -157,7 +157,7 @@ test("shortApprovalHash: ranges が変わると hash 変化", () => {
 /* ---------------- fs I/O + ゲート判定 ---------------- */
 
 function withTmpDir(fn: (dir: string) => void): void {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-approval-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-approval-test-"));
   try {
     fn(dir);
   } finally {

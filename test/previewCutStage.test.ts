@@ -85,7 +85,7 @@ let dir: string;
 let proxyPath: string;
 
 before(async () => {
-  dir = mkdtempSync(join(tmpdir(), "cutflow-preview-cut-stage-"));
+  dir = mkdtempSync(join(tmpdir(), "framewright-preview-cut-stage-"));
   proxyPath = join(dir, "proxy.mp4");
   writeFileSync(join(dir, "manifest.json"), JSON.stringify({
     video: { fps: 10 },
@@ -196,7 +196,7 @@ test("buildPreviewCut: proxy nominal cadenceがcomposition fpsと違えばencode
 });
 
 test("buildPreviewCut: 固有色frameとclick音をspeed 0.5/1.5/2/4でPlayerのcomposition clockへ写す", async (t) => {
-  const clockDir = mkdtempSync(join(tmpdir(), "cutflow-preview-cut-composition-clock-"));
+  const clockDir = mkdtempSync(join(tmpdir(), "framewright-preview-cut-composition-clock-"));
   try {
     const fps = 30;
     const sampleRate = 48000;
@@ -354,7 +354,7 @@ test("buildPreviewCut: proxyから keeps+speed を焼き、A/V各1本・AAC 48k�
 });
 
 test("buildPreviewCut: 実ffmpegの多数短区間+speedをPlayer準拠の厳密frame数へ焼く", async (t) => {
-  const manyDir = mkdtempSync(join(tmpdir(), "cutflow-preview-cut-many-segments-"));
+  const manyDir = mkdtempSync(join(tmpdir(), "framewright-preview-cut-many-segments-"));
   try {
     const manyProxy = join(manyDir, "proxy.mp4");
     writeFileSync(join(manyDir, "manifest.json"), JSON.stringify({

@@ -1,4 +1,4 @@
-export const ONBOARDING_STORAGE_KEY = "cutflow.editor.onboarding.v1";
+export const ONBOARDING_STORAGE_KEY = "framewright.editor.onboarding.v1";
 export const isOnboardingSeen = (value: string | null): boolean => value === "true";
 
 export const shouldShowOnboarding = (

@@ -1,7 +1,7 @@
 # Multi-Phase Camera
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/multi-phase-camera.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 Sequential camera zoom through 2-3 discrete phases (pull-back → focus → push)
@@ -36,7 +36,7 @@ tl.to(drift, { p: Math.PI * 2 * DRIFT_CYCLES, duration: TOTAL_DURATION, ease: "n
 window.__timelines['<composition-id>'] = tl;
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **byte for scripted phase scale** (no measurement) — the base 3-phase scale
   plan is deterministic. **perceptual-risk if the "targeted zoom into off-center
   element" variation is used** (it reads `getBoundingClientRect()`): then

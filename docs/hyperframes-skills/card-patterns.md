@@ -3,7 +3,7 @@
 > Adapted from HeyGen HyperFrames skills (Apache-2.0). See ./PROVENANCE.md.
 
 `faceless-explainer` / `motion-graphics` / `pr-to-video` / `hyperframes-creative`
-の4 skill から**デザイン感性だけ**を採取した、Cutflow 向けカードパターンの
+の4 skill から**デザイン感性だけ**を採取した、FrameWright 向けカードパターンの
 numbered menu。`prompts/hyperframe.md` の `{{patterns}}` に差し込まれ、LLM は
 ここから**1つだけ番号で選ぶ**(番号選択方式。plan-materials / plan-effects と
 同じ流儀)。CLI・HeyGen サインイン・素材検索(media-use)・registry
@@ -15,7 +15,7 @@ block(`npx hyperframes add`)・sub-agent 分業といった upstream の実行�
 `fontAssets` 条件は author prompt 組み立て時に決定的に解決され、WOFF2 が無い場合は
 この追記を含め X1 導入前の文面へ戻る。{{/fontAssets}}{{^fontAssets}}{{/fontAssets}}
 
-各パターンの ```html は Cutflow の check ゲート(`checkComposition`)を
+各パターンの ```html は FrameWright の check ゲート(`checkComposition`)を
 **0エラー**で通過する(`test/hyperframeSkills.test.ts` が全パターンを機械
 検査している)。
 
@@ -35,7 +35,7 @@ block(`npx hyperframes add`)・sub-agent 分業といった upstream の実行�
 - **Compose(合成)** — どのパターンも beat に合わない。`recipes/`(atomic motion recipes)
   の move を 2〜4個、1本の paused timeline か WAAPI `.animate()` 列に積んで自作する。
 
-どの姿勢でも守る**モーションの原則**(motion-language の doctrine を Cutflow 向けに):
+どの姿勢でも守る**モーションの原則**(motion-language の doctrine を FrameWright 向けに):
 
 1. **なめらか > 弾み**。既定は long-tail の減速(`ease-out` / `power3` 相当)。
    `back`/`elastic`/`bounce` のオーバーシュートは「明示的に遊ぶ」1点(句読点的な
@@ -297,7 +297,7 @@ seek-safe doctrine)。**フォント**: {{#fontAssets}}総称ファミリー `mo
 (埋め込みフォントは使わない){{/fontAssets}}。
 
 **コード演出の語彙(pr-to-video code-vocabulary より)**: upstream の `code-*`
-レジストリブロック(`npx hyperframes add`)は Cutflow には無いので、必要な**動きだけ**を
+レジストリブロック(`npx hyperframes add`)は FrameWright には無いので、必要な**動きだけ**を
 手で組む — **diff**(消える行は赤で畳み、増える行は緑で開く、stagger)、**morph**
 (共有トークンを FLIP で滑らせ、去る語はフェードアウト・来る語はフェードイン)、
 **typewriter**(`discrete-text-sequence` + キャレットは `context-sensitive-cursor`)、
@@ -615,7 +615,7 @@ mirrored な `rotateY` book-open tilt**」。左カードは左から、右カ�
 <html data-composition-variables='[
   {"id":"title","type":"string","label":"Title","default":"Cut and caption, together"},
   {"id":"leftLabel","type":"string","label":"Left card","default":"Manual editing"},
-  {"id":"rightLabel","type":"string","label":"Right card","default":"CutFlow pipeline"},
+  {"id":"rightLabel","type":"string","label":"Right card","default":"FrameWright pipeline"},
   {"id":"leftBadge","type":"string","label":"Left badge","default":"hours"},
   {"id":"rightBadge","type":"string","label":"Right badge","default":"minutes"},
   {"id":"accent","type":"color","label":"Accent","default":"#22c55e"}
@@ -713,7 +713,7 @@ stroke-draw で描き(stroke-dashoffset を有限アニメで 0 へ)、中の部
 ```html
 <!doctype html>
 <html data-composition-variables='[
-  {"id":"wordmark","type":"string","label":"Wordmark","default":"CutFlow"},
+  {"id":"wordmark","type":"string","label":"Wordmark","default":"FrameWright"},
   {"id":"accent","type":"color","label":"Accent","default":"#22c55e"}
 ]'>
 <head>
@@ -793,7 +793,7 @@ stroke-draw で描き(stroke-dashoffset を有限アニメで 0 へ)、中の部
 <!doctype html>
 <html data-composition-variables='[
   {"id":"typed","type":"string","label":"Typed line","default":"editing this took all afternoon"},
-  {"id":"brand","type":"string","label":"Brand payoff","default":"CutFlow"},
+  {"id":"brand","type":"string","label":"Brand payoff","default":"FrameWright"},
   {"id":"accent","type":"color","label":"Accent","default":"#22c55e"}
 ]'>
 <head>

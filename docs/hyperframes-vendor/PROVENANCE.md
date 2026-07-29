@@ -2,12 +2,12 @@
 
 このディレクトリには HyperFrames の**作図契約の spec（docs）**だけを置く。engine
 （Chrome seek + ffmpeg）も runtime（seek IIFE）も **HF の実行コードは一切 vendor
-しない**。Cutflow は同じ data-* 契約を **native な Remotion interpreter** で実装する
+しない**。FrameWright は同じ data-* 契約を **native な Remotion interpreter** で実装する
 （`docs/programs/hyperframes-integration-program.md` §1・§4）。
 
 ## なぜ実行コードを持ち込まないか
 
-作図契約は実装非依存の**仕様**であり、HF runtime はその一実装にすぎない。Cutflow の
+作図契約は実装非依存の**仕様**であり、HF runtime はその一実装にすぎない。FrameWright の
 素材用途（章タイトル / 説明カード / 図解 / kinetic typography）は CSS/WAAPI の範囲に
 収まり、CSS/WAAPI アニメはブラウザ標準で seek 可能（`element.getAnimations()` の
 `currentTime`）なので、HF runtime（267KB / 12,300 行）を追従・保守せずに契約を
@@ -25,7 +25,7 @@ native で honor できる。GSAP/Lottie が必要になった場合も小さな
 
 ## 使い方
 
-`upstream-docs/data-attributes.md` 等を**契約の正**として、Cutflow 側で次を実装する:
+`upstream-docs/data-attributes.md` 等を**契約の正**として、FrameWright 側で次を実装する:
 
 - **check gate**（`docs/…hyperframes-integration-program.md` C2）: typed variables 配列
   形式・composition/clip の必須 `data-*`・remote URL 禁止・seek-safe・font 埋め込み。

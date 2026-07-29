@@ -5,14 +5,14 @@
 > 起動オプション・バックグラウンド運用・掃除は [tools-and-ops.md](tools-and-ops.md)、
 > 初回セットアップは [../getting-started.md](../getting-started.md) を参照。
 
-CutFlow は「全部 AI 任せ」ではなく、**まずエディタで全編 keep の動画を開き、
+FrameWright は「全部 AI 任せ」ではなく、**まずエディタで全編 keep の動画を開き、
 必要な自動処理だけ明示実行し、以降は人間が編集 ↔ 確認を往復する**道具。
 このページはその往復のうち「エディタ側で何をどう触るか」だけを扱う。
 
 ## 起動
 
 ```sh
-node src/cli.ts editor ~/Movies/cutflow/2026-07-02-my-recording
+node src/cli.ts editor ~/Movies/framewright/2026-07-02-my-recording
 ```
 
 - 起動すると `http://127.0.0.1:4310` を案内するのでブラウザで開く
@@ -25,7 +25,7 @@ node src/cli.ts editor ~/Movies/cutflow/2026-07-02-my-recording
 
 ## 画面の構成
 
-![CutFlow エディタの全体画面。左にアイコンレール+素材パネル、中央にプレビューと再生コントロール、右にプロパティ、下にテロップ/映像トラックのタイムライン](../assets/editor/editor-overview.png)
+![FrameWright エディタの全体画面。左にアイコンレール+素材パネル、中央にプレビューと再生コントロール、右にプロパティ、下にテロップ/映像トラックのタイムライン](../assets/editor/editor-overview.png)
 
 - **左端の縦のアイコンレール** … パネルの切り替え(素材 / スクリプト / テロップ /
   ステッカー / エフェクト / 調整 / ショート / 設定)。選んだパネルがその右に開く

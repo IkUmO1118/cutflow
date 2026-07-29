@@ -1,4 +1,4 @@
-export const THEME_STORAGE_KEY = "cutflow.editor.theme";
+export const THEME_STORAGE_KEY = "framewright.editor.theme";
 export const SYSTEM_THEME_MEDIA = "(prefers-color-scheme: dark)";
 
 export type ThemePreference = "system" | "light" | "dark";

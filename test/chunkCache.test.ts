@@ -31,7 +31,7 @@ let bframeMp4: string;
 let fractionalMp4: string;
 
 before(async () => {
-  dir = mkdtempSync(join(tmpdir(), "cutflow-chunkcache-"));
+  dir = mkdtempSync(join(tmpdir(), "framewright-chunkcache-"));
   sourceMp4 = join(dir, "source.mp4");
   // GOP=10(1秒毎)・B フレームなしの閉じ GOP(本番の Remotion 出力と同じ前提)。
   // sc_threshold 0 でシーンカット検出による余分な keyframe 挿入を止める

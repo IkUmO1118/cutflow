@@ -1,4 +1,4 @@
-# CutFlow 最小スターター設定
+# FrameWright 最小スターター設定
 # ── まず触るのはここだけ(3点)──────────────────────────
 #   1. recordingsDir … 収録データの置き場所(1収録=1フォルダ)
 #   2. ai.provider   … 生成 AI の入口(claude-code は APIキー不要の既定)
@@ -10,7 +10,7 @@
 # ─────────────────────────────────────────────────────
 
 # 1. 収録データの置き場所(リポジトリ外。~ はホームに展開)
-recordingsDir: ~/Movies/cutflow
+recordingsDir: ~/Movies/framewright
 
 # 3. 収録レイアウトと領域・音声トラック
 ingest:

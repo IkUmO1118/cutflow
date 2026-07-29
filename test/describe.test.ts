@@ -27,7 +27,7 @@ let dir: string;
 /** 必須ファイル(manifest/cutplan/transcript)だけを置いた最小フォルダ。
  * bgm.json / chapters.json / meta.json / overlays.json は置かない */
 before(() => {
-  dir = mkdtempSync(join(tmpdir(), "cutflow-describe-"));
+  dir = mkdtempSync(join(tmpdir(), "framewright-describe-"));
   const write = (file: string, data: unknown) =>
     writeFileSync(join(dir, file), JSON.stringify(data), "utf8");
   write("manifest.json", {
@@ -74,7 +74,7 @@ test("bgm.json など任意ファイルが無いフォルダでも describe が�
 });
 
 test("必須ファイルが欠けていれば従来どおりエラーになる", () => {
-  const empty = mkdtempSync(join(tmpdir(), "cutflow-describe-empty-"));
+  const empty = mkdtempSync(join(tmpdir(), "framewright-describe-empty-"));
   try {
     assert.throws(() => describe(empty), /manifest\.json がありません/);
   } finally {
@@ -256,7 +256,7 @@ export function buildRichFixture(dir: string): void {
 }
 
 test("散文 describe() は golden とバイト等価(リファクタ・JSON 射影追加で崩れない錠)", () => {
-  const rich = mkdtempSync(join(tmpdir(), "cutflow-describe-golden-"));
+  const rich = mkdtempSync(join(tmpdir(), "framewright-describe-golden-"));
   try {
     buildRichFixture(rich);
     const out = describe(rich);
@@ -277,7 +277,7 @@ test("散文 describe() は golden とバイト等価(リファクタ・JSON 射
 // index.json を足した別コピーで fresh/stale の追記行を確認する。
 
 test("describe: frames/index.json が無ければ(none)何も追記しない", () => {
-  const rich = mkdtempSync(join(tmpdir(), "cutflow-describe-frames-none-"));
+  const rich = mkdtempSync(join(tmpdir(), "framewright-describe-frames-none-"));
   try {
     buildRichFixture(rich);
     const out = describe(rich);
@@ -288,7 +288,7 @@ test("describe: frames/index.json が無ければ(none)何も追記しない", (
 });
 
 test("describe: frames/index.json が現在の JSON と一致(fresh)なら現況行を1行足す", () => {
-  const rich = mkdtempSync(join(tmpdir(), "cutflow-describe-frames-fresh-"));
+  const rich = mkdtempSync(join(tmpdir(), "framewright-describe-frames-fresh-"));
   try {
     buildRichFixture(rich);
     const cutplanContent = readFileSync(join(rich, "cutplan.json"), "utf8");
@@ -317,7 +317,7 @@ test("describe: frames/index.json が現在の JSON と一致(fresh)なら現況
 });
 
 test("describe: cutplan.json 編集後(stale)は撮り直し勧告を足す", () => {
-  const rich = mkdtempSync(join(tmpdir(), "cutflow-describe-frames-stale-"));
+  const rich = mkdtempSync(join(tmpdir(), "framewright-describe-frames-stale-"));
   try {
     buildRichFixture(rich);
     mkdirSync(join(rich, "frames"), { recursive: true });

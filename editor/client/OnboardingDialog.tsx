@@ -49,11 +49,11 @@ export const OnboardingDialog = ({
   return (
     <Dialog open={open} onOpenChange={(next) => !next && dismiss()}>
       <DialogContent asChild overlayClassName="onboardingBackdrop">
-        <section className="onboardingDialog" aria-label="CutFlow の編集を始める">
+        <section className="onboardingDialog" aria-label="FrameWright の編集を始める">
           <div className="onboardingHead">
             <div>
               <div className="onboardingKicker">はじめに</div>
-              <DialogTitle asChild><h1>CutFlow の編集フロー</h1></DialogTitle>
+              <DialogTitle asChild><h1>FrameWright の編集フロー</h1></DialogTitle>
             </div>
             <DialogClose asChild>
               <Button variant="ghost" size="icon" aria-label="閉じる"><X size={16} aria-hidden /></Button>

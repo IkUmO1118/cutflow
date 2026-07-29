@@ -208,7 +208,7 @@ async function runVlmReview(dir: string, cfg: Config, stills: EffectCheckStill[]
     "Never return coordinates, rects, or a proposed fix. Judgment only.",
   ].join("\n");
   const raw = await completeImageReview(prompt, images, cfg, {
-    name: "cutflow_effect_check_vlm",
+    name: "framewright_effect_check_vlm",
     strict: true,
     schema: {
       type: "object",

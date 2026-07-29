@@ -13,7 +13,7 @@ import type { Config } from "../src/lib/config.ts";
 import type { EditSnapshot } from "../src/lib/review.ts";
 
 function withTmpProject(fn: (dir: string) => void): void {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-render-snapshot-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-render-snapshot-"));
   try {
     const write = (file: string, data: unknown) =>
       writeFileSync(join(dir, file), JSON.stringify(data, null, 2), "utf8");

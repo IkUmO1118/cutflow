@@ -1,4 +1,4 @@
-export const MOBILE_GATE_STORAGE_KEY = "cutflow.editor.mobileGateAcknowledged";
+export const MOBILE_GATE_STORAGE_KEY = "framewright.editor.mobileGateAcknowledged";
 export const MOBILE_GATE_BREAKPOINT = 1024;
 
 export const isMobileGateAcknowledged = (value: string | null): boolean => value === "true";

@@ -269,7 +269,7 @@ async function ocrFrame(
     notes.push("OCR: 挿入クリップ内のためスキップ(画面の生映像がありません)");
     return undefined;
   }
-  const cropPath = join(tmpdir(), `cutflow-ocr-${process.pid}-${outSec.toFixed(2)}.png`);
+  const cropPath = join(tmpdir(), `framewright-ocr-${process.pid}-${outSec.toFixed(2)}.png`);
   try {
     await buildScreenStill(dir, manifest, sourceSec, cropPath);
     const result = await runOcr(cropPath, manifest.video.screenRegion, {

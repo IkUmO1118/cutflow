@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cutflow.dev/schemas/chapters.schema.json",
+  "$id": "https://framewright.dev/schemas/chapters.schema.json",
   "$comment": "src/types.ts の Chapters の射影。YouTube 概要欄チャプター用の章立てメタデータ(動画には描画されない。画面表示は transcript.json 側の「章」テロップトラック)。",
   "type": "object",
   "required": ["chapters"],

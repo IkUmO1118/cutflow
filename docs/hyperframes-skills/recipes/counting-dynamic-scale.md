@@ -1,7 +1,7 @@
 # Counting Dynamic Scale
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/counting-dynamic-scale.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 A counter whose transform `scale` grows in lockstep with the number, adding
@@ -32,9 +32,9 @@ tl.fromTo(counter, { scale: START_SCALE }, { scale: 1, duration: 1.6, ease: "pow
 window.__timelines['<composition-id>'] = tl;
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - `onUpdate` is O(1): `Math.round` + `textContent` only, no style writes beyond
-  the separate scale tween — HF/Cutflow seeks call this every frame.
+  the separate scale tween — HF/FrameWright seeks call this every frame.
 - **`Math.round` not `Math.floor`** — mid-integer seeks should show the final
   value briefly, not the previous one.
 - `tabular-nums` is mandatory — without it, digit-count changes (9→10→100)

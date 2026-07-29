@@ -1,7 +1,7 @@
 # Dynamic Content Sequencing
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/dynamic-content-sequencing.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 A utility pattern for scenes that swap between DISTINCT content blocks (cards,
@@ -41,11 +41,11 @@ tl.to(driver, { t: TOTAL_DURATION, duration: TOTAL_DURATION, ease: "none", onUpd
 window.__timelines['<composition-id>'] = tl;
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **Pre-compute `TIMELINE` once at setup, never per-frame** — `onUpdate` is then
   O(log n) reverse-search, deterministic under repeated seeks.
 - DOM swap ONLY on transition (`lastTitle` guard) — per-frame `textContent`
-  writes on an unchanged value still cause flicker under HF/Cutflow's renderer.
+  writes on an unchanged value still cause flicker under HF/FrameWright's renderer.
 - `min-height` on the variable-length element — without it, downstream layout
   (progress bar, brand line) jitters as content length changes across entries.
 - Driver ease `"none"` (linear) so `t` maps 1:1 to scene time.

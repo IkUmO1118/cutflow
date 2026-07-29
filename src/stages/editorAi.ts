@@ -992,7 +992,7 @@ export function buildRefineEditorAiPrompt(
       ]
     : [];
   return [
-    "You are revising a cutflow GUI edit proposal.",
+    "You are revising a framewright GUI edit proposal.",
     "Return exactly one JSON object. Do not wrap it in Markdown. Do not add prose before or after it.",
     "",
     "The JSON contract is the schema below. Treat it as authoritative:",

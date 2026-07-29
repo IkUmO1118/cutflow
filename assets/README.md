@@ -1,6 +1,6 @@
 # assets/
 
-`config.yaml` から参照できる同梱素材。収録フォルダ(`~/Movies/cutflow/<収録>/`)
+`config.yaml` から参照できる同梱素材。収録フォルダ(`~/Movies/framewright/<収録>/`)
 とは別で、**リポジトリに同梱してどの環境でも動く**ものだけを置く。
 
 ## backgrounds/

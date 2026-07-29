@@ -18,7 +18,7 @@ import { completeWithJsonSchema, openAiCompatibleSchema } from "../src/lib/llm.t
 import type { ReviewStill } from "../src/stages/review.ts";
 
 function withTmpProject(fn: (dir: string) => void): void {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-editor-ai-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-editor-ai-"));
   try {
     const write = (file: string, data: unknown) =>
       writeFileSync(join(dir, file), JSON.stringify(data, null, 2), "utf8");
@@ -53,7 +53,7 @@ function withTmpProject(fn: (dir: string) => void): void {
 }
 
 async function withTmpProjectAsync(fn: (dir: string) => Promise<void>): Promise<void> {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-editor-ai-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-editor-ai-"));
   try {
     const write = (file: string, data: unknown) =>
       writeFileSync(join(dir, file), JSON.stringify(data, null, 2), "utf8");
@@ -1421,7 +1421,7 @@ test("completeWithJsonSchema: anthropic provider は tool schema を送る", asy
 });
 
 test("completeWithJsonSchema: claude-code provider は --json-schema を付ける", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-claude-code-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-claude-code-"));
   const binDir = join(dir, "bin");
   mkdirSync(binDir);
   const argsFile = join(dir, "args.txt");

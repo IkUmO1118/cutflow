@@ -41,7 +41,7 @@ export function parseCutsResponse(raw: string): CutsResponse {
 }
 
 export const CUTS_RESPONSE_SCHEMA = {
-  name: "cutflow_plan_cuts",
+  name: "framewright_plan_cuts",
   strict: true,
   schema: {
     type: "object",
@@ -75,7 +75,7 @@ export const CUTS_RESPONSE_SCHEMA = {
  * `CUTS_RESPONSE_SCHEMA` は `strict: true` のまま1バイトも変更しないため、
  * 既定挙動(I4: 参照同一性)は完全に保存される。 */
 export const CUTS_RESPONSE_SCHEMA_REASON_IDS = {
-  name: "cutflow_plan_cuts_reason_ids",
+  name: "framewright_plan_cuts_reason_ids",
   strict: false,
   schema: {
     type: "object",

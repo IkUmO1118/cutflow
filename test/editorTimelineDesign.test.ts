@@ -86,7 +86,7 @@ test("P3 keeps toolbar actions, state affordances, and their titles", () => {
   assert.doesNotMatch(timeline, /onAddTrack|addMenuOpen|トラックを追加\(種類を選択\)/);
 });
 
-test("P3 styles every CutFlow clip family and all timeline states inside its scope", () => {
+test("P3 styles every FrameWright clip family and all timeline states inside its scope", () => {
   const css = read("editor/client/styles.css");
   for (const kind of [
     "cut", "insert", "caption", "wipe", "wipeFull", "zoom", "blur",

@@ -4,7 +4,7 @@
 
 このディレクトリには OpenScreen の**単体 Swift カーソルヘルパ**（`OpenScreenMacOSCursorHelper/`）だけを
 vendor する。OpenScreen の撮影スタック本体（Electron + ScreenCaptureKit/WGC ヘルパ + webcam +
-WebAudio mix・Pixi/WebCodecs 描画）は取り込まない（CutFlow は OBS を撮影の主役として維持する。
+WebAudio mix・Pixi/WebCodecs 描画）は取り込まない（FrameWright は OBS を撮影の主役として維持する。
 母艦 §1・§5）。
 
 ## 素性
@@ -13,7 +13,7 @@ WebAudio mix・Pixi/WebCodecs 描画）は取り込まない（CutFlow は OBS �
 |---|---|
 | upstream（現役版・参照素性） | `https://github.com/getopenscreen/openscreen`（v1.7.0 時点で現役） |
 | 参照クローン（ローカル・repo外） | `~/dev/labs/openscreen`（`https://github.com/siddharthvaddem/openscreen`。archived 旧本家）。
-  当該ファイル（`OpenScreenMacOSCursorHelper/main.swift`）は getopenscreen 現役版とバイト同一と確認済み（調査レポート `~/dev/labs/openscreen-research-for-cutflow.md` §9 相当・母艦 冒頭） |
+  当該ファイル（`OpenScreenMacOSCursorHelper/main.swift`）は getopenscreen 現役版とバイト同一と確認済み（調査レポート `~/dev/labs/openscreen-research-for-framewright.md` §9 相当・母艦 冒頭） |
 | 参照クローンの commit | `f57e36e25448b5af6c7b1b271066fe5beb9b8a49`（2026-06-16。当該ファイルの最終更新） |
 | 取得元パス | `electron/native/screencapturekit/Sources/OpenScreenMacOSCursorHelper/` |
 | license | MIT © 2025 Siddharth Vaddem。全文は下記「MIT notice」節 |
@@ -24,13 +24,13 @@ WebAudio mix・Pixi/WebCodecs 描画）は取り込まない（CutFlow は OBS �
 | ファイル | 状態 |
 |---|---|
 | `OpenScreenMacOSCursorHelper/main.swift` | **vendor + 小改変**（下記「改変点」参照） |
-| `OpenScreenMacOSCursorHelper/Package.swift` | vendor + trim（upstream は2ターゲット構成（capture helper + cursor helper）。CutFlow が使うのはカーソルヘルパだけなので、この1ターゲットだけに絞った）。**CutFlow のビルド経路（`doctor`・後続 P）はこのファイルではなく `swiftc main.swift -o <bin>` を直接叩く**（単一ファイル・外部パッケージ依存ゼロなので SwiftPM のパッケージ解決が不要。このファイルは upstream 構成との対応関係を示す参照用） |
+| `OpenScreenMacOSCursorHelper/Package.swift` | vendor + trim（upstream は2ターゲット構成（capture helper + cursor helper）。FrameWright が使うのはカーソルヘルパだけなので、この1ターゲットだけに絞った）。**FrameWright のビルド経路（`doctor`・後続 P）はこのファイルではなく `swiftc main.swift -o <bin>` を直接叩く**（単一ファイル・外部パッケージ依存ゼロなので SwiftPM のパッケージ解決が不要。このファイルは upstream 構成との対応関係を示す参照用） |
 
 ## 改変点（vendor + 小改変。母艦 §3 の訂正）
 
 Upstream の `main.swift` は `sample` イベントで**カーソル形状（type + 画像）とクリックだけ**を emit し、
 **位置（座標）を一切出していない**。OpenScreen 本体では位置サンプリングは Electron 側
-（`screen.getCursorScreenPoint()`）が担当する分業になっており、CutFlow は Electron を持たない
+（`screen.getCursorScreenPoint()`）が担当する分業になっており、FrameWright は Electron を持たない
 （Node に screen 系 API が無い）ため、**この vendor コピーにだけ位置出力を追加した**:
 
 1. `CursorHelperRequest` に `displayId: UInt32?`（`CGDirectDisplayID`）を追加。指定時はそのディスプレイの
@@ -120,7 +120,7 @@ SOFTWARE.
 
 上記の Swift カーソルヘルパとは別に、**OpenScreen のズーム runtime(TypeScript の純関数)**を
 このディレクトリ直下に vendor している。ズームの「位置(focus)追従・spring 平滑化・連鎖パン」を
-CutFlow の render 経路で**厳格再現**するための土台(P1 = 逐語移植のみ・CutFlow 配線は後続 P で行う)。
+FrameWright の render 経路で**厳格再現**するための土台(P1 = 逐語移植のみ・FrameWright 配線は後続 P で行う)。
 
 | 項目 | 値 |
 |---|---|
@@ -141,7 +141,7 @@ CutFlow の render 経路で**厳格再現**するための土台(P1 = 逐語移
 | `motionSmoothing.ts` | vendor（逐語・import 書き換えのみ）。`spring()` generator を1ステップ回す `stepSpringValue`。`import { spring } from "motion"` は bare のまま（npm `motion` 依存を追加） |
 | `zoomSpring.ts` | vendor（逐語・import 書き換えのみ）。`createZoomSpringState`/`resetZoomSpring`/`stepZoomSpring`(交差スナップ付き `stepAxis`) |
 | `zoomRegionUtils.ts` | vendor（逐語・import 書き換えのみ）。`findDominantRegion`/`computeRegionStrength`/連鎖(`getConnectedRegionPairs`/`getConnectedRegionHold`/`getConnectedRegionTransition`)/module-level `dominantRegionCache`(単一スロットキャッシュ)込みで丸ごと vendor |
-| `zoomTransform.ts` | **partial port**。`computeZoomTransform` + `computeFocusFromTransform`（と `AppliedTransform`/`ZoomTransformGeometry`/`FocusFromTransformGeometry`）のみ vendor。関数本体の数式は逐語。upstream の pixi.js/pixi-filters 依存コード(`applyZoomTransform`/`MotionBlurState`/`getMotionBlurAmountResponse`/`TransformParams`)は**vendor していない**(Remotion にモーションブラー相当が無く、CutFlow は pixi に依存しないため) |
+| `zoomTransform.ts` | **partial port**。`computeZoomTransform` + `computeFocusFromTransform`（と `AppliedTransform`/`ZoomTransformGeometry`/`FocusFromTransformGeometry`）のみ vendor。関数本体の数式は逐語。upstream の pixi.js/pixi-filters 依存コード(`applyZoomTransform`/`MotionBlurState`/`getMotionBlurAmountResponse`/`TransformParams`)は**vendor していない**(Remotion にモーションブラー相当が無く、FrameWright は pixi に依存しないため) |
 | `types.ts` | **trimmed extract**。upstream `src/components/video-editor/types.ts` から zoom runtime が要る型・定数だけを抽出（`ZoomDepth`/`ZoomFocusMode`/`ZoomFocus`/`Rotation3D`系/`ZoomRegionSource`/`ZoomRegion`/`CursorTelemetryPoint`/`ZOOM_DEPTH_SCALES`/`getZoomScale`/`clampFocusToDepth` 等）。webcam/annotation/blur/crop/speed 等の無関係な export と `@/lib/compositeLayout` import は削っている |
 | `webcamReactive.ts` | vendor（逐語）。`reactiveWebcamScale`/`WEBCAM_REACTIVE_ZOOM_MIN_SCALE`(反応的ウェブカムワイプ縮小。取得元 `src/lib/compositeLayout.ts`。baked zoom 経路(props.zoomTransformTrack)のワイプ縮小を sprung composite scale から駆動するのに使う) |
 
@@ -151,5 +151,5 @@ Node 23 の type-stripping に合わせて `./xxx.ts` の明示拡張子で書�
 
 ### 本家追従について
 
-上記 Swift ヘルパと同じく**取り込み切り**。P1 は逐語移植のみで CutFlow の render 経路への配線は
+上記 Swift ヘルパと同じく**取り込み切り**。P1 は逐語移植のみで FrameWright の render 経路への配線は
 まだ行っていない(母艦 §0.2 の P2/P3 で `src/lib/zoomRuntimeTrack.ts` から利用される)。

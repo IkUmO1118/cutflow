@@ -57,7 +57,7 @@
 
 ## worked example
 
-`~/Movies/cutflow/2026-07-12` の実 zoom `zm_mvzyf8`。アンカー番号は
+`~/Movies/framewright/2026-07-12` の実 zoom `zm_mvzyf8`。アンカー番号は
 `plan-effects` 入力内だけの番号なので、ここでは判断例の `17` と、照合可能な
 元秒・overlay id・実在 rect を併記する。
 

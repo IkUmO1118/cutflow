@@ -471,7 +471,7 @@ async function withTmpDir(
   build: (dir: string) => void,
   run: (dir: string) => void | Promise<void>,
 ): Promise<void> {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-assert-fs-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-assert-fs-"));
   try {
     build(dir);
     await run(dir);

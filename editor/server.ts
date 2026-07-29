@@ -133,7 +133,7 @@ import type { DeterministicReviewObservation } from "../src/lib/reviewObservatio
 import type { SecondaryObservation } from "../src/lib/vlmObservation.ts";
 
 /**
- * cutflow エディタのローカルサーバー。
+ * framewright エディタのローカルサーバー。
  * - エディタ UI(esbuild でその場バンドルした React アプリ)を配信
  * - 収録フォルダの JSON を読み書きする API(正のデータは既存 JSON のまま。
  *   書くのは overlays.json / transcript.json / cutplan.json だけ)
@@ -243,7 +243,7 @@ export async function startEditor(
     throw error;
   }
 
-  // 待受情報を収録フォルダの外(~/.cutflow/editor/)へ書く。デタッチ起動でも
+  // 待受情報を収録フォルダの外(~/.framewright/editor/)へ書く。デタッチ起動でも
   // フォアグラウンド起動でも同じように書くので、`editor <dir> --status` は
   // どちらの起動でも見える。プロセスがどの経路で終わっても最終段で必ず発火する
   // "exit" で同期的に消す(framesServe と同じ判断。async は exit 中に走らない)

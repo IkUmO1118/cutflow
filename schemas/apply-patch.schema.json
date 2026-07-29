@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cutflow.dev/schemas/apply-patch.schema.json",
+  "$id": "https://framewright.dev/schemas/apply-patch.schema.json",
   "$comment": "src/types.ts の ApplyPatch / EditOp / ApplyBody(apply コマンドの入力形)の射影。この schema は構造(op の形状)だけを固定する。approved を触る op(set の field=\"approved\" / add の value.approved)を拒否する等のcross-field検査は src/lib/applyEdits.ts(planApply/compileOps)の責務でschema段では検査しない(docs/plans/2026-07-07-atomic-apply-design.md §不変条件2)。add の target(コレクション選択子)の許可リストは src/lib/applyEdits.ts の ADD_SELECTORS と一致させる(test/schema.test.ts がピン留め)。",
   "$defs": {
     "SetOp": {

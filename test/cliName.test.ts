@@ -1,7 +1,7 @@
 // lib/cliName.ts — ヒント文に埋める呼び出し名が、実際に使われた入口に
 // 追随することを固定する。
 //
-// 同じコードに2つの入口がある(bin/cutflow.mjs 経由の `cutflow` と、リポジトリ
+// 同じコードに2つの入口がある(bin/framewright.mjs 経由の `framewright` と、リポジトリ
 // 直叩きの `node src/cli.ts`)。ヒントを片方に決め打ちすると、もう一方で叩いた
 // 人に「自分の打ち方と違うコマンド」を読ませてしまう。argv[1] から判定する。
 import { test } from "node:test";
@@ -20,14 +20,14 @@ function withEntry<T>(entry: string | undefined, fn: () => T): T {
   }
 }
 
-test("bin/cutflow.mjs 経由なら cutflow と案内する", () => {
-  assert.equal(withEntry("/Users/x/dev/cutflow/bin/cutflow.mjs", cliCmd), "cutflow");
+test("bin/framewright.mjs 経由なら framewright と案内する", () => {
+  assert.equal(withEntry("/Users/x/dev/framewright/bin/framewright.mjs", cliCmd), "framewright");
   // npm link が張る symlink 側(拡張子なし)で起動されることもある
-  assert.equal(withEntry("/opt/homebrew/bin/cutflow", cliCmd), "cutflow");
+  assert.equal(withEntry("/opt/homebrew/bin/framewright", cliCmd), "framewright");
 });
 
 test("リポジトリ直叩きなら node src/cli.ts と案内する", () => {
-  assert.equal(withEntry("/Users/x/dev/cutflow/src/cli.ts", cliCmd), "node src/cli.ts");
+  assert.equal(withEntry("/Users/x/dev/framewright/src/cli.ts", cliCmd), "node src/cli.ts");
 });
 
 test("argv[1] が無い(埋め込み実行等)ときはリポジトリ直叩き扱いにする", () => {

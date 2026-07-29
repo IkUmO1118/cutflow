@@ -1,7 +1,7 @@
 # Split Tilt Cards
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/split-tilt-cards.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 A symmetric "book-open" 3D layout for comparisons, before/after, or feature pairs:
@@ -39,7 +39,7 @@ tl.to('.card-right', {y: 6, duration:1.2, ease:'sine.inOut', yoyo:true, repeat:1
 window.__timelines['<composition-id>'] = tl;
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - `fromTo` on both card entrances so a t=0 seek shows the pre-entry off-axis state,
   not a flash of the resting layout.
 - **Finite float only**: `repeat:1` (or `Math.max(0, floor(...))` derived), never

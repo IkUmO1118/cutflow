@@ -14,7 +14,7 @@ import type { EffectAnchor } from "../src/lib/effectAnchors.ts";
 import type { Config } from "../src/lib/config.ts";
 
 function tmpDir(): string {
-  return mkdtempSync(join(tmpdir(), "cutflow-plan-effects-"));
+  return mkdtempSync(join(tmpdir(), "framewright-plan-effects-"));
 }
 
 const anchors: EffectAnchor[] = [

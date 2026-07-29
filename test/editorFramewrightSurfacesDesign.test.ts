@@ -334,11 +334,11 @@ test("P4 provenance pins primitive and Sonner sources plus behavior adaptations"
   }
   assert.match(provenance, /P4 checkpoint 1 adapts the pinned Dialog, Tabs, ScrollArea, and ToggleGroup/);
   assert.match(provenance, /Radix owns focus trapping, the close-auto-focus lifecycle/);
-  assert.match(provenance, /CutFlow explicitly returns focus to each launcher/);
+  assert.match(provenance, /FrameWright explicitly returns focus to each launcher/);
   assert.match(provenance, /Settings outside\/non-field Escape\/cancel still rolls/);
   assert.match(provenance, /HyperFrames blocks[\s\S]*?Escape, allows outside dismissal only while idle/);
   assert.match(provenance, /Visual and diff review block Escape\/outside/);
   assert.match(provenance, /apps\/web\/src\/components\/ui\/sonner\.tsx/);
-  assert.match(provenance, /Sonner version \| OpenCut baseline `\^2\.0\.7`; CutFlow exact pin `2\.0\.7`/);
+  assert.match(provenance, /Sonner version \| OpenCut baseline `\^2\.0\.7`; FrameWright exact pin `2\.0\.7`/);
   assert.match(provenance, /P4 checkpoint 2 replaces `toastReducer\.ts`/);
 });

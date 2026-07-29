@@ -123,7 +123,7 @@ function targetProfiles(cfg: Config, opts: AiDoctorOptions): ResolvedAiProfile[]
 export async function aiDoctor(cfg: Config, opts: AiDoctorOptions = {}): Promise<AiDoctorResult[]> {
   loadRepoEnv();
   const configErrors = validateAiConfig(cfg.ai);
-  const tmp = mkdtempSync(join(tmpdir(), "cutflow-ai-doctor-"));
+  const tmp = mkdtempSync(join(tmpdir(), "framewright-ai-doctor-"));
   const imageFile = join(tmp, "ai-doctor.png");
   writeFileSync(imageFile, doctorPng());
   try {
@@ -155,11 +155,11 @@ export async function aiDoctor(cfg: Config, opts: AiDoctorOptions = {}): Promise
         const text = await completeAi({
           route: "text",
           purpose: "other",
-          parts: [{ type: "text", text: "Reply with exactly: cutflow-ok" }],
+          parts: [{ type: "text", text: "Reply with exactly: framewright-ok" }],
           output: { kind: "text" },
           maxOutputTokens: 64,
         }, routeConfig(cfg, profile.name));
-        result.checks.text = text.text.trim() === "cutflow-ok" ? ok("cutflow-ok") : warn("unexpected response");
+        result.checks.text = text.text.trim() === "framewright-ok" ? ok("framewright-ok") : warn("unexpected response");
       } catch (e) {
         result.checks.text = error((e as Error).message);
       }
@@ -174,7 +174,7 @@ export async function aiDoctor(cfg: Config, opts: AiDoctorOptions = {}): Promise
             output: {
               kind: "json-schema",
               format: {
-                name: "cutflow_doctor",
+                name: "framewright_doctor",
                 strict: true,
                 schema: {
                   type: "object",
@@ -205,7 +205,7 @@ export async function aiDoctor(cfg: Config, opts: AiDoctorOptions = {}): Promise
             output: {
               kind: "json-schema",
               format: {
-                name: "cutflow_doctor_image",
+                name: "framewright_doctor_image",
                 strict: true,
                 schema: {
                   type: "object",

@@ -66,7 +66,7 @@ keep された発話と発話のあいだの**短い無音を詰める**(テン�
 
 ## worked example
 
-`~/Movies/cutflow/2026-07-12` の2箇所。いずれも `cutplan.json` の `reason`
+`~/Movies/framewright/2026-07-12` の2箇所。いずれも `cutplan.json` の `reason`
 は空文字(=人間の GUI 操作による無ラベルカット。§0.2 の新事実)。
 
 例1(0.53秒。冒頭の主張の切り替わり):

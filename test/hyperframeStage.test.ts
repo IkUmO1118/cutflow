@@ -80,7 +80,7 @@ function baseKeyInputs() {
   return {
     rendererGeneration: HYPERFRAME_RENDERER_GENERATION,
     htmlSha256: "a".repeat(64),
-    variables: { title: "CutFlow", accent: "#22c55e" },
+    variables: { title: "FrameWright", accent: "#22c55e" },
     width: 1920,
     height: 1080,
     fps: 30,
@@ -230,7 +230,7 @@ function parsedFixture(overrides?: Partial<ParsedComposition>): ParsedCompositio
     width: 1920,
     height: 1080,
     variables: [
-      { id: "title", type: "string", default: "CutFlow" },
+      { id: "title", type: "string", default: "FrameWright" },
       { id: "accent", type: "color", default: "#22c55e" },
     ],
     intrinsicDurationSec: 4,

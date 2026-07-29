@@ -312,7 +312,7 @@ test("buildChapterTelopEntries: idCtx ありで title 一致の旧 id を運ぶ"
 });
 
 function withPlanDir(run: (dir: string) => Promise<void> | void): Promise<void> | void {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-plan-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-plan-"));
   writeFileSync(
     join(dir, "transcript.json"),
     JSON.stringify({

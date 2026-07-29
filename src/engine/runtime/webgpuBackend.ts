@@ -10,7 +10,7 @@
 // renderFrame）に揃えてあり、compositor.ts/textureCache.ts はほぼ無改造で
 // import 元をこちらへ差し替えるだけで済む。
 //
-// スコープ: CutFlow の descriptor.ts は blendMode="normal"・回転/反転なし・
+// スコープ: FrameWright の descriptor.ts は blendMode="normal"・回転/反転なし・
 // GPU側マスク/エフェクトパス無し(blur/spotlight/colorFilter は§2の決定で
 // GPU外(canvas2d blit・2パス snapshot)に追い出し済み)しか使わないため、
 // 「テクスチャ付き矩形を通常アルファ合成で置くだけ」のパイプライン1本で足りる。

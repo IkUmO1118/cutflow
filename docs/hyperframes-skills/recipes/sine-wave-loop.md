@@ -1,7 +1,7 @@
 # Sine Wave Loop
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/sine-wave-loop.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 Keeps a settled element from feeling dead, as **subtle jitter** or (rarely) a
@@ -35,7 +35,7 @@ tl.to(phase, {
 }, IDLE_START_TIME);                 // ≥ entry end + ~0.1s buffer
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **Amplitude defaults to the LOW end** — scale `0.008–0.015`, translate `±2–3px`.
   Push higher only for an isolated hero in a short (<6s), kinetic-brief scene.
 - **Finite repeats only** — this is a single long tween over `IDLE_DUR`, never

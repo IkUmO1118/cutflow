@@ -42,7 +42,7 @@ const UNSAVED_PLAN: CutPlan = {
 };
 
 function fixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-editor-preview-cut-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-editor-preview-cut-"));
   const write = (name: string, value: unknown) =>
     writeFileSync(join(dir, name), JSON.stringify(value, null, 2));
   write("manifest.json", {

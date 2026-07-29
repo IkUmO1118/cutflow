@@ -2,7 +2,7 @@
 
 > Adapted from HeyGen HyperFrames skills (Apache-2.0). See ./PROVENANCE.md.
 
-`hyperframes-animation` skill は7種類のランタイムアダプタを持つ。Cutflow の
+`hyperframes-animation` skill は7種類のランタイムアダプタを持つ。FrameWright の
 native interpreter(`remotion/HyperFrame.tsx` + `src/lib/hyperframe.ts`)は
 **CSS アニメーション・WAAPI(`element.animate`)を `document.getAnimations()`
 経由で seek** し、さらに **GSAP 3.14.2・Lottie 5.12.2・Anime.js 3.2.2・Three.js r160 を pin 済み**
@@ -14,7 +14,7 @@ readiness PromiseでWGSL pipelineを駆動する。したがって **GSAP/Anime.
 raw WebGPU前提の記法は使える**(pin runtimeはタグ逐語、全て対応する
 `data-hf-requires`が条件)。TypeGPU は未 pin で対象外。本書は CSS/WAAPI アダプタ(最も単純で
 byte 決定的な既定経路)と `hyperframes-keyframes` の seek-safe な作法を
-Cutflow 向けに書き直す。GSAP/Anime.jsを使うときの作法は各節、Lottie は authoring-contract の B4 と下記「Lottie アダプタ」節にまとめる。
+FrameWright 向けに書き直す。GSAP/Anime.jsを使うときの作法は各節、Lottie は authoring-contract の B4 と下記「Lottie アダプタ」節にまとめる。
 
 ## なぜ CSS/WAAPI だけで足りるか
 
@@ -98,7 +98,7 @@ determinism 契約が禁じる `display`/`visibility` の直接操作と同じ�
 ## seek-safe doctrine(禁止リスト)
 
 `hyperframes-keyframes` skill の「Never use for render-critical motion」を
-Cutflow の check ゲート(C2)にそのまま対応させたもの。**インラインスクリプト
+FrameWright の check ゲート(C2)にそのまま対応させたもの。**インラインスクリプト
 内で以下を使うと check ゲートがエラーで止める**:
 
 - `Date.now()` / `performance.now()` / `new Date()`
@@ -153,7 +153,7 @@ authoring-contract の「seek conventions(B1)」「Pinned CDN scripts(B2)」に�
 
 ## Anime.js アダプタ
 
-upstream `adapters/animejs.md` の契約をCutflowのpin/checkへ翻案した要点(5点):
+upstream `adapters/animejs.md` の契約をFrameWrightのpin/checkへ翻案した要点(5点):
 
 1. **manual route限定**。CSS/WAAPIよりAnime.jsの簡潔なtimeline構文が明確な場合だけ使い、
    card冒頭に昇格理由を1行書く。`--from-brief`のprompt/card-patternsには注入しない
@@ -170,7 +170,7 @@ upstream `adapters/animejs.md` の契約をCutflowのpin/checkへ翻案した要
 
 ## Three.js アダプタ
 
-upstream `adapters/three.md` をCutflowのmanual/core-only契約へ翻案した要点:
+upstream `adapters/three.md` をFrameWrightのmanual/core-only契約へ翻案した要点:
 
 1. 真のgeometry/perspective/depthが必要なときだけ使い、`three@0.160.0`の逐語pin tag、
    `data-hf-requires="three"`、`data-hf-determinism="perceptual"`を宣言する
@@ -199,12 +199,12 @@ X4のnative/manual routeの要点(5点。TypeGPU runtimeは引き続きOUT):
    `device.queue.submit(...)`する。rAF、wall clock、delta積算を使わない
 5. CDN/library依存は無い。実例は
    `examples/hyperframes-animation--raw-webgpu-wgsl.html`。TypeGPU adapterはvendorへ
-   収録せず、Cutflowのpin/token/backendにも接続しない
+   収録せず、FrameWrightのpin/token/backendにも接続しない
 
 ## Lottie アダプタ
 
 Lottie は AE 書き出しのモーション(タイムラインが素材に内包済み)を持ち込む受け皿で、
-Cutflow は seek できるプレイヤーだけを必要とする。**LLM は Lottie を作図しない**・
+FrameWright は seek できるプレイヤーだけを必要とする。**LLM は Lottie を作図しない**・
 埋め込み/autoplay:false/loop:false/`__hfLottie` 登録・`renderer` の tier・dotLottie 非対応
 などの契約は authoring-contract の「Lottie(B4)」、seek 規約(`goToAndStop(ms,false)`)は
 「seek conventions(B1)」に既述。本書の追補は1点だけ: **複数の Lottie を同一カードに置く
@@ -214,8 +214,8 @@ Cutflow は seek できるプレイヤーだけを必要とする。**LLM は Lo
 ## テキストアニメ(animate-text)
 
 upstream の `animate-text` は Pixel Point の**外部**スキル(24種の名前付きテキスト効果)で
-本リポジトリには**同梱していない**(`npx skills add` / `/animate-text` は Cutflow には無い)。
-Cutflow では以下で足りる(≤5点):
+本リポジトリには**同梱していない**(`npx skills add` / `/animate-text` は FrameWright には無い)。
+FrameWright では以下で足りる(≤5点):
 
 - 単純なテキストモーション(語ごと・文字ごとのフェード+stagger)は本書の CSS/WAAPI/GSAP で
   そのまま書く。名前付き効果の語彙(soft-blur-in・typewriter・per-word-crossfade・
@@ -234,7 +234,7 @@ Cutflow では以下で足りる(≤5点):
 
 - **無限ループは禁止、有限回に落とす**。`repeat: -1` / `iteration-count: infinite` は seek 尺を
   持てない。周期から `Math.max(0, Math.floor(duration / cycle) - 1)` を**floor**で出す
-  (`ceil` は尺を超える)。Cutflow では尺は clip 窓/`--durationSec` 側で決まるので、無限
+  (`ceil` は尺を超える)。FrameWright では尺は clip 窓/`--durationSec` 側で決まるので、無限
   アニメでも clip に `data-duration` があれば描画自体は成立するが、有限化して意図を明示する
 - **canvas/WebGL/3D は時間の純関数で描く**。GSAP の proxy object(`tl.to(state,{progress:1,
   onUpdate:...})`)か hf-seek(authoring-contract F2)で「progress→絵」を毎シーク再計算する。

@@ -17,7 +17,7 @@ const ROOT = join(import.meta.dirname, "..");
 const CLI = join(ROOT, "src", "cli.ts");
 
 function makeFixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-mcp-server-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-mcp-server-"));
   const write = (file: string, data: unknown) =>
     writeFileSync(join(dir, file), JSON.stringify(data, null, 2), "utf8");
   write("manifest.json", {
@@ -116,7 +116,7 @@ test("mcp <dir>: initialize→notifications/initialized→tools/list→tools/cal
     const init = await client.request("initialize", { protocolVersion: "2025-06-18" });
     assert.ok(init.result);
     const initResult = init.result as { serverInfo: { name: string } };
-    assert.equal(initResult.serverInfo.name, "cutflow");
+    assert.equal(initResult.serverInfo.name, "framewright");
 
     client.notify("notifications/initialized");
 
@@ -125,31 +125,31 @@ test("mcp <dir>: initialize→notifications/initialized→tools/list→tools/cal
     const { tools } = list.result as { tools: { name: string }[] };
     const names = tools.map((t) => t.name).sort();
     assert.deepEqual(names, [
-      "cutflow_apply",
-      "cutflow_assert",
-      "cutflow_av",
-      "cutflow_describe",
-      "cutflow_edit",
-      "cutflow_frames",
-      "cutflow_id_stamp",
-      "cutflow_materials",
-      "cutflow_review",
-      "cutflow_search",
-      "cutflow_validate",
+      "framewright_apply",
+      "framewright_assert",
+      "framewright_av",
+      "framewright_describe",
+      "framewright_edit",
+      "framewright_frames",
+      "framewright_id_stamp",
+      "framewright_materials",
+      "framewright_review",
+      "framewright_search",
+      "framewright_validate",
     ]);
     // 承認/破壊系は tools/list にも出ない
     assert.equal(names.some((n) => n.includes("render") || n.includes("approve")), false);
 
-    const describeCall = await client.request("tools/call", { name: "cutflow_describe" });
+    const describeCall = await client.request("tools/call", { name: "framewright_describe" });
     assert.ok(describeCall.result);
     assert.equal((describeCall.result as { isError?: boolean }).isError, undefined);
 
-    const validateCall = await client.request("tools/call", { name: "cutflow_validate" });
+    const validateCall = await client.request("tools/call", { name: "framewright_validate" });
     assert.ok(validateCall.result);
     assert.equal((validateCall.result as { isError?: boolean }).isError, undefined);
 
     // 未登録 tool(render 等)は tools/call でも呼べない(-32602)
-    const renderCall = await client.request("tools/call", { name: "cutflow_render" });
+    const renderCall = await client.request("tools/call", { name: "framewright_render" });
     assert.ok(renderCall.error);
     assert.equal(renderCall.error!.code, -32602);
 

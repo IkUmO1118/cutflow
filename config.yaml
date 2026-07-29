@@ -1,8 +1,8 @@
-# CutFlow 設定ファイル
+# FrameWright 設定ファイル
 # パスの ~ はホームディレクトリに展開されます
 
 # 収録データの置き場所(リポジトリ外に置く。1収録=1フォルダ、中に raw.mkv)
-recordingsDir: ~/Movies/cutflow
+recordingsDir: ~/Movies/framewright
 
 # 収録レイアウトの設定。既定は通常動画(plain)。
 # OBS拡張キャンバスを使う場合は各コマンドで --layout obs-canvas を指定するか、
@@ -365,7 +365,7 @@ plan:
   # <recording base>.cursor.json サイドカー(record --watch)が無ければ一切
   # 参照されない。既定値は OpenScreen 自身のチューニング(30Hz・製品デモ向け)
   # なので、収録本数が増えたら再調整を検討する
-  # 【調整メモ 2026-07-24】~/Movies/cutflow/test で実測: 既定 max2600ms は
+  # 【調整メモ 2026-07-24】~/Movies/framewright/test で実測: 既定 max2600ms は
   # 「対象に置いて数秒〜十数秒しゃべる」チュートリアルの長い注視(このクリップは
   # 9.4秒の静止すらあった)を丸ごと除外し、dwell候補が7件しか出ない。上限を
   # 8000ms へ上げると10件に増える。長い注視こそズームしたい対象なので上限を緩和。
@@ -499,7 +499,7 @@ ai:
 
   # ログ/可観測性。workflow(AI 呼び出し・ステージ・外部ツール)を stderr にどれだけ
   # 出すか。quiet=AI 行も抑止 / normal=AI+ステージ(既定) / verbose=ffmpeg・whisper・
-  # headless Chrome まで1行ずつ。環境変数 CUTFLOW_LOG とグローバル --verbose/--quiet が
+  # headless Chrome まで1行ずつ。環境変数 FRAMEWRIGHT_LOG とグローバル --verbose/--quiet が
   # この設定より優先。stdout(describe --json 等の JSON 射影)は level に関わらず不変。
 log:
   level: normal

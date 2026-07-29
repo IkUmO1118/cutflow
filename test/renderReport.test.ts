@@ -98,7 +98,7 @@ test("hashInputSnapshot: 決定論的・sha256: 接頭辞・入力が違えば�
 });
 
 test("writeRenderReport: アトミック書込のラウンドトリップ(.tmp が残らない)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-renderreport-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-renderreport-"));
   try {
     const c = new RenderReportCollector(1000);
     c.setPath("engine");

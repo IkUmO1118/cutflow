@@ -109,7 +109,7 @@ async function captureOracle() {
   rmSync(GOLDEN_DIR, { recursive: true, force: true });
   mkdirSync(GOLDEN_DIR, { recursive: true });
 
-  const tmpConfigDir = mkdtempSync(join(tmpdir(), "cutflow-g1-oracle-config-"));
+  const tmpConfigDir = mkdtempSync(join(tmpdir(), "framewright-g1-oracle-config-"));
   const configPath = buildTempConfigWithRemotion(CONFIG_PATH, tmpConfigDir);
   console.log(`[1/4] 一時config生成(engineExport:false 挿入): ${configPath}`);
 

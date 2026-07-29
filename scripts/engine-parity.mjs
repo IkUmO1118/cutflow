@@ -142,7 +142,7 @@ async function findHeadlessShell() {
 async function launchHeadlessShell(execPath) {
   // --user-data-dir を毎回ユニークにする(同じプロファイルへ複数起動すると
   // SingletonLock で新しいプロセスが無言のまま固まることがある実測を踏まえた対策)
-  const userDataDir = mkdtempSync(join(tmpdir(), "cutflow-parity-chrome-"));
+  const userDataDir = mkdtempSync(join(tmpdir(), "framewright-parity-chrome-"));
   const proc = spawn(execPath, [
     "--headless", "--disable-gpu", "--no-sandbox", "--remote-debugging-port=0",
     "--hide-scrollbars", `--user-data-dir=${userDataDir}`,

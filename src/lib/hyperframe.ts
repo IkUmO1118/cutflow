@@ -33,7 +33,7 @@ export interface VarDecl {
  * (browser-safe な .ts)を唯一の置き場にする) */
 export const SAMPLE_HTML = `<!doctype html>
 <html data-composition-variables='[
-  {"id":"title","type":"string","label":"Title","default":"CutFlow"},
+  {"id":"title","type":"string","label":"Title","default":"FrameWright"},
   {"id":"accent","type":"color","label":"Accent","default":"#22c55e"}
 ]'>
 <head><style>

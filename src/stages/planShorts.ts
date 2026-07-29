@@ -202,7 +202,7 @@ export async function planShorts(dir: string, cfg: Config): Promise<Shorts> {
     auto.originalDurationSec,
   );
   const raw = await completeWithJsonSchema(prompt, cfg, {
-    name: "cutflow_plan_shorts",
+    name: "framewright_plan_shorts",
     strict: true,
     schema: {
       type: "object",

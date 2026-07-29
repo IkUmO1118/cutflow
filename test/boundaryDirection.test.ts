@@ -143,7 +143,7 @@ function wav(): Buffer {
 }
 
 function fixture(approved: boolean): string {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-boundary-direction-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-boundary-direction-"));
   const cutplan = plan([{ start: 0, end: 1 }], 1);
   writeFileSync(join(dir, "mic.wav"), wav());
   writeFileSync(join(dir, "manifest.json"), JSON.stringify({ durationSec: 1, audio: { micWav: "mic.wav" } }));

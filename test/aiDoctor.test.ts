@@ -15,12 +15,12 @@ test("aiDoctor: openai-compatible profile の text/structured/image を検査で
       payload = content.some((item) => item.type === "image_url")
         ? { saw: "red-square" }
         : { ok: true };
-    } else if (typeof content === "string" && /cutflow-ok/.test(content)) {
+    } else if (typeof content === "string" && /framewright-ok/.test(content)) {
       return {
         ok: true,
         status: 200,
         headers: new Headers({ "content-type": "application/json" }),
-        json: async () => ({ choices: [{ message: { content: "cutflow-ok" } }] }),
+        json: async () => ({ choices: [{ message: { content: "framewright-ok" } }] }),
       } as Response;
     }
     return {

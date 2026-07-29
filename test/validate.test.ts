@@ -17,7 +17,7 @@ import type { LoadedDocs } from "../src/stages/validate.ts";
 
 // dir は overlays の素材存在チェックにしか使われない。素材参照を含まない
 // docs を渡すのでディスクには触れない
-const DIR = "/tmp/cutflow-test";
+const DIR = "/tmp/framewright-test";
 
 /** 妥当な最小構成(必要なものだけ上書きして使う) */
 function baseDocs(over: Partial<LoadedDocs> = {}): LoadedDocs {
@@ -1414,7 +1414,7 @@ test("obs-canvas: ショート profile vertical / vertical-cover はどちらも
 // 警告する。純粋コア validateDocs は無改造(既存テストは上のとおり不変)。
 
 function withTmpProject(fn: (dir: string) => void): void {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-validate-fs-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-validate-fs-test-"));
   try {
     const write = (file: string, data: unknown) =>
       writeFileSync(join(dir, file), JSON.stringify(data), "utf8");

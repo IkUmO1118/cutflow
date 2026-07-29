@@ -267,7 +267,7 @@ test("compileOps: ops が空なら body も空(no-op)", () => {
 /* ---------------- T3: planApply / applyEdits ---------------- */
 
 function withTmpProject(fn: (dir: string) => void): void {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-applyedits-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-applyedits-test-"));
   try {
     const write = (file: string, data: unknown) =>
       writeFileSync(join(dir, file), JSON.stringify(data, null, 2), "utf8");
@@ -438,7 +438,7 @@ test("applyEdits: id 有効プロジェクトでは add した新規要素に id
 });
 
 test("applyEdits: id が1つも無いプロジェクトでは add した新規要素に id を振らない(opt-in)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-applyedits-noid-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-applyedits-noid-test-"));
   try {
     const write = (file: string, data: unknown) =>
       writeFileSync(join(dir, file), JSON.stringify(data, null, 2), "utf8");

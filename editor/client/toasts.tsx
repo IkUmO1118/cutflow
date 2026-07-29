@@ -8,7 +8,7 @@ import {
 import { announceToastError, toastMessage } from "./toastA11y.ts";
 
 /**
- * CutFlow's existing add/update/dismiss surface backed by Sonner. Stable ids keep
+ * FrameWright's existing add/update/dismiss surface backed by Sonner. Stable ids keep
  * progress message updates and progress→success/error transitions in one toast.
  */
 export function useToasts() {

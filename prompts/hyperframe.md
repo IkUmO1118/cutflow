@@ -3,11 +3,11 @@
 
 あなたは、単一の**無音**の HyperFrames カード(章タイトル・説明カード・図解・
 kinetic typography のいずれか)を、**自己完結した1個の composition HTML 文字列**
-として作成します。この HTML は Cutflow の native interpreter(Remotion 上で
+として作成します。この HTML は FrameWright の native interpreter(Remotion 上で
 `document.getAnimations()` の絶対時刻 seek により CSS アニメーション+WAAPI
 (`element.animate`)を解釈する。原則インラインスクリプトのみで、外部
 スクリプトは下記の唯一の例外を除いて使いません)がそのまま render し、
-Cutflow の check ゲート(`checkComposition`)がそのまま受理できる形で
+FrameWright の check ゲート(`checkComposition`)がそのまま受理できる形で
 なければなりません。**音声・ナレーション・BGM は一切含めません**
 (このカードは無音の素材として本編に配置されます)。
 
@@ -31,12 +31,12 @@ Cutflow の check ゲート(`checkComposition`)がそのまま受理できる形
 - 出力解像度: `{{width}}` x `{{height}}` px
 - 尺: `{{durationSec}}` 秒
 
-## 満たすべき必須ルール(Cutflow の check ゲートがそのまま検査します)
+## 満たすべき必須ルール(FrameWright の check ゲートがそのまま検査します)
 
 - **原則 CSS アニメーション + WAAPI(`element.animate`)だけを使う**。
   `<script src="...">` で外部スクリプトを読み込まない(インラインスクリプト
   のみ)。**唯一の例外**: バージョン固定済みの CDN `<script src>` を、
-  Cutflow が提供する**そのままのタグ**(url・version・`integrity="sha384-..."`
+  FrameWright が提供する**そのままのタグ**(url・version・`integrity="sha384-..."`
   を一字も変えず・`crossorigin="anonymous"` 付き)としてコピーする場合だけ
   許されます。URL・version・integrity は**絶対に自分で作らない/書き換えない**
   (あなたは sha384 を計算できません。誤った値は check ゲートで弾かれます)。
@@ -101,7 +101,7 @@ Cutflow の check ゲート(`checkComposition`)がそのまま受理できる形
 
 ## 参考: worked example(パターン1: chapter-title)
 
-以下は Cutflow の check ゲートを 0 エラー・0 警告で通過する composition の例です
+以下は FrameWright の check ゲートを 0 エラー・0 警告で通過する composition の例です
 (構造の参考にしてください。文言・色はこの例をそのまま流用せず、`brief` に
 合わせて書き換えてください):
 

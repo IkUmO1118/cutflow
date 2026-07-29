@@ -1,7 +1,7 @@
 # OpenCut design-system provenance
 
 This P0 design-system layer is adapted from OpenCut at the exact revision below.
-OpenCut remains a reference implementation; CutFlow's application, data model,
+OpenCut remains a reference implementation; FrameWright's application, data model,
 server routes, and editing behavior are not vendored.
 
 | Item | Value |
@@ -30,17 +30,17 @@ server routes, and editing behavior are not vendored.
 | Toggle group source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/src/components/ui/toggle-group.tsx` |
 | Sonner source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/src/components/ui/sonner.tsx` |
 | Sonner package source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/package.json` |
-| Sonner version | OpenCut baseline `^2.0.7`; CutFlow exact pin `2.0.7` |
+| Sonner version | OpenCut baseline `^2.0.7`; FrameWright exact pin `2.0.7` |
 | License source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/LICENSE` |
 | Properties tab rail source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/src/components/editor/panels/properties/index.tsx` |
 | Properties tab registry source | `https://github.com/OpenCut-app/OpenCut-classic/blob/cf5e79e919144200294fb9fed22a222592a0aeea/apps/web/src/components/editor/panels/properties/registry.tsx` |
 
-## Adaptation in CutFlow
+## Adaptation in FrameWright
 
-- `app/globals.css` (classic's token source; adapted into CutFlow's
+- `app/globals.css` (classic's token source; adapted into FrameWright's
   `styles.css`): keeps the Tailwind 4 token mapping and light/dark structure,
   adds the requested panel contexts and compact type scale, converts the palette
-  to CutFlow's HSL blue language, and prefixes source variables with `--oc-`.
+  to FrameWright's HSL blue language, and prefixes source variables with `--oc-`.
   P5 retires the temporary legacy palette and makes these tokens authoritative.
   (P6.0 corrects an earlier mis-pin to modern OpenCut `5e0696bc` — an
   editor-less rewrite scaffold whose token source lived at `apps/web/src/styles.css`
@@ -51,37 +51,37 @@ server routes, and editing behavior are not vendored.
   interaction treatment, but uses a native `<button>` because P0 needs neither
   Base UI/Radix nor polymorphic `asChild` behavior.
 - `lib/utils.ts`: retains the `clsx` plus `tailwind-merge` composition pattern and
-  uses CutFlow's TypeScript/ESM import style.
+  uses FrameWright's TypeScript/ESM import style.
 - `components/ui/resizable.tsx` and the `App.tsx` shell retain OpenCut's nested
   vertical(main/timeline) and horizontal(left/viewer/right) panel vocabulary.
-  CutFlow pins `react-resizable-panels` 4.12.2 exactly, so the upstream v2
+  FrameWright pins `react-resizable-panels` 4.12.2 exactly, so the upstream v2
   `PanelGroup`/`PanelResizeHandle` wrapper is adapted to the v4
-  `Group`/`Panel`/`Separator` API. CutFlow's existing pixel persistence,
+  `Group`/`Panel`/`Separator` API. FrameWright's existing pixel persistence,
   collapse toggles, maximized/fullscreen behavior, and mounted editor children
   remain authoritative.
 - P2 checkpoint 1 adapts OpenCut's compact editor-header composition and its
-  shadcn Popover/Tooltip vocabulary. CutFlow uses the `radix-ui` 1.6.4 umbrella
+  shadcn Popover/Tooltip vocabulary. FrameWright uses the `radix-ui` 1.6.4 umbrella
   package and `lucide-react` 1.25.0, both exact-pinned. One root
   `TooltipProvider` serves the header, while the export menu is a controlled
   Popover backed by the existing `exportOpen` state. Its Radix trigger is the
   sole pointer/keyboard toggle owner (no competing child `onClick`), preserving
   Enter/Space activation plus Escape dismissal and focus return. The native approval
   checkbox, approval mutation, render/preview handlers, disabled gates, titles,
-  save state, layout toggles, and settings flow remain CutFlow-owned and
+  save state, layout toggles, and settings flow remain FrameWright-owned and
   behaviorally unchanged.
 - P2 checkpoint 2 adapts the OpenCut token/button vocabulary into an icon rail
   and compact transport without adopting OpenCut's project or media model. The
-  rail exposes exactly CutFlow's four existing capabilities (`materials`,
+  rail exposes exactly FrameWright's four existing capabilities (`materials`,
   `script`, `captions`, `shorts`) and retains `tab`/`setTab`, script lazy-load,
   and conditional child mounting. Materials keep OS-file upload, HyperFrames AI
   authoring, normal/generated/pending/unplayable cards, drag ghosts, placement,
   rebuild/delete context actions, and every gate/error/empty state. The
-  transport retains CutFlow's scrub/playhead, source/output timing, volume,
+  transport retains FrameWright's scrub/playhead, source/output timing, volume,
   rate, loop, main/short mode, frame/second steps, maximize, fullscreen, and
   keyboard-title semantics; only native controls and existing handlers are
   wrapped or token-skinned. A scoped 1024px multi-row rule prevents overlap while
   the dual-axis Timeline and Inspector remain untouched.
-- P2 checkpoint 3 adapts OpenCut's compact properties vocabulary for CutFlow's
+- P2 checkpoint 3 adapts OpenCut's compact properties vocabulary for FrameWright's
   Inspector only. `Input`, `NativeSelect`, `Slider`, `Switch`, and
   the native color adapter retain browser-controlled values and events; the
   Inspector's existing `NumInput`/`NumStepper` retain draft, Enter, blur,
@@ -89,27 +89,27 @@ server routes, and editing behavior are not vendored.
   events still use the original per-field coalesce keys and undo grouping.
   The OpenCut visual vocabulary is applied under `.ocInspector`, so Settings,
   Timeline, AI, server/API, and editor data semantics are not reskinned here.
-  All twelve CutFlow selection kinds, project/no-selection, multi-caption, and
+  All twelve FrameWright selection kinds, project/no-selection, multi-caption, and
   short-caption branches remain mounted through their original callbacks. The
   short approval control intentionally remains a native checkbox rather than a
   switch because it represents a human approval boundary, not a light setting.
 - P3 adapts the pinned OpenCut editor-layout and token sources into a dense,
   layered timeline skin under `.ocTimeline`: compact toolbar and zoom controls,
   readable ruler and track headers, semantic clip colors, selected/hover/focus
-  states, playhead and snap affordances, and thin scrollbars. CutFlow's existing
+  states, playhead and snap affordances, and thin scrollbars. FrameWright's existing
   timeline DOM, semantic classes, variable row heights, horizontal virtualization,
   output-time geometry, raw-time write mapping, track ordering, visibility/mute
   controls, pointer/trim/create/drop handlers, titles, and keyboard shortcuts remain
   authoritative. No secondary-button context menu is introduced.
 - P4 checkpoint 1 adapts the pinned Dialog, Tabs, ScrollArea, and ToggleGroup
   wrappers through the existing exact-pinned `radix-ui` umbrella package, then
-  mounts them on CutFlow-owned surfaces under `.ocAiCommand`, `.ocAiCommandModal`,
+  mounts them on FrameWright-owned surfaces under `.ocAiCommand`, `.ocAiCommandModal`,
   `.ocAiReview`, `.ocDiffReview`, `.ocHyperframeAuthor`, and `.ocSettings`.
   Radix owns focus trapping, the close-auto-focus lifecycle, Escape/outside
   interaction, tab arrow-key navigation, toggle roving focus, and scroll-area
-  mechanics. CutFlow explicitly returns focus to each launcher (or the previously
+  mechanics. FrameWright explicitly returns focus to each launcher (or the previously
   focused element for review dialogs) when controlled conditional mounting removes
-  a dialog. CutFlow remains the
+  a dialog. FrameWright remains the
   controlled-state owner: Settings outside/non-field Escape/cancel still rolls
   back to its snapshot unless saving, while field Escape remains available to
   discard the active input draft without dismissing the modal. HyperFrames blocks
@@ -122,7 +122,7 @@ server routes, and editing behavior are not vendored.
   progress/error states, config patch/save, and AI doctor flow are unchanged.
 - P4 checkpoint 2 replaces `toastReducer.ts`, its React reducer/timer, and the
   custom stack renderer with the pinned OpenCut Sonner component vocabulary and
-  exact-pinned `sonner` 2.0.7. CutFlow's adapter retains stable ids for in-place
+  exact-pinned `sonner` 2.0.7. FrameWright's adapter retains stable ids for in-place
   progress updates and progress-to-result transitions, info/success/error/progress
   kind mapping, sticky progress, explicit TTL overrides, action callbacks, optional
   close controls, and dismiss-by-id. Adapter revisions prevent stale lifecycle or
@@ -138,7 +138,7 @@ server routes, and editing behavior are not vendored.
   hidden assertive sibling announcer. Its monotonic version replaces the child node
   even for repeated identical messages. Durable draft/conflict/proxy/warning states
   remain separate header banners. OpenCut's `next-themes` and Hugeicons integration
-  was initially adapted to CutFlow's then-fixed dark shell and already-pinned Lucide
+  was initially adapted to FrameWright's then-fixed dark shell and already-pinned Lucide
   icons; P5 checkpoint 2 replaces that temporary fixed choice with a local provider.
 - P5 checkpoint 1 moves the former `index.html` stylesheet into the single
   Tailwind input while retaining cascade order: imports and tokens, native shell
@@ -146,7 +146,7 @@ server routes, and editing behavior are not vendored.
   and verified dead selectors are removed. Shared EmptyState and AppStateView
   presentation adds onboarding for empty panels and initial load/error without
   changing callbacks, disabled gates, project data, or editor APIs.
-- P5 checkpoint 2 adds a CutFlow-owned system/light/dark provider. A pre-CSS
+- P5 checkpoint 2 adds a FrameWright-owned system/light/dark provider. A pre-CSS
   bootstrap and the provider share the same storage key, invalid-value fallback,
   OS media-query resolution, root `.dark`, and `colorScheme` contract; media and
   cross-tab storage changes remain live, while Sonner receives the resolved theme.
@@ -163,12 +163,12 @@ server routes, and editing behavior are not vendored.
 - The right-panel Inspector adapts OpenCut's per-element properties tab rail
   (left icon rail + `ScrollArea` body, active tab remembered per selection type
   via `activeTabPerType`) into a shared `InspectorTabs` component. Tabs that
-  CutFlow's data model has no field for (Speed/Masks/blendMode/rotate/scale)
-  are not shown; only tabs CutFlow actually has values for are surfaced
+  FrameWright's data model has no field for (Speed/Masks/blendMode/rotate/scale)
+  are not shown; only tabs FrameWright actually has values for are surfaced
   (transform=rect/fit, blending=opacity/fade, audio=volume/start-from,
   text=caption copy/typography). Aggregate/special views (multi-selection,
   short-only caption, cut segment, no selection, short range) remain a single
-  sheet, matching CutFlow's existing behavior for those branches.
+  sheet, matching FrameWright's existing behavior for those branches.
 
 ## MIT notice
 

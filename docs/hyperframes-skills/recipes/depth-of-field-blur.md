@@ -1,7 +1,7 @@
 # Depth-of-Field Blur
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/depth-of-field-blur.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 Rack-focus: pull the eye to a focal element by blurring + dimming everything
@@ -33,7 +33,7 @@ gsap.utils.toArray(".ctx").forEach((el) => {
 window.__timelines['<composition-id>'] = tl;
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **byte** — no measurement involved; blur target is derived from `data-depth`
   (an attribute, never `Math.random`), so falloff is identical on every seek.
 - Tween the `--dof` custom property on the GSAP timeline, **never a CSS

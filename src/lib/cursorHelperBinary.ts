@@ -12,7 +12,7 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const VENDOR_DIR = join(repoRoot, "src", "lib", "vendor", "openscreen", "OpenScreenMacOSCursorHelper");
 const SWIFT_SRC = join(VENDOR_DIR, "main.swift");
 const BUILD_DIR = join(VENDOR_DIR, ".build");
-const BINARY_PATH = join(BUILD_DIR, "cutflow-cursor-helper");
+const BINARY_PATH = join(BUILD_DIR, "framewright-cursor-helper");
 
 /**
  * ビルド済みバイナリを用意する(初回のみビルド・以降はキャッシュ)。

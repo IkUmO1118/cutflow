@@ -45,7 +45,7 @@ function wavPcm16(durationSec: number): Buffer {
 }
 
 function makeRecording(): string {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-silence-sweep-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-silence-sweep-"));
   writeFileSync(join(dir, "mic.wav"), wavPcm16(2));
   writeFileSync(join(dir, "manifest.json"), JSON.stringify({
     durationSec: 2,

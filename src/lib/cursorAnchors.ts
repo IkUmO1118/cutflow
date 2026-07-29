@@ -45,7 +45,7 @@ export interface DwellCandidate {
   clickBoosted: boolean;
 }
 
-/** OpenScreen 本家のチューニング値(30Hz・製品デモ向け)。CutFlow の題材向けの
+/** OpenScreen 本家のチューニング値(30Hz・製品デモ向け)。FrameWright の題材向けの
  *  再調整は収録本数を要するため、既定値はそのまま踏襲する(§2.4) */
 export const DEFAULT_MIN_DWELL_MS = 450;
 export const DEFAULT_MAX_DWELL_MS = 2600;
@@ -53,14 +53,14 @@ export const DEFAULT_MOVE_THRESHOLD = 0.02;
 export const DEFAULT_SPACING_MS = 1800;
 export const DEFAULT_CLICK_BOOST = 1.5;
 export const DEFAULT_CURSOR_SCALE = 2.5;
-/** dwell 窓長の上限(ms)。OpenScreen 逐語再現の 5% に CutFlow 固有で足す cap
+/** dwell 窓長の上限(ms)。OpenScreen 逐語再現の 5% に FrameWright 固有で足す cap
  *  (枝B。A の追従が入るまでの長尺ドリフト対策) */
 export const DEFAULT_PLAN_CURSOR_MAX_WINDOW_MS = 3500;
 
-/** OpenScreen 呼び側と同じ既定候補幅 max(1000ms, 総尺の5%) に、CutFlow 固有の
+/** OpenScreen 呼び側と同じ既定候補幅 max(1000ms, 総尺の5%) に、FrameWright 固有の
  *  上限 maxWindowMs を掛けたもの: clamp(総尺の5%, 1000, maxWindowMs)。
  *  OpenScreen は focus が追従するので長窓でも破綻しないが、追従(枝A)前の
- *  CutFlow は固定 rect のため長窓でカーソルがズレる。A 後は maxWindowMs を
+ *  FrameWright は固定 rect のため長窓でカーソルがズレる。A 後は maxWindowMs を
  *  緩めて OpenScreen の 5% へ戻せる(config なので収録で調整可)。
  *  §docs/plans/2026-07-24-openscreen-zoom-B-window-cap-design.md */
 export function resolveDwellWindowMs(totalDurationMs: number, maxWindowMs = DEFAULT_PLAN_CURSOR_MAX_WINDOW_MS): number {
@@ -184,7 +184,7 @@ export interface ScrollMotionSample {
  * スクロール誤爆抑制(枝D)。画面モーション(scene score)が閾値を超える時間帯に
  * 重なるカーソルサンプルを dwell 検出の前段で除去する(OpenScreen の
  * detectDwellCandidates は無改変=逐語のまま)。カーソル静止×画面移動(スクロール/
- * 再生中の動画)を「注視」と誤検出しないための CutFlow 独自の前段フィルタ。
+ * 再生中の動画)を「注視」と誤検出しないための FrameWright 独自の前段フィルタ。
  * motionTrack が空なら全サンプルをそのまま通す(= av 未実行時は従来どおり)。
  * @param windowSec サンプル時刻の前後この秒数内に閾値超の motion サンプルがあれば除去
  * §docs/plans/2026-07-24-openscreen-zoom-D-scroll-suppression-design.md

@@ -48,7 +48,7 @@ function wavPcm16(samples: Int16Array): Buffer {
 }
 
 function makeRecording(): string {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-boundary-check-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-boundary-check-"));
   const samples = samplesWithBaseline(2);
   fillSec(samples, 0.5, 0.62, 5_000);
   fillSec(samples, 1.2, 1.32, 4_000);
@@ -202,8 +202,8 @@ test("manifest収録尺とPCM尺の差がlookaheadを超えれば明示error", (
 });
 
 test("不正入力: manifest欠落とffmpegデコード失敗を明示する", () => {
-  const missing = mkdtempSync(join(tmpdir(), "cutflow-boundary-missing-"));
-  const broken = mkdtempSync(join(tmpdir(), "cutflow-boundary-broken-"));
+  const missing = mkdtempSync(join(tmpdir(), "framewright-boundary-missing-"));
+  const broken = mkdtempSync(join(tmpdir(), "framewright-boundary-broken-"));
   try {
     const missingResult = spawnSync(process.execPath, [cli, "boundary-check", missing], { encoding: "utf8" });
     assert.notEqual(missingResult.status, 0);

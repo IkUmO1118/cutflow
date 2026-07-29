@@ -1,7 +1,7 @@
 # Viewport Change
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/viewport-change.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 Virtual camera on ONE `.world` wrapper: `translate(x,y) scale(S)`, a single
@@ -34,7 +34,7 @@ tl.to(cam, { scale: TARGET_SCALE, y: counterY, duration: ZOOM_DUR, ease: "power3
 window.__timelines['<composition-id>'] = tl;
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **perceptual-risk if the focal offset is measured** (`getBoundingClientRect`)
   rather than laid out from known CSS geometry — measure ONCE at setup behind
   `window.__hyperframes.__ready`, never per-frame; expect perceptual not byte

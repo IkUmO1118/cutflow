@@ -333,7 +333,7 @@ export class VlmSecondaryObservationProvider implements SecondaryObservationProv
     if (!profile) throw new Error(`vision profile "${visionName}" is not configured`);
     const limit = Math.max(1, Math.min(request.budget.maxImages, MAX_SECONDARY_IMAGES_PER_CALL));
     const selected = request.frames.slice(0, limit);
-    const tempDir = mkdtempSync(join(tmpdir(), "cutflow-vlm-"));
+    const tempDir = mkdtempSync(join(tmpdir(), "framewright-vlm-"));
     try {
       const images: AiImagePart[] = [];
       for (let index = 0; index < selected.length; index++) {
@@ -357,7 +357,7 @@ export class VlmSecondaryObservationProvider implements SecondaryObservationProv
         output: {
           kind: "json-schema",
           format: {
-            name: "cutflow_secondary_observation",
+            name: "framewright_secondary_observation",
             strict: true,
             schema: {
               type: "object",

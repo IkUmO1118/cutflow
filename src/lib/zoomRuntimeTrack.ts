@@ -23,7 +23,7 @@
 // 区間は必ず同じ呼び出しの中で頭から通すこと(別呼び出しにまたがると spring が途切れる)。
 //
 // このファイルは `src/lib/vendor/openscreen/` の逐語移植関数だけを組み合わせる。OpenScreen の
-// ソースを一切変更せず、CutFlow 固有のロジックも足さない(rotation3D/motion-blur 等の非対応
+// ソースを一切変更せず、FrameWright 固有のロジックも足さない(rotation3D/motion-blur 等の非対応
 // 機能は意図的に省略。上位の設計ドキュメント参照)。
 import type { CursorTelemetryPoint, ZoomFocus, ZoomRegion } from "./vendor/openscreen/types.ts";
 import { getZoomScale } from "./vendor/openscreen/types.ts";

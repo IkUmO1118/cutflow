@@ -35,7 +35,7 @@ recipes と examples の仕事で、blueprint はそれらを混ぜない。書�
 
 [収録タイプ `tool-demo`](patterns.md#tool-demo) に紐づく。一次資料は
 `rules.md` が記録する実在の型「悩み/課題のフック → 概要 → 使い方 → GUI →
-設計 → おわりに」(`~/Movies/cutflow/2026-07-12` で実測)。
+設計 → おわりに」(`~/Movies/framewright/2026-07-12` で実測)。
 
 | 区間 | 尺の目安 | 優勢な分類 | 優勢な演出 | 章 |
 |---|---|---|---|---|

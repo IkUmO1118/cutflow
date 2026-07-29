@@ -59,7 +59,7 @@
   話題が変わってしまった未完成の発話は、内容を検討しても救済できないので
   `restatement`(収束前の版)ではなく `tangent`(本題と無関係)や単純な
   `dead-air` 側の判断を先に検討する
-- 実際の失敗ではないが: `#11に内容が含まれる言い直し前半`(`~/Movies/cutflow/2026-07-12`
+- 実際の失敗ではないが: `#11に内容が含まれる言い直し前半`(`~/Movies/framewright/2026-07-12`
   の `cutplan.json`、時刻 [57.52-58.18])は「候補の一部だけが言い直しに
   含まれる」パターンで、LLM は候補全体を cut/keep のどちらかにしか倒せない
   (G3)。人間が GUI でさらに細かく keep/cut を分割した反転が実際に記録
@@ -77,7 +77,7 @@
 
 ## worked example
 
-`~/Movies/cutflow/2026-07-12` の `cutplan.json` / `whisper-out.json` から。
+`~/Movies/framewright/2026-07-12` の `cutplan.json` / `whisper-out.json` から。
 「JSON バリデーションの効能」を説明する場面で、話者が一度息継ぎを挟んで
 言い直している。
 

@@ -1,11 +1,11 @@
-# CutFlow — Linux 再現環境(SD-A6 / A18 Docker スライス)。
+# FrameWright — Linux 再現環境(SD-A6 / A18 Docker スライス)。
 # mac 非依存で「fresh-clone → doctor 緑 → preview/render」を再現するためのイメージ。
 # 必須(doctor required): node>=23.6 / ffmpeg / ffprobe / config。
 # whisper(bin/model)と AI provider は焼き込まない=doctor では warn / skip(想定内)。
 #
-# ビルド:  docker build -t cutflow .
-# 動作確認: docker run --rm cutflow doctor --no-ai   # required ok, exit 0
-# 収録編集: docker run --rm -v ~/Movies/cutflow:/recordings cutflow doctor /recordings/<dir>
+# ビルド:  docker build -t framewright .
+# 動作確認: docker run --rm framewright doctor --no-ai   # required ok, exit 0
+# 収録編集: docker run --rm -v ~/Movies/framewright:/recordings framewright doctor /recordings/<dir>
 
 # ベース: Node 24(>=23.6 を満たし型ストリッピング既定 ON。23 系は EOL のため不採用)。
 # bookworm(Debian 12)= apt ffmpeg に libx264、Remotion/Chromium 依存が全部そろう。
@@ -59,7 +59,7 @@ RUN sed -i 's|^\([[:space:]]*\)videoEncoder: videotoolbox|\1videoEncoder: libx26
 # 次行を有効化(イメージが ~150MB 増える。既定は無効=初回 render 時に自動 DL)。
 # RUN npx remotion browser ensure
 
-# `docker run --rm cutflow <subcommand> ...` でサブコマンドを渡せる。
+# `docker run --rm framewright <subcommand> ...` でサブコマンドを渡せる。
 ENTRYPOINT ["node", "src/cli.ts"]
-# 引数なし `docker run --rm cutflow` は AI 抜き doctor(最短の動作確認)。
+# 引数なし `docker run --rm framewright` は AI 抜き doctor(最短の動作確認)。
 CMD ["doctor", "--no-ai"]

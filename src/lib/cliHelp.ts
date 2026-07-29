@@ -3,9 +3,9 @@
 // コマンドが50本を超えた結果、commander 既定の一覧(全コマンド × 長い
 // .description())は端末1画面に収まらず、初見の人間が「まず何を叩くか」を
 // 読み取れなくなった。そこでヘルプを2段にする:
-//   `cutflow --help`   … 基本の流れ+編集まわりだけの短い案内(この画面で完結)
-//   `cutflow commands` … 全コマンドを分類つきで一覧(要約1行のみ)
-// 各コマンドの詳細(全オプション)は従来どおり `cutflow <cmd> --help`。
+//   `framewright --help`   … 基本の流れ+編集まわりだけの短い案内(この画面で完結)
+//   `framewright commands` … 全コマンドを分類つきで一覧(要約1行のみ)
+// 各コマンドの詳細(全オプション)は従来どおり `framewright <cmd> --help`。
 //
 // COMMAND_GROUPS が分類の単一の出所で、要約は commander の .summary()
 // (一覧用の短文。.description() は個別ヘルプ用の詳細)として流し込む。
@@ -16,7 +16,7 @@ export type CommandEntry = { name: string; summary: string };
 
 export type CommandGroup = { title: string; note?: string; commands: CommandEntry[] };
 
-/** 分類の単一の出所。並び順がそのまま `cutflow commands` の出力順になる */
+/** 分類の単一の出所。並び順がそのまま `framewright commands` の出力順になる */
 export const COMMAND_GROUPS: CommandGroup[] = [
   {
     title: "セットアップ・診断",
@@ -164,7 +164,7 @@ function pad(text: string, width: number): string {
   return text + " ".repeat(Math.max(1, width - displayWidth(text)));
 }
 
-/** `cutflow commands` の本文(分類つきの全コマンド一覧) */
+/** `framewright commands` の本文(分類つきの全コマンド一覧) */
 export function formatCommandList(bin: string): string {
   const width = Math.max(...listedCommandNames().map((n) => displayWidth(n))) + 2;
   const out: string[] = ["", `${bin} のコマンド一覧(詳細は ${bin} <コマンド> --help)`, ""];
@@ -187,7 +187,7 @@ function summaryOf(name: string): string {
   return commandSummaries().get(name) ?? "";
 }
 
-/** `cutflow --help` の本文。全コマンドは出さず、初見で叩く順に絞る */
+/** `framewright --help` の本文。全コマンドは出さず、初見で叩く順に絞る */
 export function formatRootHelp(bin: string, globalOptions: string[]): string {
   const core = ["doctor", "editor", "run", "preview", "approve", "render"];
   const editing = ["validate", "describe", "frames", "apply", "clean"];

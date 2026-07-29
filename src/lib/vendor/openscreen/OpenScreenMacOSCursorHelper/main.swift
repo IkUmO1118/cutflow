@@ -3,7 +3,7 @@
 // Modification vs upstream (D1/D2, docs/plans/2026-07-24-openscreen-d1-cursor-telemetry-design.md):
 // upstream emits cursor type/click only (no position — OpenScreen's Electron
 // host samples position separately via screen.getCursorScreenPoint()).
-// CutFlow has no Electron/screen API, so position sampling was added here:
+// FrameWright has no Electron/screen API, so position sampling was added here:
 // a `displayId` input (CGDirectDisplayID) + `cx`/`cy`/`inBounds` on each
 // `sample` event, normalized against the target display's CGDisplayBounds.
 // Everything else is unchanged from upstream.

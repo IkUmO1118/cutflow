@@ -1,7 +1,7 @@
 # 3D Text Depth Layers
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/3d-text-depth-layers.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 N offset copies of the same text, back layers translucent, front layer fully
@@ -37,7 +37,7 @@ for (let i = LAYER_COUNT - 1; i >= 0; i--) {
 }
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **byte\* — static offsets are the default**: the base form is a static stacked
   layout, purely CSS-positioned, no `getBoundingClientRect` — byte-stable. Only
   the optional "dynamic depth pulse" variation (sine-driven offset growth) adds

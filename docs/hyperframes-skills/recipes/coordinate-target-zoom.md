@@ -1,13 +1,13 @@
 # Coordinate Target Zoom
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/coordinate-target-zoom.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 Zoom *into* one non-centered element (a card in a row, a node in a diagram) so it
 lands at viewport center. Serves **diagram/labeled** and **comparison-split** (reveal
 the layout, then push into the chosen one). ⚠️ This is the recipe most prone to a
-byte-determinism hazard in Cutflow — read the seek-safe note before using.
+byte-determinism hazard in FrameWright — read the seek-safe note before using.
 
 ## 構造 (structure)
 - Two nested wrappers, separated concerns — **outer** applies `scale` (the zoom),
@@ -38,7 +38,7 @@ window.__hyperframes.__ready = (async () => {
 Symmetric equal-width row only: skip measurement, use
 `offX = (index-(N-1)/2)*(CARD_WIDTH+GAP)`.
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **⚠️ Measurement + zoom is a byte-determinism hazard (P0).** Reading
   `getBoundingClientRect()` and driving a scale off it produces per-frame anti-alias
   jitter under the renderer's parallel sampling (YMAX~60–120); a static, hand-placed

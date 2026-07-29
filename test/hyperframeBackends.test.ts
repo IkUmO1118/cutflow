@@ -115,7 +115,7 @@ test("text format is stable and includes status, tier, pin, authoring route, and
 });
 
 test("CLI --json needs no dir, emits pure JSON, and does not write the working directory", () => {
-  const cwd = mkdtempSync(join(tmpdir(), "cutflow-hyperframe-backends-"));
+  const cwd = mkdtempSync(join(tmpdir(), "framewright-hyperframe-backends-"));
   try {
     const result = spawnSync(process.execPath, [join(ROOT, "src", "cli.ts"), "hyperframe-backends", "--json"], {
       cwd,

@@ -1,7 +1,7 @@
-# CutFlow
+# FrameWright
 
 撮影後の編集を自動化するローカルファーストな動画パイプライン。
-収録1本 = 1フォルダ(例: `~/Movies/cutflow/2026-07-02-xxx/`)で、その中の
+収録1本 = 1フォルダ(例: `~/Movies/framewright/2026-07-02-xxx/`)で、その中の
 JSON がプロジェクトの正のデータ。**このリポジトリで「動画を編集して」と
 頼まれたら、コードではなく収録フォルダの JSON を編集する。**
 
@@ -184,7 +184,7 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
   `material-fit.suggested.json` と同じ使い捨て下書きパターンだがディレクトリ。
   実行のたびに黙って上書きされる。**「重いキャッシュ」ではない**ので
   `--cache-only` では残り、`--logs-only`(`frames/` と同じ)では消える。
-  channel の `hyperframe-seeds/` への実採用は人間の仕事(下記参照。CutFlow は
+  channel の `hyperframe-seeds/` への実採用は人間の仕事(下記参照。FrameWright は
   そこへは一切書かない)) /
   `backups/`(上書き前の退避)と
   `.editor-draft.json`(GUI の未保存編集の自動退避)も触らない。
@@ -195,13 +195,13 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
   `learn` はこのファイルにしか書かず、channel の `rules.md` を自分で
   書き換えることは絶対にしない)も編集・削除以外では触らない。
   `.remotion/`(レガシー。旧 Remotion 経路が収録フォルダへ落とした
-  headless Chrome 本体の残骸。CutFlow はもう作らないが、既存収録に残っている
+  headless Chrome 本体の残骸。FrameWright はもう作らないが、既存収録に残っている
   ので `clean` が回収する)も中間生成物。
   これらの中間生成物・キャッシュはまとめて `node src/cli.ts clean <dir>` で安全に削除できる
    (削除は files.ts の generated 分類だけが対象で、編集ファイル・approvals.json は触れない。
    **`manifest.json` は `clean` の保護対象でフルでも削除されない**)。
   **唯一の例外が「元収録の自動リマックス複製」**: OBS は既定で `.mkv` に録画し、停止後に
-  同じ内容を `.mp4` へストリームコピーした複製を隣に残すが、CutFlow が読むのは
+  同じ内容を `.mp4` へストリームコピーした複製を隣に残すが、FrameWright が読むのは
   `manifest.json` の `source` が指す1本だけなので、もう一方は収録フォルダ内で最大級の
   純粋な重複になる。`clean` はこれを名前ではなく**実行時の内容照合**(manifest の source が
   `.mp4` 以外で実在する・候補の `fileRole` が other・ffprobe で codec/解像度/fps/音声が
@@ -215,7 +215,7 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
 
 ### 権限設定(推奨・任意)
 
-上記の運用ルールは CutFlow のコード(承認 hash・非対話拒否)がある程度まで
+上記の運用ルールは FrameWright のコード(承認 hash・非対話拒否)がある程度まで
 強制するが、**AI に無制限の Write/Bash 権限がある限り、意図的な偽装(hash も
 自分で計算して approvals.json に書く・`approve --yes` を強行する)は
 コードでは塞げない**。これを塞ぐ唯一の層は Claude Code の権限設定
@@ -234,7 +234,7 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
       // だけが書く。cutplan.json 等の通常編集は引き続き許可される
       "Write(**/approvals.json)",
       "Edit(**/approvals.json)",
-      // 承認コマンド自体も封じたい場合(Bash 経由の CutFlow CLI 実行を想定)
+      // 承認コマンド自体も封じたい場合(Bash 経由の FrameWright CLI 実行を想定)
       "Bash(node src/cli.ts approve*)",
       // 中間生成物・キャッシュ(手編集されても再生成されるだけで実害は薄いが、
       // 誤書込みで無駄な陳腐化判定を招くことがある)
@@ -502,7 +502,7 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
 同じく収録フォルダの**親ディレクトリ**(channel 直下)に置く。中身は
 `<name>.html`(凍結カード。`hyperframe-freeze` の DRAFT を人間が確認して
 コピーしたもの)+ 任意の `<name>.md`(用途1行の gloss))は中間生成物でも
-編集ファイルでもない「他」カテゴリ(`materials/` と同格。CutFlow はここへは
+編集ファイルでもない「他」カテゴリ(`materials/` と同格。FrameWright はここへは
 一切書かない)。存在すると `hyperframe --name <name> --from-brief` が
 `checkComposition` 0 エラーの凍結カードだけを番号メニュー末尾(既存パターン
 番号の続き。check に落ちる凍結カードは警告のうえスキップ・番号は詰める)へ
@@ -511,8 +511,8 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
 ## コマンド
 
 入口は2つあり同じコードに落ちる: `node src/cli.ts <cmd>`(リンク不要。**AI は
-常にこちらを使う**=どの環境でも動く)と `cutflow <cmd>`(`npm link` 済みの
-人間向け)。人間が `cutflow …` と書いてきたら同じコマンドを指している。
+常にこちらを使う**=どの環境でも動く)と `framewright <cmd>`(`npm link` 済みの
+人間向け)。人間が `framewright …` と書いてきたら同じコマンドを指している。
 
 以下はよく使うものの抜粋。**全コマンドは `node src/cli.ts commands`**(分類つき
 一覧。出所は `src/lib/cliHelp.ts`)、個別の全オプションは
@@ -569,7 +569,7 @@ node src/cli.ts render <dir> --short <name>  # ショート1本だけレンダ�
 node src/cli.ts render <dir> --shorts        # approved な全ショートをレンダー(未承認はスキップ)
 node src/cli.ts clean <dir>       # 中間生成物/キャッシュを安全削除(files.ts 分類由来。編集ファイル・approvals.json・materials/・元収録・成果物は触れない。ただし元収録の remux 複製(OBS が .mkv の隣に残す同一内容の .mp4)は ffprobe で内容一致を確認のうえ削除する)。--dry-run / --cache-only(重いキャッシュだけ) / --logs-only(ログ・使い捨て下書き・検品結果・preview・frames だけ。リレンダー最適化 cut/render.*・proxy・whisper-out.*・manifest・shorts は残す。--cache-only と排他) / --json
 node src/cli.ts editor <dir>      # GUI エディタ(npm run editor と同じ。終了は Ctrl+C)
-node src/cli.ts editor <dir> --detach  # バックグラウンド起動でターミナルを返す(--status / --stop で確認・停止。待受情報とログは ~/.cutflow/editor/)
+node src/cli.ts editor <dir> --detach  # バックグラウンド起動でターミナルを返す(--status / --stop で確認・停止。待受情報とログは ~/.framewright/editor/)
 node src/cli.ts mcp <dir>         # MCP サーバ(stdio。1収録フォルダに束縛。describe/validate/frames/materials/assert/apply/id-stamp だけを露出。承認/render/plan 等は露出しない)
 node src/cli.ts run <dir>         # 収録直後の初回一括(再実行は --force 必須+backups/ へ退避。末尾で config の plan.cursor.autoZoom=true(既定)+cursorサイドカー有り+zooms空のときだけ autozoom を非破壊で自動実行)
 ```

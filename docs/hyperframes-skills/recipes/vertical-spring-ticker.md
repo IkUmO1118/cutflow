@@ -1,7 +1,7 @@
 # Vertical Spring Ticker
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/vertical-spring-ticker.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 Slot-machine vertical scroll: a masked column steps through states with a
@@ -38,7 +38,7 @@ springs.forEach((spring, i) => {
 window.__timelines['<composition-id>'] = tl;
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - Sum springs in `onUpdate`, don't tween the final position directly — the
   additive form is what produces the discrete-click cadence under frame seek.
 - `STEP_SPACING ≤ STEP_DUR` (overlap) — non-overlapping steps read as a linear

@@ -45,7 +45,7 @@ function buildExportHtml(outDir: string, configJson: string): void {
   copyFileSync(join(repoRoot, "assets/fonts/NotoSansJP.woff2"), join(outDir, "NotoSansJP.woff2"));
   const bundleName = "export-bundle.js";
   const html = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>CutFlow Engine</title>
+<html><head><meta charset="utf-8"><title>FrameWright Engine</title>
 <style>@font-face{font-family:"Noto Sans JP";src:url("/NotoSansJP.woff2") format("woff2");font-weight:100 900;font-display:block}
 body{margin:0;background:#000;overflow:hidden}
 #canvas-host{position:absolute;top:0;left:0}
@@ -87,7 +87,7 @@ export async function createEngineSession(
   dir: string,
   config: EngineSessionConfig,
 ): Promise<EngineSession> {
-  const outDir = mkdtempSync(join(tmpdir(), "cutflow-engine-session-"));
+  const outDir = mkdtempSync(join(tmpdir(), "framewright-engine-session-"));
 
   buildExportHtml(outDir, JSON.stringify(config));
   const { server, port } = await startExportServer(dir, outDir);
@@ -108,15 +108,15 @@ export async function createEngineSession(
     await cdp.send("Page.navigate", { url: `http://127.0.0.1:${port}/` });
     const deadline = Date.now() + 30000;
     while (Date.now() < deadline) {
-      const ready = await evalJs(cdp, "!!window.__cutflowExporter");
+      const ready = await evalJs(cdp, "!!window.__framewrightExporter");
       if (ready) break;
       await new Promise((r) => setTimeout(r, 300));
     }
-    const ready = await evalJs(cdp, "!!window.__cutflowExporter");
+    const ready = await evalJs(cdp, "!!window.__framewrightExporter");
     if (!ready) throw new Error("exporter ready timeout");
 
-    await evalJs(cdp, "window.__cutflowExporter.init()", true);
-    rect = (await evalJs(cdp, "window.__cutflowExporter.getCanvasRect()")) as {
+    await evalJs(cdp, "window.__framewrightExporter.init()", true);
+    rect = (await evalJs(cdp, "window.__framewrightExporter.getCanvasRect()")) as {
       x: number; y: number; width: number; height: number;
     };
   } catch (e) {
@@ -131,7 +131,7 @@ export async function createEngineSession(
     async renderAndCapture(tOut: number): Promise<string> {
       if (closed) throw new Error("session closed");
       if (!cdp || !rect) throw new Error("session not initialized");
-      await evalJs(cdp, `window.__cutflowExporter.renderFrame(${tOut})`, true);
+      await evalJs(cdp, `window.__framewrightExporter.renderFrame(${tOut})`, true);
       const result = (await cdp.send("Page.captureScreenshot", {
         format: "png",
         clip: { x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 1 },
@@ -143,7 +143,7 @@ export async function createEngineSession(
     async close() {
       if (closed) return;
       closed = true;
-      try { if (cdp) { await evalJs(cdp, "window.__cutflowExporter.dispose()"); cdp.close(); } } catch { /* ignore */ }
+      try { if (cdp) { await evalJs(cdp, "window.__framewrightExporter.dispose()"); cdp.close(); } } catch { /* ignore */ }
       try { browser?.close(); } catch { /* ignore */ }
       try { server.close(); } catch { /* ignore */ }
       try { rmSync(outDir, { recursive: true, force: true }); } catch { /* ignore */ }

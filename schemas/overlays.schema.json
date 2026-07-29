@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cutflow.dev/schemas/overlays.schema.json",
+  "$id": "https://framewright.dev/schemas/overlays.schema.json",
   "$comment": "src/types.ts の Overlays の射影。トップレベルの許可キーは src/stages/validate.ts の KNOWN 配列と一致させる(test/schema.test.ts がピン留め)。zooms/blurs/annotations の reasonId は src/lib/effectReasonIds.ts の EFFECT_REASON_IDS と同順・同値。省略可・描画非影響。",
   "type": "object",
   "additionalProperties": false,

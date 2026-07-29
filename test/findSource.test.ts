@@ -11,7 +11,7 @@ import { findSource } from "../src/lib/findSource.ts";
 // manifest.source/audio/mic.wav が壊れた事故の再発防止)
 
 test("findSource: 一時ファイル(.tmp.を含む)と本物があれば本物を返す", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-findsource-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-findsource-"));
   try {
     writeFileSync(join(dir, ".preview-cut.mp4.publish-1.tmp.mp4"), "x");
     writeFileSync(join(dir, "2026-07-28.mp4"), "x");
@@ -22,7 +22,7 @@ test("findSource: 一時ファイル(.tmp.を含む)と本物があれば本物�
 });
 
 test("findSource: proxy.mp4(生成物)だけならエラーで除外候補を列挙する", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-findsource-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-findsource-"));
   try {
     writeFileSync(join(dir, "proxy.mp4"), "x");
     assert.throws(() => findSource(dir), /除外した候補.*proxy\.mp4/s);
@@ -32,7 +32,7 @@ test("findSource: proxy.mp4(生成物)だけならエラーで除外候補を列
 });
 
 test("findSource: final.mp4(成果物)だけならエラーで除外候補を列挙する", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-findsource-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-findsource-"));
   try {
     writeFileSync(join(dir, "final.mp4"), "x");
     assert.throws(() => findSource(dir), /除外した候補.*final\.mp4/s);
@@ -42,7 +42,7 @@ test("findSource: final.mp4(成果物)だけならエラーで除外候補を列
 });
 
 test("findSource: 動画ファイルが1つも無ければ従来どおりのエラー", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-findsource-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-findsource-"));
   try {
     writeFileSync(join(dir, "notes.txt"), "x");
     assert.throws(() => findSource(dir), /動画ファイル.*ありません/);
@@ -52,7 +52,7 @@ test("findSource: 動画ファイルが1つも無ければ従来どおりのエ�
 });
 
 test("findSource: manifest.source が実在すればそれを最優先する(除外ルールより優先)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-findsource-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-findsource-"));
   try {
     // manifest.source が指す実体は普通なら除外されるはずの一時ファイル的な
     // 名前でも、manifest が明示している以上はそれを信頼する
@@ -66,7 +66,7 @@ test("findSource: manifest.source が実在すればそれを最優先する(除
 });
 
 test("findSource: manifest.source が指すファイルが消えていれば通常の探索に落ちる", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-findsource-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-findsource-"));
   try {
     writeFileSync(join(dir, "manifest.json"), JSON.stringify({ source: "gone.mkv" }));
     writeFileSync(join(dir, "2026-07-12.mp4"), "x");
@@ -77,7 +77,7 @@ test("findSource: manifest.source が指すファイルが消えていれば通�
 });
 
 test("findSource: 本物が複数(.mkvと.mp4のremux複製)ならraw.*優先、無ければ先頭+警告(現行挙動を維持)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-findsource-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-findsource-"));
   const originalWarn = console.warn;
   try {
     writeFileSync(join(dir, "b.mkv"), "x");
@@ -94,7 +94,7 @@ test("findSource: 本物が複数(.mkvと.mp4のremux複製)ならraw.*優先、
 });
 
 test("findSource: raw.* があれば複数候補の中から優先して返す", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-findsource-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-findsource-"));
   try {
     writeFileSync(join(dir, "raw.mp4"), "x");
     writeFileSync(join(dir, "other.mkv"), "x");

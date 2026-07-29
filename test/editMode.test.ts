@@ -120,7 +120,7 @@ let recDir: string;
 const numbered: NumberedSegment[] = [{ id: 1, start: 0, end: 10, text: "こんにちは" }];
 
 before(() => {
-  channelDir = mkdtempSync(join(tmpdir(), "cutflow-editmode-"));
+  channelDir = mkdtempSync(join(tmpdir(), "framewright-editmode-"));
   recDir = join(channelDir, "2026-07-11-rec");
   mkdirSync(recDir);
 });

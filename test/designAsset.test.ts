@@ -26,7 +26,7 @@ function cfgWith(backgroundFile: string | undefined, enabled = true): Config {
 }
 
 function makeRecording(): string {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-design-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-design-"));
   return dir;
 }
 
@@ -60,7 +60,7 @@ test("renderCfgWithDesign: 収録フォルダ内のファイルは取り込ま�
 
 test("renderCfgWithDesign: 絶対パス背景をplainでも取り込み、変更時だけcacheを更新する", () => {
   const dir = makeRecording();
-  const sourceDir = mkdtempSync(join(tmpdir(), "cutflow-design-source-"));
+  const sourceDir = mkdtempSync(join(tmpdir(), "framewright-design-source-"));
   const source = join(sourceDir, "custom.jpg");
   try {
     writeFileSync(source, "first");

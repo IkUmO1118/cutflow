@@ -1,7 +1,7 @@
 # Stat Bars & Fills
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/stat-bars-and-fills.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 Give a number **visual weight**: a small bar chart, a progress bar/ring filling to
@@ -39,7 +39,7 @@ gold.animate([{clipPath:'inset(0 100% 0 0)'},{clipPath:'inset(0 8% 0 0)'}], // 4
 Ring form: measure `getTotalLength()` once at setup, animate `stroke-dashoffset`
 (delegates to `svg-path-draw`).
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **Transforms + clip-path only** — never tween `width`/`height` (runtime-forbidden;
   a `scaleX` of a 0-width element also renders invisible, hence `width:100%` on `.fill`).
 - `transform-origin` must be `bottom` (bars) / `left` (fills) — default center scales

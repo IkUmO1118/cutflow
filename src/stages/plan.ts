@@ -1139,7 +1139,7 @@ function readAssertionsIfAny(dir: string): AssertionsDoc | null {
 }
 
 export const PLAN_RESPONSE_SCHEMA = {
-  name: "cutflow_plan_response",
+  name: "framewright_plan_response",
   strict: true,
   schema: {
     type: "object",
@@ -1181,7 +1181,7 @@ export const PLAN_RESPONSE_SCHEMA = {
  * 任意の reasonId、トップに任意の keeps を足す。strict:false の理由・
  * 非対称の意図は cutsResponse.ts のコメントと同じ。 */
 export const PLAN_RESPONSE_SCHEMA_REASON_IDS = {
-  name: "cutflow_plan_response_reason_ids",
+  name: "framewright_plan_response_reason_ids",
   strict: false,
   schema: {
     type: "object",

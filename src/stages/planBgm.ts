@@ -184,7 +184,7 @@ export async function planBgm(dir: string, cfg: Config): Promise<PlanBgmResult> 
     prompt,
     cfg,
     {
-      name: "cutflow_plan_bgm",
+      name: "framewright_plan_bgm",
       strict: true,
       schema: {
         type: "object",

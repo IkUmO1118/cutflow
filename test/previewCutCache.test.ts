@@ -128,7 +128,7 @@ test("evaluatePreviewCutFreshness: proxy stale/key不一致/output stat不一致
 });
 
 test("inspectPreviewCutFreshness: 壊れた sidecar JSON を throw せず fallback する", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-preview-cut-cache-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-preview-cut-cache-"));
   try {
     writeFileSync(join(dir, "preview-cut.mp4"), "old");
     writeFileSync(join(dir, "preview-cut.key.json"), "{not json");

@@ -1,7 +1,7 @@
 # SVG Icon Enrichment
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/svg-icon-enrichment.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 Treats an SVG icon as animated PARTS (clock hand, recording dot, data-stream
@@ -32,7 +32,7 @@ tl.to(flowState, { offset: -240, duration: 4, ease:'none', onUpdate: () =>
   dataFlow.style.strokeDashoffset = String(flowState.offset) }, 0);
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **⚠️ CRITICAL: for rotation/scale around an explicit center inside SVG, use the
   SVG `transform` attribute — `el.setAttribute('transform', 'rotate(deg cx cy)')`**
   — NOT CSS `transform` + `transform-origin`. CSS's `transform-box:fill-box`

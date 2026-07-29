@@ -17,7 +17,7 @@ node src/cli.ts editor <dir> --stop     # 止める(冪等。起動していな�
 ```
 
 - 待受情報(`{dir, port, pid, startedAt}`)とログは**収録フォルダの外**の
-  `~/.cutflow/editor/<slug>.json` / `<slug>.log` に置く(`slug` は収録フォルダの
+  `~/.framewright/editor/<slug>.json` / `<slug>.log` に置く(`slug` は収録フォルダの
   実パスの sha256 先頭12桁)。収録フォルダに置かないのは、これが編集ファイル
   でも中間生成物でも承認レコードでもない実行時状態であり、`clean <dir>` に
   消されると起動中のエディタを `--stop` できなくなるため
@@ -107,13 +107,13 @@ AI のカット判断を使いたくない回は、plan を1回走らせてか�
 
 **唯一の例外が「元収録の自動リマックス複製」**(role は `other` だが削除される)。
 OBS は既定で `.mkv` に録画し、停止後に同じ内容を `.mp4` へストリームコピーした複製を
-隣に残す。CutFlow が読むのは `manifest.json` の `source` が指す1本だけなので、もう一方は
+隣に残す。FrameWright が読むのは `manifest.json` の `source` が指す1本だけなので、もう一方は
 収録フォルダ内で最大級の純粋な重複になる(実測: 3.0GB の収録に対し 3.0GB の複製)。
 これだけは名前ではなく**実行時の内容照合**で対象に入り、次の条件を**全て**満たしたときに
 限られる(判定は `src/lib/remuxDup.ts` が正):
 
 1. `manifest.json` の `source` が実在し、拡張子が `.mp4` **ではない**
-   (=消す側は常に複製で、CutFlow が実際に読む元収録では絶対にない)
+   (=消す側は常に複製で、FrameWright が実際に読む元収録では絶対にない)
 2. 複製候補 `<source の basename>.mp4` が実在する通常ファイルで、`fileRole` が `other`
 3. ffprobe で映像 codec・幅・高さ・fps・音声 codec・音声有無が完全一致し、尺の差が 1秒以内
 4. サイズ差が 5% 以内 **または** 1MB 以内(=ストリームコピーの複製。同じ内容を低ビット

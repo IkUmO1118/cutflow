@@ -57,7 +57,7 @@ export async function renderEngineFromProps(args: {
   const session = await createEngineSession(dir, { props, durationSec, sourceUrls });
 
   try {
-    const tempDir = mkdtempSync(join(tmpdir(), "cutflow-engine-export-"));
+    const tempDir = mkdtempSync(join(tmpdir(), "framewright-engine-export-"));
     const intermediatePath = join(tempDir, "intermediate.mp4");
 
     // ffmpeg pipeline: image2pipe stdin → intermediate mp4

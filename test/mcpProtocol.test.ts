@@ -17,13 +17,13 @@ import type { ToolDef } from "../src/mcp/types.ts";
 function dummyTools(): ToolDef[] {
   return [
     {
-      name: "cutflow_describe",
+      name: "framewright_describe",
       description: "describe the project",
       inputSchema: { type: "object", properties: {} },
       handler: () => ({ content: [{ type: "text", text: "ok" }] }),
     },
     {
-      name: "cutflow_validate",
+      name: "framewright_validate",
       description: "validate the project",
       inputSchema: { type: "object", properties: {} },
       handler: async (args) => ({
@@ -40,7 +40,7 @@ test("handleInitialize: protocolVersion/capabilities/serverInfo を返す", () =
   const r = handleInitialize();
   assert.equal(r.protocolVersion, PROTOCOL_VERSION);
   assert.deepEqual(r.capabilities, { tools: {} });
-  assert.equal(r.serverInfo.name, "cutflow");
+  assert.equal(r.serverInfo.name, "framewright");
   assert.equal(typeof r.serverInfo.version, "string");
 });
 
@@ -52,7 +52,7 @@ test("handleToolsList: 渡した ToolDef を name/description/inputSchema だけ
   assert.equal(listed.length, 2);
   assert.deepEqual(
     listed.map((t) => t.name),
-    ["cutflow_describe", "cutflow_validate"],
+    ["framewright_describe", "framewright_validate"],
   );
   for (const t of listed) {
     assert.equal(typeof t.description, "string");
@@ -67,10 +67,10 @@ test("handleToolsCall: name を引いて正しい handler を呼ぶ(isError を�
   const tools = dummyTools();
   const byName = new Map(tools.map((t) => [t.name, t]));
 
-  const ok = await handleToolsCall(byName, { name: "cutflow_describe" });
+  const ok = await handleToolsCall(byName, { name: "framewright_describe" });
   assert.deepEqual(ok, { content: [{ type: "text", text: "ok" }] });
 
-  const err = await handleToolsCall(byName, { name: "cutflow_validate", arguments: { x: 1 } });
+  const err = await handleToolsCall(byName, { name: "framewright_validate", arguments: { x: 1 } });
   assert.equal(err.isError, true);
   assert.equal(err.content[0].text, JSON.stringify({ x: 1 }));
 });
@@ -78,7 +78,7 @@ test("handleToolsCall: name を引いて正しい handler を呼ぶ(isError を�
 test("handleToolsCall: 未知の tool name は JsonRpcError(-32602)", async () => {
   const byName = new Map(dummyTools().map((t) => [t.name, t]));
   await assert.rejects(
-    () => handleToolsCall(byName, { name: "cutflow_render_not_exposed" }),
+    () => handleToolsCall(byName, { name: "framewright_render_not_exposed" }),
     (e: unknown) => e instanceof JsonRpcError && e.code === -32602,
   );
 });
@@ -111,7 +111,7 @@ test("buildMcpHandlers: initialize/tools/list/tools/call/ping が dispatch 経�
   }
 
   const call = await dispatch(
-    { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "cutflow_describe" } },
+    { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "framewright_describe" } },
     handlers,
   );
   assert.ok(call && "result" in call);
@@ -128,7 +128,7 @@ test("buildMcpHandlers: initialize/tools/list/tools/call/ping が dispatch 経�
 test("buildMcpHandlers: tools/call の未知 tool name は dispatch を通しても -32602 として出る", async () => {
   const handlers = buildMcpHandlers(dummyTools());
   const res = await dispatch(
-    { jsonrpc: "2.0", id: 9, method: "tools/call", params: { name: "cutflow_render" } },
+    { jsonrpc: "2.0", id: 9, method: "tools/call", params: { name: "framewright_render" } },
     handlers,
   );
   assert.ok(res && "error" in res);

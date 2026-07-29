@@ -1,11 +1,11 @@
-# Recipes — atomic motion recipes (Cutflow adaptation)
+# Recipes — atomic motion recipes (FrameWright adaptation)
 
 > Adapted from HeyGen HyperFrames skills (Apache-2.0). See ../PROVENANCE.md.
 
-A recipe is **one upstream motion rule, compressed to a Cutflow-safe skeleton**
+A recipe is **one upstream motion rule, compressed to a FrameWright-safe skeleton**
 (60–100 lines): 用途 / 構造 / コード骨子 / seek-safe 注意点 / vendor 全文参照.
 The vendor rule (avg ~290 lines) stays the reference for value-tuning tables,
-variations, and combinations — recipes give you the mechanism and the Cutflow deltas.
+variations, and combinations — recipes give you the mechanism and the FrameWright deltas.
 
 **Compose 2–4 recipes per scene** with a single paused timeline (or a set of WAAPI
 `.animate()` calls). A card is one HTML file; recipes are the moves you stack inside
@@ -26,9 +26,9 @@ determinism fragility of 36 full cards *and* keep the check-gate clean:
 
 Full, checkable cards live in `../examples/` and `../card-patterns.md`, not here.
 
-## Cross-cutting Cutflow adaptations (true for most recipes)
+## Cross-cutting FrameWright adaptations (true for most recipes)
 
-- **No tracks.** Upstream uses `data-track-index`; Cutflow's interpreter ignores it.
+- **No tracks.** Upstream uses `data-track-index`; FrameWright's interpreter ignores it.
   Stacking is CSS `z-index`. Visibility is each clip's `data-start`/`data-duration`.
 - **GSAP timeline key = the card's `data-composition-id`**, not the upstream literal
   `"main"`. GSAP is allowed only via a pinned CDN `<script src>` (exact url+integrity+
@@ -51,7 +51,7 @@ Recipes carry tags so you can pick by intent. Axes:
   `kinetic` · `stagger` · `draw` · `3d` · `blur`
 - **mechanism**: `css` · `waapi` · `gsap` · `clip-path` · `scale`/`transform` ·
   `measure` (reads layout) · `svg-stroke`
-- **hazard**: `measure+zoom` (byte-determinism risk) · `no-input` (no CutFlow ASR/audio
+- **hazard**: `measure+zoom` (byte-determinism risk) · `no-input` (no FrameWright ASR/audio
   timing; hand-authored arrays)
 
 ## Determinism / seek-safe legend (last table column)
@@ -64,7 +64,7 @@ Recipes carry tags so you can pick by intent. Axes:
   zoom/camera off it → per-frame AA jitter (P0: YMAX~60–120). Measure ONCE at setup
   behind `window.__hyperframes.__ready`, never per-frame. Expect perceptual, not
   byte-exact, equality.
-- **no-input** — depends on ASR/audio word timing that CutFlow does NOT provide;
+- **no-input** — depends on ASR/audio word timing that FrameWright does NOT provide;
   timings are hand-authored arrays.
 
 ## Recipes (36)
@@ -154,7 +154,7 @@ typewriter).
 ## Scene transitions
 
 Scene-to-scene transitions are a separate, single-file catalog: **`transitions.md`**
-(this directory). Cutflow renders one card per HTML file, so between-card transitions
+(this directory). FrameWright renders one card per HTML file, so between-card transitions
 are handled by the main-timeline overlays, not inside a card — the catalog collapses
 the upstream `transitions/` set into one pointer file. Within-card phase changes use
 hard clip-window cuts, not exit tweens.

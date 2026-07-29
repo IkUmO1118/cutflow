@@ -68,7 +68,7 @@
 
 ## worked example
 
-`~/Movies/cutflow/2026-07-12` の「GUI エディターの利点」を説明する場面。
+`~/Movies/framewright/2026-07-12` の「GUI エディターの利点」を説明する場面。
 話者は同じ言い回しを4回言い淀んでから、最終的に別の言い回しへ切り替えて
 言い切っている(この最終版は本 worked example の範囲外。`restatement` の
 worked example にある `[433.29-...]` 以降の一息版がそれにあたる)。

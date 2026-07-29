@@ -148,7 +148,7 @@ test("buildBgmAmixArgs は raw stereo f32le と非 normalize amix を AAC 192k �
 });
 
 test("writeF32lePcm は Float32Array を little-endian で書く", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-bgm-mix-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-bgm-mix-"));
   try {
     const path = join(dir, "pcm.f32le");
     writeF32lePcm(path, new Float32Array([1, -0.5, 0.25]));

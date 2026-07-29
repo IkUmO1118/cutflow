@@ -132,8 +132,8 @@ node src/cli.ts mcp <dir>
 1サーバで扱うことはしない)。3つのホストで **`command`/`args` は完全に同じ**で、
 置き場所(設定ファイル)だけが違う。
 
-- `<REPO>` = CutFlow を clone した**絶対パス**(例: `/Users/you/dev/cutflow`)。
-- `<REC>` = 対象の収録フォルダの**絶対パス**(例: `/Users/you/Movies/cutflow/2026-07-02-xxx`)。
+- `<REPO>` = FrameWright を clone した**絶対パス**(例: `/Users/you/dev/framewright`)。
+- `<REC>` = 対象の収録フォルダの**絶対パス**(例: `/Users/you/Movies/framewright/2026-07-02-xxx`)。
   **相対パスは不可**(ホストの作業ディレクトリ次第で解決に失敗する)。
 
 **Claude Desktop** — `claude_desktop_config.json`:
@@ -141,7 +141,7 @@ node src/cli.ts mcp <dir>
 ```json
 {
   "mcpServers": {
-    "cutflow-2026-07-02-xxx": {
+    "framewright-2026-07-02-xxx": {
       "command": "node",
       "args": ["<REPO>/src/cli.ts", "mcp", "<REC>"]
     }
@@ -153,7 +153,7 @@ node src/cli.ts mcp <dir>
 または CLI 一発:
 
 ```sh
-claude mcp add cutflow -- node <REPO>/src/cli.ts mcp <REC>
+claude mcp add framewright -- node <REPO>/src/cli.ts mcp <REC>
 ```
 
 **Cursor** — `.cursor/mcp.json`(同じ `mcpServers` 形式):
@@ -161,7 +161,7 @@ claude mcp add cutflow -- node <REPO>/src/cli.ts mcp <REC>
 ```json
 {
   "mcpServers": {
-    "cutflow": {
+    "framewright": {
       "command": "node",
       "args": ["<REPO>/src/cli.ts", "mcp", "<REC>"]
     }
@@ -169,7 +169,7 @@ claude mcp add cutflow -- node <REPO>/src/cli.ts mcp <REC>
 }
 ```
 
-> **Node のバージョンに注意**: CutFlow はビルド無しで TS を直接実行する
+> **Node のバージョンに注意**: FrameWright はビルド無しで TS を直接実行する
 > (Node **23.6 以上**の type-stripping)。ホストが PATH 上の古い node を拾うと
 > TS 構文エラーで即死する。`node --version` が 23.6 未満なら、`command` に
 > 23.6+ の node バイナリの**絶対パス**(例: nvm の `~/.nvmrc` 相当)を書く。
@@ -182,21 +182,21 @@ claude mcp add cutflow -- node <REPO>/src/cli.ts mcp <REC>
 
 | tool | 種別 | 対応する CLI |
 |---|---|---|
-| `cutflow_describe` | 読取 | `describe <dir> --json` |
-| `cutflow_validate` | 読取 | `validate <dir>` |
-| `cutflow_frames` | 読取(知覚) | `frames <dir>` |
-| `cutflow_materials` | 読取 | `materials <dir>` |
-| `cutflow_av` | 読取 | `av <dir>` |
-| `cutflow_assert` | 読取(検証) | `assert <dir>` |
-| `cutflow_apply` | 安全編集 | `apply <dir>`(`dryRun` 引数で `--dry-run` 相当) |
-| `cutflow_id_stamp` | 安全編集 | `id-stamp <dir>` |
+| `framewright_describe` | 読取 | `describe <dir> --json` |
+| `framewright_validate` | 読取 | `validate <dir>` |
+| `framewright_frames` | 読取(知覚) | `frames <dir>` |
+| `framewright_materials` | 読取 | `materials <dir>` |
+| `framewright_av` | 読取 | `av <dir>` |
+| `framewright_assert` | 読取(検証) | `assert <dir>` |
+| `framewright_apply` | 安全編集 | `apply <dir>`(`dryRun` 引数で `--dry-run` 相当) |
+| `framewright_id_stamp` | 安全編集 | `id-stamp <dir>` |
 
 `approve` / `unapprove` / `render` / `plan` / `remeta` / `plan-shorts` /
 `plan-materials` / `plan-effects` / `plan-bgm` / `run` / `ingest` / `transcribe` / `detect` / `preview` / `thumbnail` /
 `editor` / `frames-serve` / `learn` は**レジストリに存在せず、tool として
 一切呼べない**(汎用の「CLI を実行する」tool も無い)。承認は人間だけの
 行為であり、その実体は `approvals.json` の keep 集合ハッシュに束縛された
-承認レコード(「承認の実体」節参照)。`cutflow_apply` は `apply <dir>` と同じ
+承認レコード(「承認の実体」節参照)。`framewright_apply` は `apply <dir>` と同じ
 `applyEdits`/`planApply` をそのまま呼ぶので、`approvals.json` 非改変・
 `approved` 変更不可の保証を一切緩めない。
 
@@ -220,7 +220,7 @@ Claude Code の権限設定(deny ルール)で、SD-A5 はそれを**ターン�
 cp docs/examples/claude-settings-deny.json <あなたのプロジェクト>/.claude/settings.json
 ```
 
-`<あなたのプロジェクト>` は Claude Code が project ルートとみなす場所(CutFlow
+`<あなたのプロジェクト>` は Claude Code が project ルートとみなす場所(FrameWright
 リポジトリ直下、または収録フォルダ直下のどちらでもよい。deny グロブは `**/` 前置
 なので階層を問わず収録フォルダ内の `approvals.json` に一致する)。テンプレの中身:
 
@@ -274,8 +274,8 @@ node src/cli.ts index
 node src/cli.ts search "ログイン画面" --kind material --json
 ```
 
-MCPでは`cutflow_review`、`cutflow_edit`、`cutflow_search`を利用できる。
-`cutflow_edit`は`dryRun`が必須で、書き込み時も既存の`planApply`検査を通る。
+MCPでは`framewright_review`、`framewright_edit`、`framewright_search`を利用できる。
+`framewright_edit`は`dryRun`が必須で、書き込み時も既存の`planApply`検査を通る。
 検索はread-onlyで、結果に絶対pathを含めず、他recordingの素材をコピーしない。
 
 

@@ -94,14 +94,14 @@ const GENERATED_NAME_PATTERNS: readonly RegExp[] = [
  * BGM/インサート音声ミックスの一時 PCM(正常終了時は消える)。
  * ディレクトリ名を変えると既存収録の資産が全部無効化されるため名前は据え置く)・
  * .remotion/(レガシー。旧 Remotion 経路が収録フォルダ配下へ落とした
- * headless Chrome 本体(`chrome-headless-shell`)の残骸。CutFlow はもう作らないが、
+ * headless Chrome 本体(`chrome-headless-shell`)の残骸。FrameWright はもう作らないが、
  * 既存収録に約 200MB 残っているので `clean` の回収対象として残す。
  * 編集にも承認にも一切関与しない)・
  * hyperframe-freeze.suggested/(`hyperframe-freeze <dir> --name <name>` が書く
  * 使い捨ての DRAFT。中身は `<name>.html`(skeletonize 済みカード)+
  * `<name>.md`(採用手順+根拠)。material-fit.suggested.json 等と同じ
  * disposable-draft パターンだが単体ファイルではなくディレクトリ。channel
- * 直下の `hyperframe-seeds/`(fileRole は "other". CutFlow は書かない)への
+ * 直下の `hyperframe-seeds/`(fileRole は "other". FrameWright は書かない)への
  * 実採用は人間の仕事。「重いキャッシュ」ではないので isGeneratedCache は
  * false(--cache-only では残す)、`--logs-only` では掃除する) */
 const GENERATED_DIRS: readonly string[] = [

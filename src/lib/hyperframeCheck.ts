@@ -1158,7 +1158,7 @@ export function checkComposition(html: string, opts?: CheckOpts): CheckResult {
         file,
         where: "<script>",
         message:
-          "Anime.js play()/restart()/reverse() use a self-running clock or relative state; Cutflow drives registered instances with absolute seek / Anime.js の play/restart/reverse は使えません",
+          "Anime.js play()/restart()/reverse() use a self-running clock or relative state; FrameWright drives registered instances with absolute seek / Anime.js の play/restart/reverse は使えません",
       });
     }
   }
@@ -1442,7 +1442,7 @@ export function checkComposition(html: string, opts?: CheckOpts): CheckResult {
         file,
         where: "<script>",
         message:
-          "Lottie loadAnimation must set loop:false; Cutflow drives playback by absolute seek / Lottie は loop:false を指定してください",
+          "Lottie loadAnimation must set loop:false; FrameWright drives playback by absolute seek / Lottie は loop:false を指定してください",
       });
     }
     if (!/\b__hfLottie\s*\.\s*push\s*\(/.test(lottieBody)) {
@@ -1450,7 +1450,7 @@ export function checkComposition(html: string, opts?: CheckOpts): CheckResult {
         file,
         where: "<script>",
         message:
-          "Lottie animation must be registered with window.__hfLottie.push(anim) so Cutflow can seek it / Lottie animation を window.__hfLottie.push(anim) で登録してください",
+          "Lottie animation must be registered with window.__hfLottie.push(anim) so FrameWright can seek it / Lottie animation を window.__hfLottie.push(anim) で登録してください",
       });
     }
 

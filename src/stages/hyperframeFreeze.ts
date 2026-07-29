@@ -16,7 +16,7 @@ import { checkComposition } from "../lib/hyperframeCheck.ts";
  * 収録フォルダ直下のディレクトリ(中身は <name>.html + <name>.md)。 */
 export const HYPERFRAME_FREEZE_DIR = "hyperframe-freeze.suggested";
 
-/** channel 直下(dirname(dir))の人間手動採用先。CutFlow はここへは一切書かない。 */
+/** channel 直下(dirname(dir))の人間手動採用先。FrameWright はここへは一切書かない。 */
 export const HYPERFRAME_SEEDS_DIR = "hyperframe-seeds";
 
 function htmlUnescape(s: string): string {

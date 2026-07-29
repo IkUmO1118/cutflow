@@ -1,7 +1,7 @@
 # Hacker Flip 3D
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/hacker-flip-3d.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 Per-glyph 3D flip reveal that "decrypts" into the target word: each character
@@ -43,9 +43,9 @@ charEls.forEach((el, i) => {
 window.__timelines['<composition-id>'] = tl;
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **Deterministic pseudo-random only** — the seeded hash keyed on char index +
-  progress, never `Math.random()`; HF/Cutflow seeks the same frame repeatedly and
+  progress, never `Math.random()`; HF/FrameWright seeks the same frame repeatedly and
   must render the same glyph every time.
 - `onUpdate` is O(1) per char per frame — text-content + transform writes only, no
   layout thrash.

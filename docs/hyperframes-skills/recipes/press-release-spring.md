@@ -1,7 +1,7 @@
 # Press-Release Spring Chain
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/press-release-spring.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 A tactile button press: linear compression, then spring-based elastic recovery,
@@ -32,7 +32,7 @@ tl.fromTo('#burst', { scale:1, opacity:0 },
                      { scale:6, opacity:0.8, duration:0.5, ease:'power2.out' }, RELEASE_START);
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **State continuity is load-bearing**: release's start value must exactly equal
   press's end value. Keep the two tweens targeting the same property at adjacent
   timeline positions (`RELEASE_START = PRESS_START + PRESS_DUR`) — a gap or

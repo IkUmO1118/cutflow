@@ -101,7 +101,7 @@ const showToast = (
 };
 
 /**
- * CutFlow's stable-id toast API over Sonner. The map exists only to merge partial
+ * FrameWright's stable-id toast API over Sonner. The map exists only to merge partial
  * updates; lifecycle, timers, rendering, stacking, and polite output belong to Sonner.
  */
 export const createSonnerToastAdapter = (api: SonnerToastApi) => {

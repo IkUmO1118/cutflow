@@ -10,7 +10,7 @@ import { validateDocs } from "../src/stages/validate.ts";
 import type { Config } from "../src/lib/config.ts";
 import type { LoadedDocs } from "../src/stages/validate.ts";
 
-const DIR = "/tmp/cutflow-test";
+const DIR = "/tmp/framewright-test";
 
 function baseDocs(over: Partial<LoadedDocs> = {}): LoadedDocs {
   return {
@@ -40,7 +40,7 @@ test("初期 cutplan(全編 keep)は validateDocs を通る", () => {
 });
 
 test("bootstrapProjectWithLayout: 既存 manifest と明示 layout が食い違うと拒否する", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-bootstrap-layout-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-bootstrap-layout-"));
   try {
     writeFileSync(join(dir, "manifest.json"), JSON.stringify({
       durationSec: 10,

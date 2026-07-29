@@ -1,7 +1,7 @@
 # AI Tracking Box
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/ai-tracking-box.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 A bounding box with L-bracket corner markers that tracks a moving target,
@@ -35,7 +35,7 @@ tl.to(tracking, { p: Math.PI*2*1.5, duration:4, ease:'none', onUpdate: () => {
 }}, 1.0);
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **Box position/size is a scripted trig function of timeline time, not a
   measurement + zoom** — `onUpdate` writes width/height/left/top directly from
   `Math.sin`/`Math.cos` of the progress proxy. That keeps it byte-stable (no

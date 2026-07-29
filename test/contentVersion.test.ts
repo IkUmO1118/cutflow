@@ -15,7 +15,7 @@ import {
 } from "../src/lib/contentVersion.ts";
 
 function withTmpDir(fn: (dir: string) => void): void {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-contentversion-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-contentversion-test-"));
   try {
     fn(dir);
   } finally {

@@ -3,7 +3,7 @@
 # recordingsDir / whisper.model は loadConfig() が無条件に参照する必須キー
 # (config.minimal.yaml と同じ理由。値そのものはこのフィクスチャでは未使用
 # ＝ whisper は呼ばれない。transcript.json は手書き)。
-recordingsDir: ~/Movies/cutflow
+recordingsDir: ~/Movies/framewright
 whisper:
   bin: whisper-cli
   model: ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin

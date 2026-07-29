@@ -123,7 +123,7 @@ function wav(): Buffer {
 }
 
 function fixture(approved: boolean): string {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-calibration-evaluate-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-calibration-evaluate-"));
   const cutplan: CutPlan = { approved: true, segments: [{ start: 0, end: 1, action: "keep", reason: "human" }] };
   writeFileSync(join(dir, "mic.wav"), wav());
   writeFileSync(join(dir, "manifest.json"), JSON.stringify({ durationSec: 1, audio: { micWav: "mic.wav" } }));

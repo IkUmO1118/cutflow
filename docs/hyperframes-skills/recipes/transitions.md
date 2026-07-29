@@ -8,9 +8,9 @@ A transition tells the viewer how two scenes relate: a crossfade says "this
 continues," a push slide says "next point," a blur crossfade says "drift with me."
 Choose by what the content is doing emotionally, not just technically.
 
-## What Cutflow actually uses this for
+## What FrameWright actually uses this for
 
-Cutflow renders **one card per HTML file** and has no multi-scene sub-composition
+FrameWright renders **one card per HTML file** and has no multi-scene sub-composition
 runtime. So these transitions are not authored *inside* a card — they describe how
 two cards (or a card and the base video) hand off on the **main editing timeline**.
 Within a single card, phase changes are hard clip-window cuts (`data-start`/
@@ -24,8 +24,8 @@ transform/opacity/filter/clip-path only, finite repeats, `fromTo` not `from`).
 Every CSS transition here animates scene containers with **opacity / transform /
 clip-path / filter** only — all byte-deterministic under absolute-time seek. No
 width/height tweens, no infinite repeats. Shader (WebGL) transitions exist upstream
-but are **out of scope for Cutflow** (they need the `@hyperframes/shader-transitions`
-package + a capture pipeline Cutflow does not ship; a GPU card is `perceptual` tier
+but are **out of scope for FrameWright** (they need the `@hyperframes/shader-transitions`
+package + a capture pipeline FrameWright does not ship; a GPU card is `perceptual` tier
 anyway). Use the CSS families below.
 
 ## Non-negotiable rules (from upstream overview)
@@ -87,4 +87,4 @@ For the exact GSAP/CSS per transition, read the vendor files (do not re-host her
 `catalog.md` (hard rules + routing), `overview.md` (selection), and the per-category
 `css-*.md` files (push / radial / 3d / scale / dissolve / cover / light / distortion /
 mechanical / grid / other / blur / destruction). `TRANSITION-REGISTRY.md` is the
-upstream PLV injector's machine source — informational for Cutflow, not wired.
+upstream PLV injector's machine source — informational for FrameWright, not wired.

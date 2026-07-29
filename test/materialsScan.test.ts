@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { listPresentMaterialFiles } from "../src/stages/materials.ts";
 
 test("listPresentMaterialFiles: ネストしたディレクトリを再帰的に辿り、ドット始まりを除外する", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-materials-scan-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-materials-scan-"));
   try {
     mkdirSync(join(dir, "materials", "hyperframes"), { recursive: true });
     writeFileSync(join(dir, "materials", "a.png"), "");
@@ -25,7 +25,7 @@ test("listPresentMaterialFiles: ネストしたディレクトリを再帰的に
 });
 
 test("listPresentMaterialFiles: materials/ が無ければ空配列", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-materials-scan-empty-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-materials-scan-empty-"));
   try {
     assert.deepEqual(listPresentMaterialFiles(dir), []);
   } finally {
@@ -34,7 +34,7 @@ test("listPresentMaterialFiles: materials/ が無ければ空配列", () => {
 });
 
 test("listPresentMaterialFiles: ドット始まりのディレクトリはスキップする", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-materials-scan-dotdir-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-materials-scan-dotdir-"));
   try {
     mkdirSync(join(dir, "materials", ".trash"), { recursive: true });
     writeFileSync(join(dir, "materials", ".trash", "old.mp4"), "");

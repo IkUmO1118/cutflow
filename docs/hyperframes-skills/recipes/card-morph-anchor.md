@@ -1,7 +1,7 @@
 # Card Morph Anchor
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/card-morph-anchor.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 A container smoothly reshapes between two visual states — the morph itself IS
@@ -24,7 +24,7 @@ elements swapping, no dimension change).
 .morph-card { overflow:hidden; display:grid; place-items:center; }
 ```
 ```js
-// ⚠️ Cutflow forbids tweening width/height directly — substitute UNIFORM SCALE.
+// ⚠️ FrameWright forbids tweening width/height directly — substitute UNIFORM SCALE.
 // A fixed-size container at its "shot 1" footprint scales to the "shot 2" ratio;
 // border-radius/background tween normally (both are allowed properties).
 tl.to('.morph-card', { scale: SHOT_TWO_SCALE, borderRadius: SHOT_TWO_RADIUS,
@@ -33,8 +33,8 @@ tl.to('.content-old', { opacity: 0, duration: 0.9*0.4, ease: 'power1.in' }, MORP
 tl.to('.content-new', { opacity: 1, duration: 0.9*0.4, ease: 'power1.out' }, MORPH_START + 0.9*0.6);
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
-- **⚠️ Cutflow forbids `width`/`height` tweens (transforms only) — use a uniform
+## seek-safe 注意点 (FrameWright adaptations)
+- **⚠️ FrameWright forbids `width`/`height` tweens (transforms only) — use a uniform
   `scale` on the card instead** of upstream's literal `width`/`height` morph.
   Pick the card's rest size so `scale` alone spans "shot 1 footprint" →
   "shot 2 footprint"; `border-radius`/`background` still tween directly (not

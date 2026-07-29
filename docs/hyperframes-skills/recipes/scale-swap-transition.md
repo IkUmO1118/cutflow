@@ -1,7 +1,7 @@
 # Scale-Swap Transition
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/scale-swap-transition.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 Simulates a "morph" between two DOM elements by overlapping exit and entrance
@@ -28,7 +28,7 @@ tl.to('#incoming', { scale: 1.0, opacity: 1, duration: 0.55, ease: `back.out(1.8
       TRIGGER + 0.4 - OVERLAP);   // OVERLAP 0.1–0.2s window
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **Incoming `z-index` must be ABOVE outgoing** — otherwise the outgoing's
   fade-tail bleeds through the incoming's lower opacity and reads as a muddy
   double-exposure.

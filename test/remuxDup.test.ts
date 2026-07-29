@@ -92,7 +92,7 @@ test("remuxCandidateName: 非 mp4 コンテナからだけ <base>.mp4 を導く"
 });
 
 test("readManifestSource: manifest が無い/壊れている/source が無いときは null", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-remux-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-remux-"));
   try {
     assert.equal(readManifestSource(dir), null); // 無い
     writeFileSync(join(dir, "manifest.json"), "not json");
@@ -107,7 +107,7 @@ test("readManifestSource: manifest が無い/壊れている/source が無いと
 });
 
 test("assertRemuxDuplicateStillSafe: manifest が消す側を指していたら throw する", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-remux-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-remux-"));
   try {
     writeFileSync(join(dir, "a.mkv"), "x");
     writeFileSync(join(dir, "a.mp4"), "x");
@@ -131,7 +131,7 @@ test("assertRemuxDuplicateStillSafe: manifest が消す側を指していたら 
 });
 
 test("detectRemuxDuplicate: 複製が無い/manifest が無いときは null(ffprobe を呼ばない)", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-remux-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-remux-"));
   try {
     assert.equal(await detectRemuxDuplicate(dir), null); // manifest 無し
     writeFileSync(join(dir, "manifest.json"), JSON.stringify({ source: "a.mkv" }));
@@ -147,7 +147,7 @@ test("detectRemuxDuplicate: 複製が無い/manifest が無いときは null(ffp
 });
 
 test("detectRemuxDuplicate: ffprobe が中身を読めないファイルは複製と判定しない(残す)", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-remux-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-remux-"));
   try {
     writeFileSync(join(dir, "manifest.json"), JSON.stringify({ source: "a.mkv" }));
     writeFileSync(join(dir, "a.mkv"), "not a video");
@@ -174,7 +174,7 @@ function hasFfmpeg(): boolean {
 }
 
 test("統合: 実 mkv とその remux mp4 を clean が消し、別内容の mp4 は残す", { skip: !hasFfmpeg() && "ffmpeg/ffprobe が無い" }, async () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-remux-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-remux-"));
   try {
     const ff = (args: string[]) => execFileSync("ffmpeg", ["-y", "-v", "error", ...args], { stdio: "ignore" });
     // 1秒の映像+音声を mkv で作り、ストリームコピーで mp4 へ remux(= OBS と同じ関係)
@@ -210,7 +210,7 @@ test("統合: 実 mkv とその remux mp4 を clean が消し、別内容の mp4
 });
 
 test("統合: 同尺・同codec でもサイズが大きく違う mp4 は残す(再エンコード品の保護)", { skip: !hasFfmpeg() && "ffmpeg/ffprobe が無い" }, async () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-remux-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-remux-"));
   try {
     const ff = (args: string[]) => execFileSync("ffmpeg", ["-y", "-v", "error", ...args], { stdio: "ignore" });
     // 絶対差の枝(1MB)も超える差を作る。testsrc は圧縮が効きすぎて -b:v を指定しても
@@ -234,7 +234,7 @@ test("統合: 同尺・同codec でもサイズが大きく違う mp4 は残す(
 });
 
 test("planCleanWithRemuxDup: --logs-only では remux 複製を対象にしない", { skip: !hasFfmpeg() && "ffmpeg/ffprobe が無い" }, async () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-remux-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-remux-"));
   try {
     const ff = (args: string[]) => execFileSync("ffmpeg", ["-y", "-v", "error", ...args], { stdio: "ignore" });
     ff(["-f", "lavfi", "-i", "testsrc=size=320x180:rate=30:duration=1", "-c:v", "libx264", join(dir, "rec.mkv")]);

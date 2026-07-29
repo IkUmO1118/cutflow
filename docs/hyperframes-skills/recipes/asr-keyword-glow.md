@@ -1,13 +1,13 @@
 # ASR Keyword Glow
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/asr-keyword-glow.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 Words glow + scale up when "spoken," via an attack→sustain→decay→rest envelope
 per word timestamp. Serves **kinetic-typography** narration emphasis. ⚠️
-**no-input**: CutFlow has no automatic ASR — word timings are HAND-AUTHORED
-arrays the card author fills in, not derived from CutFlow's whisper transcript.
+**no-input**: FrameWright has no automatic ASR — word timings are HAND-AUTHORED
+arrays the card author fills in, not derived from FrameWright's whisper transcript.
 
 ## 構造 (structure)
 - One `class="clip"` phrase row of `<span class="word" data-word="…">` — one
@@ -22,7 +22,7 @@ arrays the card author fills in, not derived from CutFlow's whisper transcript.
 ```
 ```js
 window.__timelines = window.__timelines || {};
-// HAND-AUTHORED — no CutFlow ASR. One entry per <span data-word>.
+// HAND-AUTHORED — no FrameWright ASR. One entry per <span data-word>.
 const TIMINGS = { /* wordKey: { start, end }, … all seconds, monotonic non-overlap */ };
 function envelope(t, start, end) {
   const releaseEnd = end + RELEASE;
@@ -44,9 +44,9 @@ tl.to(driver, { t: SCENE_DURATION, duration: SCENE_DURATION, ease: "none", onUpd
 window.__timelines['<composition-id>'] = tl;
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **No-input**: TIMINGS is a hand-authored `{start,end}` map, monotonic and
-  non-overlapping. CutFlow's `transcript.json`/whisper word timestamps are NOT
+  non-overlapping. FrameWright's `transcript.json`/whisper word timestamps are NOT
   wired into this — do not assume auto-sync.
 - Single driver + multi-word `onUpdate`, not one tween per word — keeps the
   timeline small at 60+ words.

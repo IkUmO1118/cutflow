@@ -3,10 +3,10 @@
 このディレクトリ(`skills-corpus/`)は HeyGen HyperFrames の skills 群から、
 Markdown と HTML(テキストのみ・バイナリ/スクリプト無し)を**ほぼそのまま
 (near-as-is)複製**した参照コーパスである。人間/AI の作者が執筆時に参照する
-ソース資料であり、**CutFlow のコードからは一切読まれない**(実行時に import
+ソース資料であり、**FrameWright のコードからは一切読まれない**(実行時に import
 されるファイルは無い)。
 
-`docs/hyperframes-skills/` の翻案層(upstream の記法を CutFlow native
+`docs/hyperframes-skills/` の翻案層(upstream の記法を FrameWright native
 interpreter 向けに書き換えたもの)とは異なり、ここに含まれるファイルは
 **原文のまま逐語複製**する(改変しない)。
 
@@ -54,7 +54,7 @@ attribution)。
   memory `hyperframes-integration-native-decision` 参照)
 - **未 pin / 非対応の runtime adapter**: `hyperframes-animation/adapters/` のうち
   `typegpu.md` / `html-in-canvas-patterns.md`
-  (CutFlow は GSAP 3.14.2 / Lottie 5.12.2 / Anime.js 3.2.2 / Three.js r160
+  (FrameWright は GSAP 3.14.2 / Lottie 5.12.2 / Anime.js 3.2.2 / Three.js r160
   を pin 済み。TypeGPU は `src/lib/hyperframeCdn.ts` の CDN_PINS に無い)
 - **ワークフロー/オーケストレーション系 md**: 各 skill の `SKILL.md` 本体
   (`hyperframes-keyframes` / `motion-graphics` を除く)や、上記以外の

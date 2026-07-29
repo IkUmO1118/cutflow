@@ -166,7 +166,7 @@ export async function computeSegmentOcr(
   const results: SegmentOcr[] = [];
   for (const seg of targets) {
     const sourceSec = representativeSourceTime(seg);
-    const cropPath = join(tmpdir(), `cutflow-plan-ocr-${process.pid}-${seg.id}.png`);
+    const cropPath = join(tmpdir(), `framewright-plan-ocr-${process.pid}-${seg.id}.png`);
     try {
       await buildScreenStill(dir, manifest, sourceSec, cropPath);
       const result = await runOcr(cropPath, manifest.video.screenRegion, {

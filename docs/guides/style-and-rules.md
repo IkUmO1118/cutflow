@@ -103,7 +103,7 @@ node src/cli.ts style-check <dir> --profile multi  # 別名の profile に照ら
 ### 置き場所
 
 - **チャンネル共通**: 収録フォルダの**親ディレクトリ**に `rules.md` を置く
-  (`~/Movies/cutflow/2026-07-02-xxx/` なら `~/Movies/cutflow/rules.md`)。
+  (`~/Movies/framewright/2026-07-02-xxx/` なら `~/Movies/framewright/rules.md`)。
   そのディレクトリ配下の全収録に効く
 - **この収録だけ**: 収録フォルダ直下に `rules.md` を置く(この回だけの
   上書き・追加)。両方あれば連結され、**収録固有が共通ルールより優先**される
@@ -125,9 +125,9 @@ node src/cli.ts style-check <dir> --profile multi  # 別名の profile に照ら
 - 沈黙の“ため”は1秒までは残す(考えている間も味)。切りすぎない。
 ```
 
-**注意**: `~/Movies/cutflow/` 直下に複数チャンネルを平置きすると
+**注意**: `~/Movies/framewright/` 直下に複数チャンネルを平置きすると
 `rules.md` は全チャンネルに効いてしまう。チャンネルを分けたい場合は
-サブフォルダを切って(例: `~/Movies/cutflow/series-a/2026-.../`)、その
+サブフォルダを切って(例: `~/Movies/framewright/series-a/2026-.../`)、その
 サブフォルダ直下に `rules.md` を置く運用にする。
 
 ### 修正からの学習(`learn <dir>`)

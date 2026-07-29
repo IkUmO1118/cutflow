@@ -81,7 +81,7 @@ const pauseTileVideo = (event: ReactMouseEvent<HTMLElement>) => {
  * から抽出したもので、DOM とクラス名は抽出前と同一(styles.css と
  * test/editorPanelDesign.test.ts の `.ocMaterialsPanel .matCard` がそのまま効く)。
  *
- * OpenCut からの改変: ドラッグ像は React ポータルのゴーストではなく CutFlow 既存の
+ * OpenCut からの改変: ドラッグ像は React ポータルのゴーストではなく FrameWright 既存の
  * `dragChip`(呼び出し側の onDragStart が setDragImage する)のままにする=タイムラインの
  * ドロップゴーストと二重に出さないため。配置先の時刻は App 側の再生ヘッドが持つので
  * `onAdd` は引数を取らない(OpenCut は `onAddToTimeline({currentTime})`)。 */

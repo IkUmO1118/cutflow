@@ -1,7 +1,7 @@
 # Spring-Pop Entrance
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/spring-pop-entrance.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 THE canonical entrance: an element (or staggered group) arrives by scaling
@@ -30,7 +30,7 @@ items.forEach((el, i) => tl.fromTo(el, { scale:0, opacity:0, y:24 },
   { scale:1, opacity:1, y:0, duration:0.55, ease:'power3.out' }, GROUP_ENTRY_AT + i*0.06));
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **Default ease is `power3.out` (smooth, NO overshoot)** — bouncy `back.out` is
   a rare, explicitly-playful exception (consumer/fun brand only), never the
   default; it's the #1 turn-off in agent-made motion. Reach for `expo.out` for a

@@ -8,7 +8,7 @@ import { fileRole, isCleanProtected } from "../src/lib/files.ts";
 
 /** 一時収録フォルダに editable + approval + other + generated を1件ずつ置く */
 function makeFixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-clean-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-clean-"));
   const put = (rel: string, body = "x") => {
     const p = join(dir, rel);
     mkdirSync(join(p, ".."), { recursive: true });
@@ -173,7 +173,7 @@ test("planClean/executeClean: 冪等(2回目は対象なし・throw しない)",
 });
 
 test("planClean: 空/存在しないフォルダでも空計画を返す(安全)", () => {
-  const empty = mkdtempSync(join(tmpdir(), "cutflow-clean-empty-"));
+  const empty = mkdtempSync(join(tmpdir(), "framewright-clean-empty-"));
   try {
     assert.equal(planClean(empty).targets.length, 0);
     assert.equal(planClean(join(empty, "no-such")).targets.length, 0);

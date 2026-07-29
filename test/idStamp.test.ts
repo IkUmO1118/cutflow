@@ -9,7 +9,7 @@ import { idStamp, readEditableDocs } from "../src/stages/idStamp.ts";
 import { ID_RE } from "../src/lib/ids.ts";
 
 function withTmpProject(fn: (dir: string) => void): void {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-idstamp-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-idstamp-test-"));
   try {
     const write = (file: string, data: unknown) =>
       writeFileSync(join(dir, file), JSON.stringify(data, null, 2), "utf8");

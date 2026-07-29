@@ -77,7 +77,7 @@ test("silenceCompaction offはAutoCuts byte等価、enabledだけmetadata追加"
 });
 
 test("config silenceCompaction validation", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-compaction-config-validation-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-compaction-config-validation-"));
   try {
     const source = readFileSync(resolve("config.yaml"), "utf8");
     const active = source.replace(
@@ -147,7 +147,7 @@ function wav(): Buffer {
 }
 
 function fixture(): string {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-compaction-sweep-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-compaction-sweep-"));
   const cutplan: CutPlan = { approved: true, segments: [
     { start: 0, end: 1, action: "keep", reason: "human" },
   ] };
@@ -166,7 +166,7 @@ const snapshot = (dir: string) => Object.fromEntries(readdirSync(dir).sort().map
 ]));
 
 test("compaction-sweep CLIは36件・JSON決定論・録画read-only", () => {
-  const dir = fixture(); const configDir = mkdtempSync(join(tmpdir(), "cutflow-compaction-config-"));
+  const dir = fixture(); const configDir = mkdtempSync(join(tmpdir(), "framewright-compaction-config-"));
   try {
     const active = readFileSync(resolve("config.yaml"), "utf8");
     const configPath = join(configDir, "config.yaml"); writeFileSync(configPath, active);
@@ -186,7 +186,7 @@ test("compaction-sweep CLIは36件・JSON決定論・録画read-only", () => {
 });
 
 test("compaction-sweep CLIはcalibration offを明示拒否", () => {
-  const dir = fixture(); const configDir = mkdtempSync(join(tmpdir(), "cutflow-compaction-off-config-"));
+  const dir = fixture(); const configDir = mkdtempSync(join(tmpdir(), "framewright-compaction-off-config-"));
   try {
     const source = readFileSync(resolve("config.yaml"), "utf8");
     const off = source.replace(

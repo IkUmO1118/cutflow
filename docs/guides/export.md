@@ -72,7 +72,7 @@
 
 render 中に Mac 全体が重くなる主因はメモリで、Remotion の OffthreadVideo
 フレームキャッシュは既定で「利用可能メモリの半分」まで成長する(16GB 機では
-compositor 単体が数GB)。CutFlow は既定でこれを
+compositor 単体が数GB)。FrameWright は既定でこれを
 `render.offthreadVideoCacheMb: 512`(MB)に制限する。render 速度は変わらず、
 render 中のスワップ・他アプリの鈍化を防ぐ。`0` で Remotion 既定(無制限)に戻せる。
 

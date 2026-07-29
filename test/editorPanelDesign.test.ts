@@ -109,7 +109,7 @@ test("P2 panel scopes remain present while Inspector and Timeline advance in lat
   assert.doesNotMatch(app, /テロップトラックを追加/);
 });
 
-test("P2 checkpoint 2 mounts exactly nine accessible CutFlow icon-rail tabs", () => {
+test("P2 checkpoint 2 mounts exactly nine accessible FrameWright icon-rail tabs", () => {
   const app = read("editor/client/App.tsx");
   const panels = read("editor/client/Panels.tsx");
   const tabs = app.slice(app.indexOf("const PANEL_TABS"), app.indexOf("] as const", app.indexOf("const PANEL_TABS")));
@@ -327,7 +327,7 @@ test("DraggableItem is the one shared asset-card shell for every asset card", ()
     /<div className="materialThumbWrap">\s*\{preview\}\s*\{overlay\}\s*\{onAdd && \(/,
   );
   assert.match(panels, /\{name !== undefined && \(\s*<div className="matName" title=\{nameTitle\}>/);
-  // OpenCut のポータル製ドラッグゴーストは採らず、CutFlow の dragChip を呼び出し側に残す
+  // OpenCut のポータル製ドラッグゴーストは採らず、FrameWright の dragChip を呼び出し側に残す
   // (タイムラインのドロップゴーストと二重に出さないため)
   assert.ok(!panels.includes("createPortal"), "DraggableItem must not adopt OpenCut's portal ghost");
   // 配置先の時刻は App の再生ヘッドが持つので onAdd は引数を取らない
@@ -408,7 +408,7 @@ test("P2 checkpoint 2 provenance records assets rail and transport adaptation bo
     "apps/web/src/components/ui/native-select.tsx",
     "apps/web/src/components/ui/slider.tsx",
   ]) assert.ok(provenance.includes(`${revision}/${source}`), `missing provenance ${source}`);
-  assert.match(provenance, /exactly CutFlow's four existing capabilities \(`materials`,\s+`script`, `captions`, `shorts`\)/);
+  assert.match(provenance, /exactly FrameWright's four existing capabilities \(`materials`,\s+`script`, `captions`, `shorts`\)/);
   assert.match(provenance, /OS-file upload, HyperFrames AI\s+authoring/);
   assert.match(provenance, /scoped 1024px multi-row rule/);
   assert.match(provenance, /dual-axis Timeline and Inspector remain untouched/);
@@ -490,7 +490,7 @@ test("left rail presets add at playhead and drop onto a revealed track", () => {
 
   // DnD: PRESET_MIME checked before MATERIAL_MIME in onDropTimeline, and
   // accepted (alongside Files/MATERIAL_MIME) in onDragOverTimeline
-  assert.match(model, /export const PRESET_MIME = "application\/x-cutflow-preset";/);
+  assert.match(model, /export const PRESET_MIME = "application\/x-framewright-preset";/);
   assert.match(timeline, /types\.includes\(PRESET_MIME\)/);
   const dropStart = timeline.indexOf("const onDropTimeline = (e: ReactDragEvent) => {");
   const dropEnd = timeline.indexOf("\n  };", dropStart);

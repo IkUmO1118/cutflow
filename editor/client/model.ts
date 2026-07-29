@@ -240,13 +240,13 @@ export const trackHeightFor = (id: TrackId): number => {
 
 /** 素材パネル → タイムラインへのドラッグで使う dataTransfer の型
  * (値はプロジェクト相対パス "materials/..."。OS のファイルドロップと区別する) */
-export const MATERIAL_MIME = "application/x-cutflow-material";
+export const MATERIAL_MIME = "application/x-framewright-material";
 
 /** ステッカー/エフェクト タブのプリセット → タイムラインへのドラッグで使う
  * dataTransfer の型(値は presets.ts の EditorPreset.id)。MATERIAL_MIME と
  * 同じ語彙だが別 MIME にして、onDropTimeline が素材ドロップの分岐(音声=BGM
  * ヒューリスティック等)と混ざらないようにする */
-export const PRESET_MIME = "application/x-cutflow-preset";
+export const PRESET_MIME = "application/x-framewright-preset";
 
 /** 映像トラックの継ぎ目に出す「カットされた区間」の印。index は
  * cutplan.segments の添字(選択はクリップと同じ kind "cut" を使い回す)。

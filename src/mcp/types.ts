@@ -69,9 +69,9 @@ export class JsonRpcError extends Error {
 
 /**
  * MCP tool の `inputSchema` はツール引数オブジェクトの discovery 用ヒントで
- * あり、cutflow の編集ファイルスキーマ(schemas/*.schema.json)そのものでは
+ * あり、framewright の編集ファイルスキーマ(schemas/*.schema.json)そのものでは
  * ない(§design doc 論点2)。二重化せず、ここでは構造を固定しない緩い
- * JSON 値として扱う(`cutflow_apply` は schemas/apply-patch.schema.json を
+ * JSON 値として扱う(`framewright_apply` は schemas/apply-patch.schema.json を
  * そのまま差し込むだけ)。
  */
 export type JsonSchema = Record<string, unknown>;

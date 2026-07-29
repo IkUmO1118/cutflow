@@ -164,7 +164,7 @@ test("P2 checkpoint 3 provenance pins sources and records adaptation boundaries"
   for (const source of ["input", "native-select", "slider", "switch"]) {
     assert.ok(provenance.includes(`${revision}/apps/web/src/components/ui/${source}.tsx`));
   }
-  assert.match(provenance, /All twelve CutFlow selection kinds/);
+  assert.match(provenance, /All twelve FrameWright selection kinds/);
   assert.match(provenance, /short approval control intentionally remains a native checkbox/);
   assert.match(provenance, /Settings,[\s\S]*Timeline,[\s\S]*AI,[\s\S]*server\/API/);
 });

@@ -1,7 +1,7 @@
 # Cursor Click Ripple
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/cursor-click-ripple.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 An animated cursor moves to a target, depresses on click, and emits expanding
@@ -31,7 +31,7 @@ tl.to(['.ripple-1','.ripple-2','.ripple-3'],
         stagger: 0.08, immediateRender: false }, CLICK_AT);
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **⚠️ Ripple elements must exist in the DOM from `t=0` at `opacity:0, scale(0)`
   — never conditionally rendered/inserted.** Conditional DOM insertion breaks
   arbitrary-frame seek (a seek to a frame before insertion would show nothing

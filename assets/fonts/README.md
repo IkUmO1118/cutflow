@@ -3,7 +3,7 @@
 `NotoSansJP.woff2` is the bundled Noto Sans JP variable font (`wght` 100-900)
 under the SIL Open Font License. See `OFL.txt` for the license text.
 
-CutFlow keeps this font in the repository because `CAPTION_DEFAULT_FONT_FAMILY`
+FrameWright keeps this font in the repository because `CAPTION_DEFAULT_FONT_FAMILY`
 starts with `"Noto Sans JP"`. The variable font can render intermediate
 caption weights with real glyph data; system fonts such as Hiragino may round
 numeric weights.

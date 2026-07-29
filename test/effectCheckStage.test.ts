@@ -13,7 +13,7 @@ import { loadConfig } from "../src/lib/config.ts";
 const cfg = loadConfig();
 
 function makeDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-effect-check-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-effect-check-"));
   const manifest = {
     dir,
     source: "does-not-exist.mp4",

@@ -15,7 +15,7 @@
 (`Scene N (a–b s): …` の `[slot]` 群 + 1つの名前付き **signature move**)。
 golden な product-launch クリップ群から逆算した「型」で、**尺いっぱいに reveal を
 配る**(t=0 に全部出さない)ことを構造として持つ。upstream の
-`hyperframes-animation/blueprints/*.md` を Cutflow 向けに要約したもの。
+`hyperframes-animation/blueprints/*.md` を FrameWright 向けに要約したもの。
 
 - `card-patterns.md` = **番号で1つ選んですぐ render できる完成カード**(検証済みの HTML)。
 - `blueprints.md`(この文書) = **shot の骨格**。card-patterns に無い beat を作るとき、
@@ -25,7 +25,7 @@ golden な product-launch クリップ群から逆算した「型」で、**尺�
 ## 無音・作図カードの制約(全 blueprint 共通の読み替え)
 
 upstream の型は「ナレーション(VO)+ 実写/実UI/カーソル/BGM/SFX」を前提にした
-product-launch 動画のもの。Cutflow の HyperFrames カードは**無音の作図素材**なので、
+product-launch 動画のもの。FrameWright の HyperFrames カードは**無音の作図素材**なので、
 次を一律に読み替える(各 blueprint の「無音カードでの当たり判定」はこれを個別に述べる):
 
 - **VO は無い** → reveal は VO ではなく**カードの尺(clip 窓)/beat**に配る。

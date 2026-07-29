@@ -2,7 +2,7 @@
 // `--status` が読み書きする portfile と、その生存確認。
 //
 // frames-serve(frames/.serve.json)と同じ portfile 方式だが、置き場所が違う:
-// こちらは収録フォルダの**外**(~/.cutflow/editor/)に書く。理由は2つ。
+// こちらは収録フォルダの**外**(~/.framewright/editor/)に書く。理由は2つ。
 //   1. 収録フォルダ内のファイルは files.ts の分類(編集ファイル / 中間生成物 /
 //      承認レコード)のどれかに属さねばならないが、「起動中のサーバの pid」は
 //      そのどれでもない(プロジェクトの成果ではなく実行時の状態)
@@ -23,7 +23,7 @@ import { fileURLToPath } from "node:url";
 
 /** portfile / ログの置き場(収録フォルダの外) */
 export function editorStateDir(): string {
-  return join(homedir(), ".cutflow", "editor");
+  return join(homedir(), ".framewright", "editor");
 }
 
 /** 収録フォルダのパスから状態ファイル名の slug を作る(実パス基準) */
@@ -39,7 +39,7 @@ export function editorLogFilePath(dir: string): string {
   return join(editorStateDir(), `${slugForDir(dir)}.log`);
 }
 
-/** ~/.cutflow/editor/<slug>.json の中身 */
+/** ~/.framewright/editor/<slug>.json の中身 */
 export interface EditorServeFile {
   /** 対象の収録フォルダ(絶対パス)。slug 衝突・取り違えの検出に使う */
   dir: string;
@@ -143,7 +143,7 @@ function logTail(dir: string, lines: number): string {
  * エディタをバックグラウンド(デタッチ)で起動する。
  *
  * 自分自身(src/cli.ts)を `editor <dir>` で子プロセスとして起動し、stdout/stderr
- * を ~/.cutflow/editor/<slug>.log へ流して親は抜ける。portfile はサーバ自身が
+ * を ~/.framewright/editor/<slug>.log へ流して親は抜ける。portfile はサーバ自身が
  * listen 直後に書くので、親は「portfile が現れて ping が通る」まで待つだけ
  * (親が書くと、子が起動に失敗しても portfile が残る)。
  */

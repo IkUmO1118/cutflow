@@ -1,7 +1,7 @@
 // lib/editorMetrics.ts — POST /metrics の保存先パス組み立て。
 // recording はクライアント POST body 由来の未信頼値なので、パス区切りを
 // 含む値やパストラバーサルを狙った値でも収録フォルダ外に閉じ込められること、
-// 追記が実際に ~/.cutflow/editor/metrics/ 配下へ JSONL 行として起きることを固定する。
+// 追記が実際に ~/.framewright/editor/metrics/ 配下へ JSONL 行として起きることを固定する。
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, rmSync } from "node:fs";
@@ -37,7 +37,7 @@ test("metricsFilePath: metricsStateDir 配下に <recording>.jsonl を組み立�
 });
 
 test("appendMetricsBatch: JSONL として1行ずつ追記される(未信頼な recording も安全化される)", () => {
-  // metricsStateDir は ~/.cutflow/editor/metrics 固定(homedir 依存)なので、
+  // metricsStateDir は ~/.framewright/editor/metrics 固定(homedir 依存)なので、
   // ここでは実際に書かれたファイルを読み、後片付けで消す
   const marker = `test-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const path = metricsFilePath(sanitizeRecordingName(marker));

@@ -61,7 +61,7 @@ before(() => {
   // channel = dirname(dir) をテストでも再現するため、channelDir 直下に
   // 収録フォルダ相当の recDir を作る(mkdtemp で一括作成・一括削除できる
   // ようスコープを channelDir にまとめる)
-  channelDir = mkdtempSync(join(tmpdir(), "cutflow-rules-"));
+  channelDir = mkdtempSync(join(tmpdir(), "framewright-rules-"));
   recDir = join(channelDir, "2026-07-07-rec");
   mkdirSync(recDir);
 });

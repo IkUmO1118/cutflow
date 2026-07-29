@@ -1,7 +1,7 @@
 # Ambient Glow Bloom
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/ambient-glow-bloom.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 A soft radial glow blooms **un-triggered** behind a hero element (card/logo/
@@ -35,7 +35,7 @@ tl.to(phase, { p: Math.PI*2*3, duration: 4, ease:'none', onUpdate: () => {
 }}, BLOOM_START + 0.9);
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **Peak opacity ≤ ~0.45** — higher washes the frame and the hero loses contrast
   against its own glow; default range is 0.15–0.30.
 - **Breathe is BOUNDED, never a loop** — a finite `onUpdate` tween reading the

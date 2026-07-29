@@ -28,7 +28,7 @@ import type { RenderProps } from "../src/lib/renderPropsTypes.ts";
 let dir: string;
 
 before(() => {
-  dir = mkdtempSync(join(tmpdir(), "cutflow-designstill-"));
+  dir = mkdtempSync(join(tmpdir(), "framewright-designstill-"));
   writeFileSync(join(dir, "background.png"), "background-a");
 });
 
@@ -185,7 +185,7 @@ test("prepareDesignStillAssets: 途中失敗では完成名を公開せず一時
 });
 
 test("DesignStill: 実 bundleで4 PNGを生成する", async () => {
-  const renderDir = mkdtempSync(join(tmpdir(), "cutflow-designstill-render-"));
+  const renderDir = mkdtempSync(join(tmpdir(), "framewright-designstill-render-"));
   try {
     const design: DesignStillDesign = { ...DESIGN, backgroundFile: undefined };
     const bundle = await prepareDesignAssetBundle({

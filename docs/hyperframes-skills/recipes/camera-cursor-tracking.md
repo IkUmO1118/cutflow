@@ -1,7 +1,7 @@
 # Camera Cursor Tracking
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/camera-cursor-tracking.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 A two-phase virtual camera that keeps a horizontally-growing element (typed
@@ -34,15 +34,15 @@ window.__hyperframes.__ready = (async () => {
 })();
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **⚠️ perceptual-risk (measure+zoom, P0)**: `scrollWidth`/`getBoundingClientRect`
   feeding a camera translate is a byte-determinism hazard (per-frame AA jitter,
   YMAX~60-120). **Measure ONCE at setup behind `window.__hyperframes.__ready`,
   never per-frame.** Expect perceptual, not byte-exact, re-render equality.
 - Vendor's upstream synchronous-build note (no `fonts.ready` gate, to dodge
-  worker-race flicker) does NOT apply to Cutflow: the interpreter awaits
+  worker-race flicker) does NOT apply to FrameWright: the interpreter awaits
   `HF.__ready` AND `document.fonts.ready` before seeking, so gating measurement
-  behind `__ready` is the correct and required Cutflow pattern — do the opposite
+  behind `__ready` is the correct and required FrameWright pattern — do the opposite
   of the vendor's raw-HTML advice here.
 - Cursor blink: finite `sin()`-driven or `yoyo` tween, never CSS `@keyframes` —
   desyncs from seek.

@@ -77,7 +77,7 @@ async function findHeadlessShell() {
 }
 
 async function launchHeadlessShell(execPath) {
-  const userDataDir = mkdtempSync(join(tmpdir(), "cutflow-engine-bench-chrome-"));
+  const userDataDir = mkdtempSync(join(tmpdir(), "framewright-engine-bench-chrome-"));
   const proc = spawn(execPath, [
     "--headless", "--remote-debugging-port=0", "--hide-scrollbars",
     `--user-data-dir=${userDataDir}`,

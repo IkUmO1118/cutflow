@@ -198,7 +198,7 @@ CI/ループが赤にならない優雅な劣化)。CLI 表示は `validate` に
 ## 機械可読契約(JSON Schema / AGENTS_CONTRACT.md)
 
 Claude Code に限らず、任意のコーディングエージェント・素の JSON エディタ・
-外部バリデータが CutFlow の編集ファイルを機械的に検証・補完できるよう、
+外部バリデータが FrameWright の編集ファイルを機械的に検証・補完できるよう、
 契約をコードから射影した2種類の成果物がある(types.ts / validate.ts / files.ts / ids.ts という**既存の単一の出所**の
 射影であり、新しい真実は宣言しない。ずれたら `npm test`(`test/schema.test.ts` /
 `test/agentsMd.test.ts`)が落ちる)。

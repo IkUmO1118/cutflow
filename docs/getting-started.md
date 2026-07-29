@@ -1,4 +1,4 @@
-# CutFlow をはじめて使う人へ
+# FrameWright をはじめて使う人へ
 
 1本の動画を、エディタで開く → 必要なら文字起こし/AIカット提案 →
 **人間の承認** → 最終レンダーまで通す一連の流れを、**このページだけ読めば一通り動かせる**
@@ -14,7 +14,7 @@
 
 ## 0. これは何をするツールか
 
-**収録1本 = 1フォルダ**(例: `~/Movies/cutflow/2026-07-02-my-recording/`)。
+**収録1本 = 1フォルダ**(例: `~/Movies/framewright/2026-07-02-my-recording/`)。
 その中に置いた raw 動画(OBS 出力)を入力に、以下を順に作ります。
 
 ```
@@ -96,7 +96,7 @@ curl -L --progress-bar -o ~/Models/whisper/ggml-base.bin \
 
 ### データはどこへ行くか(プライバシー)
 
-CutFlow は**ローカルファースト**です。映像・画面・カメラ・音声と、whisper に
+FrameWright は**ローカルファースト**です。映像・画面・カメラ・音声と、whisper に
 よる**文字起こし処理そのもの**は PC 内で完結し、外部には出ません。
 
 外部に出るのは**テキストだけ**で、LLM を使う3コマンドに限られます。
@@ -120,9 +120,9 @@ CutFlow は**ローカルファースト**です。映像・画面・カメラ�
 mac が無い / Linux で動作を確認したい場合は、同梱の `Dockerfile` で再現環境を作れます。
 
 ```sh
-docker build -t cutflow .
-docker run --rm cutflow doctor --no-ai        # 必須チェックが緑(exit 0)
-docker run --rm -v ~/Movies/cutflow:/recordings cutflow doctor /recordings/2026-07-02-xxx
+docker build -t framewright .
+docker run --rm framewright doctor --no-ai        # 必須チェックが緑(exit 0)
+docker run --rm -v ~/Movies/framewright:/recordings framewright doctor /recordings/2026-07-02-xxx
 ```
 
 イメージには ffmpeg(libx264 込み)・日本語フォント・Remotion/Chromium の依存が
@@ -151,31 +151,31 @@ npm run sample        # ffmpeg で数秒のサンプルを合成し examples/sam
 
 ```sh
 # 収録フォルダを用意(OBS の出力 mkv/mp4/mov を1本入れる)
-#   ~/Movies/cutflow/2026-07-02-my-recording/xxxx.mkv
+#   ~/Movies/framewright/2026-07-02-my-recording/xxxx.mkv
 
 # ① まずエディタで開く(自動カットなし。全編 keep)
-node src/cli.ts editor ~/Movies/cutflow/2026-07-02-my-recording
+node src/cli.ts editor ~/Movies/framewright/2026-07-02-my-recording
 
 # OBS 拡張キャンバス(左=画面、右=カメラ)ならこちら
-node src/cli.ts editor ~/Movies/cutflow/2026-07-02-my-recording --layout obs-canvas
+node src/cli.ts editor ~/Movies/framewright/2026-07-02-my-recording --layout obs-canvas
 
 # ② 必要なら文字起こしや自動カット案を明示実行
-node src/cli.ts transcribe ~/Movies/cutflow/2026-07-02-my-recording
-node src/cli.ts plan       ~/Movies/cutflow/2026-07-02-my-recording
+node src/cli.ts transcribe ~/Movies/framewright/2026-07-02-my-recording
+node src/cli.ts plan       ~/Movies/framewright/2026-07-02-my-recording
 
 # ③ 問題なければ cutplan.json の "approved" を true に(GUI なら「承認済み」チェック)
 
 # ④ 最終レンダー
-node src/cli.ts render ~/Movies/cutflow/2026-07-02-my-recording
+node src/cli.ts render ~/Movies/framewright/2026-07-02-my-recording
 ```
 
-> `node src/cli.ts <cmd>` は `npm run cutflow -- <cmd>` でも同じです。
+> `node src/cli.ts <cmd>` は `npm run framewright -- <cmd>` でも同じです。
 > エディタは `npm run editor -- <dir>` でも起動できます。
 
 ### 通常動画(スマホ・カメラ・画面録画)の場合
 
 OBS の拡張キャンバス方式でない**普通の動画**(1画面。スマホ縦動画・カメラ・
-画面録画など)も一級で扱えます。これを CutFlow では **plain レイアウト**と呼び、
+画面録画など)も一級で扱えます。これを FrameWright では **plain レイアウト**と呼び、
 「カメラ(ワイプ)の無い収録」として表現します。
 
 - **動画だけを入れたフォルダを `editor` で開く**と、plain として自動 bootstrap
@@ -260,7 +260,7 @@ node src/cli.ts run    <dir> --layout obs-canvas
 正しい使い方は「**まず `editor` で全編 keep の動画を開く → 必要な自動処理だけ明示実行 → 編集 ↔ 確認を往復 → 承認 → render**」。
 
 ```
-① 収録 → ~/Movies/cutflow/<日付-内容>/ に動画を置く
+① 収録 → ~/Movies/framewright/<日付-内容>/ に動画を置く
 ② node src/cli.ts editor <dir>       自動カットなしで開く(通常動画はこれだけ)
    OBS 拡張キャンバスなら: node src/cli.ts editor <dir> --layout obs-canvas
 ③ 必要なら transcribe / plan を明示実行
@@ -297,11 +297,11 @@ node src/cli.ts run    <dir> --layout obs-canvas
 ### 起動
 
 ```sh
-node src/cli.ts editor ~/Movies/cutflow/2026-07-02-my-recording
-# または:  npm run editor -- ~/Movies/cutflow/2026-07-02-my-recording
+node src/cli.ts editor ~/Movies/framewright/2026-07-02-my-recording
+# または:  npm run editor -- ~/Movies/framewright/2026-07-02-my-recording
 
 # OBS 拡張キャンバスでワイプを使う場合
-node src/cli.ts editor ~/Movies/cutflow/2026-07-02-my-recording --layout obs-canvas
+node src/cli.ts editor ~/Movies/framewright/2026-07-02-my-recording --layout obs-canvas
 ```
 
 - 起動すると `http://127.0.0.1:4310` を案内するので、ブラウザで開く

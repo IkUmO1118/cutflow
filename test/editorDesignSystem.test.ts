@@ -58,7 +58,7 @@ test("editor HTML bootstraps the resolved theme before one generated stylesheet"
   assert.match(html, /<html lang="ja">/);
   assert.doesNotMatch(html, /<html[^>]+class="dark"/);
   assert.match(html, /<meta name="color-scheme" content="light dark"/);
-  assert.ok(html.indexOf("data-cutflow-theme-bootstrap") < html.indexOf('href="/styles.css"'));
+  assert.ok(html.indexOf("data-framewright-theme-bootstrap") < html.indexOf('href="/styles.css"'));
   assert.equal((html.match(/<link rel="stylesheet" href="\/styles\.css" \/>/g) ?? []).length, 1);
   assert.doesNotMatch(html, /<style\b|<link[^>]+stylesheet[^>]+href=(?!"\/styles\.css")/);
 });
@@ -83,7 +83,7 @@ test("OpenCut provenance pins exact sources, adaptation, and the MIT notice", ()
   assert.ok(provenance.includes(`${revisionUrl}apps/web/src/components/ui/button.tsx`));
   assert.ok(provenance.includes(`${revisionUrl}apps/web/src/lib/utils.ts`));
   assert.ok(provenance.includes(`${revisionUrl}LICENSE`));
-  assert.match(provenance, /## Adaptation in CutFlow/);
+  assert.match(provenance, /## Adaptation in FrameWright/);
   assert.match(provenance, /Copyright 2025-2026 OpenCut/);
   assert.match(provenance, /Permission is hereby granted/);
   assert.doesNotMatch(provenance, /verbatim/i);

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CutFlow 「触って分かる」サンプル生成スクリプト(A12 / SD-A4)。
+# FrameWright 「触って分かる」サンプル生成スクリプト(A12 / SD-A4)。
 #
 # OBS も whisper モデル(≈1.5GB)も無しで、editor→approve→render を体験できる
 # 収録フォルダを用意する。ffmpeg で数秒のサンプル動画を合成し、ingest で
@@ -10,7 +10,7 @@
 #
 # 使い方:  npm run sample   （= bash scripts/make-sample.sh）
 # 片付け:  rm -rf examples/sample
-# 非mac/最小構成: CUTFLOW_CONFIG=config.minimal.yaml npm run sample
+# 非mac/最小構成: FRAMEWRIGHT_CONFIG=config.minimal.yaml npm run sample
 set -euo pipefail
 
 # --- 0. リポジトリ直下へ移動(どこから叩かれてもよいように) ---
@@ -21,10 +21,10 @@ cd "$REPO_ROOT"
 SAMPLE_DIR="examples/sample"
 DUR=10  # 合成クリップの秒数
 
-# config を差し替えたいとき(非mac 等)は CUTFLOW_CONFIG=config.minimal.yaml
+# config を差し替えたいとき(非mac 等)は FRAMEWRIGHT_CONFIG=config.minimal.yaml
 CONFIG_ARGS=()
-if [[ -n "${CUTFLOW_CONFIG:-}" ]]; then
-  CONFIG_ARGS=(--config "$CUTFLOW_CONFIG")
+if [[ -n "${FRAMEWRIGHT_CONFIG:-}" ]]; then
+  CONFIG_ARGS=(--config "$FRAMEWRIGHT_CONFIG")
 fi
 
 # --- 1. 前提チェック(doctor の精神で、欠けていたら親切に落ちる) ---
@@ -64,7 +64,7 @@ cat > "$SAMPLE_DIR/transcript.json" <<'JSON'
 {
   "language": "ja",
   "segments": [
-    { "start": 0.5, "end": 3.5, "text": "CutFlow のサンプル動画" },
+    { "start": 0.5, "end": 3.5, "text": "FrameWright のサンプル動画" },
     { "start": 6.5, "end": 9.5, "text": "この字幕は最終レンダーで焼き込まれます" }
   ]
 }

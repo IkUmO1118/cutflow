@@ -15,7 +15,7 @@ import {
 } from "./describe.test.ts";
 
 function withTmpDir(build: (dir: string) => void, run: (dir: string) => void): void {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-describeJson-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-describeJson-"));
   try {
     build(dir);
     run(dir);
@@ -240,7 +240,7 @@ test("ショート: ranges は verbatim、mergedRanges はショート専用 tim
 });
 
 test("容器常在: overlays/bgm/chapters/meta/shorts が無い最小フォルダでも全トップレベルキーが存在", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-describeJson-min-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-describeJson-min-"));
   try {
     const write = (file: string, data: unknown) =>
       writeFileSync(join(dir, file), JSON.stringify(data), "utf8");
@@ -291,7 +291,7 @@ test("容器常在: overlays/bgm/chapters/meta/shorts が無い最小フォル�
 });
 
 test("keyframes: sourceAt と outputTimes を materials/blurs/annotations に載せる", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-describeJson-keyframes-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-describeJson-keyframes-"));
   try {
     const write = (file: string, data: unknown) =>
       writeFileSync(join(dir, file), JSON.stringify(data), "utf8");
@@ -381,7 +381,7 @@ test("id 無し fixture(buildRichFixture)は射影のどこにも id キーが�
 });
 
 test("id 付き fixture: 各 *Entry に id が載る(index の次)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-describeJson-ids-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-describeJson-ids-"));
   try {
     const write = (file: string, data: unknown) =>
       writeFileSync(join(dir, file), JSON.stringify(data), "utf8");

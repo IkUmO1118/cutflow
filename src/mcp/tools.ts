@@ -72,7 +72,7 @@ function toToolResult(humanLines: string[], payload: unknown, isError: boolean):
   return isError ? { content, isError: true } : { content };
 }
 
-/* ---------------- cutflow_validate ---------------- */
+/* ---------------- framewright_validate ---------------- */
 
 function validateHumanLines(r: ValidateResult): string[] {
   const lines = [...problemLines(r.warnings, "⚠"), ...problemLines(r.errors, "✖")];
@@ -91,7 +91,7 @@ function validateHumanLines(r: ValidateResult): string[] {
   return lines;
 }
 
-/* ---------------- cutflow_frames ---------------- */
+/* ---------------- framewright_frames ---------------- */
 
 interface FramesArgs {
   t?: string;
@@ -169,7 +169,7 @@ function framesHumanLines(shots: FrameShot[]): string[] {
   return lines;
 }
 
-/* ---------------- cutflow_apply ---------------- */
+/* ---------------- framewright_apply ---------------- */
 
 function applyPlanHumanLines(plan: ApplyPlan, dryRun: boolean): string[] {
   const lines = [...problemLines(plan.warnings, "⚠"), ...problemLines(plan.errors, "✖")];
@@ -200,7 +200,7 @@ function applyResultHumanLines(result: ApplyResult): string[] {
   return lines;
 }
 
-/* ---------------- cutflow_id_stamp ---------------- */
+/* ---------------- framewright_id_stamp ---------------- */
 
 function idStampHumanLines(r: IdStampResult): string[] {
   const lines: string[] = [];
@@ -214,13 +214,13 @@ function idStampHumanLines(r: IdStampResult): string[] {
   return lines;
 }
 
-/* ---------------- cutflow_materials ---------------- */
+/* ---------------- framewright_materials ---------------- */
 
 function materialsHumanLines(index: MaterialsIndex): string[] {
   return formatMaterialsSummary(index);
 }
 
-/* ---------------- cutflow_av ---------------- */
+/* ---------------- framewright_av ---------------- */
 
 interface AvArgs {
   range?: string;
@@ -282,7 +282,7 @@ function avHumanLines(result: AvResult): string[] {
   return formatAvSummary(result);
 }
 
-/* ---------------- cutflow_assert ---------------- */
+/* ---------------- framewright_assert ---------------- */
 
 function assertHumanLines(report: AssertReport): string[] {
   if (report.outcomes.length === 0) {
@@ -310,7 +310,7 @@ export function makeTools(dir: string, cfg: Config): ToolDef[] {
 
   return [
     {
-      name: "cutflow_describe",
+      name: "framewright_describe",
       description:
         "Machine-readable, fully expanded projection of the current edit state " +
         "(raw<->output time mapping, full caption/title text, @id discovery). " +
@@ -322,7 +322,7 @@ export function makeTools(dir: string, cfg: Config): ToolDef[] {
       },
     },
     {
-      name: "cutflow_validate",
+      name: "framewright_validate",
       description:
         "Structural and invariant checks on the editable files (cutplan/transcript/" +
         "overlays/etc). errors => isError:true (must fix); warnings are informational. " +
@@ -334,7 +334,7 @@ export function makeTools(dir: string, cfg: Config): ToolDef[] {
       },
     },
     {
-      name: "cutflow_frames",
+      name: "framewright_frames",
       description:
         "Render still frames at given times with the exact final-composite look " +
         "(captions/wipes/overlays/zoom/blur/annotations) to PNG under frames/, so an " +
@@ -361,7 +361,7 @@ export function makeTools(dir: string, cfg: Config): ToolDef[] {
       },
     },
     {
-      name: "cutflow_apply",
+      name: "framewright_apply",
       description:
         "Checked, atomic application of an @id-addressed operation list and/or whole-file " +
         "replace patch. All-or-nothing: if any check fails, zero bytes are written " +
@@ -392,10 +392,10 @@ export function makeTools(dir: string, cfg: Config): ToolDef[] {
       },
     },
     {
-      name: "cutflow_edit",
+      name: "framewright_edit",
       description:
         "Compile schema-backed editing tasks to a checked ApplyPatch. dryRun is required; " +
-        "false writes only after the same planApply validation used by cutflow_apply.",
+        "false writes only after the same planApply validation used by framewright_apply.",
       inputSchema: {
         type: "object",
         required: ["tasks", "dryRun"],
@@ -421,7 +421,7 @@ export function makeTools(dir: string, cfg: Config): ToolDef[] {
       },
     },
     {
-      name: "cutflow_review",
+      name: "framewright_review",
       description:
         "Generate a deterministic before/after ReviewBundle without writing editable JSON. " +
         "candidate is optional and defaults to the current edit snapshot.",
@@ -464,7 +464,7 @@ export function makeTools(dir: string, cfg: Config): ToolDef[] {
       },
     },
     {
-      name: "cutflow_search",
+      name: "framewright_search",
       description:
         "Read-only lexical search across recording/material metadata, OCR and transcripts. " +
         "Returns recording names and relative paths only.",
@@ -495,11 +495,11 @@ export function makeTools(dir: string, cfg: Config): ToolDef[] {
       },
     },
     {
-      name: "cutflow_id_stamp",
+      name: "framewright_id_stamp",
       description:
         "Assign stable @ids to addressable elements that don't have one yet (idempotent, " +
         "sticky: existing ids never change, approvals.json untouched). Needed before an " +
-        "agent can address existing elements by @id in cutflow_apply.",
+        "agent can address existing elements by @id in framewright_apply.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       handler: () => {
         const r = idStamp(dir);
@@ -507,7 +507,7 @@ export function makeTools(dir: string, cfg: Config): ToolDef[] {
       },
     },
     {
-      name: "cutflow_materials",
+      name: "framewright_materials",
       description:
         "Probe materials (B-roll) referenced by overlays/inserts/bgm or present in " +
         "materials/: duration/resolution/fps/audio presence, plus cross-linking that " +
@@ -534,7 +534,7 @@ export function makeTools(dir: string, cfg: Config): ToolDef[] {
       },
     },
     {
-      name: "cutflow_av",
+      name: "framewright_av",
       description:
         "Machine-readable motion/sound feedback on the kept output timeline. Writes " +
         "av.probe/motion.json, av.probe/sound.json, and a motion strip PNG.",
@@ -564,10 +564,10 @@ export function makeTools(dir: string, cfg: Config): ToolDef[] {
       },
     },
     {
-      name: "cutflow_assert",
+      name: "framewright_assert",
       description:
         "Check declared editing intent (assertions.json) against the current edit state " +
-        "(the same projection cutflow_describe returns). No assertions.json => an empty, " +
+        "(the same projection framewright_describe returns). No assertions.json => an empty, " +
         "non-failing report. `visual` also evaluates OCR-based checks (macOS only).",
       inputSchema: {
         type: "object",

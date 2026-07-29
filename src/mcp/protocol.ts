@@ -14,7 +14,7 @@ import type { MethodHandler, ToolDef, ToolResult } from "./types.ts";
  * (§design doc 論点1 の緩和策 a)。package.json の "version" とは独立の値。
  */
 export const PROTOCOL_VERSION = "2025-06-18";
-export const SERVER_NAME = "cutflow";
+export const SERVER_NAME = "framewright";
 export const SERVER_VERSION = "0.1.0";
 
 export interface InitializeResult {

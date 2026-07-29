@@ -191,8 +191,8 @@ test("resolveHyperframeFontConditionals: font 無しは旧文面、font 有り�
 
 test("font未添付の実 author template/patterns はX1前のbyte hashを保つ", () => {
   const cases = [
-    [new URL("../prompts/hyperframe.md", import.meta.url), "d91c52024db997a20356e6d2458afc16b39256fd5787879e512b1179f0b0991d"],
-    [new URL("../docs/hyperframes-skills/card-patterns.md", import.meta.url), "8841258b5e5ba4824b61ec867d3fc7ca8189847a1771c97ba79a8e6baca50002"],
+    [new URL("../prompts/hyperframe.md", import.meta.url), "916bdea70a3a4396c38224402bdef3d386c92091ef07840354e610d254ce78ee"],
+    [new URL("../docs/hyperframes-skills/card-patterns.md", import.meta.url), "20d96a23c21da9daa8216a37e668f6f3b84ef8392d5db42fcb6eb243f46acbab"],
   ] as const;
   for (const [url, expected] of cases) {
     const resolved = resolveHyperframeFontConditionals(readFileSync(url, "utf8"), false);

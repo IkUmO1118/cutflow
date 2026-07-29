@@ -12,7 +12,7 @@ import type { Config } from "../src/lib/config.ts";
 import { CUT_REASON_IDS, REASON_ID_FAMILY } from "../src/lib/reasonIds.ts";
 
 function makeDir(): string {
-  return mkdtempSync(join(tmpdir(), "cutflow-reasonid-coverage-"));
+  return mkdtempSync(join(tmpdir(), "framewright-reasonid-coverage-"));
 }
 
 function write(dir: string, file: string, data: unknown): void {

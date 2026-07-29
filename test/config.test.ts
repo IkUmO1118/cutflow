@@ -73,9 +73,9 @@ import {
 import type { Config } from "../src/lib/config.ts";
 
 /** リポジトリ既定の config.yaml を模した fixture(コメント・~ パス入り) */
-const RAW = `# cutflow 設定ファイル
+const RAW = `# framewright 設定ファイル
 # パスの ~ はホームディレクトリに展開されます
-recordingsDir: ~/Movies/cutflow
+recordingsDir: ~/Movies/framewright
 
 whisper:
   bin: whisper-cli
@@ -127,14 +127,14 @@ test("applyConfigEdits: 指定キーだけ変わり、読み戻せる", () => {
 
 test("applyConfigEdits: コメントが保持される", () => {
   const out = applyConfigEdits(RAW, { render: { wipeWidthPx: 400 } });
-  assert.ok(out.includes("# cutflow 設定ファイル"));
+  assert.ok(out.includes("# framewright 設定ファイル"));
   assert.ok(out.includes("# 右下ワイプ(カメラ)の横幅(px)"));
   assert.ok(out.includes("# 合成時のシステム音声の音量(dB)"));
 });
 
 test("applyConfigEdits: ~ のパスが絶対パス化されない", () => {
   const out = applyConfigEdits(RAW, { render: { targetLufs: -16 } });
-  assert.ok(out.includes("recordingsDir: ~/Movies/cutflow"));
+  assert.ok(out.includes("recordingsDir: ~/Movies/framewright"));
   assert.ok(out.includes("~/Models/whisper/"));
 });
 
@@ -174,7 +174,7 @@ test("applyConfigEdits: テロップ既定の背景帯を追加・削除でき�
 
 test("applyConfigEdits: 子を全部コメントアウトした null スカラーの親でも投げない", () => {
   // `editor:` の中身が全部コメントアウトされ null スカラーになっている config
-  const raw = `recordingsDir: ~/Movies/cutflow
+  const raw = `recordingsDir: ~/Movies/framewright
 editor:
   # maxUploadMb: 2048
   # defaultImageDurationSec: 4
@@ -189,7 +189,7 @@ render:
 });
 
 test("applyConfigEdits: 親ブロックごと欠落していても深いキーを生成できる", () => {
-  const raw = `recordingsDir: ~/Movies/cutflow
+  const raw = `recordingsDir: ~/Movies/framewright
 render:
   wipeWidthPx: 480
 `;
@@ -339,7 +339,7 @@ test("planShortsMaxSec: 省略時は既定60・指定時はその値", () => {
 
 test("syncEditorCfgFromYaml: cfg の参照を保ったままサブツリーを取り込み直す", () => {
   const cfg = parse(RAW) as Config;
-  cfg.recordingsDir = "/abs/Movies/cutflow"; // expandHome 済みを模す
+  cfg.recordingsDir = "/abs/Movies/framewright"; // expandHome 済みを模す
   const before = cfg; // クロージャで共有される cfg 自身の参照
   const nextYaml = applyConfigEdits(RAW, {
     render: { wipeWidthPx: 400, captionColor: "#ffee00" },
@@ -353,7 +353,7 @@ test("syncEditorCfgFromYaml: cfg の参照を保ったままサブツリーを�
   assert.equal(cfg.preview.width, 960);
   assert.equal(cfg.editor?.defaultImageDurationSec, 6);
   // render/preview/editor 以外(~ を含むキー)は取り込みで壊されない
-  assert.equal(cfg.recordingsDir, "/abs/Movies/cutflow");
+  assert.equal(cfg.recordingsDir, "/abs/Movies/framewright");
 });
 
 test("syncEditorCfgFromYaml: null 削除で省略時の既定へ戻る", () => {
@@ -377,7 +377,7 @@ test("resolveHyperframeAssetLimits: 省略時既定と config 上書きを解決
 });
 
 test("loadConfig: hyperframe.assets の未知キー・非正値・逆転した上限を拒否する", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
   try {
     const path = join(dir, "config.yaml");
     writeFileSync(path, `${RAW}\nhyperframe:\n  assets:\n    maxBytes: 20\n    maxTotalBytes: 10\n`);
@@ -392,12 +392,12 @@ test("loadConfig: hyperframe.assets の未知キー・非正値・逆転した�
 });
 
 test("loadConfig: whisper.wordTimestamps 未指定時は true(語タイムスタンプ既定資産化=W0)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
   try {
     const path = join(dir, "config.yaml");
     writeFileSync(
       path,
-      `recordingsDir: ~/Movies/cutflow
+      `recordingsDir: ~/Movies/framewright
 whisper:
   bin: whisper-cli
   model: ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin
@@ -412,12 +412,12 @@ whisper:
 });
 
 test("loadConfig: whisper.wordTimestamps: true を指定すればそのまま通る", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
   try {
     const path = join(dir, "config.yaml");
     writeFileSync(
       path,
-      `recordingsDir: ~/Movies/cutflow
+      `recordingsDir: ~/Movies/framewright
 whisper:
   bin: whisper-cli
   model: ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin
@@ -433,12 +433,12 @@ whisper:
 });
 
 test("loadConfig: whisper.wordTimestamps: false を明示すればそのまま false(逃げ道)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
   try {
     const path = join(dir, "config.yaml");
     writeFileSync(
       path,
-      `recordingsDir: ~/Movies/cutflow
+      `recordingsDir: ~/Movies/framewright
 whisper:
   bin: whisper-cli
   model: ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin
@@ -454,12 +454,12 @@ whisper:
 });
 
 test("loadConfig: preview.engine 未指定時は既定 'canvas'(M3b)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
   try {
     const path = join(dir, "config.yaml");
     writeFileSync(
       path,
-      `recordingsDir: ~/Movies/cutflow
+      `recordingsDir: ~/Movies/framewright
 whisper:
   bin: whisper-cli
   model: ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin
@@ -476,12 +476,12 @@ preview:
 });
 
 test("loadConfig: preview.engine: legacy を指定すればそのまま通る", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
   try {
     const path = join(dir, "config.yaml");
     writeFileSync(
       path,
-      `recordingsDir: ~/Movies/cutflow
+      `recordingsDir: ~/Movies/framewright
 whisper:
   bin: whisper-cli
   model: ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin
@@ -499,12 +499,12 @@ preview:
 });
 
 test("loadConfig: ocr 省略時は languages が [en, ja](既存挙動と完全一致)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
   try {
     const path = join(dir, "config.yaml");
     writeFileSync(
       path,
-      `recordingsDir: ~/Movies/cutflow
+      `recordingsDir: ~/Movies/framewright
 whisper:
   bin: whisper-cli
   model: ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin
@@ -519,12 +519,12 @@ whisper:
 });
 
 test("loadConfig: ocr.languages を指定すればそのまま通る", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
   try {
     const path = join(dir, "config.yaml");
     writeFileSync(
       path,
-      `recordingsDir: ~/Movies/cutflow
+      `recordingsDir: ~/Movies/framewright
 whisper:
   bin: whisper-cli
   model: ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin
@@ -834,7 +834,7 @@ function writeMinimalConfigWithPlanStyleProfile(dir: string, styleProfileYaml: s
   const path = join(dir, "config.yaml");
   writeFileSync(
     path,
-    `recordingsDir: ~/Movies/cutflow
+    `recordingsDir: ~/Movies/framewright
 whisper:
   bin: whisper-cli
   model: ~/m.bin
@@ -870,7 +870,7 @@ plan:
 }
 
 test("loadConfig: plan.styleProfile の正常系は素通り(enabled/profile が解決できる)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
   try {
     const path = writeMinimalConfigWithPlanStyleProfile(dir, "{ enabled: true, profile: punchy }");
     const cfg = loadConfig(path);
@@ -881,7 +881,7 @@ test("loadConfig: plan.styleProfile の正常系は素通り(enabled/profile が
 });
 
 test("loadConfig: plan.styleProfile の未知キーは拒否される(SD-T4)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
   try {
     const path = writeMinimalConfigWithPlanStyleProfile(dir, "{ enabled: true, foo: 1 }");
     assert.throws(() => loadConfig(path), /plan\.styleProfile\.foo は未対応です/);
@@ -891,7 +891,7 @@ test("loadConfig: plan.styleProfile の未知キーは拒否される(SD-T4)", (
 });
 
 test("loadConfig: plan.styleProfile.enabled は boolean 以外を拒否する", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
   try {
     const path = writeMinimalConfigWithPlanStyleProfile(dir, "{ enabled: yes-please }");
     assert.throws(() => loadConfig(path), /plan\.styleProfile\.enabled は boolean で指定してください/);
@@ -901,7 +901,7 @@ test("loadConfig: plan.styleProfile.enabled は boolean 以外を拒否する", 
 });
 
 test("loadConfig: plan.styleProfile.profile は文字列以外を拒否する", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
   try {
     const path = writeMinimalConfigWithPlanStyleProfile(dir, "{ profile: 123 }");
     assert.throws(() => loadConfig(path), /plan\.styleProfile\.profile は文字列で指定してください/);
@@ -934,7 +934,7 @@ function writeMinimalConfigWithPlanCursor(dir: string, cursorYaml: string): stri
   const path = join(dir, "config.yaml");
   writeFileSync(
     path,
-    `recordingsDir: ~/Movies/cutflow
+    `recordingsDir: ~/Movies/framewright
 whisper:
   bin: whisper-cli
   model: ~/m.bin
@@ -958,7 +958,7 @@ plan:
 }
 
 test("loadConfig: plan.cursor の正常系は素通り", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
   try {
     const path = writeMinimalConfigWithPlanCursor(
       dir,
@@ -982,7 +982,7 @@ test("loadConfig: plan.cursor の正常系は素通り", () => {
 });
 
 test("loadConfig: plan.cursor の未知キーは拒否される", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
   try {
     const path = writeMinimalConfigWithPlanCursor(dir, "{ foo: 1 }");
     assert.throws(() => loadConfig(path), /plan\.cursor\.foo は未対応です/);
@@ -992,7 +992,7 @@ test("loadConfig: plan.cursor の未知キーは拒否される", () => {
 });
 
 test("loadConfig: plan.cursor.minDwellMs は maxDwellMs 未満でなければ拒否される", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
   try {
     const path = writeMinimalConfigWithPlanCursor(dir, "{ minDwellMs: 3000, maxDwellMs: 2000 }");
     assert.throws(() => loadConfig(path), /plan\.cursor\.minDwellMs は maxDwellMs 未満で指定してください/);
@@ -1002,7 +1002,7 @@ test("loadConfig: plan.cursor.minDwellMs は maxDwellMs 未満でなければ拒
 });
 
 test("loadConfig: plan.cursor.moveThreshold は正の数値以外を拒否する", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
   try {
     const path = writeMinimalConfigWithPlanCursor(dir, "{ moveThreshold: 0 }");
     assert.throws(() => loadConfig(path), /plan\.cursor\.moveThreshold は正の数値で指定してください/);
@@ -1012,7 +1012,7 @@ test("loadConfig: plan.cursor.moveThreshold は正の数値以外を拒否する
 });
 
 test("loadConfig: plan.cursor.clickBoost は正の数値以外を拒否する", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
   try {
     const path = writeMinimalConfigWithPlanCursor(dir, "{ clickBoost: -1 }");
     assert.throws(() => loadConfig(path), /plan\.cursor\.clickBoost は正の数値で指定してください/);
@@ -1026,7 +1026,7 @@ test("loadConfig: plan.cursor.clickBoost は正の数値以外を拒否する", 
  * §2026-07-24-openscreen-zoom-D-scroll-suppression-design.md) */
 
 test("loadConfig: plan.cursor.scrollMotionThreshold の正常系は素通り", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
   try {
     const path = writeMinimalConfigWithPlanCursor(dir, "{ scrollMotionThreshold: 0.6 }");
     const cfg = loadConfig(path);
@@ -1037,7 +1037,7 @@ test("loadConfig: plan.cursor.scrollMotionThreshold の正常系は素通り", (
 });
 
 test("loadConfig: plan.cursor.scrollMotionThreshold は正の数値以外を拒否する", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
   try {
     const path = writeMinimalConfigWithPlanCursor(dir, "{ scrollMotionThreshold: 0 }");
     assert.throws(() => loadConfig(path), /plan\.cursor\.scrollMotionThreshold は正の数値で指定してください/);
@@ -1051,7 +1051,7 @@ test("loadConfig: plan.cursor.scrollMotionThreshold は正の数値以外を拒�
  * §2026-07-24-openscreen-autozoom-placement-design.md D6) */
 
 test("loadConfig: plan.cursor.autoZoom の正常系(false)は素通り", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
   try {
     const path = writeMinimalConfigWithPlanCursor(dir, "{ autoZoom: false }");
     const cfg = loadConfig(path);
@@ -1062,7 +1062,7 @@ test("loadConfig: plan.cursor.autoZoom の正常系(false)は素通り", () => {
 });
 
 test("loadConfig: plan.cursor.autoZoom は真偽値以外を拒否する", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
   try {
     const path = writeMinimalConfigWithPlanCursor(dir, "{ autoZoom: 1 }");
     assert.throws(() => loadConfig(path), /plan\.cursor\.autoZoom は真偽値で指定してください/);
@@ -1080,7 +1080,7 @@ function writeMinimalConfigWithRenderZoom(dir: string, zoomYaml: string): string
   const path = join(dir, "config.yaml");
   writeFileSync(
     path,
-    `recordingsDir: ~/Movies/cutflow
+    `recordingsDir: ~/Movies/framewright
 whisper:
   bin: whisper-cli
   model: ~/m.bin
@@ -1103,7 +1103,7 @@ llm: { backend: claude-cli, model: x }
 }
 
 test("loadConfig: render.zoom.webcamReactiveMinScale の正常系は素通り", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
   try {
     const path = writeMinimalConfigWithRenderZoom(dir, "{ webcamReactiveMinScale: 0.55 }");
     const cfg = loadConfig(path);
@@ -1114,7 +1114,7 @@ test("loadConfig: render.zoom.webcamReactiveMinScale の正常系は素通り", 
 });
 
 test("loadConfig: render.zoom.webcamReactiveMinScale は 0 より大きく 1 以下でなければ拒否される", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
   try {
     const path = writeMinimalConfigWithRenderZoom(dir, "{ webcamReactiveMinScale: 0 }");
     assert.throws(() => loadConfig(path), /render\.zoom\.webcamReactiveMinScale は 0 より大きく 1 以下の数値です/);
@@ -1124,7 +1124,7 @@ test("loadConfig: render.zoom.webcamReactiveMinScale は 0 より大きく 1 以
 });
 
 test("loadConfig: render.zoom.webcamReactiveMinScale は 1 を超えると拒否される", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
   try {
     const path = writeMinimalConfigWithRenderZoom(dir, "{ webcamReactiveMinScale: 1.5 }");
     assert.throws(() => loadConfig(path), /render\.zoom\.webcamReactiveMinScale は 0 より大きく 1 以下の数値です/);
@@ -1168,7 +1168,7 @@ function writeMinimalConfigWithPlanReasonIds(dir: string, reasonIdsYaml: string)
   const path = join(dir, "config.yaml");
   writeFileSync(
     path,
-    `recordingsDir: ~/Movies/cutflow
+    `recordingsDir: ~/Movies/framewright
 whisper:
   bin: whisper-cli
   model: ~/m.bin
@@ -1204,7 +1204,7 @@ plan:
 }
 
 test("loadConfig: plan.reasonIds の正常系(enabled/pattern)は素通り", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
   try {
     const path = writeMinimalConfigWithPlanReasonIds(dir, "{ enabled: true, pattern: tool-demo }");
     const cfg = loadConfig(path);
@@ -1215,7 +1215,7 @@ test("loadConfig: plan.reasonIds の正常系(enabled/pattern)は素通り", () 
 });
 
 test("loadConfig: plan.reasonIds の未知キーは拒否される", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
   try {
     const path = writeMinimalConfigWithPlanReasonIds(dir, "{ enabled: true, foo: 1 }");
     assert.throws(() => loadConfig(path), /plan\.reasonIds\.foo は未対応です/);
@@ -1225,7 +1225,7 @@ test("loadConfig: plan.reasonIds の未知キーは拒否される", () => {
 });
 
 test("loadConfig: plan.reasonIds.pattern は文字列以外を拒否する", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
   try {
     const path = writeMinimalConfigWithPlanReasonIds(dir, "{ pattern: 123 }");
     assert.throws(() => loadConfig(path), /plan\.reasonIds\.pattern は文字列で指定してください/);
@@ -1235,7 +1235,7 @@ test("loadConfig: plan.reasonIds.pattern は文字列以外を拒否する", () 
 });
 
 test("loadConfig: plan.reasonIds.pattern に未知の収録タイプ文字列を書いても loadConfig 自体は止まらない(劣化は resolve 時)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
   try {
     const path = writeMinimalConfigWithPlanReasonIds(dir, "{ enabled: true, pattern: nonexistent-type }");
     const cfg = loadConfig(path);
@@ -1359,12 +1359,12 @@ test("aiCapabilities: vision route 未設定なら null、設定なら capabilit
 });
 
 test("loadConfig: whisper.systemAudio 省略時は false へ defaulting・cfg.describe は生成しない(バイト等価)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
   try {
     const path = join(dir, "config.yaml");
     writeFileSync(
       path,
-      `recordingsDir: ~/Movies/cutflow
+      `recordingsDir: ~/Movies/framewright
 whisper:
   bin: whisper-cli
   model: ~/m.bin
@@ -1403,12 +1403,12 @@ llm: { backend: claude-cli, model: x }
 });
 
 test("loadConfig: plan 省略時は cfg.plan が undefined のまま(defaulting しない=バイト等価)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
   try {
     const path = join(dir, "config.yaml");
     writeFileSync(
       path,
-      `recordingsDir: ~/Movies/cutflow
+      `recordingsDir: ~/Movies/framewright
 whisper:
   bin: whisper-cli
   model: ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin

@@ -14,12 +14,12 @@ test("CHROME_BUILD_ID is pinned as a four-part version", () => {
   match(CHROME_BUILD_ID, /^\d+\.\d+\.\d+\.\d+$/);
 });
 
-test("chromeCacheDir uses HOME/.cutflow/chrome", () => {
+test("chromeCacheDir uses HOME/.framewright/chrome", () => {
   const originalHome = process.env.HOME;
-  const home = mkdtempSync(join(tmpdir(), "cutflow-browser-home-"));
+  const home = mkdtempSync(join(tmpdir(), "framewright-browser-home-"));
   try {
     process.env.HOME = home;
-    strictEqual(chromeCacheDir(), join(home, ".cutflow", "chrome"));
+    strictEqual(chromeCacheDir(), join(home, ".framewright", "chrome"));
   } finally {
     if (originalHome === undefined) {
       delete process.env.HOME;
@@ -29,19 +29,19 @@ test("chromeCacheDir uses HOME/.cutflow/chrome", () => {
   }
 });
 
-test("ensureHeadlessShell returns existing CUTFLOW_CHROME_PATH without download", async () => {
-  const originalPath = process.env.CUTFLOW_CHROME_PATH;
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-browser-path-"));
+test("ensureHeadlessShell returns existing FRAMEWRIGHT_CHROME_PATH without download", async () => {
+  const originalPath = process.env.FRAMEWRIGHT_CHROME_PATH;
+  const dir = mkdtempSync(join(tmpdir(), "framewright-browser-path-"));
   const chromePath = join(dir, "chrome-headless-shell");
   closeSync(openSync(chromePath, "w"));
   try {
-    process.env.CUTFLOW_CHROME_PATH = chromePath;
+    process.env.FRAMEWRIGHT_CHROME_PATH = chromePath;
     strictEqual(await ensureHeadlessShell(), chromePath);
   } finally {
     if (originalPath === undefined) {
-      delete process.env.CUTFLOW_CHROME_PATH;
+      delete process.env.FRAMEWRIGHT_CHROME_PATH;
     } else {
-      process.env.CUTFLOW_CHROME_PATH = originalPath;
+      process.env.FRAMEWRIGHT_CHROME_PATH = originalPath;
     }
   }
 });

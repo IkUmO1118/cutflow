@@ -1,7 +1,7 @@
 # Avatar Cloud Network
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/avatar-cloud-network.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 Avatars distributed on an elliptical ring around a center hub, connected by SVG
@@ -34,7 +34,7 @@ lines.forEach((line, i) => tl.to(line, { strokeDashoffset: 0, duration: 0.5,
 window.__timelines['<composition-id>'] = tl;
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **byte\*** — the ring geometry is a formula (`angle`, `RADIUS_X/Y`), not a
   runtime measurement, so it's byte-stable **provided** `CENTER_X/CENTER_Y` are
   baked to match the hub's actual rendered center exactly (a static constant

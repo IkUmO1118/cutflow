@@ -21,7 +21,7 @@ export interface Rect {
 }
 
 /** 出力矩形(移動/スケール/クロップ込みの最終配置)。回転は持たない
- * (CutFlow の演出に回転は無い) */
+ * (FrameWright の演出に回転は無い) */
 export type Quad = Rect;
 
 export type BlendMode = "normal";
@@ -46,7 +46,7 @@ export type Effect = ColorFilterEffect;
  *   sourceRect(ソースのクロップ範囲)+ quad(出力px の最終矩形)まで
  *   解決する(cropFitStyle 相当の計算を逐語移植)。
  * - "fit": 素材ファイル(overlay/insert/design 背景の画像・動画)は
- *   実ピクセル寸法が描画時にしか分からない(CutFlow は素材を事前
+ *   実ピクセル寸法が描画時にしか分からない(FrameWright は素材を事前
  *   probe しない)。この場合は箱(box)+fit をそのまま渡し、実寸に
  *   基づくクロップはペインタ(実際にデコードした側)が解決する。
  */

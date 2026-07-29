@@ -1,7 +1,7 @@
 # Orbit 3D Entry
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/orbit-3d-entry.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 Icons/glyphs flip in from 3D space then settle into a **continuous** elliptical
@@ -43,7 +43,7 @@ tl.to(orbitState, { p: 1, duration: 12, ease: 'none', onUpdate: () => {
 }}, i * 0.10 + 0.55);
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **⚠️ Entry must flip IN PLACE at orbital position** — `gsap.set()` every item to
   `(cos(angle)·RADIUS_X, sin(angle)·RADIUS_Y)` with `opacity:0` before adding any
   tween. Phase 1 animates only rotation/opacity/scale, never translate.

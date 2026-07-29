@@ -159,7 +159,7 @@ test("buildHyperframeCards: 現 HTML と sidecar key が一致すれば fresh", 
 });
 
 test("buildHyperframeCards: HTML drift は stale", () => {
-  const changed = SAMPLE_HTML.replace('"default":"CutFlow"', '"default":"Changed"');
+  const changed = SAMPLE_HTML.replace('"default":"FrameWright"', '"default":"Changed"');
   const [card] = buildHyperframeCards({
     htmlByName: { card: changed },
     mp4Names: ["card"],
@@ -201,7 +201,7 @@ test("buildHyperframeCards: sidecar の key が非文字列のときは error �
 });
 
 test("buildHyperframeCards: key が期待値と不一致のときは stale のみで error は立てない", () => {
-  const changed = SAMPLE_HTML.replace('"default":"CutFlow"', '"default":"Changed"');
+  const changed = SAMPLE_HTML.replace('"default":"FrameWright"', '"default":"Changed"');
   const [card] = buildHyperframeCards({
     htmlByName: { card: changed },
     mp4Names: ["card"],
@@ -314,7 +314,7 @@ test("stampSaveBody: body に無いドキュメントは undefined のまま(触
 });
 
 test("loadProject: /api/project 相当の payload に planPerception を含む", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-editor-project-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-editor-project-"));
   const write = (file: string, data: unknown) =>
     writeFileSync(join(dir, file), JSON.stringify(data, null, 2));
   try {
@@ -365,7 +365,7 @@ test("loadProject: /api/project 相当の payload に planPerception を含む",
 });
 
 test("buildAiReviewCandidateFromStoredProposal: acceptedHunkLabels から candidate を再構築し approved は base を保つ", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-editor-review-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-editor-review-"));
   const write = (file: string, data: unknown) =>
     writeFileSync(join(dir, file), JSON.stringify(data, null, 2));
   try {
@@ -514,7 +514,7 @@ test("refineRequestKey: mode を含み、省略時は normal 扱い", () => {
 });
 
 test("buildAiReviewCandidateFromStoredProposal: unknown hunk labels は 400", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-editor-review-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-editor-review-"));
   const write = (file: string, data: unknown) =>
     writeFileSync(join(dir, file), JSON.stringify(data, null, 2));
   try {
@@ -591,7 +591,7 @@ test("buildAiReviewCandidateFromStoredProposal: unknown hunk labels は 400", ()
 /* ---------------- loadScript(スクリプトタブの元データ) ---------------- */
 
 test("loadScript: whisper-out.json から ms→秒・trim・words(特殊トークン除外)を組み立てる", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-script-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-script-"));
   try {
     writeFileSync(
       join(dir, "whisper-out.json"),
@@ -632,7 +632,7 @@ test("loadScript: whisper-out.json から ms→秒・trim・words(特殊トー�
 });
 
 test("loadScript: whisper-out.json が無ければ transcript.json から代替する(source で区別)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-script-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-script-"));
   try {
     writeFileSync(
       join(dir, "transcript.json"),
@@ -670,7 +670,7 @@ test("loadScript: whisper-out.json が無ければ transcript.json から代替�
 });
 
 test("loadScript: どちらも無ければ空(エラーにしない)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-script-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-script-"));
   try {
     assert.deepEqual(loadScript(dir), { source: "transcript", segments: [] });
   } finally {
@@ -679,7 +679,7 @@ test("loadScript: どちらも無ければ空(エラーにしない)", () => {
 });
 
 test("loadScript: t_dtw 付き whisper-out は aligned: true になり words が DTW 時刻で組まれる", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-script-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-script-"));
   try {
     writeFileSync(
       join(dir, "whisper-out.json"),

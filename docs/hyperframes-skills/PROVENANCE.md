@@ -25,7 +25,7 @@ seek 駆動でき、Three.js は`hf-seek`の絶対秒から同期描画できま
 外部runtimeなしの`webgpu` capability token + readiness-gated WGSL経路として利用でき、
 TypeGPU は未 pin のまま対象外です。同様に check ゲート(C2: `src/lib/hyperframeCheck.ts`)は
 リモート URL(pin 外)・タイマー・非決定的 API を一律で禁止します。したがって
-上記 skills の内容は**そのまま複製できません**。次を取り除いた上で、Cutflow の
+上記 skills の内容は**そのまま複製できません**。次を取り除いた上で、FrameWright の
 native な作図契約に合わせて書き直しています(seek-safe/決定論のドクトリンは
 GSAP/Lottie/Anime.js/Three.js を pin した後も不変で、自走・壁時計依存は引き続き禁止):
 
@@ -49,7 +49,7 @@ variables・determinism)と、**seek-safe なモーションの作法**(何を�
 
 | このリポジトリのファイル | 由来 |
 |---|---|
-| `authoring-contract.md` | `hyperframes-core`(SKILL.md 本文+ Non-Negotiable Rules 節)を Cutflow 向けに要約 |
+| `authoring-contract.md` | `hyperframes-core`(SKILL.md 本文+ Non-Negotiable Rules 節)を FrameWright 向けに要約 |
 | `motion-css-waapi.md` | `hyperframes-animation`(css/waapi adapter の選定理由+Anime.js/Three.js adapterの要点)+ `hyperframes-keyframes`(seek-safe pose rules・禁止リスト) |
 | `card-patterns.md` | `faceless-explainer` / `motion-graphics` / `pr-to-video` / `hyperframes-creative` のデザイン感性(カテゴリ分類・パレット/タイポの発想)から起こしたオリジナルの numbered menu |
 | `../../prompts/hyperframe.md` | 上記3ファイルを踏まえて書いた C4 用の運用プロンプト |

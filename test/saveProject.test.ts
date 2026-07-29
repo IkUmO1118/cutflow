@@ -14,7 +14,7 @@ import type { SaveRequest } from "../editor/client/apiTypes.ts";
 import { fileContentHash } from "../src/lib/contentVersion.ts";
 
 function withTmpProject(fn: (dir: string) => void): void {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-saveproject-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-saveproject-test-"));
   try {
     const write = (file: string, data: unknown) =>
       writeFileSync(join(dir, file), JSON.stringify(data, null, 2), "utf8");

@@ -56,7 +56,7 @@
 
 ## worked example
 
-`~/Movies/cutflow/2026-07-12` の隣接 zoom 2件。元データで前半の `end` と後半の
+`~/Movies/framewright/2026-07-12` の隣接 zoom 2件。元データで前半の `end` と後半の
 `start` はともに445.32秒である。
 
 ```text

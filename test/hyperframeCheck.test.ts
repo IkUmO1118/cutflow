@@ -154,7 +154,7 @@ test("18: custom font-family (no @font-face) is a warning", () => {
 
 test("18b: Rule 6 regression — data: WOFF2 @font-face backs a custom family at 0/0", () => {
   const r = checkComposition(
-    `<div data-composition-id="root" data-width="1280" data-height="720"><span id="t">CutFlow</span></div>` +
+    `<div data-composition-id="root" data-width="1280" data-height="720"><span id="t">FrameWright</span></div>` +
       `<style>@font-face{font-family:"HFAsset1";src:url("data:font/woff2;base64,d09GMg==") format("woff2");font-display:block}` +
       `#t{font-family:"HFAsset1",sans-serif}</style>`,
   );

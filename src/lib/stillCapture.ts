@@ -35,7 +35,7 @@ async function closeServer(server: StaticServer["server"]): Promise<void> {
 /** publicRoot を HTTP で配る使い捨てサーバ + headless Chrome を1つ起動する。
  * publicRoot 配下のファイルは `/<相対パス>` で参照できる。 */
 export async function createStillCaptureSession(publicRoot: string): Promise<StillCaptureSession> {
-  const outDir = mkdtempSync(join(tmpdir(), "cutflow-still-capture-"));
+  const outDir = mkdtempSync(join(tmpdir(), "framewright-still-capture-"));
   const stillFile = join(outDir, "still.html");
   const staticServer = await startStaticServer(publicRoot, [
     { path: "/__still.html", file: stillFile, contentType: "text/html" },

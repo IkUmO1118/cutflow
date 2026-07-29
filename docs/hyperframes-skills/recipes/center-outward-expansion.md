@@ -1,7 +1,7 @@
 # Center-Outward Expansion
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/center-outward-expansion.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 Elements start clustered at screen center and radiate outward to their final
@@ -34,7 +34,7 @@ items.forEach((el, i) => {
 window.__timelines['<composition-id>'] = tl;
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **byte** — targets are static CSS/`data-*` constants set once, never a runtime
   measurement; fully deterministic under seek.
 - **`fromTo` explicit start state** (not `from`) so a t=0 seek renders items

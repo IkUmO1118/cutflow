@@ -24,7 +24,7 @@ const INPUTS = [
 ] as const;
 
 export function retrievalIndexPath(recordingsDir: string): string {
-  return join(recordingsDir, ".cutflow", "retrieval-v1.json");
+  return join(recordingsDir, ".framewright", "retrieval-v1.json");
 }
 
 export function buildRetrievalIndex(recordingsDir: string): RetrievalIndex {
@@ -62,7 +62,7 @@ export function buildRetrievalIndex(recordingsDir: string): RetrievalIndex {
     warnings,
   };
   const path = retrievalIndexPath(recordingsDir);
-  mkdirSync(join(recordingsDir, ".cutflow"), { recursive: true });
+  mkdirSync(join(recordingsDir, ".framewright"), { recursive: true });
   const tmp = `${path}.tmp-${process.pid}`;
   writeFileSync(tmp, JSON.stringify(index, null, 2), "utf8");
   renameSync(tmp, path);

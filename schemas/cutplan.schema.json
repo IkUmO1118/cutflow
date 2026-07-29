@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cutflow.dev/schemas/cutplan.schema.json",
+  "$id": "https://framewright.dev/schemas/cutplan.schema.json",
   "$comment": "src/types.ts の CutPlan / PlanSegment の射影。approved は人間の承認意図の表示に過ぎず、render の実ゲートは approvals.json(このスキーマの対象外。§AGENTS_CONTRACT.md 承認境界)。segments の時系列順・重なり禁止は node src/cli.ts validate が担う(schema はここでは検査しない)。reasonId の enum は src/lib/reasonIds.ts の CUT_REASON_IDS と同順・同値(test/schema.test.ts がピン留め)。省略可=未分類(opt-in・sticky)。",
   "type": "object",
   "required": ["approved", "segments"],

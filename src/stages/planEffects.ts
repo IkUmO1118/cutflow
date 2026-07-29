@@ -65,7 +65,7 @@ export interface DecisionsSelection {
 
 /** reasonIds off は導入前の inline schema と同じオブジェクト。 */
 export const PLAN_EFFECTS_RESPONSE_SCHEMA = {
-  name: "cutflow_plan_effects",
+  name: "framewright_plan_effects",
   strict: true,
   schema: {
     type: "object",
@@ -91,7 +91,7 @@ export const PLAN_EFFECTS_RESPONSE_SCHEMA = {
 
 /** reasonIds on は全 decision に7分類の effectReasonId を必須化できる strict schema。 */
 export const PLAN_EFFECTS_RESPONSE_SCHEMA_REASON_IDS = {
-  name: "cutflow_plan_effects_reason_ids",
+  name: "framewright_plan_effects_reason_ids",
   strict: true,
   schema: {
     type: "object",

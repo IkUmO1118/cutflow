@@ -1,8 +1,8 @@
 # 使い方ガイド(人間が調整しながら使うワークフロー)
 
 > **コマンドの書き方**: 以下すべて `node src/cli.ts <コマンド>` で書くが、
-> `npm link` 済みなら **`cutflow <コマンド>` と読み替えてよい**(同じコードに落ちる)。
-> 人間の日常操作は `cutflow` のほうが快適(リポジトリへ `cd` しなくてよい)。
+> `npm link` 済みなら **`framewright <コマンド>` と読み替えてよい**(同じコードに落ちる)。
+> 人間の日常操作は `framewright` のほうが快適(リポジトリへ `cd` しなくてよい)。
 > ドキュメントが `node src/cli.ts` で書かれているのは、リンクしていない環境
 > ・エージェントでも必ず動く形だからで、優劣ではない。CLI が出すヒント
 > (「先に `… materials <dir>` を実行してください」等)は、実際に使われた
@@ -13,14 +13,14 @@
 > が個別の全オプション。「いつ使うか」で引く早見表は
 > [guides/command-reference.md](guides/command-reference.md)。
 
-CutFlow は「全部AI任せ」のツールではない。**まずエディタで全編 keep の動画を開き、
+FrameWright は「全部AI任せ」のツールではない。**まずエディタで全編 keep の動画を開き、
 必要な自動処理だけを明示実行し、以降は人間が JSON を直しながら preview / render と
 往復する**のが正しい使い方。
 
 ## 全体フロー
 
 ```
-① 収録 → ~/Movies/cutflow/<日付-内容>/ に mkv を置く
+① 収録 → ~/Movies/framewright/<日付-内容>/ に mkv を置く
      (企画ブリーフがあれば brief.md としてコピーしておくと plan の材料になる)
 
 ② node src/cli.ts editor <フォルダ>
@@ -192,7 +192,7 @@ D3 / TypeGPU / maps 系 / `.lottie` container は `out`。
 
 Anime.jsはmanual card限定。`animejs@3.2.2`のpin tagと
 `data-hf-requires="anime"`を使い、すべての`anime()`/`anime.timeline()`へ
-`autoplay:false`を指定する。返り値は`window.__hfAnime=[]`へpushし、Cutflowが
+`autoplay:false`を指定する。返り値は`window.__hfAnime=[]`へpushし、FrameWrightが
 毎frame`pause(); seek(tMs)`する。`loop`は省略/false/有限非負整数のみ、
 `play`/`restart`/`reverse`は禁止。実例は
 `docs/hyperframes-skills/examples/hyperframes-animation--anime-timeline.html`。
@@ -216,7 +216,7 @@ TypeGPUはpin/APIを仮定せず`out`のまま。
 ## HyperFrames カード(hyperframe)
 
 無音の作図素材(章タイトル・説明カード・図解・kinetic typography)を、
-HyperFrames の実行コード(engine/runtime)を一切導入せず、Cutflow 既存の
+HyperFrames の実行コード(engine/runtime)を一切導入せず、FrameWright 既存の
 native HyperFrames interpreterで作る2段階コマンド。生成された HTML は
 `node src/cli.ts validate` の対象外(編集ファイルではない)だが、check ゲート
 (`checkComposition`: リモート URL 禁止・非決定的な駆動禁止・typed variables
@@ -263,8 +263,8 @@ author 合計 6MiB。WOFF2 はさらに固定 1MiB/枚の上限があり、設�
 `.assets/` 内の素材だけを差し替えても html は変わらない。差し替えを反映するには
 `--from-brief --force` で再生成するか、html を直接編集する。
 
-日本語 full font は数MiBになりやすいので、Cutflowへ渡す前に外部 tool で必要文字だけを
-subset化する。tool/依存はCutflowには同梱しない。fonttoolsが別途入っている場合の例:
+日本語 full font は数MiBになりやすいので、FrameWrightへ渡す前に外部 tool で必要文字だけを
+subset化する。tool/依存はFrameWrightには同梱しない。fonttoolsが別途入っている場合の例:
 
 ```sh
 pyftsubset assets/fonts/NotoSansJP.woff2 \
@@ -451,7 +451,7 @@ vision route 不在・still 抽出失敗・`--no-vlm` はいずれも優雅に�
 
 `node src/cli.ts record --watch` は、OBS の録画ボタンに自動連動してカーソル座標を
 `<recording base>.cursor.json` サイドカーへ確定する常駐 watcher(macOS 専用)。
-撮影は OBS のまま維持し、CutFlow は Electron を持ち込まない。将来のズーム推薦
+撮影は OBS のまま維持し、FrameWright は Electron を持ち込まない。将来のズーム推薦
 (dwell 検出)の土台で、`<dir>` 引数は取らない(収録フォルダではなく OBS が
 録画を保存した場所に直接サイドカーを書く。ingest より前の工程)。
 
@@ -496,7 +496,7 @@ OpenScreen 自身のチューニング値)。
   `clamp(総尺の5%, 1000, maxWindowMs)` で決まる(OpenScreen は
   `max(1000, 総尺の5%)` のみで上限なし)。省略時 3500。長尺収録では
   総尺の5%が数秒〜十数秒になり、その間にカーソルが動いて固定 rect が
-  ズレる(CutFlow はまだ枝A=focus 追従が無い)ため、CutFlow 固有の cap
+  ズレる(FrameWright はまだ枝A=focus 追従が無い)ため、FrameWright 固有の cap
   として付けている。追従が入ったら緩めて OpenScreen の値へ戻せる想定
   (収録ごとに config で調整可)
   (§docs/plans/2026-07-24-openscreen-zoom-B-window-cap-design.md)
@@ -601,13 +601,13 @@ node(>=23.6)/ffmpeg/ffprobe/有効エンコーダの整合/whisper バイナリ�
 
 ## headless Chrome の取得
 
-CutFlow はフレーム撮影・render・HyperFrames の検査/書き出しに
+FrameWright はフレーム撮影・render・HyperFrames の検査/書き出しに
 `chrome-headless-shell` を使う。実行ファイルは初回だけ `@puppeteer/browsers`
-で `~/.cutflow/chrome/<buildId>/` へ自動取得される(約200MB)。描画差分の再現性を
+で `~/.framewright/chrome/<buildId>/` へ自動取得される(約200MB)。描画差分の再現性を
 保つため、buildId はソース内で pin している。
 
-自動取得せず既存の実行ファイルを使う場合は、`CUTFLOW_CHROME_PATH` に実行ファイルの
-絶対パスを設定する。指定されたパスが存在すれば、`~/.cutflow/chrome` より優先される。
+自動取得せず既存の実行ファイルを使う場合は、`FRAMEWRIGHT_CHROME_PATH` に実行ファイルの
+絶対パスを設定する。指定されたパスが存在すれば、`~/.framewright/chrome` より優先される。
 
 ## ログ出力(log.level / --verbose)
 
@@ -622,9 +622,9 @@ CutFlow はフレーム撮影・render・HyperFrames の検査/書き出しに
   `run()` は hot loop でも呼ばれるため既定では出さない(spam 防止)
 
 優先順位はグローバルフラグ `-v, --verbose` / `-q, --quiet` > 環境変数
-`CUTFLOW_LOG`(`quiet`/`normal`/`verbose`)> `config.yaml` の `log.level` > 既定
+`FRAMEWRIGHT_LOG`(`quiet`/`normal`/`verbose`)> `config.yaml` の `log.level` > 既定
 `normal`。例: `node src/cli.ts --verbose preview <dir>` /
-`CUTFLOW_LOG=verbose node src/cli.ts render <dir>`。
+`FRAMEWRIGHT_LOG=verbose node src/cli.ts render <dir>`。
 
 
 ## ガイド一覧(目的別)

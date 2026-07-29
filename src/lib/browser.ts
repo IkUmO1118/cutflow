@@ -37,7 +37,7 @@ export function browserRenderingArgs(options: BrowserRenderingOptions = {}): str
 }
 
 export function chromeCacheDir(): string {
-  return join(process.env.HOME ?? tmpdir(), ".cutflow", "chrome");
+  return join(process.env.HOME ?? tmpdir(), ".framewright", "chrome");
 }
 
 function pinnedExecutablePath(): string {
@@ -49,10 +49,10 @@ function pinnedExecutablePath(): string {
 }
 
 /** pin した chrome-headless-shell の実行ファイル絶対パスを返す。
- *  優先順: CUTFLOW_CHROME_PATH（実在時） → ~/.cutflow/chrome の既存 →
+ *  優先順: FRAMEWRIGHT_CHROME_PATH（実在時） → ~/.framewright/chrome の既存 →
  *  ダウンロード */
 export async function ensureHeadlessShell(): Promise<string> {
-  const envPath = process.env.CUTFLOW_CHROME_PATH;
+  const envPath = process.env.FRAMEWRIGHT_CHROME_PATH;
   if (envPath && existsSync(envPath)) return envPath;
 
   const existing = pinnedExecutablePath();
@@ -69,7 +69,7 @@ export async function ensureHeadlessShell(): Promise<string> {
   } catch {
     throw new Error(
       "chrome-headless-shell を取得できませんでした（ネットワークを確認するか、" +
-      "CUTFLOW_CHROME_PATH で実行ファイルを指定してください）",
+      "FRAMEWRIGHT_CHROME_PATH で実行ファイルを指定してください）",
     );
   }
 }
@@ -80,7 +80,7 @@ export async function launchHeadlessShell(
   options: BrowserRenderingOptions = {},
 ): Promise<LaunchedBrowser> {
   const resolvedExecPath = execPath ?? await ensureHeadlessShell();
-  const userDataDir = mkdtempSync(join(tmpdir(), "cutflow-engine-"));
+  const userDataDir = mkdtempSync(join(tmpdir(), "framewright-engine-"));
   const proc = spawn(resolvedExecPath, [
     "--headless", "--remote-debugging-port=0", "--hide-scrollbars",
     `--user-data-dir=${userDataDir}`,

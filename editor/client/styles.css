@@ -286,7 +286,7 @@
     border-bottom: 1px solid hsl(var(--oc-border));
     flex-shrink: 0;
   }
-  /* プロジェクト名は brand の隣に左寄せのパンくず(CutFlow / <フォルダ名>)。
+  /* プロジェクト名は brand の隣に左寄せのパンくず(FrameWright / <フォルダ名>)。
      一過性状態がトースト/バナー/インスペクタへ抜けたので中央絶対配置(衝突
      回避策)は不要になった。狭幅ではフォルダ名を ellipsis で省略(フルパスは
      title に持つ) */
@@ -2972,7 +2972,7 @@
 .exportPanel .approve input { accent-color: hsl(var(--oc-primary)); }
 .exportPanel .exportAction { width: 100%; }
 
-/* P2 checkpoint 2: OpenCut icon rail + CutFlow's four existing capabilities. */
+/* P2 checkpoint 2: OpenCut icon rail + FrameWright's four existing capabilities. */
 .ocSidePanel {
   display: grid !important;
   grid-template-columns: 3rem minmax(0, 1fr);
@@ -4356,7 +4356,7 @@
 /* アニメタブは capFlat の余白も詰めて完全フラットにする */
 .ocInspector .capFlat.capFlatNoGap .inspSec { margin-top: 0; padding-top: 0; }
 
-/* P3: OpenCut-inspired dense layered timeline. CutFlow's existing semantic
+/* P3: OpenCut-inspired dense layered timeline. FrameWright's existing semantic
  * classes, inline time geometry, pointer handlers, and dual-axis model remain
  * authoritative; every override is contained by the ocTimeline root. */
 .ocTimeline {
@@ -4720,7 +4720,7 @@
   mix-blend-mode: screen;
 }
 
-/* OpenCut classic type colors with CutFlow-only families preserved. */
+/* OpenCut classic type colors with FrameWright-only families preserved. */
 .ocTimeline .tlClip.cut { background: #3a4658; }
 .ocTimeline .tlClip.insert { background: #9a3412; }
 .ocTimeline .tlClip.chapter { background: #7a5a12; }
@@ -4853,7 +4853,7 @@
   .ocTimeline .tlZoom .zoomSlider { width: 3.6rem; }
 }
 
-/* P4 checkpoint 1: CutFlow-owned AI, review, conflict, HyperFrames, and
+/* P4 checkpoint 1: FrameWright-owned AI, review, conflict, HyperFrames, and
  * settings surfaces. Existing DOM, callbacks, and modal ownership remain the
  * interaction contract; thin Radix wrappers provide the dialog/tabs/toggle/scroll
  * mechanics while these roots adapt OpenCut's visual vocabulary. */
@@ -5686,7 +5686,7 @@
   backdrop-filter: blur(8px);
 }
 
-/* Visual review: dense three-pane workspace with CutFlow decision semantics. */
+/* Visual review: dense three-pane workspace with FrameWright decision semantics. */
 .ocAiReview {
   inset: 1rem;
   max-height: calc(100vh - 2rem);

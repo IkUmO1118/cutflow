@@ -1,7 +1,7 @@
 # Physics Press Reaction (Cursor + Element Synced)
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/physics-press-reaction.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 Models a real click: a cursor approaches a button, lands, and both compress IN
@@ -31,7 +31,7 @@ tl.to(['#btn','#cursor'], { scale: 1 - PRESS_INTENSITY, duration:0.15, ease:'pow
 tl.to(['#btn','#cursor'], { scale: 1, duration:0.5, ease:`back.out(${BOUNCE_FACTOR})` }, 1.15);
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **Same press scale on cursor AND button, one array target** — if only the
   button scales the cursor appears to "tap on air"; if only the cursor scales
   the button feels disconnected.

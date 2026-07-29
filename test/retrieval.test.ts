@@ -35,7 +35,7 @@ test("searchIndex: weighting、scope、stable result", () => {
 });
 
 test("buildRetrievalIndex: recording 外を指す material path は結果へ載せない", () => {
-  const root = mkdtempSync(join(tmpdir(), "cutflow-retrieval-"));
+  const root = mkdtempSync(join(tmpdir(), "framewright-retrieval-"));
   const recording = join(root, "rec-1");
   try {
     mkdirSync(recording, { recursive: true });

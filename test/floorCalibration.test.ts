@@ -120,7 +120,7 @@ function wavPcm16(durationSec: number): Buffer {
 }
 
 function makeRecording(allKeep = false): string {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-floor-calibration-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-floor-calibration-"));
   writeFileSync(join(dir, "mic.wav"), wavPcm16(1));
   writeFileSync(join(dir, "manifest.json"), JSON.stringify({ durationSec: 1, audio: { micWav: "mic.wav" } }));
   writeFileSync(join(dir, "cutplan.json"), JSON.stringify({
@@ -193,7 +193,7 @@ test("detect calibration offは従来byte parity、enabledはmetadataを記録",
 });
 
 test("config calibration validationと読込", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-floor-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-floor-config-"));
   try {
     const active = readFileSync(resolve("config.yaml"), "utf8");
     const path = join(dir, "config.yaml");

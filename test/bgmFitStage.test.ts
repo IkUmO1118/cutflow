@@ -31,7 +31,7 @@ function makeSound(overrides: Partial<SoundReport> = {}): SoundReport {
 }
 
 function makeDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-bgm-fit-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-bgm-fit-"));
   mkdirSync(join(dir, "av.probe"), { recursive: true });
   return dir;
 }
@@ -108,7 +108,7 @@ test("bgmFit: id無しトラックにB2補正が出るとき → 先にid-stamp�
 });
 
 test("bgmFit: av.probe/sound.json 欠如 → 先にav で例外(exit1)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-bgm-fit-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-bgm-fit-"));
   try {
     writeFileSync(join(dir, "bgm.json"), JSON.stringify({ tracks: [{ start: 0, end: 100, file: "bgm.mp3" }] }));
     assert.throws(() => bgmFit(dir, cfg), /av /);

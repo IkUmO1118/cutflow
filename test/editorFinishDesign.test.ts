@@ -87,8 +87,8 @@ test("P5 theme bootstrap, provider, picker, and Toaster use one resolved contrac
 
   assert.doesNotMatch(html, /<html[^>]+class="dark"/);
   assert.match(html, /<meta name="color-scheme" content="light dark"/);
-  assert.ok(html.indexOf("data-cutflow-theme-bootstrap") < html.indexOf('href="/styles.css"'));
-  assert.match(html, /cutflow\.editor\.theme/);
+  assert.ok(html.indexOf("data-framewright-theme-bootstrap") < html.indexOf('href="/styles.css"'));
+  assert.match(html, /framewright\.editor\.theme/);
   assert.match(html, /value === "light" \|\| value === "dark" \|\| value === "system"/);
   assert.match(html, /preference === "dark" \|\| \(preference === "system" && matchMedia\(media\)\.matches\)/);
   assert.match(html, /classList\.toggle\("dark", dark\)/);
@@ -137,7 +137,7 @@ test("P5 onboarding is local-only, conflict-prioritized, dismissible, and guarde
   const dialog = read("editor/client/OnboardingDialog.tsx");
   const rules = read("editor/client/onboardingRules.ts");
   const app = read("editor/client/App.tsx");
-  assert.match(rules, /cutflow\.editor\.onboarding\.v1/);
+  assert.match(rules, /framewright\.editor\.onboarding\.v1/);
   assert.match(rules, /projectReady[\s\S]*!hasDraftOffer[\s\S]*!hasExternalChange[\s\S]*!diffPanelOpen/);
   assert.match(dialog, /localStorage\.setItem\(ONBOARDING_STORAGE_KEY, "true"\)/);
   assert.match(dialog, /onOpenChange=\{\(next\) => !next && dismiss\(\)\}/);

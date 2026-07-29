@@ -1,7 +1,7 @@
 // src/engine/runtime/audioScheduler.ts — WebAudio 先読みスケジューラ(M3a Phase4)。
 // OpenCut apps/web/src/core/managers/audio-manager.ts の設計を写す
 // (500ms 間隔の先読み・AudioBufferSourceNode.start(絶対時刻, offset)予約・
-// セッションID で古い予約を無効化)。CutFlow は OpenCut の任意クリップ配列
+// セッションID で古い予約を無効化)。FrameWright は OpenCut の任意クリップ配列
 // ではなく「keep セグメント(base 音声)」+「bgm.json のトラック(BGM)」という
 // 固定2種のソースだけを扱うため、クリップ抽象は持たず専用に組む。
 //

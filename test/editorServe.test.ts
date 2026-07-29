@@ -16,10 +16,10 @@ import {
   slugForDir,
 } from "../src/lib/editorServe.ts";
 
-const DIR = "/Users/x/Movies/cutflow/2026-07-02-demo";
+const DIR = "/Users/x/Movies/framewright/2026-07-02-demo";
 
-test("portfile とログは収録フォルダの外(~/.cutflow/editor/)に置く", () => {
-  assert.equal(editorStateDir(), resolve(homedir(), ".cutflow", "editor"));
+test("portfile とログは収録フォルダの外(~/.framewright/editor/)に置く", () => {
+  assert.equal(editorStateDir(), resolve(homedir(), ".framewright", "editor"));
   for (const p of [editorPortFilePath(DIR), editorLogFilePath(DIR)]) {
     assert.ok(p.startsWith(editorStateDir()), `${p} は状態ディレクトリ配下であること`);
     assert.ok(!p.startsWith(DIR), `${p} は収録フォルダ配下でないこと`);
@@ -31,7 +31,7 @@ test("portfile とログは収録フォルダの外(~/.cutflow/editor/)に置く
 test("slug は収録フォルダごとに一意で、末尾スラッシュ等の表記揺れを吸収する", () => {
   assert.equal(slugForDir(DIR), slugForDir(`${DIR}/`));
   assert.equal(slugForDir(DIR), slugForDir(`${DIR}/./`));
-  assert.notEqual(slugForDir(DIR), slugForDir("/Users/x/Movies/cutflow/2026-07-03-other"));
+  assert.notEqual(slugForDir(DIR), slugForDir("/Users/x/Movies/framewright/2026-07-03-other"));
   assert.match(slugForDir(DIR), /^[0-9a-f]{12}$/);
 });
 

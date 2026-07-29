@@ -21,9 +21,9 @@ test("P1 pins react-resizable-panels and adapts the thin wrapper to its v4 API",
 
 test("P1 shell is nested vertical then horizontal with the required pixel constraints", () => {
   const app = read("editor/client/App.tsx");
-  const outerAt = app.indexOf('id="cutflow-shell"');
+  const outerAt = app.indexOf('id="framewright-shell"');
   const mainAt = app.indexOf('id="main"', outerAt);
-  const innerAt = app.indexOf('id="cutflow-stage"', mainAt);
+  const innerAt = app.indexOf('id="framewright-stage"', mainAt);
   const leftAt = app.indexOf('id="left"', innerAt);
   const viewerAt = app.indexOf('id="viewer"', leftAt);
   const rightAt = app.indexOf('id="right"', viewerAt);
@@ -49,12 +49,12 @@ test("P1 shell is nested vertical then horizontal with the required pixel constr
 test("P1 retains existing storage and mounted children while removing manual split drag", () => {
   const app = read("editor/client/App.tsx");
   for (const key of [
-    "cutflow.editor.panelW",
-    "cutflow.editor.inspW",
-    "cutflow.editor.timelineH",
-    "cutflow.editor.panelOpen",
-    "cutflow.editor.inspOpen",
-    "cutflow.editor.timelineOpen",
+    "framewright.editor.panelW",
+    "framewright.editor.inspW",
+    "framewright.editor.timelineH",
+    "framewright.editor.panelOpen",
+    "framewright.editor.inspOpen",
+    "framewright.editor.timelineOpen",
   ]) {
     assert.ok(app.includes(key), `missing persistence key: ${key}`);
   }

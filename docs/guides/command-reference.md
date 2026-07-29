@@ -1,7 +1,7 @@
 # コマンド早見表
 
-> 全コマンドを「いつ使うか」で引く一覧。分類は CLI の `cutflow commands` と同じ
-> (出所は `src/lib/cliHelp.ts`)。個々の全オプションは `cutflow <コマンド> --help`、
+> 全コマンドを「いつ使うか」で引く一覧。分類は CLI の `framewright commands` と同じ
+> (出所は `src/lib/cliHelp.ts`)。個々の全オプションは `framewright <コマンド> --help`、
 > 機能ごとの詳しい説明は各ガイドを参照。
 > 関連: [../usage.md](../usage.md) / [cut-planning.md](cut-planning.md) / [materials.md](materials.md) / [effects.md](effects.md) / [audio-bgm.md](audio-bgm.md) / [export.md](export.md) / [safe-editing.md](safe-editing.md) / [ai-agents.md](ai-agents.md) / [tools-and-ops.md](tools-and-ops.md)
 
@@ -14,7 +14,7 @@
 | このコマンドの全オプション | `node src/cli.ts <コマンド> --help` |
 | どのファイルを直すと何が変わるか | [../usage.md](../usage.md) |
 
-`cutflow` は `npm link` 済みの人間向けの入口で、`node src/cli.ts` と同じコードに
+`framewright` は `npm link` 済みの人間向けの入口で、`node src/cli.ts` と同じコードに
 落ちる。CLI が出すヒントは、実際に使われた入口に合わせて書き分けられる。
 
 ## セットアップ・診断

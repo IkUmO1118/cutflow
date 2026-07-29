@@ -17,7 +17,7 @@ import type { RenderProps } from "../../lib/renderPropsTypes.ts";
 declare global {
   interface Window {
     __EXPORT_CONFIG__: ExportConfig;
-    __cutflowExporter: CutflowExporter;
+    __framewrightExporter: FrameWrightExporter;
   }
 }
 
@@ -28,7 +28,7 @@ export interface ExportConfig {
   sourceUrls: Record<string, string>;
 }
 
-interface CutflowExporter {
+interface FrameWrightExporter {
   readonly durationSec: number;
   init(): Promise<void>;
   renderFrame(tOut: number): Promise<FrameEntry>;
@@ -120,7 +120,7 @@ function dispose(): void {
 }
 
 Object.defineProperties(window, {
-  __cutflowExporter: {
+  __framewrightExporter: {
     value: Object.freeze({
       get durationSec() { return durSec; },
       init,

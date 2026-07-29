@@ -17,7 +17,7 @@ import { reviewEdit } from "../src/stages/review.ts";
 import type { Config } from "../src/lib/config.ts";
 
 async function withTmpProject(fn: (dir: string) => Promise<void> | void): Promise<void> {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-review-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-review-"));
   const write = (file: string, data: unknown): void => {
     writeFileSync(join(dir, file), JSON.stringify(data, null, 2), "utf8");
   };

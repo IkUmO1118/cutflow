@@ -172,7 +172,7 @@ export async function planMaterials(dir: string, cfg: Config): Promise<PlanMater
     prompt,
     cfg,
     {
-      name: "cutflow_plan_materials",
+      name: "framewright_plan_materials",
       strict: true,
       schema: {
         type: "object",

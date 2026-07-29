@@ -227,7 +227,7 @@ const numberedForPrompt: NumberedSegment[] = [
 ];
 
 before(() => {
-  channelDir = mkdtempSync(join(tmpdir(), "cutflow-styleinjection-"));
+  channelDir = mkdtempSync(join(tmpdir(), "framewright-styleinjection-"));
   recDir = join(channelDir, "2026-07-12-rec");
   mkdirSync(recDir);
 });

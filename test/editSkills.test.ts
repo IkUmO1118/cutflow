@@ -467,7 +467,7 @@ test("T-l: examples の語彙閉包 + カバレッジ表の全単射(全判断JS
 /* 実収録との照合(任意。ローカルにこの収録が無ければ skip。落ちない)      */
 /* ------------------------------------------------------------------ */
 
-const RECORDING_2026_07_12 = join(homedir(), "Movies", "cutflow", "2026-07-12");
+const RECORDING_2026_07_12 = join(homedir(), "Movies", "framewright", "2026-07-12");
 
 test("実収録照合: examples/2026-07-12-tool-demo.md の抜粋が cutplan.json の実データと一致する", (t) => {
   if (!existsSync(join(RECORDING_2026_07_12, "cutplan.json"))) {

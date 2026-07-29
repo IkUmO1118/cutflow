@@ -1,12 +1,12 @@
-# HyperFrames 作図契約(Cutflow 版の抜粋)
+# HyperFrames 作図契約(FrameWright 版の抜粋)
 
 > Adapted from HeyGen HyperFrames skills (Apache-2.0). See ./PROVENANCE.md.
 
-`hyperframes-core` skill の技術契約のうち、Cutflow の native interpreter(C1)
+`hyperframes-core` skill の技術契約のうち、FrameWright の native interpreter(C1)
 と check ゲート(C2)が実際に honor する部分だけを抜き出したもの。完全な
 契約仕様(全 `data-*` 一覧・sub-composition・track の詳細)は
 `../hyperframes-vendor/upstream-docs/data-attributes.md` /
-`compositions.md` を正とする。ここは「Cutflow でカード HTML を書くときに
+`compositions.md` を正とする。ここは「FrameWright でカード HTML を書くときに
 最低限守ること」の要約。
 
 ## ルート要素
@@ -19,7 +19,7 @@
 - ルートは明示的にサイズされた箱でなければならない(`width`/`height` を
   px で指定。flex/`100%` に頼って高さが 0 に潰れる罠は upstream
   `hyperframes-core` が「サイレントに壊れるバグ」として警告している。
-  Cutflow でも同様に、必ず px 指定する)
+  FrameWright でも同様に、必ず px 指定する)
 
 ## typed variables
 
@@ -43,11 +43,11 @@
   ちょうど `start+duration` の瞬間は hidden 側になる(upstream の両端含むとは違う)。
   最終フレームまで見せたい reveal は窓をわずかに伸ばすか、着地を `duration` 手前に置く
 - clip は root の直下でなくてよい(interpreter は `.clip` を深さ無視で全走査する)。
-  upstream の「clip は root の直接の子」制約は Cutflow には無い(track が無いため)
+  upstream の「clip は root の直接の子」制約は FrameWright には無い(track が無いため)
 
-## Cutflow が honor しない upstream 機能(スコープ境界)
+## FrameWright が honor しない upstream 機能(スコープ境界)
 
-Cutflow の native interpreter(`src/lib/hyperframe.ts` の bootstrap)は **1カード=
+FrameWright の native interpreter(`src/lib/hyperframe.ts` の bootstrap)は **1カード=
 1 HTML ファイルのフラットな単一 composition** を seek するだけの最小実装で、upstream
 HyperFrames の以下の機能は**実装していない**。upstream 側のドキュメント・サンプルから
 これらをコピーすると、check ゲートは 0 エラーで通っても render で黙って壊れる
@@ -93,7 +93,7 @@ sub-composition が無いぶん、連続する背景モーションや複数シ�
 
 ## determinism(seek-safe)
 
-Cutflow の native interpreter は Remotion の `useCurrentFrame()` から
+FrameWright の native interpreter は Remotion の `useCurrentFrame()` から
 `document.getAnimations()` の `currentTime` を絶対時刻で seek する。つまり
 **同じ時刻に何度 seek しても同じ絵になる**ことが前提。これを壊す入力は
 check ゲート(C2)がエラーで止める:
@@ -117,13 +117,13 @@ check ゲート(C2)がエラーで止める:
   この例外の対象外で常にエラーのまま
 
 WOFF2 は拡張子と先頭 magic `wOF2` を照合する。単体は固定 1MiB 以下、かつ
-`hyperframe.assets.maxBytes` と1回の `maxTotalBytes` にも従う。Cutflow は subset
+`hyperframe.assets.maxBytes` と1回の `maxTotalBytes` にも従う。FrameWright は subset
 tool を同梱しない。例えば外部の fonttools を使う場合は、必要文字だけを明示する:
 
 ```sh
 pyftsubset assets/fonts/NotoSansJP.woff2 \
   --output-file=/tmp/NotoSansJP-subset.woff2 --flavor=woff2 \
-  --text='CutFlow フォント埋め込み' --layout-features='*'
+  --text='FrameWright フォント埋め込み' --layout-features='*'
 ```
 
 配布時は元フォントのライセンスも確認し、この repository の Noto Sans JP なら
@@ -463,7 +463,7 @@ capabilityのfail-fast用に`data-hf-requires="webgpu"`を必ず宣言する。
 GPU/WebGL/WebGPU カードは Rule 9 と共有する resolver で `gpu-angle` profile に分類し、
 その card だけ `openBrowser("chrome", {chromiumOptions:{gl:"angle"}})` で
 render する。非 GPU card は従来どおり `openBrowser("chrome")` のまま。
-配線判断の根拠となった Cutflow の Remotion/Chrome(macOS)実測:
+配線判断の根拠となった FrameWright の Remotion/Chrome(macOS)実測:
 
 - **既定**(`openBrowser("chrome")`。現行の render 経路)→
   `getContext('webgl')` が **null** を返し、カードは描画できず render に
@@ -471,7 +471,7 @@ render する。非 GPU card は従来どおり `openBrowser("chrome")` のま�
 - **swiftshader**(`chromiumOptions.gl:"swiftshader"`)→ こちらも
   **null(WebGL コンテキストが取得できない)**。program §2.3 が想定していた
   「SwiftShader が GPU の byte 決定論を保証する」という前提は、この
-  Cutflow の Remotion/Chrome/macOS 構成では成立しない(SwiftShader 自体が
+  FrameWright の Remotion/Chrome/macOS 構成では成立しない(SwiftShader 自体が
   WebGL を提供しない)
 - **angle**(`chromiumOptions.gl:"angle"`)→ WebGL が**動作し**、2回の
   re-render で frame 0/60/119 が **byte 単位で完全一致**した(4秒/120フレーム
@@ -536,7 +536,7 @@ jsDelivrの`+esm`も動的生成物でSRI非推奨を明記するため、classi
 - 実例は `examples/hyperframes-animation--three-geometry.html`、逐語 upstream は
   `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/adapters/three.md`
 
-`html-in-canvas` は **OUT のまま**とする。上流は実験的な `layoutsubtree` / `drawElementImage` を必要とする一方、Cutflow が Chromium に渡すのは `gl:"angle"` だけで有効化 flag が無く、通常 canvas への fallback は同等機能ではないうえ、DOM→bitmap の readiness・cache key・決定論を別途設計すべき独立課題だからである。
+`html-in-canvas` は **OUT のまま**とする。上流は実験的な `layoutsubtree` / `drawElementImage` を必要とする一方、FrameWright が Chromium に渡すのは `gl:"angle"` だけで有効化 flag が無く、通常 canvas への fallback は同等機能ではないうえ、DOM→bitmap の readiness・cache key・決定論を別途設計すべき独立課題だからである。
 
 ### check と render を通る例
 

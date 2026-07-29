@@ -1,4 +1,4 @@
-// `cutflow record --watch` — OBS の録画ボタンに自動連動し、vendor した
+// `framewright record --watch` — OBS の録画ボタンに自動連動し、vendor した
 // Swift カーソルヘルパ(src/lib/vendor/openscreen)を録画中だけ起動して
 // `<recording>.cursor.json` サイドカーを確定する常駐 watcher(D1/D3/D4)。
 //

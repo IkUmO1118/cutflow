@@ -61,7 +61,7 @@ export const MobileGate = ({ children }: { children: ReactNode }) => {
         <div className="mobileGateIcon" aria-hidden><MonitorSmartphone size={26} /></div>
         <h1>広い画面での編集をおすすめします</h1>
         <p>
-          CutFlow のタイムライン編集は横幅 1024px 以上を想定しています。
+          FrameWright のタイムライン編集は横幅 1024px 以上を想定しています。
           この案内を表示している間はエディタを起動せず、収録フォルダの JSON データにも影響しません。
         </p>
         <Button onClick={continueAnyway}>それでも表示</Button>

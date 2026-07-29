@@ -1,7 +1,7 @@
 import type { Region } from "../types.ts";
 
 /** ヘルパの正規化カーソル座標(cx,cy∈[0,1]。撮影ディスプレイ内・左上原点)を
- * CutFlow の出力px(screenRegion 座標系)へ写像する(D8)。D2 が dwell 推薦の
+ * FrameWright の出力px(screenRegion 座標系)へ写像する(D8)。D2 が dwell 推薦の
  * rect 化に使う純関数。obs-canvas は撮影ディスプレイ全体が screenRegion
  * いっぱいに配置される前提(収録ガイドで倒す運用)、plain は出力=収録実寸。
  * §docs/plans/2026-07-24-openscreen-d1-cursor-telemetry-design.md D8 */

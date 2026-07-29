@@ -4,7 +4,7 @@
 // 動作しない(Worker 不可。母艦§9「M3a Phase 3 前・構成修正」)ため、
 // ここはブラウザのメインスレッドから呼ぶ前提で書く。
 //
-// FrameDescriptor(src/engine/descriptor.ts。CutFlow 側の抽象)→ このファイルが
+// FrameDescriptor(src/engine/descriptor.ts。FrameWright 側の抽象)→ このファイルが
 // webgpuBackend.ts の CompositorFrameInput(テクスチャ付き矩形の配列)へ
 // 組み立てて `renderFrame` を呼ぶ。
 import {

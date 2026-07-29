@@ -13,7 +13,7 @@ import {
 
 const SAMPLE_HTML = `<!doctype html>
 <html data-composition-variables='[
-  {"id":"title","type":"string","label":"Title","default":"CutFlow"},
+  {"id":"title","type":"string","label":"Title","default":"FrameWright"},
   {"id":"accent","type":"color","label":"Accent","default":"#22c55e"}
 ]'>
 <head><style>
@@ -55,7 +55,7 @@ test("P-2: parseComposition は variables を JSON.parse する", () => {
     id: "title",
     type: "string",
     label: "Title",
-    default: "CutFlow",
+    default: "FrameWright",
   });
   assert.deepEqual(parsed.variables[1], {
     id: "accent",
@@ -115,7 +115,7 @@ test('P-4d: determinismTier falls back to "byte" for an invalid value (lenient p
 
 test("P-5: mergeVariables の優先度は default < instance < cli", () => {
   const decls = [
-    { id: "title", type: "string", default: "CutFlow" },
+    { id: "title", type: "string", default: "FrameWright" },
     { id: "accent", type: "color", default: "#22c55e" },
   ];
 
@@ -134,14 +134,14 @@ test("P-5: mergeVariables の優先度は default < instance < cli", () => {
 
   // どちらにも無いキーは default のまま
   const merged4 = mergeVariables(decls, { accent: "#000000" });
-  assert.equal(merged4.title, "CutFlow");
+  assert.equal(merged4.title, "FrameWright");
   assert.equal(merged4.accent, "#000000");
 });
 
 /* ---------------- P-6 ---------------- */
 
 test("P-6: buildIframeSrcdoc は bootstrap script を author script より前に置く", () => {
-  const out = buildIframeSrcdoc(SAMPLE_HTML, { title: "CutFlow", accent: "#22c55e" });
+  const out = buildIframeSrcdoc(SAMPLE_HTML, { title: "FrameWright", accent: "#22c55e" });
   const bootstrapIdx = out.indexOf("window.__hyperframes");
   const authorIdx = out.indexOf("window.__hyperframes.getVariables()");
   assert.ok(bootstrapIdx >= 0, "bootstrap script not found");
@@ -152,7 +152,7 @@ test("P-6: buildIframeSrcdoc は bootstrap script を author script より前に
 /* ---------------- P-7 ---------------- */
 
 test("P-7: buildIframeSrcdoc は決定論(同じ引数→同じ文字列)", () => {
-  const vars = { title: "CutFlow", accent: "#22c55e" };
+  const vars = { title: "FrameWright", accent: "#22c55e" };
   const out1 = buildIframeSrcdoc(SAMPLE_HTML, vars);
   const out2 = buildIframeSrcdoc(SAMPLE_HTML, vars);
   assert.equal(out1, out2);
@@ -160,10 +160,10 @@ test("P-7: buildIframeSrcdoc は決定論(同じ引数→同じ文字列)", () =
 
 test("P-7b: default srcdoc is byte-identical to the X3 CDN-pin baseline", () => {
   const out = buildIframeSrcdoc(EXPORTED_SAMPLE_HTML, {});
-  assert.equal(out.length, 5182);
+  assert.equal(out.length, 5186);
   assert.equal(
     createHash("sha256").update(out).digest("hex"),
-    "601a24fac9cf3271644125d53124d26847504adabfb8b5a240d0a050ef93804d",
+    "c00f3921df4ba93e0778527f90e9830bc70abe1091a80cd81e77323938345a3c",
   );
   assert.equal(buildIframeSrcdoc(EXPORTED_SAMPLE_HTML, {}, "default"), out);
   assert.doesNotMatch(out, /__hfGlStats|checkWebglContext|HTMLCanvasElement\.prototype\.getContext/);
@@ -197,7 +197,7 @@ test("P-8: buildIframeSrcdoc は </script> を含む値をエスケープする"
 /* ---------------- P-9 ---------------- */
 
 test("P-9: 埋め込まれた JSON リテラルは渡した variables と deep-equal", () => {
-  const vars = { title: "CutFlow", accent: "#22c55e", nested: { a: 1, b: [1, 2, 3] } };
+  const vars = { title: "FrameWright", accent: "#22c55e", nested: { a: 1, b: [1, 2, 3] } };
   const out = buildIframeSrcdoc(SAMPLE_HTML, vars);
   const m = /var __vars = (.*?);function seek/.exec(out.replace(/\n/g, ""));
   assert.ok(m, "could not locate embedded __vars JSON literal");
@@ -208,7 +208,7 @@ test("P-9: 埋め込まれた JSON リテラルは渡した variables と deep-e
 /* ---------------- P-10 (B1: seek conventions) ---------------- */
 
 test("P-10: bootstrap は GSAP/Anime/Lottie/hf-seek/readiness/error 規約の全マーカーを含む", () => {
-  const out = buildIframeSrcdoc(SAMPLE_HTML, { title: "CutFlow", accent: "#22c55e" });
+  const out = buildIframeSrcdoc(SAMPLE_HTML, { title: "FrameWright", accent: "#22c55e" });
   assert.ok(out.includes("window.__timelines"), "GSAP window.__timelines marker missing");
   const totalTimeCount = (out.match(/\.totalTime\(/g) || []).length;
   assert.equal(totalTimeCount, 2, "expected exactly two .totalTime( calls (GSAP same-time-seek nudge)");
@@ -235,7 +235,7 @@ test("P-10b: webgpu capability check uses navigator.gpu only for a declared webg
 /* ---------------- P-12 (B2: CSP injection) ---------------- */
 
 test("P-12: buildIframeSrcdoc injects a CSP <meta> before the bootstrap script", () => {
-  const out = buildIframeSrcdoc(SAMPLE_HTML, { title: "CutFlow", accent: "#22c55e" });
+  const out = buildIframeSrcdoc(SAMPLE_HTML, { title: "FrameWright", accent: "#22c55e" });
   const cspIdx = out.indexOf('<meta http-equiv="Content-Security-Policy"');
   const bootstrapIdx = out.indexOf("window.__hyperframes");
   assert.ok(cspIdx >= 0, "CSP meta not found");
@@ -268,7 +268,7 @@ test("P-12: buildIframeSrcdoc injects a CSP <meta> before the bootstrap script",
 });
 
 test("P-11: byte-anchor — clip 可視性ループと WAAPI シークループは verbatim のまま", () => {
-  const out = buildIframeSrcdoc(SAMPLE_HTML, { title: "CutFlow", accent: "#22c55e" });
+  const out = buildIframeSrcdoc(SAMPLE_HTML, { title: "FrameWright", accent: "#22c55e" });
   const clipLoop =
     "var clips = document.querySelectorAll('.clip');" +
     "for (var i=0;i<clips.length;i++){" +

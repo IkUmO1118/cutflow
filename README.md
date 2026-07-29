@@ -1,4 +1,4 @@
-# CutFlow
+# FrameWright
 
 撮影後の編集をエディタ起点で進める、ローカルファーストな動画パイプライン。
 
@@ -46,7 +46,7 @@ mkdir -p ~/Models/whisper
 curl -L -o ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin \
   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin
 npm install
-npm link      # `cutflow` コマンドをどこからでも使えるようにする(任意・推奨)
+npm link      # `framewright` コマンドをどこからでも使えるようにする(任意・推奨)
 ```
 
 > whisper モデルはまず軽い `base`(≈150MB)で即試し、本番で `large-v3-turbo` に上げる
@@ -56,24 +56,24 @@ npm link      # `cutflow` コマンドをどこからでも使えるようにす
 インストール後、環境が揃っているかは1コマンドで確認できます:
 
 ```sh
-cutflow doctor
+framewright doctor
 ```
 
 ### コマンドの2つの入口
 
-`npm link` すると `cutflow <コマンド>` がどこからでも打てます(収録フォルダ側で
+`npm link` すると `framewright <コマンド>` がどこからでも打てます(収録フォルダ側で
 作業しているときもリポジトリへ `cd` しなくてよく、Node のバージョン不足も
 人間可読なメッセージで弾かれるので、**人間はこちらを使う**のがおすすめ)。
 
 リンクしていなくても、リポジトリのルートから同じことができます:
 
 ```sh
-cutflow doctor            # npm link 済み(推奨)
+framewright doctor            # npm link 済み(推奨)
 node src/cli.ts doctor    # リンク不要。リポジトリのルートから
 ```
 
 以下このリポジトリのドキュメントは、リンク前提を置かないため
-`node src/cli.ts …` で書いています。`cutflow …` と読み替えて構いません
+`node src/cli.ts …` で書いています。`framewright …` と読み替えて構いません
 (CLI が出すヒントも、実際に使った入口に合わせて書き分けます)。
 
 必須(Node / ffmpeg / ffprobe / config)が欠けていれば exit 1、収録・AI 系(whisper・
@@ -82,10 +82,10 @@ node src/cli.ts doctor    # リンク不要。リポジトリのルートから
 詳細は [docs/usage.md の「環境プリフライト(doctor)」](docs/usage.md) を参照。
 
 > **Linux で試す / mac が無い場合は Docker で再現環境を作れます。** リポジトリ直下で
-> `docker build -t cutflow .` → `docker run --rm cutflow doctor --no-ai` を叩くと、
+> `docker build -t framewright .` → `docker run --rm framewright doctor --no-ai` を叩くと、
 > 必須チェック(Node / ffmpeg / ffprobe / config)が緑になった Linux 環境をそのまま
 > 確認できます(whisper は同梱しないので warn=想定内)。収録フォルダは
-> `-v ~/Movies/cutflow:/recordings` でマウントして編集します。初回 `render` 時のみ
+> `-v ~/Movies/framewright:/recordings` でマウントして編集します。初回 `render` 時のみ
 > Remotion が headless Chrome を自動取得します(数分)。
 
 > **既定の AI provider `claude-code` は `claude` CLI(Claude Code)の
@@ -124,10 +124,10 @@ npm run sample        # = bash scripts/make-sample.sh
 
 ```sh
 # まずエディタで開く(自動カットなし。動画は全編 keep のまま)
-node src/cli.ts editor ~/Movies/cutflow/2026-07-02-my-recording
+node src/cli.ts editor ~/Movies/framewright/2026-07-02-my-recording
 
 # 自動カット案までまとめて作る上級/バッチ用
-node src/cli.ts run ~/Movies/cutflow/2026-07-02-my-recording
+node src/cli.ts run ~/Movies/framewright/2026-07-02-my-recording
 ```
 
 ### コマンドの全体像
@@ -245,7 +245,7 @@ AI provider:
 
 ## スコープ(できること / 意図的に持たないこと)
 
-CutFlow は「画面デモ+解説の収録 → YouTube」という**単一ワークフローに特化**した
+FrameWright は「画面デモ+解説の収録 → YouTube」という**単一ワークフローに特化**した
 オピニオネイテッドな道具です。汎用 NLE(Premiere / Final Cut)の代替ではなく、
 その前段の「一次編集を自動化して人が仕上げる」層を担います。
 

@@ -1,7 +1,7 @@
 # Motion-Blur Streak
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/motion-blur-streak.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 Fakes directional velocity blur on a fast entrance or camera push-through (real
@@ -30,7 +30,7 @@ tl.fromTo('#streak-el', { x: -600, opacity:0 }, { x:0, opacity:1, duration:0.4, 
 tl.to(blurProxy, { v:0, duration:0.4, ease:'power4.out', onUpdate: writeBlur }, 0.2);  // SAME ease+window
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **Blur peaks at peak speed, resolves to 0 at the settle** — the whole rule.
   Position and blur/echo MUST share the same `out`-family ease (`expo.out`/
   `power4.out`) and window; an `in`/`inOut` ease breaks the coupling.

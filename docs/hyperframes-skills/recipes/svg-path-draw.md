@@ -1,7 +1,7 @@
 # SVG Path Draw
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/svg-path-draw.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 Reveals an SVG shape as if a pen were tracing it — a logo mark, a diagram
@@ -36,7 +36,7 @@ tl.to('#bar-mid',   { strokeDashoffset: 0, duration: 0.35, ease: 'power2.out' },
 Ring form: rotate `-90deg` via `transform-origin:center` so the draw starts at 12
 o'clock instead of the default 3 o'clock.
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - `getTotalLength()` is measured at setup (inline SVG is already in the DOM at
   that point) and only feeds a static dasharray value — this is NOT the
   measure+zoom hazard; the result is baked once, stays byte-stable.

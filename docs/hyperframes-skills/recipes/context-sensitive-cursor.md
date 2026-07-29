@@ -1,7 +1,7 @@
 # Context-Sensitive Cursor
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/context-sensitive-cursor.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 A typewriter's cursor color switches per active text segment (brand accent on a
@@ -37,10 +37,10 @@ tl.to(driver, { t: DURATION, duration: DURATION, ease: "none", onUpdate: () => {
 window.__timelines['<composition-id>'] = tl;
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **Blink from timeline time, not wall-clock**: `Math.sin(blink.p)` from a linear
   `onUpdate` driver, never a CSS `@keyframes blink` — CSS animation clocks desync
-  from Cutflow's frame-by-frame seek.
+  from FrameWright's frame-by-frame seek.
 - `background` on `.cursor`, not `color` — the cursor is a colored block, so
   `background` is the property that reads as "color."
 - `white-space: pre` + monospace — proportional fonts drift the cursor position

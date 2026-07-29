@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cutflow.dev/schemas/common.schema.json",
+  "$id": "https://framewright.dev/schemas/common.schema.json",
   "$comment": "8編集ファイルが共有する $defs。src/types.ts の共有型(Region / CaptionPos / CaptionStyle 系 / WordTiming / CaptionTrackDef / Interval / Annotation union)の射影。id.pattern は src/lib/ids.ts の ID_RE、CaptionAnim の in/out 列挙は src/types.ts の CaptionAnimKind、CaptionKaraoke.mode は同ファイルのカラオケ型、blur type / annotation type / spotlight shape は各 BlurType / AnnotationType / SpotlightShape と揃える(test/schema.test.ts がこれらをコード側の型にピン留めする)。",
   "$defs": {
     "id": {

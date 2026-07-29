@@ -20,10 +20,10 @@ import type { ToolResult } from "../src/mcp/types.ts";
 const cfg = loadConfig();
 
 /** 最小の妥当な収録フォルダ(manifest+cutplan+transcript のみ)。
- * overlays/bgm/materials を持たないので cutflow_materials は空 index を
+ * overlays/bgm/materials を持たないので framewright_materials は空 index を
  * 返す(実 ffprobe を一切呼ばない=軽量・決定論的) */
 function makeGoodProject(): string {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-mcp-tools-good-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-mcp-tools-good-"));
   const write = (file: string, data: unknown) =>
     writeFileSync(join(dir, file), JSON.stringify(data, null, 2), "utf8");
   write("manifest.json", {
@@ -52,7 +52,7 @@ function makeGoodProject(): string {
 /** cutplan の keep 区間が重なる壊れたプロジェクト(validate エラーを
  * 確実に起こすため) */
 function makeBrokenProject(): string {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-mcp-tools-broken-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-mcp-tools-broken-"));
   const write = (file: string, data: unknown) =>
     writeFileSync(join(dir, file), JSON.stringify(data, null, 2), "utf8");
   write("manifest.json", {
@@ -91,24 +91,24 @@ test("makeTools: 安全なread/review/edit/search toolだけを露出する", ()
     const tools = makeTools(dir, cfg);
     const names = tools.map((t) => t.name).sort();
     assert.deepEqual(names, [
-      "cutflow_apply",
-      "cutflow_assert",
-      "cutflow_av",
-      "cutflow_describe",
-      "cutflow_edit",
-      "cutflow_frames",
-      "cutflow_id_stamp",
-      "cutflow_materials",
-      "cutflow_review",
-      "cutflow_search",
-      "cutflow_validate",
+      "framewright_apply",
+      "framewright_assert",
+      "framewright_av",
+      "framewright_describe",
+      "framewright_edit",
+      "framewright_frames",
+      "framewright_id_stamp",
+      "framewright_materials",
+      "framewright_review",
+      "framewright_search",
+      "framewright_validate",
     ]);
   } finally {
     rm(dir);
   }
 });
 
-test("cutflow_av: tool 一覧にあり、json payload を返す", async () => {
+test("framewright_av: tool 一覧にあり、json payload を返す", async () => {
   const dir = makeGoodProject();
   try {
     execFileSync("ffmpeg", [
@@ -123,7 +123,7 @@ test("cutflow_av: tool 一覧にあり、json payload を返す", async () => {
       join(dir, "proxy.mp4"),
     ]);
     const tools = makeTools(dir, cfg);
-    const avTool = tools.find((t) => t.name === "cutflow_av")!;
+    const avTool = tools.find((t) => t.name === "framewright_av")!;
     const result = await avTool.handler({ motionOnly: true });
     assert.equal(result.isError, undefined);
     const payload = jsonOf(result) as { motion?: unknown; sound?: unknown };
@@ -167,21 +167,21 @@ test("makeTools: approve/unapprove/render/plan/remeta/plan-shorts/run/ingest/tra
     }
     // 名指しでも確認(将来 forbiddenSubstrings の書き換えに頼らない冗長な固定)
     for (const bad of [
-      "cutflow_approve",
-      "cutflow_unapprove",
-      "cutflow_render",
-      "cutflow_plan",
-      "cutflow_remeta",
-      "cutflow_plan_shorts",
-      "cutflow_run",
-      "cutflow_ingest",
-      "cutflow_transcribe",
-      "cutflow_detect",
-      "cutflow_preview",
-      "cutflow_thumbnail",
-      "cutflow_editor",
-      "cutflow_frames_serve",
-      "cutflow_learn",
+      "framewright_approve",
+      "framewright_unapprove",
+      "framewright_render",
+      "framewright_plan",
+      "framewright_remeta",
+      "framewright_plan_shorts",
+      "framewright_run",
+      "framewright_ingest",
+      "framewright_transcribe",
+      "framewright_detect",
+      "framewright_preview",
+      "framewright_thumbnail",
+      "framewright_editor",
+      "framewright_frames_serve",
+      "framewright_learn",
     ]) {
       assert.equal(names.has(bad), false, `${bad} がレジストリに存在してはいけません`);
     }
@@ -195,20 +195,20 @@ test("makeTools: 未登録の tool 名は tools/call の name 引きでも見つ
   try {
     const tools = makeTools(dir, cfg);
     const byName = new Map(tools.map((t) => [t.name, t]));
-    assert.equal(byName.get("cutflow_render"), undefined);
-    assert.equal(byName.get("cutflow_approve"), undefined);
+    assert.equal(byName.get("framewright_render"), undefined);
+    assert.equal(byName.get("framewright_approve"), undefined);
   } finally {
     rm(dir);
   }
 });
 
-/* ---------------- cutflow_describe ---------------- */
+/* ---------------- framewright_describe ---------------- */
 
-test("cutflow_describe: DescribeProjection の JSON を content に返す(isError なし)", async () => {
+test("framewright_describe: DescribeProjection の JSON を content に返す(isError なし)", async () => {
   const dir = makeGoodProject();
   try {
     const tools = makeTools(dir, cfg);
-    const describe = tools.find((t) => t.name === "cutflow_describe")!;
+    const describe = tools.find((t) => t.name === "framewright_describe")!;
     const result = await describe.handler(undefined);
     assert.equal(result.isError, undefined);
     const proj = jsonOf(result) as { keeps: unknown[]; summary: unknown };
@@ -219,13 +219,13 @@ test("cutflow_describe: DescribeProjection の JSON を content に返す(isErro
   }
 });
 
-/* ---------------- cutflow_validate ---------------- */
+/* ---------------- framewright_validate ---------------- */
 
-test("cutflow_validate: 妥当なプロジェクトは isError なし", async () => {
+test("framewright_validate: 妥当なプロジェクトは isError なし", async () => {
   const dir = makeGoodProject();
   try {
     const tools = makeTools(dir, cfg);
-    const validateTool = tools.find((t) => t.name === "cutflow_validate")!;
+    const validateTool = tools.find((t) => t.name === "framewright_validate")!;
     const result = await validateTool.handler(undefined);
     assert.equal(result.isError, undefined);
     const r = jsonOf(result) as { errors: unknown[] };
@@ -235,11 +235,11 @@ test("cutflow_validate: 妥当なプロジェクトは isError なし", async ()
   }
 });
 
-test("cutflow_validate: 検査エラーのあるプロジェクトは isError:true + Problem[] を返す", async () => {
+test("framewright_validate: 検査エラーのあるプロジェクトは isError:true + Problem[] を返す", async () => {
   const dir = makeBrokenProject();
   try {
     const tools = makeTools(dir, cfg);
-    const validateTool = tools.find((t) => t.name === "cutflow_validate")!;
+    const validateTool = tools.find((t) => t.name === "framewright_validate")!;
     const result = await validateTool.handler(undefined);
     assert.equal(result.isError, true);
     const r = jsonOf(result) as { errors: { file: string; where: string; message: string }[] };
@@ -250,14 +250,14 @@ test("cutflow_validate: 検査エラーのあるプロジェクトは isError:tr
   }
 });
 
-/* ---------------- cutflow_apply ---------------- */
+/* ---------------- framewright_apply ---------------- */
 
-test("cutflow_apply: dryRun は書かずに diff を返す", async () => {
+test("framewright_apply: dryRun は書かずに diff を返す", async () => {
   const dir = makeGoodProject();
   try {
     const before = readFileSync(join(dir, "cutplan.json"), "utf8");
     const tools = makeTools(dir, cfg);
-    const applyTool = tools.find((t) => t.name === "cutflow_apply")!;
+    const applyTool = tools.find((t) => t.name === "framewright_apply")!;
     const result = await applyTool.handler({
       patch: { replace: { chapters: { chapters: [{ start: 0, title: "導入" }] } } },
       dryRun: true,
@@ -273,11 +273,11 @@ test("cutflow_apply: dryRun は書かずに diff を返す", async () => {
   }
 });
 
-test("cutflow_apply: 実行(dryRun 無し)は成功時に書き込み、written を返す", async () => {
+test("framewright_apply: 実行(dryRun 無し)は成功時に書き込み、written を返す", async () => {
   const dir = makeGoodProject();
   try {
     const tools = makeTools(dir, cfg);
-    const applyTool = tools.find((t) => t.name === "cutflow_apply")!;
+    const applyTool = tools.find((t) => t.name === "framewright_apply")!;
     const result = await applyTool.handler({
       patch: { replace: { chapters: { chapters: [{ start: 0, title: "導入" }] } } },
     });
@@ -293,12 +293,12 @@ test("cutflow_apply: 実行(dryRun 無し)は成功時に書き込み、written 
   }
 });
 
-test("cutflow_apply: 不正パッチ(未解決の @id)は isError:true・ディスク不変", async () => {
+test("framewright_apply: 不正パッチ(未解決の @id)は isError:true・ディスク不変", async () => {
   const dir = makeGoodProject();
   try {
     const beforeCutplan = readFileSync(join(dir, "cutplan.json"), "utf8");
     const tools = makeTools(dir, cfg);
-    const applyTool = tools.find((t) => t.name === "cutflow_apply")!;
+    const applyTool = tools.find((t) => t.name === "framewright_apply")!;
     const result = await applyTool.handler({
       patch: { ops: [{ op: "set", target: "@seg_nope00", field: "reason", value: "x" }] },
     });
@@ -311,11 +311,11 @@ test("cutflow_apply: 不正パッチ(未解決の @id)は isError:true・ディ�
   }
 });
 
-test("cutflow_apply: patch 引数が無い/オブジェクトでない場合は JsonRpcError(-32602)", async () => {
+test("framewright_apply: patch 引数が無い/オブジェクトでない場合は JsonRpcError(-32602)", async () => {
   const dir = makeGoodProject();
   try {
     const tools = makeTools(dir, cfg);
-    const applyTool = tools.find((t) => t.name === "cutflow_apply")!;
+    const applyTool = tools.find((t) => t.name === "framewright_apply")!;
     await assert.rejects(
       async () => applyTool.handler({}),
       (e: unknown) => e instanceof JsonRpcError && e.code === -32602,
@@ -329,13 +329,13 @@ test("cutflow_apply: patch 引数が無い/オブジェクトでない場合は 
   }
 });
 
-/* ---------------- cutflow_id_stamp ---------------- */
+/* ---------------- framewright_id_stamp ---------------- */
 
-test("cutflow_id_stamp: 初回は changed が非空、2回目は冪等(空)", async () => {
+test("framewright_id_stamp: 初回は changed が非空、2回目は冪等(空)", async () => {
   const dir = makeGoodProject();
   try {
     const tools = makeTools(dir, cfg);
-    const idStampTool = tools.find((t) => t.name === "cutflow_id_stamp")!;
+    const idStampTool = tools.find((t) => t.name === "framewright_id_stamp")!;
     const first = await idStampTool.handler(undefined);
     assert.equal(first.isError, undefined);
     const r1 = jsonOf(first) as { changed: string[] };
@@ -349,13 +349,13 @@ test("cutflow_id_stamp: 初回は changed が非空、2回目は冪等(空)", as
   }
 });
 
-/* ---------------- cutflow_materials ---------------- */
+/* ---------------- framewright_materials ---------------- */
 
-test("cutflow_materials: 素材参照が無いプロジェクトは空 index を返す(isError なし)", async () => {
+test("framewright_materials: 素材参照が無いプロジェクトは空 index を返す(isError なし)", async () => {
   const dir = makeGoodProject();
   try {
     const tools = makeTools(dir, cfg);
-    const materialsTool = tools.find((t) => t.name === "cutflow_materials")!;
+    const materialsTool = tools.find((t) => t.name === "framewright_materials")!;
     const result = await materialsTool.handler(undefined);
     assert.equal(result.isError, undefined);
     const index = jsonOf(result) as { materials: unknown[] };
@@ -365,13 +365,13 @@ test("cutflow_materials: 素材参照が無いプロジェクトは空 index を
   }
 });
 
-/* ---------------- cutflow_assert ---------------- */
+/* ---------------- framewright_assert ---------------- */
 
-test("cutflow_assert: assertions.json が無ければ空レポート(isError なし)", async () => {
+test("framewright_assert: assertions.json が無ければ空レポート(isError なし)", async () => {
   const dir = makeGoodProject();
   try {
     const tools = makeTools(dir, cfg);
-    const assertTool = tools.find((t) => t.name === "cutflow_assert")!;
+    const assertTool = tools.find((t) => t.name === "framewright_assert")!;
     const result = await assertTool.handler(undefined);
     assert.equal(result.isError, undefined);
     const report = jsonOf(result) as { outcomes: unknown[] };
@@ -381,13 +381,13 @@ test("cutflow_assert: assertions.json が無ければ空レポート(isError な
   }
 });
 
-/* ---------------- cutflow_frames(引数検査のみ。実レンダーは重いため対象外) ---------------- */
+/* ---------------- framewright_frames(引数検査のみ。実レンダーは重いため対象外) ---------------- */
 
-test("cutflow_frames: t/captions/every のどれも無ければ JsonRpcError(-32602)", async () => {
+test("framewright_frames: t/captions/every のどれも無ければ JsonRpcError(-32602)", async () => {
   const dir = makeGoodProject();
   try {
     const tools = makeTools(dir, cfg);
-    const framesTool = tools.find((t) => t.name === "cutflow_frames")!;
+    const framesTool = tools.find((t) => t.name === "framewright_frames")!;
     await assert.rejects(
       () => Promise.resolve(framesTool.handler({})),
       (e: unknown) => e instanceof JsonRpcError && e.code === -32602,
@@ -401,11 +401,11 @@ test("cutflow_frames: t/captions/every のどれも無ければ JsonRpcError(-32
   }
 });
 
-test("cutflow_frames: out は t とだけ併用できる", async () => {
+test("framewright_frames: out は t とだけ併用できる", async () => {
   const dir = makeGoodProject();
   try {
     const tools = makeTools(dir, cfg);
-    const framesTool = tools.find((t) => t.name === "cutflow_frames")!;
+    const framesTool = tools.find((t) => t.name === "framewright_frames")!;
     await assert.rejects(
       () => Promise.resolve(framesTool.handler({ every: 10, out: true })),
       (e: unknown) => e instanceof JsonRpcError && e.code === -32602,

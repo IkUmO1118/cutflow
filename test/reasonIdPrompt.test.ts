@@ -18,21 +18,21 @@ import { CUT_REASON_IDS } from "../src/lib/reasonIds.ts";
 import { CUT_PATTERN_INJECTION } from "../src/lib/cutPatterns.ts";
 
 const numbered: NumberedSegment[] = [
-  { id: 1, start: 0, end: 3.5, text: "こんにちは、今日はCutFlowを紹介します" },
+  { id: 1, start: 0, end: 3.5, text: "こんにちは、今日はFrameWrightを紹介します" },
   { id: 2, start: 3.5, end: 7.25, text: "えー、まあ、その、動画編集のツールですね" },
   { id: 3, start: 7.25, end: 12, text: "" },
 ];
 
 const GOLDEN: Record<string, { md5: string; len: number }> = {
-  "plan-cuts.md": { md5: "286177e3329f003331c4feab888930b3", len: 712 },
-  "plan.md": { md5: "2e31b1df5dedaee81238f25fbd552983", len: 932 },
-  "meta.md": { md5: "8046c97a515d20ba1c883620f5492e5e", len: 778 },
+  "plan-cuts.md": { md5: "62f5efd0ceeffc51a1233f6d64760f18", len: 716 },
+  "plan.md": { md5: "b658eb0d34d6dfe5c90fdcd1d6b8838a", len: 936 },
+  "meta.md": { md5: "f3f93d9b552befe36e69e2d380375e92", len: 782 },
 };
 
 const FEATURE_TOKENS = ["reasonId", "分類", "recipe", "レシピ", "cut-recipes", "収録タイプ", "edit-skills"];
 
 test("T-g: renderPrompt(reasonIds 省略)は brief.md/rules.md 無しの素の収録で golden md5 と一致(I2)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-reasonid-offpath-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-reasonid-offpath-"));
   try {
     for (const [tpl, expected] of Object.entries(GOLDEN)) {
       const out = renderPrompt(dir, tpl, numbered, 120);
@@ -49,7 +49,7 @@ test("T-g: renderPrompt(reasonIds 省略)は brief.md/rules.md 無しの素の�
 });
 
 test("T-g: renderPrompt に reasonIds を明示的に空文字で渡しても golden と同一(9引数呼び出しの既定と一致)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-reasonid-offpath2-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-reasonid-offpath2-"));
   try {
     const withDefault = renderPrompt(dir, "plan-cuts.md", numbered, 120);
     const withEmpty = renderPrompt(dir, "plan-cuts.md", numbered, 120, "", undefined, "", "");
@@ -97,7 +97,7 @@ test("renderReasonIdsBlock: golden(id+一行定義+系の並び。候補数に�
 /* ------------------------------------------------------------------ */
 
 test("renderPrompt: reasonIds を渡すと {{styleProfile}} 直後(区切りなし)・## カットの判断基準の直前に挿入される(plan-cuts.md)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-reasonid-wire-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-reasonid-wire-"));
   try {
     const block = renderReasonIdsBlock(true);
     const prompt = renderPrompt(dir, "plan-cuts.md", numbered, 120, "", undefined, "", block);
@@ -112,10 +112,10 @@ test("renderPrompt: reasonIds を渡すと {{styleProfile}} 直後(区切りな�
 /* P3-2: 穴A(plan.md/critique に {{reasonIds}} を追加)・穴C({{reasonIdsOutput}})*/
 /* ------------------------------------------------------------------ */
 
-const CRITIQUE_GOLDEN = { md5: "2de4c2d2b28a5b28fe714c05a4b610d2", len: 951 };
+const CRITIQUE_GOLDEN = { md5: "b179bf0b3a87672ddf3a9fb1da01ca1a", len: 955 };
 
 test("T-g': renderCritiquePrompt(reasonIds 省略)は golden md5 と一致(I2'。plan-cuts-critique.md)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-critique-offpath-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-critique-offpath-"));
   try {
     const observation = "keepCount=2 outDurationSec=8.5 目標尺(15秒)未達";
     const currentCuts = [{ id: 3, reason: "余談カット" }];
@@ -133,7 +133,7 @@ test("T-g': renderCritiquePrompt(reasonIds 省略)は golden md5 と一致(I2'�
 });
 
 test("renderPrompt: plan.md でも reasonIds が {{styleProfile}} 直後・## カットの判断基準の直前に挿入される(穴A)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-reasonid-planmd-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-reasonid-planmd-"));
   try {
     const block = renderReasonIdsBlock(true);
     const prompt = renderPrompt(dir, "plan.md", numbered, 120, "", undefined, "", block);
@@ -145,7 +145,7 @@ test("renderPrompt: plan.md でも reasonIds が {{styleProfile}} 直後・## �
 });
 
 test("renderCritiquePrompt: reasonIds を渡すと {{perception}} 直後(区切りなし)に挿入される(穴A・critique)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-reasonid-critique-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-reasonid-critique-"));
   try {
     const block = renderReasonIdsBlock(true);
     const prompt = renderCritiquePrompt(dir, numbered, 120, "", "obs", [], undefined, block);
@@ -169,7 +169,7 @@ test("renderReasonIdsOutputBlock: enabled=true は reasonId 付き例 + keeps �
 });
 
 test("renderPrompt: reasonIdsOutput は ## 出力形式 節の末尾(既存の cuts 例の後ろ)に挿入される(plan-cuts.md・穴C)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-reasonid-output-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-reasonid-output-"));
   try {
     const outBlock = renderReasonIdsOutputBlock(true);
     const prompt = renderPrompt(dir, "plan-cuts.md", numbered, 120, "", undefined, "", "", outBlock);

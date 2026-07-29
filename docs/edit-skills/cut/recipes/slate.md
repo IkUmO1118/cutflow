@@ -53,7 +53,7 @@
 
 ## worked example
 
-`~/Movies/cutflow/2026-07-12` の頭と尻。
+`~/Movies/framewright/2026-07-12` の頭と尻。
 
 頭(録画開始〜最初の発話まで。発話ゼロの完全な無音):
 

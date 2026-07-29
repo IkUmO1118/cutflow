@@ -8,7 +8,7 @@ import { buildFirstEffectsPlan, writeFirstEffectsPlan } from "../src/lib/firstEf
 import { EFFECT_REASON_IDS, EFFECT_REASON_ID_FAMILY } from "../src/lib/effectReasonIds.ts";
 import type { EffectAnchor, EffectDecision } from "../src/lib/effectAnchors.ts";
 
-const makeDir = (): string => mkdtempSync(join(tmpdir(), "cutflow-effect-coverage-"));
+const makeDir = (): string => mkdtempSync(join(tmpdir(), "framewright-effect-coverage-"));
 const write = (dir: string, file: string, value: unknown): void =>
   writeFileSync(join(dir, file), JSON.stringify(value, null, 2));
 

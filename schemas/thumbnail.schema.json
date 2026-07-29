@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cutflow.dev/schemas/thumbnail.schema.json",
+  "$id": "https://framewright.dev/schemas/thumbnail.schema.json",
   "$comment": "src/types.ts の Thumbnail / ThumbnailText の射影。t は元収録の秒だが、frames と違いカット済みの瞬間へもスナップしない。style は transcript のテロップと同じ CaptionStyle を共有する。",
   "type": "object",
   "required": ["t", "texts"],

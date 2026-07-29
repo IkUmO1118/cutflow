@@ -87,7 +87,7 @@ test("editor asset responses expose CSS with no-store and a coherent revision", 
   assert.equal(css?.body, "css-4");
   assert.equal(css?.headers["Content-Type"], "text/css; charset=utf-8");
   assert.equal(css?.headers["Cache-Control"], "no-store");
-  assert.equal(css?.headers["X-CutFlow-Editor-Revision"], "4");
+  assert.equal(css?.headers["X-FrameWright-Editor-Revision"], "4");
   assert.equal(editorAssetResponse("/api/project", current), null);
 });
 

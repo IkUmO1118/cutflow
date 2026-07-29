@@ -57,7 +57,7 @@ OCRには「approvalHash」と出るが、全画面では値を判読できず�
 
 ## worked example
 
-`~/Movies/cutflow/2026-07-12` の実収録。最終 overlays は zoom 4件だけで、
+`~/Movies/framewright/2026-07-12` の実収録。最終 overlays は zoom 4件だけで、
 `[468.78-472.42]` には zoom が無い。none の理由は当時保存されていないため、
 これは実データを反転して再分類した例である。
 

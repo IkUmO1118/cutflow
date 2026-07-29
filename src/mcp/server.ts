@@ -33,7 +33,7 @@ export async function startMcpServer(dir: string, cfg: Config): Promise<void> {
   const handlers = buildMcpHandlers(tools);
 
   console.error(
-    `cutflow mcp: listening on stdio (dir=${dir}, ${tools.length} tool(s) exposed). Ctrl+C to stop.`,
+    `framewright mcp: listening on stdio (dir=${dir}, ${tools.length} tool(s) exposed). Ctrl+C to stop.`,
   );
 
   const rl = createInterface({ input: process.stdin, terminal: false });
@@ -45,7 +45,7 @@ export async function startMcpServer(dir: string, cfg: Config): Promise<void> {
     // (エラーは各 handler 内で JSON-RPC error に丸められる。ここで catch が
     // 必要になるのは parseLine/dispatch 自体が予期せず reject した場合のみ)
     handleLine(line, handlers).catch((e: unknown) => {
-      console.error(`cutflow mcp: unexpected error handling a line: ${String(e)}`);
+      console.error(`framewright mcp: unexpected error handling a line: ${String(e)}`);
     });
   });
 

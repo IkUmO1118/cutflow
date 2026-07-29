@@ -74,7 +74,7 @@ async function main() {
   rmSync(outDir, { recursive: true, force: true });
   mkdirSync(outDir, { recursive: true });
 
-  const tmpConfigDir = mkdtempSync(join(tmpdir(), "cutflow-parity-config-"));
+  const tmpConfigDir = mkdtempSync(join(tmpdir(), "framewright-parity-config-"));
   const configPath = buildTempConfigWithRemotion(join(repoRoot, "config.yaml"), tmpConfigDir);
   console.log(`[1/6] 一時config生成: engineExport: false → ${configPath}`);
 

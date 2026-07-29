@@ -1,7 +1,7 @@
 # CSS Marker Patterns
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/css-marker-patterns.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 Pure CSS + GSAP implementations of five marker/emphasis modes over text —
@@ -33,7 +33,7 @@ gsap.set(path, { strokeDasharray: len, strokeDashoffset: len });
 tl.to(path, { strokeDashoffset: 0, duration: 0.8, ease: 'power1.inOut' }, 0.7);
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **Vary burst line lengths** (40–80px range) for an organic feel — equal
   lengths read as mechanical/computer-generated.
 - Circle mode's `back.out(1.7)` wobble is the one place overshoot is idiomatic

@@ -1,7 +1,7 @@
 # Reactive Displacement
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/reactive-displacement.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 An entering element's spring causally DRIVES an exiting element's displacement —
@@ -35,7 +35,7 @@ tl.to(driver, { p:1, duration:0.9, ease:'back.out(1.5)', onUpdate: () => {
 }}, DRIVER_AT);
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **Single driver, multiple derived values in one `onUpdate`** — don't tween
   intruder and victim with separate `tl.to()` calls; compute both from one
   proxy or they can drift apart under seek and the "collision" stops reading.

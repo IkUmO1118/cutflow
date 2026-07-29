@@ -17,7 +17,7 @@ import type { FrameRequest } from "../src/stages/frames.ts";
 /* ---------------- readServePortFile ---------------- */
 
 test("readServePortFile: portfile が無ければ null(existsSync 1回だけの opt-in 検出)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-serveport-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-serveport-"));
   try {
     assert.equal(readServePortFile(dir), null);
   } finally {
@@ -26,7 +26,7 @@ test("readServePortFile: portfile が無ければ null(existsSync 1回だけの 
 });
 
 test("readServePortFile: 妥当な portfile を読める", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-serveport-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-serveport-"));
   try {
     mkdirSync(join(dir, "frames"));
     writeFileSync(join(dir, "frames", ".serve.json"), JSON.stringify({ port: 4311, pid: 123 }));
@@ -37,7 +37,7 @@ test("readServePortFile: 妥当な portfile を読める", () => {
 });
 
 test("readServePortFile: 壊れた JSON は null", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-serveport-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-serveport-"));
   try {
     mkdirSync(join(dir, "frames"));
     writeFileSync(join(dir, "frames", ".serve.json"), "{not json");
@@ -48,7 +48,7 @@ test("readServePortFile: 壊れた JSON は null", () => {
 });
 
 test("readServePortFile: port/pid が数値でない中身は null", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-serveport-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-serveport-"));
   try {
     mkdirSync(join(dir, "frames"));
     writeFileSync(

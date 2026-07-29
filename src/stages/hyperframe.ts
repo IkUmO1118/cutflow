@@ -874,7 +874,7 @@ export async function authorHyperframe(
     prompt,
     cfg,
     {
-      name: "cutflow_hyperframe",
+      name: "framewright_hyperframe",
       strict: true,
       schema: {
         type: "object",

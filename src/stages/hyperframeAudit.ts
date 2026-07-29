@@ -350,7 +350,7 @@ async function runHyperframeVlmReview(
     "Never return coordinates, rects, or a proposed fix. Judgment only.",
   ].join("\n");
   const raw = await completeImageReview(prompt, images, cfg, {
-    name: "cutflow_hyperframe_check_vlm",
+    name: "framewright_hyperframe_check_vlm",
     strict: true,
     schema: {
       type: "object",

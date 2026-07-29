@@ -1,7 +1,7 @@
 // editor/server.ts の POST /metrics が使う、プレビュー体感計測(M1)の
 // 保存先パス組み立て+追記。収録フォルダには書かない(CLAUDE.md の方針どおり
 // files.ts の分類に属さない実行時計測データなので、収録フォルダの外
-// ~/.cutflow/editor/metrics/ へ置く)。
+// ~/.framewright/editor/metrics/ へ置く)。
 // §docs/plans/2026-07-28-engine-m1-media-metrics-design.md Phase 2
 
 import { appendFileSync, mkdirSync } from "node:fs";
@@ -9,7 +9,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 export function metricsStateDir(): string {
-  return join(homedir(), ".cutflow", "editor", "metrics");
+  return join(homedir(), ".framewright", "editor", "metrics");
 }
 
 /**

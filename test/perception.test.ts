@@ -219,7 +219,7 @@ let recDir: string;
 let channelDir: string;
 
 before(() => {
-  channelDir = mkdtempSync(join(tmpdir(), "cutflow-perception-"));
+  channelDir = mkdtempSync(join(tmpdir(), "framewright-perception-"));
   recDir = join(channelDir, "2026-07-07-rec");
   mkdirSync(recDir);
 });

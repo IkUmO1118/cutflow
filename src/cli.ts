@@ -90,7 +90,7 @@ import { calibrationEvaluate, formatCalibrationEvaluateReport } from "./stages/c
 
 const program = new Command();
 program
-  .name("cutflow")
+  .name("framewright")
   .description(
     "撮影後の編集を自動化するパイプライン(文字起こし→カット案→人間承認→レンダー)",
   )
@@ -114,14 +114,14 @@ program.configureHelp({
   },
 });
 
-/** グローバル --verbose/--quiet・環境変数 CUTFLOW_LOG・config.yaml の log.level から
+/** グローバル --verbose/--quiet・環境変数 FRAMEWRIGHT_LOG・config.yaml の log.level から
  *  ログレベルを解決する(優先順位: flag > env > config > 既定 normal)。
  *  config 読み込み失敗はここでは無視する(コマンド本体の loadConfig が本エラーを出す) */
 function resolveCliLogLevel(): LogLevel {
   const opts = program.opts();
   if (opts.quiet === true) return "quiet";
   if (opts.verbose === true) return "verbose";
-  const env = process.env.CUTFLOW_LOG;
+  const env = process.env.FRAMEWRIGHT_LOG;
   if (env === "quiet" || env === "normal" || env === "verbose") return env;
   try {
     return resolveLogCfg(loadConfig(opts.config)).level;
@@ -1424,7 +1424,7 @@ program
   )
   .action(async (opts: { watch?: boolean; display?: string }) => {
     if (!opts.watch) {
-      throw new Error("--watch を指定してください(例: cutflow record --watch)");
+      throw new Error("--watch を指定してください(例: framewright record --watch)");
     }
     let displayId: number | undefined;
     if (opts.display !== undefined) {
@@ -1860,7 +1860,7 @@ program
     "--layout <layout>",
     "初回 bootstrap 時の収録レイアウト(plain|obs-canvas|auto)。省略時は plain",
   )
-  .option("--detach", "バックグラウンドで起動してターミナルを返す(ログは ~/.cutflow/editor/)")
+  .option("--detach", "バックグラウンドで起動してターミナルを返す(ログは ~/.framewright/editor/)")
   .option("--stop", "デタッチ起動中のエディタを止める")
   .option("--status", "この収録のエディタが起動しているか表示する")
   .action(async (dir: string, opts: { layout?: string; detach?: boolean; stop?: boolean; status?: boolean }) => {

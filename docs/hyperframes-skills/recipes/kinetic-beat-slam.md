@@ -1,7 +1,7 @@
 # Kinetic Beat Slam
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/kinetic-beat-slam.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 Percussive text-forward pieces (taglines, manifestos, hype intros): short phrases
@@ -36,14 +36,14 @@ tl.to('.kbs-stage',{scale:1.01,duration:cycle/2,yoyo:true,ease:'sine.inOut',
 window.__timelines['<composition-id>'] = tl;
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **`fromTo` not `from`** — `from` animates to current CSS, so a t=0 seek is wrong;
   `fromTo` makes the start state explicit.
 - **No infinite repeats** on the finale breath: `Math.max(0, Math.floor(dur/cycle)-1)`
   — `ceil` overshoots the clip window and a negative repeat becomes GSAP `-1` (infinite).
-- **Never `tl.play()`** — the timeline stays paused; Cutflow drives it by absolute seek.
+- **Never `tl.play()`** — the timeline stays paused; FrameWright drives it by absolute seek.
 - **Fonts**: upstream leans on embedded display faces (Archivo Black, League Gothic).
-  Those are NOT embeddable in Cutflow — use a heavy generic weight
+  Those are NOT embeddable in FrameWright — use a heavy generic weight
   (`font-weight:800/900`, `system-ui`/`sans-serif`) or the card silently falls back.
 - **GSAP required**: pin the `<script src>` exactly (url+integrity+`crossorigin`),
   declare `data-hf-requires="gsap"`, register the paused timeline under the

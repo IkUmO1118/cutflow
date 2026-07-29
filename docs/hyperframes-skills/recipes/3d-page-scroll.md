@@ -1,14 +1,14 @@
 # 3D Page Scroll
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/3d-page-scroll.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 A webpage rendered as a tilted 3D card that scrolls internally to reveal
 specific sections — product-demo feel with physical depth. Serves
 **explainer-card**. If paired with `asr-keyword-glow` for word-synced
 highlights, the composite becomes **no-input** (hand-authored timings, no
-CutFlow ASR).
+FrameWright ASR).
 
 ## 構造 (structure)
 - `.tilt-card` (`overflow:hidden`, static `perspective`+`rotateY`+`rotateX` via
@@ -32,7 +32,7 @@ tl.to(".spotlight", { opacity: 1, duration: 0.6, ease: "power1.inOut" }, SPOTLIG
 window.__timelines['<composition-id>'] = tl;
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **byte\* — perspective caveat**: the tilt/scroll transforms themselves are
   scripted (no runtime measurement), so this is byte-stable in the transform
   sense; the caveat is 3D-perspective rendering can show sub-pixel AA
@@ -40,7 +40,7 @@ window.__timelines['<composition-id>'] = tl;
   perceptual-risk recipe (no zoom-from-measurement is happening here).
 - **No-input if word-synced**: pairing with `asr-keyword-glow` to highlight
   sections in cadence with narration means those word timings are
-  HAND-AUTHORED, since CutFlow has no ASR wired into card authoring.
+  HAND-AUTHORED, since FrameWright has no ASR wired into card authoring.
 - `SCROLL_DISTANCE` comes from real cumulative section-height geometry measured
   at design/authoring time — not an eyeballed pixel guess.
 - Shadow direction must match tilt sign (negative `tiltY` ⇒ positive shadow X).

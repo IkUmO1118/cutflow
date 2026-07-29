@@ -57,7 +57,7 @@ test("isMaterialFile: materials/ 配下でなければ拡張子が一致して�
 /* ---------------- 2. saveProject/validateDocs によるサブディレクトリ参照の検査 ---------------- */
 
 function withTmpProject(fn: (dir: string) => void): void {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-hf-place-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-hf-place-test-"));
   try {
     const write = (file: string, data: unknown) =>
       writeFileSync(join(dir, file), JSON.stringify(data, null, 2), "utf8");

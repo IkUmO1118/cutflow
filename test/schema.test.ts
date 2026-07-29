@@ -168,7 +168,7 @@ test("kitchen-sink example: 各 schemas/examples/<file>.max.json が対応スキ
 });
 
 test("実データ: buildRichFixture が書く編集ファイルが対応スキーマに valid", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-schema-fixture-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-schema-fixture-"));
   try {
     buildRichFixture(dir);
     const registry = loadRegistry();

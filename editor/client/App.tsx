@@ -545,7 +545,7 @@ function applySaveHashes(
 }
 
 /**
- * CutFlow エディタ本体。動画編集ソフトの標準レイアウト:
+ * FrameWright エディタ本体。動画編集ソフトの標準レイアウト:
  * 上=タブパネル(左: 素材/テロップ)+プレビュー(中央)+インスペクタ(右)、
  * 中=トランスポート、下=タイムライン。上部の左右比は分割バーで変えられる。
  * プレビューはエンジンコンポジタ(EnginePreview)で proxy.mp4 を元収録時刻へ
@@ -598,14 +598,14 @@ export const App = () => {
   /** プレビューの音量(%)。書き出しには影響しない。ベースの音量自体は
    * proxy.mp4 生成時のラウドネス正規化(config の render.targetLufs)が揃える */
   const [volumePct, setVolumePct] = useState(() => {
-    const saved = Number(localStorage.getItem("cutflow.editor.volumePct"));
+    const saved = Number(localStorage.getItem("framewright.editor.volumePct"));
     return Number.isFinite(saved) && saved > 0 ? Math.min(saved, 100) : 100;
   });
   /** トラック別ミュート(映像・BGM)。プレビューのみで書き出しには影響しない */
   const [trackMuted, setTrackMuted] = useState<Record<AudioTrackId, boolean>>(() => {
     try {
       const saved: unknown = JSON.parse(
-        localStorage.getItem("cutflow.editor.trackMuted") ?? "",
+        localStorage.getItem("framewright.editor.trackMuted") ?? "",
       );
       const m = saved as Partial<Record<AudioTrackId, unknown>>;
       return { cut: m.cut === true, bgm: m.bgm === true };
@@ -646,17 +646,17 @@ export const App = () => {
   }, [tab, script]);
   /** 左パネルの幅(px)。分割バーのドラッグで変更し、次回起動時も引き継ぐ */
   const [panelW, setPanelW] = useState(() => {
-    const saved = Number(localStorage.getItem("cutflow.editor.panelW"));
+    const saved = Number(localStorage.getItem("framewright.editor.panelW"));
     return Number.isFinite(saved) && saved >= PANEL_MIN ? saved : 380;
   });
   /** 右側インスペクタの幅(px)。分割バーのドラッグで変更し、次回も引き継ぐ */
   const [inspW, setInspW] = useState(() => {
-    const saved = Number(localStorage.getItem("cutflow.editor.inspW"));
+    const saved = Number(localStorage.getItem("framewright.editor.inspW"));
     return Number.isFinite(saved) && saved >= INSP_MIN ? saved : 340;
   });
   /** タイムラインの高さ(px)。上下の分割バーのドラッグで変更 */
   const [timelineH, setTimelineH] = useState(() => {
-    const saved = Number(localStorage.getItem("cutflow.editor.timelineH"));
+    const saved = Number(localStorage.getItem("framewright.editor.timelineH"));
     return Number.isFinite(saved) && saved >= TIMELINE_MIN ? saved : 300;
   });
   /** 左パネル・インスペクタ・タイムラインの開閉(VSCode 風のヘッダー右の
@@ -664,13 +664,13 @@ export const App = () => {
    * コンポーネントは外さず CSS で隠すだけ(タブ・スクロール位置・ズームを
    * 保つ)。幅・高さは開閉と別に保持し、開き直すと前回の寸法に戻る */
   const [panelOpen, setPanelOpen] = useState(
-    () => localStorage.getItem("cutflow.editor.panelOpen") !== "0",
+    () => localStorage.getItem("framewright.editor.panelOpen") !== "0",
   );
   const [inspOpen, setInspOpen] = useState(
-    () => localStorage.getItem("cutflow.editor.inspOpen") !== "0",
+    () => localStorage.getItem("framewright.editor.inspOpen") !== "0",
   );
   const [timelineOpen, setTimelineOpen] = useState(
-    () => localStorage.getItem("cutflow.editor.timelineOpen") !== "0",
+    () => localStorage.getItem("framewright.editor.timelineOpen") !== "0",
   );
   const sidePanelRef = useRef<PanelImperativeHandle>(null);
   const inspectorPanelRef = useRef<PanelImperativeHandle>(null);
@@ -850,11 +850,11 @@ export const App = () => {
   const [aiDoctorBusy, setAiDoctorBusy] = useState(false);
   /** 再生速度(プレビューのみ)。次回起動時も引き継ぐ */
   const [playbackRate, setPlaybackRate] = useState(() => {
-    const saved = Number(localStorage.getItem("cutflow.editor.playbackRate"));
+    const saved = Number(localStorage.getItem("framewright.editor.playbackRate"));
     return PLAYBACK_RATES.includes(saved) ? saved : 1;
   });
   useEffect(() => {
-    localStorage.setItem("cutflow.editor.playbackRate", String(playbackRate));
+    localStorage.setItem("framewright.editor.playbackRate", String(playbackRate));
   }, [playbackRate]);
 
   const cfgValuesOf = (p: ProjectData): CfgValues => ({
@@ -1760,7 +1760,7 @@ export const App = () => {
 
   // 音量の適用(Player 再マウント時にも反映し直す)
   useEffect(() => {
-    localStorage.setItem("cutflow.editor.volumePct", String(volumePct));
+    localStorage.setItem("framewright.editor.volumePct", String(volumePct));
     playerRef.current?.setVolume(playerVolume);
   }, [volumePct, playerVolume, videoVersion, proj?.proxyExists]);
   /** ミュート切替(戻すときは直前の音量へ) */
@@ -1774,7 +1774,7 @@ export const App = () => {
     }
   };
   useEffect(() => {
-    localStorage.setItem("cutflow.editor.trackMuted", JSON.stringify(trackMuted));
+    localStorage.setItem("framewright.editor.trackMuted", JSON.stringify(trackMuted));
   }, [trackMuted]);
   const toggleTrackMute = (id: AudioTrackId) =>
     setTrackMuted((m) => ({ ...m, [id]: !m[id] }));
@@ -4776,22 +4776,22 @@ export const App = () => {
   /* ---------------- 左パネル(タブ・分割バー) ---------------- */
 
   useEffect(() => {
-    localStorage.setItem("cutflow.editor.panelW", String(panelW));
+    localStorage.setItem("framewright.editor.panelW", String(panelW));
   }, [panelW]);
   useEffect(() => {
-    localStorage.setItem("cutflow.editor.inspW", String(inspW));
+    localStorage.setItem("framewright.editor.inspW", String(inspW));
   }, [inspW]);
   useEffect(() => {
-    localStorage.setItem("cutflow.editor.timelineH", String(timelineH));
+    localStorage.setItem("framewright.editor.timelineH", String(timelineH));
   }, [timelineH]);
   useEffect(() => {
-    localStorage.setItem("cutflow.editor.panelOpen", panelOpen ? "1" : "0");
+    localStorage.setItem("framewright.editor.panelOpen", panelOpen ? "1" : "0");
   }, [panelOpen]);
   useEffect(() => {
-    localStorage.setItem("cutflow.editor.inspOpen", inspOpen ? "1" : "0");
+    localStorage.setItem("framewright.editor.inspOpen", inspOpen ? "1" : "0");
   }, [inspOpen]);
   useEffect(() => {
-    localStorage.setItem("cutflow.editor.timelineOpen", timelineOpen ? "1" : "0");
+    localStorage.setItem("framewright.editor.timelineOpen", timelineOpen ? "1" : "0");
   }, [timelineOpen]);
 
   /** v4 の imperative API で論理的な開閉状態と直前の px を DOM layout へ
@@ -5475,7 +5475,7 @@ export const App = () => {
         <Tooltip>
           <TooltipTrigger asChild>
             <div className="brand ocBreadcrumb" tabIndex={0}>
-              <strong>CutFlow</strong>
+              <strong>FrameWright</strong>
               <span className="sep" aria-hidden>/</span>
               <span className="dim path" title={proj.dir}>
                 {proj.dir.replace(/\/+$/, "").split("/").pop()}
@@ -5632,7 +5632,7 @@ export const App = () => {
                 <label key={choice} className="themeChoice">
                   <input
                     type="radio"
-                    name="cutflow-theme"
+                    name="framewright-theme"
                     value={choice}
                     checked={themePreference === choice}
                     onChange={() => setThemePreference(choice)}
@@ -5880,7 +5880,7 @@ export const App = () => {
       )}
 
       <ResizablePanelGroup
-        id="cutflow-shell"
+        id="framewright-shell"
         orientation="vertical"
         className="editorShell"
         elementRef={shellGroupRef}
@@ -5893,7 +5893,7 @@ export const App = () => {
           className="mainShellPanel"
         >
           <ResizablePanelGroup
-            id="cutflow-stage"
+            id="framewright-stage"
             orientation="horizontal"
             className="stage"
             elementRef={stageGroupRef}

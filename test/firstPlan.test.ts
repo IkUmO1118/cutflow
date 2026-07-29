@@ -52,7 +52,7 @@ test("buildFirstPlan: reasonId 省略時はキー自体を持たない・keeps �
 });
 
 test("writeFirstPlan: ファイルが無ければ書く", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-firstplan-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-firstplan-"));
   try {
     const fp = buildFirstPlan({
       source: "plan",
@@ -72,7 +72,7 @@ test("writeFirstPlan: ファイルが無ければ書く", () => {
 });
 
 test("writeFirstPlan: write-once — 既に存在すれば内容が違っても一切上書きしない", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-firstplan-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-firstplan-"));
   try {
     const original = { schemaVersion: 1, marker: "original" };
     writeFileSync(join(dir, "plan.first.json"), JSON.stringify(original));

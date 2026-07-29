@@ -175,7 +175,7 @@ export function editorAssetResponse(
 ): EditorAssetResponse | null {
   const common = {
     "Cache-Control": "no-store",
-    "X-CutFlow-Editor-Revision": String(assets.revision),
+    "X-FrameWright-Editor-Revision": String(assets.revision),
   };
   if (path === "/") {
     return {

@@ -29,7 +29,7 @@ function wordsForCandidate2(): WordTiming[] {
 }
 
 function withDir(run: (dir: string) => Promise<void> | void): Promise<void> | void {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-agenticcut-"));
+  const dir = mkdtempSync(join(tmpdir(), "framewright-agenticcut-"));
   writeFileSync(
     join(dir, "manifest.json"),
     JSON.stringify({

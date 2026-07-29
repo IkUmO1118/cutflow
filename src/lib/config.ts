@@ -769,7 +769,7 @@ export interface Config {
   /** ログ/可観測性。workflow(AI 呼び出し・ステージ・外部ツール)を stderr に
    *  どれだけ出すか。省略時 normal(既定挙動=AI 行+ステージが出る)。
    *  quiet で AI 行も抑止、verbose で ffmpeg/whisper/remotion まで1行ずつ。
-   *  CUTFLOW_LOG 環境変数・グローバル --verbose/--quiet が config より優先。
+   *  FRAMEWRIGHT_LOG 環境変数・グローバル --verbose/--quiet が config より優先。
    *  stdout(JSON 射影)は level に関わらず不変 */
   log?: { level?: LogLevel };
 }

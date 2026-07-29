@@ -12,7 +12,7 @@ import type { Config } from "../src/lib/config.ts";
 import type { Overlays } from "../src/types.ts";
 
 function tmpDir(): string {
-  return mkdtempSync(join(tmpdir(), "cutflow-autozoom-"));
+  return mkdtempSync(join(tmpdir(), "framewright-autozoom-"));
 }
 
 /** plain レイアウト・1920x1080・全画面 screenRegion の最小 manifest/cutplan/transcript を書く */

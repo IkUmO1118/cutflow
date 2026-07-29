@@ -103,7 +103,7 @@ export async function findHeadlessShell() {
 }
 
 export async function launchHeadlessShell(execPath) {
-  const userDataDir = mkdtempSync(join(tmpdir(), "cutflow-pixel-parity-chrome-"));
+  const userDataDir = mkdtempSync(join(tmpdir(), "framewright-pixel-parity-chrome-"));
   const proc = spawn(execPath, [
     "--headless", "--remote-debugging-port=0", "--hide-scrollbars",
     `--user-data-dir=${userDataDir}`,

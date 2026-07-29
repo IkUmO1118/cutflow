@@ -143,9 +143,9 @@ const MAX_PPS = 240;
  * 型別既定より低くは潰せず、広げる方向だけ) */
 const ROW_H_MAX = 96;
 const TRACK_GAP = 6;
-const ROW_H_STORE = "cutflow.editor.trackHeights";
+const ROW_H_STORE = "framewright.editor.trackHeights";
 /** ドロップ吸着 ON/OFF の保存キー(既定 ON) */
-const SNAP_STORE = "cutflow.editor.snapEnabled";
+const SNAP_STORE = "framewright.editor.snapEnabled";
 
 /** F2: 現在カットされている区間の提案を示す細い印の幅(px) */
 const DIFF_CUT_MARK_W = 3;

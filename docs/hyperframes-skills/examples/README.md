@@ -3,10 +3,10 @@
 This directory holds **reference composition cards** for HyperFrames — small,
 self-contained `.html` files that render (via `node src/cli.ts hyperframe`) into
 silent motion-graphic clips. They are worked examples of the authoring contract:
-each one is a legal `composition.html` that the CutFlow native interpreter can seek.
+each one is a legal `composition.html` that the FrameWright native interpreter can seek.
 
 They are adapted from upstream `heygen-com/hyperframes` @ `458df4c` (see
-`../PROVENANCE.md`), mechanically converted to satisfy the CutFlow contract by the
+`../PROVENANCE.md`), mechanically converted to satisfy the FrameWright contract by the
 rules in `docs/plans/2026-07-20-hf-extraction-conversion-rules.md`.
 
 ## Naming
@@ -57,12 +57,12 @@ sans → `system-ui, sans-serif`, mono → `ui-monospace, monospace`, serif →
 `ui-serif, Georgia, serif` (must lead with a generic keyword — a bare `Georgia`
 first family still warns).
 
-`cutflow--embedded-woff2-font.html` is the deliberate exception: it is the X1
+`framewright--embedded-woff2-font.html` is the deliberate exception: it is the X1
 worked example for a user-supplied, subset WOFF2 embedded as a
 `data:font/woff2` `@font-face`. Its source, license, hashes, and reproducible
 external subsetting command are recorded in
 `test/fixtures/hyperframe-fonts/README.md`. No subsetting tool is bundled with
-CutFlow.
+FrameWright.
 
 `hyperframes-animation--three-geometry.html` is the X3 manual/core-only worked
 example: fixed 640x360 geometry, Three.js r160 exact URL+SRI, perceptual tier,
@@ -98,7 +98,7 @@ in for the media.
 
 ## Rendering a card standalone (`--durationSec`)
 
-The CutFlow interpreter derives a card's length from its `class="clip"` elements
+The FrameWright interpreter derives a card's length from its `class="clip"` elements
 (`max(data-start + data-duration)`), **not** from the root. Cards whose motion lives
 on the root or in JS rather than on timed clips — most talking-head style/layout cards
 (static overlays with no clip) and a few templates — have no intrinsic duration, so a

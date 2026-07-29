@@ -4,7 +4,7 @@
 // their param/return interfaces) are vendored, verbatim in body math. The upstream file
 // also has pixi.js/pixi-filters-dependent code (`applyZoomTransform`, `MotionBlurState`,
 // `getMotionBlurAmountResponse`, `TransformParams`) which is NOT vendored — Remotion has
-// no motion-blur equivalent and CutFlow does not depend on pixi.
+// no motion-blur equivalent and FrameWright does not depend on pixi.
 // Do not edit to "improve" — this is a faithful port. See ./PROVENANCE.md.
 
 export interface AppliedTransform {

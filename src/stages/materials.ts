@@ -287,8 +287,8 @@ async function resolveTranscribe(args: {
   }
 
   const slug = materialSlug(file);
-  const tmpWav = join(tmpdir(), `cutflow-materials-${process.pid}-${slug}.wav`);
-  const outBase = join(tmpdir(), `cutflow-materials-whisper-${process.pid}-${slug}`);
+  const tmpWav = join(tmpdir(), `framewright-materials-${process.pid}-${slug}.wav`);
+  const outBase = join(tmpdir(), `framewright-materials-whisper-${process.pid}-${slug}`);
   const outJson = `${outBase}.json`;
   try {
     await extractAudio(abs, 0, tmpWav);

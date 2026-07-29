@@ -1,7 +1,7 @@
 # GSAP Effects (drop-in blocks)
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/gsap-effects.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 A grab-bag of drop-in GSAP timeline blocks that don't warrant their own recipe:
@@ -37,7 +37,7 @@ for (let f = 0; f < AUDIO_DATA.totalFrames; f++) {
 }
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **Cursor blink pattern**: one cursor visible at a time; blink → solid (typing
   starts) → type → solid → blink (done). Never `hidden → solid` directly.
 - **Backspace needs manual substring removal** — `TextPlugin` only removes from

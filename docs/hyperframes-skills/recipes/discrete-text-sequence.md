@@ -1,7 +1,7 @@
 # Discrete Text Sequence
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/discrete-text-sequence.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 Replace WHOLE text states at time thresholds instead of typing char-by-char —
@@ -37,7 +37,7 @@ tl.to(driver, { t: TOTAL_DURATION, duration: TOTAL_DURATION, ease: "none",
 window.__timelines['<composition-id>'] = tl;
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **Reverse-search array each frame** (O(n), n small) — don't index by frame; the
   sequence is sparse and time-keyed, which is exactly what makes seeking safe.
 - **No CSS `transition`** on `.text` — a transition turns the discrete jump into

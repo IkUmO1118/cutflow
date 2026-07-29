@@ -1,7 +1,7 @@
 # Depth Scatter ↔ Assemble
 
 > Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/depth-scatter-assemble.md`.
-> Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
+> FrameWright adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)
 N elements (glyphs, cards, logo fragments) fly in from a rotating 3D depth-cloud
@@ -39,7 +39,7 @@ frags.forEach((el, i) => {
 });
 ```
 
-## seek-safe 注意点 (Cutflow adaptations)
+## seek-safe 注意点 (FrameWright adaptations)
 - **Every scattered coordinate is index-derived** (golden-angle trig + stepped
   depth) — never `Math.random`/`Date.now`. A randomized cloud renders differently
   each seek and breaks determinism.
