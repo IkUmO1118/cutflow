@@ -5,7 +5,6 @@
 //
 // 音声は既存の BGM ミックス経路をそのまま流用し、WebAudio 経由では扱わない
 // (決定性と GPU 経路分離のため)。
-import { spawn } from "node:child_process";
 import {
   existsSync, mkdtempSync, readFileSync,
 } from "node:fs";
@@ -22,6 +21,7 @@ import { prepareDesignAssetsForProps } from "../lib/designStill.ts";
 import { resolveProfile } from "../lib/profile.ts";
 import { compositionDurationInFrames } from "../lib/renderFrameMath.ts";
 import { createEngineSession } from "../lib/engineSession.ts";
+import { startFramePipe } from "../lib/framePipe.ts";
 import type { Config } from "../lib/config.ts";
 import type { RenderProps } from "../lib/renderPropsTypes.ts";
 import type {
@@ -105,15 +105,7 @@ export async function renderEngine(
     const intermediatePath = join(tempDir, "intermediate.mp4");
 
     // ffmpeg pipeline: image2pipe stdin → intermediate mp4
-    const encArgs = [
-      "-y", "-v", "error",
-      "-f", "image2pipe", "-framerate", String(fps), "-i", "-",
-      "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
-      "-pix_fmt", "yuv420p", intermediatePath,
-    ];
-    const ffmpegProc = spawn("ffmpeg", encArgs, { stdio: ["pipe", "pipe", "pipe"] });
-    const stderrChunks: Buffer[] = [];
-    ffmpegProc.stderr.on("data", (c: Buffer) => stderrChunks.push(c));
+    const framePipe = startFramePipe({ fps, outPath: intermediatePath });
 
     console.log(`フレーム書き出し中(${totalFrames}フレーム)…`);
     const progressInterval = Math.max(1, Math.floor(totalFrames / 20));
@@ -122,29 +114,14 @@ export async function renderEngine(
       const tOut = f / fps;
       const pngBase64 = await session.renderAndCapture(tOut);
       const pngBuf = Buffer.from(pngBase64, "base64");
-
-      await new Promise<void>((resolveWrite) => {
-        if (!ffmpegProc.stdin.write(pngBuf)) {
-          ffmpegProc.stdin.once("drain", resolveWrite);
-        } else {
-          resolveWrite();
-        }
-      });
+      await framePipe.write(pngBuf);
 
       if (f > 0 && f % progressInterval === 0) {
         process.stderr.write(`  進行 ${((f / totalFrames) * 100).toFixed(0)}% (${f}/${totalFrames})\r`);
       }
     }
     process.stderr.write(`  進行 100% (${totalFrames}/${totalFrames})\n`);
-
-    ffmpegProc.stdin.end();
-    await new Promise<void>((res, rej) => {
-      ffmpegProc.on("close", (code) => {
-        if (code !== 0) rej(new Error(`ffmpeg failed: ${Buffer.concat(stderrChunks).toString().slice(-2000)}`));
-        else res();
-      });
-      ffmpegProc.on("error", rej);
-    });
+    await framePipe.finish();
 
     // 音声ベッド + final mux
     const audioM4a = join(tempDir, "audio.m4a");
