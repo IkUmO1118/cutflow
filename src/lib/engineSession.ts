@@ -1,8 +1,7 @@
 // src/lib/engineSession.ts — M4 共有: エンジン headless Chrome セッション管理。
 // renderEngine / frames / thumbnail のすべてから使う共通実装。
-// chrome-headless-shell の起動、CDP 接続、export ページのバンドル・配信・
+// export ページのバンドル・配信・
 // 初期化、フレームレンダー→キャプチャを1つの使い捨てセッションとして包む。
-import { spawn, execSync } from "node:child_process";
 import { createServer } from "node:http";
 import {
   createReadStream,
@@ -18,113 +17,16 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import * as esbuild from "esbuild";
 import type { RenderProps } from "../../remotion/props.ts";
+import {
+  connectCdp,
+  evalJs,
+  launchHeadlessShell,
+  newPageWs,
+  type CdpConnection,
+  type LaunchedBrowser,
+} from "./browser.ts";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-
-// ---------------------------------------------------------------------------
-// CDP
-// ---------------------------------------------------------------------------
-
-interface CdpConnection {
-  send(method: string, params?: Record<string, unknown>): Promise<unknown>;
-  on(method: string, cb: (params: Record<string, unknown>) => void): void;
-  close(): void;
-}
-
-function connectCdp(wsUrl: string): CdpConnection {
-  const ws = new WebSocket(wsUrl);
-  let id = 0;
-  const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
-  const listeners = new Map<string, Set<(params: Record<string, unknown>) => void>>();
-
-  ws.addEventListener("message", (ev) => {
-    const msg = JSON.parse(ev.data as string) as {
-      id?: number; method?: string; params?: Record<string, unknown>;
-      error?: { message: string }; result?: unknown;
-    };
-    if (msg.id !== undefined) {
-      const p = pending.get(msg.id);
-      if (p) { pending.delete(msg.id); msg.error ? p.reject(new Error(msg.error.message)) : p.resolve(msg.result); }
-    } else if (msg.method) {
-      for (const cb of listeners.get(msg.method) ?? []) cb(msg.params ?? {});
-    }
-  });
-  const ready = new Promise<void>((r) => ws.addEventListener("open", () => r()));
-
-  return {
-    async send(method, params = {}) {
-      await ready;
-      const myId = ++id;
-      ws.send(JSON.stringify({ id: myId, method, params }));
-      return new Promise((res, rej) => pending.set(myId, { resolve: res, reject: rej }));
-    },
-    on(method, cb) {
-      const set = listeners.get(method) ?? new Set();
-      set.add(cb);
-      listeners.set(method, set);
-    },
-    close: () => ws.close(),
-  };
-}
-
-async function evalJs(cdp: CdpConnection, expression: string, awaitPromise = false): Promise<unknown> {
-  const result = (await cdp.send("Runtime.evaluate", { expression, awaitPromise, returnByValue: true })) as {
-    exceptionDetails?: { exception?: { description?: string }; text?: string }; result?: { value: unknown };
-  };
-  if (result.exceptionDetails) throw new Error(`evalJs: ${result.exceptionDetails.exception?.description ?? JSON.stringify(result.exceptionDetails)}`);
-  return result.result?.value;
-}
-
-// ---------------------------------------------------------------------------
-// Headless Chrome
-// ---------------------------------------------------------------------------
-
-function findHeadlessShell(): string {
-  const roots = [
-    join(repoRoot, "node_modules/.remotion"),
-    join(process.env.HOME ?? "/tmp", "Library/Caches/ms-playwright"),
-    join(process.env.HOME ?? "/tmp", "Library/Caches/remotion"),
-  ];
-  for (const root of roots) {
-    try {
-      const out = execSync(`find "${root}" -iname "chrome-headless-shell" -type "f" -maxdepth 8 2>/dev/null || true`, {
-        encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
-      });
-      const hit = out.trim().split("\n").filter(Boolean)[0];
-      if (hit) return hit;
-    } catch { /* try next root */ }
-  }
-  throw new Error("chrome-headless-shell が見つかりません(先に render/frames を1回実行してください)");
-}
-
-async function launchHeadlessShell(execPath: string): Promise<{ proc: ReturnType<typeof spawn>; wsUrl: string }> {
-  const userDataDir = mkdtempSync(join(tmpdir(), "cutflow-engine-"));
-  const proc = spawn(execPath, [
-    "--headless", "--remote-debugging-port=0", "--hide-scrollbars",
-    `--user-data-dir=${userDataDir}`,
-    "--use-angle=metal", "--ignore-gpu-blocklist", "--enable-unsafe-webgpu",
-  ], { stdio: ["ignore", "pipe", "pipe"] });
-  const wsUrl = await new Promise<string>((resolveWs, reject) => {
-    let buf = "";
-    const timer = setTimeout(() => reject(new Error(`DevTools listening timeout`)), 15000);
-    const onData = (chunk: Buffer) => {
-      buf += chunk.toString();
-      const m = buf.match(/DevTools listening on (ws:\/\/\S+)/);
-      if (m) { clearTimeout(timer); proc.stderr.off("data", onData); proc.stdout.off("data", onData); resolveWs(m[1]); }
-    };
-    proc.stderr.on("data", onData);
-    proc.stdout.on("data", onData);
-    proc.once("exit", (code) => { clearTimeout(timer); reject(new Error(`chrome-headless-shell exited early (${code})`)); });
-  });
-  return { proc, wsUrl };
-}
-
-async function newPageWs(browserWsUrl: string): Promise<string> {
-  const httpBase = browserWsUrl.replace("ws://", "http://").replace(/\/devtools\/browser\/.*/, "");
-  const res = await fetch(`${httpBase}/json/new?about:blank`, { method: "PUT" });
-  const info = (await res.json()) as { webSocketDebuggerUrl: string };
-  return info.webSocketDebuggerUrl;
-}
 
 // ---------------------------------------------------------------------------
 // Export ページ(bundle + HTML + HTTP サーバ)
@@ -257,15 +159,15 @@ export async function createEngineSession(
 
   buildExportHtml(outDir, JSON.stringify(config));
   const { server, port } = await startExportServer(dir, outDir);
-  const execPath = findHeadlessShell();
-  const { proc: chromeProc, wsUrl: browserWsUrl } = await launchHeadlessShell(execPath);
 
+  let browser: LaunchedBrowser | null = null;
   let cdp: CdpConnection | null = null;
   let rect: { x: number; y: number; width: number; height: number } | null = null;
   let closed = false;
 
   try {
-    const pageWsUrl = await newPageWs(browserWsUrl);
+    browser = await launchHeadlessShell();
+    const pageWsUrl = await newPageWs(browser.wsUrl);
     cdp = connectCdp(pageWsUrl);
     await cdp.send("Page.enable");
     await cdp.send("Runtime.enable");
@@ -287,7 +189,7 @@ export async function createEngineSession(
     };
   } catch (e) {
     cdp?.close();
-    chromeProc.kill();
+    browser?.close();
     server.close();
     rmSync(outDir, { recursive: true, force: true });
     throw e;
@@ -310,7 +212,7 @@ export async function createEngineSession(
       if (closed) return;
       closed = true;
       try { if (cdp) { await evalJs(cdp, "window.__cutflowExporter.dispose()"); cdp.close(); } } catch { /* ignore */ }
-      try { chromeProc.kill(); } catch { /* ignore */ }
+      try { browser?.close(); } catch { /* ignore */ }
       try { server.close(); } catch { /* ignore */ }
       try { rmSync(outDir, { recursive: true, force: true }); } catch { /* ignore */ }
     },
