@@ -16,7 +16,7 @@
 const FLUSH_INTERVAL_MS = 5000;
 
 // 標準 DOM 型(lib.dom.d.ts)には requestVideoFrameCallback が無いため、
-// remotion/Main.tsx の VideoWithVFC と同じ流儀でローカルに型を足す
+// ここで使う最小形をローカルに型として足す
 interface VideoFrameCallbackMetadata {
   mediaTime: number;
 }

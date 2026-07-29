@@ -3,13 +3,11 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  renameSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { isCutplanApproved, isShortApproved } from "../lib/approval.ts";
 import {
   verifyPlayableVideo,
@@ -22,7 +20,7 @@ import { buildCutCacheKey, cutCacheKeyEquals } from "../lib/cutCache.ts";
 import { colorTagArgs, colorTagsOfProbe, type ColorTags } from "../lib/colorTags.ts";
 import { run } from "../lib/exec.ts";
 import { probe } from "../lib/ffmpeg.ts";
-import { renderEngine } from "./renderEngine.ts";
+import { renderEngine, renderEngineFromProps } from "./renderEngine.ts";
 import {
   audioSourceOf,
   keepAudioParts,
@@ -67,7 +65,7 @@ import type {
   Short,
   Transcript,
 } from "../types.ts";
-import type { RenderProps } from "../../remotion/props.ts";
+import type { RenderProps } from "../lib/renderPropsTypes.ts";
 import type { Region } from "../types.ts";
 
 /** ワイプ焼き込みの幾何(Main.tsx の wipeLayer と一致させる。camera 前提)。
@@ -77,34 +75,6 @@ function wipeGeom(manifest: Manifest, cfg: Config): { ww: number; wh: number } |
   if (!cam) return null;
   const ww = cfg.render.wipeWidthPx;
   return { ww, wh: Math.round((ww * cam.h) / cam.w) };
-}
-
-/** OffthreadVideo フレームキャッシュ上限の既定(MB)。config.yaml の
- * render.offthreadVideoCacheMb で上書きできる(0 で Remotion 既定に戻す) */
-const DEFAULT_OFFTHREAD_VIDEO_CACHE_MB = 512;
-
-/** delayRender の猶予(ms)。Remotion 既定の30秒は、メモリ逼迫時にフォント等の
- * アセット取得が OffthreadVideo のフレーム抽出と同じ bundle サーバの待ち行列に
- * 詰まって「Loading Noto Sans JP ... not cleared after 28000ms」で落ちる実例が
- * あった(docs/perf.md フェーズ9)ため延長する。正常時の挙動・速度には無関係
- * (タイムアウトの発火条件だけが変わる) */
-const DELAY_RENDER_TIMEOUT_MS = 120_000;
-
-/** Remotion CLI 呼び出しに共通で付けるリソース系フラグ(本編・チャンク・
- * ショートの全 render 経路で同じものを使う)。いずれも出力の画・音には
- * 影響しないため renderKey には含めない(変更が final.mp4 再生成を誘発しない)。
- * - キャッシュ上限: Remotion 既定(利用可能メモリの半分)は 16GB 機で
- *   compositor が数GBまで成長しマシン全体を重くする。512MB でも速度は不変
- *   (実測は docs/perf.md フェーズ7・9)
- * - concurrency: 省略時は Remotion 既定(コア数の半分)のまま */
-export function remotionResourceArgs(cfg: Config): string[] {
-  const cacheMb = cfg.render.offthreadVideoCacheMb ?? DEFAULT_OFFTHREAD_VIDEO_CACHE_MB;
-  const args = [`--timeout=${DELAY_RENDER_TIMEOUT_MS}`];
-  if (cacheMb > 0) {
-    args.push(`--offthreadvideo-cache-size-in-bytes=${Math.round(cacheMb * 1024 * 1024)}`);
-  }
-  if (cfg.render.concurrency) args.push(`--concurrency=${cfg.render.concurrency}`);
-  return args;
 }
 
 /** 出力px矩形の交差判定 */
@@ -319,10 +289,9 @@ async function runRenderMain(
   const propsPath = join(dir, "render.props.json");
   writeFileSync(propsPath, JSON.stringify(props, null, 2));
 
-  // 3. Remotion レンダー(リポジトリ直下で実行。初回は headless Chrome を自動取得)。
+  // 3. エンジンレンダー。
   // hardwareAcceleration: if-possible(既定)は使える環境では GPU エンコーダ
   // (macOS は VideoToolbox)を使い、無ければソフトウェアへ自動フォールバックする
-  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
   const outPath = join(dir, "final.mp4");
   const hardwareAcceleration = cfg.render.hardwareAcceleration ?? "if-possible";
 
@@ -415,7 +384,7 @@ export async function renderShorts(dir: string, cfg: Config): Promise<string[]> 
 
 /**
  * ショート1本の実処理。本編 render の2段構成(cutFullRes → buildRenderProps →
- * Remotion)をそのまま流用し、keep 集合だけショートの ranges に差し替える。
+ * エンジン書き出し)をそのまま流用し、keep 集合だけショートの ranges に差し替える。
  * キャッシュは full-skip(render.<name>.key.json)+ cut 再利用
  * (cut.<name>.keeps.json)のみ。チャンク差分レンダーはショートには使わない(D4)
  */
@@ -503,7 +472,6 @@ async function renderOneShort(
   const propsPath = join(dir, `render.${name}.props.json`);
   writeFileSync(propsPath, JSON.stringify(props, null, 2));
 
-  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
   const shortsDir = join(dir, "shorts");
   mkdirSync(shortsDir, { recursive: true });
   const outPath = join(shortsDir, `${name}.mp4`);
@@ -548,20 +516,15 @@ async function renderOneShort(
       })),
     ],
     produce: async (tmp) => {
-      await timed(`Remotion(${name})`, () =>
-        run(
-          "npx",
-          [
-            "remotion", "render",
-            "remotion/index.ts", "Main", tmp,
-            "--props", propsPath,
-            "--public-dir", dir,
-            "--codec", "h264",
-            "--hardware-acceleration", hardwareAcceleration,
-            ...remotionResourceArgs(cfg),
-          ],
-          { cwd: repoRoot, label: "remotion" },
-        ),
+      await timed(`エンジン(${name})`, () =>
+        renderEngineFromProps({
+          dir,
+          props,
+          durationSec: props.durationSec,
+          cutPath,
+          outPath: tmp,
+          label: name,
+        }),
       );
     },
     verify: (tmp) => verifyRenderedVideo(tmp, totalFrames, durationSec, props.fps),

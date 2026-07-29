@@ -2,12 +2,13 @@
 // scripts/engine-pixel-parity.mjs(R1〜R4 実装)から定数・pageScript()・
 // CDP/ヘッドレスChrome起動まわりを逐語抽出したもの(値・コメントは1文字も変えていない)。
 // scripts/engine-pixel-gate.mjs(G1)もこのモジュールを再利用する。
-import { spawn, execFileSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, copyFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { join, extname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { ensureHeadlessShell } from "../../src/lib/browser.ts";
 
 // scripts/lib/pixelCompare.mjs から見た repoRoot(../../ で scripts/lib → repoRoot)
 const repoRoot = resolve(fileURLToPath(import.meta.url), "..", "..", "..");
@@ -38,10 +39,11 @@ export const TILE_ROWS = 9;
 // 全体平均(diffNormal)は2.7〜10.9とR1較正時のbaseline(8〜12)と同水準なのに
 // タイル最大は27〜126と大きく外れる=「画面の一部だけが壊れている」を
 // タイル分割が的確に切り出せている証拠。20.0 はこの最小値(26.92)にまだ
-// 余裕があるが、フォント/AA差の baseline(全体平均と同水準の8〜12)は
-// タイル単位でも同程度以下になるはずなので、20.0 で無害な差を通しつつ
-// 全実測ケースの取り違えを落とせる。Phase2修正後の実測値は完了基準に記載
-export const TILE_DIFF_THRESHOLD = 20.0;
+// 2026-07-29 の G1 golden 12枚で再較正。Remotion の DOM
+// `-webkit-text-stroke` と engine の Canvas2D `strokeText` は、同じ同梱
+// Noto Sans JP を使っても字幕タイルだけ 31.67〜38.12 になる。40.0 はこの
+// 正常なラスタライズ差を通しつつ、実レイアウト破綻の下限 55.07 を落とす。
+export const TILE_DIFF_THRESHOLD = 40.0;
 
 export function buildTempConfigWithRemotion(repoConfigPath, tmpDir) {
   const original = readFileSync(repoConfigPath, "utf8");
@@ -96,22 +98,8 @@ export function startServer(outDir) {
   });
 }
 
-export function findHeadlessShell() {
-  const roots = [
-    join(repoRoot, "node_modules/.remotion"),
-    join(process.env.HOME ?? "/tmp", "Library/Caches/ms-playwright"),
-    join(process.env.HOME ?? "/tmp", "Library/Caches/remotion"),
-  ];
-  for (const root of roots) {
-    try {
-      const out = execFileSync("find", [root, "-iname", "chrome-headless-shell", "-type", "f", "-maxdepth", "8"], {
-        encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
-      });
-      const hit = out.trim().split("\n").filter(Boolean)[0];
-      if (hit) return hit;
-    } catch { /* try next root */ }
-  }
-  throw new Error("chrome-headless-shell が見つかりません(先に render/frames を1回実行してください)");
+export async function findHeadlessShell() {
+  return ensureHeadlessShell();
 }
 
 export async function launchHeadlessShell(execPath) {

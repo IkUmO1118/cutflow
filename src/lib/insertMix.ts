@@ -16,15 +16,96 @@ import {
   writeF32lePcm,
 } from "./bgmMix.ts";
 import { fadeFactor, isImageFile } from "./overlayFade.ts";
-import { baseLayoutOf } from "./fastBase.ts";
 import { probe, summarizeProbe } from "./ffmpeg.ts";
+import { compositionDurationInFrames } from "./renderFrameMath.ts";
+import { frameSpans } from "./renderProps.ts";
 import type { DecodedBgmTrack } from "./bgmMix.ts";
-import type { BaseLayout } from "./fastBase.ts";
-import type { RenderProps } from "../../remotion/props.ts";
+import type { RenderProps } from "./renderPropsTypes.ts";
 
 /** 1素材ぶんのデコード済み PCM(48kHz stereo interleaved f32) */
 export interface DecodedSource {
   pcm: Float32Array;
+}
+
+/** ベース映像 1 区間の frame 表現。[fromFrame, toFrame) は出力フレーム、
+ * videoStartFrame は cut.mp4 の CFR 格子上の開始フレーム。 */
+export interface BaseFrameSeg {
+  fromFrame: number;
+  toFrame: number;
+  videoStartFrame: number;
+  playbackRate?: number;
+}
+
+/** 挿入 1 件の出力 frame 区間(index = props.inserts の添字) */
+export interface InsertFrameSeg {
+  index: number;
+  fromFrame: number;
+  toFrame: number;
+}
+
+export type BaseLayout =
+  | { ok: true; base: BaseFrameSeg[]; inserts: InsertFrameSeg[]; totalFrames: number }
+  | { ok: false; reason: string };
+
+export function baseLayoutOf(props: RenderProps): BaseLayout {
+  const fps = props.fps;
+  const totalFrames = compositionDurationInFrames(props.durationSec, fps);
+  const baseSegsIn = props.baseSegments ?? [
+    { start: 0, videoStart: 0, durationSec: props.durationSec },
+  ];
+  const insertsIn = props.inserts ?? [];
+
+  for (const seg of baseSegsIn) {
+    if (seg.playbackRate !== undefined && seg.playbackRate !== 1) {
+      return { ok: false, reason: "playbackRate" };
+    }
+  }
+
+  const spans = frameSpans({
+    baseSegments: baseSegsIn,
+    inserts: insertsIn,
+    fps,
+    durationInFrames: totalFrames,
+  });
+
+  const base: BaseFrameSeg[] = baseSegsIn.map((seg, i) => {
+    const fs = spans.base[i];
+    return {
+      fromFrame: fs.from,
+      toFrame: fs.from + fs.durationInFrames,
+      videoStartFrame: Math.round(seg.videoStart * fps),
+      ...(seg.playbackRate !== undefined ? { playbackRate: seg.playbackRate } : {}),
+    };
+  });
+  const inserts: InsertFrameSeg[] = insertsIn.map((_ins, i) => {
+    const fs = spans.inserts[i];
+    return { index: i, fromFrame: fs.from, toFrame: fs.from + fs.durationInFrames };
+  });
+
+  for (const b of base) {
+    if (b.toFrame <= b.fromFrame) return { ok: false, reason: "0長のbase区間" };
+    if (b.videoStartFrame < 0) return { ok: false, reason: "videoStartFrameが負" };
+  }
+  for (const ins of inserts) {
+    if (ins.toFrame <= ins.fromFrame) return { ok: false, reason: "0長のinsert区間" };
+  }
+
+  const all = [
+    ...base.map((b) => ({ fromFrame: b.fromFrame, toFrame: b.toFrame })),
+    ...inserts.map((i) => ({ fromFrame: i.fromFrame, toFrame: i.toFrame })),
+  ].sort((a, b) => a.fromFrame - b.fromFrame);
+  let cursor = 0;
+  for (const seg of all) {
+    if (seg.fromFrame !== cursor) {
+      return { ok: false, reason: `frameレイアウトに穴/重なり(cursor=${cursor}, from=${seg.fromFrame})` };
+    }
+    cursor = seg.toFrame;
+  }
+  if (cursor !== totalFrames) {
+    return { ok: false, reason: `frameレイアウトが末尾を覆っていない(cursor=${cursor}, total=${totalFrames})` };
+  }
+
+  return { ok: true, base, inserts, totalFrames };
 }
 
 /**

@@ -8,11 +8,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildInsertBedPcm, buildPcmEncodeArgs, insertHasNoAudio } from "../src/lib/insertMix.ts";
-import { baseLayoutOf } from "../src/lib/fastBase.ts";
+import { baseLayoutOf } from "../src/lib/insertMix.ts";
 import { bgmMixSampleCount } from "../src/lib/bgmMix.ts";
 import { fadeFactor } from "../src/lib/overlayFade.ts";
-import type { BaseLayout } from "../src/lib/fastBase.ts";
-import type { RenderProps } from "../remotion/props.ts";
+import type { BaseLayout } from "../src/lib/insertMix.ts";
+import type { RenderProps } from "../src/lib/renderPropsTypes.ts";
 
 function mkProps(partial: Partial<RenderProps> & { durationSec: number; fps: number }): RenderProps {
   return {

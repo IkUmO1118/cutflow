@@ -5,7 +5,7 @@
 `hyperframes-core` skill の技術契約のうち、Cutflow の native interpreter(C1)
 と check ゲート(C2)が実際に honor する部分だけを抜き出したもの。完全な
 契約仕様(全 `data-*` 一覧・sub-composition・track の詳細)は
-`../../remotion/vendor/hyperframes/upstream-docs/data-attributes.md` /
+`../hyperframes-vendor/upstream-docs/data-attributes.md` /
 `compositions.md` を正とする。ここは「Cutflow でカード HTML を書くときに
 最低限守ること」の要約。
 
@@ -121,13 +121,13 @@ WOFF2 は拡張子と先頭 magic `wOF2` を照合する。単体は固定 1MiB 
 tool を同梱しない。例えば外部の fonttools を使う場合は、必要文字だけを明示する:
 
 ```sh
-pyftsubset remotion/fonts/NotoSansJP.woff2 \
+pyftsubset assets/fonts/NotoSansJP.woff2 \
   --output-file=/tmp/NotoSansJP-subset.woff2 --flavor=woff2 \
   --text='CutFlow フォント埋め込み' --layout-features='*'
 ```
 
 配布時は元フォントのライセンスも確認し、この repository の Noto Sans JP なら
-`remotion/fonts/OFL.txt` を一緒に扱う。
+`assets/fonts/OFL.txt` を一緒に扱う。
 
 詳しいモーションの作法(CSS/WAAPI アダプタの書き方)は
 `./motion-css-waapi.md` を見る。
@@ -534,7 +534,7 @@ jsDelivrの`+esm`も動的生成物でSRI非推奨を明記するため、classi
   `getElapsedTime()`、loader、Worker、blob URL は X3 core-only では禁止。
   model/texture/HDRI/addon の読み込みはまだ対応しない
 - 実例は `examples/hyperframes-animation--three-geometry.html`、逐語 upstream は
-  `remotion/vendor/hyperframes/skills-corpus/hyperframes-animation/adapters/three.md`
+  `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/adapters/three.md`
 
 `html-in-canvas` は **OUT のまま**とする。上流は実験的な `layoutsubtree` / `drawElementImage` を必要とする一方、Cutflow が Chromium に渡すのは `gl:"angle"` だけで有効化 flag が無く、通常 canvas への fallback は同等機能ではないうえ、DOM→bitmap の readiness・cache key・決定論を別途設計すべき独立課題だからである。
 

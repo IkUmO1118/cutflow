@@ -2,9 +2,7 @@
 // (thumbnail.png)を書き出す。t は元収録の秒で、frames と違いスナップしない
 // (カットされた瞬間も指定できる。サムネは動画に入っていない絵も使ってよい)。
 //
-// 仕組み: 2経路。M4 エンジン(WebGPU compositor + CDP capture)が既定。
-// 失敗時は Remotion 経路(remotion/Main.tsx → @remotion/renderer still API)へ
-// フォールバックする。config の render.engineExport: false で Remotion 固定。
+// 仕組み: M4 エンジン(WebGPU compositor + CDP capture)で1フレームを書き出す。
 //
 // ベースはフル解像度の元収録(manifest.source)。keep を全編+videoIsSource:true
 // で、カットの有無に関わらずどの瞬間も使える。テロップは transcript を使わず
@@ -13,15 +11,7 @@
 // を継承する。
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { bundle } from "@remotion/bundler";
-import {
-  ensureBrowser,
-  openBrowser,
-  renderStill,
-  selectComposition,
-} from "@remotion/renderer";
+import { join } from "node:path";
 import { resolveProfile } from "../lib/profile.ts";
 import { buildRenderProps } from "../lib/renderProps.ts";
 import { renderCfgWithDesign } from "../lib/designAsset.ts";
@@ -30,52 +20,7 @@ import type { Config } from "../lib/config.ts";
 import type { Manifest, Overlays, Thumbnail, Transcript } from "../types.ts";
 
 export async function thumbnail(dir: string, cfg: Config): Promise<string> {
-  // M4: エンジン経路を既定で試す(render.engineExport: false で Remotion 固定)
-  const useEngine = cfg.render.engineExport !== false;
-  if (useEngine) {
-    try {
-      return await thumbnailEngine(dir, cfg);
-    } catch (e) {
-      console.warn(`エンジン thumbnail 失敗 → Remotion へフォールバック: ${(e as Error).message}`);
-    }
-  }
-
-  // Remotion 経路(フォールバック / engineExport: false)
-  const { props, thumb } = buildThumbnailProps(dir, cfg);
-  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-  await ensureBrowser();
-  const serveUrl = await bundle({
-    entryPoint: join(repoRoot, "remotion", "index.ts"),
-    publicDir: dir,
-    symlinkPublicDir: true,
-  });
-  const inputProps = props as unknown as Record<string, unknown>;
-  const browser = await openBrowser("chrome");
-  const outPath = join(dir, "thumbnail.png");
-  try {
-    const composition = await selectComposition({
-      serveUrl,
-      id: "Main",
-      inputProps,
-      puppeteerInstance: browser,
-      logLevel: "warn",
-    });
-    const lastFrame = Math.max(0, Math.round(props.durationSec * props.fps) - 1);
-    const frame = Math.min(lastFrame, Math.max(0, Math.round(thumb.t * props.fps)));
-    await renderStill({
-      composition,
-      serveUrl,
-      output: outPath,
-      frame,
-      inputProps,
-      puppeteerInstance: browser,
-      overwrite: true,
-      logLevel: "warn",
-    });
-  } finally {
-    await browser.close({ silent: true });
-  }
-  return outPath;
+  return thumbnailEngine(dir, cfg);
 }
 
 function buildThumbnailProps(dir: string, cfg: Config): { props: ReturnType<typeof buildRenderProps>; thumb: Thumbnail } {

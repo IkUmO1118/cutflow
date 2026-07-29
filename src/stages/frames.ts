@@ -3,9 +3,7 @@
 // ワイプとの被り・素材の見え方をこれで自己確認する(人間の確認は preview /
 // エディタが担い、これは「AI が自分の編集結果を見る目」)。
 //
-// 仕組み: 2経路。M4 エンジン(WebGPU compositor + CDP capture)が既定。
-// 失敗時は Remotion 経路(remotion/Main.tsx → @remotion/renderer still API)へ
-// フォールバックする。config の render.engineExport: false で Remotion 固定。
+// 仕組み: M4 エンジン(WebGPU compositor + CDP capture)で静止画を書き出す。
 //
 // frames/ 内の PNG は実行のたびに全削除してから書き直す。ファイル名が
 // 出力秒ベースなので、cutplan 編集で時刻の写像が変わると旧ファイルが
@@ -28,15 +26,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { bundle } from "@remotion/bundler";
-import {
-  ensureBrowser,
-  openBrowser,
-  renderStill,
-  selectComposition,
-} from "@remotion/renderer";
+import { join } from "node:path";
 import { fmtT } from "../lib/fmt.ts";
 import { readEditSnapshot, resolveSnapshotRenderContext } from "../lib/renderSnapshot.ts";
 import { prepareDesignAssetsForProps } from "../lib/designStill.ts";
@@ -50,12 +40,11 @@ import { writeFramesIndex } from "../lib/framesIndex.ts";
 import { runOcr } from "../lib/ocr.ts";
 import { panelRect, resolveDesign, screenRectToOutput } from "../lib/design.ts";
 import { buildScreenStill } from "../lib/screenStill.ts";
-import { buildProxy, isProxyStale } from "./proxy.ts";
 import { createEngineSession } from "../lib/engineSession.ts";
 import type { TimelineEntry } from "../lib/timeline.ts";
 import type { Config } from "../lib/config.ts";
 import type { Manifest } from "../types.ts";
-import type { RenderProps } from "../../remotion/props.ts";
+import type { RenderProps } from "../lib/renderPropsTypes.ts";
 
 export interface FrameShot {
   /** 指定された時刻(秒。times は axis の軸 / captions・every は出力の秒) */
@@ -78,14 +67,6 @@ export type FrameRequest =
   | { mode: "captions" }
   | { mode: "every"; stepSec: number };
 
-/** bundle(webpack)+headless Chrome。プロセスをまたいで使い回せる資産で、
- * 単発実行(frames)は自前で1回だけ用意し、常駐デーモン(frames-serve)は
- * 起動時に1回だけ用意して全リクエストで使い回す */
-export interface WarmAssets {
-  serveUrl: string;
-  browser: Awaited<ReturnType<typeof openBrowser>>;
-}
-
 export async function frames(
   dir: string,
   req: FrameRequest,
@@ -94,30 +75,7 @@ export async function frames(
   ocr?: boolean,
   fullRes?: boolean,
 ): Promise<FrameShot[]> {
-  // M4: エンジン経路を既定で試す(render.engineExport: false で Remotion 固定)
-  const useEngine = cfg.render.engineExport !== false;
-  if (useEngine) {
-    try {
-      return await framesEngine(dir, req, cfg, shortName, ocr, fullRes);
-    } catch (e) {
-      console.warn(`エンジン frames 失敗 → Remotion へフォールバック: ${(e as Error).message}`);
-    }
-  }
-
-  // Remotion 経路(フォールバック / engineExport: false)
-  await ensureBrowser();
-  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-  const serveUrl = await bundle({
-    entryPoint: join(repoRoot, "remotion", "index.ts"),
-    publicDir: dir,
-    symlinkPublicDir: true,
-  });
-  const browser = await openBrowser("chrome");
-  try {
-    return await renderFrames(dir, req, cfg, { short: shortName, ocr, fullRes }, { serveUrl, browser });
-  } finally {
-    await browser.close({ silent: true });
-  }
+  return framesEngine(dir, req, cfg, shortName, ocr, fullRes);
 }
 
 /** M4: エンジン経路の frames 実装。createEngineSession でヘッドレス Chrome を
@@ -219,135 +177,6 @@ export async function framesEngine(
   } finally {
     if (ownSession) await session.close();
   }
-}
-
-/**
- * frames の純粋コア(bundle+browser を「注入」される撮影本体)。単発実行
- * (frames)と常駐デーモン(frames-serve)の両方から呼ばれる共有実装。
- * props 構築・proxy 陳腐化判定・全消し・render ループ・index 書込を含む。
- * bundle/browser の生成・破棄は呼び出し側(frames / framesServe)の責務
- */
-export async function renderFrames(
-  dir: string,
-  req: FrameRequest,
-  cfg: Config,
-  opts: { short?: string; ocr?: boolean; fullRes?: boolean },
-  warm: WarmAssets,
-): Promise<FrameShot[]> {
-  const { short: shortName, ocr, fullRes } = opts;
-  const { serveUrl, browser } = warm;
-  const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")) as Manifest;
-  const snapshot = readEditSnapshot(dir);
-
-  const renderCtx = resolveSnapshotRenderContext({ dir, cfg, snapshot, shortName, fullRes });
-  const { keeps, overlays } = renderCtx;
-  const props = await prepareDesignAssetsForProps({
-    dir,
-    props: renderCtx.props,
-    warm,
-    warn: (message) => console.warn(`警告: ${message}`),
-  });
-
-  // ベース映像はエディタと同じ軽量プロキシ。無ければここで作る(収録ごとに1回)。
-  // 焼き込み済みの設定(ラウドネス・システム音声・プレビュー幅・エンコーダ)か
-  // 元収録ファイルが前回の生成から変わっていれば陳腐化しているので作り直す。
-  // --full-res のときはベースを元収録(フル解像度)に差し替えるので proxy は不要
-  if (!fullRes) {
-    if (!existsSync(join(dir, "proxy.mp4"))) {
-      console.log("proxy.mp4 がないので生成します(初回のみ・数十秒)...");
-      await buildProxy(dir, cfg);
-    } else if (isProxyStale(dir, cfg)) {
-      console.log("proxy.mp4 が設定・元収録と食い違っているので作り直します...");
-      await buildProxy(dir, cfg);
-    }
-  }
-
-  const outDir = join(dir, "frames");
-  mkdirSync(outDir, { recursive: true });
-  // 前回の実行が残した PNG・OCR サイドカーを全削除(冒頭コメント参照。
-  // --ocr が古い .ocr.json を読む事故を PNG と同じ理由で防ぐ)
-  for (const f of readdirSync(outDir)) {
-    if (f.endsWith(".png") || f.endsWith(".ocr.json")) rmSync(join(outDir, f));
-  }
-  const propsPath = join(outDir, "props.json");
-  writeFileSync(propsPath, JSON.stringify(props, null, 2));
-
-  // 元収録の秒 ⇔ カット後の秒の対応表。--t の times モード(スナップ)にも、
-  // --ocr のカット後秒→元収録秒(toSourceTime)にも同じものを使う
-  const timeline = buildTimeline(
-    keeps,
-    (overlays.inserts ?? []).filter((i) => existsSync(join(dir, i.file))),
-  );
-
-  const maxOut = Math.max(0, props.durationSec - 1 / props.fps);
-  const targets = buildTargets(req, props, maxOut, timeline);
-  if (targets.length === 0) {
-    throw new Error(
-      req.mode === "captions"
-        ? "テロップが0件です(transcript.json を確認してください)"
-        : "撮るフレームが0件です",
-    );
-  }
-
-  // 同じフレームに落ちる指定は1枚にまとめる(説明は結合して残す)
-  const byFrame = new Map<number, Target>();
-  for (const t of targets) {
-    const frame = Math.round(t.outSec * props.fps);
-    const prev = byFrame.get(frame);
-    if (prev) prev.notes.push(...t.notes);
-    else byFrame.set(frame, { ...t, notes: [...t.notes] });
-  }
-  const unique = [...byFrame.entries()].sort((a, b) => a[0] - b[0]);
-
-  // bundle(webpack)・browser は呼び出し側から注入される(warm)。単発実行
-  // (frames)は1回だけ用意して破棄、常駐デーモン(frames-serve)は起動時に
-  // 用意したものをリクエストをまたいで使い回す(挙動は同一)
-  const inputProps = props as unknown as Record<string, unknown>;
-  const shots: FrameShot[] = [];
-  const composition = await selectComposition({
-    serveUrl,
-    id: "Main",
-    inputProps,
-    puppeteerInstance: browser,
-    logLevel: "warn",
-  });
-  for (const [frame, t] of unique) {
-    const outPath = join(outDir, `out${t.outSec.toFixed(2)}s.png`);
-    await renderStill({
-      composition,
-      serveUrl,
-      output: outPath,
-      frame,
-      inputProps,
-      puppeteerInstance: browser,
-      overwrite: true,
-      logLevel: "warn",
-    });
-    const notes = [...t.notes];
-    let ocrFile: string | undefined;
-    if (ocr) {
-      ocrFile = await ocrFrame(dir, manifest, timeline, t.outSec, outDir, notes, cfg);
-    }
-    const note = notes.join(" / ");
-    shots.push({
-      requested: t.requested,
-      outSec: t.outSec,
-      file: outPath,
-      ...(note ? { note } : {}),
-      ...(ocrFile ? { ocrFile } : {}),
-    });
-  }
-  // 撮影入力のフィンガープリントを記録(stale-PNG 対策。validate/describe が
-  // これと現在の JSON を突き合わせて「撮り直せ」を警告する。props.json と
-  // 同じ中間生成物の扱いで、全消しループの対象にはしない)
-  writeFramesIndex(dir, {
-    mode: req.mode,
-    short: shortName ?? null,
-    ocr: ocr ?? false,
-    fullRes: fullRes ?? false,
-    count: unique.length,
-  });
-  return shots;
 }
 
 interface Target {

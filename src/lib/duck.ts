@@ -1,5 +1,5 @@
 import { lowerBound } from "./timeline.ts";
-import type { Span } from "../../remotion/props.ts";
+import type { Span } from "./renderPropsTypes.ts";
 
 /**
  * BGM の発話ダッキング係数(1=通常音量、duckGain=下げ切り)を、指定秒 sec で

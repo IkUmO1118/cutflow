@@ -1,16 +1,11 @@
 // stages/framesServe.ts — 常駐フレームサーバの純関数を固定する。
-// HTTP/Remotion 依存(bundle/browser/実サーバ往復)は unit しにくいので bench
+// HTTP/engine セッション依存(実サーバ往復)は unit しにくいので bench
 // での手動検証に回し(docs/plans/2026-07-07-frames-server-design.md 課題2)、
-// ここでは body → FrameRequest+opts のパース/検査と remotion mtime 比較だけを
-// 固定する。
+// ここでは body → FrameRequest+opts のパース/検査だけを固定する。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   parseFramesServeBody,
-  remotionMaxMtimeMs,
 } from "../src/stages/framesServe.ts";
 
 /* ---------------- parseFramesServeBody ---------------- */
@@ -77,53 +72,4 @@ test("parseFramesServeBody: body が非オブジェクト(null/配列/プリミ�
   assert.throws(() => parseFramesServeBody(null), /オブジェクト/);
   assert.throws(() => parseFramesServeBody("hi"), /オブジェクト/);
   assert.throws(() => parseFramesServeBody(42), /オブジェクト/);
-});
-
-/* ---------------- remotionMaxMtimeMs ---------------- */
-
-test("remotionMaxMtimeMs: 最新の mtime を持つファイルの値を返す", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-remotion-mtime-"));
-  try {
-    writeFileSync(join(dir, "a.tsx"), "a");
-    writeFileSync(join(dir, "b.tsx"), "b");
-    const older = new Date(Date.now() - 60_000);
-    const newer = new Date();
-    utimesSync(join(dir, "a.tsx"), older, older);
-    utimesSync(join(dir, "b.tsx"), newer, newer);
-    const max = remotionMaxMtimeMs(dir);
-    assert.equal(Math.round(max), Math.round(newer.getTime()));
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("remotionMaxMtimeMs: サブディレクトリも再帰的に見る", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-remotion-mtime-"));
-  try {
-    mkdirSync(join(dir, "sub"));
-    writeFileSync(join(dir, "top.tsx"), "top");
-    writeFileSync(join(dir, "sub", "nested.tsx"), "nested");
-    const older = new Date(Date.now() - 60_000);
-    const newer = new Date();
-    utimesSync(join(dir, "top.tsx"), older, older);
-    utimesSync(join(dir, "sub", "nested.tsx"), newer, newer);
-    const max = remotionMaxMtimeMs(dir);
-    assert.equal(Math.round(max), Math.round(newer.getTime()));
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("remotionMaxMtimeMs: 変更後に再計算すると値が増える(再バンドル判定の前提)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "cutflow-remotion-mtime-"));
-  try {
-    writeFileSync(join(dir, "a.tsx"), "a");
-    const first = remotionMaxMtimeMs(dir);
-    const later = new Date(Date.now() + 5_000);
-    utimesSync(join(dir, "a.tsx"), later, later);
-    const second = remotionMaxMtimeMs(dir);
-    assert.ok(second > first);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
 });

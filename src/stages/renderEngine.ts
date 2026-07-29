@@ -5,7 +5,6 @@
 //
 // 音声は既存の BGM ミックス経路をそのまま流用し、WebAudio 経由では扱わない
 // (決定性と GPU 経路分離のため)。
-import { spawn } from "node:child_process";
 import {
   existsSync, mkdtempSync, readFileSync,
 } from "node:fs";
@@ -22,8 +21,10 @@ import { prepareDesignAssetsForProps } from "../lib/designStill.ts";
 import { resolveProfile } from "../lib/profile.ts";
 import { compositionDurationInFrames } from "../lib/renderFrameMath.ts";
 import { createEngineSession } from "../lib/engineSession.ts";
+import { startFramePipe } from "../lib/framePipe.ts";
+import { sourceUrlsOf } from "../lib/engineStill.ts";
 import type { Config } from "../lib/config.ts";
-import type { RenderProps } from "../../remotion/props.ts";
+import type { RenderProps } from "../lib/renderPropsTypes.ts";
 import type {
   CutPlan, Manifest, Overlays, Transcript, Bgm, AutoCuts,
 } from "../types.ts";
@@ -32,6 +33,77 @@ export interface EngineRenderResult {
   intermediatePath: string;
   finalPath: string;
   frameCount: number;
+}
+
+export async function renderEngineFromProps(args: {
+  dir: string;
+  props: RenderProps;
+  durationSec: number;
+  cutPath: string;
+  outPath: string;
+  label?: string;
+}): Promise<EngineRenderResult> {
+  const { dir, props, durationSec, cutPath, outPath } = args;
+  const totalFrames = compositionDurationInFrames(props.durationSec, props.fps);
+  const fps = props.fps;
+  const outputWidth = props.width;
+  const outputHeight = props.height;
+
+  console.log(`エンジン書き出し: ${totalFrames}フレーム ${fps}fps ${outputWidth}x${outputHeight}`);
+
+  // Source URL マップ (engineDev.ts と同じパターン)
+  const sourceUrls = sourceUrlsOf(props);
+
+  const session = await createEngineSession(dir, { props, durationSec, sourceUrls });
+
+  try {
+    const tempDir = mkdtempSync(join(tmpdir(), "cutflow-engine-export-"));
+    const intermediatePath = join(tempDir, "intermediate.mp4");
+
+    // ffmpeg pipeline: image2pipe stdin → intermediate mp4
+    const framePipe = startFramePipe({ fps, outPath: intermediatePath });
+
+    console.log(`フレーム書き出し中(${totalFrames}フレーム)…`);
+    const progressInterval = Math.max(1, Math.floor(totalFrames / 20));
+
+    for (let f = 0; f < totalFrames; f++) {
+      const tOut = f / fps;
+      const pngBase64 = await session.renderAndCapture(tOut);
+      const pngBuf = Buffer.from(pngBase64, "base64");
+      await framePipe.write(pngBuf);
+
+      if (f > 0 && f % progressInterval === 0) {
+        process.stderr.write(`  進行 ${((f / totalFrames) * 100).toFixed(0)}% (${f}/${totalFrames})\r`);
+      }
+    }
+    process.stderr.write(`  進行 100% (${totalFrames}/${totalFrames})\n`);
+    await framePipe.finish();
+
+    // 音声ベッド + final mux
+    const audioM4a = join(tempDir, "audio.m4a");
+    const hasInserts = (props.inserts?.length ?? 0) > 0;
+    await timed("エンジン audio", () =>
+      hasInserts
+        ? mixInsertAudio({ dir, props, cutPath, outM4a: audioM4a })
+        : mixFastAudio({ dir, props, cutPath, outM4a: audioM4a }),
+    );
+
+    await timed("エンジン mux", () =>
+      run("ffmpeg", [
+        "-y", "-v", "error",
+        "-i", intermediatePath,
+        "-i", audioM4a,
+        "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+        "-shortest", "-movflags", "+faststart",
+        outPath,
+      ]),
+    );
+
+    console.log(`エンジン書き出し完了: ${outPath}`);
+    return { intermediatePath, finalPath: outPath, frameCount: totalFrames };
+  } finally {
+    await session.close();
+  }
 }
 
 export async function renderEngine(
@@ -85,90 +157,12 @@ export async function renderEngine(
     }),
   );
 
-  const totalFrames = compositionDurationInFrames(props.durationSec, props.fps);
-  const fps = props.fps;
-  const outputWidth = props.width;
-  const outputHeight = props.height;
-
-  console.log(`エンジン書き出し: ${totalFrames}フレーム ${fps}fps ${outputWidth}x${outputHeight}`);
-
-  // Source URL マップ (engineDev.ts と同じパターン)
-  const sourceUrls: Record<string, string> = { [sourceFile]: `/${sourceFile}` };
-  for (const o of props.overlays) sourceUrls[o.file] = `/${o.file}`;
-  for (const i of props.inserts ?? []) sourceUrls[i.file] = `/${i.file}`;
-  for (const b of props.bgm) sourceUrls[b.file] = `/${b.file}`;
-
-  const session = await createEngineSession(dir, { props, durationSec, sourceUrls });
-
-  try {
-    const tempDir = mkdtempSync(join(tmpdir(), "cutflow-engine-export-"));
-    const intermediatePath = join(tempDir, "intermediate.mp4");
-
-    // ffmpeg pipeline: image2pipe stdin → intermediate mp4
-    const encArgs = [
-      "-y", "-v", "error",
-      "-f", "image2pipe", "-framerate", String(fps), "-i", "-",
-      "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
-      "-pix_fmt", "yuv420p", intermediatePath,
-    ];
-    const ffmpegProc = spawn("ffmpeg", encArgs, { stdio: ["pipe", "pipe", "pipe"] });
-    const stderrChunks: Buffer[] = [];
-    ffmpegProc.stderr.on("data", (c: Buffer) => stderrChunks.push(c));
-
-    console.log(`フレーム書き出し中(${totalFrames}フレーム)…`);
-    const progressInterval = Math.max(1, Math.floor(totalFrames / 20));
-
-    for (let f = 0; f < totalFrames; f++) {
-      const tOut = f / fps;
-      const pngBase64 = await session.renderAndCapture(tOut);
-      const pngBuf = Buffer.from(pngBase64, "base64");
-
-      await new Promise<void>((resolveWrite) => {
-        if (!ffmpegProc.stdin.write(pngBuf)) {
-          ffmpegProc.stdin.once("drain", resolveWrite);
-        } else {
-          resolveWrite();
-        }
-      });
-
-      if (f > 0 && f % progressInterval === 0) {
-        process.stderr.write(`  進行 ${((f / totalFrames) * 100).toFixed(0)}% (${f}/${totalFrames})\r`);
-      }
-    }
-    process.stderr.write(`  進行 100% (${totalFrames}/${totalFrames})\n`);
-
-    ffmpegProc.stdin.end();
-    await new Promise<void>((res, rej) => {
-      ffmpegProc.on("close", (code) => {
-        if (code !== 0) rej(new Error(`ffmpeg failed: ${Buffer.concat(stderrChunks).toString().slice(-2000)}`));
-        else res();
-      });
-      ffmpegProc.on("error", rej);
-    });
-
-    // 音声ベッド + final mux
-    const audioM4a = join(tempDir, "audio.m4a");
-    const hasInserts = (props.inserts?.length ?? 0) > 0;
-    await timed("エンジン audio", () =>
-      hasInserts
-        ? mixInsertAudio({ dir, props, cutPath, outM4a: audioM4a })
-        : mixFastAudio({ dir, props, cutPath, outM4a: audioM4a }),
-    );
-
-    await timed("エンジン mux", () =>
-      run("ffmpeg", [
-        "-y", "-v", "error",
-        "-i", intermediatePath,
-        "-i", audioM4a,
-        "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-        "-shortest", "-movflags", "+faststart",
-        outPath,
-      ]),
-    );
-
-    console.log(`エンジン書き出し完了: ${outPath}`);
-    return { intermediatePath, finalPath: outPath, frameCount: totalFrames };
-  } finally {
-    await session.close();
-  }
+  return renderEngineFromProps({
+    dir,
+    props,
+    durationSec,
+    cutPath,
+    outPath,
+    label: "本編",
+  });
 }

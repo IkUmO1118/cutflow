@@ -5,14 +5,14 @@
 // useImperativeHandle で実装する。App.tsx 側の配線(frameupdate→playhead・
 // remount 再 seek・setVolume 効果・ショートカット)は無改造で動く前提。
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
-import type { CallbackListener, EventTypes as PlayerEventTypes, PlayerRef } from "@remotion/player";
+import type { CallbackListener, EventTypes as PlayerEventTypes, PlayerRef } from "./playerTypes.ts";
 import { describeFrame } from "../../src/engine/describeFrame.ts";
 import type { ExternalItem } from "../../src/engine/descriptor.ts";
 import { EngineCompositor } from "../../src/engine/runtime/compositor.ts";
 import { SourcePool } from "../../src/engine/runtime/sourcePool.ts";
 import { PresentationClock } from "../../src/engine/runtime/clock.ts";
 import { AudioScheduler } from "../../src/engine/runtime/audioScheduler.ts";
-import type { RenderProps } from "../../remotion/props.ts";
+import type { RenderProps } from "../../src/lib/renderPropsTypes.ts";
 import { audioSignatureOf, timelineFromBaseSegments } from "./enginePreviewTimeline.ts";
 
 /** App.tsx の built props memo は videoFile("media/proxy.mp4")に加え、

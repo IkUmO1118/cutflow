@@ -145,7 +145,7 @@ authoring-contract の「seek conventions(B1)」「Pinned CDN scripts(B2)」に�
 - **iOS 風の弾み**が要るときは spring の閉形式を ease に焼く(progress の純関数=seek-safe。
   velocity を積む実時間 spring ソルバは seek 不能で禁止)。臨界減衰 ζ=1 が既定、ζ0.8 で
   「felt not seen」、ζ0.6–0.7 で明示的に遊ぶ。実装(`springEase` 関数)は
-  `remotion/vendor/hyperframes/skills-corpus/hyperframes-animation/adapters/gsap-easing-and-stagger.md`
+  `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/adapters/gsap-easing-and-stagger.md`
 - **stagger・function-based value・SVG(DrawSVG/MorphSVG/SplitText)・`quickTo`/`will-change`**
   の詳細は同ディレクトリの `gsap-easing-and-stagger.md` / `gsap-transforms-and-perf.md` /
   `gsap-timeline-and-labels.md` を見る(`quickTo`・`matchMedia` はイベント駆動=preview 専用で
@@ -166,7 +166,7 @@ upstream `adapters/animejs.md` の契約をCutflowのpin/checkへ翻案した要
    有限値だけにする。`play()`/`restart()`/`reverse()`は相対状態・壁時計を持ち込むため禁止
 5. bootstrapは登録配列の全instanceを毎frame `pause(); seek(tMs)`する(GSAPのsame-time
    nudgeは使わない)。実例は`examples/hyperframes-animation--anime-timeline.html`、逐語upstreamは
-   `remotion/vendor/hyperframes/skills-corpus/hyperframes-animation/adapters/animejs.md`
+   `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/adapters/animejs.md`
 
 ## Three.js アダプタ
 
@@ -182,7 +182,7 @@ upstream `adapters/three.md` をCutflowのmanual/core-only契約へ翻案した�
    X3 core-onlyでは禁止。Rule 5のrAF/壁時計/乱数禁止もそのまま適用する
 5. ANGLE出力はGPU/driver依存なのでbyte一致を一般化しない。実例は
    `examples/hyperframes-animation--three-geometry.html`、上流逐語版は
-   `remotion/vendor/hyperframes/skills-corpus/hyperframes-animation/adapters/three.md`
+   `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/adapters/three.md`
 
 ## Raw WebGPU/WGSL アダプタ
 
@@ -220,7 +220,7 @@ Cutflow では以下で足りる(≤5点):
 - 単純なテキストモーション(語ごと・文字ごとのフェード+stagger)は本書の CSS/WAAPI/GSAP で
   そのまま書く。名前付き効果の語彙(soft-blur-in・typewriter・per-word-crossfade・
   mask-reveal-up など)は storyboard で参照できるが、**実装スペックは in-repo に無い**
-  (詳細は `remotion/vendor/hyperframes/skills-corpus/hyperframes-animation/adapters/animate-text.md`)
+  (詳細は `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/adapters/animate-text.md`)
 - **文字間(letter-spacing / word-spacing)を動かすときは per-glyph に分割して各 `x` を
   animate する**。一律 `scale` は**別物**(字形自体を拡縮するだけで字間は変わらない)。
   `scale` が忠実なのは `fontSize` を動かすときだけ。`letterSpacing`/`fontSize` を直接 tween

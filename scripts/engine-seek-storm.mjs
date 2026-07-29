@@ -15,11 +15,12 @@
 //     R2の計測 getter)
 //
 // 使い方: node scripts/engine-seek-storm.mjs --dir <収録フォルダ> [--seeks 30] [--port 4502]
-import { spawn, execFileSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { ensureHeadlessShell } from "../src/lib/browser.ts";
 
 const repoRoot = resolve(fileURLToPath(import.meta.url), "..", "..");
 
@@ -69,25 +70,8 @@ function startEditorServer(dir, port) {
   return proc;
 }
 
-function findHeadlessShell() {
-  const roots = [
-    join(repoRoot, "node_modules/.remotion"),
-    join(process.env.HOME, "Library/Caches/ms-playwright"),
-    join(process.env.HOME, "Library/Caches/remotion"),
-  ];
-  for (const root of roots) {
-    let out = "";
-    try {
-      out = execFileSync("find", [root, "-iname", "chrome-headless-shell", "-type", "f"], {
-        encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
-      });
-    } catch (err) {
-      out = err.stdout ?? "";
-    }
-    const hit = out.trim().split("\n").filter(Boolean)[0];
-    if (hit) return hit;
-  }
-  throw new Error("chrome-headless-shell が見つかりません(先に render/frames を1回実行してください)");
+async function findHeadlessShell() {
+  return ensureHeadlessShell();
 }
 
 async function launchHeadlessShell(execPath) {
@@ -221,7 +205,7 @@ async function main() {
     console.log("  ok");
 
     console.log("[2/6] chrome-headless-shell 起動(WebGPU フラグ付き)");
-    const execPath = findHeadlessShell();
+    const execPath = await findHeadlessShell();
     const { proc, wsUrl: browserWsUrl } = await launchHeadlessShell(execPath);
     console.log(`  ${execPath}`);
 

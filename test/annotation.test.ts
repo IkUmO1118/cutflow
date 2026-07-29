@@ -11,7 +11,7 @@ import {
   resolveAnnotation,
 } from "../src/lib/annotation.ts";
 import type { ArrowAnnotation, BoxAnnotation, SpotlightAnnotation } from "../src/types.ts";
-import type { ResolvedAnnotation } from "../remotion/props.ts";
+import type { ResolvedAnnotation } from "../src/lib/renderPropsTypes.ts";
 
 const closeTo = (actual: number, expected: number, eps = 1e-9) =>
   assert.ok(

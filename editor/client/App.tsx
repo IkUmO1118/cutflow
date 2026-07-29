@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { LayoutChangedMeta, PanelImperativeHandle } from "react-resizable-panels";
-import type { CallbackListener } from "@remotion/player";
+import type { CallbackListener } from "./playerTypes.ts";
 import { EnginePreview } from "./EnginePreview.tsx";
 import type { PreviewHandle } from "./EnginePreview.tsx";
 import { designForPlayer } from "./designAssets.ts";

@@ -23,7 +23,11 @@ import { ID_RE } from "../src/lib/ids.ts";
 import type { AiProfileStatus, Config } from "../src/lib/config.ts";
 import type { AiRefineRequest, AiReviewRequest, SaveRequest } from "../editor/client/apiTypes.ts";
 import { parseComposition, SAMPLE_HTML } from "../src/lib/hyperframe.ts";
-import { hyperframeCacheKey, resolveHyperframeBuild } from "../src/stages/hyperframe.ts";
+import {
+  hyperframeCacheKey,
+  HYPERFRAME_RENDERER_GENERATION,
+  resolveHyperframeBuild,
+} from "../src/stages/hyperframe.ts";
 import {
   hyperframeAuthorConflict,
   hyperframeAuthorReadiness,
@@ -110,6 +114,7 @@ function freshHyperframeSidecar(html = SAMPLE_HTML): string {
   if (!build.ok) throw new Error(build.error);
   return JSON.stringify({
     key: hyperframeCacheKey({
+      rendererGeneration: HYPERFRAME_RENDERER_GENERATION,
       htmlSha256: createHash("sha256").update(html).digest("hex"),
       variables: build.variables,
       width: build.width,

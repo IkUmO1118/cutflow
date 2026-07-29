@@ -94,7 +94,7 @@ test("hyperframe prompt selects the lightest capable single runtime without addi
 
 test("vendored Three.js adapter is the exact reviewed upstream artifact", () => {
   const adapter = readFileSync(
-    join(repoRoot, "remotion/vendor/hyperframes/skills-corpus/hyperframes-animation/adapters/three.md"),
+    join(repoRoot, "docs/hyperframes-vendor/skills-corpus/hyperframes-animation/adapters/three.md"),
     "utf8",
   );
   assert.equal(

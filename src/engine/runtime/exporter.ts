@@ -12,7 +12,7 @@ import { describeFrame } from "../describeFrame.ts";
 import type { ExternalItem, FrameDescriptor } from "../descriptor.ts";
 import { EngineCompositor } from "./compositor.ts";
 import { SourcePool } from "./sourcePool.ts";
-import type { RenderProps } from "../../../remotion/props.ts";
+import type { RenderProps } from "../../lib/renderPropsTypes.ts";
 
 declare global {
   interface Window {
@@ -66,8 +66,11 @@ async function init(): Promise<void> {
   durSec = cfg.durationSec;
 
   const statusEl = document.getElementById("export-status") as HTMLDivElement;
-  statusEl.textContent = "GPU 初期化中…";
+  statusEl.textContent = "フォント読込中…";
   try {
+    await document.fonts.load('400 24px "Noto Sans JP"');
+    await document.fonts.ready;
+    statusEl.textContent = "GPU 初期化中…";
     sourcePool = new SourcePool((id) => cfg.sourceUrls[id] ?? id);
     compositor = await EngineCompositor.create(
       props.width,

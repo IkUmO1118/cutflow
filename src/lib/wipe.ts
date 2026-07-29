@@ -1,4 +1,4 @@
-import type { Span } from "../../remotion/props.ts";
+import type { Span } from "./renderPropsTypes.ts";
 
 /**
  * 時刻 t(カット後の秒)における wipeFull の進行度。

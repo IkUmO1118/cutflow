@@ -1,11 +1,11 @@
 // src/engine/describeFrame.ts — JSON(正) → buildRenderProps() で解決済みの
 // RenderProps → この純関数 → FrameDescriptor、の翻訳層(M2 Phase2)。
-// remotion/Main.tsx の式を逐語移植する(アレンジ禁止。設計書の落とし穴節を
-// 参照)。ブラウザ安全な純 TS のみ(node import 禁止)。
+// 旧レンダラーの式を逐語移植する(アレンジ禁止。設計書の落とし穴節を参照)。
+// ブラウザ安全な純 TS のみ(node import 禁止)。
 //
 // 演出グループはコミット単位(docs/plans/2026-07-28-engine-m2-frame-descriptor-design.md
 // §Phase2)。このファイルは各グループの内部関数を追記していく形で育つ。
-import { zoomProgressAt, zoomTransformAt } from "../lib/zoom.ts";
+import { activeZoomSpanAt, zoomProgressAt, zoomTransformAt } from "../lib/zoom.ts";
 import type { ZoomSpan, ZoomTransform } from "../lib/zoom.ts";
 import { panelRect, shrinkRectBottomRight, wipeRectAt } from "../lib/design.ts";
 import { wipeProgressAt } from "../lib/wipe.ts";
@@ -40,7 +40,7 @@ import type {
   RenderedItem,
   RenderedPlacement,
 } from "./descriptor.ts";
-import type { Caption, RenderProps } from "../../remotion/props.ts";
+import type { Caption, RenderProps } from "../lib/renderPropsTypes.ts";
 
 const IDENTITY_ZOOM: ZoomTransform = { scale: 1, translateX: 0, translateY: 0 };
 
@@ -214,10 +214,11 @@ export function describeBaseLayer(props: RenderProps, tOut: number): FrameItem[]
 }
 
 /**
- * zoom 連動のワイプ縮小率(0..1。Main.tsx:130-140 の逐語移植)。baked 経路
+ * zoom 連動のワイプ縮小率(0..1)。baked 経路
  * (zoomTransformTrack)は OpenScreen 逐語の reactiveWebcamScale を
  * zoomT.scale から直接駆動、legacy 経路は区間の wipeScale ×
- * zoomProgressAt を使う(§Phase0 記録のとおり2経路で式が分岐する)
+ * zoomProgressAt を使う。区間探索は activeZoomSpanAt で
+ * zoomProgressAt と揃えてある。
  */
 function wipeReactiveShrink(
   props: RenderProps,
@@ -234,7 +235,7 @@ function wipeReactiveShrink(
     return 1 - (1 - reactiveFactor) * (1 - wipeEase);
   }
   const zoomSpans = props.zooms ?? [];
-  const activeWipeScale = zoomSpans.find((z) => tOut >= z.start && tOut < z.end)?.wipeScale ?? 1;
+  const activeWipeScale = activeZoomSpanAt(tOut, zoomSpans)?.wipeScale ?? 1;
   return 1 - (1 - activeWipeScale) * zoomProgressAt(tOut, zoomSpans) * (1 - wipeEase);
 }
 

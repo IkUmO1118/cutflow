@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { RenderProps } from "../../remotion/props.ts";
+import type { RenderProps } from "./renderPropsTypes.ts";
 import { bgmTrackTiming, bgmVolumeAtFrame } from "./bgmEnvelope.ts";
 import { extractAudio } from "./chunkCache.ts";
 import { run } from "./exec.ts";

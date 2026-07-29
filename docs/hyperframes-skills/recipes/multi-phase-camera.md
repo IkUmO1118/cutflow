@@ -1,6 +1,6 @@
 # Multi-Phase Camera
 
-> Compressed from `remotion/vendor/hyperframes/skills-corpus/hyperframes-animation/rules/multi-phase-camera.md`.
+> Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/multi-phase-camera.md`.
 > Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)

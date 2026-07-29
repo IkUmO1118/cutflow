@@ -11,20 +11,19 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { renderStill, selectComposition } from "@remotion/renderer";
 import {
   DESIGN_STILL_GENERATOR_VERSION,
   designAssetRefs,
   designStillKey,
   existingDesignAssets,
+  prepareDesignAssetBundle,
   prepareDesignAssetsForProps,
   prepareDesignStillAssets,
 } from "../src/lib/designStill.ts";
-import { withCaptionStillAssets } from "../src/lib/captionStill.ts";
-import type { WarmAssets } from "../src/stages/frames.ts";
-import type { DesignStillDesign } from "../remotion/DesignStill.tsx";
-import { defaultProps } from "../remotion/props.ts";
-import type { RenderProps } from "../remotion/props.ts";
+import type { DesignStillDesign } from "../src/lib/designAssetHtml.ts";
+import type { StillCaptureSession } from "../src/lib/stillCapture.ts";
+import { defaultProps } from "../src/lib/renderPropsTypes.ts";
+import type { RenderProps } from "../src/lib/renderPropsTypes.ts";
 
 let dir: string;
 
@@ -52,7 +51,7 @@ const DESIGN: DesignStillDesign = {
   },
 };
 
-const fakeWarm = {} as WarmAssets;
+const fakeSession = {} as StillCaptureSession;
 
 test("designStillKey: generator version を固定し design 全値・解像度をキーに含める", () => {
   assert.equal(DESIGN_STILL_GENERATOR_VERSION, 1);
@@ -131,7 +130,7 @@ test("prepareDesignStillAssets: 4役を全て一時出力した後だけ完成�
     design: DESIGN,
     width: 1920,
     height: 1080,
-    warm: fakeWarm,
+    session: fakeSession,
     renderer: async ({ output }) => {
       calls += 1;
       assert.ok(output.includes(".tmp-"));
@@ -150,7 +149,7 @@ test("prepareDesignStillAssets: cache hit は renderer を呼ばない", async (
     design: DESIGN,
     width: 1920,
     height: 1080,
-    warm: fakeWarm,
+    session: fakeSession,
     renderer: async () => { calls += 1; },
   });
   assert.equal(calls, 0);
@@ -172,7 +171,7 @@ test("prepareDesignStillAssets: 途中失敗では完成名を公開せず一時
       design: failedDesign,
       width: 1920,
       height: 1080,
-      warm: fakeWarm,
+      session: fakeSession,
       renderer: async ({ output }) => {
         calls += 1;
         if (calls === 3) throw new Error("render failed");
@@ -185,52 +184,18 @@ test("prepareDesignStillAssets: 途中失敗では完成名を公開せず一時
   assert.ok(!readdirSync(join(dir, "render.fast/design")).some((file) => file.includes(".tmp-")));
 });
 
-test("DesignStill: 実 bundleで4 PNGを生成し、Mainはassets有無でpixel一致する", async () => {
+test("DesignStill: 実 bundleで4 PNGを生成する", async () => {
   const renderDir = mkdtempSync(join(tmpdir(), "cutflow-designstill-render-"));
   try {
     const design: DesignStillDesign = { ...DESIGN, backgroundFile: undefined };
-    const refs = await withCaptionStillAssets(renderDir, async (warm) => {
-      const generated = await prepareDesignStillAssets({
-        dir: renderDir,
-        design,
-        width: 1920,
-        height: 1080,
-        warm,
-      });
-      const mainDesign = design as NonNullable<RenderProps["design"]>;
-      const baseProps: RenderProps = {
-        ...defaultProps,
-        cameraRegion: { x: 1920, y: 0, w: 1920, h: 1080 },
-        design: mainDesign,
-      };
-      const renderMain = async (output: string, props: RenderProps) => {
-        const inputProps = props as unknown as Record<string, unknown>;
-        const composition = await selectComposition({
-          serveUrl: warm.serveUrl,
-          id: "Main",
-          inputProps,
-          puppeteerInstance: warm.browser,
-          logLevel: "warn",
-        });
-        await renderStill({
-          composition,
-          serveUrl: warm.serveUrl,
-          output,
-          frame: 0,
-          inputProps,
-          imageFormat: "png",
-          puppeteerInstance: warm.browser,
-          overwrite: true,
-          logLevel: "warn",
-        });
-      };
-      await renderMain(join(renderDir, "main-legacy.png"), baseProps);
-      await renderMain(join(renderDir, "main-assets.png"), {
-        ...baseProps,
-        design: { ...mainDesign, assets: generated },
-      });
-      return generated;
+    const bundle = await prepareDesignAssetBundle({
+      dir: renderDir,
+      design,
+      width: 1920,
+      height: 1080,
     });
+    assert.ok(bundle);
+    const refs = bundle.refs;
     const backdrop = readFileSync(join(renderDir, refs.backdropFile));
     const screenMask = readFileSync(join(renderDir, refs.screenMaskFile));
     const cameraShadow = readFileSync(join(renderDir, refs.cameraShadowFile!));
@@ -241,10 +206,6 @@ test("DesignStill: 実 bundleで4 PNGを生成し、Mainはassets有無でpixel�
     assert.deepEqual([cameraMask.readUInt32BE(16), cameraMask.readUInt32BE(20)], [375, 375]);
     assert.equal(screenMask[25], 6, "screen mask PNG must use RGBA color type");
     assert.equal(cameraMask[25], 6, "camera mask PNG must use RGBA color type");
-    assert.deepEqual(
-      readFileSync(join(renderDir, "main-assets.png")),
-      readFileSync(join(renderDir, "main-legacy.png")),
-    );
   } finally {
     rmSync(renderDir, { recursive: true, force: true });
   }
@@ -252,7 +213,7 @@ test("DesignStill: 実 bundleで4 PNGを生成し、Mainはassets有無でpixel�
 
 test("prepareDesignAssetsForProps: 完備cacheをattachし、design無しは同一参照", async () => {
   const props = { ...defaultProps, design: DESIGN };
-  const prepared = await prepareDesignAssetsForProps({ dir, props, warm: fakeWarm });
+  const prepared = await prepareDesignAssetsForProps({ dir, props, session: fakeSession });
   assert.equal(prepared.design?.assets?.key, designStillKey({
     dir,
     design: DESIGN,
@@ -275,7 +236,7 @@ test("prepareDesignAssetsForProps: 生成失敗はassets無しCSS fallback + war
   const prepared = await prepareDesignAssetsForProps({
     dir,
     props,
-    warm: fakeWarm,
+    session: fakeSession,
     renderer: async () => { throw new Error("still failed"); },
     warn: (message) => warnings.push(message),
   });

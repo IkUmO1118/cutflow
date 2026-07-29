@@ -90,6 +90,10 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
   取り込まれた背景画像のコピー。元ファイルからいつでも再取得されるので消してよい。
   `materials/`(人間の素材置き場)には置かない=背景は overlays から参照されないため
   `materials` コマンドに永久に「未使用素材」として計上されてしまう) /
+  `render.fast/`(歴史的な名前。現在は design 静的資産
+  `render.fast/design/<key>.<role>.png` の内容アドレス式キャッシュと、
+  BGM/インサート音声ミックスの一時 PCM の置き場。正常終了時の一時 PCM は消える。
+  design 資産は再生成が高価な重いキャッシュなので `--cache-only` の対象) /
   `cut.<name>.mp4`(ショート `<name>` 専用の keep 集合
   (`shorts.json` の `ranges`)をフル解像度で結合したもの) /
   `cut.<name>.keeps.json`(cut.<name>.mp4 の再利用可否を判定するキャッシュキー。
@@ -189,10 +193,10 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
   `rules.suggested.md`(`learn` が書く下書き。使い捨てで次回の `learn` で
   黙って上書きされる。採用したい項目は人間が読んで手で `rules.md` に転記する。
   `learn` はこのファイルにしか書かず、channel の `rules.md` を自分で
-  書き換えることは絶対にしない)も編集・削除以外では触らない
-  `.remotion/`(Remotion が render / frames のために収録フォルダへダウンロードする
-  headless Chrome 本体。収録フォルダごとに約200MB重複する純粋な再取得可能キャッシュで、
-  消せば次の render / frames が自動で取り直す)も中間生成物。
+  書き換えることは絶対にしない)も編集・削除以外では触らない。
+  `.remotion/`(レガシー。旧 Remotion 経路が収録フォルダへ落とした
+  headless Chrome 本体の残骸。CutFlow はもう作らないが、既存収録に残っている
+  ので `clean` が回収する)も中間生成物。
   これらの中間生成物・キャッシュはまとめて `node src/cli.ts clean <dir>` で安全に削除できる
    (削除は files.ts の generated 分類だけが対象で、編集ファイル・approvals.json は触れない。
    **`manifest.json` は `clean` の保護対象でフルでも削除されない**)。
@@ -466,8 +470,7 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
   常駐デーモン。bundle+headless Chrome を暖めたまま待ち受け、`frames` が
   自動検出して使う。起動していなければ `frames` は従来どおりの単発実行で
   挙動・出力は不変)。詳細は `docs/usage.md`「frames-serve(常駐フレーム
-  サーバ)」参照。`remotion/*.tsx` を編集した場合は自動で再バンドルされる
-  が、異常時は Ctrl+C で再起動すれば復旧する
+  サーバ)」参照。異常時は Ctrl+C で再起動すれば復旧する
 
 ## どのファイルが何を決めるか
 
@@ -552,7 +555,7 @@ node src/cli.ts plan-bgm <dir>    # LLM で BGM の配置候補(区間×曲、�
 node src/cli.ts hyperframe-backends --json  # 収録dir不要・read-only。backendの4状態/tier/CDN pin/authoring経路/usable実render fixtureを純JSONで表示(Anime.js 3.2.2はmanual/byte、Three.js r160とraw WebGPU/WGSLはmanual/perceptualでusable。TypeGPUはout。既定は散文)
 node src/cli.ts hyperframe <dir> --name <name> --from-brief  # HyperFrames カード(無音の作図素材)を LLM で下書き(hyperframes/<name>.html。番号選択のパターンメニュー+check ゲート通過必須。既存ありは --force 必須)
 node src/cli.ts hyperframe <dir> --name <name> --embed-lottie <animation.json>  # 人間持ち込み AE/bodymovin JSON+画像を canonical SVG/byte card にインライン化(check 0/0・atomic publish。既存ありは --force 必須。render はしない)
-node src/cli.ts hyperframe <dir> --name <name>  # 上の下書きを native Remotion interpreter で materials/hyperframes/<name>.mp4 へ render(check ゲート・atomic publish・hyperframe.<name>.key.json でキャッシュ。--var k=v / --width / --height / --fps / --durationSec で上書き可)
+node src/cli.ts hyperframe <dir> --name <name>  # 上の下書きを native HyperFrames interpreter で materials/hyperframes/<name>.mp4 へ render(check ゲート・atomic publish・hyperframe.<name>.key.json でキャッシュ。--var k=v / --width / --height / --fps / --durationSec で上書き可)
 node src/cli.ts hyperframe-place <dir> --name <name> --at <秒>  # render 済みの HyperFrames カードを overlay(既定)/insert として配置する apply パッチ下書き(hyperframe-place.suggested.json)を書く。cut/承認には触れない
 node src/cli.ts hyperframe-check <dir> --name <name>  # render 不要な動的監査(終端未完了(進捗判定)/空終端/画面外要素/seek無反応/dead zone/一斉登場)。決定論のみ・常に exit 0・warn/info のみ。render 済み mp4 があれば head/mid/tail+finding still を抽出し任意で VLM 二次確認も行う。hyperframe.probe/<name>/index.json に書く
 node src/cli.ts hyperframe-freeze <dir> --name <name>  # check 済みの hyperframes/<name>.html を skeletonize した DRAFT(hyperframe-freeze.suggested/<name>.{html,md})を書く。channel の hyperframe-seeds/ への採用は人間が手で。cut/承認には触れない
@@ -590,13 +593,13 @@ tool 一覧・信頼モデル宣言は `AGENTS_CONTRACT.md` §11 と `docs/usage
 - テスト: `npm test`(`node --test`。純関数の単体テストが `test/*.test.ts`。
   `lib/timeline.ts` の時刻写像・`stages/validate.ts` の検査・`lib/renderProps.ts`・
   `lib/fmt.ts` を固定している。ロジックを変えたら追随する)
-- エンジンの合成(`src/engine/`・`remotion/` の描画)を変えたら `npm run gate:pixel`
+- エンジンの合成(`src/engine/` の描画)を変えたら `npm run gate:pixel`
   (画素ゲート。`npm test` には入っていない独立コマンド。golden との画素比較。
-  2026-07-29 時点でカメラ/ワイプ領域の色圧縮バグにより赤=既知)
+  2026-07-29 時点で全フレーム一致)
 - 構成: `src/stages/`(パイプライン各段。JSON in → JSON out)、
   `src/lib/`(共有ロジック。時刻写像は `lib/timeline.ts`)、
   `editor/`(GUI。server.ts + client/ の React。正のデータは常にファイル側)、
-  `remotion/`(最終合成のコンポジション)
+  `src/engine/`(WebCodecs + WebGPU の合成エンジン。最終合成はここ)
 - 設定はすべて `config.yaml`(コードにハードコードしない方針)
 - スキーマを変えたら次の**5点セット**を揃えて更新する(旧・3点セットに
   `schemas/*.json` を追加。ファイル分類・コマンドが変わったときだけ

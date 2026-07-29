@@ -450,7 +450,7 @@ export function validateDocs(
         err(f, w, `fit は "contain" か "cover" です(現在: ${JSON.stringify(fit)})`);
       }
     };
-    // 画像かどうかはレンダラー(remotion/Main.tsx の isImageFile)と同じ判定に
+    // 画像かどうかはレンダラー(src/lib/overlayFade.ts の isImageFile)と同じ判定に
     // する: 画像拡張子リストに該当しなければすべて動画扱い(.mkv 等も
     // OffthreadVideo で音声・頭出しが有効に再生される)
     const isImageFile = (file: unknown): boolean =>

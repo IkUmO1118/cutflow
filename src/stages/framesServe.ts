@@ -1,36 +1,29 @@
 // 常駐フレームサーバ(frames-serve <dir>)。
 //
-// frames() は1回の CLI 呼び出しの中で bundle(webpack)+headless Chrome を
-// 使い回しているが、AI の編集ループ(JSON 編集 → frames --t … → 確認 → …)は
+// frames() は1回の CLI 呼び出しの中で headless Chrome を起動しているが、
+// AI の編集ループ(JSON 編集 → frames --t … → 確認 → …)は
 // 毎回別プロセスの CLI 起動なので、そのコールドコストをまたいで再利用できない。
-// このデーモンは bundle+browser を起動時に1回だけ暖め、`frames <dir> --t …` が
-// portfile(frames/.serve.json)を見つけたら POST /frames でここへ委譲する。
+// このデーモンは `frames <dir> --t …` が portfile(frames/.serve.json)を
+// 見つけたら POST /frames でここへ委譲する常駐窓口になる。
 //
-// 暖めるのは remotion コード(bundle)と無依存の browser だけで、config・
-// 編集 JSON・props は毎リクエスト読み直す(renderFrames が単発と同じ経路で
+// config・編集 JSON・props は毎リクエスト読み直す(framesEngine が単発と同じ経路で
 // 行う)。したがってデーモン経由でも単発でも出る絵は同一(設計 §課題2 論点2-B)。
 //
 // editor/server.ts の localhost サーバ骨格(node:http・127.0.0.1・Host/Origin
-// 検査・requestTimeout=0)を流用。1 デーモン = 1 収録(bundle が publicDir=dir
-// に依存するため、別 dir を捌くには再バンドルが要る)。
+// 検査・requestTimeout=0)を流用。1 デーモン = 1 収録。
 
 import {
   existsSync,
   mkdirSync,
-  readdirSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from "node:fs";
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { bundle } from "@remotion/bundler";
-import { ensureBrowser, openBrowser } from "@remotion/renderer";
+import { join } from "node:path";
 import { loadConfig } from "../lib/config.ts";
-import { renderFrames, framesEngine } from "./frames.ts";
-import type { FrameRequest, FrameShot, WarmAssets } from "./frames.ts";
+import { framesEngine } from "./frames.ts";
+import type { FrameRequest } from "./frames.ts";
 
 /** frames/ 内、常駐サーバの待受情報を書くファイル(中間生成物。frames/*.png
  * の全消しループ(.png/.ocr.json のみ対象)には含まれない) */
@@ -56,7 +49,7 @@ interface ServeRequestBody {
   fullRes?: unknown;
 }
 
-/** パース済みの撮影リクエスト(renderFrames にそのまま渡せる形) */
+/** パース済みの撮影リクエスト(framesEngine にそのまま渡せる形) */
 export interface ParsedFramesRequest {
   req: FrameRequest;
   opts: { short?: string; ocr?: boolean; fullRes?: boolean };
@@ -104,22 +97,6 @@ export function parseFramesServeBody(body: unknown): ParsedFramesRequest {
   return { req, opts };
 }
 
-/**
- * remotion/ 配下の全ファイルの最大 mtime(ms)。bundle 陳腐化の判定に使う
- * (MEMORY.md「Remotion の webpack バンドルキャッシュが陳腐化する」を踏まない
- * ため、remotion ソース編集をここで検知したら再バンドルする)
- */
-export function remotionMaxMtimeMs(remotionDir: string): number {
-  let max = 0;
-  for (const e of readdirSync(remotionDir, { recursive: true, withFileTypes: true })) {
-    if (!e.isFile()) continue;
-    const p = join(e.parentPath ?? remotionDir, e.name);
-    const m = statSync(p).mtimeMs;
-    if (m > max) max = m;
-  }
-  return max;
-}
-
 /** DNS rebinding・CSRF 対策(editor/server.ts と同じ正規表現・同じ判断) */
 const LOCAL_HOST = /^(https?:\/\/)?(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
 
@@ -149,12 +126,8 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
 
 /**
  * 常駐フレームサーバを起動する(Ctrl+C まで終了しない)。
- * - 起動時に ensureBrowser + bundle + openBrowser を1回だけ実行
  * - POST /frames: body を FrameRequest+opts にパースし、loadConfig()(毎回)
- *   → renderFrames(dir, req, cfg, opts, warm) → { shots } を返す
- * - remotion/ の最大 mtime を記録し、リクエスト時に変化していれば再バンドル
- *   (念のため node_modules/.cache/webpack も消してから。陳腐化回避)
- * - browser がレンダー中に落ちた場合、1回だけ作り直してそのリクエストを再試行
+ *   → framesEngine(dir, req, cfg, opts...) → { shots } を返す
  * - GET /ping: 生存確認(B3 の frames CLI 検出用)
  */
 export async function startFramesServe(
@@ -162,30 +135,7 @@ export async function startFramesServe(
   explicitConfigPath: string | undefined,
   port: number,
 ): Promise<void> {
-  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-  const remotionDir = join(repoRoot, "remotion");
-  const webpackCacheDir = join(repoRoot, "node_modules", ".cache", "webpack");
-
-  console.log("frames-serve 起動準備中(bundle+headless Chrome を暖機。数十秒かかることがあります)...");
-  await ensureBrowser();
-  let bundleMtime = remotionMaxMtimeMs(remotionDir);
-  let serveUrl = await bundle({
-    entryPoint: join(remotionDir, "index.ts"),
-    publicDir: dir,
-    symlinkPublicDir: true,
-  });
-  let browser = await openBrowser("chrome");
-
-  async function rebundle(): Promise<void> {
-    console.log("remotion ソースの変更を検知したので再バンドルします...");
-    rmSync(webpackCacheDir, { recursive: true, force: true });
-    serveUrl = await bundle({
-      entryPoint: join(remotionDir, "index.ts"),
-      publicDir: dir,
-      symlinkPublicDir: true,
-    });
-    bundleMtime = remotionMaxMtimeMs(remotionDir);
-  }
+  console.log("frames-serve 起動準備中(headless Chrome を暖機。数十秒かかることがあります)...");
 
   async function handleFrames(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const body = await readBody(req);
@@ -196,42 +146,10 @@ export async function startFramesServe(
       throw new HttpError(400, (e as Error).message);
     }
     const cfg = loadConfig(explicitConfigPath);
-
-    // M4: エンジン経路(framesEngine)が既定。render.engineExport: false のとき
-    // だけ Remotion 経路(renderFrames)を使う
-    const useEngine = cfg.render.engineExport !== false;
-    if (useEngine) {
-      try {
-        const shots = await framesEngine(
-          dir, parsed.req, cfg,
-          parsed.opts.short, parsed.opts.ocr, parsed.opts.fullRes,
-        );
-        sendJson(res, 200, { shots });
-        return;
-      } catch (e) {
-        console.warn(`エンジン frames 失敗 → Remotion へフォールバック: ${(e as Error).message}`);
-      }
-    }
-
-    // Remotion 経路(フォールバック)
-    const currentMtime = remotionMaxMtimeMs(remotionDir);
-    if (currentMtime > bundleMtime) await rebundle();
-
-    const warm: WarmAssets = { serveUrl, browser };
-    let shots: FrameShot[];
-    try {
-      shots = await renderFrames(dir, parsed.req, cfg, parsed.opts, warm);
-    } catch (e) {
-      // browser クラッシュ等を疑い、1回だけ作り直してリトライ(恒常化はしない)
-      console.warn(`レンダーに失敗したため browser を作り直して1回だけ再試行します: ${(e as Error).message}`);
-      try {
-        await browser.close({ silent: true });
-      } catch {
-        // 既に落ちている browser の close は失敗しても無視
-      }
-      browser = await openBrowser("chrome");
-      shots = await renderFrames(dir, parsed.req, cfg, parsed.opts, { serveUrl, browser });
-    }
+    const shots = await framesEngine(
+      dir, parsed.req, cfg,
+      parsed.opts.short, parsed.opts.ocr, parsed.opts.fullRes,
+    );
     sendJson(res, 200, { shots });
   }
 
@@ -288,17 +206,18 @@ export async function startFramesServe(
   console.log(`frames-serve 起動: 127.0.0.1:${port}(対象: ${dir})`);
   console.log("frames <dir> --t ... 等がこのデーモンを自動検出して使います。終了は Ctrl+C");
 
-  // 終了時の portfile 削除。@remotion/renderer の openBrowser は SIGINT で
-  // browser を kill して process.exit(130) を同期的に呼ぶ独自リスナーを
-  // 登録済み(このリスナーが先に登録されているため先に発火し、process.exit は
-  // 後続リスナーの実行を止めるので、SIGINT に自前ハンドラを足しても届かない)。
-  // "exit" イベントはどの経路(SIGINT/SIGTERM/例外)で終了しても最終段で必ず
-  // 発火するので、ここで同期的に portfile を消す(async 処理は exit 中は
-  // 走らないため rmSync のみ)。SIGTERM は remotion 側が browser を kill する
-  // だけでプロセスは終了させない(closeProcess が exit を呼ばない)ので、
-  // デーモンとして確実に終了するよう明示的に exit する
-  process.on("exit", () => {
+  // 終了時の portfile 削除。signal 経路では明示的に消してから exit し、
+  // それ以外の経路は exit イベントで同期的に回収する。
+  const cleanupPortFile = () => {
     if (existsSync(portFilePath)) rmSync(portFilePath, { force: true });
+  };
+  process.on("exit", cleanupPortFile);
+  process.on("SIGINT", () => {
+    cleanupPortFile();
+    process.exit(130);
   });
-  process.on("SIGTERM", () => process.exit(0));
+  process.on("SIGTERM", () => {
+    cleanupPortFile();
+    process.exit(0);
+  });
 }

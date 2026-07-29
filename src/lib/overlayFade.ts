@@ -1,12 +1,12 @@
-// lib/overlayFade.ts — 素材オーバーレイ/挿入クリップの時間関数(Remotion 描画と
-// ffmpeg 高速パスが共有する唯一の定義)。remotion/Main.tsx から機械的に移設した。
-// **このファイルはブラウザバンドル(Root.tsx → Main/OverlayLayer/OverlayStill)へ
+// lib/overlayFade.ts — 素材オーバーレイ/挿入クリップの時間関数(描画エンジンと
+// ffmpeg 高速パスが共有する唯一の定義)。
+// **このファイルはブラウザ側プレビューにも
 // 引き込まれる**ので、node 専用モジュール(node:fs / node:crypto /
-// @remotion/renderer 等)を絶対に import しないこと(webpack が解決できずに
+// 旧 renderer 等)を絶対に import しないこと(webpack が解決できずに
 // frames / editor / render のバンドルが丸ごと壊れる)。
-import type { OverlayItem } from "../../remotion/props.ts";
+import type { OverlayItem } from "./renderPropsTypes.ts";
 
-/** フェード秒 → フレーム(Remotion の fadeFactor と同じ Math.round) */
+/** フェード秒 → フレーム(描画エンジンの fadeFactor と同じ Math.round) */
 export const fadeFrames = (sec: number | undefined, fps: number): number =>
   Math.round((sec ?? 0) * fps);
 
@@ -67,11 +67,11 @@ export function overlayFastReason(o: OverlayItem, fps: number): string | null {
 
 /** 時間変化する要素を剥がした「レイヤー画」用の素材(render 高速パスの
  * OverlayStill が焼く1枚)。fade / opacity / keyframes は ffmpeg 側が alpha として
- * 掛けるのでここでは 1 に固定。startFrom は画像では Remotion も無視するので落とす
+ * 掛けるのでここでは 1 に固定。startFrom は画像では描画エンジンも無視するので落とす
  * (キャッシュキーの汚染防止)。
- * **ブラウザ側(remotion/OverlayStill.tsx)と node 側(src/lib/overlayStill.ts)の
- * 両方から使うので、node 依存の無いこのファイルに置く**(overlayStill.ts に置くと
- * node:fs / @remotion/renderer がブラウザバンドルへ引き込まれて壊れる) */
+ * **ブラウザ側プレビューと node 側(src/lib/overlayStill.ts)の両方から使うので、
+ * node 依存の無いこのファイルに置く**(overlayStill.ts に置くと
+ * node:fs / 旧 renderer がブラウザバンドルへ引き込まれて壊れる) */
 export function overlayStillItem(o: OverlayItem): OverlayItem {
   return {
     start: o.start, end: o.end, file: o.file, track: o.track, fit: o.fit,

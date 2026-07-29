@@ -9,8 +9,8 @@ import {
   describeLayerOrderStack,
 } from "../src/engine/describeFrame.ts";
 import { blurRadiusPx } from "../src/lib/blur.ts";
-import { defaultProps } from "../remotion/props.ts";
-import type { RenderProps } from "../remotion/props.ts";
+import { defaultProps } from "../src/lib/renderPropsTypes.ts";
+import type { RenderProps } from "../src/lib/renderPropsTypes.ts";
 
 const base: RenderProps = {
   ...defaultProps,

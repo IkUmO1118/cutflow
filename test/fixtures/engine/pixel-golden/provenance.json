@@ -1,6 +1,7 @@
 {
   "capturedAtCommit": "7a8bef108296446e809e7882e4b0dbd0e8182f46",
   "capturedAt": "2026-07-28T17:16:44.072Z",
+  "oneWayNote": "This golden set was captured with the Remotion oracle. X6 removed that oracle on 2026-07-29, so the PNGs remain comparable forever but cannot be recaptured from the old path. Intentional output-spec changes must refresh golden files only with human visual approval.",
   "ffmpegVersion": "ffmpeg version 8.1.2 Copyright (c) 2000-2026 the FFmpeg developers",
   "parityConfigSha256": "dba04a171d904d35a09eaeefed062f9d74fe24077d4b0b67cb03bda21c5a625d",
   "fixtureFileSha256": {

@@ -24,6 +24,7 @@ import {
   buildRecipeInjection,
   determinismVerdict,
   hyperframeCacheKey,
+  HYPERFRAME_RENDERER_GENERATION,
   parseSignalstatsYmax,
   PERCEPTUAL_YMAX_THRESHOLD,
   renderHyperframe,
@@ -77,6 +78,7 @@ test("resolveHyperframeAuthorPrompt: pattern指定の従来追記を保つ", () 
 
 function baseKeyInputs() {
   return {
+    rendererGeneration: HYPERFRAME_RENDERER_GENERATION,
     htmlSha256: "a".repeat(64),
     variables: { title: "CutFlow", accent: "#22c55e" },
     width: 1920,
@@ -137,6 +139,12 @@ test("hyperframeCacheKey: durationSec が変われば別キー", () => {
 test("hyperframeCacheKey: render profile が変われば別キー", () => {
   const a = hyperframeCacheKey(baseKeyInputs());
   const b = hyperframeCacheKey({ ...baseKeyInputs(), profile: "gpu-angle" });
+  assert.notEqual(a, b);
+});
+
+test("hyperframeCacheKey: rendererGeneration が変われば別キー", () => {
+  const a = hyperframeCacheKey(baseKeyInputs());
+  const b = hyperframeCacheKey({ ...baseKeyInputs(), rendererGeneration: HYPERFRAME_RENDERER_GENERATION + 1 });
   assert.notEqual(a, b);
 });
 
@@ -369,6 +377,7 @@ test("renderHyperframe: キャッシュキーが一致すれば produce を呼�
   if (!build.ok) return;
 
   const key = hyperframeCacheKey({
+    rendererGeneration: HYPERFRAME_RENDERER_GENERATION,
     htmlSha256: createHash("sha256").update(SAMPLE_HTML).digest("hex"),
     variables: build.variables,
     width: build.width,
@@ -406,7 +415,7 @@ test("renderHyperframe: キャッシュキーが一致すれば produce を呼�
   );
 });
 
-test("renderHyperframe: legacy key without profile misses once and writes the default profile", async () => {
+test("renderHyperframe: legacy key without rendererGeneration misses once and writes generation/profile", async () => {
   const tmp = mkdtempSync(join(tmpdir(), "hf-stage-legacy-profile-"));
   mkdirSync(join(tmp, "hyperframes"), { recursive: true });
   writeFileSync(join(tmp, "hyperframes", "legacy.html"), SAMPLE_HTML);
@@ -417,7 +426,8 @@ test("renderHyperframe: legacy key without profile misses once and writes the de
   const build = resolveHyperframeBuild({ parsed, cliVars: {} });
   assert.equal(build.ok, true);
   if (!build.ok) return;
-  const { profile: _profile, ...legacyInputs } = {
+  const { rendererGeneration: _rendererGeneration, ...legacyInputs } = {
+    rendererGeneration: HYPERFRAME_RENDERER_GENERATION,
     htmlSha256: createHash("sha256").update(SAMPLE_HTML).digest("hex"),
     variables: build.variables,
     width: build.width,
@@ -447,6 +457,7 @@ test("renderHyperframe: legacy key without profile misses once and writes the de
   assert.equal(result.skipped, false);
   assert.equal(producedProfile, "default");
   const sidecar = JSON.parse(readFileSync(join(tmp, "hyperframe.legacy.key.json"), "utf8"));
+  assert.equal(sidecar.rendererGeneration, HYPERFRAME_RENDERER_GENERATION);
   assert.equal(sidecar.profile, "default");
   assert.notEqual(sidecar.key, legacyKey);
 });
@@ -507,7 +518,9 @@ test("renderHyperframe: gpu-angle profile is propagated to props, producer, cach
   assert.equal(propsProfile, "gpu-angle");
   const sidecar = JSON.parse(readFileSync(join(tmp, "hyperframe.gpu.key.json"), "utf8"));
   assert.equal(sidecar.profile, "gpu-angle");
+  assert.equal(sidecar.rendererGeneration, HYPERFRAME_RENDERER_GENERATION);
   assert.equal(sidecar.key, hyperframeCacheKey({
+    rendererGeneration: HYPERFRAME_RENDERER_GENERATION,
     htmlSha256: createHash("sha256").update(fixture).digest("hex"),
     variables: {},
     width: 640,

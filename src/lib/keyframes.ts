@@ -1,4 +1,4 @@
-import type { ResolvedKeyframe } from "../../remotion/props.ts";
+import type { ResolvedKeyframe } from "./renderPropsTypes.ts";
 import type { RemappedPiece } from "./timeline.ts";
 import type { Keyframe, KeyframeEasing } from "../types.ts";
 

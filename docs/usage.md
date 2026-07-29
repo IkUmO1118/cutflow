@@ -217,7 +217,7 @@ TypeGPUはpin/APIを仮定せず`out`のまま。
 
 無音の作図素材(章タイトル・説明カード・図解・kinetic typography)を、
 HyperFrames の実行コード(engine/runtime)を一切導入せず、Cutflow 既存の
-Remotion(native interpreter)で作る2段階コマンド。生成された HTML は
+native HyperFrames interpreterで作る2段階コマンド。生成された HTML は
 `node src/cli.ts validate` の対象外(編集ファイルではない)だが、check ゲート
 (`checkComposition`: リモート URL 禁止・非決定的な駆動禁止・typed variables
 必須等)を通ったものだけが render される:
@@ -267,13 +267,13 @@ author 合計 6MiB。WOFF2 はさらに固定 1MiB/枚の上限があり、設�
 subset化する。tool/依存はCutflowには同梱しない。fonttoolsが別途入っている場合の例:
 
 ```sh
-pyftsubset remotion/fonts/NotoSansJP.woff2 \
+pyftsubset assets/fonts/NotoSansJP.woff2 \
   --output-file=/tmp/NotoSansJP-subset.woff2 --flavor=woff2 \
   --text='動画で使う文字だけ' --layout-features='*'
 ```
 
 元fontのライセンス条件にも従う。このrepository同梱のNoto Sans JPは
-`remotion/fonts/OFL.txt`を参照する。
+`assets/fonts/OFL.txt`を参照する。
 
 ```yaml
 hyperframe:
@@ -576,20 +576,6 @@ WGSL コンポジタで描く。カット境界を跨ぐ連結ファイル(bake)
 ブラウザが `navigator.gpu` を持たない、または GPU 初期化に失敗したときは
 プレビュー上部にその旨のバナーを出す。
 
-## 書き出しの合成エンジン(config.yaml の render.engineExport)
-
-`render.engineExport`(既定 `true`)は `frames` / `thumbnail` の
-Remotion フォールバックを残すための検証用切り替え。`render` は engine 経路で
-`final.mp4` を作る。
-
-既定 `true` では新エンジン(WebGPU compositor + CDP capture + ffmpeg)を使う。
-`false` は `frames` / `thumbnail` の新旧比較検証用。
-
-```yaml
-render:
-  engineExport: false   # frames / thumbnail を Remotion 経路に固定する(検証用)
-```
-
 ## 環境プリフライト(doctor)
 
 `node src/cli.ts doctor` は収録に入る前の環境チェック(読み取り専用)。
@@ -613,15 +599,25 @@ node(>=23.6)/ffmpeg/ffprobe/有効エンコーダの整合/whisper バイナリ�
 - AI エージェントにセットアップ自体を委任するなら、`doctor --json` を背骨にした収束手順を
   [SETUP_WITH_AI.md](../SETUP_WITH_AI.md) が案内する(承認・render には触れない環境構築のみ)。
 
+## headless Chrome の取得
+
+CutFlow はフレーム撮影・render・HyperFrames の検査/書き出しに
+`chrome-headless-shell` を使う。実行ファイルは初回だけ `@puppeteer/browsers`
+で `~/.cutflow/chrome/<buildId>/` へ自動取得される(約200MB)。描画差分の再現性を
+保つため、buildId はソース内で pin している。
+
+自動取得せず既存の実行ファイルを使う場合は、`CUTFLOW_CHROME_PATH` に実行ファイルの
+絶対パスを設定する。指定されたパスが存在すれば、`~/.cutflow/chrome` より優先される。
+
 ## ログ出力(log.level / --verbose)
 
-外部プロセス(ffmpeg/ffprobe/whisper/Remotion)・AI 呼び出し・render/preview の
+外部プロセス(ffmpeg/ffprobe/whisper/headless Chrome)・AI 呼び出し・render/preview の
 ステージ内訳は `config.yaml` の `log.level` で stderr への出し方を切り替えられる
 (stdout は `describe --json` 等のパイプ可能な純 JSON のまま level に関わらず不変):
 
 - `quiet`: workflow ログをほぼ抑止(AI 行も出さない)
 - `normal`(既定): AI 呼び出し行(`✦ AI: purpose=...`)とステージ行
-  (`▸ Remotion (42.3秒)` 等)を出す。既存の AI 行出力と同じ可視性
+  (`▸ render (42.3秒)` 等)を出す。既存の AI 行出力と同じ可視性
 - `verbose`: 上に加えて外部ツール1回ごとの行(`⚙ ffmpeg   cut (1.8秒)` 等)を出す。
   `run()` は hot loop でも呼ばれるため既定では出さない(spam 防止)
 
@@ -657,7 +653,7 @@ node(>=23.6)/ffmpeg/ffprobe/有効エンコーダの整合/whisper バイナリ�
 
 | 旧セクション | 移動先 |
 |---|---|
-| テロップのデザインは3層 / 帯の "none" / ベースレイアウトのデザイン / カット境界のディップ / 見た目の調整(Remotion Studio) | [guides/captions-layout.md](guides/captions-layout.md) |
+| テロップのデザインは3層 / 帯の "none" / ベースレイアウトのデザイン / カット境界のディップ / 見た目の調整 | [guides/captions-layout.md](guides/captions-layout.md) |
 | GUI エディタのバックグラウンド起動(--detach)/ 起動中の外部 JSON 編集 / frames-serve / 掃除とディスク(clean) | [guides/tools-and-ops.md](guides/tools-and-ops.md) |
 | AI provider 設定 / AI doctor / VLM review / MCP サーバ / AI提案の比較・高水準編集・ローカル検索 | [guides/ai-agents.md](guides/ai-agents.md) |
 | 安定 id / @-mention / 検査付きアトミック適用(apply)/ 編集後の意図検査(assert)/ 機械可読契約 | [guides/safe-editing.md](guides/safe-editing.md) |

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildCaptionIndex, lookupCaption } from "../src/lib/captionIndex.ts";
-import type { Caption } from "../remotion/props.ts";
+import type { Caption } from "../src/lib/renderPropsTypes.ts";
 
 // 索引化した captionAt が、旧実装の線形 .find と常に同一の結果を返すことを固定する。
 // (プレビュー・最終レンダーの「同じ絵」保証。壊すとテロップの出方が変わる)

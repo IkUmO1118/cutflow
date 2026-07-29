@@ -1,4 +1,4 @@
-import type { RenderProps } from "../../remotion/props.ts";
+import type { RenderProps } from "./renderPropsTypes.ts";
 import { duckFactorAt } from "./duck.ts";
 
 type BgmTrack = RenderProps["bgm"][number];

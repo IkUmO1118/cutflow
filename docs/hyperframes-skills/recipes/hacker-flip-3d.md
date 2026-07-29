@@ -1,6 +1,6 @@
 # Hacker Flip 3D
 
-> Compressed from `remotion/vendor/hyperframes/skills-corpus/hyperframes-animation/rules/hacker-flip-3d.md`.
+> Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/hacker-flip-3d.md`.
 > Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)

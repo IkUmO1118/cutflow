@@ -10,7 +10,7 @@ import { ALL_FORMATS, AudioBufferSink, Input, UrlSource } from "mediabunny";
 import type { TimelineEntry } from "../../lib/timeline.ts";
 import { bgmVolumeAtFrame } from "../../lib/bgmEnvelope.ts";
 import { fadeFactor, isImageFile } from "../../lib/overlayFade.ts";
-import type { OverlayItem, RenderProps } from "../../../remotion/props.ts";
+import type { OverlayItem, RenderProps } from "../../lib/renderPropsTypes.ts";
 import type { ClockMapping } from "./clock.ts";
 
 type BgmTrack = RenderProps["bgm"][number];

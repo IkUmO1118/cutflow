@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describeFrame } from "../src/engine/describeFrame.ts";
-import type { RenderProps } from "../remotion/props.ts";
+import type { RenderProps } from "../src/lib/renderPropsTypes.ts";
 
 const fixturesDir = join(import.meta.dirname, "fixtures", "engine");
 const mainProps: RenderProps = JSON.parse(readFileSync(join(fixturesDir, "main.props.json"), "utf8"));

@@ -4,8 +4,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { describeFrame, describeShortPanelsLayer } from "../src/engine/describeFrame.ts";
 import { PROFILES } from "../src/lib/profile.ts";
-import { defaultProps } from "../remotion/props.ts";
-import type { RenderProps } from "../remotion/props.ts";
+import { defaultProps } from "../src/lib/renderPropsTypes.ts";
+import type { RenderProps } from "../src/lib/renderPropsTypes.ts";
 
 const base: RenderProps = {
   ...defaultProps,

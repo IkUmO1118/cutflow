@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { duckFactorAt } from "../src/lib/duck.ts";
-import type { Span } from "../remotion/props.ts";
+import type { Span } from "../src/lib/renderPropsTypes.ts";
 
 /** 旧実装(Main.tsx にあった線形走査。移植前の挙動をそのまま複製) */
 function duckFactorAtLinear(

@@ -13,8 +13,6 @@
   },
   "include": [
     "src/**/*.ts",
-    "remotion/**/*.ts",
-    "remotion/**/*.tsx",
     "editor/**/*.ts",
     "editor/**/*.tsx",
     "scripts/**/*.ts"

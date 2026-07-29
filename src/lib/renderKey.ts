@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import type { RenderProps } from "../../remotion/props.ts";
+import type { RenderProps } from "./renderPropsTypes.ts";
 
 /**
  * final.mp4 全スキップキャッシュ(render.key.json)の中身。

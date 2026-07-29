@@ -352,7 +352,7 @@ export function joinColor(hex: string, alpha: number): string {
 }
 
 /** テロップの表示寸法(出力px)の近似。位置プリセットの計算に使う。
- * 幅は最長行の実測(canvas)、高さは行数 x 行送り 1.4(remotion/Main.tsx と同じ) */
+ * 幅は最長行の実測(canvas)、高さは行数 x 行送り 1.4(描画エンジンと同じ) */
 let measureCtx: CanvasRenderingContext2D | null = null;
 export function measureCaption(
   text: string,

@@ -18,7 +18,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { basename, dirname, extname, join, normalize, resolve, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { appendMetricsBatch } from "../src/lib/editorMetrics.ts";
 import { renderCfgWithDesign } from "../src/lib/designAsset.ts";
 import { resolveDesign } from "../src/lib/design.ts";
@@ -70,6 +70,7 @@ import { aiDoctor } from "../src/stages/aiDoctor.ts";
 import {
   authorHyperframe,
   hyperframeCacheKey,
+  HYPERFRAME_RENDERER_GENERATION,
   renderHyperframe,
   resolveHyperframeBuild,
 } from "../src/stages/hyperframe.ts";
@@ -1135,6 +1136,7 @@ export function buildHyperframeCards(sources: HyperframeCardSources): Hyperframe
         };
       }
       const expectedKey = hyperframeCacheKey({
+        rendererGeneration: HYPERFRAME_RENDERER_GENERATION,
         htmlSha256: sha256Hex(html),
         variables: build.variables,
         width: build.width,
@@ -1810,6 +1812,12 @@ async function getPeaks(dir: string, rel: string | null): Promise<string> {
   let body: string;
   if (rel) {
     try {
+      if (!hasAudioStream(abs)) {
+        // 無音素材(HyperFrames カード等)。警告は出さない=正常系
+        body = JSON.stringify({ rate: PEAK_RATE, durationSec: 0, peaks: "" });
+        peaksCache.set(rel ?? "", { key, body });
+        return body;
+      }
       const pcm = await decodeAudio(abs);
       body = peaksBody(pcmToSamples(pcm), 16000, 1);
     } catch (e) {
@@ -1855,6 +1863,18 @@ function peaksBody(samples: Int16Array, sampleRate: number, channels: number): s
     durationSec: frames / sampleRate,
     peaks: Buffer.from(peaks).toString("base64"),
   });
+}
+
+/** 音声ストリームを1本でも持つか。無音素材(HyperFrames カード等)で
+ *  decodeAudio の -map a:0 がハードエラーになるのを事前に避ける */
+function hasAudioStream(abs: string): boolean {
+  const r = spawnSync(
+    "ffprobe",
+    ["-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0", abs],
+    { encoding: "utf8" },
+  );
+  if (r.status !== 0) return true;
+  return r.stdout.trim().length > 0;
 }
 
 /** 素材・BGM の音声を ffmpeg で 16kHz mono s16le に落として受け取る */

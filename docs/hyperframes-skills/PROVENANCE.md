@@ -10,7 +10,7 @@
 | path | `skills/` |
 | ref | `main` = SHA `458df4c41294655f76e551100a9b634114209bb9` |
 | 取得日 | 2026-07-18 / 2026-07-20(references 層フル抽出) |
-| license | Apache-2.0。全文は複製せず `../../remotion/vendor/hyperframes/LICENSE` を参照する |
+| license | Apache-2.0。全文は複製せず `../hyperframes-vendor/LICENSE` を参照する |
 | 翻案した skills | `hyperframes-core` / `hyperframes-animation` / `hyperframes-keyframes`(契約+作法を精読) / `faceless-explainer` / `motion-graphics` / `pr-to-video` / `hyperframes-creative`(デザイン感性のみ採取) |
 
 ## 翻案の方針
@@ -55,5 +55,5 @@ variables・determinism)と、**seek-safe なモーションの作法**(何を�
 | `../../prompts/hyperframe.md` | 上記3ファイルを踏まえて書いた C4 用の運用プロンプト |
 
 full な契約仕様(`data-*` の網羅表・CLI 未使用の native 実装への正の参照)は
-このディレクトリではなく `../../remotion/vendor/hyperframes/upstream-docs/`
+このディレクトリではなく `../hyperframes-vendor/upstream-docs/`
 (HF 公式 docs のそのまま vendor)を見る。

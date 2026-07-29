@@ -5,8 +5,8 @@ import assert from "node:assert/strict";
 import { describeBaseLayer, describeWipeLayer } from "../src/engine/describeFrame.ts";
 import { resolveDesign, shrinkRectBottomRight, wipeRectAt } from "../src/lib/design.ts";
 import { wipeProgressAt } from "../src/lib/wipe.ts";
-import { defaultProps } from "../remotion/props.ts";
-import type { RenderProps } from "../remotion/props.ts";
+import { defaultProps } from "../src/lib/renderPropsTypes.ts";
+import type { RenderProps } from "../src/lib/renderPropsTypes.ts";
 
 const base: RenderProps = {
   ...defaultProps,
@@ -156,3 +156,96 @@ test("describeWipeLayer: zoom 中の legacy 経路は wipeScale × zoomProgressA
     h: expectedH,
   });
 });
+
+test("describeWipeLayer: zoom pre-roll 境界で legacy wipeScale が1フレームで跳ばない", () => {
+  const props: RenderProps = {
+    ...base,
+    zooms: [
+      {
+        start: 10,
+        end: 12,
+        rect: { x: 0, y: 0, w: 960, h: 540 },
+        easeSec: 1.5,
+        easeOutSec: 1,
+        wipeScale: 0.8,
+      },
+    ],
+  };
+  const before = wipeWidth(props, 10 - 1 / 30);
+  const atStart = wipeWidth(props, 10);
+  const perFrameDelta = Math.abs(before - atStart) / props.wipe.widthPx;
+  assert.ok(perFrameDelta < 0.05, `pre-roll 境界の変化が大きすぎる: ${before} -> ${atStart}`);
+});
+
+test("describeWipeLayer: gap 連鎖中は legacy wipeScale が1に戻らない", () => {
+  const props: RenderProps = {
+    ...base,
+    zooms: [
+      {
+        start: 10,
+        end: 11,
+        rect: { x: 0, y: 0, w: 960, h: 540 },
+        easeSec: 0,
+        easeOutSec: 0,
+        wipeScale: 0.8,
+      },
+      {
+        start: 12,
+        end: 13,
+        rect: { x: 240, y: 135, w: 960, h: 540 },
+        easeSec: 0,
+        easeOutSec: 0,
+        wipeScale: 0.8,
+      },
+    ],
+  };
+  assert.equal(wipeWidth(props, 11.5), Math.round(props.wipe.widthPx * 0.8));
+});
+
+test("describeWipeLayer: legacy zoom の wipeScale 未指定は pre-roll 中も従来どおり1", () => {
+  const props: RenderProps = {
+    ...base,
+    zooms: [
+      {
+        start: 10,
+        end: 12,
+        rect: { x: 0, y: 0, w: 960, h: 540 },
+        easeSec: 1.5,
+        easeOutSec: 1,
+      },
+    ],
+  };
+  assert.equal(wipeWidth(props, 10 - 1 / 30), props.wipe.widthPx);
+  assert.equal(wipeWidth(props, 10), props.wipe.widthPx);
+});
+
+test("describeWipeLayer: baked zoomTransformTrack 経路は zoomT.scale から縮小し legacy wipeScale を見ない", () => {
+  const props: RenderProps = {
+    ...base,
+    fps: 30,
+    zooms: [
+      {
+        start: 10,
+        end: 12,
+        rect: { x: 0, y: 0, w: 960, h: 540 },
+        easeSec: 1.5,
+        easeOutSec: 1,
+        wipeScale: 0.2,
+      },
+    ],
+    zoomTransformTrack: {
+      startFrame: 300,
+      frames: [{ scale: 2, x: 0, y: 0 }],
+    },
+  };
+  assert.equal(wipeWidth(props, 10), Math.round(props.wipe.widthPx * 0.5));
+});
+
+function wipeWidth(props: RenderProps, tOut: number): number {
+  const items = describeWipeLayer(props, tOut);
+  const item = items[0];
+  if (item.kind !== "external" || item.placement.mode !== "resolved") {
+    throw new Error("unreachable");
+  }
+  return item.placement.quad.w;
+}

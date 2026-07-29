@@ -1,4 +1,4 @@
-// remotion/Main.tsx の CroppedVideo が使う純関数。拡張キャンバス動画から
+// src/engine/describeFrame.ts の video placement が使う純関数。拡張キャンバス動画から
 // region(screen/camera の切り出し範囲)を width x height の箱へ
 // contain/cover で収めたときのスタイル(スケール後の動画の width/height/left/top)
 // を計算する。region と箱のアスペクト比が一致するとき(既存の全画面呼び出し・

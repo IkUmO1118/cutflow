@@ -9,7 +9,7 @@ import type { Config } from "./config.ts";
 import type { EditSnapshot } from "./review.ts";
 import type { Profile } from "./profile.ts";
 import type { Interval, Manifest, Overlays, Shorts } from "../types.ts";
-import type { RenderProps } from "../../remotion/props.ts";
+import type { RenderProps } from "./renderPropsTypes.ts";
 
 export interface SnapshotRenderInput {
   dir: string;

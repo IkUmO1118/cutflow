@@ -90,7 +90,7 @@ detect:
   #   padSec: 0.1       # 発話エッジの外側へ残す余白(秒)
   #   maxTrimSec: 1.5   # 1辺あたりの最大トリム量(秒)
 
-# カット確認用プレビュー動画
+  # カット確認用プレビュー動画
 preview:
   # 出力する横幅(px)の上限。拡張キャンバス全体(画面+カメラ横並び=3840px)を
   # この幅へ縮小するので、画面領域の実効解像度はこの半分になる。
@@ -109,7 +109,7 @@ preview:
   # false で従来の短 GOP エンコードに戻せる。preview.mp4 には影響しない
   proxyIntra: true
 
-# 最終レンダー(Remotion 合成)のレイアウト
+# 最終レンダー(engine 合成)のレイアウト
 render:
   # 右下ワイプ(カメラ)の横幅(px、1920x1080基準)。ワイプは右下角に隙間なく配置される
   wipeWidthPx: 480
@@ -129,7 +129,7 @@ render:
   # 個別のテロップ・トラック標準スタイルで指定の無い項目に効く
   captionColor: "#ffffff"
   captionOutlineColor: "none" # "none" で縁取りなし
-  # Noto Sans JP を先頭に。同梱の可変フォント(remotion/fonts/NotoSansJP.woff2、
+  # Noto Sans JP を先頭に。同梱の可変フォント(assets/fonts/NotoSansJP.woff2、
   # wght 100〜900)なので fontWeight の 300/500/600/800 等の中間ウェイトが実際に
   # 描き分けられる。Hiragino は同梱フォント読込失敗時のフォールバック
   captionFontFamily: '"Noto Sans JP", "Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif'
@@ -160,7 +160,7 @@ render:
   bgm:
     # BGMの音量(dB)。0で原音量。声より20dB前後小さくするのが目安。
     # bgm.json の各区間で volumeDb を省いたときの既定にもなる
-    volumeDb: -14
+    volumeDb: -20
     # 全編1曲(後方互換)のときの動画終端フェードアウト秒数。
     # bgm.json では各区間の fadeOutSec で終端フェードを付ける
     fadeOutSec: 2
@@ -170,38 +170,15 @@ render:
       duckDb: -8
       # 下げ・戻しにかける秒数
       fadeSec: 0.4
-  # Remotion 合成段のハードウェアエンコーダ利用。if-possible: 使えれば使う
+  # engine 合成段のハードウェアエンコーダ利用。if-possible: 使えれば使う
   # (macOS は VideoToolbox。使えない環境はソフトウェアへ自動フォールバック)。
   # disable: 常にソフトウェアエンコード(従来動作)。実測は docs/perf.md 参照
   hardwareAcceleration: if-possible
-  # Remotion 合成段(OffthreadVideo)のフレームキャッシュ上限(MB)。
-  # Remotion の既定は「利用可能メモリの半分」で、16GB 機では render 中に
-  # compositor が数GBまで成長しマシン全体が重くなる(スワップ・他アプリの
-  # 鈍化。実測は docs/perf.md フェーズ9)。512MB でも render 速度は不変。
-  # 0 で Remotion 既定(無制限)に戻す。出力の画・音には影響しない
-  offthreadVideoCacheMb: 512
-  # Remotion 合成段の並列レンダータブ数。省略時は Remotion 既定(CPU コア数の
-  # 半分。M5 なら 5)。1タブ ≈ 350〜400MB なので、render 中のメモリをさらに
-  # 絞りたいときだけ下げる(速度と引き換え)。出力には影響しない
-  # concurrency: 4
   # チャンク単位の差分レンダー(render chunk cache)。直前フルレンダー以降、
   # 映像に効く要素(テロップ・位置・ワイプ等)だけを変えた再実行で、変わった
   # チャンクだけを再レンダーして連結する。音声・keeps・全域設定を変えたときは
   # 自動でフルレンダーに戻る。chunkSec がチャンクの目標長(秒)。0 で無効。
   chunkSec: 15
-  # render 高速パス(FAST/SLOW ハイブリッド ffmpeg 合成)。テロップ静止区間を
-  # ffmpeg 直合成に、演出区間だけ Remotion に通す(cold render 短縮。
-  # §docs/programs/render-fastpath-program.md)。
-  # 2026-07-14 P6 で true を既定化(実測: 約2倍速・メモリ圧迫 6.7GB→2.7GB・
-  # frame/音声パリティ検証済み。docs/perf.md フェーズ11)。問題が出たら
-  # false に戻すだけで従来のフルレンダーへ完全に戻る。
-  # true でも適格(素材音声なし等)かつ FAST 被覆が fastPathMinCoverage 以上
-  # かつ基底が composite / design / plain-identity のいずれかとして安全に
-  # 合成できるときだけ発動する。条件や design 静的資産が欠ければ1行ログで
-  # 通常フルレンダーへフォールバックする(誤爆より保守)。このキー省略時は false(オフ)。
-  fastPath: true
-  # FAST 被覆率(FAST秒/出力総秒)の発動しきい値。省略時 0.5
-  # fastPathMinCoverage: 0.5
   # ズーム演出(overlays.json の zooms)の既定設定。zooms[].easeSec/easeOutSec で
   # 個別指定があればそちらが優先する
   zoom:
@@ -235,8 +212,7 @@ render:
   # 継承しない。既定 false = 各収録レイアウトの従来描画。
   # true にすると同梱の背景でそのまま動く(assets/backgrounds/)。
   #
-  # design 静的資産が揃えば fastPath の design 基底で合成する。資産生成失敗や
-  # その他の適格条件不足では、通常の Remotion レンダーへ保守的に戻る
+  # design 静的資産が揃えば描画時に再利用される。資産生成失敗時は CSS 描画へ戻る
   # (§src/lib/design.ts)。
   design:
     enabled: true
@@ -245,7 +221,7 @@ render:
     #   ~/Movies/obs/xxx.jpg       … 自分のデザイン素材(絶対パス。~ は展開される)
     #   materials/xxx.jpg          … その収録フォルダ内のファイル
     # 収録フォルダ外のファイルは render.design/ へ自動コピーされてから合成される
-    # (Remotion は publicDir = 収録フォルダの中しか読めないため。§src/lib/designAsset.ts)
+    # (書き出しページは収録フォルダ配下を publicDir として読むため。§src/lib/designAsset.ts)
     backgroundFile: assets/backgrounds/teal.jpg
     backgroundColor: "#1b1b1f"
     screen:
@@ -268,11 +244,6 @@ render:
     color: rgba(35, 35, 35, 0.9)
     radiusPx: 20
     paddingPx: 52
-  # 書き出し(render / frames / thumbnail)の合成エンジン。既定 true = 新エンジン
-  # (WebGPU compositor + CDP capture + ffmpeg)をまず試し、失敗時は自動で
-  # Remotion 経路へフォールバックする。false で常に Remotion 経路に固定する
-  # (新旧比較検証用)。docs/usage.md「書き出しの合成エンジン」参照
-  # engineExport: true
 
 # 画面 OCR(frames --ocr)。AI が画面内テキスト(コード/ターミナル/エラー)を
 # テキストとして読むための Apple Vision OCR 設定。macOS 専用・オフライン。
@@ -399,22 +370,22 @@ plan:
   # 9.4秒の静止すらあった)を丸ごと除外し、dwell候補が7件しか出ない。上限を
   # 8000ms へ上げると10件に増える。長い注視こそズームしたい対象なので上限を緩和。
   cursor:
-    minDwellMs: 450      # 停留とみなす最小継続時間
-    maxDwellMs: 8000     # これを超えると意図的な作業とみなし除外(既定2600→8000。上記メモ)
-    moveThreshold: 0.02  # 隣接サンプル間でこれを超える移動があれば停留を打ち切る
-    spacingMs: 1800      # 採用済み候補の中心からこの間隔未満は間引く
-    defaultScale: 2.5    # focus点からズーム rect を作るときの倍率
-    clickBoost: 1.5      # クリック起点の dwell に与える strength 倍率(1で無効化)
-    maxWindowMs: 3500    # dwell窓長の上限(ms)。clamp(総尺の5%,1000,これ)。追従(枝A)前の長尺ドリフト対策。A後は緩めてOpenScreenの5%へ戻せる
-    scrollMotionThreshold: 0.4  # スクロール誤爆抑制の scene score 閾値。av.probe/motion.json があるときだけ効く。明白なスクロールだけ落とすゆるめの既定。誤爆が続くなら下げる
-    autoZoom: true  # 省略時 true。run(収録直後の初回一括)末尾でカーソル dwell 由来の
+    minDwellMs: 450 # 停留とみなす最小継続時間
+    maxDwellMs: 8000 # これを超えると意図的な作業とみなし除外(既定2600→8000。上記メモ)
+    moveThreshold: 0.02 # 隣接サンプル間でこれを超える移動があれば停留を打ち切る
+    spacingMs: 1800 # 採用済み候補の中心からこの間隔未満は間引く
+    defaultScale: 2.5 # focus点からズーム rect を作るときの倍率
+    clickBoost: 1.5 # クリック起点の dwell に与える strength 倍率(1で無効化)
+    maxWindowMs: 3500 # dwell窓長の上限(ms)。clamp(総尺の5%,1000,これ)。追従(枝A)前の長尺ドリフト対策。A後は緩めてOpenScreenの5%へ戻せる
+    scrollMotionThreshold: 0.4 # スクロール誤爆抑制の scene score 閾値。av.probe/motion.json があるときだけ効く。明白なスクロールだけ落とすゆるめの既定。誤爆が続くなら下げる
+    autoZoom: true # 省略時 true。run(収録直後の初回一括)末尾でカーソル dwell 由来の
     #   zoom を自動配置する(cursorサイドカー有り・overlays.json の zooms 空のときだけ。
     #   手編集済みは絶対に上書きしない)。false で run の自動挿入だけを止める(閾値は
     #   plan-effects/autozoom コマンド自体には効き続ける別軸)
 
-  # plan の候補格子を語タイムスタンプ(要 whisper.wordTimestamps)由来の語境界で
-  # 細分化する(C1)+ 候補テキストを実際に残る語だけにする(C8)。
-  # 既定 false=無音境界のみ(従来とバイト等価)。回帰基準線で on 比較してから既定化を検討
+    # plan の候補格子を語タイムスタンプ(要 whisper.wordTimestamps)由来の語境界で
+    # 細分化する(C1)+ 候補テキストを実際に残る語だけにする(C8)。
+    # 既定 false=無音境界のみ(従来とバイト等価)。回帰基準線で on 比較してから既定化を検討
 candidates:
   enabled: true
   splitOnlyLongerThanSec: 6 # これより長い候補だけを分割
@@ -495,8 +466,8 @@ ai:
       adapter: openai
       model: gpt-4.1
   routes:
-    text: openai-main
-    structured: openai-main
+    text: claude-code
+    structured: claude-code
     vision: cloud-vision
   # 旧形式(後方互換):
   # provider: codex
@@ -528,7 +499,7 @@ ai:
 
   # ログ/可観測性。workflow(AI 呼び出し・ステージ・外部ツール)を stderr にどれだけ
   # 出すか。quiet=AI 行も抑止 / normal=AI+ステージ(既定) / verbose=ffmpeg・whisper・
-  # remotion まで1行ずつ。環境変数 CUTFLOW_LOG とグローバル --verbose/--quiet が
+  # headless Chrome まで1行ずつ。環境変数 CUTFLOW_LOG とグローバル --verbose/--quiet が
   # この設定より優先。stdout(describe --json 等の JSON 射影)は level に関わらず不変。
 log:
   level: normal

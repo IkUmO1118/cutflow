@@ -1,5 +1,5 @@
 // render.props.json のスキーマ定義。
-// src/stages/render.ts が生成し、Remotion コンポジション(Main.tsx)が受け取る。
+// src/stages/render.ts が生成し、エンジン（src/engine/）とエディタが受け取る。
 // 時刻はすべて「カット済み動画(cut.mp4)のタイムライン」の秒。
 
 import type {
@@ -9,8 +9,8 @@ import type {
   KeyframeEasing,
   LayerId,
   SpotlightShape,
-} from "../src/types.ts";
-import type { DesignProps } from "../src/lib/design.ts";
+} from "../types.ts";
+import type { DesignProps } from "./design.ts";
 
 export interface Region {
   x: number;

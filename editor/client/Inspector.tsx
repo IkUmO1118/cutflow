@@ -45,7 +45,7 @@ import type {
 import { remapInterval } from "../../src/lib/timeline.ts";
 import type { TimelineEntry } from "../../src/lib/timeline.ts";
 import { defaultShortProfileName, PROFILES, profileSupportsPlain } from "../../src/lib/profile.ts";
-import type { RenderProps } from "../../remotion/props.ts";
+import type { RenderProps } from "../../src/lib/renderPropsTypes.ts";
 import type { AnnotationPatch, Selection } from "./model.ts";
 import { usePlayheadSelector } from "./playhead.ts";
 import { Input } from "./components/ui/input.tsx";

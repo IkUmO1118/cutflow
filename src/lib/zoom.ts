@@ -1,4 +1,4 @@
-// remotion/Main.tsx の背景レイヤーが使う純関数。zooms(overlays.json 由来。
+// src/engine/describeFrame.ts の背景レイヤーが使う純関数。zooms(overlays.json 由来。
 // カット後の秒・rect・easeSec/easeOutSec 解決済み)から、時刻 t における
 // 背景レイヤーの拡大・平行移動を求める。区間外は恒等(scale=1, translate=0)。
 // 区間の頭 easeSec 秒でイーズイン、末尾 easeOutSec 秒でイーズアウトし、
@@ -213,6 +213,14 @@ function matchEnd(z: ZoomSpan, zooms: ZoomSpan[]): number {
   return next ? Math.max(z.end, next.start) : z.end;
 }
 
+/** 時刻 t を担当するズーム区間(pre-roll・gap 延長込み)。zoomProgressAt /
+ *  zoomTransformAt / wipeReactiveShrink が**同じ**区間を見るための単一の定義。
+ *  effectiveZoomRange とは別物(あちらは focusMode 指定時にさらに広い窓を返す
+ *  ので、進行度と連動させたい用途ではこちらを使う) */
+export function activeZoomSpanAt<T extends ZoomSpan>(t: number, zooms: T[]): T | undefined {
+  return zooms.find((z) => t >= matchStart(z, zooms) && t < matchEnd(z, zooms));
+}
+
 /**
  * z が「gap のある連鎖」の後続側か(contiguousPrev があり、かつその gap が
  * ZOOM_CONTIG_EPS を超える=完全隣接ではない)。true なら D2b のパン
@@ -372,7 +380,7 @@ function easeWindows(z: ZoomSpan): { easeIn: number; easeOut: number } {
  * zooms は重ならない前提(validate がエラーにする)なので、該当区間は高々1つ。
  */
 export function zoomProgressAt(t: number, zooms: ZoomSpan[]): number {
-  const z = zooms.find((z) => t >= matchStart(z, zooms) && t < matchEnd(z, zooms));
+  const z = activeZoomSpanAt(t, zooms);
   if (!z) return 0;
   const { easeIn, easeOut } = easeWindows(z);
   const inRaw = contiguousPrev(z, zooms)
@@ -407,7 +415,7 @@ export function zoomTransformAt(
   width: number,
   height: number,
 ): ZoomTransform {
-  const z = zooms.find((z) => t >= matchStart(z, zooms) && t < matchEnd(z, zooms));
+  const z = activeZoomSpanAt(t, zooms);
   if (!z) return IDENTITY;
   const prev = contiguousPrev(z, zooms);
   const { easeIn, easeOut } = easeWindows(z);

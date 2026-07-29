@@ -1,4 +1,4 @@
-import type { OverlayItem, RenderProps } from "../../remotion/props.ts";
+import type { OverlayItem, RenderProps } from "./renderPropsTypes.ts";
 import { effectiveZoomRange, zoomContiguous } from "./zoom.ts";
 import { DEFAULT_ZOOM_CHAIN_GAP_SEC } from "../types.ts";
 

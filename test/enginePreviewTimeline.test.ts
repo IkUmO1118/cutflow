@@ -3,7 +3,7 @@
 // 確認と Phase3 の CDP 実測で検証する(設計書どおり)。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { defaultProps } from "../remotion/props.ts";
+import { defaultProps } from "../src/lib/renderPropsTypes.ts";
 import { audioSignatureOf, timelineFromBaseSegments } from "../editor/client/enginePreviewTimeline.ts";
 
 test("timelineFromBaseSegments: baseSegments 省略時は durationSec 全編の1区間", () => {

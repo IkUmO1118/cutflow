@@ -208,7 +208,7 @@ async function verify() {
   console.log("[2/4] HTTPサーバ起動 + chrome-headless-shell 起動");
   const server = await startServer(GATE_OUT_DIR);
   const port = server.address().port;
-  const execPath = findHeadlessShell();
+  const execPath = await findHeadlessShell();
   const { proc: chromeProc, wsUrl: browserWsUrl } = await launchHeadlessShell(execPath);
 
   let anyFlipped = false;
