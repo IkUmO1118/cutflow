@@ -35,8 +35,12 @@ function px(value: number): string {
   return `${value}px`;
 }
 
+function fillStyle(extra: string): string {
+  return `position:absolute;top:0px;left:0px;right:0px;bottom:0px;width:100%;height:100%;display:flex;flex-direction:column${extra}`;
+}
+
 function mask(width: number, height: number, radiusPx: number): string {
-  return `<div class="fill" style="width:${px(width)};height:${px(height)};background-color:white;border-radius:${px(radiusPx)}"></div>`;
+  return `<div style="${fillStyle(`;width:${px(width)};height:${px(height)};background-color:white;border-radius:${px(radiusPx)}`)}"></div>`;
 }
 
 export function designStillHtml(args: {
@@ -55,14 +59,14 @@ export function designStillHtml(args: {
   } else if (role === "cameraShadow") {
     const { rect, radiusPx, shadow } = design.camera;
     const shadowStyle = shadow ? `;box-shadow:${CAMERA_SHADOW_CSS}` : "";
-    body = `<div class="fill" style="background-color:transparent"><div style="position:absolute;left:${px(rect.x)};top:${px(rect.y)};width:${px(rect.w)};height:${px(rect.h)};border-radius:${px(radiusPx)}${shadowStyle}"></div></div>`;
+    body = `<div style="${fillStyle(";background-color:transparent")}"><div style="position:absolute;left:${px(rect.x)};top:${px(rect.y)};width:${px(rect.w)};height:${px(rect.h)};border-radius:${px(radiusPx)}${shadowStyle}"></div></div>`;
   } else {
     const { rect, radiusPx, shadow } = design.screen;
     const image = design.backgroundFile && backgroundSrc
       ? `<img src="${escapeHtml(backgroundSrc)}" style="position:absolute;inset:0;width:${px(width)};height:${px(height)};object-fit:cover">`
       : "";
     const shadowStyle = shadow ? `;box-shadow:${SCREEN_SHADOW_CSS}` : "";
-    body = `<div class="fill" style="background-color:${escapeHtml(design.backgroundColor)}">${image}<div style="position:absolute;left:${px(rect.x)};top:${px(rect.y)};width:${px(rect.w)};height:${px(rect.h)};border-radius:${px(radiusPx)}${shadowStyle}"></div></div>`;
+    body = `<div style="${fillStyle(`;background-color:${escapeHtml(design.backgroundColor)}`)}">${image}<div style="position:absolute;left:${px(rect.x)};top:${px(rect.y)};width:${px(rect.w)};height:${px(rect.h)};border-radius:${px(radiusPx)}${shadowStyle}"></div></div>`;
   }
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0;overflow:hidden;background:transparent}.fill{position:absolute;top:0;right:0;bottom:0;left:0;display:flex;flex-direction:column}</style></head><body>${body}</body></html>`;
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0;overflow:hidden;background:transparent}</style></head><body>${body}</body></html>`;
 }

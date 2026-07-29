@@ -30,6 +30,7 @@ test("designStillCanvas: role ごとの旧 DesignStill composition サイズを�
 
 test("designStillHtml: screenMask は白背景と角丸を持つ", () => {
   const html = designStillHtml({ role: "screenMask", design: DESIGN, width: 1920, height: 1080 });
+  assert.match(html, /position:absolute;top:0px;left:0px;right:0px;bottom:0px/);
   assert.match(html, /width:1720px;height:968px;background-color:white;border-radius:24px/);
 });
 

@@ -69,6 +69,10 @@ export async function createStillCaptureSession(publicRoot: string): Promise<Sti
         height,
         deviceScaleFactor: 1,
         mobile: false,
+        screenOrientation: {
+          angle: 0,
+          type: "portraitPrimary",
+        },
       });
       await cdp.send("Emulation.setDefaultBackgroundColorOverride", {
         color: { r: 0, g: 0, b: 0, a: 0 },
@@ -83,10 +87,13 @@ export async function createStillCaptureSession(publicRoot: string): Promise<Sti
         ...Array.from(document.images).map((img) => img.decode().catch(() => undefined)),
         new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
       ])`, true);
+      await evalJs(cdp, "document.body.style.background = 'transparent'");
       const result = (await cdp.send("Page.captureScreenshot", {
         format: "png",
         clip: { x: 0, y: 0, width, height, scale: 1 },
         captureBeyondViewport: true,
+        optimizeForSpeed: true,
+        fromSurface: true,
       })) as { data: string };
       mkdirSync(dirname(outFile), { recursive: true });
       writeFileSync(outFile, Buffer.from(result.data, "base64"));
