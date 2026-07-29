@@ -102,6 +102,29 @@ test("buildProxyCacheKey: denoise 省略時は mic:false/noiseFloorDb:-25 に落
   assert.deepEqual(key.denoise, { mic: false, noiseFloorDb: -25 });
 });
 
+/* ------------------------------------------------------------------ */
+/* M1: preview.proxyIntra(オールイントラ proxy)。
+ * §docs/plans/2026-07-28-engine-m1-media-metrics-design.md Phase 1 */
+
+test("buildProxyCacheKey: proxyIntra 省略時は false・videoArgs は従来の PROXY_GOP_FRAMES のまま(バイト等価)", () => {
+  const key = keyOf({});
+  assert.equal(key.proxyIntra, false);
+  assert.equal(key.videoArgs[key.videoArgs.indexOf("-g") + 1], String(PROXY_GOP_FRAMES));
+});
+
+test("buildProxyCacheKey: proxyIntra:true で videoArgs が GOP=1(オールイントラ)になる", () => {
+  const cfg = { ...CFG, preview: { ...CFG.preview, proxyIntra: true } } as Config;
+  const key = keyOf({ cfg });
+  assert.equal(key.proxyIntra, true);
+  assert.equal(key.videoArgs[key.videoArgs.indexOf("-g") + 1], "1");
+});
+
+test("proxyCacheKeyEquals: proxyIntra が変わると不一致", () => {
+  const a = keyOf({});
+  const b = keyOf({ cfg: { ...CFG, preview: { ...CFG.preview, proxyIntra: true } } as Config });
+  assert.ok(!proxyCacheKeyEquals(a, b));
+});
+
 test("proxyCacheKeyEquals: denoise.mic / noiseFloorDb が変わると不一致", () => {
   const a = keyOf({});
   const micOn = keyOf({

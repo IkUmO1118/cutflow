@@ -455,6 +455,51 @@ whisper:
   }
 });
 
+test("loadConfig: preview.engine 未指定時は既定 'canvas'(M3b)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = join(dir, "config.yaml");
+    writeFileSync(
+      path,
+      `recordingsDir: ~/Movies/cutflow
+whisper:
+  bin: whisper-cli
+  model: ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin
+  language: ja
+preview:
+  width: 1280
+`,
+    );
+    const cfg = loadConfig(path);
+    assert.equal(cfg.preview.engine, "canvas");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig: preview.engine: legacy を指定すればそのまま通る", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
+  try {
+    const path = join(dir, "config.yaml");
+    writeFileSync(
+      path,
+      `recordingsDir: ~/Movies/cutflow
+whisper:
+  bin: whisper-cli
+  model: ~/Models/whisper/ggml-large-v3-turbo-q5_0.bin
+  language: ja
+preview:
+  width: 1280
+  engine: legacy
+`,
+    );
+    const cfg = loadConfig(path);
+    assert.equal(cfg.preview.engine, "legacy");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("loadConfig: ocr 省略時は languages が [en, ja](既存挙動と完全一致)", () => {
   const dir = mkdtempSync(join(tmpdir(), "cutflow-config-"));
   try {

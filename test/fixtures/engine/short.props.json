@@ -1,0 +1,31 @@
+{
+  "videoFile": "cut.mp4",
+  "bgm": [],
+  "durationSec": 60,
+  "fps": 30,
+  "width": 1080,
+  "height": 1920,
+  "canvas": { "w": 3840, "h": 1080 },
+  "screenRegion": { "x": 0, "y": 0, "w": 1920, "h": 1080 },
+  "cameraRegion": { "x": 1920, "y": 0, "w": 1920, "h": 1080 },
+  "wipe": { "widthPx": 480, "marginPx": 32, "transitionSec": 0.3 },
+  "colorFilter": { "saturate": 1.68 },
+  "layout": {
+    "panels": [
+      { "source": "camera", "rect": { "x": 0, "y": 0, "w": 1080, "h": 607 }, "fit": "cover" },
+      { "source": "screen", "rect": { "x": 0, "y": 607, "w": 1080, "h": 607 }, "fit": "cover" }
+    ]
+  },
+  "caption": { "fontSizePx": 70 },
+  "captionDefaultPos": { "x": 540, "y": 1560, "anchor": "center" },
+  "captions": [
+    { "start": 0, "end": 20, "text": "ショートの下部中央テロップ(既定位置)", "track": 1 },
+    { "start": 25, "end": 35, "text": "位置指定テロップ", "track": 1, "pos": { "x": 300, "y": 400 } }
+  ],
+  "overlays": [],
+  "wipeFull": [],
+  "hideCaption": [],
+  "baseSegments": [
+    { "start": 0, "videoStart": 0, "durationSec": 60 }
+  ]
+}

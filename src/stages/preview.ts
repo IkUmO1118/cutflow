@@ -1,6 +1,8 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { run } from "../lib/exec.ts";
+import { colorTagsOfProbe } from "../lib/colorTags.ts";
+import { probe } from "../lib/ffmpeg.ts";
 import {
   audioSourceOf,
   keepAudioParts,
@@ -30,6 +32,7 @@ export async function preview(dir: string, cfg: Config): Promise<string> {
   }
   const cutplan = JSON.parse(readFileSync(planPath, "utf8")) as CutPlan;
 
+  const input = join(dir, manifest.source);
   const keeps = playbackSegmentsOf(cutplan);
   if (keeps.length === 0) {
     throw new Error("keep 区間が0件です(cutplan.json を確認してください)");
@@ -52,7 +55,7 @@ export async function preview(dir: string, cfg: Config): Promise<string> {
   // 音声は cut.mp4(最終レンダー)と同じ実測ラウドネス正規化で揃える。
   // エディタで聞く音量=最終出力の音量になる(実測パスは音声のみで数秒)
   const loudnorm = await measuredLoudnormFilter({
-    input: join(dir, manifest.source),
+    input,
     source,
     keeps,
     targetLufs: cfg.render.targetLufs,
@@ -64,15 +67,16 @@ export async function preview(dir: string, cfg: Config): Promise<string> {
   );
 
   const output = join(dir, "preview.mp4");
+  const colorTags = colorTagsOfProbe(await probe(input));
   await run("ffmpeg", [
     "-y", "-v", "error",
-    "-i", join(dir, manifest.source),
+    "-i", input,
     "-filter_complex", parts.join(";"),
     "-map", "[vout]", "-map", "[aout]",
     // -g 30: キーフレーム間隔を1秒に。人間が通しで見て時々シークする用途
     // なのでこれで十分(エディタの再生はプロキシ側=proxy.mp4 が担う。
     // そちらはカット境界シークのため、より短い GOP を使う)
-    ...videoEncodeArgs(cfg),
+    ...videoEncodeArgs(cfg, { colorTags }),
     // loudnorm は内部で 192kHz にアップサンプルするため 48kHz に戻す
     "-c:a", "aac", "-ar", "48000",
     output,

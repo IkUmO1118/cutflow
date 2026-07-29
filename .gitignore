@@ -15,6 +15,11 @@ docs/programs/
 # Remotion Studio 用の一時ファイル置き場(動画は収録フォルダに置く)
 public/
 
+# scripts/engine-parity.mjs の生成物(比較グリッドPNG・esbuildバンドル・
+# ffmpeg切り出し静止画。開発時の使い捨て。リポジトリ配布物ではない)
+scripts/.parity-out/
+scripts/.pixel-parity-out/
+
 # swiftc が事前ビルドする OCR バイナリ(ソースは bin/ocr/vision-ocr.swift を追跡。
 # 初回実行時に src/lib/ocr.ts が自動ビルドする)
 bin/ocr/.build/
@@ -29,3 +34,18 @@ src/lib/vendor/openscreen/OpenScreenMacOSCursorHelper/.build/
 # src/lib/displayList.ts が自動ビルドする)
 bin/displays/.build/
 
+# G1 画素ゲートの parity フィクスチャ(scripts/make-parity-fixture.sh が生成する
+# 合成 raw.mp4・素材・manifest 等)。編集JSON(cutplan/transcript/overlays/shorts)
+# だけをコミットする(golden の素になる入力)
+test/fixtures/engine/parity-project/*
+!test/fixtures/engine/parity-project/cutplan.json
+!test/fixtures/engine/parity-project/transcript.json
+!test/fixtures/engine/parity-project/overlays.json
+!test/fixtures/engine/parity-project/shorts.json
+
+# G1 画素ゲート本体(scripts/engine-pixel-gate.mjs)の実行ログ・差分グリッド出力
+scripts/.pixel-gate-out/
+# ゲート実行のたびに書く陳腐化検知用フィンガープリント(D6)。golden 本体
+# (pixel-golden/*.png・provenance.json)はコミットするがこれは実行ごとの
+# 生成物なのでコミットしない
+test/fixtures/engine/pixel-golden/last-run.json

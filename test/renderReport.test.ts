@@ -47,8 +47,8 @@ test("recordStage: 追加した順にそのまま積む", () => {
 
 test("setPath: path を設定する", () => {
   const c = new RenderReportCollector();
-  c.setPath("fast");
-  assert.equal(c.finish().path, "fast");
+  c.setPath("engine");
+  assert.equal(c.finish().path, "engine");
 });
 
 test("setFallback: 最初の値だけ残す(2回目以降は無視)", () => {
@@ -101,7 +101,7 @@ test("writeRenderReport: アトミック書込のラウンドトリップ(.tmp �
   const dir = mkdtempSync(join(tmpdir(), "cutflow-renderreport-"));
   try {
     const c = new RenderReportCollector(1000);
-    c.setPath("full-remotion");
+    c.setPath("engine");
     const report = c.finish(2000);
     writeRenderReport(dir, report);
 
@@ -111,7 +111,7 @@ test("writeRenderReport: アトミック書込のラウンドトリップ(.tmp �
 
     const roundTripped = JSON.parse(readFileSync(outPath, "utf8"));
     assert.equal(roundTripped.schemaVersion, RENDER_REPORT_SCHEMA_VERSION);
-    assert.equal(roundTripped.path, "full-remotion");
+    assert.equal(roundTripped.path, "engine");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

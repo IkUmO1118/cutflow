@@ -1,0 +1,8 @@
+{
+  "approved": false,
+  "segments": [
+    { "start": 0, "end": 10, "action": "keep", "reason": "前半(残す)" },
+    { "start": 10, "end": 12, "action": "cut", "reason": "G1 フィクスチャ用のカット(この2秒が最終出力から消える)" },
+    { "start": 12, "end": 24, "action": "keep", "reason": "後半(残す)" }
+  ]
+}

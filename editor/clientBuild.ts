@@ -137,6 +137,38 @@ export async function buildEditorClientAssets(
   };
 }
 
+export interface EngineDevAssets {
+  bundleJs: string;
+  indexHtml: string;
+}
+
+/** M3a Phase5 の開発専用ページ(GET /engine-dev)のビルド。React/Tailwind は
+ * 使わない素の TS なので buildEditorClientAssets より単純。起動時に1回だけ
+ * ビルドする(メインエディタと同じくホットリロードは無し=変更後は
+ * サーバ再起動が要る。開発専用ルートでリンクを張らないため優先度を下げた) */
+export async function buildEngineDevAssets(editorDir = EDITOR_DIR): Promise<EngineDevAssets> {
+  const clientDir = join(editorDir, "client");
+  const [bundle, indexHtml] = await Promise.all([
+    build({
+      entryPoints: [join(clientDir, "engineDev.ts")],
+      bundle: true,
+      write: false,
+      format: "iife",
+      define: { "process.env.NODE_ENV": '"production"' },
+      sourcemap: "inline",
+      target: "es2022",
+    }),
+    readFile(join(clientDir, "engineDev.html"), "utf8"),
+  ]);
+  const bundleJs = bundle.outputFiles.find((file) => file.path.endsWith(".js"))?.text
+    ?? bundle.outputFiles[0]?.text
+    ?? "";
+  return {
+    bundleJs: requireNonEmpty("engine-dev JavaScript", bundleJs),
+    indexHtml: requireNonEmpty("engine-dev HTML", indexHtml),
+  };
+}
+
 export function editorAssetResponse(
   path: string,
   assets: EditorClientAssets,

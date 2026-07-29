@@ -1,6 +1,7 @@
 import { readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { run } from "../lib/exec.ts";
+import { colorTagsOfProbe } from "../lib/colorTags.ts";
 import { parseFps, probe, type ProbeResult } from "../lib/ffmpeg.ts";
 import { atempoFilters } from "../lib/loudness.ts";
 import {
@@ -242,7 +243,9 @@ export async function buildPreviewCut(
   ) as Manifest;
   const compositionFps = manifestCompositionFps(manifest);
   const proxySnapshot = captureSnapshot(proxyPath);
-  const videoArgs = videoEncodeArgs(cfg);
+  const probeFile = deps.probe ?? probe;
+  const proxyProbe = await probeFile(proxyPath);
+  const videoArgs = videoEncodeArgs(cfg, { colorTags: colorTagsOfProbe(proxyProbe) });
   const key = buildPreviewCutCacheKey({
     cfg,
     cutplan,
@@ -257,8 +260,7 @@ export async function buildPreviewCut(
     return { path: outputPath, reused: true, key };
   }
 
-  const probeFile = deps.probe ?? probe;
-  const expectation = expectationFromProxy(await probeFile(proxyPath), keeps, compositionFps);
+  const expectation = expectationFromProxy(proxyProbe, keeps, compositionFps);
   const frameSegments = previewCutFrameSegments(keeps, compositionFps);
   const runCommand = deps.run ?? run;
   const publish = deps.publish ?? publishAsTransaction;

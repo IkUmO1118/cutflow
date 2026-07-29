@@ -554,6 +554,19 @@ export interface Config {
      * ファイルサイズが小さい)。"libx264" で従来の ultrafast+CRF に戻せる。
      * 実測は docs/perf.md 参照 */
     videoEncoder?: "libx264" | "videotoolbox";
+    /** proxy.mp4 をオールイントラ(GOP=1。全フレーム I)でエンコードするか。
+     * 省略時 true。エディタはカット境界ごとに proxy.mp4 をシークして繋ぐため、
+     * オールイントラだと直前キーフレームからのデコード待ちが無くなる
+     * (代償はファイルサイズ増。proxy は再生成可能なキャッシュなので許容)。
+     * false で従来の GOP=PROXY_GOP_FRAMES(0.2秒)エンコードに戻せる。
+     * preview.mp4 / preview-cut.mp4 には影響しない(proxy.mp4 専用) */
+    proxyIntra?: boolean;
+    /** エディタのプレビュー描画エンジン。省略時 "canvas"(WebCodecs+自前WGSL
+     * コンポジタ。M3b)。"legacy" で従来の Remotion Player + bake 経路に戻せる。
+     * "canvas" 指定でも navigator.gpu 不在/初期化失敗時は実行時に "legacy" へ
+     * 自動フォールバックする(WebGL2 フォールバックは無い。M3a §2 の決定)。
+     * 書き出し(preview.mp4/final.mp4)には影響しない(エディタのプレビューのみ) */
+    engine?: "canvas" | "legacy";
   };
   /** エディタ(GUI)設定。省略可(古い config.yaml との互換) */
   editor?: {
@@ -712,6 +725,10 @@ export interface Config {
      * 通常のRemotionレンダーへ保守的にフォールバックする
      * (§src/lib/design.ts。docs/programs/render-fastpath-program.md) */
     design?: DesignConfig;
+    /** M4 エンジン書き出し(WebGPU compositor + CDP capture + ffmpeg)。
+     * 省略時 true(エンジン経路を試行し、失敗時は従来経路へフォールバック)。
+     * false で従来の Remotion 経路のみを使う(新旧比較検証用) */
+    engineExport?: boolean;
   };
   /** 画面 OCR(frames --ocr)。Apple Vision の認識設定のうち、収録の言語構成で
    * 変わりうるものだけを置く(認識レベル・言語補正はコード内の閉じた定数。
@@ -1972,6 +1989,12 @@ export function loadConfig(explicitPath?: string): Config {
   cfg.whisper.model = expandHome(cfg.whisper.model);
   cfg.whisper.wordTimestamps ??= true;
   cfg.whisper.systemAudio ??= false;
+  // preview はテスト用の最小 config では省略されることがある(このセクション
+  // 自体は require しない=既存挙動を壊さない)。あるときだけ既定値を補う
+  if (cfg.preview) {
+    cfg.preview.proxyIntra ??= true;
+    cfg.preview.engine ??= "canvas";
+  }
   cfg.ocr ??= {};
   cfg.ocr.languages ??= [...DEFAULT_OCR_LANGUAGES];
   return cfg;

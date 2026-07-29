@@ -1,0 +1,48 @@
+{
+  "language": "ja",
+  "model": "G1-fixture-handwritten",
+  "segments": [
+    {
+      "start": 2.2,
+      "end": 2.8,
+      "text": "標準スタイルのテロップ",
+      "track": 1
+    },
+    {
+      "start": 3.7,
+      "end": 4.3,
+      "text": "個別スタイル上書き",
+      "track": 1,
+      "style": {
+        "outlineColor": "none",
+        "background": { "color": "rgba(0,0,0,0.8)", "paddingPx": 10, "radiusPx": 6 }
+      }
+    },
+    {
+      "start": 5.2,
+      "end": 5.8,
+      "text": "カラオケ表示テスト",
+      "track": 1,
+      "style": {
+        "karaoke": { "activeColor": "#ffcc00", "inactiveColor": "#888888" }
+      },
+      "words": [
+        { "text": "カラオケ", "start": 5.2, "end": 5.45 },
+        { "text": "表示", "start": 5.45, "end": 5.6 },
+        { "text": "テスト", "start": 5.6, "end": 5.8 }
+      ]
+    },
+    {
+      "start": 16.7,
+      "end": 17.3,
+      "text": "ブラー中のテロップ",
+      "track": 1
+    },
+    {
+      "start": 18.7,
+      "end": 19.3,
+      "text": "注釈中のテロップ",
+      "track": 1
+    }
+  ]
+}

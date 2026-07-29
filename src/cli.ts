@@ -1824,7 +1824,7 @@ program
   .option("--dry-run", "削除せず、削除対象の一覧と解放バイトだけを表示する")
   .option(
     "--cache-only",
-    "再生成の重いキャッシュ(proxy/cut/render.chunks/frames/shorts/*.probe 等)だけを消し、" +
+    "再生成の重いキャッシュ(proxy/cut/frames/shorts/*.probe 等)だけを消し、" +
       "manifest.json / cuts.auto.json / whisper-out.* 等の軽い中間生成物は残す",
   )
   .option(

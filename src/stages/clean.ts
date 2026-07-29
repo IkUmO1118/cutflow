@@ -9,7 +9,7 @@
 // 既存の planClean の契約(fs 走査だけ・generated だけ)を保っている。
 import { readdirSync, statSync, lstatSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { fileRole, isGeneratedCache, isGeneratedLog } from "../lib/files.ts";
+import { fileRole, isCleanProtected, isGeneratedCache, isGeneratedLog } from "../lib/files.ts";
 import { detectRemuxDuplicate, assertRemuxDuplicateStillSafe } from "../lib/remuxDup.ts";
 
 export type CleanTargetKind = "file" | "dir";
@@ -87,6 +87,7 @@ export function planClean(
   for (const ent of entries) {
     const name = ent.name; // readdir の name は "/" も ".." も含まない=traversal 不可
     if (fileRole(name) !== "generated") continue;      // ★安全の核: generated 以外は選ばない
+    if (isCleanProtected(name)) continue;                // 再生成不可能な中間生成物はフル clean でも削除しない
     if (cacheOnly && !isGeneratedCache(name)) continue; // 軽い中間生成物は cache-only で残す
     if (logsOnly && !isGeneratedLog(name)) continue;    // ログ以外は logs-only で残す
     const abs = join(dir, name);

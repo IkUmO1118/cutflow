@@ -1,4 +1,5 @@
 import type { Config } from "./config.ts";
+import { colorTagArgs, type ColorTags } from "./colorTags.ts";
 
 /**
  * 有効なビデオエンコーダを platform + config から一意に決める単一の出所。
@@ -66,11 +67,33 @@ export const PROXY_GOP_FRAMES = 6;
  */
 export function videoEncodeArgs(
   cfg: Pick<Config, "preview">,
-  opts?: { gopFrames?: number },
+  opts?: { gopFrames?: number; colorTags?: ColorTags },
 ): string[] {
+  const gopFrames = opts?.gopFrames ?? 30;
   const codecArgs =
     resolveVideoEncoder(cfg) === "libx264"
-      ? ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "24"]
+      ? [
+          "-c:v", "libx264", "-preset", "ultrafast", "-crf", "24",
+          // gopFrames===1(オールイントラ要求)のとき、libx264 の適応シーンカット判定に
+          // keyint を上書きされないよう明示する。videotoolbox は -g だけで足りる
+          ...(gopFrames === 1 ? ["-x264-params", "keyint=1:min-keyint=1:scenecut=0"] : []),
+        ]
       : ["-c:v", "h264_videotoolbox", "-q:v", "65"];
-  return [...codecArgs, "-g", String(opts?.gopFrames ?? 30), "-movflags", "+faststart"];
+  return [
+    ...codecArgs,
+    "-g", String(gopFrames),
+    "-movflags", "+faststart",
+    ...(opts?.colorTags ? colorTagArgs(opts.colorTags) : []),
+  ];
+}
+
+/**
+ * proxy.mp4 に使う実際の GOP(フレーム数)。cfg.preview.proxyIntra が true
+ * (loadConfig 経由なら既定 true)ならオールイントラ(1)、false/未設定
+ * (loadConfig を通さない生の Config、主にテスト)なら従来の PROXY_GOP_FRAMES。
+ * proxy.ts / proxyCache.ts の両方がこれを呼ぶことで、生成された proxy.mp4 と
+ * 陳腐化キーの GOP 認識が常に一致する。
+ */
+export function proxyGopFrames(cfg: Pick<Config, "preview">): number {
+  return cfg.preview.proxyIntra ? 1 : PROXY_GOP_FRAMES;
 }

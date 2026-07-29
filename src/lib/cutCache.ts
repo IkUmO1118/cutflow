@@ -1,6 +1,7 @@
 import type { Config } from "./config.ts";
 import type { Manifest } from "../types.ts";
 import type { PlaybackSegment } from "./timeline.ts";
+import type { ColorTags } from "./colorTags.ts";
 
 /**
  * cut.mp4 の再利用可否を決めるキャッシュキー(cut.keeps.json の内容)。
@@ -20,6 +21,7 @@ export interface CutCacheKey {
    * (既存 cut.keeps.json を無駄に失効させない=非 composite は従来とキー byte 等価) */
   baseComposite?: boolean;
   wipeWidthPx?: number;
+  colorTags?: ColorTags;
 }
 
 export function buildCutCacheKey(args: {
@@ -29,8 +31,9 @@ export function buildCutCacheKey(args: {
   sourceMtimeMs: number;
   sourceSize: number;
   composite?: boolean;
+  colorTags?: ColorTags;
 }): CutCacheKey {
-  const { keeps, manifest, cfg, sourceMtimeMs, sourceSize, composite } = args;
+  const { keeps, manifest, cfg, sourceMtimeMs, sourceSize, composite, colorTags } = args;
   return {
     keeps: keeps.map((k) => ({
       start: k.start,
@@ -54,6 +57,7 @@ export function buildCutCacheKey(args: {
       size: sourceSize,
     },
     ...(composite ? { baseComposite: true, wipeWidthPx: cfg.render.wipeWidthPx } : {}),
+    ...(colorTags ? { colorTags } : {}),
   };
 }
 

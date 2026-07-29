@@ -19,15 +19,17 @@ import { basename, dirname, extname, join, normalize, resolve, sep } from "node:
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { appendMetricsBatch } from "../src/lib/editorMetrics.ts";
 import { renderCfgWithDesign } from "../src/lib/designAsset.ts";
 import { resolveDesign } from "../src/lib/design.ts";
 import { existingDesignAssets, prepareDesignAssetBundle } from "../src/lib/designStill.ts";
 import {
   buildEditorClientAssets,
+  buildEngineDevAssets,
   createEditorClientReloader,
   editorAssetResponse,
 } from "./clientBuild.ts";
-import type { MutableEditorClientAssets } from "./clientBuild.ts";
+import type { EngineDevAssets, MutableEditorClientAssets } from "./clientBuild.ts";
 import {
   clearCutplanApproval,
   clearShortApproval,
@@ -158,6 +160,9 @@ export async function startEditor(
   const assets: MutableEditorClientAssets = {
     current: await buildEditorClientAssets(editorDir, 1),
   };
+  // M3a Phase5 の開発専用ページ(GET /engine-dev)。ホットリロード無し
+  // (変更後はサーバ再起動が要る。§clientBuild.ts buildEngineDevAssets)
+  const engineDevAssets = await buildEngineDevAssets(editorDir);
   const clientReloader = createEditorClientReloader({
     assets,
     build: async (revision) => await buildEditorClientAssets(editorDir, revision),
@@ -195,7 +200,7 @@ export async function startEditor(
   });
 
   const server = createServer((req, res) => {
-    handle(req, res, dir, cfg, cfgPath, assets, hub).catch((err: Error) => {
+    handle(req, res, dir, cfg, cfgPath, assets, hub, engineDevAssets).catch((err: Error) => {
       // HttpError は想定内の拒否(不正な保存=400、大きすぎる素材=413 等)。
       // それ以外は想定外なのでログに残して 500 で返す
       if (err instanceof HttpError) {
@@ -339,6 +344,7 @@ async function handle(
   cfgPath: string,
   assets: MutableEditorClientAssets,
   hub: EventHub,
+  engineDevAssets: EngineDevAssets,
 ): Promise<void> {
   const url = new URL(req.url ?? "/", "http://localhost");
   const path = url.pathname;
@@ -375,6 +381,17 @@ async function handle(
     // dir も返すのは、portfile が stale で別プロセスが同じ port を掴んでいる
     // ケースを取り違えないため
     sendJson(res, 200, { ok: true, pid: process.pid, dir });
+    return;
+  }
+  if (req.method === "POST" && path === "/metrics") {
+    // プレビュー体感計測(M1)のバッチ受信。保存・保存系 API(save/draft 等)とは
+    // 完全に独立させる(観測専用・失敗しても編集フローに影響させない)
+    const body = await readBody(req);
+    appendMetricsBatch(
+      (body as { recording?: unknown } | null)?.recording,
+      body,
+    );
+    sendJson(res, 200, { ok: true });
     return;
   }
   if (req.method === "GET" && path === "/api/project") {
@@ -746,7 +763,7 @@ async function handle(
       ok: true,
       renderCfg: renderCfgWithDesign(dir, cfg),
       ...editorDesignAssets(dir, cfg),
-      previewCfg: { width: cfg.preview.width, videoEncoder: cfg.preview.videoEncoder },
+      previewCfg: { width: cfg.preview.width, videoEncoder: cfg.preview.videoEncoder, engine: cfg.preview.engine },
       editorCfg: resolvedEditorCfg(cfg, DEFAULT_MAX_UPLOAD_MB),
       aiProfiles: aiProfileStatuses(cfg),
       aiRoutes: resolveAiRuntimeConfig(cfg).routes,
@@ -861,6 +878,31 @@ async function handle(
   }
   if (req.method === "GET" && path.startsWith("/media/")) {
     serveMedia(req, res, dir, decodeURIComponent(path.slice("/media/".length)));
+    return;
+  }
+  // M3a Phase5 の開発専用ページ(docs/plans/2026-07-28-engine-m3a-engine-core-design.md
+  // §4 Phase5)。リンクは張らない。?dir= はこのサーバが束縛している収録
+  // フォルダと一致することを要求する(誤って別インスタンスへ迷い込むことの
+  // 防止。実データは常にこのプロセスが起動時に束縛した dir から取る)
+  if (req.method === "GET" && path === "/engine-dev") {
+    const requestedDir = url.searchParams.get("dir");
+    if (!requestedDir) {
+      sendJson(res, 400, { error: "?dir= が必要です(このサーバが束縛している収録フォルダの絶対パス)" });
+      return;
+    }
+    if (resolve(requestedDir) !== resolve(dir)) {
+      sendJson(res, 400, {
+        error: `?dir= がこのサーバの収録フォルダと一致しません(このサーバ: ${dir})`,
+      });
+      return;
+    }
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+    res.end(engineDevAssets.indexHtml);
+    return;
+  }
+  if (req.method === "GET" && path === "/engine-dev/bundle.js") {
+    res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store" });
+    res.end(engineDevAssets.bundleJs);
     return;
   }
   sendJson(res, 404, { error: `not found: ${path}` });
@@ -1074,11 +1116,14 @@ export function buildHyperframeCards(sources: HyperframeCardSources): Hyperframe
       };
       if (!rendered) return { ...card, ...details };
       if (!sidecar) {
+        // hyperframe.<name>.key.json は再利用可否を判定するだけの純キャッシュで、
+        // clean の削除対象。不在は「再利用できるか判定できない(=作り直しが要る)」
+        // であって異常ではない。stale だけを立て、error は立てない。
+        // (error は読めない/壊れている/解析できないに限る)
         return {
           ...card,
           ...details,
           stale: true,
-          error: `素材「${name}」の生成情報がありません`,
         };
       }
       if (typeof sidecar.key !== "string") {
@@ -1680,7 +1725,7 @@ export function loadProject(dir: string, cfg: Config): ProjectData {
     }),
     renderCfg: designRenderCfg,
     ...editorDesignAssets(dir, cfg, manifest, designRenderCfg),
-    previewCfg: { width: cfg.preview.width, videoEncoder: cfg.preview.videoEncoder },
+    previewCfg: { width: cfg.preview.width, videoEncoder: cfg.preview.videoEncoder, engine: cfg.preview.engine },
     editorCfg: resolvedEditorCfg(cfg, DEFAULT_MAX_UPLOAD_MB),
     output: { w: manifest.video.screenRegion.w, h: manifest.video.screenRegion.h },
     hasCamera: hasCamera(manifest),

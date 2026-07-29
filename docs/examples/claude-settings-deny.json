@@ -25,7 +25,6 @@
       "Write(**/preview.mp4)",
       "Write(**/proxy.mp4)",
       "Write(**/frames/**)",
-      "Write(**/render.chunks/**)",
       "Write(**/shorts/**)",
       "Write(**/materials.probe/**)",
       "Write(**/av.probe/**)",

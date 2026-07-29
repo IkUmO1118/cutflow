@@ -1,7 +1,7 @@
 // render() 1回の構造化サマリを収録フォルダ直下に書く中間生成物
-// (render.report.json)。採用経路(full-skip/chunk-diff/fast/full-remotion)+
+// (render.report.json)。採用経路(full-skip/engine)+
 // フォールバック理由・段階ごとの所要時間と成否・キャッシュヒット・
-// 変更チャンク数・FAST 被覆率・実効 concurrency・入力スナップショットの
+// 実効 concurrency・入力スナップショットの
 // sha256・出力プローブ・ok/failed を機械可読に残す。純ローカルの副産物で
 // 外部送信しない。ショート(renderShort/renderShorts)は対象外(v1 スコープ)。
 import { createHash } from "node:crypto";
@@ -12,7 +12,7 @@ export const RENDER_REPORT_FILE = "render.report.json";
 export const RENDER_REPORT_SCHEMA_VERSION = 1;
 
 /** 採用された render 経路 */
-export type RenderPathKind = "full-skip" | "chunk-diff" | "fast" | "full-remotion";
+export type RenderPathKind = "full-skip" | "engine";
 
 /** 段階ごとの所要時間・成否(lib/timing.ts の TimingEvent をそのまま記録する) */
 export interface StageTiming {

@@ -17,7 +17,7 @@ import {
 } from "../src/lib/files.ts";
 
 /** CLAUDE.md の中間生成物一覧のうち、収録フォルダ直下で名前が固定のもの
- * (ショート名で可変になる cut.<name>.mp4 等・frames/ / render.chunks/ /
+ * (ショート名で可変になる cut.<name>.mp4 等・frames/ /
  * shorts/ ディレクトリ配下は別途 fileRole のパターン判定で検証する) */
 const EXPECTED_GENERATED_FILES = [
   "manifest.json",
@@ -38,8 +38,6 @@ const EXPECTED_GENERATED_FILES = [
   "render.key.json",
   "render.report.json",
   "preview.mp4",
-  "preview-cut.mp4",
-  "preview-cut.key.json",
   "proxy.mp4",
   "proxy.key.json",
   "material-fit.suggested.json",
@@ -86,8 +84,6 @@ test("fileRole: editable / generated / approval / other を正しく判定する
   assert.equal(fileRole("manifest.json"), "generated");
   assert.equal(fileRole("cut.mp4"), "generated");
   assert.equal(fileRole("render.report.json"), "generated");
-  assert.equal(fileRole("preview-cut.mp4"), "generated");
-  assert.equal(fileRole("preview-cut.key.json"), "generated");
   assert.equal(fileRole("material-fit.suggested.json"), "generated");
   assert.equal(fileRole("plan.first.json"), "generated");
   assert.equal(fileRole("plan-effects.first.json"), "generated");
@@ -118,8 +114,6 @@ test("fileRole: 中間生成物ディレクトリ配下は丸ごと generated", 
   assert.equal(fileRole("frames/out10.5s.png"), "generated");
   assert.equal(fileRole("frames/props.json"), "generated");
   assert.equal(fileRole("frames/out10.5s.ocr.json"), "generated");
-  assert.equal(fileRole("render.chunks/v001.mp4"), "generated");
-  assert.equal(fileRole("render.chunks/chunks.key.json"), "generated");
   assert.equal(fileRole("render.design/dusk.jpg"), "generated");
   assert.equal(fileRole("shorts/highlight-1.mp4"), "generated");
 });
@@ -163,23 +157,16 @@ test("fileRole: hyperframe-freeze.suggested/ 配下(hyperframe-freeze の使い�
   assert.equal(isGeneratedCache("hyperframe-freeze.suggested/intro.html"), false);
 });
 
-test("fileRole: render.fast/ 配下(高速パスのテロップPNG・キー)は generated", () => {
-  assert.equal(fileRole("render.fast/captions/ab12cd34.png"), "generated");
-  assert.equal(fileRole("render.fast/segments/v000.mp4"), "generated");
-  assert.equal(fileRole("render.fast/overlays/ab12cd34.png"), "generated");
-});
-
 test("isGeneratedCache: 重いキャッシュだけ true、軽い中間生成物は false", () => {
   // cache = true
-  for (const c of ["proxy.mp4", "proxy.key.json", "preview-cut.mp4", "preview-cut.key.json",
+  for (const c of ["proxy.mp4", "proxy.key.json",
     "cut.mp4", "cut.keeps.json",
     "preview.mp4", "render.props.json", "render.key.json",
     "cut.highlight-1.mp4", "render.highlight-1.key.json",
-    "frames/out10s.png", "render.chunks/v001.mp4", "shorts/a.mp4",
+    "frames/out10s.png", "shorts/a.mp4",
     "render.design/dusk.jpg",
     "materials.probe/index.json", "av.probe/motion.json", "review.probe/index.json",
-    "hyperframe.probe/intro/index.json",
-    "render.fast/captions/ab12cd34.png"]) {
+    "hyperframe.probe/intro/index.json"]) {
     assert.equal(isGeneratedCache(c), true, `${c} は cache のはず`);
   }
   // generated だが cache ではない(軽い/再生成が高価)
@@ -208,11 +195,11 @@ test("isGeneratedLog: ログ・下書き・検品結果だけ true、最適化/p
     assert.equal(isGeneratedLog(l), true, `${l} は log のはず`);
   }
   // generated だが log ではない(リレンダー最適化・proxy・高価な再生成物・成果物・必須入力)
-  for (const g of ["preview-cut.mp4", "preview-cut.key.json", "cut.mp4", "cut.keeps.json",
+  for (const g of ["cut.mp4", "cut.keeps.json",
     "render.props.json", "render.key.json",
     "proxy.mp4", "proxy.key.json", "manifest.json", "whisper-out.json", "whisper-out.srt",
     "transcript.system.json", "whisper-system-out.json", "cut.highlight-1.mp4",
-    "render.highlight-1.key.json", "render.chunks/v001.mp4", "render.fast/captions/ab.png",
+    "render.highlight-1.key.json",
     "shorts/a.mp4", "materials.probe/index.json", "av.probe/motion.json", "render.design/dusk.jpg",
     "hyperframe.probe/intro/index.json", "plan.first.json", "plan-effects.first.json"]) {
     assert.equal(isGeneratedLog(g), false, `${g} は log ではないはず`);
@@ -245,7 +232,7 @@ test("GENERATED_LOG_FILES は GENERATED_FILES の部分集合(リレンダー最
   // preview.mp4 は cache と log の両方に属してよい(重い かつ 使い捨て)が、
   // リレンダー最適化・proxy の本体は log に混ざってはならない
   const log = new Set(GENERATED_LOG_FILES as readonly string[]);
-  for (const opt of ["preview-cut.mp4", "preview-cut.key.json", "cut.mp4", "cut.keeps.json",
+  for (const opt of ["cut.mp4", "cut.keeps.json",
     "render.props.json", "render.key.json",
     "proxy.mp4", "proxy.key.json"]) {
     assert.ok(!log.has(opt), `${opt}(リレンダー最適化/proxy)が log に混入`);

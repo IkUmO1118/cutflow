@@ -124,18 +124,21 @@ OBS は既定で `.mkv` に録画し、停止後に同じ内容を `.mp4` へス
 「manifest が指す元収録が別名で今も実在するか」をもう一度確かめる belt もある。
 `--logs-only` では対象外(ログでも使い捨て下書きでもないため)。
 
-- 既定: すべての中間生成物(`manifest.json` / `cuts.auto.json` / `proxy.mp4` /
+- 既定: すべての中間生成物(`cuts.auto.json` / `proxy.mp4` /
   `cut*.mp4` / `render.chunks/` / `frames/` / `shorts/` / 各 `*.probe/` / `whisper-out.*` /
   `*.suggested.json` / `plan.first.json` / `plan-effects.first.json` /
   `.remotion/`(Remotion が収録フォルダへ落とす headless Chrome。収録ごとに約200MB
   重複し、次の render / frames が自動で取り直す) 等)を削除。
 - `--cache-only`: 再生成の重いキャッシュ(`proxy.mp4` / `cut*.mp4` / `render.chunks/` /
-  `frames/` / `shorts/` / `materials.probe/` / `av.probe/` / `review.probe/` /
-  `.remotion/` / `preview.mp4` / `*.key.json` / `render.props.json`)だけを消す。再文字起こしが数分かかる
-  `whisper-out.*` や `manifest.json` / `cuts.auto.json` 等の**軽くて再生成が高価**な
-  中間生成物は残す。write-once初版の`plan.first.json` / `plan-effects.first.json`も残す。
+   `frames/` / `shorts/` / `materials.probe/` / `av.probe/` / `review.probe/` /
+   `.remotion/` / `preview.mp4` / `*.key.json` / `render.props.json`)だけを消す。再文字起こしが数分かかる
+   `whisper-out.*` や `cuts.auto.json` 等の**軽くて再生成が高価**な
+   中間生成物は残す。write-once初版の`plan.first.json` / `plan-effects.first.json`も残す。
 - `--logs-only`: ログ・検品結果・使い捨て下書きだけを消す。write-once初版の
-  `plan.first.json` / `plan-effects.first.json`は測定資産なので残す。
+   `plan.first.json` / `plan-effects.first.json`は測定資産なので残す。
+- **`manifest.json` はフル clean でも削除されない**(収録フォルダの中身だけからは復元できない。
+   `ingest` の再実行は `--layout` を知らないとレイアウト情報を失う)。
+   削除が必要なときは手で消して `ingest <dir> --layout obs-canvas` で復旧する。
 - `--dry-run`: 何も消さず、削除対象の一覧と解放バイトだけを表示。
 - `--json`: `CleanPlan`(targets / fileCount / dirCount / bytes / dryRun)を純 JSON で
   stdout に出す(`--dry-run` と併用で機械可読なプレビュー)。
