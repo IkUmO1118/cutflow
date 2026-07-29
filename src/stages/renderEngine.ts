@@ -22,6 +22,7 @@ import { resolveProfile } from "../lib/profile.ts";
 import { compositionDurationInFrames } from "../lib/renderFrameMath.ts";
 import { createEngineSession } from "../lib/engineSession.ts";
 import { startFramePipe } from "../lib/framePipe.ts";
+import { sourceUrlsOf } from "../lib/engineStill.ts";
 import type { Config } from "../lib/config.ts";
 import type { RenderProps } from "../lib/renderPropsTypes.ts";
 import type {
@@ -93,10 +94,7 @@ export async function renderEngine(
   console.log(`エンジン書き出し: ${totalFrames}フレーム ${fps}fps ${outputWidth}x${outputHeight}`);
 
   // Source URL マップ (engineDev.ts と同じパターン)
-  const sourceUrls: Record<string, string> = { [sourceFile]: `/${sourceFile}` };
-  for (const o of props.overlays) sourceUrls[o.file] = `/${o.file}`;
-  for (const i of props.inserts ?? []) sourceUrls[i.file] = `/${i.file}`;
-  for (const b of props.bgm) sourceUrls[b.file] = `/${b.file}`;
+  const sourceUrls = sourceUrlsOf(props, sourceFile);
 
   const session = await createEngineSession(dir, { props, durationSec, sourceUrls });
 
