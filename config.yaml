@@ -254,11 +254,6 @@ render:
     color: rgba(35, 35, 35, 0.9)
     radiusPx: 20
     paddingPx: 52
-  # 書き出し(render / frames / thumbnail)の合成エンジン。既定 true = 新エンジン
-  # (WebGPU compositor + CDP capture + ffmpeg)をまず試し、失敗時は自動で
-  # Remotion 経路へフォールバックする。false で常に Remotion 経路に固定する
-  # (新旧比較検証用)。docs/usage.md「書き出しの合成エンジン」参照
-  # engineExport: true
 
 # 画面 OCR(frames --ocr)。AI が画面内テキスト(コード/ターミナル/エラー)を
 # テキストとして読むための Apple Vision OCR 設定。macOS 専用・オフライン。

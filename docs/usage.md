@@ -576,20 +576,6 @@ WGSL コンポジタで描く。カット境界を跨ぐ連結ファイル(bake)
 ブラウザが `navigator.gpu` を持たない、または GPU 初期化に失敗したときは
 プレビュー上部にその旨のバナーを出す。
 
-## 書き出しの合成エンジン(config.yaml の render.engineExport)
-
-`render.engineExport`(既定 `true`)は `frames` / `thumbnail` の
-Remotion フォールバックを残すための検証用切り替え。`render` は engine 経路で
-`final.mp4` を作る。
-
-既定 `true` では新エンジン(WebGPU compositor + CDP capture + ffmpeg)を使う。
-`false` は `frames` / `thumbnail` の新旧比較検証用。
-
-```yaml
-render:
-  engineExport: false   # frames / thumbnail を Remotion 経路に固定する(検証用)
-```
-
 ## 環境プリフライト(doctor)
 
 `node src/cli.ts doctor` は収録に入る前の環境チェック(読み取り専用)。

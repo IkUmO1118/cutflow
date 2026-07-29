@@ -308,4 +308,15 @@ npx tsc --noEmit && npm test && npm run gate:pixel                              
   H.264 video-only mp4 を生成し、scratch review 全体の所要時間は 53.8秒。
   review clip は用途を動き確認に限定し、音声なしへ変更した。検証:
   `npx tsc --noEmit` 緑、`npm test` 2724 件 pass、`npm run gate:pixel` 緑（12枚一致）。
+- **2026-07-29（X4 完了）**: 本編系 stage から Remotion 実行経路を削除した。
+  `renderOneShort` は `renderEngineFromProps` でエンジン書き出しへ移行し、
+  `frames` / `thumbnail` / `frames-serve` の自動 Remotion 降格と
+  `render.engineExport` 設定、`remotionResourceArgs`、`frames-serve` の再バンドル機構を削除した。
+  scratch `/private/tmp/cutflow-x4-scratch` で `render` / `render --short s1` /
+  `render --shorts` / `frames` 6形態 / `thumbnail` / `frames-serve` 経由 `frames` が通過。
+  ショート `s1` は 240 frames、video stream duration 8.000000秒、audio stream duration
+  8.000000秒、1,887,487 bytes。2回目は `render.s1.key.json` で full-skip。
+  `frames-serve` は Ctrl+C 後に `frames/.serve.json` が消えることも確認。
+  検証: `npx tsc --noEmit` 緑、`npm test` 2721 件 pass、
+  `npm run gate:pixel` 緑（12枚一致）。
 - （以降、各フェーズの完了・ゲート判定・実測値をここへ追記する）
