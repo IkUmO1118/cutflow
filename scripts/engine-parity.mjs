@@ -5,9 +5,8 @@
 // 1) 対象収録で `node src/cli.ts frames <dir> --t <times> --out` を実行
 //    (オラクル。frames/props.json に実際に使われた RenderProps も残る)
 // 2) 同じ props.json + 同じ時刻で describeFrame() を呼び、参照ペインタ
-//    (src/engine/refPainter.ts。esbuild で束ねる)を chrome-headless-shell
-//    (@remotion/renderer が既に依存として持つものを再利用。新規依存は増やさない)
-//    へ CDP 経由で流し込んで canvas2d に描く
+//    (src/engine/refPainter.ts。esbuild で束ねる)を chrome-headless-shell へ
+//    CDP 経由で流し込んで canvas2d に描く
 // 3) オラクル PNG と参照ペインタの出力を並べた比較グリッド PNG + ダウンサンプル
 //    輝度の平均絶対差を出す
 //
@@ -23,6 +22,7 @@ import { join, resolve, extname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import * as esbuild from "esbuild";
+import { ensureHeadlessShell } from "../src/lib/browser.ts";
 
 const repoRoot = resolve(fileURLToPath(import.meta.url), "..", "..");
 
@@ -135,32 +135,8 @@ function startServer(dir, outDir) {
   });
 }
 
-function findHeadlessShell(dir) {
-  // Remotion(@remotion/renderer)が render/frames のために自動取得する
-  // headless Chrome を再利用する(CLAUDE.md の .remotion/ 参照。新規依存を
-  // 増やさない)。事前に `node src/cli.ts frames` を1回でも実行していれば
-  // 取得済みのはず(このスクリプトも直前にオラクルを実行するので必ず揃う)。
-  // 検索範囲は既知のキャッシュ場所だけに絞る(~/Library/Caches 全体を
-  // 走査すると権限エラーの出る他アプリのキャッシュに当たって非0終了する)
-  const roots = [
-    join(dir, ".remotion"),
-    join(process.env.HOME, "Library/Caches/ms-playwright"),
-    join(process.env.HOME, "Library/Caches/remotion"),
-  ];
-  for (const root of roots) {
-    let out = "";
-    try {
-      out = execFileSync("find", [root, "-iname", "chrome-headless-shell", "-type", "f"], {
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-      });
-    } catch (err) {
-      out = err.stdout ?? "";
-    }
-    const hit = out.trim().split("\n").filter(Boolean)[0];
-    if (hit) return hit;
-  }
-  throw new Error("chrome-headless-shell が見つかりません(先に render/frames を1回実行してください)");
+async function findHeadlessShell() {
+  return ensureHeadlessShell();
 }
 
 async function launchHeadlessShell(execPath) {
@@ -317,7 +293,7 @@ async function main() {
   const server = await startServer(dir, outDir);
   const port = server.address().port;
   console.log(`  static server: 127.0.0.1:${port}`);
-  const execPath = findHeadlessShell(dir);
+  const execPath = await findHeadlessShell();
   console.log(`  headless shell: ${execPath}`);
   const { proc, wsUrl: browserWsUrl } = await launchHeadlessShell(execPath);
   console.log(`  browser ws: ${browserWsUrl}`);

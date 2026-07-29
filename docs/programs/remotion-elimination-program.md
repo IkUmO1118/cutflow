@@ -273,9 +273,9 @@ npx tsc --noEmit && npm test && npm run gate:pixel                              
     回収できない）。fast 経路本体が消えたあとも design 静的資産
     （`render.fast/design/*.png`）が現役でここに置かれるため、X7 で分類を追加する
   - **エンジンの書き出しページは同梱フォント（Noto Sans JP）を読み込んでいない**
-    （`buildExportHtml` に `@font-face` が無い）。エンジン置換のときに落ちた別の欠陥で、
-    直すと画素が変わるため本母艦では**フォントを `assets/fonts/` へ保全するだけ**にし、
-    残件として記録する（X6 §1.4）
+    という起草時メモがあったが、X6 着手時点の `src/lib/engineSession.ts`
+    `buildExportHtml` では `@font-face` 登録済みだった。X6 ではフォントの挙動は変えず、
+    コピー元だけ `assets/fonts/NotoSansJP.woff2` へ移した。
 - **2026-07-29（X0 完了）**: `@puppeteer/browsers` で
   `chrome-headless-shell` buildId `149.0.7790.0`（Google Chrome for Testing
   `149.0.7790.0`）を `~/.cutflow/chrome` に取得。`node_modules/.remotion` 退避状態で
@@ -319,4 +319,21 @@ npx tsc --noEmit && npm test && npm run gate:pixel                              
   `frames-serve` は Ctrl+C 後に `frames/.serve.json` が消えることも確認。
   検証: `npx tsc --noEmit` 緑、`npm test` 2721 件 pass、
   `npm run gate:pixel` 緑（12枚一致）。
+- **2026-07-29（X5 完了）**: HyperFrames render/check を Remotion から自前
+  browser/CDP 経路へ移した。`hyperframe` / `hyperframe-check --no-vlm` が
+  scratch 収録で通過し、X6 の削除前スモークでも `card.mp4` 60 frames、
+  sha256 prefix `0d2dc594192d` を確認した。
+- **2026-07-29（X6 完了）**: `remotion/` ディレクトリと `remotion.config.ts` を削除し、
+  `remotion` / `@remotion/bundler` / `@remotion/cli` / `@remotion/player` /
+  `@remotion/renderer` の5パッケージを `npm uninstall` で削除した。削除前実測は
+  `node_modules/@remotion` 93M、`node_modules/remotion` 2.3M、
+  `node_modules/.remotion` 193M（合計約288M）。削除後に `rm -rf node_modules`
+  → `npm ci` を実行し、151 packages のクリーン状態で
+  `npx tsc --noEmit`、`npm test` 2725 件 pass、`npm run gate:pixel`
+  12枚一致を確認した。scratch `/private/tmp/cutflow-x6-smoke.1ODEW0/parity-project`
+  で `validate` / `describe --json` / `frames` / `frames --short` / `thumbnail` /
+  `render` / `render --short` / `hyperframe` / `hyperframe-check --no-vlm` /
+  `editor` 起動確認が通過した。
+  `test/fixtures/engine/pixel-golden/provenance.json` に、X6 後は Remotion
+  オラクルでの再捕獲ができず、将来の golden 更新は人間の目視承認で行う旨を記録した。
 - （以降、各フェーズの完了・ゲート判定・実測値をここへ追記する）

@@ -18,7 +18,7 @@ const MIN_RECT = 40;
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
 
 /**
- * プレビュー(@remotion/player)の上に重ねる透明レイヤー。表示中の「部分配置」
+ * プレビューの上に重ねる透明レイヤー。表示中の「部分配置」
  * 素材と同じ位置・寸法の掴めるボックスを出し、PowerPoint の図のように本体
  * ドラッグで移動・端(8ハンドル)ドラッグでリサイズできるようにする。座標変換
  * (コンポジション⇔画面)だけを持ち、ドキュメントの更新は onRectChange

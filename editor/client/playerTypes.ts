@@ -1,4 +1,4 @@
-// 旧 `@remotion/player` の型のローカル宣言。Player 実体は既に使っておらず
+// 旧 Player の型のローカル宣言。Player 実体は既に使っておらず
 // `EnginePreview`（自前エンジン）が本番。依存を切るためにここへ写した。
 export type EventTypes = "frameupdate" | "play" | "pause";
 

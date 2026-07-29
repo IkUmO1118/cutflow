@@ -2,12 +2,13 @@
 // scripts/engine-pixel-parity.mjs(R1〜R4 実装)から定数・pageScript()・
 // CDP/ヘッドレスChrome起動まわりを逐語抽出したもの(値・コメントは1文字も変えていない)。
 // scripts/engine-pixel-gate.mjs(G1)もこのモジュールを再利用する。
-import { spawn, execFileSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, copyFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { join, extname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { ensureHeadlessShell } from "../../src/lib/browser.ts";
 
 // scripts/lib/pixelCompare.mjs から見た repoRoot(../../ で scripts/lib → repoRoot)
 const repoRoot = resolve(fileURLToPath(import.meta.url), "..", "..", "..");
@@ -97,22 +98,8 @@ export function startServer(outDir) {
   });
 }
 
-export function findHeadlessShell() {
-  const roots = [
-    join(repoRoot, "node_modules/.remotion"),
-    join(process.env.HOME ?? "/tmp", "Library/Caches/ms-playwright"),
-    join(process.env.HOME ?? "/tmp", "Library/Caches/remotion"),
-  ];
-  for (const root of roots) {
-    try {
-      const out = execFileSync("find", [root, "-iname", "chrome-headless-shell", "-type", "f", "-maxdepth", "8"], {
-        encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
-      });
-      const hit = out.trim().split("\n").filter(Boolean)[0];
-      if (hit) return hit;
-    } catch { /* try next root */ }
-  }
-  throw new Error("chrome-headless-shell が見つかりません(先に render/frames を1回実行してください)");
+export async function findHeadlessShell() {
+  return ensureHeadlessShell();
 }
 
 export async function launchHeadlessShell(execPath) {

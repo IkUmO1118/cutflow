@@ -2,7 +2,7 @@
 // ffmpeg 高速パスが共有する唯一の定義)。remotion/Main.tsx から機械的に移設した。
 // **このファイルはブラウザバンドル(Root.tsx → Main/OverlayLayer/OverlayStill)へ
 // 引き込まれる**ので、node 専用モジュール(node:fs / node:crypto /
-// @remotion/renderer 等)を絶対に import しないこと(webpack が解決できずに
+// 旧 renderer 等)を絶対に import しないこと(webpack が解決できずに
 // frames / editor / render のバンドルが丸ごと壊れる)。
 import type { OverlayItem } from "./renderPropsTypes.ts";
 
@@ -71,7 +71,7 @@ export function overlayFastReason(o: OverlayItem, fps: number): string | null {
  * (キャッシュキーの汚染防止)。
  * **ブラウザ側(remotion/OverlayStill.tsx)と node 側(src/lib/overlayStill.ts)の
  * 両方から使うので、node 依存の無いこのファイルに置く**(overlayStill.ts に置くと
- * node:fs / @remotion/renderer がブラウザバンドルへ引き込まれて壊れる) */
+ * node:fs / 旧 renderer がブラウザバンドルへ引き込まれて壊れる) */
 export function overlayStillItem(o: OverlayItem): OverlayItem {
   return {
     start: o.start, end: o.end, file: o.file, track: o.track, fit: o.fit,

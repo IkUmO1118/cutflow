@@ -18,7 +18,7 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), h
 const MIN_DIST = 4;
 
 /**
- * プレビュー(@remotion/player)の上に重ねる透明レイヤー。矢印注釈の
+ * プレビューの上に重ねる透明レイヤー。矢印注釈の
  * from/to を掴めるハンドル2つ + 破線の参考線 + 参考矢尻を SVG で描く。
  * 実際の矢印描画は Player(remotion/Main.tsx)側が済んでいるので、ここは
  * 編集用の透明な当たり判定だけ(二重掛けしない)。座標変換

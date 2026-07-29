@@ -105,7 +105,7 @@ window.__PNGS = ${JSON.stringify(pngs)};
   console.log(`  http://127.0.0.1:${port}`);
 
   console.log("[5/6] chrome-headless-shell 起動");
-  const execPath = findHeadlessShell();
+  const execPath = await findHeadlessShell();
   console.log(`  shell: ${execPath}`);
   const { proc: chromeProc, wsUrl: browserWsUrl } = await launchHeadlessShell(execPath);
 

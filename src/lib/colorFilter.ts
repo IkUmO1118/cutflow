@@ -21,7 +21,7 @@ export function cssFilterOf(cf?: ColorFilter): string | undefined {
 // (design-T3.md §1・§2。数式・係数・差し込み位置は再導出しない)。
 //
 // 【制約】このファイルは remotion/Main.tsx が import する = ブラウザバンドルに
-// 載る。node:* や @remotion/renderer 等の node 専用モジュールを絶対に
+// 載る。node:* や旧 renderer 等の node 専用モジュールを絶対に
 // import しないこと(webpack が壊れ、typecheck も npm test もすり抜ける)。
 
 /** ffmpeg 側の colorFilter 写像の結果。
