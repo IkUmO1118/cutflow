@@ -193,7 +193,9 @@ OffscreenCanvas → 画面        VideoEncoder(HW) → mux → ffmpeg CRF → fi
   `EnginePreview` として**最小面積の独立コンポーネント**で載せる（リデザイン時に
   コンポーネントごと移設できる形）。リデザイン着手は M3b 完了後を推奨。
 - **HF サイドカー**: Remotion 依存が残る唯一の場所。本母艦では一切触らない。
-  依存スリム化（chrome 取得機構の脱 Remotion 化）は M4 後の別課題。
+  依存スリム化（chrome 取得機構の脱 Remotion 化）は M4 後の別課題
+  → **`docs/programs/remotion-elimination-program.md`（2026-07-29 起草）が引き取った**。
+  同書は §7 の削除リストも引き取っている（本編経路の削除に関しては同書が優先）。
 
 ## 9. 意思決定ログ
 

@@ -4,6 +4,7 @@
 // 初期化、フレームレンダー→キャプチャを1つの使い捨てセッションとして包む。
 import { createServer } from "node:http";
 import {
+  copyFileSync,
   createReadStream,
   existsSync,
   mkdtempSync,
@@ -45,10 +46,12 @@ function bundleExporterFile(outDir: string): string {
 
 function buildExportHtml(outDir: string, configJson: string): void {
   bundleExporterFile(outDir);
+  copyFileSync(join(repoRoot, "remotion/fonts/NotoSansJP.woff2"), join(outDir, "NotoSansJP.woff2"));
   const bundleName = "export-bundle.js";
   const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>CutFlow Engine</title>
-<style>body{margin:0;background:#000;overflow:hidden}
+<style>@font-face{font-family:"Noto Sans JP";src:url("/NotoSansJP.woff2") format("woff2");font-weight:100 900;font-display:block}
+body{margin:0;background:#000;overflow:hidden}
 #canvas-host{position:absolute;top:0;left:0}
 #export-status{position:fixed;top:8px;left:8px;color:#fff;font:12px monospace}
 </style></head><body>
@@ -88,6 +91,11 @@ function startExportServer(dir: string, outDir: string): Promise<{ server: Retur
       if (url.pathname === "/export-bundle.js") {
         const data = readFileSync(join(outDir, "export-bundle.js"));
         res.writeHead(200, { "Content-Type": "text/javascript", "Content-Length": String(data.length) });
+        res.end(data); return;
+      }
+      if (url.pathname === "/NotoSansJP.woff2") {
+        const data = readFileSync(join(outDir, "NotoSansJP.woff2"));
+        res.writeHead(200, { "Content-Type": "font/woff2", "Content-Length": String(data.length) });
         res.end(data); return;
       }
       const rel = url.pathname.replace(/^\//, "");
