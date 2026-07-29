@@ -1,6 +1,6 @@
 # AI Tracking Box
 
-> Compressed from `remotion/vendor/hyperframes/skills-corpus/hyperframes-animation/rules/ai-tracking-box.md`.
+> Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/ai-tracking-box.md`.
 > Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)

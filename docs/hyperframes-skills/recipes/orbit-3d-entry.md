@@ -1,6 +1,6 @@
 # Orbit 3D Entry
 
-> Compressed from `remotion/vendor/hyperframes/skills-corpus/hyperframes-animation/rules/orbit-3d-entry.md`.
+> Compressed from `docs/hyperframes-vendor/skills-corpus/hyperframes-animation/rules/orbit-3d-entry.md`.
 > Cutflow adaptation — see docs/hyperframes-skills/authoring-contract.md for the seek-safe contract.
 
 ## 用途 (when to reach for it)

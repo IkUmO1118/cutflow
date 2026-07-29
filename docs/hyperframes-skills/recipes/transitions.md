@@ -1,7 +1,7 @@
 # Scene transitions (collapsed catalog)
 
 > Adapted from HeyGen HyperFrames skills (Apache-2.0). See ../PROVENANCE.md.
-> Collapses upstream `remotion/vendor/.../hyperframes-animation/transitions/` (16 files:
+> Collapses upstream `docs/hyperframes-vendor/.../hyperframes-animation/transitions/` (16 files:
 > catalog / overview / TRANSITION-REGISTRY + css-*) into one pointer file.
 
 A transition tells the viewer how two scenes relate: a crossfade says "this
@@ -83,7 +83,7 @@ transitions that show a **visible repeating geometric grid** — they read as ch
 ## Full per-transition detail
 
 For the exact GSAP/CSS per transition, read the vendor files (do not re-host here):
-`remotion/vendor/hyperframes/skills-corpus/hyperframes-animation/transitions/` —
+`docs/hyperframes-vendor/skills-corpus/hyperframes-animation/transitions/` —
 `catalog.md` (hard rules + routing), `overview.md` (selection), and the per-category
 `css-*.md` files (push / radial / 3d / scale / dissolve / cover / light / distortion /
 mechanical / grid / other / blur / destruction). `TRANSITION-REGISTRY.md` is the

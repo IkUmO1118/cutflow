@@ -65,6 +65,6 @@ Cutflow の native な作図契約(C1/C2)に意味があるものだけを翻案
   card-patterns / blueprints から Compose するときの部品
 - [`../../prompts/hyperframe.md`](../../prompts/hyperframe.md) — 上記を
   踏まえた C4 の運用プロンプト本体
-- [`../../remotion/vendor/hyperframes/upstream-docs/`](../../remotion/vendor/hyperframes/upstream-docs/) —
+- [`../hyperframes-vendor/upstream-docs/`](../hyperframes-vendor/upstream-docs/) —
   作図契約の**正**(HF 公式 docs のそのまま vendor)。ここの3ファイルは
   あくまで要約・翻案であり、詳細な `data-*` の網羅表はそちらを見る

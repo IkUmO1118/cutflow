@@ -42,7 +42,7 @@ function bundleExporterFile(outDir: string): string {
 
 function buildExportHtml(outDir: string, configJson: string): void {
   bundleExporterFile(outDir);
-  copyFileSync(join(repoRoot, "remotion/fonts/NotoSansJP.woff2"), join(outDir, "NotoSansJP.woff2"));
+  copyFileSync(join(repoRoot, "assets/fonts/NotoSansJP.woff2"), join(outDir, "NotoSansJP.woff2"));
   const bundleName = "export-bundle.js";
   const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>CutFlow Engine</title>
