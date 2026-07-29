@@ -12,33 +12,16 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isCutplanApproved, isShortApproved } from "../lib/approval.ts";
 import {
-  carveFinalToChunks,
-  chunkFileName,
-  concatChunks,
-  extractAudio,
-  muxVideoAudio,
-  probeKeyframes,
-  verifyAssembled,
   verifyPlayableVideo,
   verifyRenderedVideo,
 } from "../lib/chunkCache.ts";
 import {
-  defaultInputStat,
-  inputsDrifted,
   publishAsTransaction,
 } from "../lib/renderTransaction.ts";
-import {
-  audioKey as buildAudioKey,
-  carveBoundaries,
-  chunkVideoKey,
-  globalVideoKey,
-} from "../lib/chunkPlan.ts";
 import { buildCutCacheKey, cutCacheKeyEquals } from "../lib/cutCache.ts";
 import { colorTagArgs, colorTagsOfProbe, type ColorTags } from "../lib/colorTags.ts";
 import { run } from "../lib/exec.ts";
 import { probe } from "../lib/ffmpeg.ts";
-import { decideFastPath, runFastRender } from "../lib/fastRender.ts";
-import { resolveFastBaseCapability } from "../lib/fastBaseCapability.ts";
 import { renderEngine } from "./renderEngine.ts";
 import {
   audioSourceOf,
@@ -72,7 +55,6 @@ import {
 import { logStage } from "../lib/obs.ts";
 import { resolveVideoEncoder } from "../lib/videoEncode.ts";
 import { hasCamera } from "../types.ts";
-import type { ChunksCacheKey, FileStat } from "../lib/chunkPlan.ts";
 import type { CutCacheKey } from "../lib/cutCache.ts";
 import type { RenderCacheKey } from "../lib/renderKey.ts";
 import type { Config } from "../lib/config.ts";
@@ -202,8 +184,8 @@ export async function render(dir: string, cfg: Config): Promise<string> {
 
 /**
  * render() の実処理本体(承認ゲート通過後)。render.report.json 用の
- * collector を受け取り、経路選択(full-skip/chunk-diff/fast/full-remotion)・
- * キャッシュ再利用・入力ハッシュ・出力プローブを収集しながら本編を合成する。
+ * collector を受け取り、engine 経路・キャッシュ再利用・入力ハッシュ・
+ * 出力プローブを収集しながら本編を合成する。
  */
 async function runRenderMain(
   dir: string,
@@ -377,128 +359,12 @@ async function runRenderMain(
     return outPath;
   }
 
-  // M4 エンジン経路(新旧比較検証のため opt-in)。新エンジン(WebGPU compositor +
-  // CDP capture + ffmpeg intermediate)でレンダーし、成功すれば従来経路を
-  // スキップする。失敗時は警告を出して下の従来経路へフォールバックする。
-  // render.engineExport が明示的に false でなければ試行する(既定で試す)。
-  const engineExport = cfg.render.engineExport !== false;
-  if (engineExport) {
-    try {
-      const engineResult = await timed("エンジン書き出し 合計", () =>
-        renderEngine(dir, cfg, manifest, cutplan, transcript, overlaysIn, cutPath, outPath),
-      );
-      collector.setPath("engine");
-      collector.output = probeOutput(outPath, props);
-      writeFileSync(renderKeyPath, JSON.stringify(renderKey, null, 2));
-      return outPath;
-    } catch (e) {
-      console.warn(`エンジン書き出し失敗 → 従来経路へフォールバック: ${(e as Error).message}`);
-      collector.setFallback(`engine: ${(e as Error).message}`);
-    }
-  }
-
-  // チャンク差分レンダー(docs/render-chunk-cache.md)。render.chunkSec > 0 の
-  // ときだけ試す。直前フルレンダーの render.chunks/ が使え、音声・全域 props
-  // (layerOrder・wipe 幾何・keeps 等)が不変なら、変わったチャンクだけ
-  // 再レンダーして concat + mux する(§4)。使えない/検証NGならフルレンダーへ
-  // 落ちる(0/未設定なら render.chunks/ に一切触れず既存挙動と bit 一致)
-  const chunkSec = cfg.render.chunkSec ?? 0;
-  if (chunkSec > 0) {
-    const chunked = await tryChunkRender({
-      dir, props, propsPath, cutStat: { mtimeMs: cutStat.mtimeMs, size: cutStat.size },
-      hardwareAcceleration, repoRoot, outPath,
-      resourceArgs: remotionResourceArgs(cfg),
-    });
-    if (chunked) {
-      collector.setPath("chunk-diff");
-      collector.changedChunkCount = chunked.changedChunks;
-      collector.chunkCount = chunked.chunkCount;
-      collector.output = probeOutput(outPath, props);
-      writeFileSync(renderKeyPath, JSON.stringify(renderKey, null, 2));
-      return outPath;
-    }
-  }
-
-  // render 高速パス(opt-in)。fastPath=false のとき本ブロックには一切入らない
-  // =既存挙動とバイト等価。適格なら FAST/SLOW ハイブリッド合成で final.mp4 を作り、
-  // 成功したら full-skip キーを書き chunk cache を種付けして返す。非適格・失敗は
-  // 1行ログを出して下の通常フルレンダーへ落ちる(誤爆より保守)。
-  if (cfg.render.fastPath) {
-    const base = resolveFastBaseCapability({ props, composite });
-    const decision = decideFastPath({ props, cfg, base });
-    if (!decision.activate) {
-      console.log(`render 高速パス: 非適用(${decision.reason}) → 通常レンダー`);
-      collector.setFallback(`fast: ${decision.reason}`);
-    } else {
-      collector.fastCoverage = decision.plan.coverageRatio;
-      if (!base.ok) throw new Error("高速パス能力判定の内部不整合");
-      const fastResult = await timed("高速パス 合計", () =>
-        runFastRender({
-          dir, props, plan: decision.plan, base, cutPath, propsPath, outPath,
-          hardwareAcceleration, repoRoot, resourceArgs: remotionResourceArgs(cfg),
-        }),
-      );
-      if (fastResult.ok) {
-        collector.setPath("fast");
-        collector.output = probeOutput(outPath, props);
-        writeFileSync(renderKeyPath, JSON.stringify(renderKey, null, 2));
-        if (chunkSec > 0) {
-          await timed("チャンクcache seed 合計", () =>
-            seedChunkCache({
-              dir, props, cutStat: { mtimeMs: cutStat.mtimeMs, size: cutStat.size },
-              outPath, chunkSec, verifiedKeyframeFrames: fastResult.keyframeFrames,
-            }),
-          );
-        }
-        return outPath;
-      }
-      collector.setFallback("fast: 高速パス失敗 → 通常レンダー");
-    }
-  }
-
-  const totalFrames = compositionDurationInFrames(props.durationSec, props.fps);
-  const durationSec = compositionDurationSec(props.durationSec, props.fps);
-  await publishAsTransaction({
-    finalPath: outPath,
-    inputs: [
-      { path: cutPath, mtimeMs: cutStat.mtimeMs, size: cutStat.size },
-      ...materialStatsOf(dir, props).map((m) => ({
-        path: join(dir, m.file),
-        mtimeMs: m.mtimeMs,
-        size: m.size,
-      })),
-    ],
-    produce: async (tmp) => {
-      await timed("Remotion", () =>
-        run(
-          "npx",
-          [
-            "remotion", "render",
-            "remotion/index.ts", "Main", tmp,
-            "--props", propsPath,
-            "--public-dir", dir,
-            "--codec", "h264",
-            "--hardware-acceleration", hardwareAcceleration,
-            ...remotionResourceArgs(cfg),
-          ],
-          { cwd: repoRoot, label: "remotion" },
-        ),
-      );
-    },
-    verify: (tmp) => verifyRenderedVideo(tmp, totalFrames, durationSec, props.fps),
-    commit: () => writeFileSync(renderKeyPath, JSON.stringify(renderKey, null, 2)),
-  });
-
-  if (chunkSec > 0) {
-    await timed("チャンクcache seed 合計", () =>
-      seedChunkCache({
-        dir, props, cutStat: { mtimeMs: cutStat.mtimeMs, size: cutStat.size },
-        outPath, chunkSec,
-      }),
-    );
-  }
-  collector.setPath("full-remotion");
+  await timed("エンジン書き出し 合計", () =>
+    renderEngine(dir, cfg, manifest, cutplan, transcript, overlaysIn, cutPath, outPath),
+  );
+  collector.setPath("engine");
   collector.output = probeOutput(outPath, props);
+  writeFileSync(renderKeyPath, JSON.stringify(renderKey, null, 2));
   return outPath;
 }
 
@@ -704,16 +570,6 @@ async function renderOneShort(
   return outPath;
 }
 
-/** render.chunks/ 配下のパス一式 */
-function chunkPaths(dir: string) {
-  const chunksDir = join(dir, "render.chunks");
-  return {
-    chunksDir,
-    keyPath: join(chunksDir, "chunks.key.json"),
-    audioPath: join(chunksDir, "audio.m4a"),
-  };
-}
-
 /** 出力ファイル(final.mp4 等)の実測プローブ。render.report.json の
  * output フィールドに載せる(サイズ・想定尺・想定フレーム数) */
 function probeOutput(outPath: string, props: RenderProps): OutputProbe {
@@ -734,184 +590,6 @@ function materialStatsOf(
     const s = statSync(join(dir, file));
     return { file, mtimeMs: s.mtimeMs, size: s.size };
   });
-}
-
-/**
- * 直前フルレンダーの render.chunks/ が使えるか判定し、使えれば変わった
- * チャンクだけ再レンダーして final.mp4 を組み立てる(§4-2)。
- * 成功すれば true(final.mp4・chunks.key.json を書き終えている)。使えない
- * ときは静かに false(通常のフルレンダーへ委ねる)。実際にチャンクを
- * 再レンダーしたのに検証で落ちたときだけ 1 行ログを出し render.chunks/ を
- * 破棄する(黙ってフルレンダーに落ちない。§5)
- */
-async function tryChunkRender(args: {
-  dir: string;
-  props: RenderProps;
-  propsPath: string;
-  cutStat: FileStat;
-  hardwareAcceleration: string;
-  repoRoot: string;
-  outPath: string;
-  /** remotionResourceArgs(cfg) の結果(キャッシュ上限・timeout 等)。
-   * フルレンダーと同じ上限をチャンク再レンダーにも適用する */
-  resourceArgs: string[];
-}): Promise<false | { changedChunks: number; chunkCount: number }> {
-  const { dir, props, propsPath, cutStat, hardwareAcceleration, repoRoot, outPath, resourceArgs } = args;
-  const { chunksDir, keyPath, audioPath } = chunkPaths(dir);
-  if (!existsSync(outPath) || !existsSync(keyPath) || !existsSync(audioPath)) return false;
-
-  let cached: ChunksCacheKey;
-  try {
-    cached = JSON.parse(readFileSync(keyPath, "utf8")) as ChunksCacheKey;
-  } catch {
-    return false;
-  }
-
-  const materialStats = materialStatsOf(dir, props);
-  const newAudioKey = buildAudioKey(props, cutStat, materialStats);
-  if (newAudioKey !== cached.audioKey) return false;
-
-  const newGlobalKey = globalVideoKey(props, cutStat);
-  if (newGlobalKey !== cached.globalKey) return false;
-
-  const totalFrames = compositionDurationInFrames(props.durationSec, props.fps);
-  if (totalFrames !== cached.totalFrames || props.fps !== cached.fps) return false;
-
-  const { boundaries } = cached;
-  const chunkCount = boundaries.length - 1;
-  if (chunkCount <= 0 || chunkCount !== cached.chunkVideoKeys.length) return false;
-  const chunkFiles = Array.from({ length: chunkCount }, (_, i) => join(chunksDir, chunkFileName(i)));
-  if (!chunkFiles.every((f) => existsSync(f))) return false;
-
-  const newChunkKeys = boundaries
-    .slice(0, -1)
-    .map((from, i) => chunkVideoKey(props, from, boundaries[i + 1], cutStat, props.fps));
-  const changedIndices = newChunkKeys
-    .map((key, i) => (key !== cached.chunkVideoKeys[i] ? i : -1))
-    .filter((i) => i >= 0);
-
-  for (const i of changedIndices) {
-    const from = boundaries[i];
-    const to = boundaries[i + 1];
-    await timed(`チャンク${i}再レンダー(frame ${from}-${to - 1})`, () =>
-      run(
-        "npx",
-        [
-          "remotion", "render",
-          "remotion/index.ts", "Main", chunkFiles[i],
-          "--props", propsPath,
-          "--public-dir", dir,
-          "--codec", "h264",
-          "--hardware-acceleration", hardwareAcceleration,
-          ...resourceArgs,
-          `--frames=${from}-${to - 1}`,
-          "--muted",
-        ],
-        { cwd: repoRoot, label: "remotion" },
-      ),
-    );
-  }
-
-  const assembledVideo = join(chunksDir, ".assembled-video.mp4");
-  const tempFinal = join(dir, ".final.tmp.mp4");
-  try {
-    await concatChunks(chunkFiles, assembledVideo);
-    await muxVideoAudio(assembledVideo, audioPath, tempFinal);
-    const verify = await verifyAssembled(
-      tempFinal,
-      totalFrames,
-      compositionDurationSec(props.durationSec, props.fps),
-      props.fps,
-    );
-    if (!verify.ok) {
-      console.warn(`チャンク検証に失敗したためフル再生成します: ${verify.reason}`);
-      rmSync(chunksDir, { recursive: true, force: true });
-      return false;
-    }
-    // point3: 変更チャンクのレンダー中(数分かかりうる)に cut.mp4 や参照
-    // 素材ファイルが差し替わっていないか確認する。drift していれば
-    // 古い入力から作った final.mp4 を正としない(フル再生成へフォールバック)
-    const chunkInputs = [
-      { path: join(dir, "cut.mp4"), mtimeMs: cutStat.mtimeMs, size: cutStat.size },
-      ...materialStats.map((m) => ({
-        path: join(dir, m.file),
-        mtimeMs: m.mtimeMs,
-        size: m.size,
-      })),
-    ];
-    const drift = inputsDrifted(chunkInputs, defaultInputStat);
-    if (drift.drifted) {
-      console.warn(
-        `チャンク検証: 入力ファイルが変化したためフル再生成します(${drift.path}): ${drift.reason}`,
-      );
-      rmSync(tempFinal, { force: true });
-      rmSync(chunksDir, { recursive: true, force: true });
-      return false;
-    }
-    renameSync(tempFinal, outPath);
-    const newKey: ChunksCacheKey = {
-      fps: props.fps,
-      totalFrames,
-      boundaries,
-      globalKey: newGlobalKey,
-      chunkVideoKeys: newChunkKeys,
-      audioKey: newAudioKey,
-    };
-    writeFileSync(keyPath, JSON.stringify(newKey, null, 2));
-    console.log(
-      changedIndices.length === 0
-        ? "チャンク差分レンダー: 変更チャンクなし(再連結のみ)"
-        : `チャンク差分レンダー: ${changedIndices.length}/${chunkCount} チャンクを再レンダー`,
-    );
-    return { changedChunks: changedIndices.length, chunkCount };
-  } finally {
-    rmSync(assembledVideo, { force: true });
-    rmSync(tempFinal, { force: true });
-  }
-}
-
-/**
- * フルレンダー直後、final.mp4 をチャンク差分レンダーのキャッシュとして
- * 種付けする(§4-3)。carve・音声抽出はいずれも `-c copy` で軽い。
- */
-async function seedChunkCache(args: {
-  dir: string;
-  props: RenderProps;
-  cutStat: FileStat;
-  outPath: string;
-  chunkSec: number;
-  verifiedKeyframeFrames?: readonly number[];
-}): Promise<void> {
-  const { dir, props, cutStat, outPath, chunkSec } = args;
-  const { chunksDir, keyPath, audioPath } = chunkPaths(dir);
-  rmSync(chunksDir, { recursive: true, force: true });
-  mkdirSync(chunksDir, { recursive: true });
-
-  const totalFrames = compositionDurationInFrames(props.durationSec, props.fps);
-  const keyframeFrames = args.verifiedKeyframeFrames !== undefined
-    ? [...args.verifiedKeyframeFrames]
-    : await timed("チャンクcache keyframe probe", () => probeKeyframes(outPath));
-  const boundaries = carveBoundaries(keyframeFrames, totalFrames, chunkSec, props.fps);
-  await timed("チャンクcache carve", () => carveFinalToChunks(outPath, boundaries, chunksDir));
-  await timed("チャンクcache audio抽出", () => extractAudio(outPath, audioPath));
-
-  const key = timedSync("チャンクcache key計算", (): ChunksCacheKey => {
-    const materialStats = materialStatsOf(dir, props);
-    const chunkVideoKeys = boundaries
-      .slice(0, -1)
-      .map((from, i) => chunkVideoKey(props, from, boundaries[i + 1], cutStat, props.fps));
-    return {
-      fps: props.fps,
-      totalFrames,
-      boundaries,
-      globalKey: globalVideoKey(props, cutStat),
-      chunkVideoKeys,
-      audioKey: buildAudioKey(props, cutStat, materialStats),
-    };
-  });
-  timedSync("チャンクcache key書込", () =>
-    writeFileSync(keyPath, JSON.stringify(key, null, 2)),
-  );
 }
 
 /** 収録フォルダ内の BGM ファイルを探す(render とエディタで共通の規約) */

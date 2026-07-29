@@ -63,11 +63,11 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
   `cut.mp4` / `cut.keeps.json`(cut.mp4 の再利用可否を判定するキャッシュキー。
   削除すれば常にフル再生成に戻る) / `render.key.json`(final.mp4 の再利用
   可否を判定するキャッシュキー。render.props.json・cut.mp4・参照素材ファイル・
-  hardwareAcceleration 設定が前回と同じなら Remotion 実行を丸ごと省略する。
+  hardwareAcceleration 設定が前回と同じなら engine render を丸ごと省略する。
   削除すれば常にフル再生成に戻る) /
   `render.report.json`(直近の本編 `render()` の構造化サマリ。採用経路
-  `full-skip`/`chunk-diff`/`fast`/`full-remotion` + フォールバック理由・
-  段階ごとの所要時間と成否・キャッシュヒット・変更チャンク数・FAST 被覆率・
+  `full-skip`/`engine` + フォールバック理由・
+  段階ごとの所要時間と成否・キャッシュヒット・
   実効 concurrency・入力スナップショットの sha256・出力プローブ・
   ok/failed を記録する。純ローカルの副産物で外部送信しない。ショートは
   対象外=将来対応) / `preview.mp4` / `proxy.mp4` /
@@ -85,33 +85,17 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
   `frames/.serve.json`(`frames-serve <dir>`(常駐フレームサーバ。opt-in)が
   起動中だけ書く `{port, pid}`。`frames` はこれを検出したらデーモンへ委譲し、
   無ければ従来どおりの単発実行。デーモン終了(Ctrl+C)で自動的に消える) /
-  `render.chunks/`(チャンク差分レンダーのキャッシュ。`vNNN.mp4`=チャンク
-  映像・`audio.m4a`=直前フルレンダーの連続音声・`chunks.key.json`=再利用可否を
-  判定するキー。config.yaml の `render.chunkSec` > 0 のときだけ使う。映像に
-  効く要素だけを変えた再実行で変更チャンクだけ再レンダーする。音声・keeps・
-  全域設定の変更時は自動でフルレンダーに戻る。ディレクトリごと削除すれば
-  常にフル再生成に戻る) /
   `render.design/`(`config.yaml` の `render.design.backgroundFile` に収録フォルダ外の
-  絶対パスを書いたとき、Remotion が読める publicDir(=収録フォルダ)配下へ
+  絶対パスを書いたとき、書き出しページが読める publicDir(=収録フォルダ)配下へ
   取り込まれた背景画像のコピー。元ファイルからいつでも再取得されるので消してよい。
   `materials/`(人間の素材置き場)には置かない=背景は overlays から参照されないため
   `materials` コマンドに永久に「未使用素材」として計上されてしまう) /
-  `render.fast/`(render 高速パスのキャッシュ。`captions/<key>.png`=テロップ
-  透過 PNG(内容+解決済みスタイル+位置+出力解像度のハッシュがキー)。
-  `overlays/<key>.png`=素材オーバーレイのレイヤー画(**フェード・不透明度を
-  剥がした時間不変な1枚**。キーは素材パス+mtime/size+fit+rect+出力解像度)。
-  `annotations/<key>.png`=注釈グラフィック(矢印/囲み/スポットライト)の
-  レイヤー画(**keyframes を持たない静的なものだけ**。時間変化する
-  annotation は SLOW(Remotion 経由)のまま。キーは解決済み annotation の
-  全フィールド+出力解像度のハッシュ)。
-  差分更新型でディレクトリごと削除すれば常にフル再生成に戻る) /
   `cut.<name>.mp4`(ショート `<name>` 専用の keep 集合
   (`shorts.json` の `ranges`)をフル解像度で結合したもの) /
   `cut.<name>.keeps.json`(cut.<name>.mp4 の再利用可否を判定するキャッシュキー。
   仕組みは cut.keeps.json と同じ) / `render.<name>.props.json` /
   `render.<name>.key.json`(shorts/<name>.mp4 の再利用可否を判定するキャッシュ
-  キー。仕組みは render.key.json と同じ。ショートにはチャンク差分レンダーは
-  無い=常に full-skip か フルレンダーのどちらか) / `shorts/`(`render --short` /
+  キー。仕組みは render.key.json と同じ) / `shorts/`(`render --short` /
   `--shorts` の出力先。`shorts/<name>.mp4`) /
   `hyperframe.<name>.key.json`(HyperFrames カード `hyperframes/<name>.html` の
   再利用可否を判定するキャッシュキー。仕組みは render.key.json と同じ
@@ -134,7 +118,7 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
   画面 OCR。box は素材自身のピクセル座標=本編 screenRegion 出力px とは別
   座標系)・`<slug>.transcribe.json`(`--transcribe`。音声付き素材の文字
   起こし)。`frames/` と違い実行のたびの全消しはされない差分更新型の
-  キャッシュ(`render.chunks/` と同じ位置づけ)。`materials/`(人間の素材
+  キャッシュ。`materials/`(人間の素材
   置き場)とは別名の生成ディレクトリなので混同しないこと) /
   `av.probe/`(`av <dir>` が書く A/V 知覚の集約+キャッシュ。
   `motion.json` / `sound.json` / `motion.strip.png`。`materials.probe/` と
@@ -255,7 +239,6 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
       "Write(**/*.key.json)",
       "Write(**/cut*.mp4)",
       "Write(**/frames/**)",
-      "Write(**/render.chunks/**)",
       "Write(**/shorts/**)",
       "Write(**/materials.probe/**)",
       "Write(**/av.probe/**)"

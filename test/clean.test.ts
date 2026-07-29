@@ -25,7 +25,6 @@ function makeFixture(): string {
   // generated 固定名(消えるべき)
   put("manifest.json"); put("cuts.auto.json"); put("whisper-out.json"); put("whisper-out.srt");
   put("proxy.mp4"); put("proxy.key.json"); put("cut.mp4"); put("cut.keeps.json");
-  put("preview-cut.mp4"); put("preview-cut.key.json");
   put("render.props.json"); put("render.key.json"); put("preview.mp4");
   put("effect-check.json"); put("style-check.json");
   // generated ログ・使い捨て下書き(logs-only 対象)
@@ -42,11 +41,9 @@ function makeFixture(): string {
   put("render.highlight-1.props.json"); put("render.highlight-1.key.json");
   // generated ディレクトリ(配下丸ごと消える)
   put("frames/out10s.png"); put("frames/props.json");
-  put("render.chunks/v001.mp4"); put("render.chunks/chunks.key.json");
   put("shorts/highlight-1.mp4");
   put("materials.probe/index.json"); put("av.probe/motion.json"); put("review.probe/index.json");
   put("hyperframe.probe/intro/index.json");
-  put("render.fast/captions/ab12cd34.png");
   // Remotion が収録フォルダへ落とす headless Chrome(再取得可能・約200MB)
   put(".remotion/chrome-headless-shell/chrome-headless-shell");
   // generated だが「重いキャッシュ」ではない使い捨て DRAFT ディレクトリ(logs-only 対象)
@@ -64,9 +61,8 @@ test("planClean: 選ぶのは全て generated、editable/approval/other は1件�
     }
     const picked = new Set(plan.targets.map((t) => t.relPath));
     // 消えるべき代表が入っている
-    for (const g of ["cuts.auto.json", "proxy.mp4", "preview-cut.mp4",
-      "preview-cut.key.json", "cut.mp4",
-      "cut.highlight-1.mp4", "frames", "render.chunks", "render.fast", "shorts", "materials.probe",
+    for (const g of ["cuts.auto.json", "proxy.mp4", "cut.mp4",
+      "cut.highlight-1.mp4", "frames", "shorts", "materials.probe",
       "av.probe", "review.probe", "hyperframe.probe", "hyperframe-freeze.suggested",
       "whisper-out.json", "preview.mp4", "plan.first.json", "plan-effects.first.json"]) {
       assert.ok(picked.has(g), `${g} が削除対象に無い`);
@@ -97,9 +93,8 @@ test("executeClean: generated だけ消え、editable/approval/other/素材は�
       assert.ok(existsSync(join(dir, keep)), `${keep} が消えた`);
     }
     // 消えるべき
-    for (const gone of ["proxy.mp4", "preview-cut.mp4", "preview-cut.key.json",
-      "cut.mp4", "cut.highlight-1.mp4",
-      "frames", "render.chunks", "render.fast", "shorts", "materials.probe", "av.probe", "review.probe",
+    for (const gone of ["proxy.mp4", "cut.mp4", "cut.highlight-1.mp4",
+      "frames", "shorts", "materials.probe", "av.probe", "review.probe",
       "hyperframe.probe", "hyperframe-freeze.suggested", "whisper-out.json", "preview.mp4",
       "effect-check.json", "plan.first.json", "plan-effects.first.json", ".remotion"]) {
       assert.ok(!existsSync(join(dir, gone)), `${gone} が残っている`);
@@ -113,10 +108,10 @@ test("planClean --cache-only: 重いキャッシュだけ選び、軽い中間�
   const dir = makeFixture();
   try {
     const picked = new Set(planClean(dir, { cacheOnly: true }).targets.map((t) => t.relPath));
-    for (const cache of ["proxy.mp4", "proxy.key.json", "preview-cut.mp4", "preview-cut.key.json",
+    for (const cache of ["proxy.mp4", "proxy.key.json",
       "cut.mp4", "cut.keeps.json",
       "preview.mp4", "render.props.json", "render.key.json", "cut.highlight-1.mp4",
-      "render.highlight-1.props.json", "frames", "render.chunks", "render.fast", "shorts",
+      "render.highlight-1.props.json", "frames", "shorts",
       "materials.probe", "av.probe", "review.probe", "hyperframe.probe", ".remotion"]) {
       assert.ok(picked.has(cache), `${cache} が cache-only 対象に無い`);
     }
@@ -142,9 +137,9 @@ test("planClean --logs-only: ログ・下書き・検品結果だけ選び、レ
       assert.ok(picked.has(log), `${log} が logs-only 対象に無い`);
     }
     // 残すべき: リレンダー最適化・proxy・高価な再生成物・成果物・必須入力
-    for (const keep of ["preview-cut.mp4", "preview-cut.key.json", "cut.mp4", "cut.keeps.json",
+    for (const keep of ["cut.mp4", "cut.keeps.json",
       "render.props.json", "render.key.json",
-      "render.chunks", "render.fast", "cut.highlight-1.mp4", "render.highlight-1.key.json",
+      "cut.highlight-1.mp4", "render.highlight-1.key.json",
       "proxy.mp4", "proxy.key.json", "whisper-out.json", "whisper-out.srt",
       "transcript.system.json", "manifest.json", "shorts", "materials.probe", "av.probe",
       "hyperframe.probe", "plan.first.json", "plan-effects.first.json", ".remotion"]) {

@@ -132,7 +132,7 @@ keep 集合の sha256 ハッシュに束縛され、`render` の唯一のゲー�
 render は ffmpeg cut を省略する。削除すれば常にフル再生成に戻る) /
 `render.key.json`(final.mp4 の再利用可否を判定するキャッシュキー。
 render.props.json の内容・cut.mp4・参照素材ファイル(overlays / inserts /
-bgm)・hardwareAcceleration 設定が前回と同じなら render は Remotion 実行を
+bgm)・hardwareAcceleration 設定が前回と同じなら render は engine 書き出しを
 丸ごと省略する。削除すれば常にフル再生成に戻る) /
 `render.report.json`(直近の本編 render の構造化サマリを記録する使い捨て
 ログ。レンダーの副産物で編集対象ではない) / `proxy.key.json`
@@ -140,16 +140,10 @@ bgm)・hardwareAcceleration 設定が前回と同じなら render は Remotion �
 システム音声(systemAudio)・ノイズ除去(denoise)・プレビュー幅・エンコーダ・
 オールイントラ設定(`preview.proxyIntra`。既定 true=GOP1の全フレーム I。
 false で従来の短 GOP に戻る)・元収録ファイルが前回の生成と同じなら陳腐化
-なしと判定する。無ければ常に「陳腐化なし」扱いになる) / `render.chunks/`(チャンク差分レンダーのキャッシュ。
-config.yaml の `render.chunkSec` > 0 のときだけ使う。`vNNN.mp4` =
-チャンク映像・`audio.m4a` = 直前フルレンダーの連続音声・`chunks.key.json` =
-再利用可否を判定するキー。映像に効く要素(テロップ・位置・ワイプ等)だけを
-変えた再実行で変更チャンクだけを再レンダーして連結する。音声・keeps・
-全域設定(layerOrder 等)の変更時は自動でフルレンダーに戻る。ディレクトリ
-ごと削除すれば常にフル再生成に戻る) / `cut.<name>.mp4` / `cut.<name>.keeps.json` /
+なしと判定する。無ければ常に「陳腐化なし」扱いになる) / `cut.<name>.mp4` / `cut.<name>.keeps.json` /
 `render.<name>.props.json` / `render.<name>.key.json`(いずれもショート
-`<name>` 専用の中間生成物。仕組みは無印の同名ファイルと同じで、チャンク
-差分レンダーだけは無い。詳細は下記「ショート動画」参照) / `rules.suggested.md`
+`<name>` 専用の中間生成物。仕組みは無印の同名ファイルと同じ。詳細は下記
+「ショート動画」参照) / `rules.suggested.md`
 (`learn` が書く下書き。使い捨てで、次回の `learn` 実行で黙って上書きされる。
 採用したい項目は人間が手で `rules.md` に転記する。詳細は下記「チャンネル
 rules と learn」参照) / `av.probe/`(`av <dir>` の差分更新型キャッシュ。
@@ -571,38 +565,29 @@ plan:
 止まるのは `run` の自動挿入だけ)。`autozoom <dir>` コマンド単体はこの
 フラグを無視して常に実行する(明示操作を優先)。
 
-## エディタのプレビュー描画エンジン(config.yaml の preview.engine)
+## エディタのプレビュー描画エンジン
 
-`preview.engine`(既定 `"canvas"`)は GUI エディタ(`npm run editor`)の
-プレビュー描画をどちらの経路にするか選ぶ。`"canvas"` は WebCodecs デコード+
-自前 WGSL コンポジタ(M3b 統合)で、カット境界を跨ぐ連結ファイル(bake)を
-作らず `proxy.mp4` を直接シークして描く。`"legacy"` にすると従来の
-Remotion Player + bake 経路(`usePreviewCutRebake`)に戻る。書き出し
-(`preview` / `render` コマンドの `preview.mp4` / `final.mp4`)には一切
-影響しない(エディタのプレビュー表示だけが対象)。
+GUI エディタ(`npm run editor`)のプレビューは WebCodecs デコード + 自前
+WGSL コンポジタで描く。カット境界を跨ぐ連結ファイル(bake)は作らず、
+`proxy.mp4` を直接シークして描く。書き出し(`preview` / `render` コマンドの
+`preview.mp4` / `final.mp4`)には一切影響しない(エディタのプレビュー表示だけが対象)。
 
 自前 WGSL コンポジタは **WebGPU 専用**(WebGL2 フォールバックは無い)ため、
-`"canvas"` を指定していてもブラウザが `navigator.gpu` を持たない、または
-GPU 初期化に失敗したときはエディタが実行時に自動で `"legacy"` へフォール
-バックし、プレビュー上部にその旨のバナーを出す。Safari など WebGPU 非対応
-環境はこれで自動的に従来経路のまま使える。
+ブラウザが `navigator.gpu` を持たない、または GPU 初期化に失敗したときは
+プレビュー上部にその旨のバナーを出す。
 
 ## 書き出しの合成エンジン(config.yaml の render.engineExport)
 
-`render.engineExport`(既定 `true`)は `render` / `frames` / `thumbnail` の
-**3コマンド**に共通で効く、書き出し側の合成エンジン切り替え。`preview.engine`
-がエディタのプレビュー表示だけを対象にするのに対し、こちらは実際に
-`final.mp4` / `frames/*.png` / `thumbnail.png` を作る側。
+`render.engineExport`(既定 `true`)は `frames` / `thumbnail` の
+Remotion フォールバックを残すための検証用切り替え。`render` は engine 経路で
+`final.mp4` を作る。
 
-既定 `true` では新エンジン(WebGPU compositor + CDP capture + ffmpeg)を
-まず試す。エンジン経路が失敗したとき(GPU 初期化失敗・実装欠陥等)は
-警告を出して自動的に従来の Remotion 経路へフォールバックするため、
-既定のままで安全に使える。`false` にすると常に Remotion 経路に固定される
-(新旧比較検証用。フォールバックの有無を切り分けたいときに使う)。
+既定 `true` では新エンジン(WebGPU compositor + CDP capture + ffmpeg)を使う。
+`false` は `frames` / `thumbnail` の新旧比較検証用。
 
 ```yaml
 render:
-  engineExport: false   # 常に Remotion 経路を使う(検証用)
+  engineExport: false   # frames / thumbnail を Remotion 経路に固定する(検証用)
 ```
 
 ## 環境プリフライト(doctor)

@@ -62,7 +62,7 @@ test("AGENTS_CONTRACT.md: Claude固有語(claude -p / Claude Code)を持ち込�
 test("AGENTS_CONTRACT.md: render.design cacheはplain/obs共通でcameraRegionに依存しない", () => {
   const section = AGENTS_MD.slice(
     AGENTS_MD.indexOf("- `render.design/`"),
-    AGENTS_MD.indexOf("- `render.fast/`"),
+    AGENTS_MD.indexOf("- `review.probe/`"),
   );
   assert.match(section, /plain and obs-canvas recordings/);
   assert.doesNotMatch(section, /cameraRegion/);

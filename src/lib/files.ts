@@ -45,8 +45,6 @@ export const GENERATED_FILES = [
   "render.key.json",
   "render.report.json",
   "preview.mp4",
-  "preview-cut.mp4",
-  "preview-cut.key.json",
   "proxy.mp4",
   "proxy.key.json",
   "material-fit.suggested.json",
@@ -75,15 +73,11 @@ const GENERATED_NAME_PATTERNS: readonly RegExp[] = [
 
 /** 中間生成物のディレクトリ(配下は丸ごと中間生成物扱い): frames/(PNG・
  * props.json・OCR サイドカー。frames 実行のたびに全消しされる)・
- * render.chunks/(チャンク差分レンダーのキャッシュ)・
  * render.design/(plain / obs-canvas 共通で、config.yaml の
  * render.design.backgroundFile が収録フォルダ外の絶対パスまたはrepo同梱素材の
- * とき、Remotion が読める publicDir 配下へ取り込んだ背景画像のコピー。
+ * とき、書き出しページが読める publicDir 配下へ取り込んだ背景画像のコピー。
  * 元ファイルからいつでも再取得できるので generated。materials/ に置くと
  * `materials` コマンドに「未使用素材」として計上されてしまうため別ディレクトリ)・
- * render.fast/(render 高速パスのキャッシュ。captions/<key>.png=テロップ
- * 透過 PNG、overlays/<key>.png=素材オーバーレイのレイヤー画。差分更新型で
- * ディレクトリごと削除すればフル再生成に戻る)・
  * shorts/(render --short /
  * --shorts の出力先。final.mp4 相当の成果物だが CLAUDE.md は同じ
  * 「触らない」節で扱っているためここに含める)・materials.probe/(`materials
@@ -107,9 +101,7 @@ const GENERATED_NAME_PATTERNS: readonly RegExp[] = [
  * false(--cache-only では残す)、`--logs-only` では掃除する) */
 const GENERATED_DIRS: readonly string[] = [
   "frames",
-  "render.chunks",
   "render.design",
-  "render.fast",
   "shorts",
   "materials.probe",
   "av.probe",
@@ -161,8 +153,6 @@ export const GENERATED_CACHE_FILES = [
   "cut.mp4",
   "cut.keeps.json",
   "preview.mp4",
-  "preview-cut.mp4",
-  "preview-cut.key.json",
   "proxy.mp4",
   "proxy.key.json",
   "render.key.json",
@@ -171,7 +161,7 @@ export const GENERATED_CACHE_FILES = [
 
 /** relPath が「再生成が重いキャッシュ」かどうか(--cache-only の対象判定)。
  * 前提として generated であること(generated 以外は常に false=belt)。判定:
- * 1) generated ディレクトリ配下(frames/ render.chunks/ shorts/ *.probe/)は全て cache
+ * 1) generated ディレクトリ配下(frames/ shorts/ *.probe/)は全て cache
  * 2) ショート名可変の描画キャッシュ(cut.<name>.mp4 / .keeps.json / render.<name>.{props,key}.json)は cache
  * 3) 固定名は GENERATED_CACHE_FILES に載るものだけ cache */
 export function isGeneratedCache(relPath: string): boolean {
@@ -210,7 +200,7 @@ export const GENERATED_LOG_FILES = [
 /** --logs-only が消す generated ディレクトリ(配下丸ごと)。frames/ は撮影のたびに
  * 全消し・再撮影される自己確認 still なのでログ同然。hyperframe-freeze.suggested/
  * は使い捨ての DRAFT(重いキャッシュではない)なのでログ同然。他の *.probe/ や
- * render.chunks/ 等は残す(高価キャッシュ or リレンダー最適化)。 */
+ * 描画キャッシュ等は残す(高価キャッシュ or リレンダー最適化)。 */
 const GENERATED_LOG_DIRS: readonly string[] = ["frames", "hyperframe-freeze.suggested"];
 
 /** relPath が「ログ・使い捨て下書き」かどうか(--logs-only の対象判定)。

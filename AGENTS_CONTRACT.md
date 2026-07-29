@@ -85,14 +85,12 @@ false staleness signals or gets silently discarded:
   `whisper-out.json`, `whisper-out.srt`, `transcript.system.json`,
   `whisper-system-out.json`, `cut.mp4`, `cut.keeps.json`,
   `render.key.json`, `render.report.json` (the machine-readable summary of
-  the last `render()` attempt: chosen path — `full-skip` / `chunk-diff` /
-  `fast` / `full-remotion` — plus fallback reason, per-stage timings and
-  success/failure, cache hits, changed-chunk count, FAST coverage ratio,
+  the last `render()` attempt: chosen path — `full-skip` / `engine` — plus
+  fallback reason, per-stage timings and success/failure, cache hits,
   effective concurrency, an input-snapshot hash, an output probe, and an
   overall ok/failed status; a pure local side artifact that is never
   transmitted anywhere; covers the main render only — shorts are future
-  work), `preview.mp4`, `preview-cut.mp4`, `preview-cut.key.json`, `proxy.mp4`,
-  `proxy.key.json`,
+  work), `preview.mp4`, `proxy.mp4`, `proxy.key.json`,
   `material-fit.suggested.json` (a disposable draft written by
   `material-fit`; an `apply`-compatible patch of `set`/`remove` ops for
   material duration-fit and dangling-reference fixes — apply it yourself
@@ -148,11 +146,10 @@ false staleness signals or gets silently discarded:
   content, not overwritten by any other command's re-run), and
   `materials/hyperframes/<name>.mp4` is a product on par with `final.mp4`
 - Generated directories (entirely regenerated on each run):
-  `frames/`, `render.chunks/`, `shorts/`
+  `frames/`, `shorts/`
 - `materials.probe/` — a **cache-style** generated directory (unlike the
-  ones above, it is *not* wiped on every run; it's a differential cache like
-  `render.chunks/`, and deleting the whole directory forces a full
-  regeneration). Written by `materials <dir>` (`index.json` plus per-material
+  ones above, it is *not* wiped on every run; deleting the whole directory
+  forces a full regeneration). Written by `materials <dir>` (`index.json` plus per-material
   `<slug>.png`/`<slug>.ocr.json`/`<slug>.transcribe.json` sidecars). Distinct
   from `materials/` itself (the human's asset folder, which stays `"other"`)
 - `av.probe/` — a **cache-style** generated directory written by `av <dir>`
@@ -160,22 +157,13 @@ false staleness signals or gets silently discarded:
   run; deleting the whole directory forces a full regeneration
 - `render.design/` — a cache-style generated directory holding the base-layout
   design background (`config.yaml` `render.design.backgroundFile`) copied into
-  the recording folder, which is the Remotion `publicDir`. Written for both
+  the recording folder, which is served as the local `publicDir`. Written for both
   plain and obs-canvas recordings when the design is enabled and the configured
   path points outside the recording folder (repo-bundled `assets/backgrounds/…`
   or an absolute path).
   Re-fetched from the source file on the next run, so deleting it is always safe.
   Kept out of `materials/` on purpose: the background is never referenced from
   `overlays.json`, so it would be reported as an unused asset forever
-- `render.fast/` — a cache-style generated directory written by the render
-  fast path: `captions/<key>.png` (per-caption transparent PNGs, content-hashed
-  by text + resolved style + position + output resolution); `overlays/<key>.png`
-  (per-overlay transparent layer PNGs with fade/opacity stripped, content-hashed
-  by file path + mtime/size + fit + rect + output resolution);
-  `annotations/<key>.png` (per-annotation transparent layer PNGs for
-  static annotations, content-hashed by the resolved annotation fields +
-  output resolution). Differential cache
-  (not wiped each run); deleting the whole directory forces full regeneration.
 - `review.probe/` — a **replace-on-run** generated directory written by
   `review <dir>` (`index.json`, `before/`, `after/`, `ocr/`). It is wiped and
   rebuilt on each review run
@@ -416,7 +404,7 @@ without `--force`; with `--force`, hand-edited files are moved to
 | `approve <dir>` | Approve the cutplan (or `--short <name>`) into `approvals.json` (interactive; requires `--yes` non-interactively) |
 | `unapprove <dir>` | Revoke an approval record |
 | `render <dir>` | Final render; requires a valid approval record (`--short <name>` / `--shorts` for short-form outputs) |
-| `clean <dir>` | Delete a recording folder's generated intermediates/caches. Classification derives solely from `src/lib/files.ts` (`GENERATED_FILES` / `fileRole`): only top-level entries whose role is `generated` are removed. **`manifest.json` is never deleted by `clean`** even in full mode — it is irrecoverable from the recording folder contents alone (re-running `ingest` without `--layout` loses `screenRegion`/`cameraRegion`). Never touches editable files, `approvals.json`, the human `materials/` folder, the raw recording named by `manifest.source`, or products (`final.mp4`/`thumbnail.png`) — but it does remove that recording's automatic remux duplicate (the stream-copied `.mp4` OBS leaves beside the `.mkv`) after verifying content identity with ffprobe at runtime (conditions in §4; excluded under `--logs-only`; skipped entirely when ffprobe is unavailable). `--dry-run` lists without deleting; `--cache-only` removes only heavy re-derivable caches (`proxy.mp4`/`preview-cut.*`/`cut*.mp4`/`render.chunks/`/`frames/`/`shorts/`/`*.probe/`/`.remotion/`) and keeps small/expensive-to-regenerate intermediates (`cuts.auto.json`/`whisper-out.*`); `--logs-only` removes only logs, disposable drafts, and inspection results (`*.raw.txt`/`plan.loop.json`/`cuts.auto.json`/`*-fit.suggested.json`/`effect-check.json`/`bgm-fit.json`/`style-check.json`/`preview.mp4`/`frames/`) and keeps re-render optimization caches (`preview-cut.*`/`cut*.mp4`/`render.*`), `proxy.*`, expensive perceptions (`whisper-out.*`/`transcript.system.json`/`*.probe/`), `manifest.json`, and products (`shorts/`) — mutually exclusive with `--cache-only`; `--json` emits the machine-readable plan (idempotent; always exit 0) |
+| `clean <dir>` | Delete a recording folder's generated intermediates/caches. Classification derives solely from `src/lib/files.ts` (`GENERATED_FILES` / `fileRole`): only top-level entries whose role is `generated` are removed. **`manifest.json` is never deleted by `clean`** even in full mode — it is irrecoverable from the recording folder contents alone (re-running `ingest` without `--layout` loses `screenRegion`/`cameraRegion`). Never touches editable files, `approvals.json`, the human `materials/` folder, the raw recording named by `manifest.source`, or products (`final.mp4`/`thumbnail.png`) — but it does remove that recording's automatic remux duplicate (the stream-copied `.mp4` OBS leaves beside the `.mkv`) after verifying content identity with ffprobe at runtime (conditions in §4; excluded under `--logs-only`; skipped entirely when ffprobe is unavailable). `--dry-run` lists without deleting; `--cache-only` removes only heavy re-derivable caches (`proxy.mp4`/`cut*.mp4`/`frames/`/`shorts/`/`*.probe/`/`.remotion/`) and keeps small/expensive-to-regenerate intermediates (`cuts.auto.json`/`whisper-out.*`); `--logs-only` removes only logs, disposable drafts, and inspection results (`*.raw.txt`/`plan.loop.json`/`cuts.auto.json`/`*-fit.suggested.json`/`effect-check.json`/`bgm-fit.json`/`style-check.json`/`preview.mp4`/`frames/`) and keeps re-render optimization caches (`cut*.mp4`/`render.*`), `proxy.*`, expensive perceptions (`whisper-out.*`/`transcript.system.json`/`*.probe/`), `manifest.json`, and products (`shorts/`) — mutually exclusive with `--cache-only`; `--json` emits the machine-readable plan (idempotent; always exit 0) |
 | `editor <dir>` | Launch the GUI editor |
 | `mcp <dir>` | Launch a Model Context Protocol server over stdio, bound to this one recording folder (§11) |
 | `run <dir>` | First-time bulk pipeline: ingest → transcribe → detect → plan → id-stamp, then non-destructively invokes `autozoom`'s logic if fresh (§9: do not re-run casually) |

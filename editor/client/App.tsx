@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent, Ref } from "react";
+import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { LayoutChangedMeta, PanelImperativeHandle } from "react-resizable-panels";
-import { Player } from "@remotion/player";
-import type { CallbackListener, PlayerRef } from "@remotion/player";
+import type { CallbackListener } from "@remotion/player";
 import { EnginePreview } from "./EnginePreview.tsx";
 import type { PreviewHandle } from "./EnginePreview.tsx";
-import { Main } from "../../remotion/Main.tsx";
 import { designForPlayer } from "./designAssets.ts";
 import { mountMetricsHud, startMetricsHarness } from "./metrics.ts";
 import type { MetricsHandle } from "./metrics.ts";
@@ -80,7 +78,6 @@ import type {
   AiSelectionContext,
   DraftData,
   HyperframeCard,
-  PreviewCutResponse,
   ProjectData,
   SaveRequest,
   ScriptData,
@@ -94,7 +91,6 @@ import {
 } from "../../src/lib/hyperframeAuthor.ts";
 import { buildReviewEvents, warningSummary } from "../../src/lib/reviewEvents.ts";
 import { diffPreviewRange } from "../../src/lib/review.ts";
-import { previewCutKeepSignature } from "../../src/lib/previewCutSignature.ts";
 import { AiCommand } from "./AiCommand.tsx";
 // F1: AiVisualReview はモーダルを出さなくなったので参照しない
 import { ArrowOverlay } from "./ArrowOverlay.tsx";
@@ -120,11 +116,6 @@ import { SettingsModal, buildConfigPatch, patchTouchesProxy } from "./SettingsMo
 import type { AiSettingsValue, CfgValues } from "./SettingsModal.tsx";
 import { Timeline } from "./Timeline.tsx";
 import { playhead, usePlayheadSelector } from "./playhead.ts";
-import { previewBaseVideoMountKey, previewBaseVideoOf } from "./previewCut.ts";
-import {
-  usePreviewCutRebake,
-  type PreviewCutRebakeState,
-} from "./previewCutRebake.ts";
 import { useToasts } from "./toasts.tsx";
 import { TOAST_TTL_MS } from "./toastAdapter.ts";
 import { Button } from "./components/ui/button.tsx";
@@ -236,7 +227,6 @@ import {
   postAiRefine,
   postAiReview,
   postPreview,
-  postPreviewCut,
   postProxy,
   postRender,
   postHyperframeRender,
@@ -558,11 +548,9 @@ function applySaveHashes(
  * CutFlow エディタ本体。動画編集ソフトの標準レイアウト:
  * 上=タブパネル(左: 素材/テロップ)+プレビュー(中央)+インスペクタ(右)、
  * 中=トランスポート、下=タイムライン。上部の左右比は分割バーで変えられる。
- * プレビューは最終レンダーと同じコンポジション(remotion/Main.tsx)を
- * @remotion/player で再生する。本編は現在の keep と一致する連続ベイクが
- * あれば preview-cut.mp4 を使い、無ければ元収録の軽量 proxy.mp4 を keep
- * 区間ごとに飛び飛び再生する。後者に即座に戻れるため境界編集中も反映を
- * 待たない。ショートは常に proxy.mp4 の source-domain 経路を使う。
+ * プレビューはエンジンコンポジタ(EnginePreview)で proxy.mp4 を元収録時刻へ
+ * 直接シークして描画する。正のデータは cutplan / overlays / transcript の
+ * 各 JSON(元収録の秒)。
  * 正のデータは cutplan / overlays / transcript の各 JSON(元収録の秒)。
  */
 export const App = () => {
@@ -602,16 +590,9 @@ export const App = () => {
   /** ループ再生(プレビューのみ。末尾まで行ったら先頭へ戻る) */
   const [loop, setLoop] = useState(false);
   const [videoVersion, setVideoVersion] = useState(0);
-  /** canvas プレビュー(preview.engine)が実行時に WebGPU 非対応/初期化失敗で
-   * legacy(Player)へ自動フォールバックした理由。null なら未フォールバック
-   * (M3b §2-2)。一度フォールバックしたらこのセッション中は戻さない
-   * (videoVersion remount のたびに EnginePreview を再試行させない) */
-  const [engineFallback, setEngineFallback] = useState<string | null>(null);
-  /** config.yaml の preview.engine(既定 canvas)。usePreviewCutRebake の
-   * enabled 判定・built props memo の videoFile 選択の両方より前に要る
-   * ため proj 読み込み直後に置く(M3b T3-2) */
-  const engineMode = proj?.previewCfg.engine ?? "canvas";
-  const engineActive = engineMode === "canvas" && !engineFallback;
+  /** EnginePreview の初期化/描画失敗理由。旧 Remotion Player へは落とさず、
+   * バナーで明示する。 */
+  const [engineFailure, setEngineFailure] = useState<string | null>(null);
   // 再生ヘッドの現在位置は React state ではなく playhead ストアが持つ
   // (毎フレームの setState は UI 全体の再レンダー = 再生の乱れになる)
   /** プレビューの音量(%)。書き出しには影響しない。ベースの音量自体は
@@ -641,9 +622,7 @@ export const App = () => {
   const [peaksMap, setPeaksMap] = useState<Record<string, Peaks | null>>({});
   /** 取得済み(進行中含む)のピークのキー。二重リクエストを避ける */
   const peaksRequestedRef = useRef(new Set<string>());
-  // Player(legacy)/EnginePreview(canvas)どちらの ref も同じ形で受ける
-  // (PreviewHandle は PlayerRef から実際に使うメソッドだけを Pick した型。
-  // M3b §2-1)。呼び出し側(このファイルの下の方)は無改造のまま動く
+  // EnginePreview が公開する再生操作 API。呼び出し側はこの小さな表面だけを使う。
   const playerRef = useRef<PreviewHandle>(null);
   /** プレビューの表示倍率(プレビューのみ。書き出し・合成には影響しない) */
   const [previewZoom, setPreviewZoom] = useState<"fit" | number>("fit");
@@ -707,8 +686,7 @@ export const App = () => {
   const [fullscreen, setFullscreen] = useState(false);
   const viewerColRef = useRef<HTMLDivElement>(null);
 
-  /** プレビュー(proxy.mp4)の体感計測(M1)。既存の Player/<video> 挙動には
-   *  触れない観測専用ハーネスで、HUD は URL に ?metrics=1 のときだけ出す */
+  /** プレビュー(proxy.mp4)の体感計測(M1)。HUD は URL に ?metrics=1 のときだけ出す */
   const metricsRef = useRef<MetricsHandle | null>(null);
   useEffect(() => {
     const handle = startMetricsHarness(document.body);
@@ -794,8 +772,6 @@ export const App = () => {
   const [proxyStale, setProxyStale] = useState(false);
   /** 「後で」でバナーだけ閉じても stale という生成ゲートの事実は保持する。 */
   const [proxyStaleDismissed, setProxyStaleDismissed] = useState(false);
-  /** proxy 再生成ごとに進め、同じ keep でも preview-cut を必ず作り直す。 */
-  const [previewCutSourceVersion, setPreviewCutSourceVersion] = useState(0);
   /** 動画素材ごとの codec 由来のブラウザ表示可否(非表示のものだけの疎な map)。
    * GET /api/media-facts から非同期に届く(loadProject は sync なので
    * /api/project には含まれない)。既定 {} = 全素材表示可能扱い(degrade)。
@@ -1408,58 +1384,6 @@ export const App = () => {
     [shortMode, tracks],
   );
 
-  const currentPreviewKeepSignature = useMemo(
-    () => (cutplan ? previewCutKeepSignature(cutplan) : ""),
-    [cutplan],
-  );
-  const requestPreviewCut = useCallback(
-    (snapshot: CutPlan) => postPreviewCut({ cutplan: snapshot }),
-    [],
-  );
-  const acceptPreviewCut = useCallback((response: PreviewCutResponse) => {
-    setProj((current) => current && {
-      ...current,
-      previewCut: { ready: true, keepSignature: response.keepSignature },
-    });
-  }, []);
-  const previewCutRebake = usePreviewCutRebake({
-    cutplan,
-    keepSignature: currentPreviewKeepSignature,
-    ready: proj?.previewCut.ready ?? false,
-    readySignature: proj?.previewCut.keepSignature ?? "",
-    // canvas プレビューは keep→元収録秒写像を descriptor 側(describeFrame)で
-    // 解決するため連結ファイル(bake)が要らない=canvas 時は起動しない(M3b T3-2)
-    enabled: !!proj?.proxyExists && !proxyStale && !shortMode && !engineActive,
-    sourceVersion: previewCutSourceVersion,
-    request: requestPreviewCut,
-    onReady: acceptPreviewCut,
-  });
-
-  const previewBaseVideo = useMemo(
-    () =>
-      proj && cutplan
-        ? previewBaseVideoOf({
-            cutplan,
-            previewCut: proj.previewCut,
-            shortMode,
-            proxyStale,
-          })
-        : null,
-    [proj, cutplan, shortMode, proxyStale],
-  );
-  /** base video の経路が source ⇄ continuous で切り替わると、同じ Main の
-   * video 要素を使い回さず既存 videoVersion seam から Player を remount する。
-   * C4 の生成完了は proj.previewCut を更新するだけでこの経路へ収斂できる。 */
-  const mountedPreviewVideoRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!previewBaseVideo) return;
-    const key = previewBaseVideoMountKey(previewBaseVideo);
-    if (mountedPreviewVideoRef.current !== null && mountedPreviewVideoRef.current !== key) {
-      setVideoVersion((v) => v + 1);
-    }
-    mountedPreviewVideoRef.current = key;
-  }, [previewBaseVideo]);
-
   const built = useMemo(() => {
     if (!proj || !cutplan || !overlays || !transcript) return null;
     const warnings: string[] = [];
@@ -1507,13 +1431,8 @@ export const App = () => {
       // fresh な連続ベイクはカット後時刻で1本として再生する。欠落・陳腐・
       // keep 編集直後は source proxy へ即時フォールバックする。canvas
       // プレビューは bake 自体が起動しない(前段のガード)ので常に生
-      // proxy.mp4 を使う(previewBaseVideo の baked 選択を通さない。M3b T3-2)
-      ...(!engineActive && previewBaseVideo
-        ? previewBaseVideo
-        : {
-            videoFile: "media/proxy.mp4" as const,
-            videoIsSource: true,
-          }),
+      videoFile: "media/proxy.mp4",
+      videoIsSource: true,
       // bgm.json(区間配置)を優先。無ければ収録フォルダ直下の bgm.* を
       // 全編1曲で流す(後方互換)。素材ファイルはこの後 media/ 経由に付け替える
       bgm,
@@ -1604,7 +1523,7 @@ export const App = () => {
     };
   }, [
     proj, cutplan, overlays, transcript, bgm, keeps, shortMode, activeShort, shortKeepsMerged,
-    shorts, mediaCodecFacts, previewBaseVideo, engineActive,
+    shorts, mediaCodecFacts,
   ]);
 
   const aiWorkflowReview = isAiWorkflowReviewState(aiWorkflow) ? aiWorkflow : null;
@@ -4771,14 +4690,11 @@ export const App = () => {
     setError(null);
     try {
       await postProxy();
-      // proxy の内容が変わった時点で旧 preview-cut は同じ keep でも採用不可。
-      // ready を落とし sourceVersion を進めると、stale gate解除後に必ず再ベイクする。
       setProj((p) => p && {
         ...p,
         proxyExists: true,
         previewCut: { ready: false, keepSignature: "" },
       });
-      setPreviewCutSourceVersion((v) => v + 1);
       setVideoVersion((v) => v + 1);
       return true;
     } catch (e) {
@@ -5827,8 +5743,7 @@ export const App = () => {
         reviewConflictCount={diffReview?.result.conflicts.length ?? 0}
         proxyStale={proxyStale && !proxyStaleDismissed}
         proxyBusy={proxyBusy}
-        previewCutRebake={previewCutRebake.state}
-        engineFallback={engineFallback}
+        engineFailure={engineFailure}
         warnings={built?.warnings ?? []}
         onRestore={restoreDraft}
         onDiscard={discardDraft}
@@ -5836,7 +5751,6 @@ export const App = () => {
         onReview={() => setDiffPanelOpen(true)}
         onRegenProxy={() => void regenProxyForSettings()}
         onDismissProxyStale={() => setProxyStaleDismissed(true)}
-        onRetryPreviewCut={previewCutRebake.retry}
       />
 
       {onboardingVisible && (
@@ -6213,40 +6127,17 @@ export const App = () => {
               className="viewerScale"
               style={previewZoom === "fit" ? undefined : { transform: `scale(${previewZoom})` }}
             >
-              {engineActive ? (
-                <EnginePreview
-                  key={videoVersion}
-                  ref={playerRef}
-                  props={playerProps ?? built.props}
-                  durationInFrames={durationInFrames}
-                  fps={fps}
-                  loop={loop}
-                  playbackRate={playbackRate}
-                  initialVolume={playerVolume}
-                  onFallback={setEngineFallback}
-                />
-              ) : (
-                <Player
-                  key={videoVersion}
-                  ref={playerRef as unknown as Ref<PlayerRef>}
-                  component={Main}
-                  inputProps={playerProps ?? built.props}
-                  durationInFrames={durationInFrames}
-                  compositionWidth={built.props.width}
-                  compositionHeight={built.props.height}
-                  fps={fps}
-                  loop={loop}
-                  playbackRate={playbackRate}
-                  initialVolume={playerVolume}
-                  // 共有 <audio> タグのプールは AudioContext の作り直しで登録が
-                  // ずれて落ちる(unregisterAudio の TypeError / No audio ref found)。
-                  // モバイルの自動再生制限対策の仕組みで、ここでは再生が常に
-                  // ユーザー操作起点なので不要。0 でプールを無効化する
-                  numberOfSharedAudioTags={0}
-                  spaceKeyToPlayOrPause={false}
-                  style={{ width: "100%", height: "100%" }}
-                />
-              )}
+              <EnginePreview
+                key={videoVersion}
+                ref={playerRef}
+                props={playerProps ?? built.props}
+                durationInFrames={durationInFrames}
+                fps={fps}
+                loop={loop}
+                playbackRate={playbackRate}
+                initialVolume={playerVolume}
+                onFallback={setEngineFailure}
+              />
               {/* 素材(部分配置)の移動・リサイズ枠。テロップ枠より下(DOM 前)に
                   置き、重なったときはテロップのドラッグを優先させる */}
               <LiveMaterialOverlay
@@ -6754,7 +6645,7 @@ export const App = () => {
 };
 
 /** ヘッダー直下の要対応バナー行(T4)。draftOffer / externalChange / proxyStale /
- * previewCutRebake /
+ * engineFailure /
  * warnings(built.warnings。hideCaption・blurs×zoom重なり・blursのショート非継承・
  * ショートprofileフォールバック等)は「ユーザーが操作するまで真であり続ける条件」で、
  * 時間で消える通知(トースト)とは寿命モデルが違うのでバナーに残す(warnings は
@@ -6767,8 +6658,7 @@ const HeaderBanners = ({
   reviewConflictCount,
   proxyStale,
   proxyBusy,
-  previewCutRebake,
-  engineFallback,
+  engineFailure,
   warnings,
   onRestore,
   onDiscard,
@@ -6776,17 +6666,13 @@ const HeaderBanners = ({
   onReview,
   onRegenProxy,
   onDismissProxyStale,
-  onRetryPreviewCut,
 }: {
   draftOffer: DraftData | null;
   externalChange: boolean;
   reviewConflictCount: number;
   proxyStale: boolean;
   proxyBusy: boolean;
-  previewCutRebake: PreviewCutRebakeState;
-  /** canvas プレビューが実行時に legacy へ自動フォールバックした理由
-   * (M3b §2-2)。null なら未フォールバック */
-  engineFallback: string | null;
+  engineFailure: string | null;
   warnings: string[];
   onRestore: () => void;
   onDiscard: () => void;
@@ -6794,19 +6680,18 @@ const HeaderBanners = ({
   onReview: () => void;
   onRegenProxy: () => void;
   onDismissProxyStale: () => void;
-  onRetryPreviewCut: () => void;
 }) => {
-  if (!draftOffer && !externalChange && !proxyStale && !engineFallback &&
-      previewCutRebake.status === "idle" && warnings.length === 0) return null;
+  if (!draftOffer && !externalChange && !proxyStale && !engineFailure &&
+      warnings.length === 0) return null;
   return (
     <>
-      {engineFallback && (
+      {engineFailure && (
         <div
           className="banner"
-          title={`WebGPU 初期化に失敗しました: ${engineFallback}`}
+          title={`EnginePreview に失敗しました: ${engineFailure}`}
         >
           <span className="msg">
-            このブラウザは WebGPU 非対応のため従来プレビューで表示中
+            エンジンプレビューに失敗しました
           </span>
         </div>
       )}
@@ -6861,19 +6746,6 @@ const HeaderBanners = ({
             {proxyBusy ? "再生成中…" : "プロキシを再生成"}
           </button>
           <button onClick={onDismissProxyStale}>後で</button>
-        </div>
-      )}
-      {(previewCutRebake.status === "waiting" || previewCutRebake.status === "building") && (
-        <div className="banner" aria-live="polite">
-          <span className="msg">プレビュー再ベイク中…</span>
-        </div>
-      )}
-      {previewCutRebake.status === "failed" && (
-        <div className="banner" role="alert">
-          <span className="msg">
-            プレビューの再ベイクに失敗しました: {previewCutRebake.error}
-          </span>
-          <button className="warn" onClick={onRetryPreviewCut}>再試行</button>
         </div>
       )}
     </>
