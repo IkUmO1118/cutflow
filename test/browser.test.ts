@@ -1,9 +1,14 @@
-import { strictEqual, match } from "node:assert";
+import { deepStrictEqual, strictEqual, match } from "node:assert";
 import test from "node:test";
 import { closeSync, mkdtempSync, openSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CHROME_BUILD_ID, chromeCacheDir, ensureHeadlessShell } from "../src/lib/browser.ts";
+import {
+  browserRenderingArgs,
+  CHROME_BUILD_ID,
+  chromeCacheDir,
+  ensureHeadlessShell,
+} from "../src/lib/browser.ts";
 
 test("CHROME_BUILD_ID is pinned as a four-part version", () => {
   match(CHROME_BUILD_ID, /^\d+\.\d+\.\d+\.\d+$/);
@@ -39,4 +44,18 @@ test("ensureHeadlessShell returns existing CUTFLOW_CHROME_PATH without download"
       process.env.CUTFLOW_CHROME_PATH = originalPath;
     }
   }
+});
+
+test("browserRenderingArgs: engine の既定 GPU flags を維持する", () => {
+  deepStrictEqual(browserRenderingArgs(), [
+    "--use-angle=metal",
+    "--ignore-gpu-blocklist",
+    "--enable-unsafe-webgpu",
+  ]);
+});
+
+test("browserRenderingArgs: DesignStill 互換 capture は sRGB と既定 GL を使う", () => {
+  deepStrictEqual(browserRenderingArgs({ forceSrgb: true, useEngineGpuFlags: false }), [
+    "--force-color-profile=srgb",
+  ]);
 });

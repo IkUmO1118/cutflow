@@ -46,7 +46,10 @@ export async function createStillCaptureSession(publicRoot: string): Promise<Sti
   let closed = false;
 
   try {
-    browser = await launchHeadlessShell();
+    browser = await launchHeadlessShell(undefined, {
+      forceSrgb: true,
+      useEngineGpuFlags: false,
+    });
     const pageWsUrl = await newPageWs(browser.wsUrl);
     cdp = connectCdp(pageWsUrl);
     await cdp.send("Page.enable");

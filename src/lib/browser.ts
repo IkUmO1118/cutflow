@@ -25,6 +25,21 @@ export interface LaunchedBrowser {
   close(): void;
 }
 
+export interface BrowserRenderingOptions {
+  forceSrgb?: boolean;
+  useEngineGpuFlags?: boolean;
+}
+
+export function browserRenderingArgs(options: BrowserRenderingOptions = {}): string[] {
+  const useEngineGpuFlags = options.useEngineGpuFlags ?? true;
+  return [
+    ...(options.forceSrgb ? ["--force-color-profile=srgb"] : []),
+    ...(useEngineGpuFlags
+      ? ["--use-angle=metal", "--ignore-gpu-blocklist", "--enable-unsafe-webgpu"]
+      : []),
+  ];
+}
+
 export function chromeCacheDir(): string {
   return join(process.env.HOME ?? tmpdir(), ".cutflow", "chrome");
 }
@@ -94,15 +109,17 @@ export async function ensureHeadlessShell(): Promise<string> {
   }
 }
 
-/** headless Chrome を起動し、DevTools の browser WebSocket URL を返す。
- *  フラグは engineSession.ts の現行実装と完全に同一。 */
-export async function launchHeadlessShell(execPath?: string): Promise<LaunchedBrowser> {
+/** headless Chrome を起動し、DevTools の browser WebSocket URL を返す。 */
+export async function launchHeadlessShell(
+  execPath?: string,
+  options: BrowserRenderingOptions = {},
+): Promise<LaunchedBrowser> {
   const resolvedExecPath = execPath ?? await ensureHeadlessShell();
   const userDataDir = mkdtempSync(join(tmpdir(), "cutflow-engine-"));
   const proc = spawn(resolvedExecPath, [
     "--headless", "--remote-debugging-port=0", "--hide-scrollbars",
     `--user-data-dir=${userDataDir}`,
-    "--use-angle=metal", "--ignore-gpu-blocklist", "--enable-unsafe-webgpu",
+    ...browserRenderingArgs(options),
   ], { stdio: ["ignore", "pipe", "pipe"] });
 
   try {
