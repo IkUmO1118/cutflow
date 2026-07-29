@@ -16,7 +16,6 @@ import {
   ensureBrowser,
   openBrowser,
   renderMedia,
-  renderStill,
   selectComposition,
 } from "@remotion/renderer";
 import { resolveAvCfg } from "../lib/config.ts";
@@ -33,6 +32,7 @@ import {
   type ReviewSpec,
 } from "../lib/review.ts";
 import { resolveSnapshotRenderContext } from "../lib/renderSnapshot.ts";
+import { captureEngineStills } from "../lib/engineStill.ts";
 import {
   parseAstats,
   parseEbur128,
@@ -48,6 +48,7 @@ import {
 import { validateDocs } from "./validate.ts";
 import type { Config } from "../lib/config.ts";
 import type { DeterministicReviewObservation, SideObservation } from "../lib/reviewObservation.ts";
+import type { RenderProps } from "../lib/renderPropsTypes.ts";
 import type { Manifest, Overlays } from "../types.ts";
 import {
   MAX_SECONDARY_OUTPUT_TOKENS,
@@ -133,7 +134,7 @@ interface ReviewRenderContext {
   manifest: Manifest;
   fps: number;
   durationSec: number;
-  props: Record<string, unknown>;
+  props: RenderProps;
   timeline: ReturnType<typeof buildTimeline>;
 }
 
@@ -319,7 +320,7 @@ function buildReviewRenderContext(
     manifest: ctx.manifest,
     fps: ctx.props.fps,
     durationSec: ctx.props.durationSec,
-    props: ctx.props as unknown as Record<string, unknown>,
+    props: ctx.props,
     timeline: buildTimeline(ctx.keeps, inserts),
   };
 }
@@ -338,48 +339,60 @@ async function renderReviewStills(args: {
   if (hooks?.renderStill) {
     return renderReviewStillsWithHooks(args);
   }
-  await ensureBrowser();
-  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-  const serveUrl = await bundle({
-    entryPoint: join(repoRoot, "remotion", "index.ts"),
-    publicDir: dir,
-    symlinkPublicDir: true,
+  const targets = frames.map((frame) => {
+    const before = resolveFrameTarget(frame, beforeCtx);
+    const after = resolveFrameTarget(frame, afterCtx);
+    const beforeFile = join(outDir, "before", fileLabel(frame, before.outSec));
+    const afterFile = join(outDir, "after", fileLabel(frame, after.outSec));
+    return { frame, before, after, beforeFile, afterFile };
   });
-  const browser = await openBrowser("chrome");
-  try {
-    const beforeComp = await selectComposition({
-      serveUrl,
-      id: "Main",
-      inputProps: beforeCtx.props,
-      puppeteerInstance: browser,
-      logLevel: "warn",
-    });
-    const afterComp = await selectComposition({
-      serveUrl,
-      id: "Main",
-      inputProps: afterCtx.props,
-      puppeteerInstance: browser,
-      logLevel: "warn",
-    });
-    const out: ReviewStill[] = [];
-    for (const frame of frames) {
-      out.push(await renderStillPair({
-        outDir,
-        frame,
-        beforeCtx,
-        afterCtx,
-        beforeComp,
-        afterComp,
-        serveUrl,
-        browser,
-        runOcr,
-        warnings,
-      }));
+  if (targets.length === 0) return [];
+
+  await captureEngineStills({
+    dir,
+    props: beforeCtx.props,
+    durationSec: beforeCtx.durationSec,
+    shots: targets.map((target) => ({ outSec: target.before.outSec, outFile: target.beforeFile })),
+  });
+  await captureEngineStills({
+    dir,
+    props: afterCtx.props,
+    durationSec: afterCtx.durationSec,
+    shots: targets.map((target) => ({ outSec: target.after.outSec, outFile: target.afterFile })),
+  });
+
+  const out: ReviewStill[] = [];
+  for (const target of targets) {
+    const beforeSide: ReviewStillSide = {
+      outSec: target.before.outSec,
+      sourceSec: target.before.sourceSec,
+      file: rel(target.beforeFile),
+      ...(target.before.note ? { note: target.before.note } : {}),
+    };
+    const afterSide: ReviewStillSide = {
+      outSec: target.after.outSec,
+      sourceSec: target.after.sourceSec,
+      file: rel(target.afterFile),
+      ...(target.after.note ? { note: target.after.note } : {}),
+    };
+    if (target.frame.ocr) {
+      const region = { x: 0, y: 0, w: beforeCtx.manifest.video.screenRegion.w, h: beforeCtx.manifest.video.screenRegion.h };
+      const beforeOcr = await runOcr(target.beforeFile, region, { warn: (message) => warnings.push(message) });
+      const afterOcr = await runOcr(target.afterFile, region, { warn: (message) => warnings.push(message) });
+      if (beforeOcr) {
+        const file = join(outDir, "ocr", `before-${fileStem(target.frame, target.before.outSec)}.json`);
+        writeFileSync(file, JSON.stringify(beforeOcr, null, 2), "utf8");
+        beforeSide.ocrFile = rel(file);
+      }
+      if (afterOcr) {
+        const file = join(outDir, "ocr", `after-${fileStem(target.frame, target.after.outSec)}.json`);
+        writeFileSync(file, JSON.stringify(afterOcr, null, 2), "utf8");
+        afterSide.ocrFile = rel(file);
+      }
     }
-    return out;
-  } finally {
-    await browser.close({ silent: true });
+    out.push({ requested: target.frame, before: beforeSide, after: afterSide });
   }
+  return out;
 }
 
 async function renderReviewStillsWithHooks(args: {
@@ -403,13 +416,13 @@ async function renderReviewStillsWithHooks(args: {
       side: "before",
       outFile: beforeFile,
       outSec: before.outSec,
-      props: args.beforeCtx.props,
+      props: args.beforeCtx.props as unknown as Record<string, unknown>,
     });
     await args.hooks!.renderStill!({
       side: "after",
       outFile: afterFile,
       outSec: after.outSec,
-      props: args.afterCtx.props,
+      props: args.afterCtx.props as unknown as Record<string, unknown>,
     });
     out.push({
       requested: frame,
@@ -430,73 +443,6 @@ async function renderReviewStillsWithHooks(args: {
     });
   }
   return out;
-}
-
-async function renderStillPair(args: {
-  outDir: string;
-  frame: NormalizedReviewFrameRequest;
-  beforeCtx: ReviewRenderContext;
-  afterCtx: ReviewRenderContext;
-  beforeComp: Awaited<ReturnType<typeof selectComposition>>;
-  afterComp: Awaited<ReturnType<typeof selectComposition>>;
-  serveUrl: string;
-  browser: Awaited<ReturnType<typeof openBrowser>>;
-  runOcr: typeof defaultRunOcr;
-  warnings: string[];
-}): Promise<ReviewStill> {
-  const { outDir, frame, beforeCtx, afterCtx, beforeComp, afterComp, serveUrl, browser, runOcr, warnings } = args;
-  const before = resolveFrameTarget(frame, beforeCtx);
-  const after = resolveFrameTarget(frame, afterCtx);
-  const beforeFile = join(outDir, "before", fileLabel(frame, before.outSec));
-  const afterFile = join(outDir, "after", fileLabel(frame, after.outSec));
-  await renderStill({
-    composition: beforeComp,
-    serveUrl,
-    output: beforeFile,
-    frame: Math.round(before.outSec * beforeCtx.fps),
-    inputProps: beforeCtx.props,
-    puppeteerInstance: browser,
-    overwrite: true,
-    logLevel: "warn",
-  });
-  await renderStill({
-    composition: afterComp,
-    serveUrl,
-    output: afterFile,
-    frame: Math.round(after.outSec * afterCtx.fps),
-    inputProps: afterCtx.props,
-    puppeteerInstance: browser,
-    overwrite: true,
-    logLevel: "warn",
-  });
-  const beforeSide: ReviewStillSide = {
-    outSec: before.outSec,
-    sourceSec: before.sourceSec,
-    file: rel(beforeFile),
-    ...(before.note ? { note: before.note } : {}),
-  };
-  const afterSide: ReviewStillSide = {
-    outSec: after.outSec,
-    sourceSec: after.sourceSec,
-    file: rel(afterFile),
-    ...(after.note ? { note: after.note } : {}),
-  };
-  if (frame.ocr) {
-    const region = { x: 0, y: 0, w: beforeCtx.manifest.video.screenRegion.w, h: beforeCtx.manifest.video.screenRegion.h };
-    const beforeOcr = await runOcr(beforeFile, region, { warn: (message) => warnings.push(message) });
-    const afterOcr = await runOcr(afterFile, region, { warn: (message) => warnings.push(message) });
-    if (beforeOcr) {
-      const file = join(outDir, "ocr", `before-${fileStem(frame, before.outSec)}.json`);
-      writeFileSync(file, JSON.stringify(beforeOcr, null, 2), "utf8");
-      beforeSide.ocrFile = rel(file);
-    }
-    if (afterOcr) {
-      const file = join(outDir, "ocr", `after-${fileStem(frame, after.outSec)}.json`);
-      writeFileSync(file, JSON.stringify(afterOcr, null, 2), "utf8");
-      afterSide.ocrFile = rel(file);
-    }
-  }
-  return { requested: frame, before: beforeSide, after: afterSide };
 }
 
 async function renderReviewClips(args: {
