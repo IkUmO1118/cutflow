@@ -104,8 +104,9 @@ preview:
   # libx264 で従来の ultrafast+CRF に戻せる(実測は docs/perf.md 参照)
   videoEncoder: videotoolbox
   # proxy.mp4 をオールイントラ(GOP=1。全フレーム I)でエンコードするか。
-  # エディタはカット境界ごとに proxy.mp4 をシークして繋ぐため、オールイントラだと
-  # 直前キーフレームからのデコード待ちが無くなる(代償はファイルサイズ増)。
+  # エディタの frameSource は keep 境界ごとに proxy.mp4 を reseek して繋ぐため、
+  # オールイントラだと直前キーフレームからのデコード待ちが無くなる
+  # (代償はファイルサイズ増)。
   # false で従来の短 GOP エンコードに戻せる。preview.mp4 には影響しない
   proxyIntra: true
 
