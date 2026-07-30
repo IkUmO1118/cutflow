@@ -14,6 +14,7 @@ import { PresentationClock } from "../../src/engine/runtime/clock.ts";
 import { AudioScheduler } from "../../src/engine/runtime/audioScheduler.ts";
 import type { RenderProps } from "../../src/lib/renderPropsTypes.ts";
 import { audioSignatureOf, timelineFromBaseSegments } from "./enginePreviewTimeline.ts";
+import type { PreviewMetricsSource } from "./metrics.ts";
 
 /** App.tsx の built props memo は videoFile("media/proxy.mp4")に加え、
  * overlays[].file / inserts[].file / bgm[].file / design の背景・素材ファイルを
@@ -30,6 +31,9 @@ const VIDEO_FILE = "media/proxy.mp4";
  * 1〜2回は frameSource 側のデコーダ作り直しで自力復帰できるため、
  * すぐには落とさない */
 const REPAINT_FAILURE_LIMIT = 3;
+
+/** 溜めておく scrub seek サンプルの上限(古いものから捨てる) */
+const SEEK_SAMPLE_LIMIT = 200;
 
 function resolveUrl(sourceId: string): string {
   return `/${encodeURIComponent(sourceId).replace(/%2F/g, "/")}`;
@@ -53,7 +57,7 @@ export type PreviewHandle = Pick<
   | "setVolume"
   | "addEventListener"
   | "removeEventListener"
->;
+> & PreviewMetricsSource;
 
 export interface EnginePreviewProps {
   props: RenderProps;
@@ -97,6 +101,10 @@ export const EnginePreview = forwardRef<PreviewHandle, EnginePreviewProps>(funct
   const audioContextRef = useRef<AudioContext | null>(null);
   const schedulerRef = useRef<AudioScheduler | null>(null);
   const clockRef = useRef<PresentationClock | null>(null);
+  /** 一時停止中のシーク(スクラブ)1回の repaint 所要 ms。metrics ハーネスが
+   * takeSeekSamples() で吸い出して空にする。吸い出されないまま溜まり続けない
+   * よう上限を設ける */
+  const seekSamplesRef = useRef<number[]>([]);
 
   const listenersRef = useRef<{ [K in PlayerEventTypes]?: Set<Listener<K>> }>({});
 
@@ -304,7 +312,12 @@ export const EnginePreview = forwardRef<PreviewHandle, EnginePreviewProps>(funct
           const clock = clockRef.current;
           if (clock) schedulerRef.current?.reseek(clock.getMapping(), resolveUrl);
         } else {
-          void repaintAt(sec);
+          const startedAt = performance.now();
+          void repaintAt(sec).finally(() => {
+            const samples = seekSamplesRef.current;
+            samples.push(performance.now() - startedAt);
+            if (samples.length > SEEK_SAMPLE_LIMIT) samples.shift();
+          });
         }
         dispatch("frameupdate", { frame });
       },
@@ -346,6 +359,15 @@ export const EnginePreview = forwardRef<PreviewHandle, EnginePreviewProps>(funct
       removeEventListener<T extends PlayerEventTypes>(type: T, listener: Listener<T>) {
         const set = listenersRef.current[type] as Set<Listener<T>> | undefined;
         set?.delete(listener);
+      },
+      getPresentationStats() {
+        // 呼び出し側は即座に数値をコピーする観測専用なので、複製は作らない。
+        return clockRef.current?.stats ?? null;
+      },
+      takeSeekSamples() {
+        const samples = seekSamplesRef.current;
+        seekSamplesRef.current = [];
+        return samples;
       },
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }),

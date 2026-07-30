@@ -1,40 +1,51 @@
 /**
- * プレビュー(proxy.mp4)の体感を数値化する計測ハーネス。M1(オールイントラ
- * proxy)の before/after 基準値採取のための観測専用モジュールで、Player /
- * <video> の挙動には一切手を入れない(挙動を1バイトも変えない)。
- * §docs/plans/2026-07-28-engine-m1-media-metrics-design.md Phase 2
+ * プレビュー(canvas エンジン)の体感を数値化する計測ハーネス。
+ * PresentationClock の累積統計を1秒ごとに引き取る観測専用モジュールで、
+ * エンジン側の挙動には一切手を入れない。
+ * §docs/plans/2026-07-30-preview-cut-classification-and-clock-metrics-design.md B
  *
  * 収集する3指標:
- * - シーク応答: 'seeking' 発火 → 'seeked' 発火までの ms
- * - ドロップ: video.getVideoPlaybackQuality() の dropped/total の前回比差分
- * - 再生連続性: requestVideoFrameCallback の mediaTime 間隔(ms)
+ * - シーク応答: 一時停止中のスクラブ repaint 所要 ms
+ * - ドロップ: PresentationClock の droppedFrames / presentedFrames の前回比差分
+ * - 再生連続性: PresentationClock の提示間隔リングバッファ(ms)
  *
  * 5秒ごと、またはページ離脱時にサーバー(POST /metrics)へ送る。
  * バッチが空(何も溜まっていない)ときは送らない。
  */
+import type { PresentationStats } from "../../src/engine/runtime/clock.ts";
 
 const FLUSH_INTERVAL_MS = 5000;
+const SAMPLE_INTERVAL_MS = 1000;
 
-// 標準 DOM 型(lib.dom.d.ts)には requestVideoFrameCallback が無いため、
-// ここで使う最小形をローカルに型として足す
-interface VideoFrameCallbackMetadata {
-  mediaTime: number;
+/** プレビュー(canvas エンジン)の体感を数値化するための観測ソース。
+ * EnginePreview がこれを実装し、ハーネスは1秒ごとに引き取るだけ
+ * (エンジン側の挙動は1バイトも変えない=観測専用)。 */
+export interface PreviewMetricsSource {
+  /** 現在の PresentationClock の累積統計。clock 未初期化なら null */
+  getPresentationStats: () => PresentationStats | null;
+  /** 溜まっている scrub seek 所要 ms を渡して空にする */
+  takeSeekSamples: () => number[];
 }
-type VideoWithVFC = HTMLVideoElement & {
-  requestVideoFrameCallback?: (
-    cb: (now: number, metadata: VideoFrameCallbackMetadata) => void,
-  ) => number;
-};
 
 interface Batch {
   seekMs: number[];
-  frameIntervalMs: number[];
   droppedDelta: number;
   totalDelta: number;
+  forcedResetsDelta: number;
+  lastStallMs: number | null;
+  /** flush 時に載せる提示間隔のスナップショット(累積しない) */
+  intervalsMs: number[];
 }
 
 function emptyBatch(): Batch {
-  return { seekMs: [], frameIntervalMs: [], droppedDelta: 0, totalDelta: 0 };
+  return {
+    seekMs: [],
+    droppedDelta: 0,
+    totalDelta: 0,
+    forcedResetsDelta: 0,
+    lastStallMs: null,
+    intervalsMs: [],
+  };
 }
 
 export interface MetricsSnapshot {
@@ -42,6 +53,10 @@ export interface MetricsSnapshot {
   seekMsP95: number | null;
   frameIntervalP95: number | null;
   dropRatePct: number | null;
+  /** この窓で観測した強制復帰(描画の詰まり)回数。0 が正常 */
+  forcedResets: number;
+  /** 直近の強制復帰までの詰まり時間(ms)。無ければ null */
+  lastStallMs: number | null;
 }
 
 function percentile(values: number[], p: number): number | null {
@@ -49,6 +64,39 @@ function percentile(values: number[], p: number): number | null {
   const sorted = [...values].sort((a, b) => a - b);
   const idx = Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length));
   return sorted[idx];
+}
+
+/** 累積カウンタのスナップショット(差分計算用) */
+export interface CounterSample {
+  presentedFrames: number;
+  droppedFrames: number;
+  forcedResets: number;
+}
+
+export interface CounterDelta {
+  presented: number;
+  dropped: number;
+  forcedResets: number;
+  /** true = 差分を取らずベースラインだけ更新した(初回、または clock 再生成) */
+  baselineOnly: boolean;
+}
+
+/**
+ * 前回サンプルと今回サンプルから増分を出す。PresentationClock は
+ * EnginePreview の remount ごとに作り直され、そのとき累積カウンタが 0 に
+ * 戻る。カウンタが減っていたら「別の clock」と判定し、負の増分を
+ * 計上せずベースラインだけ張り替える(baselineOnly: true)。
+ */
+export function diffCounters(prev: CounterSample | null, cur: CounterSample): CounterDelta {
+  if (prev === null || cur.presentedFrames < prev.presentedFrames) {
+    return { presented: 0, dropped: 0, forcedResets: 0, baselineOnly: true };
+  }
+  return {
+    presented: cur.presentedFrames - prev.presentedFrames,
+    dropped: Math.max(0, cur.droppedFrames - prev.droppedFrames),
+    forcedResets: Math.max(0, cur.forcedResets - prev.forcedResets),
+    baselineOnly: false,
+  };
 }
 
 export interface MetricsHandle {
@@ -59,114 +107,66 @@ export interface MetricsHandle {
   dispose: () => void;
 }
 
-/**
- * root 配下の <video> を MutationObserver で監視し、見つけ次第計測を
- * 仕込む(Player は videoVersion の変化で <video> ごと remount するため、
- * 動的検出が必須)。既に計測済みの要素は WeakSet で除外する。
- */
-export function startMetricsHarness(root: HTMLElement): MetricsHandle {
+export function startMetricsHarness(source: PreviewMetricsSource): MetricsHandle {
   let recording = "";
   let batch = emptyBatch();
+  let prevSample: CounterSample | null = null;
   let lastSnapshot: MetricsSnapshot = {
     seekMsP50: null,
     seekMsP95: null,
     frameIntervalP95: null,
     dropRatePct: null,
+    forcedResets: 0,
+    lastStallMs: null,
   };
-  const instrumented = new WeakSet<HTMLVideoElement>();
-  const seekStartedAt = new WeakMap<HTMLVideoElement, number>();
-  const lastQuality = new WeakMap<HTMLVideoElement, { dropped: number; total: number }>();
-  const rvfcCancel = new WeakMap<HTMLVideoElement, () => void>();
 
-  function instrument(video: HTMLVideoElement): void {
-    if (instrumented.has(video)) return;
-    instrumented.add(video);
-
-    video.addEventListener("seeking", () => {
-      seekStartedAt.set(video, performance.now());
-    });
-    video.addEventListener("seeked", () => {
-      const startedAt = seekStartedAt.get(video);
-      if (startedAt === undefined) return;
-      seekStartedAt.delete(video);
-      batch.seekMs.push(performance.now() - startedAt);
-    });
-
-    // getVideoPlaybackQuality は再生セッション単位ではなく <video> 生存期間の
-    // 累積値なので、毎回前回値との差分だけを集計に足す(要素が消えれば
-    // WeakMap ごと自然に消える=セッション境界のリセットになる)
-    const qualityTimer = setInterval(() => {
-      if (typeof video.getVideoPlaybackQuality !== "function") return;
-      const q = video.getVideoPlaybackQuality();
-      const prev = lastQuality.get(video) ?? { dropped: 0, total: 0 };
-      const droppedDelta = Math.max(0, q.droppedVideoFrames - prev.dropped);
-      const totalDelta = Math.max(0, q.totalVideoFrames - prev.total);
-      batch.droppedDelta += droppedDelta;
-      batch.totalDelta += totalDelta;
-      lastQuality.set(video, { dropped: q.droppedVideoFrames, total: q.totalVideoFrames });
-    }, 1000);
-
-    // requestVideoFrameCallback の mediaTime 間隔(再生連続性)。
-    // 未対応ブラウザ(既定 Chromium 系のみ実装)では黙ってスキップする
-    const vfcVideo = video as VideoWithVFC;
-    if (typeof vfcVideo.requestVideoFrameCallback === "function") {
-      let lastMediaTime: number | null = null;
-      let cancelled = false;
-      const onFrame = (_now: number, metadata: VideoFrameCallbackMetadata) => {
-        if (cancelled) return;
-        if (lastMediaTime !== null && !video.paused) {
-          const deltaMs = (metadata.mediaTime - lastMediaTime) * 1000;
-          if (deltaMs > 0) batch.frameIntervalMs.push(deltaMs);
-        }
-        lastMediaTime = metadata.mediaTime;
-        vfcVideo.requestVideoFrameCallback?.(onFrame);
-      };
-      vfcVideo.requestVideoFrameCallback(onFrame);
-      rvfcCancel.set(video, () => {
-        cancelled = true;
-      });
-    }
-
-    video.addEventListener(
-      "emptied",
-      () => {
-        clearInterval(qualityTimer);
-        rvfcCancel.get(video)?.();
-      },
-      { once: true },
-    );
-  }
-
-  function scan(): void {
-    root.querySelectorAll("video").forEach((el) => instrument(el as HTMLVideoElement));
-  }
-
-  scan();
-  const observer = new MutationObserver(() => scan());
-  observer.observe(root, { childList: true, subtree: true });
+  const sampleTimer = setInterval(() => {
+    batch.seekMs.push(...source.takeSeekSamples());
+    const stats = source.getPresentationStats();
+    if (!stats) return;
+    const cur: CounterSample = {
+      presentedFrames: stats.presentedFrames,
+      droppedFrames: stats.droppedFrames,
+      forcedResets: stats.forcedResets,
+    };
+    const delta = diffCounters(prevSample, cur);
+    prevSample = cur;
+    if (delta.baselineOnly) return;
+    batch.droppedDelta += delta.dropped;
+    batch.totalDelta += delta.presented;
+    batch.forcedResetsDelta += delta.forcedResets;
+    if (delta.forcedResets > 0) batch.lastStallMs = stats.lastStallMs;
+    // 提示間隔は「その窓で実際に再生された」ときだけリングを写す
+    // (一時停止中に前回再生の古い p95 を出さないため)
+    if (delta.presented > 0) batch.intervalsMs = [...stats.intervalsMs];
+  }, SAMPLE_INTERVAL_MS);
 
   function flush(useBeacon: boolean): void {
     if (
       batch.seekMs.length === 0 &&
-      batch.frameIntervalMs.length === 0 &&
-      batch.droppedDelta === 0 &&
-      batch.totalDelta === 0
+      batch.intervalsMs.length === 0 &&
+      batch.totalDelta === 0 &&
+      batch.forcedResetsDelta === 0
     ) {
       return;
     }
     lastSnapshot = {
       seekMsP50: percentile(batch.seekMs, 50),
       seekMsP95: percentile(batch.seekMs, 95),
-      frameIntervalP95: percentile(batch.frameIntervalMs, 95),
+      frameIntervalP95: percentile(batch.intervalsMs, 95),
       dropRatePct: batch.totalDelta > 0 ? (100 * batch.droppedDelta) / batch.totalDelta : null,
+      forcedResets: batch.forcedResetsDelta,
+      lastStallMs: batch.lastStallMs,
     };
     const payload = JSON.stringify({
       ts: new Date().toISOString(),
       recording,
       seekMs: batch.seekMs,
-      frameIntervalMs: batch.frameIntervalMs,
+      frameIntervalMs: batch.intervalsMs,
       droppedDelta: batch.droppedDelta,
       totalDelta: batch.totalDelta,
+      forcedResetsDelta: batch.forcedResetsDelta,
+      lastStallMs: batch.lastStallMs,
     });
     batch = emptyBatch();
     if (useBeacon && navigator.sendBeacon) {
@@ -187,8 +187,9 @@ export function startMetricsHarness(root: HTMLElement): MetricsHandle {
   const onHidden = () => {
     if (document.visibilityState === "hidden") flush(true);
   };
+  const onPageHide = () => flush(true);
   document.addEventListener("visibilitychange", onHidden);
-  window.addEventListener("pagehide", () => flush(true));
+  window.addEventListener("pagehide", onPageHide);
 
   return {
     setRecording: (name: string) => {
@@ -196,9 +197,10 @@ export function startMetricsHarness(root: HTMLElement): MetricsHandle {
     },
     getSnapshot: () => lastSnapshot,
     dispose: () => {
-      observer.disconnect();
+      clearInterval(sampleTimer);
       clearInterval(flushTimer);
       document.removeEventListener("visibilitychange", onHidden);
+      window.removeEventListener("pagehide", onPageHide);
     },
   };
 }
@@ -219,7 +221,8 @@ export function mountMetricsHud(handle: MetricsHandle): () => void {
     el.textContent =
       `seek p50/p95: ${fmt(s.seekMsP50, "ms")} / ${fmt(s.seekMsP95, "ms")}\n` +
       `frame Δ p95: ${fmt(s.frameIntervalP95, "ms")}\n` +
-      `drop: ${fmt(s.dropRatePct, "%")}`;
+      `drop: ${fmt(s.dropRatePct, "%")}\n` +
+      `stall: ${s.forcedResets} (last ${s.lastStallMs === null ? "-" : `${s.lastStallMs.toFixed(0)}ms`})`;
   }, 1000);
   return () => {
     clearInterval(timer);
