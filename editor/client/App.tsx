@@ -686,10 +686,13 @@ export const App = () => {
   const [fullscreen, setFullscreen] = useState(false);
   const viewerColRef = useRef<HTMLDivElement>(null);
 
-  /** プレビュー(proxy.mp4)の体感計測(M1)。HUD は URL に ?metrics=1 のときだけ出す */
+  /** プレビュー(canvas エンジン)の体感計測。HUD は URL に ?metrics=1 のときだけ出す */
   const metricsRef = useRef<MetricsHandle | null>(null);
   useEffect(() => {
-    const handle = startMetricsHarness(document.body);
+    const handle = startMetricsHarness({
+      getPresentationStats: () => playerRef.current?.getPresentationStats() ?? null,
+      takeSeekSamples: () => playerRef.current?.takeSeekSamples() ?? [],
+    });
     metricsRef.current = handle;
     const disposeHud =
       new URLSearchParams(location.search).get("metrics") === "1"
