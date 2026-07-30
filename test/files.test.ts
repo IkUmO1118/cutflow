@@ -39,6 +39,7 @@ const EXPECTED_GENERATED_FILES = [
   "render.report.json",
   "preview.mp4",
   "preview-cut.mp4",
+  "preview-cut.key.json",
   "proxy.mp4",
   "proxy.key.json",
   "material-fit.suggested.json",
@@ -162,7 +163,7 @@ test("isGeneratedCache: 重いキャッシュだけ true、軽い中間生成物
   // cache = true
   for (const c of ["proxy.mp4", "proxy.key.json",
     "cut.mp4", "cut.keeps.json",
-    "preview.mp4", "preview-cut.mp4", "render.props.json", "render.key.json",
+    "preview.mp4", "preview-cut.mp4", "preview-cut.key.json", "render.props.json", "render.key.json",
     "cut.highlight-1.mp4", "render.highlight-1.key.json",
     "frames/out10s.png", "shorts/a.mp4",
     "render.design/dusk.jpg",
@@ -192,7 +193,7 @@ test("isGeneratedLog: ログ・下書き・検品結果だけ true、最適化/p
   for (const l of ["cuts.auto.json", "plan.raw.txt", "plan.loop.json",
     "plan-shorts.raw.txt", "material-fit.suggested.json", "effect-fix.suggested.json",
     "bgm-fit.suggested.json", "effect-check.json", "bgm-fit.json", "style-check.json",
-    "render.report.json", "preview.mp4", "preview-cut.mp4", "frames/out10s.png", "frames/props.json"]) {
+    "render.report.json", "preview.mp4", "preview-cut.mp4", "preview-cut.key.json", "frames/out10s.png", "frames/props.json"]) {
     assert.equal(isGeneratedLog(l), true, `${l} は log のはず`);
   }
   // generated だが log ではない(リレンダー最適化・proxy・高価な再生成物・成果物・必須入力)
