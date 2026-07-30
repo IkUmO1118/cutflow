@@ -4696,7 +4696,6 @@ export const App = () => {
       setProj((p) => p && {
         ...p,
         proxyExists: true,
-        previewCut: { ready: false, keepSignature: "" },
       });
       setVideoVersion((v) => v + 1);
       return true;
