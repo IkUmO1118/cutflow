@@ -45,6 +45,7 @@ export const GENERATED_FILES = [
   "render.key.json",
   "render.report.json",
   "preview.mp4",
+  "preview-cut.mp4",
   "proxy.mp4",
   "proxy.key.json",
   "material-fit.suggested.json",
@@ -159,6 +160,7 @@ export const GENERATED_CACHE_FILES = [
   "cut.mp4",
   "cut.keeps.json",
   "preview.mp4",
+  "preview-cut.mp4",
   "proxy.mp4",
   "proxy.key.json",
   "render.key.json",
@@ -201,6 +203,7 @@ export const GENERATED_LOG_FILES = [
   "style-check.json",
   "render.report.json",
   "preview.mp4",
+  "preview-cut.mp4",
 ] as const;
 
 /** --logs-only が消す generated ディレクトリ(配下丸ごと)。frames/ は撮影のたびに

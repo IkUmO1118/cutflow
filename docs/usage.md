@@ -135,7 +135,10 @@ render.props.json の内容・cut.mp4・参照素材ファイル(overlays / inse
 bgm)・hardwareAcceleration 設定が前回と同じなら render は engine 書き出しを
 丸ごと省略する。削除すれば常にフル再生成に戻る) /
 `render.report.json`(直近の本編 render の構造化サマリを記録する使い捨て
-ログ。レンダーの副産物で編集対象ではない) / `proxy.key.json`
+ログ。レンダーの副産物で編集対象ではない) / `preview-cut.mp4`(エディタの
+連続プレビュー用に keep を焼き込んだ動画。現在クライアントからは参照されて
+おらず生成もされないが、過去の収録に残骸があるため分類上は中間生成物=`clean`
+の回収対象) / `proxy.key.json`
 (proxy.mp4 の陳腐化を判定するキャッシュキー。ラウドネス(targetLufs)・
 システム音声(systemAudio)・ノイズ除去(denoise)・プレビュー幅・エンコーダ・
 オールイントラ設定(`preview.proxyIntra`。既定 true=GOP1の全フレーム I。
