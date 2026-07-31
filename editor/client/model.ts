@@ -48,7 +48,7 @@ export type AddKind =
  * captionTrack だけは例外で、index は**配列の添字ではなくテロップトラック番号**
  * (1始まり。overlays.json の captionTracks[].track と同じ値)。クリップではなく
  * トラックそのものを選んだ状態=インスペクタがそのトラックの標準デザインを編集する。
- * wipe / bgm は表示専用 */
+ * wipe はトラック設定として選択・編集可能。bgm は表示専用 */
 export type SelKind =
   | "cut"
   | "insert"

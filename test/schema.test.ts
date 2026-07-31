@@ -59,7 +59,7 @@ function extractUnionLiterals(source: string, typeName: string): string[] {
 /** "const <name> = [...]"(validate.ts のローカル定数。export されていない
  * ため import できず、テキストから抽出する)から文字列リテラルを抽出する */
 function extractArrayLiteral(source: string, constName: string): string[] {
-  const re = new RegExp(`const ${constName} = \\[([\\s\\S]*?)\\]`, "m");
+  const re = new RegExp(`const ${constName}(?::[^=]+)? = \\[([\\s\\S]*?)\\]`, "m");
   const m = re.exec(source);
   if (!m) throw new Error(`${constName} が validate.ts に見つかりません(実装が変わった可能性)`);
   return [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
@@ -224,6 +224,16 @@ test("ピン留め: SpotlightAnnotation.shape の enum === SpotlightShape(types.
   const common = loadRegistry()["common.schema.json"];
   const shapeEnum = common.$defs?.SpotlightAnnotation.properties?.shape.enum as string[];
   sortedEq(shapeEnum, shapes);
+});
+
+test("ピン留め: WipeStyle.anchor の enum === WipeAnchor(types.ts) === validate.ts", () => {
+  const anchors = extractUnionLiterals(TYPES_TS, "WipeAnchor");
+  assert.ok(anchors.length > 0);
+  const validateAnchors = extractArrayLiteral(VALIDATE_TS, "anchors");
+  const overlays = loadRegistry()["overlays.schema.json"];
+  const schemaAnchors = overlays.$defs?.WipeStyle.properties?.anchor.enum as string[];
+  sortedEq(schemaAnchors, anchors);
+  sortedEq(validateAnchors, anchors);
 });
 
 test("ピン留め: overlays.json トップの許可キー === validate.ts の KNOWN", () => {

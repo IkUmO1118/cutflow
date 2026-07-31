@@ -17,7 +17,7 @@ test("Inspector retains all twelve selection kinds and every special rendering b
   for (const kind of kinds) {
     assert.ok(model.includes(`| "${kind}"`), `model lost selection kind ${kind}`);
     if (kind === "wipe") {
-      assert.match(model, /wipe \/ bgm は表示専用|wipe \/ 映像 keep/);
+      assert.match(model, /wipe はトラック設定として選択・編集可能/);
       assert.match(inspector, /selection\.kind === "wipe"/);
       assert.match(inspector, /updateWipeStyle/);
     } else {

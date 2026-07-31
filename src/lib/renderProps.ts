@@ -570,16 +570,7 @@ export function buildRenderProps(args: {
     wipe: {
       widthPx: renderCfg.wipeWidthPx,
       marginPx: renderCfg.wipeMarginPx,
-      ...(resolvedWipeStyle
-        ? {
-            widthPx: resolvedWipeStyle.sizePx,
-            marginPx: resolvedWipeStyle.marginPx,
-            rect: resolvedWipeStyle.rect,
-            radiusPx: resolvedWipeStyle.radiusPx,
-            shadow: resolvedWipeStyle.shadow,
-            anchor: resolvedWipeStyle.anchor,
-          }
-        : {}),
+      ...(resolvedWipeStyle ? { style: resolvedWipeStyle } : {}),
       // ワイプ全画面の出入りの遷移(秒)。未設定の config では従来より
       // なめらかな既定 0.3 秒にする(0 を書けば瞬時に戻せる)
       transitionSec: renderCfg.wipeTransitionSec ?? DEFAULT_WIPE_TRANSITION_SEC,

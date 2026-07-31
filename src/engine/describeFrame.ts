@@ -242,7 +242,7 @@ function wipeReactiveShrink(
 /**
  * グループ2: カメラ(ワイプ)+ wipeFull(全画面化の遷移)+ zoom 連動のワイプ
  * 縮小。design 有無で矩形の式が分岐する(design.camera があれば
- * wipeRectAt、無ければ props.wipe.rect)し、縮小は選択アンカー基準で行う。
+ * wipeRectAt、無ければ props.wipe.style)し、縮小は選択アンカー基準で行う。
  * ショート(layout あり)・カメラ無し・wipeBurnedIn(render 高速パスで
  * cut.mp4 に焼き込み済み)のいずれかなら何も出さない
  * (Main.tsx:370-372 の layerNode("wipe") 分岐の逐語移植)。
@@ -258,7 +258,8 @@ export function describeWipeLayer(props: RenderProps, tOut: number): FrameItem[]
 
   const cameraRegion = props.cameraRegion;
   const fallbackWipeH = Math.round((props.wipe.widthPx * cameraRegion.h) / cameraRegion.w);
-  const baseWipeRect = props.wipe.rect ?? {
+  const style = props.wipe.style;
+  const baseWipeRect = style?.rect ?? {
     x: props.width - props.wipe.widthPx,
     y: props.height - fallbackWipeH,
     w: props.wipe.widthPx,
@@ -278,7 +279,7 @@ export function describeWipeLayer(props: RenderProps, tOut: number): FrameItem[]
     const shrunk = shrinkWipeRect(
       designWipe.rect,
       designWipe.radiusPx,
-      props.wipe.anchor ?? "bottom-right",
+      style?.anchor ?? "bottom-right",
       shrinkS,
     );
     box = shrunk.rect;
@@ -293,8 +294,8 @@ export function describeWipeLayer(props: RenderProps, tOut: number): FrameItem[]
     };
     const shrunk = shrinkWipeRect(
       expanded,
-      props.wipe.radiusPx ?? 0,
-      props.wipe.anchor ?? "bottom-right",
+      style?.radiusPx ?? 0,
+      style?.anchor ?? "bottom-right",
       shrinkS,
     );
     box = shrunk.rect;

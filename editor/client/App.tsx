@@ -3896,12 +3896,15 @@ export const App = () => {
         const { wipeStyle: _drop, ...rest } = prev;
         return rest;
       }
+      const legacyWipeH = built.props.cameraRegion
+        ? Math.round((built.props.wipe.widthPx * built.props.cameraRegion.h) / built.props.cameraRegion.w)
+        : built.props.wipe.widthPx;
       const current: WipeStyle = prev.wipeStyle ?? {
-        anchor: built.props.wipe.anchor ?? "bottom-right",
+        anchor: built.props.wipe.style?.anchor ?? "bottom-right",
         marginPx: built.props.wipe.marginPx,
-        sizePx: built.props.wipe.widthPx,
-        radiusPx: built.props.wipe.radiusPx ?? 0,
-        shadow: built.props.wipe.shadow ?? false,
+        sizePx: built.props.wipe.style?.sizePx ?? Math.min(built.props.wipe.widthPx, legacyWipeH),
+        radiusPx: built.props.wipe.style?.radiusPx ?? 0,
+        shadow: built.props.wipe.style?.shadow ?? false,
       };
       const next: WipeStyle = { ...current, ...patch };
       for (const k of Object.keys(patch) as (keyof WipeStyle)[]) {
@@ -6540,11 +6543,16 @@ export const App = () => {
               output={{ w: built.props.width, h: built.props.height }}
               marginPx={built.props.wipe.marginPx}
               wipeStyle={{
-                anchor: built.props.wipe.anchor ?? "bottom-right",
+                anchor: built.props.wipe.style?.anchor ?? "bottom-right",
                 marginPx: built.props.wipe.marginPx,
-                sizePx: built.props.wipe.widthPx,
-                radiusPx: built.props.wipe.radiusPx ?? 0,
-                shadow: built.props.wipe.shadow ?? false,
+                sizePx: built.props.wipe.style?.sizePx ?? Math.min(
+                  built.props.wipe.widthPx,
+                  built.props.cameraRegion
+                    ? Math.round((built.props.wipe.widthPx * built.props.cameraRegion.h) / built.props.cameraRegion.w)
+                    : built.props.wipe.widthPx,
+                ),
+                radiusPx: built.props.wipe.style?.radiusPx ?? 0,
+                shadow: built.props.wipe.style?.shadow ?? false,
               }}
               timeline={curTimeline}
               srcDur={srcDur}

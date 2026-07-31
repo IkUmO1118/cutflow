@@ -72,10 +72,11 @@
   - `fadeInSec` / `fadeOutSec`: 黒からの明転/黒への暗転(秒。音量も連動)
 - **wipeFull**: ワイプ(カメラ)を全画面にして背景を隠す区間。入りと戻りは
   `transitionInSec` / `transitionOutSec` で個別指定できる(0 で瞬時)。省略時は
-  config.yaml の `render.wipeTransitionSec`(既定 0.3 秒。エディタの設定画面 ⌘,
-  からも変更可)を使う。旧 `transitionSec` は後方互換のため、個別指定がない
-  両方向へ適用される。遷移は区間全体の頭と末尾にだけ入り、カット・挿入・
-  隣接エントリで区間が繋がっている継ぎ目では走らない
+  config.yaml の `render.wipeTransitionSec`(既定 0.3 秒)を使う。通常位置は
+  `overlays.json` の `wipeStyle` で決まり、未指定時は config のワイプ設定を
+  継承する。旧 `transitionSec` は後方互換のため、個別指定がない両方向へ
+  適用される。遷移は区間全体の頭と末尾にだけ入り、カット・挿入・隣接
+  エントリで区間が繋がっている継ぎ目では走らない
   - 通常動画(`manifest.layout: "plain"`。カメラの無い収録)では**使えない**
     (ワイプの crop 元が無いため。`validate` がエラーにする)。`layerOrder` に
     `wipe` を含めても無視されるだけ(警告)

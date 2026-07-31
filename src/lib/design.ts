@@ -126,9 +126,9 @@ export function rectForWipeStyle(style: WipeStyle, width: number, height: number
   const s = style.sizePx;
   const m = style.marginPx;
   const x =
-    style.anchor.endsWith("left") || style.anchor === "left"
+    style.anchor.endsWith("left")
       ? m
-      : style.anchor.endsWith("right") || style.anchor === "right"
+      : style.anchor.endsWith("right")
         ? width - m - s
         : Math.round((width - s) / 2);
   const y =
@@ -140,23 +140,14 @@ export function rectForWipeStyle(style: WipeStyle, width: number, height: number
   return { x, y, w: s, h: s };
 }
 
-function fallbackWipeStyle(renderCfg: Config["render"]): WipeStyle {
-  if (renderCfg.design?.enabled) {
-    const camera = renderCfg.design.camera ?? {};
-    return {
-      anchor: "bottom-right",
-      marginPx: camera.marginPx ?? DEFAULT_DESIGN.camera.marginPx,
-      sizePx: camera.sizePx ?? DEFAULT_DESIGN.camera.sizePx,
-      radiusPx: camera.radiusPx ?? DEFAULT_DESIGN.camera.radiusPx,
-      shadow: camera.shadow ?? DEFAULT_DESIGN.camera.shadow,
-    };
-  }
+function designWipeStyle(renderCfg: Config["render"]): WipeStyle {
+  const camera = renderCfg.design?.camera ?? {};
   return {
     anchor: "bottom-right",
-    marginPx: renderCfg.wipeMarginPx,
-    sizePx: renderCfg.wipeWidthPx,
-    radiusPx: 0,
-    shadow: false,
+    marginPx: camera.marginPx ?? DEFAULT_DESIGN.camera.marginPx,
+    sizePx: camera.sizePx ?? DEFAULT_DESIGN.camera.sizePx,
+    radiusPx: camera.radiusPx ?? DEFAULT_DESIGN.camera.radiusPx,
+    shadow: camera.shadow ?? DEFAULT_DESIGN.camera.shadow,
   };
 }
 
@@ -168,7 +159,8 @@ export function resolveWipeStyle(args: {
   hasCamera: boolean;
 }): ResolvedWipeStyle | undefined {
   if (!args.hasCamera) return undefined;
-  const style = args.overlays.wipeStyle ?? fallbackWipeStyle(args.renderCfg);
+  if (!args.overlays.wipeStyle && !args.renderCfg.design?.enabled) return undefined;
+  const style = args.overlays.wipeStyle ?? designWipeStyle(args.renderCfg);
   const rect = rectForWipeStyle(style, args.width, args.height);
   return {
     ...style,
@@ -271,9 +263,9 @@ export function resolveDesign(
  * (`ease`。0 = 通常の角丸ワイプ / 1 = 出力の全画面)で補間する。
  *
  * `overlays.json` の `wipeFull` はデザイン経路でも効く: 区間に入るとカメラが
- * 右下の角丸正方形から出力いっぱいへ広がり(背景画像・画面パネルは覆い隠され
- * る)、区間を出ると元へ戻る。角丸も 0 へ向かって補間するので、全画面時は
- * デザイン無しの wipeFull と同じ絵になる。ease は Main.tsx が
+ * 通常位置の角丸正方形から出力いっぱいへ広がり(背景画像・画面パネルは
+ * 覆い隠される)、区間を出ると元へ戻る。角丸も 0 へ向かって補間するので、
+ * 全画面時はデザイン無しの wipeFull と同じ絵になる。ease は Main.tsx が
  * `render.wipeTransitionSec` から作る smoothstep 済みの進行度。
  */
 export function wipeRectAt(
@@ -328,9 +320,9 @@ export function shrinkWipeRect(
   const w = Math.round(rect.w * s);
   const h = Math.round(rect.h * s);
   const x =
-    anchor.endsWith("left") || anchor === "left"
+    anchor.endsWith("left")
       ? rect.x
-      : anchor.endsWith("right") || anchor === "right"
+      : anchor.endsWith("right")
         ? rect.x + rect.w - w
         : Math.round(rect.x + (rect.w - w) / 2);
   const y =

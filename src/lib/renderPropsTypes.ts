@@ -9,9 +9,9 @@ import type {
   KeyframeEasing,
   LayerId,
   SpotlightShape,
-  WipeAnchor,
 } from "../types.ts";
 import type { DesignProps } from "./design.ts";
+import type { ResolvedWipeStyle } from "./design.ts";
 
 export interface Region {
   x: number;
@@ -177,18 +177,17 @@ export type RenderProps = {
   /** カメラ(ワイプ)領域。plain(manifest.video.cameraRegion 無し)では
    *  undefined(ワイプ非描画。ワイプ関連レイヤーが到達しない) */
   cameraRegion?: Region;
-  /** 右下ワイプの寸法。transitionSec はワイプ全画面(wipeFull)の出入りの
-   * 遷移時間(秒。省略・0 で瞬時)。reactiveMinScale は baked(focusMode)
-   * ズーム中のワイプ縮小の下限(0..1。config.yaml の
-   * render.zoom.webcamReactiveMinScale から解決済み。省略時 0.35=
-   * OpenScreen 逐語) */
+  /** widthPx/marginPx はテロップ安全余白に使う config 値
+   * (render.wipeWidthPx/render.wipeMarginPx)。ワイプ矩形そのものは style が
+   * 持つ。style undefined は legacy(アスペクト保持・右下 flush)経路。
+   * transitionSec はワイプ全画面(wipeFull)の出入りの遷移時間(秒。省略・0 で
+   * 瞬時)。reactiveMinScale は baked(focusMode)ズーム中のワイプ縮小の下限
+   * (0..1。config.yaml の render.zoom.webcamReactiveMinScale から解決済み。
+   * 省略時 0.35=OpenScreen 逐語) */
   wipe: {
     widthPx: number;
     marginPx: number;
-    rect?: Region;
-    radiusPx?: number;
-    shadow?: boolean;
-    anchor?: WipeAnchor;
+    style?: ResolvedWipeStyle;
     transitionSec?: number;
     reactiveMinScale?: number;
   };

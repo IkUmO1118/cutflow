@@ -620,9 +620,9 @@ export function validateDocs(
           const s = style.sizePx;
           const m = style.marginPx;
           const anchor = style.anchor as WipeAnchor;
-          const x = anchor.endsWith("left") || anchor === "left"
+          const x = anchor.endsWith("left")
             ? m
-            : anchor.endsWith("right") || anchor === "right"
+            : anchor.endsWith("right")
               ? outW - m - s
               : Math.round((outW - s) / 2);
           const y = anchor.startsWith("top")
