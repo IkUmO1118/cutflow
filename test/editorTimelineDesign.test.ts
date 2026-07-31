@@ -99,7 +99,7 @@ test("P3 styles every FrameWright clip family and all timeline states inside its
   for (const state of [
     ".tlClip:hover:not(.static)", ".tlClip.sel", ".tlLabel:hover", ".tlLabel.sel",
     ".tlLabel .trackMute.muted", ".tlLabel .trackEye.off", ".tlTrack.layerHidden .tlClip",
-    ".tlTrack.dropOk", ".tlTrack.dropActive", ".tlGhost", ".tlDropGhost",
+    ".tlTrack.wipeTrack::before", ".tlTrack.dropOk", ".tlTrack.dropActive", ".tlGhost", ".tlDropGhost",
     ".tlSnapLine", ".tlPlayhead", ".tlPlayheadCap",
   ]) assert.ok(css.includes(`.ocTimeline ${state}`), `missing Timeline state ${state}`);
 });

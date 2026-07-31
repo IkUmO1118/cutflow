@@ -70,6 +70,7 @@ import type {
   Short,
   Shorts,
   Transcript,
+  WipeStyle,
 } from "../../src/types.ts";
 import type {
   AiProposeResponse,
@@ -1942,13 +1943,10 @@ export const App = () => {
         });
       });
     });
-    // ワイプ: 常駐レイヤー(表示のみ)+ その上に「全画面」属性スパン。
+    // ワイプ: 「全画面」属性スパンだけをクリップとして積む。
+    // 常駐ワイプの録画単位設定は左のトラック名クリックで選択する。
     // plain(カメラ無し)はワイプトラック自体を出さないので clip も積まない
     if (built.props.cameraRegion) {
-      cs.push({
-        kind: "wipe", index: 0, track: "wipe",
-        outStart: 0, outEnd: duration, label: "カメラ", editable: false, static: true,
-      });
       (overlays.wipeFull ?? []).forEach((sp, i) => {
         const parts = remapInterval(sp.start, sp.end, timeline);
         parts.forEach((iv, j) => {
@@ -2174,6 +2172,7 @@ export const App = () => {
     return timelineTracks.filter(
       (t) =>
         t.id === "cut" ||
+        (t.id === "wipe" && proj?.hasCamera !== false) ||
         occupied.has(t.id) ||
         hasDiff.has(t.id) ||
         t.id === presetDrag?.track ||
@@ -2181,7 +2180,7 @@ export const App = () => {
           selection?.kind === "captionTrack" &&
           selection.index === t.renamableCaption),
     );
-  }, [timelineTracks, clips, shortMode, selection, presetDrag, diffTracks]);
+  }, [timelineTracks, clips, shortMode, selection, presetDrag, diffTracks, proj?.hasCamera]);
 
   /* ---------------- カット編集(分割・keep⇄cut・復元) ----------------
    * cut 区間は削除せず記録として残す(plan の候補と同じ扱い)。だから
@@ -3885,6 +3884,30 @@ export const App = () => {
       }
       arr[i] = entry;
       return { ...prev, [kind]: arr };
+    });
+  };
+  const updateWipeStyle = (patch: Partial<WipeStyle> | null, coalesceKey?: string) => {
+    if (!built) return;
+    pushHistory(coalesceKey ?? null);
+    setOverlays((prev) => {
+      if (!prev) return prev;
+      if (patch === null) {
+        if (!prev.wipeStyle) return prev;
+        const { wipeStyle: _drop, ...rest } = prev;
+        return rest;
+      }
+      const current: WipeStyle = prev.wipeStyle ?? {
+        anchor: built.props.wipe.anchor ?? "bottom-right",
+        marginPx: built.props.wipe.marginPx,
+        sizePx: built.props.wipe.widthPx,
+        radiusPx: built.props.wipe.radiusPx ?? 0,
+        shadow: built.props.wipe.shadow ?? false,
+      };
+      const next: WipeStyle = { ...current, ...patch };
+      for (const k of Object.keys(patch) as (keyof WipeStyle)[]) {
+        if (patch[k] === undefined) delete (next as Partial<WipeStyle>)[k];
+      }
+      return { ...prev, wipeStyle: next };
     });
   };
   const removeSpan = (kind: "overlays" | "wipeFull", i: number) => {
@@ -5884,6 +5907,7 @@ export const App = () => {
       {settingsOpen && (
           <SettingsModal
             cfg={cfgValuesOf(proj)}
+            hasCamera={proj.hasCamera}
             planPerception={proj.planPerception}
             onChange={(patch) => setProj((p) => p && projectWithCfgPatch(p, patch))}
             onSave={() => void saveSettings()}
@@ -6515,6 +6539,13 @@ export const App = () => {
               captionDefaults={built.props.caption}
               output={{ w: built.props.width, h: built.props.height }}
               marginPx={built.props.wipe.marginPx}
+              wipeStyle={{
+                anchor: built.props.wipe.anchor ?? "bottom-right",
+                marginPx: built.props.wipe.marginPx,
+                sizePx: built.props.wipe.widthPx,
+                radiusPx: built.props.wipe.radiusPx ?? 0,
+                shadow: built.props.wipe.shadow ?? false,
+              }}
               timeline={curTimeline}
               srcDur={srcDur}
               duration={duration}
@@ -6539,6 +6570,7 @@ export const App = () => {
               removeCaptions={removeCaptions}
               updateSpan={updateSpan}
               removeSpan={removeSpan}
+              updateWipeStyle={updateWipeStyle}
               updateZoom={updateZoom}
               removeZoom={removeZoom}
               updateBlur={updateBlur}
@@ -6595,6 +6627,9 @@ export const App = () => {
         onToggleCaptionSel={toggleCaptionMulti}
         onSeek={seekOut}
         onSelect={setSelection}
+        onSelectTrackHeader={(track) => {
+          if (track === "wipe") setSelection({ kind: "wipe", index: 0 });
+        }}
         onDragStart={onDragStart}
         onDragMove={onDragMove}
         onDragEnd={onDragEnd}

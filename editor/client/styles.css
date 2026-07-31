@@ -2200,6 +2200,15 @@
   .anchorPoint .anchorHit:hover {
     background: hsl(var(--oc-primary) / 0.14);
   }
+  .anchorPoint .anchorHit.selected {
+    background: hsl(var(--oc-primary) / 0.22);
+    box-shadow: inset 0 0 0 2px hsl(var(--oc-primary));
+  }
+  .anchorPoint .anchorHit:disabled {
+    cursor: not-allowed;
+    background: hsl(var(--oc-muted) / 0.5);
+    opacity: 0.55;
+  }
   .anchorPoint .anchorCorner {
     width: 16px;
     height: 16px;
@@ -2614,6 +2623,14 @@
   .tlTrack {
     position: relative; height: 26px;
     margin-bottom: 6px;
+  }
+  .tlTrack.wipeTrack::before {
+    content: "";
+    position: absolute;
+    inset: 3px 0;
+    background: #BA5D7A;
+    opacity: 0.28;
+    pointer-events: none;
   }
   .tlClip {
     position: absolute; top: 3px; bottom: 3px;
@@ -4285,6 +4302,124 @@
 .ocInspector .srcRangeUse { background: hsl(var(--oc-primary)); }
 .ocInspector .anchorPoint { border-color: hsl(var(--oc-border)); background: hsl(var(--oc-background)); }
 .ocInspector .anchorPoint .anchorHit:hover { background: hsl(var(--oc-primary) / 0.12); }
+.ocInspector .anchorPoint .anchorHit.selected { background: hsl(var(--oc-primary) / 0.2); }
+.ocInspector .anchorPoint .anchorHit:disabled:hover { background: hsl(var(--oc-muted) / 0.5); }
+
+.ocInspector .wipePlacementControls,
+.ocInspector .wipeAppearanceControls {
+  grid-template-columns: 1fr;
+}
+.ocInspector .wipeAnchorField {
+  display: grid;
+  gap: 0.65rem;
+}
+.ocInspector .wipeAnchorField > label {
+  flex-basis: auto;
+}
+.ocInspector .wipeAnchorField .anchorWide {
+  width: 100%;
+  display: block;
+}
+.ocInspector .wipeAnchorField .anchorPoint {
+  width: min(100%, 13rem);
+  max-width: none;
+  min-height: 8.5rem;
+  aspect-ratio: 1.35 / 1;
+  background: hsl(var(--oc-card));
+}
+.ocInspector .wipeAnchorField .anchorPoint::before,
+.ocInspector .wipeAnchorField .anchorPoint::after,
+.ocInspector .wipeAnchorField .anchorRail,
+.ocInspector .wipeAnchorField .anchorCorner::before,
+.ocInspector .wipeAnchorField .anchorCorner::after {
+  background: hsl(var(--oc-foreground) / 0.58);
+}
+.ocInspector .wipeAnchorField .anchorCenter {
+  background: hsl(var(--oc-muted));
+}
+.ocInspector .wipeAnchorField .anchorCenter span::before,
+.ocInspector .wipeAnchorField .anchorCenter span::after {
+  background: hsl(var(--oc-muted-foreground));
+}
+.ocInspector .wipeSwitchField {
+  display: grid;
+  justify-items: start;
+  gap: 0.55rem;
+}
+.ocInspector .wipeSwitchField > label {
+  flex-basis: auto;
+}
+.ocInspector .wipeSliderField {
+  display: grid;
+  gap: 0.55rem;
+}
+.ocInspector .wipeSliderField > label {
+  flex-basis: auto;
+}
+.ocInspector .wipeSliderHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+}
+.ocInspector .wipeSliderHead > label {
+  color: hsl(var(--oc-muted-foreground));
+  font-size: var(--oc-text-xs);
+  font-weight: 500;
+  line-height: 1;
+}
+.ocInspector .wipeSliderHead > span {
+  font-size: 0.68rem;
+}
+.ocInspector .wipeSlider {
+  --wipe-slider-track-h: 0.42rem;
+  --wipe-slider-thumb-d: 1rem;
+  --wipe-slider-bg: hsl(var(--oc-border));
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  min-width: 0;
+  height: var(--wipe-slider-thumb-d);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.ocInspector .wipeSlider::-webkit-slider-runnable-track {
+  height: var(--wipe-slider-track-h);
+  border: 1px solid hsl(var(--oc-border));
+  border-radius: 999px;
+  background: var(--wipe-slider-bg);
+  box-shadow: inset 0 1px 1px hsl(220 40% 2% / 0.16);
+}
+.ocInspector .wipeSlider::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: var(--wipe-slider-thumb-d);
+  height: var(--wipe-slider-thumb-d);
+  margin-top: calc((var(--wipe-slider-track-h) - var(--wipe-slider-thumb-d)) / 2);
+  border: 2px solid hsl(var(--oc-background));
+  border-radius: 999px;
+  background: hsl(var(--oc-foreground));
+  box-sizing: border-box;
+  box-shadow: 0 1px 3px hsl(220 40% 2% / 0.4), 0 0 0 1px hsl(var(--oc-ring) / 0.3);
+}
+.ocInspector .wipeSlider::-moz-range-thumb {
+  width: var(--wipe-slider-thumb-d);
+  height: var(--wipe-slider-thumb-d);
+  border: 2px solid hsl(var(--oc-background));
+  border-radius: 999px;
+  background: hsl(var(--oc-foreground));
+  box-sizing: border-box;
+  box-shadow: 0 1px 3px hsl(220 40% 2% / 0.4), 0 0 0 1px hsl(var(--oc-ring) / 0.3);
+}
+.ocInspector .wipeSlider::-moz-range-track {
+  height: var(--wipe-slider-track-h);
+  border: 1px solid hsl(var(--oc-border));
+  border-radius: 999px;
+  background: var(--wipe-slider-bg);
+  box-shadow: inset 0 1px 1px hsl(220 40% 2% / 0.16);
+}
 
 /* OpenCut properties: 左アイコンレール + 右スクロール本体 */
 .ocInspector .inspTabbed {
@@ -4678,6 +4813,21 @@
 
 .ocTimeline .tlTrack:hover {
   background: hsl(var(--oc-accent) / 0.18);
+}
+
+.ocTimeline .tlTrack.wipeTrack::before {
+  content: "";
+  position: absolute;
+  inset: 0.3rem 0;
+  background: #BA5D7A;
+  border-radius: 0.125rem;
+  opacity: 0.32;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.ocTimeline .tlTrack.wipeTrack .tlClip {
+  z-index: 1;
 }
 
 .ocTimeline .tlTrack.layerHidden .tlClip {

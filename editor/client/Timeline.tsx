@@ -168,6 +168,7 @@ export const Timeline = ({
   onToggleCaptionSel,
   onSeek,
   onSelect,
+  onSelectTrackHeader,
   onDragStart,
   onDragMove,
   onDragEnd,
@@ -222,6 +223,7 @@ export const Timeline = ({
   onToggleCaptionSel: (index: number) => void;
   onSeek: (outT: number) => void;
   onSelect: (sel: Selection) => void;
+  onSelectTrackHeader?: (track: TrackId) => void;
   /** clip: 掴んだクリップ(カットで割れたスパンはフラグメントの位置を持つ) */
   onDragStart: (sel: NonNullable<Selection>, mode: DragMode, clip: Clip) => void;
   /** overTrack: move ドラッグ中にポインタが乗っているトラック
@@ -1089,9 +1091,10 @@ export const Timeline = ({
               const audio = t.audio;
               const layerHidden = t.layer !== undefined && hiddenLayers.includes(t.layer);
               const trackSelected =
-                t.renamableCaption !== undefined &&
-                selection?.kind === "captionTrack" &&
-                selection.index === t.renamableCaption;
+                (t.renamableCaption !== undefined &&
+                  selection?.kind === "captionTrack" &&
+                  selection.index === t.renamableCaption) ||
+                (t.id === "wipe" && selection?.kind === "wipe");
               return (
                 <div
                   className={`tlLabel${t.reorderable ? " reorderable" : ""}${dragLabel === t.id ? " dragging" : ""}${drop?.track === t.id ? " dropActive" : ""}${trackSelected ? " sel" : ""}${pairedTrackIds.has(t.id) ? " setBottom" : ""}`}
@@ -1104,6 +1107,8 @@ export const Timeline = ({
                     // そのまま継続できるよう onLabelDown も従来どおり呼ぶ
                     if (e.button === 0 && t.renamableCaption !== undefined) {
                       onSelectCaptionTrack(t.renamableCaption);
+                    } else if (e.button === 0 && t.id === "wipe") {
+                      onSelectTrackHeader?.(t.id);
                     }
                     // F3: i は diff レーンを含む allTracks の添字。
                     // onLabelDown は tracks[idx] を引くので id で引き直す
@@ -1283,7 +1288,7 @@ export const Timeline = ({
               const track = item as TrackDef;
               return (
                 <div
-                  className={`tlTrack${
+                  className={`tlTrack${track.id === "wipe" ? " wipeTrack" : ""}${
                     track.layer !== undefined && hiddenLayers.includes(track.layer)
                       ? " layerHidden"
                       : ""
