@@ -125,3 +125,12 @@ test("renderCfgWithDesign: 背景なしは同一参照を返し副作用がな�
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("renderCfgWithDesign: 背景レイアウトOFFなら背景ファイルを取り込まない", () => {
+  const dir = mkdtempSync(join(tmpdir(), "framewright-design-"));
+  const cfg = cfgWith("assets/backgrounds/dusk.jpg");
+  cfg.render.design = { ...cfg.render.design, backgroundEnabled: false };
+  const out = renderCfgWithDesign(dir, cfg);
+  strictEqual(out, cfg.render);
+  strictEqual(existsSync(join(dir, "render.design")), false);
+});

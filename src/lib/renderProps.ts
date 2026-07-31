@@ -48,7 +48,7 @@ import type {
 } from "../types.ts";
 import { manifestCompositionFps } from "../types.ts";
 import { resolveAnnotation } from "./annotation.ts";
-import { resolveDesign } from "./design.ts";
+import { resolveDesign, resolveWipeStyle } from "./design.ts";
 import { cursorFocusToLocalPoint, resampleCursorTrack } from "./cursorAnchors.ts";
 import type { CursorDwellSample, CursorRectGeom } from "./cursorAnchors.ts";
 import type {
@@ -172,9 +172,16 @@ export function buildRenderProps(args: {
 
   // ベースレイアウトのデザイン(config.yaml の render.design)。縦プリセット
   // (profile.layout)はパネル合成で別レイアウトなので対象外
+  const resolvedWipeStyle = resolveWipeStyle({
+    overlays,
+    renderCfg,
+    width,
+    height,
+    hasCamera: !!manifest.video.cameraRegion,
+  });
   const design = profile?.layout
     ? undefined
-    : resolveDesign(renderCfg.design, width, height, !!manifest.video.cameraRegion);
+    : resolveDesign(renderCfg.design, width, height, !!manifest.video.cameraRegion, resolvedWipeStyle);
   if (design?.backgroundFile && !overlayExists(design.backgroundFile)) {
     warn(`背景画像が見つかりません: ${design.backgroundFile}(背景色のみで描画します)`);
     delete design.backgroundFile;
@@ -563,6 +570,7 @@ export function buildRenderProps(args: {
     wipe: {
       widthPx: renderCfg.wipeWidthPx,
       marginPx: renderCfg.wipeMarginPx,
+      ...(resolvedWipeStyle ? { style: resolvedWipeStyle } : {}),
       // ワイプ全画面の出入りの遷移(秒)。未設定の config では従来より
       // なめらかな既定 0.3 秒にする(0 を書けば瞬時に戻せる)
       transitionSec: renderCfg.wipeTransitionSec ?? DEFAULT_WIPE_TRANSITION_SEC,

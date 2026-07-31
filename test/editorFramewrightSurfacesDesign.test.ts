@@ -33,6 +33,15 @@ test("P4 checkpoint 1 adds scoped roots without replacing semantic hooks", () =>
   ]) assert.ok([command, visual, diff, settings, app, panels].some((source) => source.includes(hook)), `lost hook ${hook}`);
 });
 
+test("editor reports SSE disconnects and exposes the background-only layout toggle", () => {
+  const app = read("editor/client/App.tsx");
+  const settings = read("editor/client/SettingsModal.tsx");
+  assert.match(app, /es\.onerror = \(\) =>/);
+  assert.match(app, /エディターサーバーとの接続が切れました/);
+  assert.match(settings, /<label>背景レイアウト<\/label>/);
+  assert.match(settings, /design: \{ \.\.\.r\.design, backgroundEnabled: e\.target\.checked \}/);
+});
+
 test("P4 wrappers use exact-pinned Radix primitives for focus, keys, and scroll mechanics", () => {
   const dialog = read("editor/client/components/ui/dialog.tsx");
   const tabs = read("editor/client/components/ui/tabs.tsx");

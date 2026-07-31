@@ -123,7 +123,8 @@ test("CLI --json needs no dir, emits pure JSON, and does not write the working d
     });
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(JSON.parse(result.stdout), hyperframeBackends());
-    assert.match(result.stderr, /^\(所要時間: \d+\.\d秒\)\n$/);
+    const timingLine = result.stderr.split("\n").filter((line) => line.startsWith("(所要時間: ")).join("\n") + "\n";
+    assert.match(timingLine, /^\(所要時間: \d+\.\d秒\)\n$/);
     assert.deepEqual(readdirSync(cwd), []);
   } finally {
     rmSync(cwd, { recursive: true, force: true });

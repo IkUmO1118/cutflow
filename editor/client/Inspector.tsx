@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import {
   CAPTION_DEFAULT_COLOR,
   CAPTION_DEFAULT_FONT_FAMILY,
@@ -41,6 +41,8 @@ import type {
   Short,
   SpotlightShape,
   Transcript,
+  WipeAnchor,
+  WipeStyle,
 } from "../../src/types.ts";
 import { remapInterval } from "../../src/lib/timeline.ts";
 import type { TimelineEntry } from "../../src/lib/timeline.ts";
@@ -76,8 +78,27 @@ type OverlayEntry = NonNullable<Overlays["overlays"]>[number];
 type WipeFullEntry = NonNullable<Overlays["wipeFull"]>[number];
 type InsertEntry = NonNullable<Overlays["inserts"]>[number];
 type BgmTrack = Bgm["tracks"][number];
+type AnchorPoint = readonly ["l" | "c" | "r", "t" | "m" | "b"];
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+const anchorPointOfWipeAnchor = (anchor: WipeAnchor): AnchorPoint => {
+  switch (anchor) {
+    case "top-left": return ["l", "t"];
+    case "top": return ["c", "t"];
+    case "top-right": return ["r", "t"];
+    case "left": return ["l", "m"];
+    case "right": return ["r", "m"];
+    case "bottom-left": return ["l", "b"];
+    case "bottom": return ["c", "b"];
+    case "bottom-right": return ["r", "b"];
+  }
+};
+const wipeAnchorOfPoint = (h: AnchorPoint[0], v: AnchorPoint[1]): WipeAnchor | null => {
+  if (h === "c" && v === "m") return null;
+  if (v === "t") return h === "l" ? "top-left" : h === "c" ? "top" : "top-right";
+  if (v === "m") return h === "l" ? "left" : "right";
+  return h === "l" ? "bottom-left" : h === "c" ? "bottom" : "bottom-right";
+};
 /** 区間がゼロ幅・逆転しないための最小幅(秒)。App の MIN_SPAN と同じ */
 const MIN_SPAN = 0.01;
 
@@ -220,6 +241,7 @@ export const Inspector = ({
   captionDefaults,
   output,
   marginPx,
+  wipeStyle,
   timeline,
   srcDur,
   duration,
@@ -238,6 +260,7 @@ export const Inspector = ({
   removeCaptions,
   updateSpan,
   removeSpan,
+  updateWipeStyle,
   updateZoom,
   removeZoom,
   updateBlur,
@@ -278,6 +301,7 @@ export const Inspector = ({
   output: { w: number; h: number };
   /** 画面端からの余白(config の render.wipeMarginPx。プリセットに使う) */
   marginPx: number;
+  wipeStyle: WipeStyle;
   /** カット後写像(出力時刻の表示に使う) */
   timeline: TimelineEntry[];
   /** 元収録の長さ(秒) */
@@ -342,6 +366,7 @@ export const Inspector = ({
     coalesceKey?: string,
   ) => void;
   removeSpan: (kind: "overlays" | "wipeFull", i: number) => void;
+  updateWipeStyle: (patch: Partial<WipeStyle> | null, coalesceKey?: string) => void;
   updateZoom: (
     i: number,
     patch: Partial<NonNullable<Overlays["zooms"]>[number]>,
@@ -1570,6 +1595,132 @@ export const Inspector = ({
     );
   }
 
+  /* ---------------- ワイプ常駐設定 ---------------- */
+
+  if (selection.kind === "wipe") {
+    const maxSize = Math.max(80, Math.floor(Math.min(output.w, output.h) - wipeStyle.marginPx * 2));
+    const maxMargin = Math.max(0, Math.floor((Math.min(output.w, output.h) - wipeStyle.sizePx) / 2));
+    const maxRadius = Math.floor(wipeStyle.sizePx / 2);
+    const clampSizePatch = (sizePx: number): Partial<WipeStyle> => {
+      const size = Math.max(80, Math.min(maxSize, Math.round(sizePx)));
+      return { sizePx: size, radiusPx: Math.min(wipeStyle.radiusPx, Math.floor(size / 2)) };
+    };
+    const sliderBg = (value: number, min: number, max: number): CSSProperties => {
+      const pct = max > min ? ((value - min) / (max - min)) * 100 : 0;
+      const fill = Math.max(0, Math.min(100, pct));
+      return {
+        "--wipe-slider-bg":
+          `linear-gradient(to right, hsl(var(--oc-primary)) ${fill}%, ` +
+          `hsl(var(--oc-border)) ${fill}%)`,
+      } as CSSProperties;
+    };
+    return (
+      <InspectorTabs
+        groupKey="wipe"
+        defaultTab="placement"
+        tabs={[
+          {
+            id: "placement",
+            label: "配置",
+            icon: <Move size={16} />,
+            content: () => (
+              <Section title="配置" className="flushTopSec">
+                <div className="capControlStack wipePlacementControls">
+                  <div className="capField wide wipeAnchorField">
+                    <label>位置</label>
+                    <div className="anchorWide">
+                      <AnchorPointControl
+                        value={anchorPointOfWipeAnchor(wipeStyle.anchor)}
+                        disabledPoints={[[ "c", "m" ]]}
+                        onPick={(h, v) => {
+                          const anchor = wipeAnchorOfPoint(h, v);
+                          if (anchor) updateWipeStyle({ anchor });
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className="capField wide">
+                    <label>余白</label>
+                    <NumStepper
+                      value={wipeStyle.marginPx}
+                      min={0}
+                      unit="px"
+                      onCommit={(v) =>
+                        v !== undefined &&
+                        updateWipeStyle({ marginPx: Math.max(0, Math.min(maxMargin, Math.round(v))) })
+                      }
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={!overlays.wipeStyle}
+                    onClick={() => updateWipeStyle(null)}
+                  >
+                    既定に戻す
+                  </Button>
+                </div>
+              </Section>
+            ),
+          },
+          {
+            id: "appearance",
+            label: "外観",
+            icon: <Palette size={16} />,
+            content: () => (
+              <Section title="外観" className="flushTopSec">
+                <div className="capControlStack wipeAppearanceControls">
+                  <div className="capField wide wipeSwitchField">
+                    <label>影</label>
+                    <Switch
+                      checked={wipeStyle.shadow}
+                      onChange={(e) => updateWipeStyle({ shadow: e.currentTarget.checked })}
+                    />
+                  </div>
+                  <div className="capField wide wipeSliderField">
+                    <div className="wipeSliderHead">
+                      <label>サイズ</label>
+                      <span className="mono dim">{wipeStyle.sizePx}px</span>
+                    </div>
+                    <Slider
+                      className="wipeSlider"
+                      value={wipeStyle.sizePx}
+                      min={80}
+                      max={maxSize}
+                      step={1}
+                      style={sliderBg(wipeStyle.sizePx, 80, maxSize)}
+                      onChange={(e) => updateWipeStyle(clampSizePatch(Number(e.currentTarget.value)), "wipe:size")}
+                    />
+                  </div>
+                  <div className="capField wide wipeSliderField">
+                    <div className="wipeSliderHead">
+                      <label>丸み</label>
+                      <span className="mono dim">{Math.min(wipeStyle.radiusPx, maxRadius)}px</span>
+                    </div>
+                    <Slider
+                      className="wipeSlider"
+                      value={Math.min(wipeStyle.radiusPx, maxRadius)}
+                      min={0}
+                      max={maxRadius}
+                      step={1}
+                      style={sliderBg(Math.min(wipeStyle.radiusPx, maxRadius), 0, maxRadius)}
+                      onChange={(e) =>
+                        updateWipeStyle(
+                          { radiusPx: Math.max(0, Math.min(maxRadius, Math.round(Number(e.currentTarget.value)))) },
+                          "wipe:radius",
+                        )
+                      }
+                    />
+                  </div>
+                </div>
+              </Section>
+            ),
+          },
+        ]}
+      />
+    );
+  }
+
   /* ---------------- ワイプ全画面 ---------------- */
 
   if (selection.kind === "wipeFull") {
@@ -2445,38 +2596,54 @@ const Section = ({
 
 const AnchorPointControl = ({
   onPick,
+  value,
+  disabledPoints = [],
 }: {
   onPick: (h: "l" | "c" | "r", v: "t" | "m" | "b") => void;
-}) => (
-  <div className="anchorPoint" title="配置プリセット">
-    <span className="anchorCorner tl" />
-    <span className="anchorCorner tr" />
-    <span className="anchorCorner bl" />
-    <span className="anchorCorner br" />
-    <span className="anchorRail top" />
-    <span className="anchorRail left" />
-    <span className="anchorRail right" />
-    <span className="anchorRail bottom" />
-    <span className="anchorCenter">
-      <span />
-    </span>
-    {(
-      [
-        ["l", "t", "左上"], ["c", "t", "上"], ["r", "t", "右上"],
-        ["l", "m", "左"], ["c", "m", "中央"], ["r", "m", "右"],
-        ["l", "b", "左下"], ["c", "b", "下"], ["r", "b", "右下"],
-      ] as const
-    ).map(([h, v, label]) => (
-      <button
-        key={`${h}${v}`}
-        type="button"
-        className="anchorHit"
-        onClick={() => onPick(h, v)}
-        aria-label={`${label}に配置`}
-      />
-    ))}
-  </div>
-);
+  value?: AnchorPoint;
+  disabledPoints?: readonly AnchorPoint[];
+}) => {
+  const disabled = (h: AnchorPoint[0], v: AnchorPoint[1]) =>
+    disabledPoints.some(([dh, dv]) => dh === h && dv === v);
+  return (
+    <div className="anchorPoint" title="配置プリセット">
+      <span className="anchorCorner tl" />
+      <span className="anchorCorner tr" />
+      <span className="anchorCorner bl" />
+      <span className="anchorCorner br" />
+      <span className="anchorRail top" />
+      <span className="anchorRail left" />
+      <span className="anchorRail right" />
+      <span className="anchorRail bottom" />
+      <span className="anchorCenter">
+        <span />
+      </span>
+      {(
+        [
+          ["l", "t", "左上"], ["c", "t", "上"], ["r", "t", "右上"],
+          ["l", "m", "左"], ["c", "m", "中央"], ["r", "m", "右"],
+          ["l", "b", "左下"], ["c", "b", "下"], ["r", "b", "右下"],
+        ] as const
+      ).map(([h, v, label]) => {
+        const isDisabled = disabled(h, v);
+        const pressed = value?.[0] === h && value?.[1] === v;
+        return (
+          <button
+            key={`${h}${v}`}
+            type="button"
+            className={cn("anchorHit", pressed && "selected")}
+            onClick={() => !isDisabled && onPick(h, v)}
+            disabled={isDisabled}
+            aria-disabled={isDisabled ? "true" : undefined}
+            aria-pressed={pressed}
+            aria-label={`${label}に配置`}
+            title={isDisabled ? "ワイプは中央には配置できません" : undefined}
+          />
+        );
+      })}
+    </div>
+  );
+};
 
 /**
  * タイミングの共通表示。編集の本線はタイムラインのトリム/移動なので、

@@ -7,7 +7,7 @@
 // §Phase2)。このファイルは各グループの内部関数を追記していく形で育つ。
 import { activeZoomSpanAt, zoomProgressAt, zoomTransformAt } from "../lib/zoom.ts";
 import type { ZoomSpan, ZoomTransform } from "../lib/zoom.ts";
-import { panelRect, shrinkRectBottomRight, wipeRectAt } from "../lib/design.ts";
+import { panelRect, shrinkWipeRect, wipeRectAt } from "../lib/design.ts";
 import { wipeProgressAt } from "../lib/wipe.ts";
 import { alignKaraoke, animStateAt, karaokeActiveAt, karaokeFillProgress } from "../lib/captionAnim.ts";
 import { isImageFile } from "../lib/overlayFade.ts";
@@ -242,7 +242,7 @@ function wipeReactiveShrink(
 /**
  * グループ2: カメラ(ワイプ)+ wipeFull(全画面化の遷移)+ zoom 連動のワイプ
  * 縮小。design 有無で矩形の式が分岐する(design.camera があれば
- * wipeRectAt+shrinkRectBottomRight、無ければ右下 flush の素の矩形)。
+ * wipeRectAt、無ければ props.wipe.style)し、縮小は選択アンカー基準で行う。
  * ショート(layout あり)・カメラ無し・wipeBurnedIn(render 高速パスで
  * cut.mp4 に焼き込み済み)のいずれかなら何も出さない
  * (Main.tsx:370-372 の layerNode("wipe") 分岐の逐語移植)。
@@ -257,11 +257,16 @@ export function describeWipeLayer(props: RenderProps, tOut: number): FrameItem[]
   if (sourceTimeSec === null) return [];
 
   const cameraRegion = props.cameraRegion;
-  const wipeH = Math.round((props.wipe.widthPx * cameraRegion.h) / cameraRegion.w);
+  const fallbackWipeH = Math.round((props.wipe.widthPx * cameraRegion.h) / cameraRegion.w);
+  const style = props.wipe.style;
+  const baseWipeRect = style?.rect ?? {
+    x: props.width - props.wipe.widthPx,
+    y: props.height - fallbackWipeH,
+    w: props.wipe.widthPx,
+    h: fallbackWipeH,
+  };
   const wipeT = props.wipe.transitionSec ?? 0;
   const wipeEase = wipeProgressAt(tOut, props.wipeFull, wipeT);
-  const wipeW = Math.round(props.wipe.widthPx + (props.width - props.wipe.widthPx) * wipeEase);
-  const wipeHNow = Math.round(wipeH + (props.height - wipeH) * wipeEase);
 
   const zoomT = zoomTransformAtOut(props, tOut);
   const shrinkS = wipeReactiveShrink(props, tOut, zoomT, wipeEase);
@@ -271,13 +276,30 @@ export function describeWipeLayer(props: RenderProps, tOut: number): FrameItem[]
   let radiusPx: number | undefined;
   if (designCamera) {
     const designWipe = wipeRectAt(designCamera, props.width, props.height, wipeEase);
-    const shrunk = shrinkRectBottomRight(designWipe.rect, designWipe.radiusPx, shrinkS);
+    const shrunk = shrinkWipeRect(
+      designWipe.rect,
+      designWipe.radiusPx,
+      style?.anchor ?? "bottom-right",
+      shrinkS,
+    );
     box = shrunk.rect;
     radiusPx = shrunk.radiusPx;
   } else {
-    const wipeWNow = Math.round(wipeW * shrinkS);
-    const wipeHShrunk = Math.round(wipeHNow * shrinkS);
-    box = { x: props.width - wipeWNow, y: props.height - wipeHShrunk, w: wipeWNow, h: wipeHShrunk };
+    const lerp = (from: number, to: number) => Math.round(from + (to - from) * wipeEase);
+    const expanded = {
+      x: lerp(baseWipeRect.x, 0),
+      y: lerp(baseWipeRect.y, 0),
+      w: lerp(baseWipeRect.w, props.width),
+      h: lerp(baseWipeRect.h, props.height),
+    };
+    const shrunk = shrinkWipeRect(
+      expanded,
+      style?.radiusPx ?? 0,
+      style?.anchor ?? "bottom-right",
+      shrinkS,
+    );
+    box = shrunk.rect;
+    radiusPx = shrunk.radiusPx || undefined;
   }
 
   const { sourceRect, quad } = resolveFit(cameraRegion, box, "cover");

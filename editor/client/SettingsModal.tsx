@@ -6,7 +6,6 @@ import {
   CAPTION_DEFAULT_OUTLINE,
   DEFAULT_CUT_TRANSITION_SEC,
   DEFAULT_ZOOM_EASE_SEC,
-  DEFAULT_WIPE_TRANSITION_SEC,
 } from "../../src/types.ts";
 import type { CaptionBackground } from "../../src/types.ts";
 import type { AiAdapterKind, AiConfig, AiProvider, Config } from "../../src/lib/config.ts";
@@ -57,14 +56,8 @@ export function buildConfigPatch(snap: CfgValues, cur: CfgValues): ConfigPatch |
   const s = snap.renderCfg;
   const c = cur.renderCfg;
   const r: NonNullable<ConfigPatch["render"]> = {};
-  for (const k of [
-    "wipeWidthPx", "wipeMarginPx", "captionFontSizePx", "chapterCardSec", "targetLufs",
-  ] as const) {
+  for (const k of ["captionFontSizePx", "chapterCardSec", "targetLufs"] as const) {
     if (c[k] !== s[k]) r[k] = c[k];
-  }
-  // 省略可の数値キー(UI は常に数値を入れるので null 削除は使わない)
-  if (c.wipeTransitionSec !== s.wipeTransitionSec && c.wipeTransitionSec !== undefined) {
-    r.wipeTransitionSec = c.wipeTransitionSec;
   }
   for (const k of ["captionColor", "captionOutlineColor", "captionFontFamily"] as const) {
     if (c[k] !== s[k]) r[k] = c[k] ?? null;
@@ -96,6 +89,9 @@ export function buildConfigPatch(snap: CfgValues, cur: CfgValues): ConfigPatch |
   }
   if (JSON.stringify(c.zoom) !== JSON.stringify(s.zoom)) {
     r.zoom = c.zoom ?? { easeSec: DEFAULT_ZOOM_EASE_SEC };
+  }
+  if (c.design?.backgroundEnabled !== s.design?.backgroundEnabled) {
+    r.design = { backgroundEnabled: c.design?.backgroundEnabled !== false };
   }
 
   const patch: ConfigPatch = {};
@@ -171,6 +167,7 @@ const PROXY_HINT = "プレビューへの反映にはプロキシの再生成が
  */
 export const SettingsModal = ({
   cfg,
+  hasCamera,
   planPerception,
   onChange,
   onSave,
@@ -183,6 +180,7 @@ export const SettingsModal = ({
   onAiDoctor,
 }: {
   cfg: CfgValues;
+  hasCamera: boolean;
   planPerception: PlanPerceptionStatus;
   onChange: (patch: Partial<CfgValues>) => void;
   onSave: () => void;
@@ -472,31 +470,22 @@ export const SettingsModal = ({
 
       <TabsContent value="look" className="settingsTabPanel">
       <h4>出力の見た目</h4>
-      <div className="field">
-        <label>ワイプ幅 / 余白 (px)</label>
-        <NumInput
-          value={r.wipeWidthPx}
-          title="右下ワイプ(カメラ)の横幅。1920x1080 基準"
-          onCommit={(v) => v !== undefined && patchRender({ wipeWidthPx: Math.round(v) })}
-        />
-        <NumInput
-          value={r.wipeMarginPx}
-          title="字幕・テロップの画面端からの余白。ワイプの位置には影響しない"
-          onCommit={(v) => v !== undefined && patchRender({ wipeMarginPx: Math.round(v) })}
-        />
-      </div>
-      <div className="field">
-        <label>ワイプ全画面の遷移 (秒)</label>
-        <NumInput
-          value={r.wipeTransitionSec ?? DEFAULT_WIPE_TRANSITION_SEC}
-          title="ワイプ全画面(wipeFull)の出入りにかける秒数。0 で瞬時に切り替え"
-          onCommit={(v) =>
-            v !== undefined &&
-            patchRender({ wipeTransitionSec: Math.min(5, Math.max(0, v)) })
-          }
-        />
-        <span className="hint dim">0 で瞬時</span>
-      </div>
+      {hasCamera && (
+        <div className="field">
+          <label>背景レイアウト</label>
+          <input
+            type="checkbox"
+            checked={r.design?.backgroundEnabled !== false}
+            title="背景画像と画面の余白・角丸・影を使用する。OFFでもカメラワイプのデザインは維持されます"
+            onChange={(e) =>
+              patchRender({
+                design: { ...r.design, backgroundEnabled: e.target.checked },
+              })
+            }
+          />
+          <span className="hint dim">{r.design?.backgroundEnabled !== false ? "有効" : "画面を全画面表示"}</span>
+        </div>
+      )}
       <div className="field">
         <label>カット境界</label>
         <select

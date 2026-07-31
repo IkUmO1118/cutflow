@@ -236,6 +236,24 @@ export const KARAOKE_DEFAULT_ACTIVE = "#ffe14d";
  * config.ts は node 専用(node:fs 等)なので、ブラウザにも入るこのファイルに置く */
 export const DEFAULT_WIPE_TRANSITION_SEC = 0.3;
 
+export type WipeAnchor =
+  | "top-left"
+  | "top"
+  | "top-right"
+  | "left"
+  | "right"
+  | "bottom-left"
+  | "bottom"
+  | "bottom-right";
+
+export interface WipeStyle {
+  anchor: WipeAnchor;
+  marginPx: number;
+  sizePx: number;
+  radiusPx: number;
+  shadow: boolean;
+}
+
 /** render.cutTransition.sec 未指定時の既定(秒)。dip-to-black 使用時の
  * 黒への往復の合計秒(前半でフェードアウト、後半でフェードイン) */
 export const DEFAULT_CUT_TRANSITION_SEC = 0.3;
@@ -625,6 +643,9 @@ export interface Overlays {
     transitionInSec?: number;
     transitionOutSec?: number;
   })[];
+  /** 録画単位の常駐ワイプ設定。存在する場合は全項目必須で、
+   * config.yaml のワイプ見た目を項目単位では継承しない。 */
+  wipeStyle?: WipeStyle;
   /** 画面の重なり順(下→上)。ベース映像と BGM は対象外。
    *  省略時は DEFAULT_LAYER_ORDER(エディタのトラック並べ替えが書く) */
   layerOrder?: LayerId[];

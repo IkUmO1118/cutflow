@@ -34,7 +34,7 @@ import {
   MIN_PLAYBACK_SPEED,
   ovNum,
 } from "../types.ts";
-import type { CutPlan, Interval, Manifest, Short, Transcript } from "../types.ts";
+import type { CutPlan, Interval, Manifest, Short, Transcript, WipeAnchor } from "../types.ts";
 
 export interface Problem {
   /** 対象ファイル(収録フォルダ内の名前) */
@@ -427,7 +427,7 @@ export function validateDocs(
   if (isObj(overlays)) {
     const f = "overlays.json";
     const KNOWN = [
-      "overlays", "inserts", "wipeFull", "layerOrder", "captionTracks",
+      "overlays", "inserts", "wipeFull", "wipeStyle", "layerOrder", "captionTracks",
       "hideCaption", "zooms", "colorFilter", "blurs", "annotations",
     ];
     for (const k of Object.keys(overlays)) {
@@ -582,6 +582,62 @@ export function validateDocs(
     // plain(カメラ無し)にはワイプの crop 元が無いため wipeFull は使えない
     if (!cameraPresent && Array.isArray(overlays.wipeFull) && overlays.wipeFull.length > 0) {
       err(f, "wipeFull", "plain 動画にはカメラ(ワイプ)が無いため wipeFull は使えません");
+    }
+
+    if (overlays.wipeStyle !== undefined) {
+      const w = "wipeStyle";
+      const style = overlays.wipeStyle;
+      const anchors: WipeAnchor[] = [
+        "top-left", "top", "top-right", "left",
+        "right", "bottom-left", "bottom", "bottom-right",
+      ];
+      if (!isObj(style)) {
+        err(f, w, "オブジェクトではありません");
+      } else {
+        for (const k of ["anchor", "marginPx", "sizePx", "radiusPx", "shadow"]) {
+          if (!(k in style)) err(f, `${w}.${k}`, "必須項目です");
+        }
+        if (!anchors.includes(style.anchor as WipeAnchor)) {
+          err(f, `${w}.anchor`, `anchor は中央以外の8位置です(現在: ${JSON.stringify(style.anchor)})`);
+        }
+        if (!isNum(style.marginPx) || style.marginPx < 0) {
+          err(f, `${w}.marginPx`, "marginPx は有限の0以上の数値です");
+        }
+        if (!isNum(style.sizePx) || style.sizePx <= 0) {
+          err(f, `${w}.sizePx`, "sizePx は有限の正の数値です");
+        }
+        if (!isNum(style.radiusPx) || style.radiusPx < 0) {
+          err(f, `${w}.radiusPx`, "radiusPx は有限の0以上の数値です");
+        }
+        if (typeof style.shadow !== "boolean") {
+          err(f, `${w}.shadow`, "shadow は boolean です");
+        }
+        if (isNum(style.radiusPx) && isNum(style.sizePx) && style.radiusPx > style.sizePx / 2) {
+          err(f, `${w}.radiusPx`, "radiusPx は sizePx / 2 以下です");
+        }
+        if (outputRegion && anchors.includes(style.anchor as WipeAnchor) && isNum(style.marginPx) && isNum(style.sizePx)) {
+          const { w: outW, h: outH } = outputRegion;
+          const s = style.sizePx;
+          const m = style.marginPx;
+          const anchor = style.anchor as WipeAnchor;
+          const x = anchor.endsWith("left")
+            ? m
+            : anchor.endsWith("right")
+              ? outW - m - s
+              : Math.round((outW - s) / 2);
+          const y = anchor.startsWith("top")
+            ? m
+            : anchor.startsWith("bottom")
+              ? outH - m - s
+              : Math.round((outH - s) / 2);
+          if (x < 0 || y < 0 || x + s > outW || y + s > outH) {
+            err(f, w, `矩形が出力解像度(${outW}x${outH})の外にはみ出しています`);
+          }
+        }
+        if (!cameraPresent) {
+          warn(f, w, "この録画にはcameraRegionがないためwipeStyleは描画されません");
+        }
+      }
     }
 
     if (overlays.zooms !== undefined && !Array.isArray(overlays.zooms)) {

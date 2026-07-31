@@ -440,6 +440,85 @@ test("buildRenderProps: wipe に遷移時間が載る(config 未指定は 0.3)",
   );
 });
 
+test("buildRenderProps: design無効・wipeStyle未指定ではstyleを載せずlegacy矩形に任せる", () => {
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 10 }],
+    transcript: { segments: [] },
+    overlays: {},
+    renderCfg,
+    width: 1920,
+    height: 1080,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.equal(props.wipe.widthPx, renderCfg.wipeWidthPx);
+  assert.equal(props.wipe.marginPx, renderCfg.wipeMarginPx);
+  assert.equal(props.wipe.style, undefined);
+});
+
+test("buildRenderProps: wipeStyle指定時もwidthPx/marginPxはテロップ安全余白のconfig値のまま", () => {
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 10 }],
+    transcript: { segments: [] },
+    overlays: {
+      wipeStyle: {
+        anchor: "top-left",
+        marginPx: 12,
+        sizePx: 160,
+        radiusPx: 24,
+        shadow: false,
+      },
+    },
+    renderCfg,
+    width: 1920,
+    height: 1080,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.equal(props.wipe.widthPx, renderCfg.wipeWidthPx);
+  assert.equal(props.wipe.marginPx, renderCfg.wipeMarginPx);
+  assert.deepEqual(props.wipe.style, {
+    anchor: "top-left",
+    marginPx: 12,
+    sizePx: 160,
+    radiusPx: 24,
+    shadow: false,
+    rect: { x: 12, y: 12, w: 160, h: 160 },
+  });
+});
+
+test("buildRenderProps: design有効の既定wipeStyleでもwidthPx/marginPxはconfig値のまま", () => {
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 10 }],
+    transcript: { segments: [] },
+    overlays: {},
+    renderCfg: {
+      ...renderCfg,
+      design: { enabled: true, camera: { sizePx: 375, marginPx: 28, radiusPx: 96, shadow: true } },
+    },
+    width: 1920,
+    height: 1080,
+    videoFile: "cut.mp4",
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.equal(props.wipe.widthPx, renderCfg.wipeWidthPx);
+  assert.equal(props.wipe.marginPx, renderCfg.wipeMarginPx);
+  assert.deepEqual(props.wipe.style?.rect, { x: 1517, y: 677, w: 375, h: 375 });
+  assert.deepEqual(props.design?.camera.rect, props.wipe.style?.rect);
+});
+
 test("buildRenderProps: cutTransition 未設定/type: none では cutTransition・cutBoundarySecs が props に載らない", () => {
   const keeps = [{ start: 0, end: 10 }, { start: 20, end: 30 }, { start: 40, end: 50 }];
   const base = {

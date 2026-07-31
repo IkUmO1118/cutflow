@@ -193,6 +193,23 @@
         "transitionInSec": { "type": "number", "minimum": 0 },
         "transitionOutSec": { "type": "number", "minimum": 0 }
       }
+    },
+    "WipeStyle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["anchor", "marginPx", "sizePx", "radiusPx", "shadow"],
+      "properties": {
+        "anchor": {
+          "enum": [
+            "top-left", "top", "top-right",
+            "left", "right", "bottom-left", "bottom", "bottom-right"
+          ]
+        },
+        "marginPx": { "type": "number", "minimum": 0, "maximum": 3840 },
+        "sizePx": { "type": "number", "exclusiveMinimum": 0, "maximum": 3840 },
+        "radiusPx": { "type": "number", "minimum": 0, "maximum": 1920 },
+        "shadow": { "type": "boolean" }
+      }
     }
   },
   "properties": {
@@ -246,6 +263,7 @@
       "type": "array",
       "items": { "$ref": "#/$defs/WipeFull" }
     },
+    "wipeStyle": { "$ref": "#/$defs/WipeStyle" },
     "layerOrder": {
       "type": "array",
       "items": {

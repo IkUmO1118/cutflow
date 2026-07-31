@@ -902,6 +902,117 @@ test("wipeFull: 入り/戻りの transition 秒は0以上の数値", () => {
   assert.ok(bad.errors.some((e) => e.where === "wipeFull[0].transitionOutSec"));
 });
 
+test("wipeStyle: 完全な指定はエラー・警告なし", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      wipeStyle: {
+        anchor: "bottom-right",
+        marginPx: 28,
+        sizePx: 300,
+        radiusPx: 96,
+        shadow: true,
+      },
+    },
+  }));
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.warnings, []);
+});
+
+test("wipeStyle: 必須キー欠落・中央アンカー・未知アンカーはエラー", () => {
+  const missing = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: { wipeStyle: { anchor: "bottom-right" } as never },
+  }));
+  for (const key of ["marginPx", "sizePx", "radiusPx", "shadow"]) {
+    assert.ok(missing.errors.some((e) => e.where === `wipeStyle.${key}` && e.message.includes("必須")));
+  }
+
+  for (const anchor of ["center", "middle"]) {
+    const r = validateDocs(DIR, baseDocs({
+      manifest: manifestWithScreen,
+      overlays: {
+        wipeStyle: {
+          anchor,
+          marginPx: 28,
+          sizePx: 300,
+          radiusPx: 96,
+          shadow: true,
+        } as never,
+      },
+    }));
+    assert.ok(r.errors.some((e) => e.where === "wipeStyle.anchor"));
+  }
+});
+
+test("wipeStyle: 数値・boolean・radius上限・出力外はエラー", () => {
+  const badTypes = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      wipeStyle: {
+        anchor: "bottom-right",
+        marginPx: -1,
+        sizePx: 0,
+        radiusPx: -1,
+        shadow: "yes",
+      } as never,
+    },
+  }));
+  assert.ok(badTypes.errors.some((e) => e.where === "wipeStyle.marginPx"));
+  assert.ok(badTypes.errors.some((e) => e.where === "wipeStyle.sizePx"));
+  assert.ok(badTypes.errors.some((e) => e.where === "wipeStyle.radiusPx"));
+  assert.ok(badTypes.errors.some((e) => e.where === "wipeStyle.shadow"));
+
+  const tooRound = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      wipeStyle: {
+        anchor: "bottom-right",
+        marginPx: 28,
+        sizePx: 300,
+        radiusPx: 151,
+        shadow: true,
+      },
+    },
+  }));
+  assert.ok(tooRound.errors.some((e) => e.where === "wipeStyle.radiusPx" && e.message.includes("sizePx / 2")));
+
+  const outside = validateDocs(DIR, baseDocs({
+    manifest: manifestWithScreen,
+    overlays: {
+      wipeStyle: {
+        anchor: "bottom-right",
+        marginPx: 100,
+        sizePx: 1000,
+        radiusPx: 100,
+        shadow: true,
+      },
+    },
+  }));
+  assert.ok(outside.errors.some((e) => e.where === "wipeStyle" && e.message.includes("外にはみ出")));
+});
+
+test("wipeStyle: plainは型が正しければ警告のみ、未指定の既存overlaysは不変", () => {
+  const plain = validateDocs(DIR, baseDocs({
+    manifest: manifestPlain,
+    overlays: {
+      wipeStyle: {
+        anchor: "left",
+        marginPx: 28,
+        sizePx: 300,
+        radiusPx: 96,
+        shadow: true,
+      },
+    },
+  }));
+  assert.deepEqual(plain.errors, []);
+  assert.ok(plain.warnings.some((w) => w.where === "wipeStyle" && w.message.includes("cameraRegion")));
+
+  const none = validateDocs(DIR, baseDocs({ manifest: manifestWithScreen, overlays: {} }));
+  assert.deepEqual(none.errors, []);
+  assert.deepEqual(none.warnings, []);
+});
+
 /* -------- bgm.json -------- */
 
 test("bgm: file 欠落・volumeDb 非数値・startFrom 負・時刻逆転はエラー", () => {

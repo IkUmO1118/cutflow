@@ -4,16 +4,25 @@ import {
   attachPreparedDesignAssets,
   completeDesignAssets,
   panelRect,
+  rectForWipeStyle,
   resolveDesign,
+  resolveWipeStyle,
   screenRectToOutput,
   shrinkRectBottomRight,
+  shrinkWipeRect,
   staticCameraDesignAssets,
   toPanelRect,
   wipeRectAt,
 } from "../src/lib/design.ts";
+import type { WipeAnchor, WipeStyle } from "../src/types.ts";
 
 const W = 1920;
 const H = 1080;
+
+const anchors: WipeAnchor[] = [
+  "top-left", "top", "top-right", "left",
+  "right", "bottom-left", "bottom", "bottom-right",
+];
 
 test("resolveDesign: enabled が無ければ undefined(従来経路とバイト等価)", () => {
   strictEqual(resolveDesign(undefined, W, H, true), undefined);
@@ -41,6 +50,106 @@ test("resolveDesign: OBS既定の解決結果はcamera optional化前とdeep equ
       radiusPx: 96,
       shadow: true,
     },
+  });
+});
+
+test("rectForWipeStyle: 8アンカーすべての矩形を出力pxへ解決する", () => {
+  const base: Omit<WipeStyle, "anchor"> = {
+    marginPx: 20,
+    sizePx: 100,
+    radiusPx: 0,
+    shadow: false,
+  };
+  const expected: Record<WipeAnchor, { x: number; y: number; w: number; h: number }> = {
+    "top-left": { x: 20, y: 20, w: 100, h: 100 },
+    top: { x: 910, y: 20, w: 100, h: 100 },
+    "top-right": { x: 1800, y: 20, w: 100, h: 100 },
+    left: { x: 20, y: 490, w: 100, h: 100 },
+    right: { x: 1800, y: 490, w: 100, h: 100 },
+    "bottom-left": { x: 20, y: 960, w: 100, h: 100 },
+    bottom: { x: 910, y: 960, w: 100, h: 100 },
+    "bottom-right": { x: 1800, y: 960, w: 100, h: 100 },
+  };
+  for (const anchor of anchors) {
+    deepStrictEqual(rectForWipeStyle({ ...base, anchor }, W, H), expected[anchor], anchor);
+  }
+});
+
+test("resolveWipeStyle: camera無し、またはdesign無効かつ未指定ならundefined", () => {
+  const renderCfg = {
+    wipeWidthPx: 480,
+    wipeMarginPx: 32,
+    captionFontSizePx: 52,
+    chapterCardSec: 3,
+    targetLufs: -14,
+    bgm: { volumeDb: -22, fadeOutSec: 2 },
+  };
+  strictEqual(resolveWipeStyle({ overlays: {}, renderCfg, width: W, height: H, hasCamera: false }), undefined);
+  strictEqual(resolveWipeStyle({ overlays: {}, renderCfg, width: W, height: H, hasCamera: true }), undefined);
+});
+
+test("resolveWipeStyle: design有効・wipeStyle未指定は既存design.camera矩形と等価", () => {
+  const renderCfg = {
+    wipeWidthPx: 480,
+    wipeMarginPx: 32,
+    captionFontSizePx: 52,
+    chapterCardSec: 3,
+    targetLufs: -14,
+    bgm: { volumeDb: -22, fadeOutSec: 2 },
+    design: {
+      enabled: true,
+      camera: { sizePx: 375, marginPx: 28, radiusPx: 200, shadow: false },
+    },
+  };
+  const style = resolveWipeStyle({ overlays: {}, renderCfg, width: W, height: H, hasCamera: true });
+  deepStrictEqual(style?.rect, { x: 1517, y: 677, w: 375, h: 375 });
+  strictEqual(style?.radiusPx, 187.5);
+  strictEqual(style?.shadow, false);
+  deepStrictEqual(resolveDesign(renderCfg.design, W, H, true, style)?.camera, {
+    rect: { x: 1517, y: 677, w: 375, h: 375 },
+    radiusPx: 187.5,
+    shadow: false,
+  });
+});
+
+test("resolveWipeStyle: overlays.wipeStyle が config より優先される", () => {
+  const renderCfg = {
+    wipeWidthPx: 480,
+    wipeMarginPx: 32,
+    captionFontSizePx: 52,
+    chapterCardSec: 3,
+    targetLufs: -14,
+    bgm: { volumeDb: -22, fadeOutSec: 2 },
+    design: { enabled: true, camera: { sizePx: 375, marginPx: 28, radiusPx: 96, shadow: true } },
+  };
+  const wipeStyle: WipeStyle = {
+    anchor: "top-left",
+    marginPx: 12,
+    sizePx: 160,
+    radiusPx: 24,
+    shadow: false,
+  };
+  const style = resolveWipeStyle({ overlays: { wipeStyle }, renderCfg, width: W, height: H, hasCamera: true });
+  deepStrictEqual(style, { ...wipeStyle, rect: { x: 12, y: 12, w: 160, h: 160 } });
+});
+
+test("resolveDesign: 背景OFFは画面だけ全面表示にしカメラデザインを維持する", () => {
+  const d = resolveDesign(
+    { enabled: true, backgroundEnabled: false, backgroundFile: "bg.jpg" },
+    W,
+    H,
+    true,
+  );
+  deepStrictEqual(d?.screen, {
+    rect: { x: 0, y: 0, w: W, h: H },
+    radiusPx: 0,
+    shadow: false,
+  });
+  strictEqual(d?.backgroundFile, undefined);
+  deepStrictEqual(d?.camera, {
+    rect: { x: 1592, y: 752, w: 300, h: 300 },
+    radiusPx: 96,
+    shadow: true,
   });
 });
 
@@ -217,6 +326,24 @@ test("shrinkRectBottomRight: 丸めても右下角がずれない(奇数寸法)"
   const shrunk = shrinkRectBottomRight(rect, 50, 0.8);
   strictEqual(shrunk.rect.x + shrunk.rect.w, rect.x + rect.w);
   strictEqual(shrunk.rect.y + shrunk.rect.h, rect.y + rect.h);
+});
+
+test("shrinkWipeRect: 8アンカーの縮小基準点を保つ", () => {
+  const rect = { x: 100, y: 200, w: 300, h: 200 };
+  for (const anchor of anchors) {
+    const shrunk = shrinkWipeRect(rect, 40, anchor, 0.5);
+    strictEqual(shrunk.radiusPx, 20);
+    if (anchor.endsWith("left")) strictEqual(shrunk.rect.x, rect.x, anchor);
+    if (anchor.endsWith("right")) strictEqual(shrunk.rect.x + shrunk.rect.w, rect.x + rect.w, anchor);
+    if (anchor === "top" || anchor === "bottom") {
+      strictEqual(shrunk.rect.x, Math.round(rect.x + (rect.w - shrunk.rect.w) / 2), anchor);
+    }
+    if (anchor.startsWith("top")) strictEqual(shrunk.rect.y, rect.y, anchor);
+    if (anchor.startsWith("bottom")) strictEqual(shrunk.rect.y + shrunk.rect.h, rect.y + rect.h, anchor);
+    if (anchor === "left" || anchor === "right") {
+      strictEqual(shrunk.rect.y, Math.round(rect.y + (rect.h - shrunk.rect.h) / 2), anchor);
+    }
+  }
 });
 
 test("shrinkRectBottomRight: radius にも同じ s が掛かる", () => {

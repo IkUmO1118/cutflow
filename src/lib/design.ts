@@ -3,12 +3,15 @@
 // undefined を返し、props.design が載らない = 従来の「画面全面 + 右下ワイプ」と
 // バイト等価。src/engine/describeFrame.ts と src/lib/renderProps.ts が使う純関数
 // (fs は触らない=ブラウザでも動く。背景画像の取り込みは designAsset.ts)。
-import type { Region } from "../types.ts";
+import type { Config } from "./config.ts";
+import type { Overlays, Region, WipeStyle } from "../types.ts";
 
 /** config.yaml の render.design(全項目省略可。既定値は DEFAULT_DESIGN) */
 export interface DesignConfig {
   /** false / 省略でデザイン無効(従来の全面ベース + 右下ワイプ) */
   enabled?: boolean;
+  /** 背景画像と画面パネルの余白・角丸・影を使うか。false なら画面は全面表示 */
+  backgroundEnabled?: boolean;
   /** 背景画像。publicDir(収録フォルダ)相対のパス。省略時は backgroundColor の単色 */
   backgroundFile?: string;
   /** 背景色(背景画像の下地・画像が無いときの背景) */
@@ -115,6 +118,57 @@ export const DEFAULT_DESIGN = {
 export const SCREEN_SHADOW_CSS = "0 24px 80px rgba(0,0,0,0.35)";
 export const CAMERA_SHADOW_CSS = "0 8px 20px rgba(0,0,0,0.22), 0 24px 64px rgba(0,0,0,0.32)";
 
+export interface ResolvedWipeStyle extends WipeStyle {
+  rect: Region;
+}
+
+export function rectForWipeStyle(style: WipeStyle, width: number, height: number): Region {
+  const s = style.sizePx;
+  const m = style.marginPx;
+  const x =
+    style.anchor.endsWith("left")
+      ? m
+      : style.anchor.endsWith("right")
+        ? width - m - s
+        : Math.round((width - s) / 2);
+  const y =
+    style.anchor.startsWith("top")
+      ? m
+      : style.anchor.startsWith("bottom")
+        ? height - m - s
+        : Math.round((height - s) / 2);
+  return { x, y, w: s, h: s };
+}
+
+function designWipeStyle(renderCfg: Config["render"]): WipeStyle {
+  const camera = renderCfg.design?.camera ?? {};
+  return {
+    anchor: "bottom-right",
+    marginPx: camera.marginPx ?? DEFAULT_DESIGN.camera.marginPx,
+    sizePx: camera.sizePx ?? DEFAULT_DESIGN.camera.sizePx,
+    radiusPx: camera.radiusPx ?? DEFAULT_DESIGN.camera.radiusPx,
+    shadow: camera.shadow ?? DEFAULT_DESIGN.camera.shadow,
+  };
+}
+
+export function resolveWipeStyle(args: {
+  overlays: Overlays;
+  renderCfg: Config["render"];
+  width: number;
+  height: number;
+  hasCamera: boolean;
+}): ResolvedWipeStyle | undefined {
+  if (!args.hasCamera) return undefined;
+  if (!args.overlays.wipeStyle && !args.renderCfg.design?.enabled) return undefined;
+  const style = args.overlays.wipeStyle ?? designWipeStyle(args.renderCfg);
+  const rect = rectForWipeStyle(style, args.width, args.height);
+  return {
+    ...style,
+    rect,
+    radiusPx: Math.min(style.radiusPx, style.sizePx / 2),
+  };
+}
+
 /**
  * config の design を出力px の矩形へ解決する。無効なら undefined。
  *
@@ -135,12 +189,16 @@ export function resolveDesign(
   height: number,
   /** manifest.video.cameraRegion があるか(= obs-canvas 収録か) */
   hasCamera: boolean,
+  wipeStyle?: ResolvedWipeStyle,
 ): DesignProps | undefined {
   if (!cfg?.enabled) return undefined;
   // plain 収録(OBSではない素の動画)にはデザインをかぶせない
   if (!hasCamera) return undefined;
 
-  const s = { ...DEFAULT_DESIGN.screen, ...cfg.screen };
+  const backgroundEnabled = cfg.backgroundEnabled !== false;
+  const s = backgroundEnabled
+    ? { ...DEFAULT_DESIGN.screen, ...cfg.screen }
+    : { marginXPx: 0, marginBottomPx: 0, radiusPx: 0, shadow: false };
   const finiteNonnegative = (label: string, value: number) => {
     if (!Number.isFinite(value) || value < 0) {
       throw new Error(`render.design.${label} は有限の0以上である必要があります: ${value}`);
@@ -166,11 +224,11 @@ export function resolveDesign(
     );
   }
 
-  const c = { ...DEFAULT_DESIGN.camera, ...cfg.camera };
+  const c = wipeStyle ?? { ...DEFAULT_DESIGN.camera, ...cfg.camera };
   finiteNonnegative("camera.sizePx", c.sizePx);
   finiteNonnegative("camera.marginPx", c.marginPx);
   finiteNonnegative("camera.radiusPx", c.radiusPx);
-  const cameraRect: Region = {
+  const cameraRect: Region = wipeStyle?.rect ?? {
     x: width - c.marginPx - c.sizePx,
     y: height - c.marginPx - c.sizePx,
     w: c.sizePx,
@@ -185,7 +243,7 @@ export function resolveDesign(
   }
 
   return {
-    ...(cfg.backgroundFile ? { backgroundFile: cfg.backgroundFile } : {}),
+    ...(backgroundEnabled && cfg.backgroundFile ? { backgroundFile: cfg.backgroundFile } : {}),
     backgroundColor: cfg.backgroundColor ?? DEFAULT_DESIGN.backgroundColor,
     screen: {
       rect: screen,
@@ -205,9 +263,9 @@ export function resolveDesign(
  * (`ease`。0 = 通常の角丸ワイプ / 1 = 出力の全画面)で補間する。
  *
  * `overlays.json` の `wipeFull` はデザイン経路でも効く: 区間に入るとカメラが
- * 右下の角丸正方形から出力いっぱいへ広がり(背景画像・画面パネルは覆い隠され
- * る)、区間を出ると元へ戻る。角丸も 0 へ向かって補間するので、全画面時は
- * デザイン無しの wipeFull と同じ絵になる。ease は Main.tsx が
+ * 通常位置の角丸正方形から出力いっぱいへ広がり(背景画像・画面パネルは
+ * 覆い隠される)、区間を出ると元へ戻る。角丸も 0 へ向かって補間するので、
+ * 全画面時はデザイン無しの wipeFull と同じ絵になる。ease は Main.tsx が
  * `render.wipeTransitionSec` から作る smoothstep 済みの進行度。
  */
 export function wipeRectAt(
@@ -249,6 +307,32 @@ export function shrinkRectBottomRight(
       w,
       h,
     },
+    radiusPx: Math.round(radiusPx * s),
+  };
+}
+
+export function shrinkWipeRect(
+  rect: Region,
+  radiusPx: number,
+  anchor: WipeStyle["anchor"],
+  s: number,
+): { rect: Region; radiusPx: number } {
+  const w = Math.round(rect.w * s);
+  const h = Math.round(rect.h * s);
+  const x =
+    anchor.endsWith("left")
+      ? rect.x
+      : anchor.endsWith("right")
+        ? rect.x + rect.w - w
+        : Math.round(rect.x + (rect.w - w) / 2);
+  const y =
+    anchor.startsWith("top")
+      ? rect.y
+      : anchor.startsWith("bottom")
+        ? rect.y + rect.h - h
+        : Math.round(rect.y + (rect.h - h) / 2);
+  return {
+    rect: { x, y, w, h },
     radiusPx: Math.round(radiusPx * s),
   };
 }
