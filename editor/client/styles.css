@@ -3447,7 +3447,8 @@
   background: hsl(var(--oc-muted));
 }
 
-.ocSidePanel .ocMaterialsPanel .ocMaterialImport {
+.ocSidePanel .ocMaterialsPanel .ocMaterialImport,
+.ocSidePanel .ocMaterialImport {
   height: 1.55rem;
   gap: 0.28rem;
   padding: 0 0.5rem;
@@ -3459,7 +3460,8 @@
   font-weight: 500;
 }
 
-.ocSidePanel .ocMaterialsPanel .ocMaterialImport:hover:not(:disabled) {
+.ocSidePanel .ocMaterialsPanel .ocMaterialImport:hover:not(:disabled),
+.ocSidePanel .ocMaterialImport:hover:not(:disabled) {
   background: hsl(var(--oc-muted));
 }
 

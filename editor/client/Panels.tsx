@@ -847,6 +847,7 @@ export const CaptionsPanel = ({
   onRowClick,
   onRowToggle,
   onRowFocus,
+  onAdd,
   updateCaption,
   aiHunks: transcriptAiHunks = [],
   aiResolution: transcriptAiResolution,
@@ -864,6 +865,8 @@ export const CaptionsPanel = ({
   onRowToggle: (i: number) => void;
   /** textarea フォーカス: 選択だけする(シークで再生位置を飛ばさない) */
   onRowFocus: (i: number) => void;
+  /** 再生ヘッド位置に既定尺のテロップを追加する */
+  onAdd: () => void;
   updateCaption: (i: number, patch: Partial<Transcript["segments"][number]>) => void;
   /** AI編集diffモード用: transcript.segments に対する提案 Hunk */
   aiHunks?: Hunk[];
@@ -918,7 +921,18 @@ export const CaptionsPanel = ({
       <EmptyState
         icon={<Captions size={20} />}
         title="テロップはまだありません"
-        description="タイムラインのテロップトラックの空きをドラッグすると追加できます。"
+        description="再生ヘッドを追加したい位置へ移動してください。"
+        actions={(
+          <Button
+            variant="outline"
+            size="sm"
+            className="ocMaterialImport"
+            onClick={onAdd}
+          >
+            <Plus size={13} strokeWidth={1.75} aria-hidden />
+            テロップを追加
+          </Button>
+        )}
       />
     );
   }

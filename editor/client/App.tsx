@@ -168,6 +168,7 @@ import {
   PanelBottom,
   PanelLeft,
   PanelRight,
+  Plus,
   Settings,
   Sparkles,
   Smartphone,
@@ -6117,7 +6118,20 @@ export const App = () => {
             )}
             {tab === "captions" && (
               <>
-                <PanelHeader title="テロップ" />
+                <PanelHeader
+                  title="テロップ"
+                  actions={(
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="ocMaterialImport"
+                      onClick={() => addAtPlayhead("caption")}
+                    >
+                      <Plus size={13} strokeWidth={1.75} aria-hidden />
+                      追加
+                    </Button>
+                  )}
+                />
                 <CaptionsPanel
                   transcript={transcript}
                   overlays={overlays}
@@ -6126,6 +6140,7 @@ export const App = () => {
                   onRowClick={(i) => selectCaption(i, true)}
                   onRowToggle={toggleCaptionMulti}
                   onRowFocus={(i) => selectCaption(i, false)}
+                  onAdd={() => addAtPlayhead("caption")}
                   // 一覧の textarea は文字入力なので undo をまとめる
                   updateCaption={(i, patch) =>
                     updateCaption(i, patch, `caption:${i}:text`)

@@ -522,3 +522,11 @@ test("P7.4b duplicate (⌘D) reuses the vetted paste clone path and adds insert"
   assert.match(timeline, /aria-label="複製"[\s\S]*onClick=\{onDuplicate\}/);
   assert.doesNotMatch(timeline, /onContextMenu=/);
 });
+
+test("captions panel keeps an add path when the timeline track is hidden", () => {
+  const app = read("editor/client/App.tsx");
+  const panels = read("editor/client/Panels.tsx");
+  assert.match(app, /title="テロップ"[\s\S]*addAtPlayhead\("caption"\)/);
+  assert.match(app, /<CaptionsPanel[\s\S]*onAdd=\{\(\) => addAtPlayhead\("caption"\)\}/);
+  assert.match(panels, /title="テロップはまだありません"[\s\S]*テロップを追加/);
+});
