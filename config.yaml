@@ -218,7 +218,7 @@ render:
   design:
     enabled: true
     # false = 背景画像と画面の縁を外し、画面は全面表示。カメラワイプは維持する
-    backgroundEnabled: false
+    backgroundEnabled: true
     # 背景画像。省略時は backgroundColor の単色。3通りの書き方を解決する:
     #   assets/backgrounds/xxx.jpg … リポジトリ同梱の既定背景(誰の環境でも動く)
     #   ~/Movies/obs/xxx.jpg       … 自分のデザイン素材(絶対パス。~ は展開される)
