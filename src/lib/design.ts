@@ -9,6 +9,8 @@ import type { Region } from "../types.ts";
 export interface DesignConfig {
   /** false / 省略でデザイン無効(従来の全面ベース + 右下ワイプ) */
   enabled?: boolean;
+  /** 背景画像と画面パネルの余白・角丸・影を使うか。false なら画面は全面表示 */
+  backgroundEnabled?: boolean;
   /** 背景画像。publicDir(収録フォルダ)相対のパス。省略時は backgroundColor の単色 */
   backgroundFile?: string;
   /** 背景色(背景画像の下地・画像が無いときの背景) */
@@ -140,7 +142,10 @@ export function resolveDesign(
   // plain 収録(OBSではない素の動画)にはデザインをかぶせない
   if (!hasCamera) return undefined;
 
-  const s = { ...DEFAULT_DESIGN.screen, ...cfg.screen };
+  const backgroundEnabled = cfg.backgroundEnabled !== false;
+  const s = backgroundEnabled
+    ? { ...DEFAULT_DESIGN.screen, ...cfg.screen }
+    : { marginXPx: 0, marginBottomPx: 0, radiusPx: 0, shadow: false };
   const finiteNonnegative = (label: string, value: number) => {
     if (!Number.isFinite(value) || value < 0) {
       throw new Error(`render.design.${label} は有限の0以上である必要があります: ${value}`);
@@ -185,7 +190,7 @@ export function resolveDesign(
   }
 
   return {
-    ...(cfg.backgroundFile ? { backgroundFile: cfg.backgroundFile } : {}),
+    ...(backgroundEnabled && cfg.backgroundFile ? { backgroundFile: cfg.backgroundFile } : {}),
     backgroundColor: cfg.backgroundColor ?? DEFAULT_DESIGN.backgroundColor,
     screen: {
       rect: screen,

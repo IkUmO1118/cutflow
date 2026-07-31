@@ -48,7 +48,7 @@ export function renderCfgWithDesign(
   warn: (msg: string) => void = (msg) => console.warn(`警告: ${msg}`),
 ): Config["render"] {
   const design = cfg.render.design;
-  if (!design?.enabled || !design.backgroundFile) return cfg.render;
+  if (!design?.enabled || design.backgroundEnabled === false || !design.backgroundFile) return cfg.render;
 
   const src = resolveBackgroundSource(dir, design.backgroundFile);
   if (src === "as-is") return cfg.render; // 収録フォルダに実在 = 取り込み不要でそのまま使う

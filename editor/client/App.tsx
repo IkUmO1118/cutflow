@@ -1122,14 +1122,30 @@ export const App = () => {
   reloadRef.current = reloadFromDisk;
   const reviewExternalRef = useRef(reviewExternalChange);
   reviewExternalRef.current = reviewExternalChange;
+  const connectionToastRef = useRef<string | null>(null);
   useEffect(() => {
     const es = new EventSource("/api/events");
+    es.onopen = () => {
+      if (connectionToastRef.current) {
+        dismissToast(connectionToastRef.current);
+        connectionToastRef.current = null;
+      }
+    };
     es.onmessage = () => {
       if (dirtyRef.current) void reviewExternalRef.current();
       else void reloadRef.current();
     };
+    es.onerror = () => {
+      if (!connectionToastRef.current) {
+        connectionToastRef.current = addToast({
+          kind: "error",
+          message: "エディターサーバーとの接続が切れました。ターミナルで再起動してください。",
+          ttlMs: 0,
+        });
+      }
+    };
     return () => es.close();
-  }, []);
+  }, [addToast, dismissToast]);
 
   // error が立ったらエラートーストを出す。表示は TOAST_TTL_MS.error で自動消滅する
   // (×を押さなくても消える)。error state 自体は起動失敗の全画面(!proj)とプロキシ

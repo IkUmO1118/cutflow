@@ -44,6 +44,9 @@ export interface ConfigPatch {
     zoom?: {
       easeSec?: number;
     };
+    design?: {
+      backgroundEnabled: boolean;
+    };
   };
   preview?: { width?: number; videoEncoder?: "libx264" | "videotoolbox" };
   editor?: {
@@ -128,7 +131,11 @@ export function validateConfigPatch(patch: unknown): string[] {
       if (!NULLABLE.has(path)) errors.push(`${path}: null は指定できません`);
       return;
     }
-    if (path === "render.systemAudio.mix" || path === "render.denoise.mic") {
+    if (
+      path === "render.systemAudio.mix" ||
+      path === "render.denoise.mic" ||
+      path === "render.design.backgroundEnabled"
+    ) {
       if (typeof value !== "boolean") errors.push(`${path}: true/false で指定してください`);
       return;
     }
@@ -210,10 +217,21 @@ export function validateConfigPatch(patch: unknown): string[] {
         "wipeWidthPx", "wipeMarginPx", "wipeTransitionSec", "captionFontSizePx",
         "captionColor", "captionOutlineColor", "captionFontFamily", "captionFontWeight",
         "captionBackground", "chapterCardSec", "targetLufs", "systemAudio", "denoise",
-        "bgm", "cutTransition", "hardwareAcceleration", "zoom",
+        "bgm", "cutTransition", "hardwareAcceleration", "zoom", "design",
       ],
-      ["systemAudio", "denoise", "bgm", "cutTransition", "zoom", "captionBackground"],
+      ["systemAudio", "denoise", "bgm", "cutTransition", "zoom", "captionBackground", "design"],
     );
+    if (p.render.design !== undefined) {
+      const design = p.render.design as unknown;
+      if (typeof design !== "object" || design === null) {
+        errors.push("render.design: オブジェクトで指定してください");
+      } else {
+        walk("render.design", design, ["backgroundEnabled"], []);
+        if ((design as Record<string, unknown>).backgroundEnabled === undefined) {
+          errors.push("render.design.backgroundEnabled: ブロック更新では必須です");
+        }
+      }
+    }
     if (p.render.captionBackground !== undefined && p.render.captionBackground !== null) {
       const bg = p.render.captionBackground as unknown;
       if (typeof bg !== "object" || bg === null) {

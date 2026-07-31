@@ -257,6 +257,16 @@ test("validateConfigPatch: 正常系は空配列", () => {
   );
 });
 
+test("validateConfigPatch: design.backgroundEnabled は真偽値だけを許可する", () => {
+  assert.deepEqual(
+    validateConfigPatch({ render: { design: { backgroundEnabled: false } } }),
+    [],
+  );
+  assert.ok(
+    validateConfigPatch({ render: { design: { backgroundEnabled: "false" } } }).length > 0,
+  );
+});
+
 test("applyConfigEdits: ai は単一provider設定として置き換える", () => {
   const out = applyConfigEdits(RAW, {
     ai: {

@@ -44,6 +44,26 @@ test("resolveDesign: OBS既定の解決結果はcamera optional化前とdeep equ
   });
 });
 
+test("resolveDesign: 背景OFFは画面だけ全面表示にしカメラデザインを維持する", () => {
+  const d = resolveDesign(
+    { enabled: true, backgroundEnabled: false, backgroundFile: "bg.jpg" },
+    W,
+    H,
+    true,
+  );
+  deepStrictEqual(d?.screen, {
+    rect: { x: 0, y: 0, w: W, h: H },
+    radiusPx: 0,
+    shadow: false,
+  });
+  strictEqual(d?.backgroundFile, undefined);
+  deepStrictEqual(d?.camera, {
+    rect: { x: 1592, y: 752, w: 300, h: 300 },
+    radiusPx: 96,
+    shadow: true,
+  });
+});
+
 test("resolveDesign: カメラは右下から28px の 300x300 角丸矩形", () => {
   const d = resolveDesign(
     { enabled: true, camera: { sizePx: 300, marginPx: 28, radiusPx: 96 } },

@@ -97,6 +97,9 @@ export function buildConfigPatch(snap: CfgValues, cur: CfgValues): ConfigPatch |
   if (JSON.stringify(c.zoom) !== JSON.stringify(s.zoom)) {
     r.zoom = c.zoom ?? { easeSec: DEFAULT_ZOOM_EASE_SEC };
   }
+  if (c.design?.backgroundEnabled !== s.design?.backgroundEnabled) {
+    r.design = { backgroundEnabled: c.design?.backgroundEnabled !== false };
+  }
 
   const patch: ConfigPatch = {};
   if (Object.keys(r).length > 0) patch.render = r;
@@ -472,6 +475,20 @@ export const SettingsModal = ({
 
       <TabsContent value="look" className="settingsTabPanel">
       <h4>出力の見た目</h4>
+      <div className="field">
+        <label>背景レイアウト</label>
+        <input
+          type="checkbox"
+          checked={r.design?.backgroundEnabled !== false}
+          title="背景画像と画面の余白・角丸・影を使用する。OFFでもカメラワイプのデザインは維持されます"
+          onChange={(e) =>
+            patchRender({
+              design: { ...r.design, backgroundEnabled: e.target.checked },
+            })
+          }
+        />
+        <span className="hint dim">{r.design?.backgroundEnabled !== false ? "有効" : "画面を全画面表示"}</span>
+      </div>
       <div className="field">
         <label>ワイプ幅 / 余白 (px)</label>
         <NumInput
