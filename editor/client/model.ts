@@ -843,6 +843,59 @@ export function fitZoomSpan(
   return { start: r2(start), end: r2(end) };
 }
 
+// ============================================================
+// プレビュー上のテロップ枠(CaptionOverlay)の座標
+// ============================================================
+
+/** 位置未指定テロップの実効表示位置(コンポジションpx・**テキスト中心**)。
+ *
+ * 実描画(src/engine/describeFrame.ts の captionItemForTrack フォールバック +
+ * src/engine/refPainter.ts の drawCaption)は、下部中央のテロップを
+ * 「anchor=bottomCenter の点 (bandWidth/2, height - wipeMarginPx)」に置く。
+ * bottomCenter が指すのは**テキストボックス**(高さ = fontSizePx * 1.4)の
+ * 下端なので、中心はそこから行高の半分だけ上=`- fontSizePx * 0.7`。
+ *
+ * **座布団(background)の padding を引いてはいけない**: 帯は
+ * `boxY - pad/2 .. boxY + textH + pad/2` とテキストボックスの外側へ対称に
+ * はみ出すだけで、テキスト芯の中心を動かさない(引くと枠とインライン編集
+ * ボックスが padding ぶん上へずれる)。Remotion 経路(bottom: marginPx に
+ * 座布団ごと置く)の時代はここを引く必要があったが、engine 経路では逆に
+ * ずれの原因になる。 */
+export function defaultCaptionPos(args: {
+  width: number;
+  height: number;
+  /** テロップ安全余白の算出に使う config 値(render.wipeWidthPx) */
+  wipeWidthPx: number;
+  wipeMarginPx: number;
+  /** カメラ(ワイプ)があるときだけ右側を予約する(plain は全幅中央) */
+  hasCamera: boolean;
+  /** そのテロップの実効フォントサイズ(トラック標準・個別指定まで解決済み) */
+  fontSizePx: number;
+}): CaptionPos {
+  const reserve = args.hasCamera ? args.wipeWidthPx + args.wipeMarginPx * 2 : 0;
+  return {
+    x: Math.round((args.width - reserve) / 2),
+    y: Math.round(args.height - args.wipeMarginPx - args.fontSizePx * 0.7),
+  };
+}
+
+/** テロップ枠(青い点線)の左上を pos からどれだけずらすか(コンポジションpx)。
+ *
+ * 枠は縁取り/座布団の張り出し(padXPx/padYPx)まで含めて可視字幕を囲うので、
+ * anchor によって基準が違う:
+ * - center: pos はテキスト中心。padding は左右上下対称なので枠の中心も pos
+ *   のまま=ずらさない
+ * - topLeft: pos は**テキストボックス**の左上(refPainter の drawCaption と
+ *   同じ規約)で、帯はその外側へはみ出す。枠は padding ぶん左上へずらして
+ *   初めて実際の帯と一致する */
+export function captionBoxOffset(
+  anchor: "center" | "topLeft",
+  padXPx: number,
+  padYPx: number,
+): { dx: number; dy: number } {
+  return anchor === "topLeft" ? { dx: -padXPx, dy: -padYPx } : { dx: 0, dy: 0 };
+}
+
 /** 選択スパンを元収録の秒 at で2分割する。at が [start,end] の内側(両端から
  * minSpan 以上)でなければ null(no-op)。返す秒は round2 済み。時刻はすべて
  * 元収録の秒(呼び出し側が playhead→srcAt で変換して渡す)。 */

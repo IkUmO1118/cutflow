@@ -1774,11 +1774,11 @@
      (通常時は color:transparent=実体は Player 側の字幕。編集中は打鍵が
      見えるよう文字色・座布団・キャレットを与える) */
   .capBox.editing {
-    color: #fff; cursor: text; text-align: inherit;
+    color: transparent; cursor: text; text-align: inherit;
     caret-color: hsl(var(--oc-primary));
-    background: rgba(0, 0, 0, 0.55);
+    background: transparent;
     border-style: solid; border-color: hsl(var(--oc-primary));
-    padding: 0; margin: 0; overflow: hidden; resize: none;
+    margin: 0; overflow: hidden; resize: none;
     box-sizing: content-box; field-sizing: content;
     -webkit-user-select: text; user-select: text;
   }

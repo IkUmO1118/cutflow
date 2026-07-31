@@ -5,10 +5,13 @@ import {
   CAPTION_DEFAULT_FONT_WEIGHT,
 } from "../../src/types.ts";
 import type { CaptionPos } from "../../src/types.ts";
+import { captionBoxOffset } from "./model.ts";
 
 /** プレビューに表示中のテロップ1つ分(座標はコンポジションのpx)。
- * pos は実効表示位置(個別指定 → トラック標準 → 下部中央の近似)で、
- * anchor がその解釈(center=テキスト中心 / topLeft=左上)を決める */
+ * pos は実効表示位置(個別指定 → トラック標準 → 下部中央のフォールバック)で、
+ * anchor がその解釈(center=テキスト中心 / topLeft=テキストボックスの左上)を
+ * 決める。どちらも実描画(src/engine/refPainter.ts drawCaption)と同じ規約で、
+ * 座布団(background)の張り出しは pos ではなく padXPx/padYPx が表す */
 export interface OverlayCaption {
   /** transcript.segments の添字 */
   index: number;
@@ -45,6 +48,7 @@ export const CaptionOverlay = ({
   onMove,
   onCommitText,
   onEditStart,
+  onEditingChange,
 }: {
   /** コンポジションの解像度 */
   width: number;
@@ -59,6 +63,8 @@ export const CaptionOverlay = ({
   onCommitText?: (index: number, text: string) => void;
   /** インライン編集に入る直前(プレビュー再生を止めてボックスを固定するため) */
   onEditStart?: () => void;
+  /** Player 側の字幕を編集中の下書きへ差し替えるための状態通知 */
+  onEditingChange?: (index: number | null, text?: string) => void;
 }) => {
   const ref = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
@@ -102,12 +108,17 @@ export const CaptionOverlay = ({
     setDragging(false);
     setDraft(c.text);
     setEditing(c.index);
+    onEditingChange?.(c.index, c.text);
   };
   const commitEdit = () => {
     if (editing !== null) onCommitText?.(editing, draft);
     setEditing(null);
+    onEditingChange?.(null);
   };
-  const cancelEdit = () => setEditing(null);
+  const cancelEdit = () => {
+    setEditing(null);
+    onEditingChange?.(null);
+  };
 
   const onDown = (e: ReactPointerEvent, c: OverlayCaption) => {
     if (e.button !== 0 || scale === 0 || editing === c.index) return;
@@ -174,6 +185,8 @@ export const CaptionOverlay = ({
         captions.map((c) => {
           // ドラッグ中の対象だけ posDraft(一時値)を使う。他は props(確定値)のまま
           const pos = posDraft?.index === c.index ? posDraft.pos : c.pos;
+          const padX = (c.padXPx ?? 0) * scale;
+          const padY = (c.padYPx ?? 0) * scale;
           const common = {
             left: dx + pos.x * scale,
             top: dy + pos.y * scale,
@@ -185,6 +198,9 @@ export const CaptionOverlay = ({
             fontWeight: c.fontWeight ?? CAPTION_DEFAULT_FONT_WEIGHT,
             lineHeight: 1.4,
           };
+          // center は padding 込みの中心、topLeft はテキスト左上が pos。
+          // 通常枠と編集欄で必ず同じ補正を使い、編集切替時のジャンプを防ぐ。
+          const off = captionBoxOffset(c.anchor, padX, padY);
           if (editing === c.index) {
             return (
               <textarea
@@ -192,10 +208,22 @@ export const CaptionOverlay = ({
                 className="capBox editing sel"
                 autoFocus
                 value={draft}
-                style={{ ...common, whiteSpace: "pre-line" }}
+                style={{
+                  ...common,
+                  left: common.left + off.dx,
+                  top: common.top + off.dy,
+                  whiteSpace: "pre-line",
+                  paddingLeft: padX,
+                  paddingRight: padX,
+                  paddingTop: padY,
+                  paddingBottom: padY,
+                }}
                 // 編集中はドラッグ・グローバルショートカットを止める
                 onPointerDown={(e) => e.stopPropagation()}
-                onChange={(e) => setDraft(e.target.value)}
+                onChange={(e) => {
+                  setDraft(e.target.value);
+                  onEditingChange?.(c.index, e.target.value);
+                }}
                 onBlur={commitEdit}
                 onKeyDown={(e) => {
                   e.stopPropagation();
@@ -210,21 +238,25 @@ export const CaptionOverlay = ({
               />
             );
           }
+          // 枠の左上を pos からずらす量(コンポジションpx→画面px は上で scale 済み)。
+          // center は padding が対称なので不変、topLeft は pos が「テキストボックスの
+          // 左上」で座布団はその外側へはみ出す=padding ぶん左上へ広げる
           return (
             <div
               key={c.index}
               className={`capBox${selection === c.index ? " sel" : ""}`}
               style={{
                 ...common,
+                left: common.left + off.dx,
+                top: common.top + off.dy,
                 whiteSpace: "pre-line",
                 width: "max-content",
-                // 縁取り/座布団の張り出しぶん枠を広げ、可視字幕を囲う。
-                // padding は左右/上下対称なので中心(pos)基準の translate は不変
+                // 縁取り/座布団の張り出しぶん枠を広げ、可視字幕を囲う
                 boxSizing: "content-box",
-                paddingLeft: (c.padXPx ?? 0) * scale,
-                paddingRight: (c.padXPx ?? 0) * scale,
-                paddingTop: (c.padYPx ?? 0) * scale,
-                paddingBottom: (c.padYPx ?? 0) * scale,
+                paddingLeft: padX,
+                paddingRight: padX,
+                paddingTop: padY,
+                paddingBottom: padY,
               }}
               title={
                 onCommitText

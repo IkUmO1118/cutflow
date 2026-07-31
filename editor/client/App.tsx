@@ -182,6 +182,7 @@ import {
   buildTracks,
   cutSourceRange,
   buildDiffTracks,
+  defaultCaptionPos,
   isLaneWorthy,
   resolutionForOnly,
   fitZoomSpan,
@@ -617,6 +618,13 @@ export const App = () => {
   /** 一時非表示のレイヤー(ラベルの目トグル)。プレビューのみで書き出しには
    * 影響しない。消したまま忘れる事故を避けるため意図的に保存しない(リロードで全表示) */
   const [hiddenLayers, setHiddenLayers] = useState<LayerId[]>([]);
+  /** インライン編集中の下書き。Player の同じ字幕へ毎打鍵反映し、Canvas と
+   * DOM の描画切替による位置・字形のぶれを避ける */
+  const [captionTextDraft, setCaptionTextDraft] = useState<{
+    index: number;
+    text: string;
+    outT: number;
+  } | null>(null);
   /** 音声の波形ピーク(タイムライン表示用)。キー "" = マイク音声、
    * それ以外 = 素材・BGM の相対パス。null = 音声なし/取得失敗(波形を
    * 描かないだけで編集は可能) */
@@ -1641,14 +1649,37 @@ export const App = () => {
         aiEditEnabled && diffPreviewMode === "after" && aiPreviewBuilt
           ? aiPreviewBuilt
           : built;
-      return source && {
+      if (!source) return null;
+      const editingTrack = captionTextDraft
+        ? captionTrack(transcript?.segments[captionTextDraft.index] ?? {})
+        : null;
+      const captions = captionTextDraft
+        ? source.props.captions.map((caption) =>
+            caption.track === editingTrack &&
+            captionTextDraft.outT >= caption.start &&
+            captionTextDraft.outT < caption.end
+              ? { ...caption, text: captionTextDraft.text, words: undefined }
+              : caption,
+          )
+        : source.props.captions;
+      return {
         ...source.props,
+        captions,
         muteBase: trackMuted.cut,
         muteBgm: trackMuted.bgm,
         hiddenLayers,
       };
     },
-    [built, aiPreviewBuilt, trackMuted, hiddenLayers, aiEditEnabled, diffPreviewMode],
+    [
+      built,
+      aiPreviewBuilt,
+      trackMuted,
+      hiddenLayers,
+      captionTextDraft,
+      transcript,
+      aiEditEnabled,
+      diffPreviewMode,
+    ],
   );
 
   const fps = built?.props.fps ?? 30;
@@ -2483,26 +2514,41 @@ export const App = () => {
 
   /* ---------------- プレビュー上のテロップ移動 ---------------- */
 
-  /** 位置未指定テロップの標準位置(下部中央のテキスト中心。1行ぶんで近似) */
-  const stdCaptionPos = useMemo<CaptionPos>(() => {
-    if (!built) return { x: 0, y: 0 };
-    const { width, height, wipe, caption, captionDefaultPos, cameraRegion } = built.props;
-    // 縦プリセット等、profile が既定テロップ位置を持つときはそれを使う
-    if (captionDefaultPos) return { x: captionDefaultPos.x, y: captionDefaultPos.y };
-    // カメラがあるときだけワイプ回避の右側予約を引く(B1 の Remotion 側と同規約)。
-    // plain(カメラ無し)は全幅中央
-    const reserve = cameraRegion ? wipe.widthPx + wipe.marginPx * 2 : 0;
-    // 下部中央テロップ(位置未指定)は Remotion 側で bottom:marginPx 基準に
-    // 置かれる=座布団(background)の縦 padding のぶんテキスト芯の中心が
-    // 上へ持ち上がる。中心座標の近似はその padY を引いて実描画に合わせる
-    // (引かないと枠・インライン編集ボックスが padY ぶん下へずれる)
-    const bg = resolveCaptionBackground(caption.background, undefined);
-    const padY = bg ? Math.round((bg.paddingPx ?? Math.round(caption.fontSizePx * 0.35)) * 0.5) : 0;
-    return {
-      x: Math.round((width - reserve) / 2),
-      y: Math.round(height - wipe.marginPx - caption.fontSizePx * 0.7 - padY),
-    };
-  }, [built]);
+  /** 位置未指定テロップの標準位置(テキスト中心)と座標の解釈。フォントサイズで
+   * 下端からの持ち上がりが変わる(行高の半分)ので、テロップごとに解決する */
+  const stdCaptionPosFor = useCallback(
+    (fontSizePx: number): { pos: CaptionPos; anchor: "center" | "topLeft" } => {
+      if (!built) return { pos: { x: 0, y: 0 }, anchor: "center" };
+      const { width, height, wipe, captionDefaultPos, cameraRegion } = built.props;
+      // 縦プリセット等、profile が既定テロップ位置を持つときはそれを使う
+      if (captionDefaultPos) {
+        return {
+          pos: { x: captionDefaultPos.x, y: captionDefaultPos.y },
+          anchor: captionDefaultPos.anchor === "topLeft" ? "topLeft" : "center",
+        };
+      }
+      // 式は model.ts(engine の下部中央フォールバックと同じ規約)に閉じる
+      return {
+        pos: defaultCaptionPos({
+          width,
+          height,
+          wipeWidthPx: wipe.widthPx,
+          wipeMarginPx: wipe.marginPx,
+          hasCamera: !!cameraRegion,
+          fontSizePx,
+        }),
+        anchor: "center",
+      };
+    },
+    [built],
+  );
+
+  /** 位置未指定テロップの標準位置(config 既定のフォントサイズで代表させた
+   * 1つ。インスペクタのプレースホルダ・実効位置の表示に使う) */
+  const stdCaptionPos = useMemo<CaptionPos>(
+    () => stdCaptionPosFor(built?.props.caption.fontSizePx ?? 0).pos,
+    [stdCaptionPosFor, built],
+  );
 
   /** テロップごとのカット後の表示区間(編集時だけ再計算)。再生中の
    * 「いま表示中か」の判定を毎フレーム軽く済ませるための前計算 */
@@ -2538,7 +2584,7 @@ export const App = () => {
         if (!c.ivs.some((iv) => outT >= iv.start && outT < iv.end)) return [];
         const s = transcript.segments[c.index];
         // 実効位置が確定しているものはトラックの anchor に従い、
-        // 位置未指定(下部中央)は中心座標の近似 stdCaptionPos を掴ませる。
+        // 位置未指定(下部中央)は engine と同じフォールバック位置を掴ませる。
         // ショートモードは curCaptionOverlays(当該ショートの captionTracks)
         // から解決する(D2/5-4)
         const pos = captionPosOf(s, curCaptionOverlays);
@@ -2557,12 +2603,16 @@ export const App = () => {
         const bg = resolveCaptionBackground(style?.background, built.props.caption.background);
         const bgPadX = bg ? (bg.paddingPx ?? Math.round(fontSizePx * 0.35)) : 0;
         const bgPadY = bg ? Math.round(bgPadX * 0.5) : 0;
+        // 位置未指定はこのテロップの実効フォントサイズで解決する(行高の半分が
+        // 下端からの持ち上がりなので、トラック標準でサイズを変えていると
+        // config 既定サイズの代表値では枠がずれる)
+        const std = stdCaptionPosFor(fontSizePx);
         return [
           {
             index: c.index,
             text: s.text.trim(),
-            pos: pos ?? stdCaptionPos,
-            anchor: pos ? captionAnchorOf(s, curCaptionOverlays) : ("center" as const),
+            pos: pos ?? std.pos,
+            anchor: pos ? captionAnchorOf(s, curCaptionOverlays) : std.anchor,
             fontSizePx,
             // config の既定(render.caption*)まで解決して渡す(当たり判定の
             // フォント計量を本編の見た目と一致させる)
@@ -2575,7 +2625,7 @@ export const App = () => {
         ];
       });
     },
-    [captionIntervals, transcript, overlays, built, stdCaptionPos, curCaptionOverlays],
+    [captionIntervals, transcript, overlays, built, stdCaptionPosFor, curCaptionOverlays],
   );
 
   /** 素材(overlays.overlays)ごとのカット後の表示区間。テロップと同じ流儀で
@@ -6261,6 +6311,13 @@ export const App = () => {
                 }
                 // 編集中はプレビューを止めてボックス(=表示中テロップ)を固定する
                 onEditStart={() => playerRef.current?.pause()}
+                onEditingChange={(index, text) =>
+                  setCaptionTextDraft(
+                    index === null
+                      ? null
+                      : { index, text: text ?? "", outT: playhead.get() },
+                  )
+                }
               />
             </div>
           ) : (
@@ -6917,6 +6974,7 @@ const LiveCaptionOverlay = ({
   onMove,
   onCommitText,
   onEditStart,
+  onEditingChange,
 }: {
   width: number;
   height: number;
@@ -6927,6 +6985,7 @@ const LiveCaptionOverlay = ({
   onMove: (index: number, pos: CaptionPos) => void;
   onCommitText: (index: number, text: string) => void;
   onEditStart: () => void;
+  onEditingChange: (index: number | null, text?: string) => void;
 }) => {
   const key = usePlayheadSelector(getKey);
   const captions = useMemo(
@@ -6944,6 +7003,7 @@ const LiveCaptionOverlay = ({
       onMove={onMove}
       onCommitText={onCommitText}
       onEditStart={onEditStart}
+      onEditingChange={onEditingChange}
     />
   );
 };
