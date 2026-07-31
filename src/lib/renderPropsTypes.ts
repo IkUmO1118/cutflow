@@ -9,6 +9,7 @@ import type {
   KeyframeEasing,
   LayerId,
   SpotlightShape,
+  WipeAnchor,
 } from "../types.ts";
 import type { DesignProps } from "./design.ts";
 
@@ -181,7 +182,16 @@ export type RenderProps = {
    * ズーム中のワイプ縮小の下限(0..1。config.yaml の
    * render.zoom.webcamReactiveMinScale から解決済み。省略時 0.35=
    * OpenScreen 逐語) */
-  wipe: { widthPx: number; marginPx: number; transitionSec?: number; reactiveMinScale?: number };
+  wipe: {
+    widthPx: number;
+    marginPx: number;
+    rect?: Region;
+    radiusPx?: number;
+    shadow?: boolean;
+    anchor?: WipeAnchor;
+    transitionSec?: number;
+    reactiveMinScale?: number;
+  };
   /** true = ワイプ(カメラ)を cut.mp4 に焼き込み済み。Main.tsx はワイプレイヤーを
    * 描かない(ベース抽出1回の高速レンダー。docs/plans/perf-render-single-extraction.md)。
    * 最終レンダーの composite 経路でのみ立つ。エディタ Player / short では未指定 */
