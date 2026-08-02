@@ -1,7 +1,11 @@
 # S3: 映像なしプロジェクト — 画像だけ + 音声ファイルで動画を作る
 
 親ドキュメント: `docs/programs/sequence-time-program.md`(シーケンス時間母艦)
-状態: **SUPERSEDED-IN-PART**(2026-08-02。時間モデルは `2026-08-02-sequence-s3-fix-slides-as-overlays-design.md` が訂正) / 2026-08-02
+状態: **IMPLEMENTED**(2026-08-02。ただし §B4「stills では proxy を作らない」と
+「スライド = `inserts[]`」は誤りだったため、以下の4本で訂正済み:
+`s3-fix`(スライドは全画面 `overlays[]`)/ `s3-fix2`(音声のみ `proxy.m4a`)/
+`s3-fix3`(`run` 鎖の画面 OCR スキップ)/ `s3-fix4`(`proxy.m4a` の `+faststart`)。
+**本ファイルを単独で読んで実装しないこと**) / 2026-08-02
 前提: **S0 landing 必須**(`baseSegments[].audioStart` を音声のみ経路が使う)。
 **S1 landing 必須**(スライドは無音なので BGM/ナレーション以外に音源が無い)。
 **S2 landing 強く推奨**(V1 が全部スチルになるため B1/B4/B5 がそのまま効く)。

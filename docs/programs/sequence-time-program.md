@@ -1,6 +1,6 @@
 # シーケンス時間母艦 — 「元収録1本がマスタークロック」を脱し、出力(シーケンス)時間を第一級の番地にする
 
-> 状態: **IMPLEMENTED(S0/S1/S2/S4)/ S3 は訂正中(2026-08-02)**。FrameWright の
+> 状態: **IMPLEMENTED(S0〜S4)。S3 は fix〜fix4 で訂正済み(2026-08-02)**。FrameWright の
 > 「**すべての編集ファイルが元収録の秒で番地付けされる**」という単一時間軸の前提を、
 > 本物の NLE と同じ **二層構造(Source 領域 / Sequence 領域)** へ作り替えること。
 > 起点はユーザーからの4件の要望(§2)で、調査の結果**4件すべてが同一の構造的原因に
@@ -34,30 +34,38 @@
 | S0 | `2026-08-02-sequence-s0-timeline-integrity-design.md` | IMPLEMENTED | 時間軸の一貫性(既存バグ4件+軸の不一致2件) |
 | S1 | `2026-08-02-sequence-s1-audio-sequence-time-design.md` | IMPLEMENTED | 要望(2)(3) 完全解決。`timebase` の初出 |
 | S2 | `2026-08-02-sequence-s2-still-clips-design.md` | IMPLEMENTED | 要望(4) 根本解決。スチルが一級クリップに |
-| S3 | `2026-08-02-sequence-s3-source-independent-project-design.md` / 訂正: `2026-08-02-sequence-s3-fix-slides-as-overlays-design.md` | SUPERSEDED-IN-PART | 要望(1) 映像なしプロジェクト。時間モデルは訂正中 |
+| S3 | `2026-08-02-sequence-s3-source-independent-project-design.md` | IMPLEMENTED(下記4本で訂正) | 要望(1) 映像なしプロジェクト |
+| S3-fix | `2026-08-02-sequence-s3-fix-slides-as-overlays-design.md` | IMPLEMENTED | スライドを `inserts[]` から全画面 `overlays[]` へ差し戻し |
+| S3-fix2 | `2026-08-02-sequence-s3-fix2-editor-stills-preview-design.md` | IMPLEMENTED | 音声のみ `proxy.m4a` + `proxyFileName()` 単一の出所 |
+| S3-fix3 | `2026-08-02-sequence-s3-fix3-stills-run-chain-design.md` | IMPLEMENTED | `run` 鎖(plan の画面 OCR スキップ)+ 入口の頑健性 |
+| S3-fix4 | `2026-08-02-sequence-s3-fix4-stills-proxy-faststart-design.md` | IMPLEMENTED | `proxy.m4a` の `+faststart`(エディタの無音) |
 | S4 | `2026-08-02-sequence-s4-unified-addressing-design.md` | IMPLEMENTED | 番地契約の統一・軸事故の回帰固定 |
+| S5 | `2026-08-02-sequence-s5-av-axis-and-cleanup-design.md` | IMPLEMENTED | `av` の elapsed 軸の明示。S0-T2 の取りこぼし |
 
 ---
 
 ## 0. 他エージェント向け: 現在地と次の一手
 
-- **現在地(2026-08-02)**: S0/S1/S2/S4 は実装・focused commit 済み。S3 は
-  「スライド = inserts[]」が誤りだったため訂正中。実スライドショーの render
-  ゲート完走は、背景だけの区間が残る構成でも成功するため、スライドショーの
-  正しさを保証していなかった。
-- **2026-08-02(訂正)**: S3 §B4「stills では proxy を作らない」は、エディタが
-  ベース音声として正規化済み proxy を必要とする点を見落としていた。
-  訂正 = stills は音声のみの `proxy.m4a` を作り、名前の単一の出所を
-  `proxyFileName()` に置く。plan =
-  `docs/plans/2026-08-02-sequence-s3-fix2-editor-stills-preview-design.md`。
-- **次の一手**: 本母艦の不変条件を回帰テストで維持する。新しい document
-  timebase の適用先や plan-* の出力秒対応は、実害を記録して別 plan で扱う。
+- **現在地(2026-08-02)**: S0〜S4 と S3 の訂正4本(fix〜fix4)はすべて landing 済み。
+  実機の映像なしプロジェクト(音声1本+全画面スライド3枚)で
+  `validate` エラー0 / `describe` の出力尺 = ナレーション尺(スライドが尺を
+  伸ばさないこと)/ `frames` の全画面合成 / エディタのベース音声再生 まで確認済み。
+  **`render` 完走だけ未確認**(承認は人間の行為のため)。
+  ゲート: `npx tsc --noEmit` クリーン / `npm test` 2768件中 1件のみ失敗
+  (`test/editorFinishDesign.test.ts:60`。`a85fbf2` 起因の先行失敗で本母艦と無関係)/
+  `npm run gate:pixel` 全一致。
+- **S5(2026-08-02)**: `docs/plans/2026-08-02-sequence-s5-av-axis-and-cleanup-design.md`
+  は landing 済み。
+  S0-T2 は `av --range` の**解釈**だけを挿入込みにし、測定結果を出力秒へ**戻す**
+  写像を keep のみの経過秒(elapsed)のまま放置していた。挿入があると
+  `av.probe/` の全出力が挿入尺ぶんズレ、`plan-effects` は
+  `effectAnchors.ts:244` の挿入なし逆変換で二重にズレていた。
 - **絶対に飛ばしてはいけない前提**: S0 の T1(`validate` の挿入認識)は S1 の
   検証規則が乗る土台、S0 の T3(ベース音声バグ)は挿入を使う全機能の前提。
 - **触ってはいけない一線**:
   - `cutplan.json` を「クリップ列」へ作り替えない(§7 非目標)
   - plan-* の LLM プロンプトに出力秒を持ち込まない(§4 の分業)
-  - 承認 hash のペイロード形を、§6 の決定を経ずに変えない
+  - 承認 hash のペイロード形を、§9 の決定(2026-08-02: 現状維持)を覆さずに変えない
   - 既存収録の**バイト等価**(`timebase` を書かない限り全経路が導入前と同一)
 
 ---
@@ -277,28 +285,8 @@ plan: `docs/plans/2026-08-02-sequence-s4-unified-addressing-design.md`
 
 ## 6. 未決の決定(着手前に潰す go/no-go)
 
-- **[未決・最重要] 承認 hash と挿入の関係**。`src/lib/approval.ts:57-68` の
-  ペイロードは keep 集合のみ(`[[s,e],...]`、非既定 speed があれば
-  `{version:2, playback:[[s,e,speed]]}`)。**挿入には完全に盲目**。
-  つまり承認後に 30秒の intro を足しても hash は変わらず render が通る。
-  CLAUDE.md の「承認スコープは cut 決定のみ」とは整合するが、S2 で
-  スチルが出力尺を自由に伸ばせるようになると「承認した動画」と
-  「出来上がる動画」の乖離が大きくなる。
-  選択肢: (a) 現状維持+ドキュメント明記 / (b) 出力尺を hash に含める
-  (`version:3`。`version:2` という拡張前例あり) / (c) 出力尺の変化を
-  render 時に警告するだけ。**S2 着手前に決める。**
-- **[未決] S1-A1 の凸包ルールを config で無効化できるようにするか**。
-  推奨は不要(挿入が無ければバイト等価なので、既存プロジェクトは影響を受けない)。
-- **[未決] S3 の `preview`**。stills では ffmpeg trim/concat 経路が使えないため、
-  低解像度のエンジン render に落とすか、`preview` 自体を stills では
-  非対応にして editor プレビューへ誘導するか。
-- **[却下・記録として残す] 挿入の出力秒アンカー(`inserts[].timebase:"output"`)**。
-  S2 の検討中に出たが**採らない**。理由: intro は `at: 0`、ending は
-  `at: manifest.durationSec` で既に表現でき、中間配置はむしろ source
-  アンカーの方が「内容に貼り付く」ので正しい。出力秒アンカーを入れると
-  「source アンカー挿入と output アンカー挿入が混在したときの配置順」という
-  本質的に曖昧な問題が生まれる。要望(4)の根本は**アンカー軸ではなく
-  スチルの尺の扱い**にあると診断した(S2)。将来必要になったら S4 で再起草する。
+**未決なし(2026-08-02 に全件決着)。** 結論は §9 意思決定ログを見る。
+新しい go/no-go が出たらここへ積み、決着したら §9 へ移す。
 
 ## 7. 非目標(この母艦がやらないこと)
 
@@ -326,7 +314,8 @@ plan: `docs/plans/2026-08-02-sequence-s4-unified-addressing-design.md`
    新しい「シーケンス文書」を作って第二の正を持たない。
 3. **承認境界の不可侵**: `approvals.json` の書き手は `approve`/`unapprove` と
    GUI 保存だけ。本母艦のどの段もこれを増やさない。hash のペイロードを
-   変える場合は §6 の決定を経る。
+   変える場合は §9 の決定(2026-08-02: 承認スコープは cut 決定のみで確定)を覆す
+   新しい go/no-go を §6 に積んでから行う。
 4. **Source 領域の不可侵**: whisper/detect/plan-* の入出力の時間軸を変えない。
 5. **5点セットの追随**: スキーマを変えたら `src/types.ts` / `src/stages/validate.ts` /
    `docs/usage.md` / `schemas/*.schema.json` + `schemas/examples/<file>.max.json` /
@@ -334,6 +323,15 @@ plan: `docs/plans/2026-08-02-sequence-s4-unified-addressing-design.md`
    `test/schema.test.ts` と `test/agentsMd.test.ts` がピン留めしている。
 6. **軸の単一性**: S0 以降、`buildTimeline` を挿入なしで呼ぶ箇所を新たに増やさない
    (ショートを除く。ショートは挿入を持たないため意図的に挿入なし)。
+   **軸を直すときは測る側と読む側を同時に直す。** 片側だけ直すと、それまで
+   偶然一致していた消費者が静かにズレる(S0-T2 が `av` の `--range` 解釈だけを
+   挿入込みにし、測定結果を戻す写像と `plan-effects` の逆変換を置き去りにしたのが
+   その実例。S5 で是正)。
+7. **ブラウザが読むメディアは必ず moov 先頭(+faststart)で書く。**
+   ffmpeg はローカル読み出しなので moov 位置に依存しないが、エディタは
+   HTTP Range で読むため、moov が末尾にあるとトラックを取得できない。
+   以前は失敗が無言(AudioScheduler が null を返して return)だったため、
+   「render は正常だがエディタだけ無音」という切り分けにくい形で現れた。
 
 ## 9. 意思決定ログ
 
@@ -360,5 +358,57 @@ plan: `docs/plans/2026-08-02-sequence-s4-unified-addressing-design.md`
   describeBaseLayer の videoFile==="" 早期 return が背景画像ブロックより手前に
   あるため、背景**画像**には効いていなかった(効いていたのは backgroundColor
   のみ)。`src/engine/` を一度も変更しなかったことが見落としの原因。
-- **未記入**: §6 の未決3件(承認 hash × 挿入 / A1 の config 化 / S3 の preview)は
-  該当段の着手時に本ログへ結論を追記する。
+- **2026-08-02(訂正)**: S3 は「stills では映像を触らない」ガードを frames/av/
+  renderSnapshot に入れたが、plan の画面 OCR 知覚(`plan.perception.ocr`)を
+  見落としていた。config.yaml の標準が ocr:true のため、映像なしプロジェクトは
+  `run` が既定で落ちていた(ffmpeg: Output file does not contain any stream)。
+  plan = `docs/plans/2026-08-02-sequence-s3-fix3-stills-run-chain-design.md`。
+- **2026-08-02**: 映像なしプロジェクトの元ファイル選択は拡張子の型が弱い
+  (BGM も素材もナレーションも同じ拡張子)。動画が無く音声候補が複数ある
+  ときは黙って1本目を選ばず、エラーで人間に決めさせる方針を採る。
+- **2026-08-02(訂正)**: S3-fix2 で追加した音声のみプロキシ `proxy.m4a` に
+  `-movflags +faststart` が付いていなかった。`videoEncodeArgs`
+  (`src/lib/videoEncode.ts`)が付ける設計だったが、音声のみ経路はそこを通らない。
+  結果 moov が末尾になり、エディタのベース音声(mediabunny の `UrlSource` =
+  HTTP Range 読み)がトラックを取得できず、例外もログも出ないまま全編無音に
+  なっていた。render は ffmpeg のローカル読みなので正常。plan =
+  `docs/plans/2026-08-02-sequence-s3-fix4-stills-proxy-faststart-design.md`。
+- **2026-08-02(決着)**: §6 の未決3件のうち2件を結論として記録する。
+  (a) **承認 hash × 挿入** = 現状維持+ドキュメント明記(S4-D4)。承認スコープは
+  cut 決定のみという既存の一線を動かさず、`docs/usage.md:144-145` に
+  「insert / BGM / 演出 / 出力尺の変更では失効しない」と明記した。
+  (b) **S3 の preview** = stills では非対応。`preview.ts:30-33` が明示的な
+  エラーでエディタへ誘導する。低解像度エンジン render へのフォールバックは
+  preview の存在意義(軽さ)を失うため採らない。
+  残る未決は S1-A1 凸包の config 化のみだったが、下記で決着した。
+- **2026-08-02(決着・§6 完了)**: **S1-A1 の凸包を config で無効化する設定は
+  足さない。** 「挿入の間だけ BGM を止めたい」(挿入クリップが自前の音楽や
+  ナレーションを持っていて重ねると濁る場合)という正当な要求はあるが、
+  **`timebase:"output"` のトラックを挿入の前後へ分けることで既に表現できる**。
+  実測(`buildRenderProps` を直接実行して確認):
+
+  ```
+  挿入 out 8–12 / source timebase {start:5,end:16}
+    → [{5,20}]                              凸包でまたいで繋がる(既定)
+  output timebase 2本 {5–8} + {12–20, startFrom:3}
+    → [{5,8}, {12,20,startFrom:3}]          挿入区間だけ無音にできる
+  ```
+
+  出力秒は `describe --json` の `overlays.inserts[].out` から読めるので
+  人間が数える必要もない。config の on/off は**粒度が粗すぎる**
+  (またぎたいトラックとまたぎたくないトラックは同じ動画に混在する)。
+  トラック単位の boolean(`bridgeInserts` 等)は §4 の「新語を作らない」に
+  反し、`timebase` と意味が重複する。よって**表現手段は既存のもので足りている**
+  という結論。ドキュメント(`docs/guides/audio-bgm.md`「挿入クリップと BGM」)と
+  回帰テスト(`test/renderProps.test.ts`「timebase output を挿入の前後に
+  分けると挿入区間だけ無音にできる」)で逃げ道を明文化・固定した。
+  **これで §6 の未決は全件決着。**
+- **2026-08-02(訂正)**: S0-T2(`av --range` の挿入認識)は `--range` の**解釈**
+  だけを直し、測定結果を出力秒へ**戻す**写像(`avParse.ts:130`)を elapsed の
+  まま放置していた。ffmpeg は keep だけを concat して測る(`avFilters.ts:30,43`)
+  ので、挿入があると `av.probe/` の全出力(motion / frozen / tiles / envelope /
+  silences / tracks)が挿入尺ぶんズレる。`plan-effects` は加えて挿入なしの
+  逆変換(`effectAnchors.ts:244`)で二重にズレていた。名前の無い第3の軸
+  (**elapsed** = keep のみを連結した経過秒)を明示し、
+  elapsed→source→output の一方向に統一する。plan =
+  `docs/plans/2026-08-02-sequence-s5-av-axis-and-cleanup-design.md`。
