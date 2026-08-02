@@ -10,8 +10,9 @@ export interface Manifest {
   durationSec: number;
   /** レイアウト。省略時は "obs-canvas"(旧 manifest 互換)。
    *  obs-canvas: 拡張キャンバス(画面+カメラ横並び)。cameraRegion を持つ
-   *  plain:      通常動画。カメラ無し。screenRegion は全フレーム */
-  layout?: "obs-canvas" | "plain";
+   *  plain:      通常動画。カメラ無し。screenRegion は全フレーム
+   *  stills:     音声のみの元ファイル。映像は inserts[] の静止画で構成 */
+  layout?: "obs-canvas" | "plain" | "stills";
   video: {
     width: number;
     height: number;
@@ -44,8 +45,8 @@ export const manifestCompositionFps = (manifest: Pick<Manifest, "video">): numbe
   Math.round(manifest.video.fps) || 30;
 
 /** manifest のレイアウト(未指定は旧 manifest 互換で obs-canvas) */
-export const manifestLayout = (m: { layout?: string }): "obs-canvas" | "plain" =>
-  m.layout === "plain" ? "plain" : "obs-canvas";
+export const manifestLayout = (m: { layout?: string }): "obs-canvas" | "plain" | "stills" =>
+  m.layout === "plain" || m.layout === "stills" ? m.layout : "obs-canvas";
 
 /** ワイプ(カメラ)を持つレイアウトか。plain・cameraRegion 欠落は false */
 export const hasCamera = (m: Manifest): boolean =>
@@ -603,7 +604,8 @@ export interface Overlays {
   /** ベース映像トラックへの挿入クリップ(Premiere のインサート編集相当)。
    * カット後タイムラインの at(元収録の秒)の位置に file を durationSec ぶん
    * 差し込む。at 以降のすべての要素(keep 区間・素材・テロップ)は
-   * 元収録の秒のまま動かさず、時刻写像が挿入の尺ぶん後ろへずらす */
+   * 元収録の秒のまま動かさず、時刻写像が挿入の尺ぶん後ろへずらす。
+   * at が同じ挿入が複数あるときは overlays.json に書いた順に並ぶ */
   inserts?: {
     /** 編集をまたいで安定な永続 id(例 "ins_a1b2c3")。`@id` で人間/AI がこの要素を
      * 指す共通アドレス。文法は `<prefix>_<base36 6桁>`(src/lib/ids.ts が単一の出所)。
@@ -900,9 +902,18 @@ export interface Bgm {
      * バイト等価(opt-in・sticky。採番は `id-stamp` / 生成 / GUI 保存が行う)。
      * **render / 承認 hash には一切影響しない**(アドレッシング専用) */
     id?: string;
-    /** 流し始め(元収録の秒) */
+    /** この区間の時刻(start/end)が属する時間軸。省略時 "source"。
+     *  - "source" … 元収録の秒(従来どおり)。cut に追随して縮み、
+     *    挿入をまたぐときは繋がった1本の区間になる
+     *  - "output" … 出力(カット後・挿入込み)の秒。元収録に対応時刻が
+     *    無い区間(冒頭 intro・末尾 ending・挿入の中)へ BGM を当てるために使う。
+     *    cut を編集しても位置は動かない
+     *  出力秒は `describe <dir>` の「出力」列や `describe <dir> --json` の
+     *  `keeps[].outStart/outEnd`・`inserts[].out` で確認できる */
+    timebase?: "source" | "output";
+    /** 流し始め(timebase が属する時間軸の秒) */
     start: number;
-    /** 流し終わり(元収録の秒) */
+    /** 流し終わり(timebase が属する時間軸の秒) */
     end: number;
     /** BGM ファイル(収録フォルダからの相対パス。例: bgm.mp3 / materials/outro.mp3) */
     file: string;

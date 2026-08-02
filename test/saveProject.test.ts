@@ -109,6 +109,22 @@ test("saveProject: bgm を null で渡すと bgm.json を削除する(既存挙�
   });
 });
 
+test("saveProject: output-timebase BGM の変更・削除を永続化境界で拒否する", () => {
+  withTmpProject((dir) => {
+    const original = { tracks: [
+      { start: 0, end: 2, file: "intro.mp3", timebase: "output" as const },
+      { start: 2, end: 4, file: "body.mp3" },
+    ] };
+    writeFileSync(join(dir, "bgm.json"), JSON.stringify(original, null, 2));
+    assert.throws(
+      () => saveProject(dir, { bgm: { tracks: [{ ...original.tracks[0], end: 3 }, original.tracks[1]] } }),
+      /読み取り専用/,
+    );
+    assert.throws(() => saveProject(dir, { bgm: null }), /読み取り専用/);
+    assert.equal(readFileSync(join(dir, "bgm.json"), "utf8"), JSON.stringify(original, null, 2));
+  });
+});
+
 test("saveProject: body に無いキーは対応ファイルを一切書かない(chapters.json は不可侵)", () => {
   withTmpProject((dir) => {
     const before = readFileSync(join(dir, "chapters.json"), "utf8");

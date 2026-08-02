@@ -7,6 +7,7 @@ import {
   toOutputTime,
 } from "./timeline.ts";
 import type { RemappedPiece, TimelineEntry } from "./timeline.ts";
+import { fmtT } from "./fmt.ts";
 import type { Config } from "./config.ts";
 import { effectiveZoomRange, resolveZoomCfg } from "./zoom.ts";
 import type { ZoomSpan } from "./zoom.ts";
@@ -181,7 +182,14 @@ export function buildRenderProps(args: {
   });
   const design = profile?.layout
     ? undefined
-    : resolveDesign(renderCfg.design, width, height, !!manifest.video.cameraRegion, resolvedWipeStyle);
+    : resolveDesign(
+        renderCfg.design,
+        width,
+        height,
+        !!manifest.video.cameraRegion,
+        resolvedWipeStyle,
+        manifest.layout === "stills",
+      );
   if (design?.backgroundFile && !overlayExists(design.backgroundFile)) {
     warn(`背景画像が見つかりません: ${design.backgroundFile}(背景色のみで描画します)`);
     delete design.backgroundFile;
@@ -511,6 +519,7 @@ export function buildRenderProps(args: {
     videoStart: videoIsSource
       ? e.sourceStart
       : (toOutputTime(e.sourceStart, keepsOnly) ?? 0),
+    audioStart: toOutputTime(e.sourceStart, keepsOnly) ?? 0,
     durationSec: round2(e.outputEnd - e.outputStart),
     ...(videoIsSource && e.speed !== 1 ? { playbackRate: e.speed } : {}),
   }));
@@ -525,6 +534,7 @@ export function buildRenderProps(args: {
         last.videoStart + last.durationSec * (last.playbackRate ?? 1),
         seg.videoStart,
       ) &&
+      near(last.audioStart + last.durationSec, seg.audioStart) &&
       (last.playbackRate ?? 1) === (seg.playbackRate ?? 1)
     ) {
       last.durationSec = round2(last.durationSec + seg.durationSec);
@@ -556,6 +566,7 @@ export function buildRenderProps(args: {
       renderCfg,
       timeline,
       durationSec: round2(durationSec),
+      hasInserts: activeInserts.length > 0,
       duck,
       fileExists: overlayExists,
       warn,
@@ -679,9 +690,9 @@ function buildDuck(
 }
 
 /**
- * bgm.json の tracks(元収録の秒)を出力タイムラインの BGM 区間へ写像する。
- * 覆っていない時間は無音(区間を作らない)。挿入で割れた区間はフェードを
- * 最初/最後の断片にだけ載せる(オーバーレイと同じ考え方)。bgm.json が無ければ
+ * bgm.json の source tracks を出力タイムラインへ写像し、挿入で割れた区間は
+ * 1本の連続区間へ畳む。output tracks は出力秒として直接使う。
+ * 覆っていない時間は無音(区間を作らない)。bgm.json が無ければ
  * 収録フォルダ直下の bgm.*(bgmFallbackFile)を全編1曲として流す従来動作。
  * 存在しない素材は warn して飛ばす(= その区間は無音)。
  */
@@ -691,11 +702,12 @@ function buildBgm(args: {
   renderCfg: Config["render"];
   timeline: ReturnType<typeof buildTimeline>;
   durationSec: number;
+  hasInserts: boolean;
   duck: Duck | null;
   fileExists: (file: string) => boolean;
   warn: (msg: string) => void;
 }): RenderProps["bgm"] {
-  const { bgm, bgmFallbackFile, renderCfg, timeline, durationSec, duck, fileExists, warn } = args;
+  const { bgm, bgmFallbackFile, renderCfg, timeline, durationSec, hasInserts, duck, fileExists, warn } = args;
   const withDuck = <T extends object>(t: T): T & { duck?: Duck } =>
     duck ? { ...t, duck } : t;
 
@@ -705,8 +717,23 @@ function buildBgm(args: {
         warn(`BGM 素材が見つかりません: ${t.file}(この区間は無音になります)`);
         return [];
       }
-      const parts = remapInterval(t.start, t.end, timeline);
-      return parts.map((iv, j) =>
+      let spans: Interval[];
+      if (t.timebase === "output") {
+        const start = Math.max(0, t.start);
+        const end = Math.min(durationSec, t.end);
+        if (end <= start) {
+          warn(
+            `BGM 区間が出力タイムラインの外です: ${t.file} ` +
+              `(timebase:"output" の ${fmtT(t.start)}–${fmtT(t.end)}、出力尺 ${fmtT(durationSec)})`,
+          );
+          return [];
+        }
+        spans = [{ start: round2(start), end: round2(end) }];
+      } else {
+        const parts = remapInterval(t.start, t.end, timeline);
+        spans = hasInserts ? hullOf(parts) : parts;
+      }
+      return spans.map((iv, j) =>
         withDuck({
           file: t.file,
           volumeDb: t.volumeDb ?? renderCfg.bgm.volumeDb,
@@ -716,7 +743,7 @@ function buildBgm(args: {
           ...(j === 0 && t.fadeInSec
             ? { fadeInSec: Math.min(t.fadeInSec, round2(iv.end - iv.start)) }
             : {}),
-          ...(j === parts.length - 1 && t.fadeOutSec
+          ...(j === spans.length - 1 && t.fadeOutSec
             ? { fadeOutSec: Math.min(t.fadeOutSec, round2(iv.end - iv.start)) }
             : {}),
         }),
@@ -738,6 +765,12 @@ function buildBgm(args: {
     ];
   }
   return [];
+}
+
+/** 写像した断片を1本の連続 span へ畳み、挿入で割れた BGM を繋ぐ。 */
+function hullOf(parts: Interval[]): Interval[] {
+  if (parts.length <= 1) return parts;
+  return [{ start: parts[0].start, end: parts[parts.length - 1].end }];
 }
 
 /** 隙間が gap 以下で隣接する区間をひと続きにまとめる */

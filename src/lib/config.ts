@@ -135,6 +135,8 @@ export interface Config {
     /** 収録レイアウトの既定。省略時 "plain"。
      *  auto = 寸法/縦横比から OBS 拡張キャンバスらしければ obs-canvas、それ以外は plain */
     layout?: "obs-canvas" | "plain" | "auto";
+    /** 音声のみを ingest する stills project の canvas。 */
+    stills?: { width?: number; height?: number; fps?: number };
   };
   whisper: {
     bin: string;
@@ -424,6 +426,12 @@ export interface Config {
     suggestUnderrunExtend?: boolean;
     /** dangling 貼り替え候補の上限。省略時 DEFAULT_MATERIAL_FIT_MAX_REPLACEMENTS(3) */
     maxReplacements?: number;
+  };
+  /** 静止画クリップの生成既定と長尺警告。省略時は DEFAULT_STILLS_* */
+  stills?: {
+    defaultDurationSec?: number;
+    /** 1件が出力尺に占める割合。この値以下、または 0 で警告しない */
+    maxShareWarnRatio?: number;
   };
   /** 演出(zoom/blur/annotation)候補の自動生成(plan-effects)。番号+種別選択
    *  方式で overlays.json の zooms/blurs/annotations を下書き生成する
@@ -896,6 +904,20 @@ export function resolveMaterialFitCfg(cfg: Config): {
     underrunRatio: m.underrunRatio ?? DEFAULT_MATERIAL_FIT_UNDERRUN_RATIO,
     suggestUnderrunExtend: m.suggestUnderrunExtend ?? DEFAULT_MATERIAL_FIT_SUGGEST_UNDERRUN_EXTEND,
     maxReplacements: m.maxReplacements ?? DEFAULT_MATERIAL_FIT_MAX_REPLACEMENTS,
+  };
+}
+
+export const DEFAULT_STILLS_DURATION_SEC = 5.0;
+export const DEFAULT_STILLS_MAX_SHARE_WARN_RATIO = 0.5;
+
+/** stills.* を既定値で解決する純関数。 */
+export function resolveStillsCfg(cfg: Config): {
+  defaultDurationSec: number;
+  maxShareWarnRatio: number;
+} {
+  return {
+    defaultDurationSec: cfg.stills?.defaultDurationSec ?? DEFAULT_STILLS_DURATION_SEC,
+    maxShareWarnRatio: cfg.stills?.maxShareWarnRatio ?? DEFAULT_STILLS_MAX_SHARE_WARN_RATIO,
   };
 }
 

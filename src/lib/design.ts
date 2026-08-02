@@ -190,10 +190,12 @@ export function resolveDesign(
   /** manifest.video.cameraRegion があるか(= obs-canvas 収録か) */
   hasCamera: boolean,
   wipeStyle?: ResolvedWipeStyle,
+  /** stills は背景が唯一の下地なので cameraRegion 無しでも design を有効にする */
+  isStills = false,
 ): DesignProps | undefined {
   if (!cfg?.enabled) return undefined;
   // plain 収録(OBSではない素の動画)にはデザインをかぶせない
-  if (!hasCamera) return undefined;
+  if (!hasCamera && !isStills) return undefined;
 
   const backgroundEnabled = cfg.backgroundEnabled !== false;
   const s = backgroundEnabled

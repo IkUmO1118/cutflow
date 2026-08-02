@@ -89,7 +89,7 @@ human final がある場合だけ、従来の agreement (`exact`) / rescue (`dir
 
 初回に本当に触る必要があるのは3点だけ: `recordingsDir`(収録の置き場所)/
 `ai.provider`(生成 AI の入口。`claude-code` は APIキー不要の既定)/
-`ingest.layout`(収録レイアウト。`plain`=通常動画 / `obs-canvas`=画面+カメラ)。
+`ingest.layout`(収録レイアウト。`plain`=通常動画 / `obs-canvas`=画面+カメラ / `stills`=音声のみを元に全画面スライド overlay で構成)。音声ファイルだけのフォルダは自動的に `stills` になり、canvas は `ingest.stills`(省略時1920x1080/30fps)を使う。
 リポジトリ直下の `config.yaml`(全項目版・333行)を最初から読む必要はなく、
 同じくリポジトリ直下にある `config.minimal.yaml`(必須セクションだけの完結ファイル・
 約45行)を使うと過負荷を避けられる。使い方は2通り: 各コマンドに
@@ -100,8 +100,10 @@ human final がある場合だけ、従来の agreement (`exact`) / rescue (`dir
 
 ## どのファイルを直すと何が変わるか
 
-時刻はすべて**元動画(収録ファイル)の秒**で書く。カット後の時刻への
-換算はツールが自動でやるので、頭の中で引き算する必要はない。
+文書内の時刻は原則として**元動画(収録ファイル)の秒**で書く。文書に
+`timebase:"output"` がある要素だけは出力秒で、`timebase` 省略は source 互換。
+一方、`frames --out` や review API の `axis` は「今回どの軸で問い合わせるか」
+を表す request の指定であり、保存文書の所属軸を表す `timebase` とは別物。
 
 | ファイル | 直すと変わるもの | 編集する場面 |
 |---|---|---|
@@ -109,11 +111,30 @@ human final がある場合だけ、従来の agreement (`exact`) / rescue (`dir
 | `cutplan.json` | **どこを残すか**(`action`: keep/cut)。境界の秒数も手で微調整できる。`segments[].reasonId` は任意の分類 id(`docs/edit-skills/cut/recipes/<id>.md`。13分類。省略可=未分類・opt-in)。`validate` は未知 id と action/系の不整合を警告する(エラーにはしない=人間が GUI で判断を戻した記録でありうるため) | preview を見て「切りすぎ」「ここは残す」 |
 | `chapters.json` | **概要欄チャプター用メタデータ**(`start` / `title` のみ)。動画への描画には使われない: 章タイトルは plan が「章」という名前のテロップトラックとして transcript.json に書き、以降はただのテロップとして編集する | YouTube 概要欄に載せる章タイトルの言い換え |
 | `overlays.json` | **演出**: 素材の表示(全画面または `rect` で部分配置。頭出し・音量・不透明度・フェード付き)・インサート編集・ワイプ全画面・常駐ワイプの `wipeStyle`(位置・サイズ・丸み・影。8アンカー、出力px、未指定時は config 継承)・**ズーム**(`zooms`)・**領域ぼかし**(`blurs`)・**注釈グラフィック**(`annotations`)・**簡易カラー調整**(`colorFilter`)・字幕非表示・重なり順・テロップトラック標準。zooms/blurs/annotations の `reasonId` は任意の演出分類 id(`docs/edit-skills/effects/recipes/<id>.md`。7分類)。未知 id と型/系不整合は警告、非文字列はエラー。`reasonId` は描画・承認hashに影響しない | B-roll を挟む、カメラだけの場面を作る、開発画面の API キーを隠す、画面の一点を指し示す(下の「演出」参照) |
-| `bgm.json` | **BGM**を区間ごとに配置(`tracks[]`: `{start, end, file, volumeDb?, startFrom?, fadeInSec?, fadeOutSec?}`)。覆っていない区間は無音、別ファイルの区間で曲の切り替え・重奏。無ければ収録フォルダ直下の `bgm.*` を全編1曲で流す(後方互換) | イントロだけ BGM なし、途中で曲を変える、別の BGM を足す(下の「BGM」参照) |
+| `bgm.json` | **BGM**を区間ごとに配置(`tracks[]`: `{start, end, file, timebase?, volumeDb?, startFrom?, fadeInSec?, fadeOutSec?}`)。`timebase` は `"source"`(省略時)=元収録の秒 / `"output"`=出力(カット後・挿入込み)の秒。冒頭 intro・末尾 ending・挿入クリップの中へ BGM を当てるときは `"output"` を使う。覆っていない区間は無音、別ファイルの区間で曲の切り替え・重奏。無ければ収録フォルダ直下の `bgm.*` を全編1曲で流す(後方互換) | イントロだけ BGM なし、途中で曲を変える、別の BGM を足す(下の「BGM」参照) |
 | `shorts.json` | **ショート動画**の元データ(`shorts[]`: `{name, profile?, approved, ranges[], captionTracks?}`)。`name` は出力ファイル名(`shorts/<name>.mp4`)。`profile` は `default` / `vertical` / `vertical-screen` / `vertical-cover` から選ぶ組み込みレイアウト(省略時の既定は camera 有り→`vertical`、plain→`vertical-screen`)。`ranges` は元収録の秒で、本編 `cutplan.json` の keep とは独立したこのショート専用の keep 集合(本編でカットした素材も含められる)。`captionTracks` は `overlays.json` と同型の縦用テロップ位置/スタイル上書き。`approved` はこのショート(縦動画)を人間が確認したかどうかの**承認意図の表示**(**AI は自分で true にしない**。実際の render ゲートは `approvals.json` の承認レコード) | ショート動画を切り出したいとき |
 | `thumbnail.json` | **サムネイル**(`thumbnail.png`)の元データ(`{t, texts[]}`)。下記「サムネイル生成」参照 | サムネイルを作りたいとき |
 | `meta.json` | 動画には影響なし。タイトル・概要欄の**下書き** | 投稿時のコピペ元 |
 | `rules.md` | **チャンネルの恒久ルール**(自由 Markdown。テロップ表記・トーン/声色・禁止語・ペーシング・章の付け方・タイトルの型など「毎回守る型」)。収録フォルダの親ディレクトリに置くと**チャンネル共通**、収録フォルダ直下に置くと**この収録だけの上書き/追加**(両方あれば連結し、収録固有が優先)。`plan` / `plan --cuts-only` / `remeta` / `plan-shorts` / `plan-materials` / `plan-effects` / `plan-bgm` の LLM プロンプトに注入される。`brief.md`(今回の見せ場・中身)とは役割が別(下記「チャンネル rules と learn」参照) | チャンネル全体の編集方針を一貫させたい、この回だけ例外を効かせたいとき |
+
+`manifest.layout:"stills"` の映像なしプロジェクトでは、ナレーション音声が動画尺を決める。スライドは `overlays.json` の `overlays[]` に `rect` なしで置く(全画面表示)。`inserts[]` は intro/ending など本当に出力尺を伸ばしたいクリップ専用で、通常のスライドには使わない。
+
+映像なしプロジェクトのコマンド対応:
+
+| コマンド | 対応 |
+|---|---|
+| `ingest` / `transcribe` / `detect` / `run` | 対応。`run` は `plan.perception.ocr` が有効でも画面 OCR を警告付きでスキップする |
+| `editor` | 対応。stills は音声のみの `proxy.m4a` を使う |
+| `validate` / `describe` / `apply` | 対応 |
+| `frames` | 対応。ベース映像なしの合成 still を撮る |
+| `av --sound-only` | 対応。motion は自動スキップ |
+| `render` | 対応 |
+| `preview` | 非対応。最終確認は `frames` / `render` を使う |
+
+`describe <dir> --json` の `overlays.inserts[]` は `kind` (`"image"` / `"video"`)を含む。`"image"` は宣言した `durationSec` 全体を表示する静止画クリップで、音声を持たない。
+同出力の区間射影は `out` が出力秒を表す。要素の `timebase` は保存文書どおりで、
+省略時は source、`"output"` のときは `start` / `end` 自体も出力秒である。
+GUI エディタでは `timebase:"output"` の BGM は読み取り専用として表示される。
 
 **触らない第3カテゴリ**(編集ファイルにも中間生成物にも属さない):
 `approvals.json`(**承認レコード**。`cutplan.json` / `shorts.json` 各ショートの
@@ -121,13 +142,15 @@ keep 集合の sha256 ハッシュに束縛され、`render` の唯一のゲー�
 自動失効する。`node src/cli.ts approve` / `unapprove` コマンドと GUI エディタの
 保存(チェックボックス)だけが書く。**人間や AI が直接編集・作成しない**。
 詳細は下記「承認(approve/unapprove)」参照)。
+本編の承認 hash はカット判断(keep の `[start,end]`)だけを対象とする。
+insert、BGM、演出、出力尺の変更では失効しないため、最終 render の内容確認は別途必要。
 
 **触らないファイル**(中間生成物。再実行すると上書きされる):
 `manifest.json` / `cuts.auto.json` / `plan.raw.txt` / `plan-shorts.raw.txt`
 (plan-shorts の LLM 生応答の記録) / `plan-materials.raw.txt`
 (plan-materials の LLM 生応答の記録。用途は plan.raw.txt と同じ) / `render.props.json` /
 `whisper-out.*` / `plan-bgm.raw.txt`(plan-bgm の LLM 生応答の記録。
-用途は plan.raw.txt と同じ) / `cut.mp4` / `cut.keeps.json`(cut.mp4 の再利用可否を
+用途は plan.raw.txt と同じ) / `cut.mp4` / `cut.m4a` / `cut.keeps.json`(cut.mp4/cut.m4a の再利用可否を
 判定するキャッシュキー。keeps・音声設定・元収録ファイルが前回と同じなら
 render は ffmpeg cut を省略する。削除すれば常にフル再生成に戻る) /
 `render.key.json`(final.mp4 の再利用可否を判定するキャッシュキー。
@@ -150,7 +173,8 @@ false で従来の短 GOP に戻る)・元収録ファイルが前回の生成�
 (`learn` が書く下書き。使い捨てで、次回の `learn` 実行で黙って上書きされる。
 採用したい項目は人間が手で `rules.md` に転記する。詳細は下記「チャンネル
 rules と learn」参照) / `av.probe/`(`av <dir>` の差分更新型キャッシュ。
-`motion.json` / `sound.json` / `motion.strip.png`) / `plan-effects.raw.txt`
+`motion.json` / `sound.json` / `motion.strip.png`。`frozen[]` と `silences[]` は
+`outSec` / `endOutSec` に加えて `sourceSec` / `endSourceSec` も持つ) / `plan-effects.raw.txt`
 (plan-effects の LLM 生応答の記録。用途は plan.raw.txt と同じ) /
 `style.probe/`(`style-profile` が channel 直下(収録フォルダの親、または
 `--from` にファイルを渡したときはそのファイルの親)に書くスタイルプロファイル
@@ -364,6 +388,7 @@ render を中止し、黙った黒画面 MP4 を公開しない。ANGLE の結�
     node src/cli.ts hyperframe-place <dir> --name <name> --at <元収録の秒>
     # 既定は overlay(全画面 or --rect で部分配置)。--as insert で
     # ベース映像への挿入編集にできる(insert は --rect / --track を取らない)
+    # at が同じ insert が複数あるときは overlays.json に書いた順に並ぶ。
 
 尺(`durationSec`)は決定論的に解決する: `--duration <s>` を明示すればそれ、
 無ければ `hyperframe.<name>.key.json` の `durationSec`、それも無ければ

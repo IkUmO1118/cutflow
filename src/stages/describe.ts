@@ -7,6 +7,7 @@ import { cliCmd } from "../lib/cliName.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fmtT } from "../lib/fmt.ts";
+import { isImageFile } from "../lib/overlayFade.ts";
 import { resolveDescribePausesCfg } from "../lib/config.ts";
 import type { Config } from "../lib/config.ts";
 import { DEFAULT_SILENCE_CUT_REASON } from "../lib/buildCutplan.ts";
@@ -205,7 +206,7 @@ export function describe(dir: string, cfg?: Config): string {
   );
   const bgmDesc =
     bgm && bgm.tracks?.length
-      ? `bgm.json(${bgm.tracks.length}区間: ${[...new Set(bgm.tracks.map((t) => t.file))].join(", ")})`
+      ? `bgm.json(${bgm.tracks.length}区間${bgm.tracks.some((t) => t.timebase === "output") ? `・うち${bgm.tracks.filter((t) => t.timebase === "output").length}件は出力秒指定` : ""}: ${[...new Set(bgm.tracks.map((t) => t.file))].join(", ")})`
       : (["bgm.mp3", "bgm.m4a", "bgm.wav"].find((f) => existsSync(join(dir, f))) ?? "なし");
   lines.push(
     `approved: ${cutplan.approved} / テロップ ${transcript.segments.length}件 / BGM ${bgmDesc}`,
@@ -305,7 +306,7 @@ export function describe(dir: string, cfg?: Config): string {
     insertSpans(keeps, inserts).forEach((sp) => {
       const ins = inserts[sp.index];
       lines.push(
-        `  挿入 元 ${fmtT(ins.at)} の手前に ${ins.file}(${ins.durationSec}秒)→ 出力 ${fmtT(sp.start)}–${fmtT(sp.end)}`,
+        `  挿入${isImageFile(ins.file) ? " [静止画]" : ""} 元 ${fmtT(ins.at)} の手前に ${ins.file}(${ins.durationSec}秒)→ 出力 ${fmtT(sp.start)}–${fmtT(sp.end)}`,
       );
     });
     for (const w of wipeList) {
@@ -412,7 +413,7 @@ export interface SystemAudioProjection {
 export interface SourceInfo {
   file: string;
   durationSec: number;
-  layout: "obs-canvas" | "plain";
+  layout: "obs-canvas" | "plain" | "stills";
   video: {
     width: number;
     height: number;
@@ -559,6 +560,8 @@ export interface KeyframeEntry {
  * id は安定 id(未採番なら省略) */
 export interface MappedInterval {
   id?: string;
+  /** 省略時は source。output を明記した要素だけ start/end 自体が出力秒。 */
+  timebase?: "source" | "output";
   start: number;
   end: number;
   out: Interval[];
@@ -588,6 +591,8 @@ export interface InsertEntry {
   at: number;
   file: string;
   durationSec: number;
+  /** image は宣言尺いっぱい表示される無音の静止画クリップ。 */
+  kind: "image" | "video";
   startFrom?: number;
   fit?: "contain" | "cover";
   volume?: number;
@@ -655,7 +660,7 @@ export interface ChapterEntry {
 
 export interface BgmProjection {
   source: "bgm.json" | "fallback" | "none";
-  tracks?: Bgm["tracks"];
+  tracks?: (Bgm["tracks"][number] & { out: Interval[] })[];
   file?: string;
 }
 
@@ -1131,6 +1136,7 @@ function buildProjection(inp: DescribeInputs, cfg?: Config): DescribeProjection 
       at: ins.at,
       file: ins.file,
       durationSec: ins.durationSec,
+      kind: isImageFile(ins.file) ? "image" : "video",
       ...(ins.startFrom !== undefined ? { startFrom: ins.startFrom } : {}),
       ...(ins.fit !== undefined ? { fit: ins.fit } : {}),
       ...(ins.volume !== undefined ? { volume: ins.volume } : {}),
@@ -1243,7 +1249,15 @@ function buildProjection(inp: DescribeInputs, cfg?: Config): DescribeProjection 
   /* ---- bgm ---- */
   let bgm: BgmProjection;
   if (inp.bgm && inp.bgm.tracks?.length) {
-    bgm = { source: "bgm.json", tracks: inp.bgm.tracks };
+    bgm = {
+      source: "bgm.json",
+      tracks: inp.bgm.tracks.map((t) => ({
+        ...t,
+        out: t.timebase === "output"
+          ? [{ start: Math.max(0, t.start), end: Math.min(inp.outDur, t.end) }].filter((iv) => iv.end > iv.start)
+          : remapInterval(t.start, t.end, timeline),
+      })),
+    };
   } else {
     const fallbackFile = ["bgm.mp3", "bgm.m4a", "bgm.wav"].find((f) =>
       existsSync(join(dir, f)),

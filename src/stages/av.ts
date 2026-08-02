@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Config } from "../lib/config.ts";
@@ -6,11 +7,19 @@ import { run } from "../lib/exec.ts";
 import { detectSilence } from "../lib/ffmpeg.ts";
 import { audioSourceOf } from "../lib/loudness.ts";
 import { loadShort } from "../lib/shorts.ts";
-import { buildTimeline, mergeIntervals, toSourceTime, type TimelineEntry } from "../lib/timeline.ts";
+import {
+  buildTimelineModel,
+  insertSpansOf,
+  mergeIntervals,
+  type InsertSpan,
+  type TimelineEntry,
+} from "../lib/timeline.ts";
 import { buildRenderProps } from "../lib/renderProps.ts";
 import { renderCfgWithDesign } from "../lib/designAsset.ts";
 import {
   aggregateMaxByWindow,
+  elapsedSpanSec,
+  elapsedToSource,
   keepsHash,
   mapSamplesToOutput,
   parseAstats,
@@ -18,6 +27,7 @@ import {
   parseEbur128,
   parseFreezedetect,
   parseScdet,
+  toOutputTimeInclusiveEnd,
   type AstatsEnvelopeSample,
 } from "../lib/avParse.ts";
 import {
@@ -34,7 +44,8 @@ export const AV_DIR = "av.probe";
 const MOTION_FILE = "motion.json";
 export const SOUND_FILE = "sound.json";
 const STRIP_FILE = "motion.strip.png";
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
+const AV_AXIS_GENERATION = 2;
 
 export interface AvOptions {
   range?: { startSec: number; endSec: number };
@@ -59,7 +70,7 @@ export interface MotionReport {
     tiles: { index: number; outSec: number; sourceSec: number }[];
   };
   motion: { outSec: number; sourceSec: number; sceneScore: number }[];
-  frozen: { outSec: number; endOutSec: number; lenSec: number }[];
+  frozen: { outSec: number; endOutSec: number; sourceSec: number; endSourceSec: number; lenSec: number }[];
 }
 
 export interface SoundReport {
@@ -75,7 +86,7 @@ export interface SoundReport {
     clipping: { peakDbfs: number; clippedSamples: number };
     envelope: { outSec: number; sourceSec: number; shortTermLufs: number }[];
   } | null;
-  silences: { outSec: number; endOutSec: number; lenSec: number }[];
+  silences: { outSec: number; endOutSec: number; sourceSec: number; endSourceSec: number; lenSec: number }[];
   tracks: {
     windowSec: number;
     samples: {
@@ -126,11 +137,16 @@ export async function av(dir: string, opts: AvOptions, cfg: Config): Promise<AvR
   }
   if (keeps.length === 0) throw new Error("keep 区間が0件です");
 
-  const timeline = buildTimeline(keeps);
-  const totalDurationSec = round2(keeps.reduce((sum, keep) => sum + (keep.end - keep.start), 0));
+  // --range は出力(カット後・挿入込み)の秒。挿入区間そのものは av の
+  // 対象外だが、軸は frames --out / render と一致させる。
+  const insertSpans = insertSpansOf(overlays.inserts);
+  const built = buildTimelineModel(keeps, insertSpans);
+  const timeline = built.entries;
+  const totalDurationSec = built.durationSec;
   const range = normalizeRange(opts.range, totalDurationSec);
   const rangedKeeps = sliceKeepsByOutputRange(timeline, range);
   if (rangedKeeps.length === 0) throw new Error("指定 range に対応する keep 区間がありません");
+  const insertsFingerprint = fingerprintInserts(insertSpans);
 
   const avCfg = resolveAvCfg(cfg);
   const everySec = opts.everySec ?? avCfg.everySec;
@@ -141,12 +157,15 @@ export async function av(dir: string, opts: AvOptions, cfg: Config): Promise<AvR
   mkdirSync(outDir, { recursive: true });
 
   const result: AvResult = {};
-  if (opts.soundOnly !== true) {
+  if (opts.soundOnly !== true && manifest.layout === "stills") {
+    console.log("映像なしプロジェクトのため motion 解析をスキップします");
+  } else if (opts.soundOnly !== true) {
     const motion = await collectMotion({
       dir,
       manifest,
       timeline,
       keepsHash: keepsHash(rangedKeeps),
+      insertsFingerprint,
       outDir,
       range,
       short: opts.short ?? null,
@@ -171,6 +190,7 @@ export async function av(dir: string, opts: AvOptions, cfg: Config): Promise<AvR
       range,
       short: opts.short ?? null,
       outDir,
+      insertsFingerprint,
       cfg,
       avCfg,
     });
@@ -184,6 +204,7 @@ async function collectMotion(args: {
   manifest: Manifest;
   timeline: TimelineEntry[];
   keepsHash: string;
+  insertsFingerprint: string;
   outDir: string;
   range: { startSec: number; endSec: number };
   short: string | null;
@@ -193,17 +214,34 @@ async function collectMotion(args: {
   everySec: number;
   rangedKeeps: Interval[];
 }): Promise<MotionReport> {
-  const { dir, manifest, timeline, keepsHash: keepsDigest, outDir, range, short, fullRes, rootCfg, cfg, everySec, rangedKeeps } = args;
+  const {
+    dir,
+    manifest,
+    timeline,
+    keepsHash: keepsDigest,
+    insertsFingerprint,
+    outDir,
+    range,
+    short,
+    fullRes,
+    rootCfg,
+    cfg,
+    everySec,
+    rangedKeeps,
+  } = args;
   const baseFile = fullRes ? join(dir, manifest.source) : join(dir, "proxy.mp4");
   if (!fullRes) {
     if (!existsSync(baseFile) || isProxyStale(dir, rootCfg)) await buildProxy(dir, rootCfg);
   }
   const baseStat = statSync(baseFile);
-  const tileCount = sampleTimes(range, everySec).length;
+  const elapsedSpan = elapsedSpanSec(rangedKeeps);
+  const tileCount = sampleTimes({ startSec: 0, endSec: elapsedSpan }, everySec).length;
   const rows = Math.max(1, Math.ceil(tileCount / cfg.cols));
   const key = {
+    axisGeneration: AV_AXIS_GENERATION,
     base: { file: fullRes ? manifest.source : "proxy.mp4", mtimeMs: baseStat.mtimeMs, size: baseStat.size },
     keepsHash: keepsDigest,
+    insertsFingerprint,
     range,
     short,
     everySec,
@@ -256,9 +294,8 @@ async function collectMotion(args: {
     { allowFailure: true },
   );
 
-  const durationSec = round2(range.endSec - range.startSec);
-  const motionBuckets = aggregateMaxByWindow(parseScdet(motionRun.stderr), durationSec, everySec);
-  const motion = mapSamplesToOutput(motionBuckets, timeline, range.startSec).map((sample) => ({
+  const motionBuckets = aggregateMaxByWindow(parseScdet(motionRun.stderr), elapsedSpan, everySec);
+  const motion = mapSamplesToOutput(motionBuckets, timeline, rangedKeeps).map((sample) => ({
     outSec: sample.outSec,
     sourceSec: sample.sourceSec,
     sceneScore: round3(sample.value),
@@ -266,16 +303,26 @@ async function collectMotion(args: {
   const frozen = mapSamplesToOutput(
     parseFreezedetect(freezeRun.stderr).map((span) => ({ t: span.start, endT: span.end })),
     timeline,
-    range.startSec,
-  ).map((span) => ({
-    outSec: span.outSec,
-    endOutSec: round2(range.startSec + span.endT),
-    lenSec: round2(span.endT - span.t),
-  }));
+    rangedKeeps,
+  ).flatMap((span) => {
+    const endSourceSec = elapsedToSource(span.endT, rangedKeeps);
+    if (endSourceSec === null) return [];
+    const endOutSec = toOutputTimeInclusiveEnd(endSourceSec, timeline);
+    if (endOutSec === null) return [];
+    return [{
+      outSec: span.outSec,
+      endOutSec,
+      sourceSec: span.sourceSec,
+      endSourceSec,
+      lenSec: round2(span.endT - span.t),
+    }];
+  });
 
-  const tiles = sampleTimes(range, everySec).flatMap((outSec, index) => {
-    const sourceSec = toSourceTime(outSec, timeline);
-    return sourceSec === null ? [] : [{ index, outSec, sourceSec }];
+  const tiles = sampleTimes({ startSec: 0, endSec: elapsedSpan }, everySec).flatMap((elapsedSec, index) => {
+    const sourceSec = elapsedToSource(elapsedSec, rangedKeeps);
+    if (sourceSec === null) return [];
+    const outSec = toOutputTimeInclusiveEnd(sourceSec, timeline);
+    return outSec === null ? [] : [{ index, outSec, sourceSec }];
   });
   const report: MotionReport = {
     schemaVersion: SCHEMA_VERSION,
@@ -304,16 +351,34 @@ async function collectSound(args: {
   range: { startSec: number; endSec: number };
   short: string | null;
   outDir: string;
+  insertsFingerprint: string;
   cfg: Config;
   avCfg: ReturnType<typeof resolveAvCfg>;
 }): Promise<SoundReport> {
-  const { dir, manifest, transcript, bgm, overlays, timeline, keeps, rangedKeeps, range, short, outDir, cfg, avCfg } = args;
+  const {
+    dir,
+    manifest,
+    transcript,
+    bgm,
+    overlays,
+    timeline,
+    keeps,
+    rangedKeeps,
+    range,
+    short,
+    outDir,
+    insertsFingerprint,
+    cfg,
+    avCfg,
+  } = args;
   const sourceFile = join(dir, manifest.source);
   const sourceStat = statSync(sourceFile);
   const source = audioSourceOf(manifest, cfg);
   const key = {
+    axisGeneration: AV_AXIS_GENERATION,
     source: { file: manifest.source, mtimeMs: sourceStat.mtimeMs, size: sourceStat.size },
     keepsHash: keepsHash(rangedKeeps),
+    insertsFingerprint,
     audio: {
       systemMix: source.systemStream !== null,
       systemVolumeDb: source.systemVolumeDb,
@@ -371,7 +436,7 @@ async function collectSound(args: {
       loudnessRangeLu: eburStats.loudnessRangeLu,
       truePeakDbtp: eburStats.truePeakDbtp,
       clipping: { peakDbfs: astatsStats.peakDbfs, clippedSamples: astatsStats.clippedSamples },
-      envelope: mapSamplesToOutput(eburStats.envelope, timeline, range.startSec).map((sample) => ({
+      envelope: mapSamplesToOutput(eburStats.envelope, timeline, rangedKeeps).map((sample) => ({
         outSec: sample.outSec,
         sourceSec: sample.sourceSec,
         shortTermLufs: sample.shortTermLufs,
@@ -397,11 +462,24 @@ async function collectSound(args: {
         "16000",
         silenceAudio,
       ]);
-      silences = (await detectSilence(silenceAudio, cfg.detect.silenceDb, cfg.detect.minSilenceSec)).map((span) => ({
-        outSec: round2(range.startSec + span.start),
-        endOutSec: round2(range.startSec + span.end),
-        lenSec: round2(span.end - span.start),
-      }));
+      silences = mapSamplesToOutput(
+        (await detectSilence(silenceAudio, cfg.detect.silenceDb, cfg.detect.minSilenceSec))
+          .map((span) => ({ t: span.start, endT: span.end })),
+        timeline,
+        rangedKeeps,
+      ).flatMap((span) => {
+        const endSourceSec = elapsedToSource(span.endT, rangedKeeps);
+        if (endSourceSec === null) return [];
+        const endOutSec = toOutputTimeInclusiveEnd(endSourceSec, timeline);
+        if (endOutSec === null) return [];
+        return [{
+          outSec: span.outSec,
+          endOutSec,
+          sourceSec: span.sourceSec,
+          endSourceSec,
+          lenSec: round2(span.endT - span.t),
+        }];
+      });
     } finally {
       rmSync(silenceAudio, { force: true });
     }
@@ -413,7 +491,7 @@ async function collectSound(args: {
         : await collectTrackRms(sourceFile, source.systemStream, rangedKeeps, avCfg.windowSec);
     tracks = {
       windowSec: avCfg.windowSec,
-      samples: combineTrackSamples(micSamples, systemSamples, timeline, range.startSec),
+      samples: combineTrackSamples(micSamples, systemSamples, timeline, rangedKeeps),
     };
   }
 
@@ -492,9 +570,9 @@ function combineTrackSamples(
   micSamples: AstatsEnvelopeSample[],
   systemSamples: AstatsEnvelopeSample[] | null,
   timeline: TimelineEntry[],
-  outOffsetSec: number,
+  segments: Interval[],
 ): NonNullable<NonNullable<SoundReport["tracks"]>["samples"]> {
-  return mapSamplesToOutput(micSamples, timeline, outOffsetSec).map((mic, index) => {
+  return mapSamplesToOutput(micSamples, timeline, segments).map((mic, index) => {
     const sys = systemSamples?.[index];
     const systemRmsDb = sys ? sys.rmsDb : null;
     let louder: "mic" | "system" | "tie" | null = null;
@@ -521,7 +599,7 @@ function normalizeRange(
   return { startSec: round2(startSec), endSec: round2(endSec) };
 }
 
-function sliceKeepsByOutputRange(
+export function sliceKeepsByOutputRange(
   timeline: TimelineEntry[],
   range: { startSec: number; endSec: number },
 ): Interval[] {
@@ -534,6 +612,10 @@ function sliceKeepsByOutputRange(
       end: round2(entry.sourceStart + (end - entry.outputStart) * entry.speed),
     }];
   });
+}
+
+function fingerprintInserts(inserts: InsertSpan[]): string {
+  return createHash("sha256").update(JSON.stringify(inserts)).digest("hex").slice(0, 8);
 }
 
 function sampleTimes(range: { startSec: number; endSec: number }, everySec: number): number[] {

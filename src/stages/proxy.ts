@@ -9,11 +9,35 @@ import {
   keepAudioParts,
   measuredLoudnormFilter,
 } from "../lib/loudness.ts";
-import { buildProxyCacheKey, proxyCacheKeyEquals } from "../lib/proxyCache.ts";
+import { buildProxyCacheKey, proxyCacheKeyEquals, proxyFileName } from "../lib/proxyCache.ts";
 import { proxyGopFrames, scaleFilter, videoEncodeArgs } from "../lib/videoEncode.ts";
 import type { ProxyCacheKey } from "../lib/proxyCache.ts";
 import type { Config } from "../lib/config.ts";
 import type { Manifest } from "../types.ts";
+
+/** stills(音声のみ)プロキシの ffmpeg 引数。moov 先頭配置(+faststart)は
+ * ブラウザの Range 読み出しに必須(S3-fix4)。 */
+export function stillsProxyArgs(args: {
+  input: string;
+  audioParts: string[];
+  loudnorm: string;
+  output: string;
+}): string[] {
+  return [
+    "-y", "-v", "error",
+    "-i", args.input,
+    "-filter_complex",
+    [
+      ...args.audioParts,
+      `[a0]${args.loudnorm}[aout]`,
+    ].join(";"),
+    "-map", "[aout]",
+    // loudnorm は内部で 192kHz にアップサンプルするため 48kHz に戻す
+    "-c:a", "aac", "-ar", "48000",
+    "-movflags", "+faststart",
+    args.output,
+  ];
+}
 
 function probeSync(file: string) {
   return JSON.parse(execFileSync("ffprobe", [
@@ -26,8 +50,8 @@ function probeSync(file: string) {
 }
 
 /**
- * エディタ用の軽量プロキシ(proxy.mp4)。元収録の全尺を縮小エンコード
- * したもので、収録ごとに1回だけ作る。preview.mp4 と違いカットを
+ * エディタ用の軽量プロキシ(proxy.mp4 / proxy.m4a)。元収録の全尺を
+ * エディタ向けにエンコードしたもので、収録ごとに1回だけ作る。preview.mp4 と違いカットを
  * 焼き込まない。エディタは mediabunny の VideoDecoder 経路で
  * keep 境界ごとに frameSource を reseek して繋ぐため、カット境界の
  * 編集がファイルの作り直しなしでプレビューへ即時反映される。
@@ -46,7 +70,7 @@ export async function buildProxy(dir: string, cfg: Config): Promise<string> {
   }
   // 音声はマイク+システム音声のミックス(cut.mp4 / preview.mp4 と共通の構成)
   const source = audioSourceOf(manifest, cfg);
-  const colorTags = colorTagsOfProbe(await probe(input));
+  const colorTags = manifest.layout === "stills" ? undefined : colorTagsOfProbe(await probe(input));
   const whole = [{ start: 0, end: manifest.durationSec, speed: 1 }];
   const loudnorm = await measuredLoudnormFilter({
     input,
@@ -55,27 +79,36 @@ export async function buildProxy(dir: string, cfg: Config): Promise<string> {
     targetLufs: cfg.render.targetLufs,
   });
   const sourceStat = statSync(input);
-  const output = join(dir, "proxy.mp4");
-  await run("ffmpeg", [
-    "-y", "-v", "error",
-    "-i", input,
-    "-filter_complex",
-    [
-      `[0:v]${scaleFilter(cfg)}[vout]`,
-      ...keepAudioParts(source, whole),
-      `[a0]${loudnorm}[aout]`,
-    ].join(";"),
-    "-map", "[vout]", "-map", "[aout]",
-    // GOP はカット境界ごとに Player が <video> をシークして繋ぐ方式の
-    // デコード待ちを左右する。既定(proxyIntra:true)はオールイントラ(1)、
-    // false なら従来の PROXY_GOP_FRAMES(0.2秒)。詳細は videoEncode.ts 参照
-    ...videoEncodeArgs(cfg, { gopFrames: proxyGopFrames(cfg), colorTags }),
-    // loudnorm は内部で 192kHz にアップサンプルするため 48kHz に戻す
-    "-c:a", "aac", "-ar", "48000",
-    output,
-  ]);
+  const output = join(dir, proxyFileName(manifest));
+  if (manifest.layout === "stills") {
+    await run("ffmpeg", stillsProxyArgs({
+      input,
+      audioParts: keepAudioParts(source, whole),
+      loudnorm,
+      output,
+    }));
+  } else {
+    await run("ffmpeg", [
+      "-y", "-v", "error",
+      "-i", input,
+      "-filter_complex",
+      [
+        `[0:v]${scaleFilter(cfg)}[vout]`,
+        ...keepAudioParts(source, whole),
+        `[a0]${loudnorm}[aout]`,
+      ].join(";"),
+      "-map", "[vout]", "-map", "[aout]",
+      // GOP はカット境界ごとに Player が <video> をシークして繋ぐ方式の
+      // デコード待ちを左右する。既定(proxyIntra:true)はオールイントラ(1)、
+      // false なら従来の PROXY_GOP_FRAMES(0.2秒)。詳細は videoEncode.ts 参照
+      ...videoEncodeArgs(cfg, { gopFrames: proxyGopFrames(cfg), colorTags }),
+      // loudnorm は内部で 192kHz にアップサンプルするため 48kHz に戻す
+      "-c:a", "aac", "-ar", "48000",
+      output,
+    ]);
+  }
   // 陳腐化キー(proxy.key.json)。焼き込み済みの設定・元収録ファイルが
-  // 次回と変わっていなければ proxy.mp4 は古くない(削除すれば常に
+  // 次回と変わっていなければ proxy.* は古くない(削除すれば常に
   // 「陳腐化なし」判定に戻る=次回の frames/エディタは再生成しない)
   writeFileSync(
     join(dir, "proxy.key.json"),
@@ -95,21 +128,21 @@ export async function buildProxy(dir: string, cfg: Config): Promise<string> {
 }
 
 /**
- * proxy.mp4 が焼き込み済みの設定・元収録ファイルと食い違っている(古い)か。
- * proxy.mp4 か proxy.key.json が無ければ「陳腐化」ではなく「未生成」なので
+ * proxy.* が焼き込み済みの設定・元収録ファイルと食い違っている(古い)か。
+ * proxy.* か proxy.key.json が無ければ「陳腐化」ではなく「未生成」なので
  * false(呼び出し側は existsSync と併せて生成要否を判定する)
  */
 export function isProxyStale(dir: string, cfg: Config): boolean {
-  const proxyPath = join(dir, "proxy.mp4");
-  const keyPath = join(dir, "proxy.key.json");
-  if (!existsSync(proxyPath) || !existsSync(keyPath)) return false;
   const manifest = JSON.parse(
     readFileSync(join(dir, "manifest.json"), "utf8"),
   ) as Manifest;
+  const proxyPath = join(dir, proxyFileName(manifest));
+  const keyPath = join(dir, "proxy.key.json");
+  if (!existsSync(proxyPath) || !existsSync(keyPath)) return false;
   const input = join(dir, manifest.source);
   if (!existsSync(input)) return false;
   const sourceStat = statSync(input);
-  const colorTags = colorTagsOfProbe(probeSync(input));
+  const colorTags = manifest.layout === "stills" ? undefined : colorTagsOfProbe(probeSync(input));
   const currentKey = buildProxyCacheKey({
     cfg,
     sourceFile: manifest.source,

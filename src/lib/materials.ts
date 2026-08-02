@@ -11,6 +11,7 @@
 // そのまま再利用する(タスク1がタスク2に先行するため、そちらが「生成元」)。
 import { extname } from "node:path";
 import type { MaterialProbe } from "./ffmpeg.ts";
+import { IMAGE_EXT_RE } from "./overlayFade.ts";
 import type { Bgm, Overlays } from "../types.ts";
 
 export type { MaterialProbe };
@@ -20,7 +21,6 @@ export type { MaterialProbe };
 export type MaterialKind = "video" | "image" | "audio" | "unknown";
 
 const VIDEO_EXT = new Set([".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi"]);
-const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".heic"]);
 const AUDIO_EXT = new Set([".mp3", ".m4a", ".wav", ".aac", ".flac", ".ogg"]);
 
 /** ファイル名(相対パス)の拡張子から素材種別を判定する純関数。
@@ -28,7 +28,7 @@ const AUDIO_EXT = new Set([".mp3", ".m4a", ".wav", ".aac", ".flac", ".ogg"]);
 export function classifyKind(file: string): MaterialKind {
   const ext = extname(file).toLowerCase();
   if (VIDEO_EXT.has(ext)) return "video";
-  if (IMAGE_EXT.has(ext)) return "image";
+  if (IMAGE_EXT_RE.test(file)) return "image";
   if (AUDIO_EXT.has(ext)) return "audio";
   return "unknown";
 }

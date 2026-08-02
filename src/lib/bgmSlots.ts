@@ -5,8 +5,8 @@
 // (slotId × 曲番号 or null)のペアだけを選ばせ、時刻・ファイルパス・音量は
 // すべてコード側(このファイル)が実在の値(切替アンカー・実在音声ファイル)から
 // 組み立てる。
-import { buildTimeline, playbackSegmentsOf, remapInterval } from "./timeline.ts";
-import type { Bgm, Chapters, CutPlan } from "../types.ts";
+import { buildTimeline, insertSpansOf, playbackSegmentsOf, remapInterval } from "./timeline.ts";
+import type { Bgm, Chapters, CutPlan, Overlays } from "../types.ts";
 
 /** BGM の切れ目候補(元収録の秒)。source で由来が分かる。 */
 export interface BgmAnchor {
@@ -106,6 +106,7 @@ export function anchorsToSlots(
   anchors: BgmAnchor[],
   cutplan: CutPlan,
   cfg: BgmSlotCfg,
+  inserts: Overlays["inserts"] = [],
 ): BgmSlot[] {
   const sorted = [...anchors].sort((a, b) => a.timeSec - b.timeSec);
 
@@ -142,7 +143,7 @@ export function anchorsToSlots(
   const capped = absorbed.slice(0, cfg.maxSlots);
 
   const playback = playbackSegmentsOf(cutplan);
-  const timeline = playback.length > 0 ? buildTimeline(playback) : [];
+  const timeline = playback.length > 0 ? buildTimeline(playback, insertSpansOf(inserts)) : [];
   const keepSecOf = (start: number, end: number): number =>
     timeline.length > 0
       ? remapInterval(start, end, timeline).reduce((s, iv) => s + (iv.end - iv.start), 0)

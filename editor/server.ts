@@ -118,6 +118,7 @@ import type {
 import { buildWords } from "../src/stages/transcribe.ts";
 import type { WhisperToken } from "../src/stages/transcribe.ts";
 import { DEFAULT_SILENCE_CUT_REASON } from "../src/lib/buildCutplan.ts";
+import { proxyFileName } from "../src/lib/proxyCache.ts";
 import type { EditableDocs } from "../src/lib/ids.ts";
 import type { ReviewDocs } from "../src/lib/docDiff.ts";
 import type { ReviewSpec } from "../src/lib/review.ts";
@@ -129,16 +130,16 @@ import type { SecondaryObservation } from "../src/lib/vlmObservation.ts";
  * - エディタ UI(esbuild でその場バンドルした React アプリ)を配信
  * - 収録フォルダの JSON を読み書きする API(正のデータは既存 JSON のまま。
  *   書くのは overlays.json / transcript.json / cutplan.json だけ)
- * - proxy.mp4(元収録の軽量プロキシ)や素材を Range 対応で配信。
+ * - proxy.*(元収録の軽量プロキシ)や素材を Range 対応で配信。
  *   カットは焼き込まず Player が keep 区間を飛び飛びに再生する方式なので、
- *   proxy.mp4 は収録ごとに1回作れば編集中の再生成は不要
+ *   proxy.* は収録ごとに1回作れば編集中の再生成は不要
  */
 export async function startEditor(
   dir: string,
   cfg: Config,
   /** 設定画面(POST /api/config)が書き戻す config.yaml のパス */
   cfgPath: string,
-  layout?: "obs-canvas" | "plain" | "auto",
+  layout?: "obs-canvas" | "plain" | "auto" | "stills",
 ): Promise<void> {
   // 動画ファイルだけの収録フォルダでも開けるように、必須3ファイルのうち
   // 無いものだけ決定的に補う(既存ファイルには触れない)。loadProject の
@@ -822,7 +823,8 @@ async function handle(
       proxyBuilding = null;
     });
     const out = await proxyBuilding;
-    sendJson(res, 200, { ok: true, path: out });
+    const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")) as Manifest;
+    sendJson(res, 200, { ok: true, path: out, proxyFile: proxyFileName(manifest) });
     return;
   }
   if (req.method === "POST" && (path === "/api/preview" || path === "/api/render")) {
@@ -886,7 +888,7 @@ async function handle(
   sendJson(res, 404, { error: `not found: ${path}` });
 }
 
-/** proxy.mp4 の生成(数十秒かかる)の実行中プロミス。二重生成の防止用 */
+/** proxy.* の生成(数十秒かかる)の実行中プロミス。二重生成の防止用 */
 let proxyBuilding: Promise<string> | null = null;
 
 export interface HyperframeCardSources {
@@ -1512,7 +1514,8 @@ export function loadProject(dir: string, cfg: Config): ProjectData {
   } catch {
     draft = null;
   }
-  const proxyExists = existsSync(join(dir, "proxy.mp4"));
+  const proxyFile = proxyFileName(manifest);
+  const proxyExists = existsSync(join(dir, proxyFile));
   let proxyStale = false;
   try {
     proxyStale = proxyExists && isProxyStale(dir, cfg);
@@ -1532,6 +1535,7 @@ export function loadProject(dir: string, cfg: Config): ProjectData {
     shorts: loadShorts(dir),
     silences: readJson<AutoCuts | null>("cuts.auto.json", null)?.silences ?? null,
     silenceCutReason: cfg.detect?.silenceCutReason ?? DEFAULT_SILENCE_CUT_REASON,
+    proxyFile,
     proxyExists,
     proxyStale,
     renderCfg: designRenderCfg,
@@ -2001,6 +2005,17 @@ export function hashesForBody(dir: string, body: SaveRequest): Record<string, st
 /** 編集結果の保存。渡されたドキュメントだけを書く(それ以外のファイルは不可侵)。
  * export はテスト用(test/saveProject.test.ts。HTTP サーバは起動せず直接呼ぶ) */
 export function saveProject(dir: string, body: SaveRequest): void {
+  // output-timebase BGM is intentionally read-only in the editor. Enforce the
+  // boundary at persistence too, so keyboard, drag, Inspector, and AI/whole-doc
+  // save paths cannot accidentally reinterpret output seconds as source seconds.
+  if (body.bgm !== undefined) {
+    const diskBgm = readEditableDocs(dir).bgm;
+    const before = diskBgm?.tracks.filter((t) => t.timebase === "output") ?? [];
+    const after = body.bgm?.tracks.filter((t) => t.timebase === "output") ?? [];
+    if (JSON.stringify(before) !== JSON.stringify(after)) {
+      throw new HttpError(400, "timebase:output の BGM はエディタでは読み取り専用です");
+    }
+  }
   // 書く前に CLI の validate と同じ純粋検査を通す。GUI が壊れた JSON を書き、
   // preview / render で数分後に気づく事故を防ぐ。ディスクの現状(manifest や
   // 変更していないファイル)に body の変更を重ねた状態を検査する。
@@ -2102,7 +2117,7 @@ function serveMedia(
   const size = st.size;
   // no-store だと <video> 要素ごと・シークごとに同じバイト列を毎回取り直し、
   // カット境界の先読み(premount)が重くなる。再検証付きキャッシュ(no-cache
-  // + ETag)なら、ファイルが変わらない限り 304 で済み、proxy.mp4 や素材を
+  // + ETag)なら、ファイルが変わらない限り 304 で済み、proxy.* や素材を
   // 作り直した瞬間に ETag が変わって古いキャッシュは自然に外れる
   const etag = `"${size}-${Math.round(st.mtimeMs)}"`;
   const headers: Record<string, string> = {

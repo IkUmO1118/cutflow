@@ -11,7 +11,6 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { buildRenderProps } from "../lib/renderProps.ts";
-import { buildTimeline } from "../lib/timeline.ts";
 import { mixFastAudio } from "../lib/bgmMix.ts";
 import { mixInsertAudio } from "../lib/insertMix.ts";
 import { run } from "../lib/exec.ts";
@@ -38,12 +37,11 @@ export interface EngineRenderResult {
 export async function renderEngineFromProps(args: {
   dir: string;
   props: RenderProps;
-  durationSec: number;
   cutPath: string;
   outPath: string;
   label?: string;
 }): Promise<EngineRenderResult> {
-  const { dir, props, durationSec, cutPath, outPath } = args;
+  const { dir, props, cutPath, outPath } = args;
   const totalFrames = compositionDurationInFrames(props.durationSec, props.fps);
   const fps = props.fps;
   const outputWidth = props.width;
@@ -54,7 +52,7 @@ export async function renderEngineFromProps(args: {
   // Source URL マップ (engineDev.ts と同じパターン)
   const sourceUrls = sourceUrlsOf(props);
 
-  const session = await createEngineSession(dir, { props, durationSec, sourceUrls });
+  const session = await createEngineSession(dir, { props, sourceUrls });
 
   try {
     const tempDir = mkdtempSync(join(tmpdir(), "framewright-engine-export-"));
@@ -117,8 +115,6 @@ export async function renderEngine(
   outPath: string,
 ): Promise<EngineRenderResult> {
   const keeps = cutplan.segments.filter((s) => s.action === "keep");
-  const timeline = buildTimeline(keeps);
-  const durationSec = timeline.length > 0 ? timeline[timeline.length - 1].outputEnd : 0;
 
   const bgmPath = join(dir, "bgm.json");
   const bgm = existsSync(bgmPath) ? (JSON.parse(readFileSync(bgmPath, "utf8")) as Bgm) : null;
@@ -130,7 +126,8 @@ export async function renderEngine(
     : null;
 
   const profile = resolveProfile(manifest.video.screenRegion, "default");
-  const sourceFile = manifest.source;
+  const isStills = manifest.layout === "stills";
+  const sourceFile = isStills ? "" : manifest.source;
 
   let props = buildRenderProps({
     manifest,
@@ -141,7 +138,7 @@ export async function renderEngine(
     width: profile.width,
     height: profile.height,
     videoFile: sourceFile,
-    videoIsSource: true,
+    videoIsSource: !isStills,
     bgm,
     bgmFallbackFile: bgmFile,
     silences,
@@ -160,7 +157,6 @@ export async function renderEngine(
   return renderEngineFromProps({
     dir,
     props,
-    durationSec,
     cutPath,
     outPath,
     label: "本編",

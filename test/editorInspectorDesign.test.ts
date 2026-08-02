@@ -33,6 +33,15 @@ test("Inspector retains all twelve selection kinds and every special rendering b
   assert.ok((inspector.match(/className="insp ocInspector"/g) ?? []).length >= 5, "special single-sheet branches + shared shell keep the shell class");
 });
 
+test("output-timebase BGM is projected on output axis and guarded read-only", () => {
+  const app = read("editor/client/App.tsx");
+  const inspector = read("editor/client/Inspector.tsx");
+  assert.match(app, /const outputTimebase = t\.timebase === "output"/);
+  assert.match(app, /editable: !outputTimebase/);
+  assert.ok((app.match(/timebase === "output"\) return/g) ?? []).length >= 3);
+  assert.match(inspector, /エディタでは読み取り専用です/);
+});
+
 test("App-to-Inspector callback surface and write destinations remain complete", () => {
   const app = read("editor/client/App.tsx");
   const start = app.indexOf("<Inspector");

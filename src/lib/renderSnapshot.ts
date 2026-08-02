@@ -126,7 +126,11 @@ export function resolveSnapshotRenderContext(input: SnapshotRenderInput): Snapsh
     width: profile.width,
     height: profile.height,
     profile,
-    videoFile: fullRes ? manifest.source : "proxy.mp4",
+    // stills projects have no video source/proxy. The composition is driven by
+    // inserts, while cut.m4a supplies the narration during final rendering.
+    videoFile: manifest.layout === "stills"
+      ? ""
+      : (fullRes ? manifest.source : "proxy.mp4"),
     videoIsSource: true,
     bgm: null,
     bgmFallbackFile: null,

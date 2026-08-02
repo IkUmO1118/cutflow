@@ -14,6 +14,11 @@ import type { AnnotationType, CaptionPos, Interval, LayerId, PlanSegment, Region
 import type { ScriptSegment } from "./apiTypes.ts";
 import type { Hunk } from "../../src/lib/docDiff.ts";
 import type { ReviewEvent, ReviewEventKind } from "../../src/lib/reviewEvents.ts";
+import type { Manifest } from "../../src/types.ts";
+
+export function videoFileForPreview(manifest: Manifest): string {
+  return manifest.layout === "stills" ? "" : "media/proxy.mp4";
+}
 
 /** overlays.json のどの配列か(hide 系はエディタ非表示の手書き互換)。
  * "short" はショートモードの ranges 帯(shorts.json のショート単位)。

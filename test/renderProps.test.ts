@@ -115,9 +115,29 @@ test("buildRenderProps: editor proxy 経路では speed を playbackRate に載�
     warn: () => {},
   });
   assert.deepEqual(props.baseSegments, [
-    { start: 0, videoStart: 0, durationSec: 5, playbackRate: 2 },
+    { start: 0, videoStart: 0, audioStart: 0, durationSec: 5, playbackRate: 2 },
   ]);
   assert.equal(props.durationSec, 5);
+});
+
+test("buildRenderProps: audioStart は videoIsSource に依らず常にカット後の秒", () => {
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 10 }, { start: 20, end: 30 }],
+    transcript: { segments: [] },
+    overlays: {},
+    renderCfg,
+    width: 1920,
+    height: 1080,
+    videoFile: "raw.mkv",
+    videoIsSource: true,
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.equal(props.baseSegments?.[1].videoStart, 20);
+  assert.equal(props.baseSegments?.[1].audioStart, 10);
 });
 
 test("buildRenderProps: profile 省略時は profile 指定なしの現行 props と deep-equal", () => {
@@ -1521,7 +1541,7 @@ test("buildRenderProps: bgm.json の tracks はカット後区間に写像され
   assert.equal(props.bgm[0].fadeOutSec, 2);
 });
 
-test("buildRenderProps: 挿入で割れた BGM はフェードを端の断片だけに載せる", () => {
+test("buildRenderProps: 挿入をまたぐ BGM は1本の連続区間になる", () => {
   const props = buildRenderProps({
     manifest,
     keeps: [{ start: 0, end: 30 }],
@@ -1537,11 +1557,86 @@ test("buildRenderProps: 挿入で割れた BGM はフェードを端の断片だ
     overlayExists: () => true,
     warn: () => {},
   });
-  assert.equal(props.bgm.length, 2);
+  assert.equal(props.bgm.length, 1);
+  assert.equal(props.bgm[0].start, 5);
+  assert.equal(props.bgm[0].end, 20);
   assert.equal(props.bgm[0].fadeInSec, 1);
-  assert.equal(props.bgm[0].fadeOutSec, undefined);
-  assert.equal(props.bgm[1].fadeInSec, undefined);
-  assert.equal(props.bgm[1].fadeOutSec, 2);
+  assert.equal(props.bgm[0].fadeOutSec, 2);
+});
+
+test("buildRenderProps: timebase output は出力秒を直接使い出力尺へクランプする", () => {
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 30 }],
+    transcript: { segments: [] },
+    overlays: { inserts: [{ at: 0, file: "materials/intro.mp4", durationSec: 8 }] },
+    renderCfg,
+    width: 1920,
+    height: 1080,
+    videoFile: "cut.mp4",
+    bgm: { tracks: [{ timebase: "output", start: 0, end: 40, file: "bgm.mp3" }] },
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.deepEqual(
+    props.bgm.map((t) => ({ start: t.start, end: t.end })),
+    [{ start: 0, end: 38 }],
+  );
+});
+
+// 母艦 §6 の最後の未決(凸包を config で無効化するか)の結論を固定する。
+// 「挿入の間だけ BGM を止める」は timebase:"output" のトラックを挿入の前後へ
+// 分けることで表現でき、config の on/off は不要(粒度が粗すぎる)。
+// この表現手段が失われたら、凸包の逃げ道が無くなるので必ず落とす
+test("buildRenderProps: timebase output を挿入の前後に分けると挿入区間だけ無音にできる", () => {
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 30 }],
+    transcript: { segments: [] },
+    // 挿入は出力 8–12 秒
+    overlays: { inserts: [{ at: 8, file: "materials/ins.mp4", durationSec: 4 }] },
+    renderCfg,
+    width: 1920,
+    height: 1080,
+    videoFile: "cut.mp4",
+    bgm: {
+      tracks: [
+        { timebase: "output" as const, start: 5, end: 8, file: "bgm.mp3" },
+        { timebase: "output" as const, start: 12, end: 20, file: "bgm.mp3", startFrom: 3 },
+      ],
+    },
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  // 凸包で1本に畳まれないこと(= 出力 8–12 に BGM 区間が存在しない)
+  assert.deepEqual(
+    props.bgm.map((t) => ({ start: t.start, end: t.end })),
+    [{ start: 5, end: 8 }, { start: 12, end: 20 }],
+  );
+  assert.equal(props.bgm[1].startFrom, 3);
+});
+
+test("buildRenderProps: 挿入があってもカットは詰まる(凸包は射影後)", () => {
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 10 }, { start: 20, end: 30 }],
+    transcript: { segments: [] },
+    overlays: { inserts: [{ at: 5, file: "materials/ins.mp4", durationSec: 2 }] },
+    renderCfg,
+    width: 1920,
+    height: 1080,
+    videoFile: "cut.mp4",
+    bgm: { tracks: [{ start: 2, end: 25, file: "bgm.mp3" }] },
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.deepEqual(
+    props.bgm.map((t) => ({ start: t.start, end: t.end })),
+    [{ start: 2, end: 17 }],
+  );
 });
 
 test("buildRenderProps: 存在しない BGM 素材は warn して区間ごと落ちる", () => {

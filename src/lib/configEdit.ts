@@ -406,6 +406,7 @@ export function syncEditorCfgFromYaml(cfg: Config, rawYaml: string): void {
   cfg.editor = parsed.editor; // 省略可。undefined でも resolvedEditorCfg が既定で補う
   cfg.ai = parsed.ai;
   cfg.plan = parsed.plan;
+  cfg.stills = parsed.stills;
 }
 
 /** エディタ・サーバーがクライアントへ渡す解決済みのエディタ設定 */
@@ -416,7 +417,7 @@ export function resolvedEditorCfg(
   return {
     maxUploadMb: cfg.editor?.maxUploadMb ?? defaultMaxUploadMb,
     defaultImageDurationSec:
-      cfg.editor?.defaultImageDurationSec ?? DEFAULT_IMAGE_DURATION_SEC,
+      cfg.editor?.defaultImageDurationSec ?? cfg.stills?.defaultDurationSec ?? DEFAULT_IMAGE_DURATION_SEC,
     defaultShortRangeSec:
       cfg.editor?.defaultShortRangeSec ?? DEFAULT_SHORT_RANGE_SEC,
   };

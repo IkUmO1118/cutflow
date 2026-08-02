@@ -4,7 +4,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   buildTimeline,
+  buildTimelineModel,
   insertSpans,
+  insertSpansOf,
   mergeIntervals,
   playbackSegmentsOf,
   remapInterval,
@@ -80,6 +82,24 @@ test("挿入は keep を割り、アンカー以降を後ろへずらす", () =>
   assert.deepEqual(insertSpans(single, inserts), [{ start: 5, end: 7, index: 0 }]);
 });
 
+test("buildTimelineModel: at が同値の挿入は宣言順に並ぶ", () => {
+  const built = buildTimelineModel([{ start: 0, end: 10 }], [
+    { at: 5, durationSec: 1 },
+    { at: 5, durationSec: 2 },
+  ]);
+  assert.deepEqual(built.inserts.map((s) => s.index), [0, 1]);
+  assert.equal(built.inserts[0].start, 5);
+  assert.equal(built.inserts[1].start, 6);
+});
+
+test("insertSpansOf: 壊れた要素を落とし、存在しないファイルは落とさない", () => {
+  assert.deepEqual(insertSpansOf([
+    { at: 1, durationSec: 2 },
+    { at: "x", durationSec: 2 },
+    { at: 3, durationSec: 0 },
+  ]), [{ at: 1, durationSec: 2 }]);
+});
+
 test("remapIntervalPieces: keep/cut/insert をまたいでも piece を結合しない", () => {
   const tl = buildTimeline(
     [{ start: 0, end: 5 }, { start: 10, end: 15 }],
@@ -90,6 +110,20 @@ test("remapIntervalPieces: keep/cut/insert をまたいでも piece を結合し
     { sourceStart: 10, sourceEnd: 12, outputStart: 5, outputEnd: 7, speed: 1 },
     { sourceStart: 12, sourceEnd: 14, outputStart: 9, outputEnd: 11, speed: 1 },
   ]);
+});
+
+test("stills: スライドを overlays に置けば出力尺はナレーションのままになる", () => {
+  // overlays は buildTimelineModel の inserts に渡らないため、keeps [0,100] の総和が出力尺。
+  const built = buildTimelineModel([{ start: 0, end: 100 }], []);
+  assert.equal(built.durationSec, 100);
+});
+
+test("stills: スライドを inserts に置くと出力尺が伸びる(誤用の記録)", () => {
+  const built = buildTimelineModel([{ start: 0, end: 100 }], [
+    { at: 0, durationSec: 40 },
+    { at: 50, durationSec: 30 },
+  ]);
+  assert.equal(built.durationSec, 170);
 });
 
 test("speed 2 の keep は出力尺が半分になる", () => {

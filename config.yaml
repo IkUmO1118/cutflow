@@ -21,6 +21,12 @@ ingest:
   # を使う) / auto(寸法/縦横比から OBS らしければ obs-canvas、それ以外は plain)。
   # 省略時 plain。ingest / editor / run の --layout フラグで実行時に上書きできる
   layout: plain
+  # 映像ストリームを持たない音声 source を ingest したときの canvas。
+  # 静止画 insert だけで構成するスライドショーの出力解像度・fpsになる
+  stills:
+    width: 1920
+    height: 1080
+    fps: 30
 
 # 文字起こし(whisper.cpp)
 whisper:
@@ -413,6 +419,12 @@ materialFit:
   suggestUnderrunExtend: false # 尺不足で延長 set を出すか(既定は reason のみ)
   maxReplacements: 3 # dangling 貼り替え候補の上限
 
+# 静止画クリップ(inserts[] に置いた画像)の生成時の既定尺と長尺警告。
+# 既存の durationSec は書き換えない。
+stills:
+  defaultDurationSec: 5.0
+  maxShareWarnRatio: 0.5 # 0 で長尺警告を無効化
+
 # 演出(zoom/blur/annotation)候補の自動生成(plan-effects)。
 # 要 frames --ocr / av の事前実行。生成物は下書きで、採否は人間。cut/承認に触れない。
 planEffects:
@@ -471,8 +483,8 @@ ai:
       adapter: openai
       model: gpt-4.1
   routes:
-    text: claude-code
-    structured: claude-code
+    text: codex
+    structured: codex
     vision: cloud-vision
   # 旧形式(後方互換):
   # provider: codex

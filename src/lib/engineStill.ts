@@ -21,7 +21,6 @@ export async function captureEngineStills(args: {
 }): Promise<void> {
   const session = await createEngineSession(args.dir, {
     props: args.props,
-    durationSec: args.durationSec,
     sourceUrls: sourceUrlsOf(args.props),
   });
   try {

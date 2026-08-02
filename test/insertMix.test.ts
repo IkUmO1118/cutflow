@@ -72,6 +72,63 @@ test("I-1: ベース区間は cut PCM の正しいオフセットから来てい
   );
 });
 
+test("buildInsertBedPcm: カット+挿入でも cut.mp4 の音声をカット後の位置から取る", () => {
+  const props = mkProps({
+    durationSec: 22,
+    fps: 1,
+    baseSegments: [
+      { start: 0, videoStart: 0, audioStart: 0, durationSec: 10 },
+      { start: 12, videoStart: 20, audioStart: 10, durationSec: 10 },
+    ],
+    inserts: [{ start: 10, end: 12, file: "i.mp4", fit: "cover" }],
+  });
+  const layout = okLayout(props);
+  const cutPcm = new Float32Array(Array.from({ length: 20 * 2 }, (_, i) => i));
+  const bed = buildInsertBedPcm({
+    props,
+    layout,
+    cutPcm,
+    insertPcms: [null],
+    sampleRate: 1,
+    channels: 2,
+  });
+  assert.deepEqual(Array.from(bed.slice(12 * 2, 13 * 2)), Array.from(cutPcm.slice(10 * 2, 11 * 2)));
+});
+
+test("buildInsertBedPcm: stills + intro insert でも narration は insert の後ろへずれる", () => {
+  // 出力2秒 / fps 2。insert が out [0,1)、narration(cut.m4a)が out [1,2)。
+  // videoFile:"" でもベース区間の写像(audioStart)に従うこと。
+  const props = mkProps({
+    videoFile: "",
+    durationSec: 2,
+    fps: 2,
+    baseSegments: [{ start: 1, videoStart: 0, audioStart: 0, durationSec: 1 }],
+    inserts: [{ start: 0, end: 1, file: "intro.mp4", fit: "contain" }],
+  });
+  const bed = buildInsertBedPcm({
+    props,
+    layout: okLayout(props),
+    cutPcm: CUT_PCM_I1,
+    insertPcms: [null],
+    sampleRate: 4,
+    channels: 2,
+  });
+  // 前半(insert 区間)は無音、後半に narration が入る。
+  assert.deepEqual(Array.from(bed.slice(0, CUT_PCM_I1.length)), new Array(CUT_PCM_I1.length).fill(0));
+  assert.deepEqual(Array.from(bed.slice(CUT_PCM_I1.length)), Array.from(CUT_PCM_I1));
+});
+
+test("baseLayoutOf: audioStart 省略の旧 props は videoStart にフォールバックする", () => {
+  const props = mkProps({
+    durationSec: 1,
+    fps: 1,
+    baseSegments: [{ start: 0, videoStart: 3, durationSec: 1 }],
+    inserts: [],
+  });
+  const layout = okLayout(props);
+  assert.equal(layout.base[0].videoStartFrame, 3);
+});
+
 // ---- I-2: fadeInSec/fadeOutSec のゲイン曲線 ----
 
 test("I-2: 各 frame のゲインが vol * fadeFactor(f, durFrames, ...) と一致する(fadeFactor を直接呼んで期待値を作る)", () => {

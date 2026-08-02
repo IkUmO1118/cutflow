@@ -23,6 +23,7 @@ import type {
   MediaFactsData,
   PeaksData,
   ProjectData,
+  ProxyResponse,
   SaveRequest,
   SaveResponse,
   ScriptData,
@@ -151,9 +152,9 @@ export async function deleteDraft(): Promise<void> {
   await request("/api/draft", undefined, "DELETE");
 }
 
-/** proxy.mp4(元収録の軽量プロキシ)の生成。収録ごとに1回でよい */
-export async function postProxy(): Promise<void> {
-  await request("/api/proxy", {});
+/** proxy.*(元収録の軽量プロキシ)の生成。収録ごとに1回でよい */
+export async function postProxy(): Promise<ProxyResponse> {
+  return (await request("/api/proxy", {})) as ProxyResponse;
 }
 
 /** 設定画面の保存。config.yaml の該当キーを書き換え(コメント保持)、

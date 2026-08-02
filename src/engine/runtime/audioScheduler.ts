@@ -183,6 +183,7 @@ export class AudioScheduler {
 
   private baseInput: InstanceType<typeof Input> | null = null;
   private baseSink: AudioBufferSink | null = null;
+  private baseSinkFailed = false;
   private readonly bgmSinks = new Map<string, { input: InstanceType<typeof Input>; sink: AudioBufferSink }>();
   private readonly overlaySinks = new Map<string, { input: InstanceType<typeof Input>; sink: AudioBufferSink }>();
   private readonly insertSinks = new Map<string, { input: InstanceType<typeof Input>; sink: AudioBufferSink }>();
@@ -230,10 +231,27 @@ export class AudioScheduler {
 
   private async ensureBaseSink(): Promise<AudioBufferSink | null> {
     if (this.baseSink) return this.baseSink;
+    if (this.baseSinkFailed) return null;
     const input = new Input({ source: new UrlSource(this.opts.baseAudioUrl), formats: ALL_FORMATS });
-    const track = await input.getPrimaryAudioTrack();
+    let track;
+    try {
+      track = await input.getPrimaryAudioTrack();
+    } catch (error) {
+      input.dispose();
+      this.baseSinkFailed = true;
+      console.warn(
+        `ベース音声を読めませんでした: ${this.opts.baseAudioUrl}(プレビューは無音になります)`,
+        error,
+      );
+      return null;
+    }
     if (!track) {
       input.dispose();
+      this.baseSinkFailed = true;
+      console.warn(
+        `ベース音声に音声トラックがありません: ${this.opts.baseAudioUrl}` +
+          "(mp4/m4a の moov が末尾にある場合も起こります。プレビューは無音になります)",
+      );
       return null;
     }
     this.baseInput = input;

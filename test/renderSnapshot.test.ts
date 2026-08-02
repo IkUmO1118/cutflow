@@ -172,3 +172,12 @@ test("buildSnapshotRenderProps: recording root 外 media path を拒否する", 
     );
   });
 });
+
+test("resolveSnapshotRenderContext: stills は proxy.mp4 を参照しない", () => {
+  withTmpProject((dir) => {
+    const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8"));
+    writeFileSync(join(dir, "manifest.json"), JSON.stringify({ ...manifest, layout: "stills" }));
+    const ctx = resolveSnapshotRenderContext({ dir, cfg, snapshot: readEditSnapshot(dir) });
+    assert.equal(ctx.props.videoFile, "");
+  });
+});

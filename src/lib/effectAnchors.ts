@@ -5,7 +5,7 @@
 // (anchorId × effect) のペアだけを選ばせ、時刻・矩形・強度はすべて
 // コード側(このファイル)が知覚(OCR/motion)由来の実在値から組み立てる。
 import { collectWords, candidateText } from "./candidates.ts";
-import { buildTimeline, mergeIntervals, playbackSegmentsOf, toSourceTime } from "./timeline.ts";
+import { mergeIntervals } from "./timeline.ts";
 import type { CutPlan, Overlays, Region, Transcript } from "../types.ts";
 
 /** 演出を置ける候補。rect は知覚由来の実矩形(LLM は触らない)。
@@ -91,12 +91,10 @@ export interface OcrSidecar {
 }
 
 /** av.probe/motion.json のうち buildEffectAnchors が読む部分だけを抜き出した形。
- *  motion[].sourceSec は元収録の秒(直接使える)。frozen は outSec/endOutSec
- *  (カット後の秒)しか持たないため、cutplan から組んだ timeline で
- *  元収録の秒へ変換してから使う */
+ *  motion[].sourceSec と frozen[].sourceSec/endSourceSec は元収録の秒(直接使える)。 */
 export interface MotionLike {
   motion: { outSec: number; sourceSec: number; sceneScore: number }[];
-  frozen: { outSec: number; endOutSec: number; lenSec: number }[];
+  frozen: { outSec: number; endOutSec: number; sourceSec: number; endSourceSec: number; lenSec: number }[];
 }
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
@@ -239,17 +237,12 @@ export function buildEffectAnchors(
       });
     }
 
-    // --- frozen(長い静止)区間: outSec/endOutSec(カット後の秒)しか持たないので
-    //     cutplan から組んだ timeline で元収録の秒へ変換する
-    const timeline = buildTimeline(playbackSegmentsOf(cutplan));
+    // --- frozen(長い静止)区間: av が元収録の秒を併記するので、ここで時間軸の変換はしない。
     for (const fr of motion.frozen) {
-      const srcStart = toSourceTime(fr.outSec, timeline);
-      const srcEnd = toSourceTime(fr.endOutSec, timeline);
-      if (srcStart === null || srcEnd === null) continue;
-      const keep = containingKeep(srcStart);
+      const keep = containingKeep(fr.sourceSec);
       if (!keep) continue;
-      const start = Math.max(keep.start, srcStart);
-      const end = Math.min(keep.end, srcEnd);
+      const start = Math.max(keep.start, fr.sourceSec);
+      const end = Math.min(keep.end, fr.endSourceSec);
       if (end <= start) continue;
       drafts.push({ start, end, source: "motion", text: `静止(${fr.lenSec.toFixed(1)}秒)`, sortAt: start });
     }

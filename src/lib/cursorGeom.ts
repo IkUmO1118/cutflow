@@ -12,7 +12,7 @@ export interface CursorPoint {
 }
 
 export interface CursorGeomInput extends CursorPoint {
-  layout: "obs-canvas" | "plain";
+  layout: "obs-canvas" | "plain" | "stills";
   screenRegion: Region;
   /** plain レイアウトの出力サイズ(px)。obs-canvas では未使用 */
   outputWidth: number;
@@ -25,7 +25,7 @@ export interface OutputPoint {
 }
 
 export function cursorToOutputPoint(input: CursorGeomInput): OutputPoint {
-  if (input.layout === "plain") {
+  if (input.layout === "plain" || input.layout === "stills") {
     return {
       x: input.cx * input.outputWidth,
       y: input.cy * input.outputHeight,

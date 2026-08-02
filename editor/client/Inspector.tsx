@@ -1132,7 +1132,8 @@ export const Inspector = ({
   if (selection.kind === "bgm") {
     const t = bgm?.tracks[selection.index];
     if (!t) return null;
-    const parts = remapInterval(t.start, t.end, timeline);
+    const outputTimebase = t.timebase === "output";
+    const parts = outputTimebase ? [{ start: t.start, end: t.end }] : remapInterval(t.start, t.end, timeline);
     const playedSec = parts.reduce((s, iv) => s + (iv.end - iv.start), 0);
     const fadeSum = (t.fadeInSec ?? 0) + (t.fadeOutSec ?? 0);
     return (
@@ -1147,6 +1148,11 @@ export const Inspector = ({
             content: () => (
               <Section title="BGM" className="flushTopSec">
                 <div className="capControlStack">
+                {outputTimebase && (
+                  <p className="warnText wideGridItem" style={{ margin: 0 }}>
+                    このBGMは出力秒(timebase: output)で配置されています。エディタでは読み取り専用です。
+                  </p>
+                )}
                 <div className="capControlStack bgmRegionStack wideGridItem">
                   <div className="capLabeledField">
                     <span>頭出し</span>

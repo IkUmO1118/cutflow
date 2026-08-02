@@ -112,6 +112,22 @@ test("章の out は snapToOutput と一致(カット内はスナップ先の出
   });
 });
 
+test("BGM射影は timebase を保持し、source/output の規則で out を作る", () => {
+  withTmpDir((dir) => {
+    buildRichFixture(dir);
+    writeFileSync(join(dir, "bgm.json"), JSON.stringify({ tracks: [
+      { start: 38, end: 52, file: "materials/source.mp3" },
+      { start: 40, end: 45, file: "materials/output.mp3", timebase: "output" },
+    ] }));
+  }, (dir) => {
+    const tracks = describeJson(dir).bgm.tracks!;
+    assert.equal("timebase" in tracks[0], false);
+    assert.deepEqual(tracks[0].out, [{ start: 38, end: 42 }]);
+    assert.equal(tracks[1].timebase, "output");
+    assert.deepEqual(tracks[1].out, [{ start: 40, end: 45 }]);
+  });
+});
+
 test("セグメント個別のテロップ pos/style/words のみ verbatim(トラック標準は解決しない)", () => {
   withTmpDir(buildRichFixture, (dir) => {
     const proj = describeJson(dir);

@@ -149,6 +149,16 @@ test("anchorsToSlots: keepSec はカット控除後の可視尺(窓の長さそ�
   );
 });
 
+test("anchorsToSlots: inserts を timeline 構築へ渡す", () => {
+  const anchors = [anchor(0, "start", "S"), anchor(10, "end", "E")];
+  const cp = cutplan([{ start: 0, end: 10, action: "keep" }]);
+  const slots = anchorsToSlots(anchors, cp, { ...CFG, minSlotSec: 1 }, [
+    { at: 5, file: "materials/insert.mp4", durationSec: 3 },
+  ]);
+  assert.equal(slots.length, 1);
+  assert.equal(slots[0].keepSec, 10);
+});
+
 test("anchorsToSlots: id は1始まり連番", () => {
   const anchors = [anchor(0, "start", "A"), anchor(10, "chapter", "B"), anchor(20, "end", "C")];
   const cp = cutplan([{ start: 0, end: 20, action: "keep" }]);

@@ -194,6 +194,11 @@ test("resolveDesign: plain収録(OBSではない素の動画)にはデザイン�
   strictEqual(resolveDesign({ enabled: true }, 1080, 1920, false), undefined);
 });
 
+test("resolveDesign: stills は cameraRegion 無しでも背景デザインを解決する", () => {
+  const design = resolveDesign({ enabled: true, backgroundFile: "bg.jpg" }, W, H, false, undefined, true);
+  strictEqual(design?.backgroundFile, "bg.jpg");
+});
+
 test("resolveDesign: 寸法・screen値の負数/非finite/範囲外を拒否する", () => {
   throws(() => resolveDesign({ enabled: true }, 0, H, true));
   throws(() => resolveDesign({ enabled: true }, Number.NaN, H, true));

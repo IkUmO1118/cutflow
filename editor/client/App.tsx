@@ -38,6 +38,7 @@ import type {
   ThreeWayResult,
 } from "../../src/lib/docDiff.ts";
 import type { TimelineEntry } from "../../src/lib/timeline.ts";
+import { isImageFile } from "../../src/lib/overlayFade.ts";
 import { defaultShortProfileName, PROFILES } from "../../src/lib/profile.ts";
 import type { Profile } from "../../src/lib/profile.ts";
 import {
@@ -190,6 +191,7 @@ import {
   restoreSourceRange,
   shouldEnterCopilotMode,
   splitSpanAt,
+  videoFileForPreview,
 } from "./model.ts";
 import { ANNOTATION_PRESETS, EFFECT_PRESETS } from "./presets.ts";
 import type { EditorPreset, PresetPatch } from "./presets.ts";
@@ -310,7 +312,6 @@ const isMaterialFile = (f: string) =>
   /\.(png|jpe?g|webp|gif|bmp|avif|mp4|mov|webm|mp3|m4a|wav|aac|ogg|flac)$/i.test(f);
 
 /** 画像素材か(startFrom 頭出しの効かないもの)。動画・音声は false */
-const isImageFile = (f: string) => /\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(f);
 
 const keepsOf = (plan: CutPlan) => plan.segments.filter((s) => s.action === "keep");
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -551,7 +552,7 @@ function applySaveHashes(
  * FrameWright エディタ本体。動画編集ソフトの標準レイアウト:
  * 上=タブパネル(左: 素材/テロップ)+プレビュー(中央)+インスペクタ(右)、
  * 中=トランスポート、下=タイムライン。上部の左右比は分割バーで変えられる。
- * プレビューはエンジンコンポジタ(EnginePreview)で proxy.mp4 を元収録時刻へ
+ * プレビューはエンジンコンポジタ(EnginePreview)で proxy.* を元収録時刻へ
  * 直接シークして描画する。正のデータは cutplan / overlays / transcript の
  * 各 JSON(元収録の秒)。
  * 正のデータは cutplan / overlays / transcript の各 JSON(元収録の秒)。
@@ -578,7 +579,7 @@ export const App = () => {
   // 通知トースト(error / job)。要対応の継続条件はバナー行が持つ(T4)
   const { addToast, updateToast, dismissToast } = useToasts();
   const [busy, setBusy] = useState<"save" | "upload" | null>(null);
-  /** proxy.mp4 の生成中か。busy と分けて、生成中(初回の数十秒)も
+  /** proxy.* の生成中か。busy と分けて、生成中(初回の数十秒)も
    * 編集・保存・アップロードを普通に受け付ける */
   const [proxyBusy, setProxyBusy] = useState(false);
   /** GUI から起動した書き出しジョブ(preview / render)。running 中はボタンを
@@ -599,7 +600,7 @@ export const App = () => {
   // 再生ヘッドの現在位置は React state ではなく playhead ストアが持つ
   // (毎フレームの setState は UI 全体の再レンダー = 再生の乱れになる)
   /** プレビューの音量(%)。書き出しには影響しない。ベースの音量自体は
-   * proxy.mp4 生成時のラウドネス正規化(config の render.targetLufs)が揃える */
+   * proxy.* 生成時のラウドネス正規化(config の render.targetLufs)が揃える */
   const [volumePct, setVolumePct] = useState(() => {
     const saved = Number(localStorage.getItem("framewright.editor.volumePct"));
     return Number.isFinite(saved) && saved > 0 ? Math.min(saved, 100) : 100;
@@ -729,7 +730,7 @@ export const App = () => {
         setBgm(p.bgm);
         setShorts(p.shorts);
         baseHashesRef.current = p.contentHashes ?? {};
-        // proxy.mp4 の陳腐化はサーバーが proxy.key.json とファイルから毎回
+        // proxy.* の陳腐化はサーバーが proxy.key.json とファイルから毎回
         // 判定する(config.yaml が別セッション・別ツールで変わった場合も
         // 拾える)。false→true 方向だけ反映し、既にバナーが出ている
         // (このセッション中の設定保存で立てた)ものは消さない
@@ -780,7 +781,7 @@ export const App = () => {
   /** モーダルを開いた時点の設定の深いコピー(キャンセル復元・保存 diff の
    * 基準)。null = モーダルを開いていない */
   const settingsSnapRef = useRef<CfgValues | null>(null);
-  /** proxy.mp4 に焼き込まれる設定(targetLufs / systemAudio / denoise /
+  /** proxy.* に焼き込まれる設定(targetLufs / systemAudio / denoise /
    * preview.width)を保存した後、プレビューへ反映するには再生成が要ることを促すバナー */
   const [proxyStale, setProxyStale] = useState(false);
   /** 「後で」でバナーだけ閉じても stale という生成ゲートの事実は保持する。 */
@@ -1460,7 +1461,7 @@ export const App = () => {
       // fresh な連続ベイクはカット後時刻で1本として再生する。欠落・陳腐・
       // keep 編集直後は source proxy へ即時フォールバックする。canvas
       // プレビューは bake 自体が起動しない(前段のガード)ので常に生
-      videoFile: "media/proxy.mp4",
+      videoFile: videoFileForPreview(proj.manifest),
       videoIsSource: true,
       // bgm.json(区間配置)を優先。無ければ収録フォルダ直下の bgm.* を
       // 全編1曲で流す(後方互換)。素材ファイルはこの後 media/ 経由に付け替える
@@ -1619,7 +1620,7 @@ export const App = () => {
       renderCfg: proj.renderCfg,
       width: proj.output.w,
       height: proj.output.h,
-      videoFile: "media/proxy.mp4",
+      videoFile: videoFileForPreview(proj.manifest),
       videoIsSource: true,
       bgm: merged.bgm,
       bgmFallbackFile: proj.bgmFile,
@@ -2062,11 +2063,15 @@ export const App = () => {
     if (bgm?.tracks?.length) {
       bgm.tracks.forEach((t, i) => {
         const label = t.file.replace(/^materials\//, "");
-        const parts = remapInterval(t.start, t.end, timeline);
+        const outputTimebase = t.timebase === "output";
+        const parts = outputTimebase
+          ? [{ start: Math.max(0, t.start), end: Math.min(duration, t.end) }].filter((iv) => iv.end > iv.start)
+          : remapInterval(t.start, t.end, timeline);
         parts.forEach((iv, j) => {
           cs.push({
             kind: "bgm", index: i, track: "bgm",
-            outStart: iv.start, outEnd: iv.end, label, editable: true,
+            outStart: iv.start, outEnd: iv.end, label,
+            editable: !outputTimebase,
             noTrimStart: j > 0, noTrimEnd: j < parts.length - 1,
             wave: { src: t.file, startSec: t.startFrom ?? 0, loop: true },
           });
@@ -2267,7 +2272,10 @@ export const App = () => {
     if (!selection) return null;
     const { kind, index } = selection;
     if (kind === "caption") { const s = transcript?.segments[index]; return s ? { start: s.start, end: s.end } : null; }
-    if (kind === "bgm") { const t = bgm?.tracks?.[index]; return t ? { start: t.start, end: t.end } : null; }
+    if (kind === "bgm") {
+      const t = bgm?.tracks?.[index];
+      return t && t.timebase !== "output" ? { start: t.start, end: t.end } : null;
+    }
     if (kind === "overlays") { const o = overlays?.overlays?.[index]; return o ? { start: o.start, end: o.end } : null; }
     if (kind === "zoom") { const z = overlays?.zooms?.[index]; return z ? { start: z.start, end: z.end } : null; }
     if (kind === "blur") { const b = overlays?.blurs?.[index]; return b ? { start: b.start, end: b.end } : null; }
@@ -2325,6 +2333,7 @@ export const App = () => {
     }
     if (kind === "bgm") {
       const t = bgm?.tracks?.[index]; if (!t) return false;
+      if (t.timebase === "output") return false;
       const sp = splitSpanAt(t.start, t.end, at, MIN_SPAN); if (!sp) return false;
       const advance = round2((t.startFrom ?? 0) + (at - t.start));
       pushHistory();
@@ -3138,11 +3147,20 @@ export const App = () => {
       const arr = [...(ctx.overlays.inserts ?? [])];
       const ins = arr[sel.index];
       if (!ins) return;
+      const isStill = isImageFile(ins.file);
       if (mode === "trim-end") {
         arr[sel.index] = {
           ...ins,
           durationSec: round2(Math.max(MIN_SPAN, ins.durationSec + d)),
         };
+      } else if (mode === "trim-start" && isStill) {
+        // 静止画に In 点は無い。左端を左へ引く(d<0)と尺が伸び、右へ引くと縮む。
+        const next = {
+          ...ins,
+          durationSec: round2(Math.max(MIN_SPAN, ins.durationSec - d)),
+        };
+        delete next.startFrom;
+        arr[sel.index] = next;
       } else if (mode === "trim-start") {
         // 頭出し(In点トリム / ripple-trim-in): 割り込み位置 at は固定。素材の頭を
         // 削り(startFrom 増・尺減)、out 点(startFrom+尺)は保つ。左端は動かず
@@ -3277,6 +3295,7 @@ export const App = () => {
       }
       const sp = tracks[sel.index];
       if (!sp) return;
+      if (sp.timebase === "output") return;
       const t = retime(sp);
       if (!t) return;
       const next = { ...sp, ...t };
@@ -4127,6 +4146,7 @@ export const App = () => {
     patch: Partial<Bgm["tracks"][number]>,
     coalesceKey?: string,
   ) => {
+    if (bgm?.tracks[i]?.timebase === "output") return;
     pushHistory(coalesceKey ?? null);
     setBgm((prev) => {
       if (!prev) return prev;
@@ -4142,6 +4162,7 @@ export const App = () => {
     });
   };
   const removeBgm = (i: number) => {
+    if (bgm?.tracks[i]?.timebase === "output") return;
     pushHistory();
     setBgm((prev) => {
       if (!prev) return prev;
@@ -4197,7 +4218,7 @@ export const App = () => {
       return s ? { kind, entry: structuredClone(s) } : null;
     } else if (kind === "bgm") {
       const s = bgm?.tracks?.[index];
-      return s ? { kind, entry: structuredClone(s) } : null;
+      return s && s.timebase !== "output" ? { kind, entry: structuredClone(s) } : null;
     }
     return null;
   };
@@ -4779,15 +4800,16 @@ export const App = () => {
     }
   };
 
-  /** proxy.mp4(元収録の軽量プロキシ)を生成 → プレイヤー再読み込み。
+  /** proxy.*(元収録の軽量プロキシ)を生成 → プレイヤー再読み込み。
    * 収録ごとに1回だけ。カットは焼き込まないので編集による再生成は不要 */
   const generateProxy = async (): Promise<boolean> => {
     setProxyBusy(true);
     setError(null);
     try {
-      await postProxy();
+      const proxy = await postProxy();
       setProj((p) => p && {
         ...p,
+        proxyFile: proxy.proxyFile,
         proxyExists: true,
       });
       setVideoVersion((v) => v + 1);
@@ -4857,7 +4879,7 @@ export const App = () => {
     }
   };
 
-  // proxy.mp4 が無ければ開いた時点で自動生成を始める。プロキシ無しの
+  // proxy.* が無ければ開いた時点で自動生成を始める。プロキシ無しの
   // エディタは再生できず「生成しない」選択肢が無いので、確認は挟まない
   // (生成中もタイムライン・テロップの編集と保存は普通にできる)。
   // 失敗したときだけビューアに再試行ボタンが出る
@@ -6246,6 +6268,7 @@ export const App = () => {
                 loop={loop}
                 playbackRate={playbackRate}
                 initialVolume={playerVolume}
+                baseAudioFile={`media/${proj.proxyFile}`}
                 onFallback={setEngineFailure}
               />
               {/* 素材(部分配置)の移動・リサイズ枠。テロップ枠より下(DOM 前)に
@@ -6339,7 +6362,7 @@ export const App = () => {
             <div className="noPreview">
               {proxyBusy || !error ? (
                 <p>
-                  編集用プロキシ(proxy.mp4)を作成しています…
+                  編集用プロキシ(proxy.*)を作成しています…
                   <br />
                   初回のみ、元収録の長さに応じて数十秒かかります。
                   この間もタイムラインの編集はできます
@@ -6868,7 +6891,7 @@ const HeaderBanners = ({
         <div
           className="banner"
           title={
-            "ラウドネス・システム音声・プレビュー幅は proxy.mp4 に焼き込まれるため、" +
+            "ラウドネス・システム音声・プレビュー幅は proxy.* に焼き込まれるため、" +
             "再生成するまでエディタのプレビューには反映されません(書き出しには反映済み)"
           }
         >

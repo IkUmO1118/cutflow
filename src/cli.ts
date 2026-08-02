@@ -183,10 +183,10 @@ function readJsonFile<T>(file: string): T {
 }
 
 /** --layout フラグの値を検査する。未指定は undefined(resolveLayout 既定へ委ねる) */
-function parseLayoutOpt(v: string | undefined): "obs-canvas" | "plain" | "auto" | undefined {
+function parseLayoutOpt(v: string | undefined): "obs-canvas" | "plain" | "auto" | "stills" | undefined {
   if (v === undefined) return undefined;
-  if (v === "obs-canvas" || v === "plain" || v === "auto") return v;
-  throw new Error(`--layout の値が不正です: ${v}(plain|obs-canvas|auto のいずれか)`);
+  if (v === "obs-canvas" || v === "plain" || v === "auto" || v === "stills") return v;
+  throw new Error(`--layout の値が不正です: ${v}(plain|obs-canvas|auto|stills のいずれか)`);
 }
 
 /** --mic-track / --system-track を検査して数値へ。未指定は undefined。
@@ -1059,7 +1059,8 @@ program
     "編集ファイル(cutplan/transcript/overlays 等)の整合性を検査(JSON 編集後に実行)",
   )
   .action((dir: string) => {
-    const r = validate(resolveDir(dir));
+    const cfg = loadConfig(program.opts().config);
+    const r = validate(resolveDir(dir), cfg);
     for (const w of r.warnings) console.log(`⚠ ${w.file} ${w.where}: ${w.message}`);
     for (const e of r.errors) console.error(`✖ ${e.file} ${e.where}: ${e.message}`);
     if (r.errors.length > 0) {
@@ -1727,8 +1728,9 @@ program
   )
   .action(async (dir: string, opts: { short?: string; yes?: boolean }) => {
     const abs = resolveDir(dir);
+    const cfg = loadConfig(program.opts().config);
     // 壊れた内容を承認しない: 先に validate を通す
-    const r = validate(abs);
+    const r = validate(abs, cfg);
     if (r.errors.length > 0) {
       for (const e of r.errors) console.error(`✖ ${e.file} ${e.where}: ${e.message}`);
       throw new Error(

@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   aggregateMaxByWindow,
+  elapsedSpanSec,
+  elapsedToSource,
   keepsHash,
   mapSamplesToOutput,
   parseAstats,
@@ -62,7 +64,8 @@ test("parseScdet / parseFreezedetect: stderr から time span を取れる", () 
 
 test("mapSamplesToOutput / aggregateMaxByWindow / keepsHash", () => {
   const timeline = buildTimeline([{ start: 10, end: 20 }, { start: 30, end: 40 }]);
-  const mapped = mapSamplesToOutput([{ t: 0 }, { t: 12 }], timeline, 0);
+  const segs = [{ start: 10, end: 20 }, { start: 30, end: 40 }];
+  const mapped = mapSamplesToOutput([{ t: 0 }, { t: 12 }], timeline, segs);
   assert.deepEqual(mapped, [
     { t: 0, outSec: 0, sourceSec: 10 },
     { t: 12, outSec: 12, sourceSec: 32 },
@@ -72,4 +75,34 @@ test("mapSamplesToOutput / aggregateMaxByWindow / keepsHash", () => {
     [{ t: 0, value: 0.9 }, { t: 1, value: 0.4 }, { t: 2, value: 0 }],
   );
   assert.equal(keepsHash([{ start: 1, end: 2 }]).length, 64);
+});
+
+test("elapsedToSource: concat の経過秒を keep をまたいで元収録の秒へ戻す", () => {
+  const segs = [{ start: 0, end: 8 }, { start: 12, end: 30 }];
+  assert.equal(elapsedToSource(0, segs), 0);
+  assert.equal(elapsedToSource(8, segs), 8);
+  assert.equal(elapsedToSource(10, segs), 14);
+  assert.equal(elapsedToSource(26, segs), 30);
+  assert.equal(elapsedToSource(27, segs), null);
+});
+
+test("mapSamplesToOutput: 挿入があっても elapsed→source→output で正しく写す", () => {
+  const timeline = buildTimeline([{ start: 0, end: 30 }], [{ at: 8, durationSec: 4 }]);
+  const segs = [{ start: 0, end: 8 }, { start: 8, end: 30 }];
+  const [sample] = mapSamplesToOutput([{ t: 20 }], timeline, segs);
+  assert.equal(sample.sourceSec, 20);
+  assert.equal(sample.outSec, 24);
+});
+
+test("mapSamplesToOutput: 挿入が無ければ elapsed == output", () => {
+  const timeline = buildTimeline([{ start: 0, end: 10 }, { start: 20, end: 30 }]);
+  const segs = [{ start: 0, end: 10 }, { start: 20, end: 30 }];
+  for (const t of [0, 5, 10, 15, 19.99]) {
+    const [sample] = mapSamplesToOutput([{ t }], timeline, segs);
+    assert.equal(sample.outSec, Math.round(t * 100) / 100);
+  }
+});
+
+test("elapsedSpanSec: 挿入は含まれない", () => {
+  assert.equal(elapsedSpanSec([{ start: 0, end: 8 }, { start: 8, end: 30 }]), 30);
 });

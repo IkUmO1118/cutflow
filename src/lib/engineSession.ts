@@ -74,7 +74,6 @@ function startExportServer(dir: string, outDir: string) {
 
 export interface EngineSessionConfig {
   props: RenderProps;
-  durationSec: number;
   sourceUrls: Record<string, string>;
 }
 

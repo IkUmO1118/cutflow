@@ -375,6 +375,63 @@ test("plan --cuts-only: deps.complete を使い、ループ無効時は plan.loo
   });
 });
 
+test("plan --cuts-only: stills は OCR を有効にしても映像フレーム抽出をスキップする", async () => {
+  await withPlanDir(async (dir) => {
+    writeFileSync(
+      join(dir, "manifest.json"),
+      JSON.stringify({
+        dir,
+        source: "mic.wav",
+        durationSec: 30,
+        layout: "stills",
+        video: { width: 1920, height: 1080, fps: 30, screenRegion: { x: 0, y: 0, w: 1920, h: 1080 } },
+        audio: { micStream: 0, systemStream: null, micWav: "audio/mic.wav" },
+        createdAt: "2026-08-02T00:00:00Z",
+      }),
+    );
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (message?: unknown) => warnings.push(String(message));
+    try {
+      await plan(
+        dir,
+        { plan: { loop: { maxIterations: 0 }, perception: { ocr: true } } } as Config,
+        { cutsOnly: true },
+        { complete: async () => JSON.stringify({ cuts: [] }) },
+      );
+    } finally {
+      console.warn = originalWarn;
+    }
+    assert.ok(warnings.some((message) => message.includes('layout:"stills"')));
+  });
+});
+
+test("plan --cuts-only: stills 以外では OCR を有効にすると従来どおり抽出を試みる", async () => {
+  await withPlanDir(async (dir) => {
+    writeFileSync(
+      join(dir, "manifest.json"),
+      JSON.stringify({
+        dir,
+        source: "missing.mp4",
+        durationSec: 30,
+        layout: "plain",
+        video: { width: 1920, height: 1080, fps: 30, screenRegion: { x: 0, y: 0, w: 1920, h: 1080 } },
+        audio: { micStream: 0, systemStream: null, micWav: "audio/mic.wav" },
+        createdAt: "2026-08-02T00:00:00Z",
+      }),
+    );
+    await assert.rejects(
+      () => plan(
+        dir,
+        { plan: { loop: { maxIterations: 0 }, perception: { ocr: true } } } as Config,
+        { cutsOnly: true },
+        { complete: async () => JSON.stringify({ cuts: [] }) },
+      ),
+      /ffmpeg が失敗しました|No such file|missing\.mp4/,
+    );
+  });
+});
+
 test("plan --cuts-only: plan.reasonIds.enabled=true(単発 generateCutsOnce 経路)は prompt に判断の分類ブロックが乗る", async () => {
   await withPlanDir(async (dir) => {
     const cfg = { plan: { loop: { maxIterations: 0 }, reasonIds: { enabled: true } } } as Config;

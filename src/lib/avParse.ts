@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
-import { toSourceTime, type TimelineEntry } from "./timeline.ts";
+import { toOutputTime, type TimelineEntry } from "./timeline.ts";
 import type { Interval } from "../types.ts";
+
+const EPS = 1e-6;
 
 export interface Ebur128EnvelopeSample {
   t: number;
@@ -121,16 +123,44 @@ export function keepsHash(keeps: Interval[]): string {
   return createHash("sha256").update(JSON.stringify(keeps)).digest("hex");
 }
 
+/** concat した keep 映像/音声の経過秒(elapsed)を元収録の秒へ戻す。
+ *  ffmpeg は segments だけを連結して測るので、経過秒には挿入クリップが含まれない。 */
+export function elapsedToSource(elapsedSec: number, segments: Interval[]): number | null {
+  if (elapsedSec < -EPS) return null;
+  let acc = 0;
+  for (const seg of segments) {
+    const len = seg.end - seg.start;
+    if (elapsedSec <= acc + len + EPS) {
+      return round2(seg.start + Math.max(0, elapsedSec - acc));
+    }
+    acc += len;
+  }
+  return null;
+}
+
+/** concat の総経過秒。挿入があると出力尺より短くなる。 */
+export function elapsedSpanSec(segments: Interval[]): number {
+  return round2(segments.reduce((a, s) => a + (s.end - s.start), 0));
+}
+
 export function mapSamplesToOutput<T extends { t: number }>(
   samples: T[],
   timeline: TimelineEntry[],
-  outOffsetSec = 0,
+  segments: Interval[],
 ): Array<T & { outSec: number; sourceSec: number }> {
   return samples.flatMap((sample) => {
-    const outSec = round2(outOffsetSec + sample.t);
-    const sourceSec = toSourceTime(outSec, timeline);
-    return sourceSec === null ? [] : [{ ...sample, outSec, sourceSec }];
+    const sourceSec = elapsedToSource(sample.t, segments);
+    if (sourceSec === null) return [];
+    const outSec = toOutputTimeInclusiveEnd(sourceSec, timeline);
+    return outSec === null ? [] : [{ ...sample, outSec, sourceSec }];
   });
+}
+
+export function toOutputTimeInclusiveEnd(sourceSec: number, timeline: TimelineEntry[]): number | null {
+  const direct = toOutputTime(sourceSec, timeline);
+  if (direct !== null) return direct;
+  const endEntry = timeline.find((entry) => Math.abs(entry.sourceEnd - sourceSec) <= EPS);
+  return endEntry ? endEntry.outputEnd : null;
 }
 
 export function aggregateMaxByWindow(

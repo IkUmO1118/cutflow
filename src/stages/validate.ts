@@ -14,6 +14,8 @@ import {
   DEFAULT_EFFECT_CHECK_MAX_PER_WINDOW,
 } from "../lib/config.ts";
 import { fmtT } from "../lib/fmt.ts";
+import { isImageFile } from "../lib/overlayFade.ts";
+import { resolveStillsCfg } from "../lib/config.ts";
 import { framesFreshness } from "../lib/framesIndex.ts";
 import { ID_PREFIX, ID_RE } from "../lib/ids.ts";
 import { collectIdOccurrences } from "../lib/mention.ts";
@@ -22,7 +24,7 @@ import { CUT_REASON_IDS, REASON_ID_FAMILY } from "../lib/reasonIds.ts";
 import type { CutReasonId } from "../lib/reasonIds.ts";
 import { EFFECT_REASON_IDS, EFFECT_REASON_ID_FAMILY } from "../lib/effectReasonIds.ts";
 import type { EffectReasonFamily, EffectReasonId } from "../lib/effectReasonIds.ts";
-import { buildTimeline, playbackSegmentsOf, remapInterval } from "../lib/timeline.ts";
+import { buildTimelineModel, insertSpansOf, playbackSegmentsOf, remapInterval } from "../lib/timeline.ts";
 import type { TimelineEntry } from "../lib/timeline.ts";
 import { transcriptHasWords } from "../lib/words.ts";
 import {
@@ -35,6 +37,7 @@ import {
   ovNum,
 } from "../types.ts";
 import type { CutPlan, Interval, Manifest, Short, Transcript, WipeAnchor } from "../types.ts";
+import type { Config } from "../lib/config.ts";
 
 export interface Problem {
   /** 対象ファイル(収録フォルダ内の名前) */
@@ -71,7 +74,7 @@ export interface LoadedDocs {
   thumbnail: unknown;
 }
 
-export function validate(dir: string): ValidateResult {
+export function validate(dir: string, cfg?: Config): ValidateResult {
   const preErrors: Problem[] = [];
   /** JSON を読む。無ければ null、壊れていればエラーに積んで null */
   const readJson = (file: string, required: boolean): unknown => {
@@ -104,7 +107,7 @@ export function validate(dir: string): ValidateResult {
     shorts: readJson("shorts.json", false),
     thumbnail: readJson("thumbnail.json", false),
   };
-  const result = validateDocs(dir, docs, preErrors);
+  const result = validateDocs(dir, docs, preErrors, cfg);
   // 承認レコード(approvals.json)の陳腐化警告は fs 版ラッパにだけ足す
   // (approvals.json は validateDocs の LoadedDocs に含まれない=純関数のままにする)。
   // 既に error があるプロジェクトでは cutplan/shorts の形が保証されないため
@@ -192,9 +195,14 @@ export function validateDocs(
   dir: string,
   docs: LoadedDocs,
   preErrors: Problem[] = [],
+  cfg?: Config,
 ): ValidateResult {
   const errors: Problem[] = [...preErrors];
   const warnings: Problem[] = [];
+  const stillsCfg = cfg ? resolveStillsCfg(cfg) : {
+    defaultDurationSec: 5,
+    maxShareWarnRatio: 0.5,
+  };
   const err = (file: string, where: string, message: string): void => {
     errors.push({ file, where, message });
   };
@@ -248,6 +256,12 @@ export function validateDocs(
    * 扱い(欠落自体は他の検査が拾う。durationSec 検査と同じ他フィールドは
    * 未定義でも構わない緩さ) */
   const cameraPresent = manifest?.video ? hasCamera(manifest) : true;
+  if (manifest?.layout !== undefined && !["obs-canvas", "plain", "stills"].includes(manifest.layout)) {
+    err("manifest.json", "layout", `layout は obs-canvas / plain / stills のいずれかです: ${JSON.stringify(manifest.layout)}`);
+  }
+  if (manifest?.layout === "stills" && manifest.video?.cameraRegion !== undefined) {
+    err("manifest.json", "video.cameraRegion", "映像なしプロジェクトにカメラ領域は持てません");
+  }
 
   /* ---------------- cutplan.json ---------------- */
 
@@ -345,9 +359,18 @@ export function validateDocs(
     err("cutplan.json", "-", "オブジェクトではありません");
   }
 
-  // テロップ・演出の「カット内で表示されない」警告に使う時刻写像
-  const timeline: TimelineEntry[] | null =
-    errors.length === 0 && playbackKeeps.length > 0 ? buildTimeline(playbackKeeps) : null;
+  // テロップ・演出の「カット内で表示されない」警告に使う時刻写像。
+  // 挿入(overlays.inserts)は出力タイムラインを伸ばすので renderProps と同じく
+  // 挿入込みで組む。壊れた insert 要素は insertSpansOf で落とす。
+  const insertSpans = isObj(overlays) && Array.isArray((overlays as { inserts?: unknown }).inserts)
+    ? insertSpansOf((overlays as { inserts?: { at?: unknown; durationSec?: unknown }[] }).inserts)
+    : [];
+  const built = errors.length === 0 && playbackKeeps.length > 0
+    ? buildTimelineModel(playbackKeeps, insertSpans)
+    : null;
+  const timeline: TimelineEntry[] | null = built ? built.entries : null;
+  /** 出力(カット後・挿入込み)の総尺。S1/S2 の検証がこれを使う */
+  const outputDurationSec: number | null = built ? built.durationSec : null;
   /** 区間がカット後の動画に一瞬でも現れるか(写像が作れないときは true 扱い) */
   const visible = (start: number, end: number): boolean =>
     !timeline || remapInterval(start, end, timeline).length > 0;
@@ -450,11 +473,6 @@ export function validateDocs(
         err(f, w, `fit は "contain" か "cover" です(現在: ${JSON.stringify(fit)})`);
       }
     };
-    // 画像かどうかはレンダラー(src/lib/overlayFade.ts の isImageFile)と同じ判定に
-    // する: 画像拡張子リストに該当しなければすべて動画扱い(.mkv 等も
-    // OffthreadVideo で音声・頭出しが有効に再生される)
-    const isImageFile = (file: unknown): boolean =>
-      typeof file === "string" && /\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(file);
     /** overlays / inserts 共通の再生系オプション(頭出し・音量・フェード)の検査。
      * spanSec = 表示される長さ(フェードの長すぎ警告用。不明なら null) */
     const checkPlayback = (
@@ -465,14 +483,14 @@ export function validateDocs(
       if (o.startFrom !== undefined) {
         if (!isNum(o.startFrom) || o.startFrom < 0) {
           err(f, w, `startFrom(頭出し・素材内の開始秒)は0以上の数です: ${JSON.stringify(o.startFrom)}`);
-        } else if (o.startFrom > 0 && isImageFile(o.file)) {
+        } else if (o.startFrom > 0 && typeof o.file === "string" && isImageFile(o.file)) {
           warn(f, w, "startFrom は動画素材のみ有効です(画像では無視されます)");
         }
       }
       if (o.volume !== undefined) {
         if (!isNum(o.volume) || o.volume < 0 || o.volume > 2) {
           err(f, w, `volume は 0〜2 の数値です(1=素材のまま。現在: ${JSON.stringify(o.volume)})`);
-        } else if (isImageFile(o.file)) {
+        } else if (typeof o.file === "string" && isImageFile(o.file)) {
           warn(f, w, "画像素材に音声はありません(volume は無視されます)");
         }
       }
@@ -550,11 +568,37 @@ export function validateDocs(
         if (!isNum(o.durationSec) || o.durationSec <= 0) {
           err(f, w, `durationSec(挿入する尺)は正の数です: ${JSON.stringify(o.durationSec)}`);
         }
+        if (
+          stillsCfg.maxShareWarnRatio > 0 &&
+          outputDurationSec !== null &&
+          outputDurationSec > 0 &&
+          isNum(o.durationSec) &&
+          o.durationSec / outputDurationSec > stillsCfg.maxShareWarnRatio
+        ) {
+          warn(
+            f,
+            w,
+            `durationSec(${fmtT(o.durationSec)})が出力尺(${fmtT(outputDurationSec)})の` +
+              `${Math.round((o.durationSec / outputDurationSec) * 100)}%を占めます` +
+              `(桁の書き間違いでなければ無視してください)`,
+          );
+        }
         checkPlayback(w, o, isNum(o.durationSec) && o.durationSec > 0 ? o.durationSec : null);
         checkFile(w, o.file);
         checkFit(w, o.fit);
       },
     );
+    if (
+      insertSpans.length > 0 &&
+      playbackKeeps.some((keep) => keep.speed !== DEFAULT_PLAYBACK_SPEED)
+    ) {
+      err(
+        f,
+        "inserts",
+        "挿入クリップと可変速 keep は併用できません(音声ベッドを組み立てられません)。" +
+          "挿入を消すか、keep の speed を 1 に戻してください",
+      );
+    }
 
     for (const key of ["wipeFull", "hideCaption"] as const) {
       if (overlays[key] !== undefined && !Array.isArray(overlays[key])) {
@@ -978,6 +1022,33 @@ export function validateDocs(
     err("overlays.json", "-", "オブジェクトではありません");
   }
 
+  if (manifest?.layout === "stills") {
+    // スライドは全画面 overlay(出力尺を変えない)。inserts は intro/ending の
+    // ような「本当に尺を足すクリップ」専用で、スライドには使わない(S3-fix)。
+    const slides = isObj(overlays) && Array.isArray(overlays.overlays) ? overlays.overlays : [];
+    if (slides.length === 0) {
+      warn(
+        "overlays.json",
+        "overlays",
+        "スライド(overlays の全画面画像)が1件もありません。画面が背景だけになります",
+      );
+    }
+    const imageInserts = (isObj(overlays) && Array.isArray(overlays.inserts) ? overlays.inserts : [])
+      .filter((o) => isObj(o) && typeof o.file === "string" && isImageFile(o.file));
+    if (imageInserts.length > 0 && slides.length === 0) {
+      warn(
+        "overlays.json",
+        "inserts",
+        `静止画が inserts に${imageInserts.length}件あります。` +
+          "映像なしプロジェクトのスライドは overlays(全画面画像)で置きます" +
+          "(inserts は出力尺を伸ばすため、ナレーションより動画が長くなります)",
+      );
+    }
+    if (shorts !== null) {
+      warn("shorts.json", "-", "映像なしプロジェクトのスライドはショートへ継承されません");
+    }
+  }
+
   /* ---------------- bgm.json ---------------- */
 
   if (isObj(bgm)) {
@@ -992,7 +1063,13 @@ export function validateDocs(
       const w = `tracks[${i}]`;
       if (!isObj(t)) return err(f, w, "オブジェクトではありません");
       counts.bgm++;
-      checkSpan(f, w, t, dur, err, warn);
+      if (t.timebase !== undefined && t.timebase !== "source" && t.timebase !== "output") {
+        err(f, w, `timebase は "source" か "output" です: ${JSON.stringify(t.timebase)}`);
+      } else if (t.timebase === "output") {
+        checkSpan(f, w, t, outputDurationSec, err, warn, "出力の長さ");
+      } else {
+        checkSpan(f, w, t, dur, err, warn);
+      }
       // file: 収録フォルダ内の相対パスで実在すること
       if (typeof t.file !== "string" || t.file === "") {
         err(f, w, "file(収録フォルダからの相対パス)がありません");
@@ -1202,6 +1279,7 @@ function checkSpan(
   dur: number | null,
   err: (f: string, w: string, m: string) => void,
   warn?: (f: string, w: string, m: string) => void,
+  durLabel = "収録の長さ",
 ): void {
   if (!isNum(s.start) || !isNum(s.end)) {
     return err(file, where, `start / end が数値ではありません(現在: ${JSON.stringify(s.start)} / ${JSON.stringify(s.end)})`);
@@ -1211,7 +1289,7 @@ function checkSpan(
     return err(file, where, `start(${fmtT(s.start)})>= end(${fmtT(s.end)})`);
   }
   if (dur !== null && s.end > dur + DUR_EPS) {
-    const msg = `end(${fmtT(s.end)})が収録の長さ(${fmtT(dur)})を超えています`;
+    const msg = `end(${fmtT(s.end)})が${durLabel}(${fmtT(dur)})を超えています`;
     if (warn) warn(file, where, msg);
     else err(file, where, msg);
   }
