@@ -355,7 +355,6 @@ function readEditableShape(docs: LoadedDocs) {
     overlays: docs.overlays as import("../types.ts").Overlays | null,
     chapters: docs.chapters as import("../types.ts").Chapters | null,
     bgm: docs.bgm as import("../types.ts").Bgm | null,
-    shorts: docs.shorts as import("../types.ts").Shorts | null,
     thumbnail: docs.thumbnail as import("../types.ts").Thumbnail | null,
   };
 }

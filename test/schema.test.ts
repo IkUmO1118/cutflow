@@ -2,16 +2,16 @@
 // §論点6)。JSON Schema も AGENTS_CONTRACT.md も新しい真実を宣言しない=「既存の単一の
 // 出所」(types.ts / validate.ts / files.ts / ids.ts / profile.ts / applyEdits.ts)
 // への射影であることを、以下の3層で機械的に強制する:
-//   (a) 全単射: schemas/ にある8編集ファイル用スキーマの集合 == 実装の
-//       「8編集ファイル」の単一の出所。GENERATED_FILES に対応するスキーマが無い。
+//   (a) 全単射: schemas/ にある7編集ファイル用スキーマの集合 == 実装の
+//       「7編集ファイル」の単一の出所。GENERATED_FILES に対応するスキーマが無い。
 //   (b) fixture/example 検証: 各 examples/*.max.json と実データ
 //       (describe.test.ts の buildRichFixture)が対応スキーマに valid。
 //   (c) enum/pattern ピン留め: スキーマ中の enum/pattern を、既存の単一の
 //       出所(コード)へ1:1で assert する。
 //
-// (a)の「8編集ファイル」の一次資料について: files.ts の EDITABLE_FILES は
+// (a)の「7編集ファイル」の一次資料について: files.ts の EDITABLE_FILES は
 // plan/transcribe 再実行時に backup 退避する対象という狭い集合(5件。
-// bgm/shorts/thumbnail を含まない)であり、CLAUDE.md が言う「8編集ファイル」
+// bgm/thumbnail を含まない)であり、CLAUDE.md が言う「7編集ファイル」
 // 全体の出所ではない(test/files.test.ts が既にこの5件を固定している)。
 // 8件全体の単一の出所は src/lib/applyEdits.ts の APPLY_FILE_NAME(7件。
 // meta.json は「id を持つ要素が無いため apply の対象外」とコメントされている
@@ -35,7 +35,6 @@ import type { JsonSchema } from "./helpers/jsonSchema.ts";
 import { EDITABLE_FILES, GENERATED_FILES } from "../src/lib/files.ts";
 import { ID_RE } from "../src/lib/ids.ts";
 import { APPLY_FILE_NAME } from "../src/lib/applyEdits.ts";
-import { PROFILES } from "../src/lib/profile.ts";
 import { CUT_REASON_IDS } from "../src/lib/reasonIds.ts";
 import { EFFECT_REASON_IDS } from "../src/lib/effectReasonIds.ts";
 import { buildRichFixture } from "./describe.test.ts";
@@ -83,7 +82,7 @@ const sortedEq = (a: readonly string[], b: readonly string[]): void => {
 /* (a) 全単射                                                          */
 /* ------------------------------------------------------------------ */
 
-/** 8編集ファイルの一次資料。APPLY_FILE_NAME(applyEdits.ts。7件)+
+/** 7編集ファイルの一次資料。APPLY_FILE_NAME(applyEdits.ts。6件)+
  * meta.json(apply の対象外だが編集ファイルではある)で全8件を構成する */
 const EDITABLE_FILE_NAMES: string[] = [...Object.values(APPLY_FILE_NAME), "meta.json"];
 
@@ -91,12 +90,12 @@ function schemaFileNames(): string[] {
   return readdirSync(SCHEMAS_DIR).filter((f) => f.endsWith(".schema.json"));
 }
 
-test("全単射: schemas/ の編集ファイル用スキーマ == 8編集ファイル(APPLY_FILE_NAME+meta.json)", () => {
+test("全単射: schemas/ の編集ファイル用スキーマ == 7編集ファイル(APPLY_FILE_NAME+meta.json)", () => {
   const editableSchemas = schemaFileNames().filter(
     (f) =>
       f !== "common.schema.json" &&
       f !== "apply-patch.schema.json" &&
-      // assertions.json は8編集ファイル(EDITABLE_FILES/APPLY_FILE_NAME)に
+      // assertions.json は7編集ファイル(EDITABLE_FILES/APPLY_FILE_NAME)に
       // 属さない「other」カテゴリ(rules.md/brief.md と同種の宣言ファイル。
       // docs/plans/2026-07-07-visual-assertions-design.md 論点1)。
       // common/apply-patch と同じくこの全単射テストの対象外にする
@@ -104,12 +103,12 @@ test("全単射: schemas/ の編集ファイル用スキーマ == 8編集ファ�
   );
   const expected = EDITABLE_FILE_NAMES.map((f) => f.replace(/\.json$/, ".schema.json"));
   sortedEq(editableSchemas, expected);
-  assert.equal(EDITABLE_FILE_NAMES.length, 8, "8編集ファイルであること");
+  assert.equal(EDITABLE_FILE_NAMES.length, 7, "7編集ファイルであること");
 });
 
-test("全単射: files.ts の EDITABLE_FILES(backup対象。5件)は8編集ファイルの部分集合", () => {
+test("全単射: files.ts の EDITABLE_FILES(backup対象。5件)は7編集ファイルの部分集合", () => {
   for (const f of EDITABLE_FILES) {
-    assert.ok(EDITABLE_FILE_NAMES.includes(f), `${f} が8編集ファイルに含まれない`);
+    assert.ok(EDITABLE_FILE_NAMES.includes(f), `${f} が7編集ファイルに含まれない`);
   }
 });
 
@@ -125,7 +124,7 @@ test("全単射: GENERATED_FILES に対応するスキーマが無い", () => {
 /* スキーマレジストリ(fixture/example 検証・enum ピン留めの両方で使う)     */
 /* ------------------------------------------------------------------ */
 
-// "assertions" は8編集ファイルには属さない(other カテゴリ)が、kitchen-sink
+// "assertions" は7編集ファイルには属さない(other カテゴリ)が、kitchen-sink
 // example 検証(examples/assertions.max.json が assertions.schema.json に
 // valid)はここに加えるだけで自動的に対象になる(全単射テストとは別軸)
 const FILE_KEYS = [
@@ -135,7 +134,6 @@ const FILE_KEYS = [
   "bgm",
   "chapters",
   "meta",
-  "shorts",
   "thumbnail",
   "assertions",
 ];
@@ -174,7 +172,7 @@ test("実データ: buildRichFixture が書く編集ファイルが対応スキ�
     const registry = loadRegistry();
     // buildRichFixture は thumbnail.json を書かないため対象外(examples 側で
     // 既に valid を確認済み)
-    for (const key of ["cutplan", "transcript", "overlays", "bgm", "chapters", "meta", "shorts"]) {
+    for (const key of ["cutplan", "transcript", "overlays", "bgm", "chapters", "meta"]) {
       const schema = registry[`${key}.schema.json`];
       const data = JSON.parse(readFileSync(join(dir, `${key}.json`), "utf8"));
       const resolve = makeRegistryResolver(registry, `${key}.schema.json`);
@@ -281,12 +279,6 @@ test("ピン留め: overlaysの全effect reasonId enum === EFFECT_REASON_IDS", (
   for (const values of enums) sortedEq(values, [...EFFECT_REASON_IDS]);
 });
 
-test("ピン留め: shorts の profile enum === Object.keys(PROFILES)(profile.ts)", () => {
-  const shorts = loadRegistry()["shorts.schema.json"];
-  const profileEnum = shorts.properties?.shorts.items?.properties?.profile.enum as string[];
-  sortedEq(profileEnum, Object.keys(PROFILES));
-});
-
 /* ------------------------------------------------------------------ */
 /* apply-patch.schema.json(ApplyPatch / EditOp。docs/plans/2026-07-07-      */
 /* atomic-apply-design.md)                                              */
@@ -314,7 +306,7 @@ test("apply-patch: set/remove/add の実例パッチ(test/applyEdits.test.ts 相
     },
     { ops: [{ op: "add", target: "bgm.tracks", value: { start: 0, end: 10, file: "bgm.mp3" }, at: 0 }] },
     { replace: { chapters: { chapters: [{ start: 0, title: "導入" }] } } },
-    { replace: { bgm: null, shorts: null } },
+    { replace: { bgm: null } },
   ];
   for (const patch of patches) {
     const errs = validateAgainstSchema(patch, schema, resolve);
@@ -326,9 +318,8 @@ test("apply-patch: allow-list外のadd選択子・未知のop種別はschema段�
   const registry = loadRegistry();
   const schema = registry["apply-patch.schema.json"];
   const resolve = makeRegistryResolver(registry, "apply-patch.schema.json");
-  // target が ADD_SELECTORS の allow-list に無い(shorts.shorts 等)は enum 違反で invalid
-  // (§スコープ外: shorts[] 自体・ranges/captionTracks は add の対象外)
-  const badAdd = { ops: [{ op: "add", target: "shorts.shorts", value: { name: "x" } }] };
+  // target が ADD_SELECTORS の allow-list に無いものは enum 違反で invalid
+  const badAdd = { ops: [{ op: "add", target: "unknown.items", value: { name: "x" } }] };
   assert.ok(validateAgainstSchema(badAdd, schema, resolve).length > 0);
   // 未知の op 種別は oneOf のどの分岐にもマッチしない
   const badOp = { ops: [{ op: "unknown", target: "@seg_a1a1a1" }] };

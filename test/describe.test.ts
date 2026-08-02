@@ -232,27 +232,6 @@ export function buildRichFixture(dir: string): void {
     ],
     description: "概要欄の下書き…全文がここに入る想定のテキストです…",
   });
-
-  write("shorts.json", {
-    shorts: [
-      {
-        name: "short-1",
-        profile: "vertical",
-        approved: true,
-        ranges: [{ start: 35, end: 45 }],
-        captionTracks: [{ track: 1, name: "短尺文字" }],
-      },
-      {
-        name: "short-2",
-        approved: false,
-        // 隣接区間(mergeIntervals で1本にまとまる)
-        ranges: [
-          { start: 110, end: 115 },
-          { start: 115, end: 120 },
-        ],
-      },
-    ],
-  });
 }
 
 test("散文 describe() は golden とバイト等価(リファクタ・JSON 射影追加で崩れない錠)", () => {

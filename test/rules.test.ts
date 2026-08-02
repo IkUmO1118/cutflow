@@ -70,7 +70,7 @@ after(() => {
   rmSync(channelDir, { recursive: true, force: true });
 });
 
-test("renderPrompt: rules ファイル無しの4テンプレは「チャンネル方針」見出しが無く、brief 既定文と次見出しが隣接する(現状バイト等価の回帰ガード)", () => {
+test("renderPrompt: rules ファイル無しの3テンプレは「チャンネル方針」見出しが無く、brief 既定文と次見出しが隣接する(現状バイト等価の回帰ガード)", () => {
   const planPrompt = renderPrompt(recDir, "plan.md", numbered, 42);
   assert.doesNotMatch(planPrompt, /チャンネル方針/);
   assert.match(
@@ -89,9 +89,6 @@ test("renderPrompt: rules ファイル無しの4テンプレは「チャンネ�
   assert.doesNotMatch(metaPrompt, /チャンネル方針/);
   assert.match(metaPrompt, new RegExp(`${escapeRe(BRIEF_DEFAULT)}\\n\\n## 出力形式`));
 
-  const shortsPrompt = renderPrompt(recDir, "plan-shorts.md", numbered, 42);
-  assert.doesNotMatch(shortsPrompt, /チャンネル方針/);
-  assert.match(shortsPrompt, /元の収録は 42 秒です。\n\n## ショートの選び方/);
 });
 
 test("renderPrompt: <channel>/rules.md を置くと出力にその本文が含まれる", () => {

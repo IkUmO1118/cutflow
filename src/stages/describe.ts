@@ -19,7 +19,6 @@ import { pausesWithinKeeps } from "../lib/perception.ts";
 import type { KeepPause } from "../lib/perception.ts";
 import { framesFreshness } from "../lib/framesIndex.ts";
 import type { FramesShot } from "../lib/framesIndex.ts";
-import { loadShorts } from "../lib/shorts.ts";
 import {
   buildTimeline,
   insertSpans,
@@ -47,8 +46,6 @@ import type {
   Overlays,
   PlanSegment,
   Region,
-  Short,
-  Shorts,
   SystemTranscript,
   Transcript,
   WordTiming,
@@ -71,7 +68,6 @@ interface DescribeInputs {
   bgm: Bgm | null;
   chapters: Chapters;
   meta: Meta;
-  shorts: Shorts | null;
   /** システム音声の知覚専用文字起こし(transcript.system.json)。無ければ null
    *  =散文/--json ともにバイト等価(ファイル存在でのみ露出) */
   systemTranscript: SystemTranscript | null;
@@ -108,7 +104,6 @@ function loadDescribeInputs(dir: string): DescribeInputs {
   const bgm = readOptional<Bgm | null>("bgm.json", null);
   const chapters = readOptional<Chapters>("chapters.json", { chapters: [] });
   const meta = readOptional<Meta>("meta.json", { titles: [], description: "" });
-  const shorts = loadShorts(dir);
   const systemTranscript = readOptional<SystemTranscript | null>("transcript.system.json", null);
 
   const keeps = mergeIntervals(
@@ -131,7 +126,6 @@ function loadDescribeInputs(dir: string): DescribeInputs {
     bgm,
     chapters,
     meta,
-    shorts,
     systemTranscript,
     keeps,
     cutRecords,
@@ -330,23 +324,6 @@ export function describe(dir: string, cfg?: Config): string {
     lines.push(`タイトル案: ${meta.titles.slice(0, 3).join(" / ")}`);
   }
 
-  const { shorts } = inp;
-  if (shorts && shorts.shorts.length > 0) {
-    lines.push("");
-    lines.push("ショート(shorts.json):");
-    for (const s of shorts.shorts) {
-      const ranges = mergeIntervals(s.ranges);
-      const outDur = ranges.reduce((a, r) => a + (r.end - r.start), 0);
-      const rangesDesc = ranges
-        .map((r) => `元 ${fmtT(r.start)}–${fmtT(r.end)}`)
-        .join(", ");
-      lines.push(
-        `  ${s.name} profile=${s.profile ?? "vertical"} approved=${s.approved} ` +
-          `${rangesDesc} → 出力尺 ${fmtT(outDur)}`,
-      );
-    }
-  }
-
   /* ---- frames の鮮度(stale-PNG 罠対策。none は無出力=golden 不変) ---- */
   const freshness = framesFreshness(dir);
   if (freshness.state === "stale") {
@@ -367,15 +344,13 @@ export function describe(dir: string, cfg?: Config): string {
 }
 
 /** frames/index.json の shot を「何の絵が今 frames/ に入っているか」の
- * 一行に整形する(例: "--short intro の --every 撮影・6枚")。取り違え
- * (本編を見ているつもりでショートの PNG を読む等)予防の情報提供のみ */
+ * 一行に整形する。 */
 function describeShot(shot: FramesShot): string {
   const modeFlag = shot.mode === "times" ? "--t" : `--${shot.mode}`;
-  const shortPrefix = shot.short ? `--short ${shot.short} の ` : "";
   const suffix = [shot.ocr ? "--ocr" : null, shot.fullRes ? "--full-res" : null]
     .filter((s): s is string => s !== null)
     .join(" ");
-  return `${shortPrefix}${modeFlag} 撮影${suffix ? `(${suffix})` : ""}・${shot.count}枚`;
+  return `${modeFlag} 撮影${suffix ? `(${suffix})` : ""}・${shot.count}枚`;
 }
 
 /* ==================================================================== */
@@ -398,7 +373,6 @@ export interface DescribeProjection {
   chapters: ChapterEntry[];
   meta: { titles: string[]; description: string };
   bgm: BgmProjection;
-  shorts: ShortEntry[];
   /** システム音声の知覚専用文字起こし(transcript.system.json)。**ファイルが
    *  在るときだけ**このキーが出る(不在時は省略=既存 --json とバイト等価)。
    *  規則C(トップレベル常在)の明示的な例外=新規任意成果物は存在時のみ */
@@ -500,7 +474,7 @@ export interface KeepEntry {
   outStart: number;
   outEnd: number;
   /** keep 内に残った無音(間)。`describe.pauses` が真のときだけ付く
-   *  (既定オフ=省略=既存 --json とバイト等価)。ショートの mergedRanges には付かない */
+   *  (既定オフ=省略=既存 --json とバイト等価)。縦プロファイルの mergedRanges には付かない */
   pauses?: KeepPause[];
 }
 
@@ -662,18 +636,6 @@ export interface BgmProjection {
   source: "bgm.json" | "fallback" | "none";
   tracks?: (Bgm["tracks"][number] & { out: Interval[] })[];
   file?: string;
-}
-
-export interface ShortEntry {
-  name: string;
-  profile: string;
-  approved: boolean;
-  /** id は安定 id(rg_...。未採番なら省略)。Short 自体は name が事実上の
-   * 安定 id なので ShortEntry には別途 id フィールドを持たない */
-  ranges: Short["ranges"];
-  mergedRanges: KeepEntry[];
-  outDurationSec: number;
-  captionTracks?: CaptionTrackDef[];
 }
 
 /** timeline.ts の round2 は未 export のため、同義の2行関数をここに持つ
@@ -933,7 +895,7 @@ function computeEffectFirstVsFinal(first: FirstEffectsPlan, finalOverlays: Overl
 }
 
 /** keep 区間の配列(すでに mergeIntervals 済み)+そのタイムラインから
- * KeepEntry[] を作る。本編 keeps とショートの mergedRanges の両方が使う */
+ * KeepEntry[] を作る。本編 keeps と縦プロファイルの mergedRanges の両方が使う */
 function buildKeepEntries(keeps: Interval[], timeline: TimelineEntry[]): KeepEntry[] {
   return keeps.map((k, index) => {
     const outStart = toOutputTime(k.start, timeline) ?? 0;
@@ -1021,7 +983,7 @@ function buildProjection(inp: DescribeInputs, cfg?: Config): DescribeProjection 
   const keepEntries = buildKeepEntries(keeps, timeline);
 
   // keep 内の間(describe.pauses が真のときだけ本編 keeps に付ける。cfg 省略・
-  // 無効なら pauses キーを一切足さない=既存 --json とバイト等価。ショートの
+  // 無効なら pauses キーを一切足さない=既存 --json とバイト等価。縦プロファイルの
   // mergedRanges には付けない=buildKeepEntries を共有しつつ本編だけに後付け)
   const pausesCfg = cfg ? resolveDescribePausesCfg(cfg) : { enabled: false, max: 3, minSec: 0.6 };
   if (pausesCfg.enabled) {
@@ -1265,23 +1227,6 @@ function buildProjection(inp: DescribeInputs, cfg?: Config): DescribeProjection 
     bgm = fallbackFile !== undefined ? { source: "fallback", file: fallbackFile } : { source: "none" };
   }
 
-  /* ---- shorts(全 ranges + ショート専用 timeline での出力秒) ---- */
-  const shorts: ShortEntry[] = (inp.shorts?.shorts ?? []).map((s): ShortEntry => {
-    const merged = mergeIntervals(s.ranges);
-    const shortTimeline = buildTimeline(merged, []);
-    const mergedRanges = buildKeepEntries(merged, shortTimeline);
-    const outDurationSec = round2(mergedRanges.reduce((a, r) => a + (r.end - r.start), 0));
-    return {
-      name: s.name,
-      profile: s.profile ?? "vertical",
-      approved: s.approved,
-      ranges: s.ranges,
-      mergedRanges,
-      outDurationSec,
-      ...(s.captionTracks !== undefined ? { captionTracks: s.captionTracks } : {}),
-    };
-  });
-
   // システム音声(transcript.system.json)。ファイルが在るときだけ systemAudio
   // キーを足す(不在時は省略=既存 --json とバイト等価。規則C の明示的例外)
   const systemAudio: SystemAudioProjection | undefined = inp.systemTranscript
@@ -1307,7 +1252,6 @@ function buildProjection(inp: DescribeInputs, cfg?: Config): DescribeProjection 
     chapters: chaptersProj,
     meta: { titles: meta.titles, description: meta.description },
     bgm,
-    shorts,
     ...(systemAudio !== undefined ? { systemAudio } : {}),
   };
 }

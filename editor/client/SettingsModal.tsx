@@ -109,9 +109,6 @@ export function buildConfigPatch(snap: CfgValues, cur: CfgValues): ConfigPatch |
   if (cur.editorCfg.defaultImageDurationSec !== snap.editorCfg.defaultImageDurationSec) {
     e.defaultImageDurationSec = cur.editorCfg.defaultImageDurationSec;
   }
-  if (cur.editorCfg.defaultShortRangeSec !== snap.editorCfg.defaultShortRangeSec) {
-    e.defaultShortRangeSec = cur.editorCfg.defaultShortRangeSec;
-  }
   if (JSON.stringify(cur.aiCfg.review) !== JSON.stringify(snap.aiCfg.review)) {
     e.aiReview = cur.aiCfg.review;
   }
@@ -856,19 +853,6 @@ export const SettingsModal = ({
             v !== undefined &&
             onChange({
               editorCfg: { ...cfg.editorCfg, defaultImageDurationSec: v },
-            })
-          }
-        />
-      </div>
-      <div className="field">
-        <label>ショート既定尺 (秒)</label>
-        <NumInput
-          value={cfg.editorCfg.defaultShortRangeSec}
-          title="ショートを新規追加するとき、選択範囲も再生位置も無い場合に使う既定レンジ"
-          onCommit={(v) =>
-            v !== undefined &&
-            onChange({
-              editorCfg: { ...cfg.editorCfg, defaultShortRangeSec: v },
             })
           }
         />

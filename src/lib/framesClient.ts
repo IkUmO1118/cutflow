@@ -31,11 +31,10 @@ export function readServePortFile(dir: string): ServePortFile | null {
  * parseFramesServeBody が読む形)へ変換する */
 export function toServeRequestBody(
   req: FrameRequest,
-  opts: { short?: string; ocr?: boolean; fullRes?: boolean },
+  opts: { ocr?: boolean; fullRes?: boolean },
 ): Record<string, unknown> {
   return {
     ...req,
-    short: opts.short ?? null,
     ocr: opts.ocr ?? false,
     fullRes: opts.fullRes ?? false,
   };
@@ -66,7 +65,7 @@ async function pingAlive(port: number): Promise<boolean> {
 export async function tryServeFrames(
   dir: string,
   req: FrameRequest,
-  opts: { short?: string; ocr?: boolean; fullRes?: boolean },
+  opts: { ocr?: boolean; fullRes?: boolean },
 ): Promise<FrameShot[] | null> {
   const portFile = readServePortFile(dir);
   if (!portFile) return null;

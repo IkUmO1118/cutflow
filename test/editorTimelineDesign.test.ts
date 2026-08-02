@@ -90,7 +90,7 @@ test("P3 styles every FrameWright clip family and all timeline states inside its
   const css = read("editor/client/styles.css");
   for (const kind of [
     "cut", "insert", "caption", "wipe", "wipeFull", "zoom", "blur",
-    "annotation", "bgm", "short",
+    "annotation", "bgm",
   ]) assert.ok(css.includes(`.ocTimeline .tlClip.${kind}`), `missing clip skin ${kind}`);
   // Overlay clips use the OpenCut graphic type color, not per-track inline OV_COLORS.
   const timeline = read("editor/client/Timeline.tsx");

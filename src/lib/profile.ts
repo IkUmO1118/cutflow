@@ -61,21 +61,6 @@ export const PROFILES: Record<string, Profile> = {
   },
 };
 
-/** ショートの省略時 profile 名。camera 有り→"vertical"、plain→"vertical-screen" */
-export function defaultShortProfileName(hasCamera: boolean): string {
-  return hasCamera ? "vertical" : "vertical-screen";
-}
-
-/** その profile を plain(カメラ無し)に使えるか。panels の source 集合が
- * screen と camera を両方含むときだけ false(validate の plain ガードと同一規則)。
- * layout 無し(default)・screen のみ・camera のみは true */
-export function profileSupportsPlain(profileName: string): boolean {
-  const panels = PROFILES[profileName]?.layout?.panels;
-  if (!panels) return true;
-  const src = new Set(panels.map((p) => p.source));
-  return !(src.has("screen") && src.has("camera"));
-}
-
 /**
  * プロファイル名から Profile を解決する。省略/"default" は
  * defaultSize(呼び出し側が渡す出力解像度。通常 manifest.video.screenRegion)

@@ -227,26 +227,6 @@ test("buildRenderProps: plain収録(OBSではない素の動画)にはdesignを�
   assert.equal(props.cameraRegion, undefined);
 });
 
-test("buildRenderProps: short layoutはplain designを引き続き除外する", () => {
-  const props = buildRenderProps({
-    manifest,
-    keeps: [{ start: 0, end: 10 }],
-    transcript: { segments: [] },
-    overlays: {},
-    renderCfg: { ...renderCfg, design: { enabled: true } },
-    width: 1080,
-    height: 1920,
-    profile: PROFILES.vertical,
-    videoFile: "cut.mp4",
-    bgm: null,
-    bgmFallbackFile: null,
-    overlayExists: () => true,
-    warn: () => {},
-  });
-  assert.equal(props.design, undefined);
-  assert.ok(props.layout);
-});
-
 test("buildRenderProps: vertical profile → layout/captionDefaultPos/fontSizePx(×fontScale)が入る", () => {
   const props = buildRenderProps({
     manifest,
@@ -1840,39 +1820,6 @@ test("frameSpans: 離れた区間(0.02秒超)は連結せず独立に丸める",
   assert.equal(inserts[0].durationInFrames, 30);
 });
 
-// ---- ショート(shorts.json)相乗り経路: ranges→mergeIntervals の keep 集合 +
-// overlays.captionTracks 経由の縦用テロップ上書き(render.ts のショート経路と同じ組み立て) ----
-
-test("buildRenderProps: ショートの ranges(飛び区間)を mergeIntervals した keep 集合がそのまま使われ、レンジ外のテロップは落ちる", () => {
-  // shorts.json の ranges 相当: 本編 cutplan とは無関係な2つの飛び区間
-  const shortRanges = [{ start: 100, end: 110 }, { start: 200, end: 205 }];
-  const shortKeeps = mergeIntervals(shortRanges);
-  const transcript: Transcript = {
-    segments: [
-      { start: 102, end: 104, text: "レンジ内" },
-      { start: 150, end: 152, text: "レンジ外(両レンジの間)" },
-    ],
-  };
-  const props = buildRenderProps({
-    manifest,
-    keeps: shortKeeps,
-    transcript,
-    overlays: {},
-    renderCfg,
-    width: PROFILES.vertical.width,
-    height: PROFILES.vertical.height,
-    profile: PROFILES.vertical,
-    videoFile: "cut.hook.mp4",
-    bgm: null,
-    bgmFallbackFile: null,
-    overlayExists: () => true,
-    warn: () => {},
-  });
-  assert.equal(props.durationSec, 15); // 10 + 5
-  assert.equal(props.captions.length, 1);
-  assert.equal(props.captions[0].text, "レンジ内");
-});
-
 // ---- カラオケ: segment.words[] のカット後写像(判断3) ----
 
 test("buildRenderProps: words 無しの segment → 出力 Caption に words キーが付かない(既存スナップと完全一致)", () => {
@@ -2027,36 +1974,6 @@ test("buildRenderProps: カット境界をまたぐ隣接 keep(remapInterval が
   });
   assert.equal(props.captions.length, 1);
   assert.deepEqual(props.captions[0].words, [{ text: "またぐテキスト", start: 2, end: 15 }]);
-});
-
-test("buildRenderProps: ショートの captionTracks は overlays.captionTracks と同じ経路(セグメント → トラック標準)で解決される", () => {
-  const props = buildRenderProps({
-    manifest,
-    keeps: [{ start: 100, end: 110 }],
-    transcript: {
-      segments: [
-        { start: 101, end: 103, text: "標準位置" },
-        { start: 104, end: 106, text: "個別上書き", pos: { x: 10, y: 20 } },
-      ],
-    },
-    // shorts.json の captionTracks をそのまま overlays.captionTracks として渡す
-    // (render.ts のショート経路: shortOverlays = { captionTracks: short.captionTracks })
-    overlays: { captionTracks: [{ track: 1, x: 540, y: 1600, style: { fontSizePx: 92 } }] },
-    renderCfg,
-    width: PROFILES.vertical.width,
-    height: PROFILES.vertical.height,
-    profile: PROFILES.vertical,
-    videoFile: "cut.hook.mp4",
-    bgm: null,
-    bgmFallbackFile: null,
-    overlayExists: () => true,
-    warn: () => {},
-  });
-  const std = props.captions.find((c) => c.text === "標準位置");
-  const overridden = props.captions.find((c) => c.text === "個別上書き");
-  assert.deepEqual(std?.pos, { x: 540, y: 1600 });
-  assert.equal(std?.style?.fontSizePx, 92);
-  assert.deepEqual(overridden?.pos, { x: 10, y: 20 }); // セグメント個別指定が優先
 });
 
 test("effect reasonIdはrender propsへ出ず、cut承認hash境界にも入らない", () => {

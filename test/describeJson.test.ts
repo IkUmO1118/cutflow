@@ -239,73 +239,6 @@ test("演出の全フィールドが verbatim(overlays/inserts/zooms/blurs/annot
   });
 });
 
-test("ショート: ranges は verbatim、mergedRanges はショート専用 timeline で出力秒を持つ", () => {
-  withTmpDir(buildRichFixture, (dir) => {
-    const proj = describeJson(dir);
-    const short2 = proj.shorts.find((s) => s.name === "short-2");
-    assert.ok(short2);
-    // 隣接する2区間(110–115, 115–120)は verbatim には両方残るが
-    assert.equal(short2!.ranges.length, 2);
-    // mergedRanges は1本にまとまる(ショート専用 timeline)
-    assert.deepEqual(short2!.mergedRanges, [
-      { index: 0, start: 110, end: 120, durationSec: 10, outStart: 0, outEnd: 10 },
-    ]);
-    assert.equal(short2!.outDurationSec, 10);
-    assert.equal(short2!.profile, "vertical");
-  });
-});
-
-test("容器常在: overlays/bgm/chapters/meta/shorts が無い最小フォルダでも全トップレベルキーが存在", () => {
-  const dir = mkdtempSync(join(tmpdir(), "framewright-describeJson-min-"));
-  try {
-    const write = (file: string, data: unknown) =>
-      writeFileSync(join(dir, file), JSON.stringify(data), "utf8");
-    write("manifest.json", {
-      dir,
-      source: "raw.mkv",
-      durationSec: 100,
-      layout: "plain",
-      video: {
-        width: 1080,
-        height: 1920,
-        fps: 30,
-        screenRegion: { x: 0, y: 0, w: 1080, h: 1920 },
-      },
-      audio: { micStream: 0, systemStream: null, micWav: "mic.wav" },
-      createdAt: "2026-07-06T00:00:00Z",
-    });
-    write("cutplan.json", {
-      approved: false,
-      segments: [{ start: 0, end: 100, action: "keep", reason: "本編" }],
-    });
-    write("transcript.json", {
-      language: "ja",
-      model: "test",
-      segments: [],
-    });
-
-    const proj = describeJson(dir);
-    assert.deepEqual(proj.overlays.materials, []);
-    assert.deepEqual(proj.overlays.inserts, []);
-    assert.deepEqual(proj.overlays.wipeFull, []);
-    assert.deepEqual(proj.overlays.zooms, []);
-    assert.deepEqual(proj.overlays.blurs, []);
-    assert.deepEqual(proj.overlays.annotations, []);
-    assert.deepEqual(proj.overlays.hideCaption, []);
-    assert.equal(proj.overlays.colorFilter, null);
-    assert.equal(proj.overlays.layerOrder, null);
-    assert.deepEqual(proj.overlays.captionTracks, []);
-    assert.deepEqual(proj.bgm, { source: "none" });
-    assert.deepEqual(proj.chapters, []);
-    assert.deepEqual(proj.meta, { titles: [], description: "" });
-    assert.deepEqual(proj.shorts, []);
-    // plain レイアウトかつ cameraRegion 省略時は捏造しない(規則C)
-    assert.equal("cameraRegion" in proj.source.video, false);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
 test("keyframes: sourceAt と outputTimes を materials/blurs/annotations に載せる", () => {
   const dir = mkdtempSync(join(tmpdir(), "framewright-describeJson-keyframes-"));
   try {
@@ -392,7 +325,6 @@ test("id 無し fixture(buildRichFixture)は射影のどこにも id キーが�
     for (const b of proj.overlays.blurs) assert.equal("id" in b, false);
     for (const h of proj.overlays.hideCaption) assert.equal("id" in h, false);
     for (const ch of proj.chapters) assert.equal("id" in ch, false);
-    for (const s of proj.shorts) for (const r of s.ranges) assert.equal("id" in r, false);
   });
 });
 
@@ -433,9 +365,6 @@ test("id 付き fixture: 各 *Entry に id が載る(index の次)", () => {
       blurs: [{ id: "bl_h8h8h8", start: 0, end: 1, rect: { x: 0, y: 0, w: 1, h: 1 } }],
     });
     write("chapters.json", { chapters: [{ id: "ch_i9i9i9", start: 0, title: "導入" }] });
-    write("shorts.json", {
-      shorts: [{ name: "s1", approved: false, ranges: [{ id: "rg_j0j0j0", start: 0, end: 1 }] }],
-    });
 
     const proj = describeJson(dir);
     assert.equal(proj.captions[0].id, "cap_b2b2b2");
@@ -446,7 +375,6 @@ test("id 付き fixture: 各 *Entry に id が載る(index の次)", () => {
     assert.equal(proj.overlays.zooms[0].id, "zm_g7g7g7");
     assert.equal(proj.overlays.blurs[0].id, "bl_h8h8h8");
     assert.equal(proj.chapters[0].id, "ch_i9i9i9");
-    assert.equal(proj.shorts[0].ranges[0].id, "rg_j0j0j0");
     // id は index の次のキー(先頭側)に置かれる
     assert.deepEqual(Object.keys(proj.captions[0]).slice(0, 2), ["index", "id"]);
   } finally {

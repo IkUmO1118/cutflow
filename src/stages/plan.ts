@@ -120,7 +120,7 @@ function loadStyleProfileForPlan(
 }
 
 /** 残す候補区間 + 重なる文字起こしテキストに番号を振ったもの(LLM 入力用)。
- * plan-shorts でも同じ番号選択方式で流用する(planShorts.ts) */
+ */
 export interface NumberedSegment {
   id: number;
   start: number;

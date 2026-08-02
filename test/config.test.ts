@@ -30,7 +30,6 @@ import {
   DEFAULT_PLAN_LOOP_MAX_ITERATIONS,
   DEFAULT_PLAN_LOOP_SECONDARY_MAX_CALLS,
   DEFAULT_PLAN_LOOP_SECONDARY_MAX_IMAGES,
-  DEFAULT_PLAN_SHORTS_MAX_DURATION_SEC,
   DEFAULT_PLAN_CURSOR_MIN_DWELL_MS,
   DEFAULT_PLAN_CURSOR_MAX_DWELL_MS,
   DEFAULT_PLAN_CURSOR_MOVE_THRESHOLD,
@@ -46,7 +45,6 @@ import {
   MAX_AI_IMAGES,
   planHarnessEnabled,
   planLoopEnabled,
-  planShortsMaxSec,
   formatPerceptionStatusLines,
   formatStyleProfileStatusLines,
   DEFAULT_LOG_LEVEL,
@@ -245,7 +243,6 @@ test("validateConfigPatch: 正常系は空配列", () => {
       editor: {
         maxUploadMb: 2048,
         defaultImageDurationSec: 4,
-        defaultShortRangeSec: 10,
         aiReview: { vlm: true, maxImages: 4, maxRefinements: 2 },
       },
       ai: {
@@ -331,19 +328,6 @@ test("validateConfigPatch: denoise は mic/noiseFloorDb のブロック更新の
   );
   assert.ok(
     validateConfigPatch({ render: { denoise: { mic: true, noiseFloorDb: -90 } } }).length > 0,
-  );
-});
-
-test("planShortsMaxSec: 省略時は既定60・指定時はその値", () => {
-  assert.equal(planShortsMaxSec({} as Config), DEFAULT_PLAN_SHORTS_MAX_DURATION_SEC);
-  assert.equal(planShortsMaxSec({} as Config), 60);
-  assert.equal(
-    planShortsMaxSec({ planShorts: {} } as Config),
-    60,
-  );
-  assert.equal(
-    planShortsMaxSec({ planShorts: { maxDurationSec: 45 } } as Config),
-    45,
   );
 });
 

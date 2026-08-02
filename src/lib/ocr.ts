@@ -34,8 +34,7 @@ export interface RawOcrOutput {
 export interface OcrLine {
   text: string;
   confidence: number;
-  /** box は本編 screenRegion 出力px 座標系(--short でも短編キャンバスへは
-   * 写像しない。caption pos・blurs.rect と同じ座標系に揃える) */
+  /** box は screenRegion 出力px 座標系。caption pos・blurs.rect と同じ座標系に揃える */
   box: Region;
 }
 
@@ -44,9 +43,7 @@ export interface OcrResult {
   /** 読み順で連結した全文(単に読む用) */
   text: string;
   lines: OcrLine[];
-  /** OCR にかけたクロップの画素寸法(= screenRegion の寸法)。
-   * box がどの座標系か(短編キャンバスではなく本編 screenRegion 出力px)を
-   * 示すために必ず入れる */
+  /** OCR にかけたクロップの画素寸法(= screenRegion の寸法)。 */
   image: { w: number; h: number };
 }
 
@@ -59,7 +56,7 @@ const BINARY_PATH = join(BUILD_DIR, "vision-ocr");
  * Vision の正規化 box(原点左下・y上向き)を出力px へ変換する(純関数)。
  * screenRegion はクロップの画素寸法そのもの(論点1(B)のフル解像度クロップは
  * 常に screenRegion サイズ)。out は変換先の座標空間(width/height)。
- * box は常に「本編 screenRegion 出力px」で表現するため(--short でも同じ)、
+ * box は常に screenRegion 出力px で表現するため、
  * 呼び出し側は out に screenRegion 自身の寸法を渡す(= 恒等変換)。
  * 式:
  *   cropPx.x = nx * screenRegion.w
@@ -88,8 +85,7 @@ export function normalizedBoxToOutputPx(
 
 /**
  * vision-ocr の生 JSON(正規化 box)を `.ocr.json` の中身へ整形する(純関数)。
- * box は常に screenRegion 出力px(--short でも短編キャンバスへは写像しない。
- * ocr.ts の呼び出し側は out を常に screenRegion 自身にする)
+ * box は常に screenRegion 出力px(呼び出し側は out を常に screenRegion 自身にする)
  */
 export function toOcrResult(raw: RawOcrOutput, screenRegion: Region): OcrResult {
   const out = { width: screenRegion.w, height: screenRegion.h };

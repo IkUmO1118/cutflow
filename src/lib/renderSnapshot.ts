@@ -1,21 +1,19 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
-import { defaultShortProfileName, resolveProfile } from "./profile.ts";
+import { resolveProfile } from "./profile.ts";
 import { buildRenderProps } from "./renderProps.ts";
 import { renderCfgWithDesign } from "./designAsset.ts";
 import { mergeIntervals } from "./timeline.ts";
-import { hasCamera } from "../types.ts";
 import type { Config } from "./config.ts";
 import type { EditSnapshot } from "./review.ts";
 import type { Profile } from "./profile.ts";
-import type { Interval, Manifest, Overlays, Shorts } from "../types.ts";
+import type { Interval, Manifest, Overlays } from "../types.ts";
 import type { RenderProps } from "./renderPropsTypes.ts";
 
 export interface SnapshotRenderInput {
   dir: string;
   cfg: Config;
   snapshot: EditSnapshot;
-  shortName?: string;
   fullRes?: boolean;
 }
 
@@ -33,12 +31,6 @@ function readJson<T>(dir: string, file: string, fallback: T | null): T {
     if (fallback !== null) return fallback;
     throw new Error(`${file} がありません。先にパイプライン(run)を実行してください`);
   }
-  return JSON.parse(readFileSync(p, "utf8")) as T;
-}
-
-function readOptionalJson<T>(dir: string, file: string): T | null {
-  const p = join(dir, file);
-  if (!existsSync(p)) return null;
   return JSON.parse(readFileSync(p, "utf8")) as T;
 }
 
@@ -61,60 +53,27 @@ function assertSnapshotPathsWithinRoot(dir: string, snapshot: EditSnapshot, full
   assertRecordingRelativePath(dir, manifest.source, "manifest.source");
 }
 
-function resolveShort(shorts: Shorts | null, name: string) {
-  if (!shorts) {
-    throw new Error("shorts.json がありません(このフォルダにショートは未定義です)");
-  }
-  const short = shorts.shorts.find((s) => s.name === name);
-  if (!short) {
-    throw new Error(
-      `ショートが見つかりません: ${name}(shorts.json の name 一覧: ` +
-        `${shorts.shorts.map((s) => s.name).join(", ") || "(なし)"})`,
-    );
-  }
-  return short;
-}
-
 export function readEditSnapshot(dir: string): EditSnapshot {
   return {
     cutplan: readJson<EditSnapshot["cutplan"]>(dir, "cutplan.json", null),
     transcript: readJson<EditSnapshot["transcript"]>(dir, "transcript.json", null),
     overlays: readJson<EditSnapshot["overlays"]>(dir, "overlays.json", {}),
-    bgm: readOptionalJson<EditSnapshot["bgm"]>(dir, "bgm.json"),
-    shorts: readOptionalJson<EditSnapshot["shorts"]>(dir, "shorts.json"),
+    bgm: existsSync(join(dir, "bgm.json"))
+      ? readJson<NonNullable<EditSnapshot["bgm"]>>(dir, "bgm.json", null)
+      : null,
   };
 }
 
 export function resolveSnapshotRenderContext(input: SnapshotRenderInput): SnapshotRenderContext {
-  const { dir, cfg, snapshot, shortName, fullRes } = input;
+  const { dir, cfg, snapshot, fullRes } = input;
   assertSnapshotPathsWithinRoot(dir, snapshot, fullRes);
   const manifest = readJson<Manifest>(dir, "manifest.json", null);
 
-  let keeps: Interval[];
-  let overlays: Overlays;
-  let profile: Profile;
-  if (shortName) {
-    const short = resolveShort(snapshot.shorts, shortName);
-    keeps = mergeIntervals(short.ranges);
-    overlays = {
-      captionTracks: short.captionTracks,
-      ...(snapshot.overlays.colorFilter ? { colorFilter: snapshot.overlays.colorFilter } : {}),
-    };
-    profile = resolveProfile(
-      manifest.video.screenRegion,
-      short.profile ?? defaultShortProfileName(hasCamera(manifest)),
-    );
-  } else {
-    keeps = mergeIntervals(snapshot.cutplan.segments.filter((s) => s.action === "keep"));
-    overlays = snapshot.overlays;
-    profile = resolveProfile(manifest.video.screenRegion, "default");
-  }
+  const keeps = mergeIntervals(snapshot.cutplan.segments.filter((s) => s.action === "keep"));
+  const overlays = snapshot.overlays;
+  const profile = resolveProfile(manifest.video.screenRegion, "default");
   if (keeps.length === 0) {
-    throw new Error(
-      shortName
-        ? `ショート "${shortName}" の ranges が0件です(shorts.json を確認してください)`
-        : "keep 区間が0件です(cutplan.json を確認してください)",
-    );
+    throw new Error("keep 区間が0件です(cutplan.json を確認してください)");
   }
 
   const props = buildRenderProps({

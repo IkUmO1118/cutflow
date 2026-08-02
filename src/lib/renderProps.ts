@@ -591,7 +591,7 @@ export function buildRenderProps(args: {
     },
     ...(overlays.colorFilter ? { colorFilter: overlays.colorFilter } : {}),
     // ベースレイアウトのデザイン(背景 + 画面パネル + カメラ円)。縦プリセット
-    // (layout)経路には載せない=ショートは従来どおりのパネル合成のまま
+    // (layout)経路には載せない=縦プロファイルは従来どおりのパネル合成のまま
     ...(design ? { design } : {}),
     ...(profile?.layout ? { layout: { panels: profile.layout.panels } } : {}),
     // 既定スタイルは config(render.caption*)→ 無ければ描画側の定数。

@@ -1,4 +1,4 @@
-import type { Bgm, CutPlan, Overlays, Shorts, Transcript } from "../types.ts";
+import type { Bgm, CutPlan, Overlays, Transcript } from "../types.ts";
 import type { ReviewDocs } from "./docDiff.ts";
 import type { Problem } from "../stages/validate.ts";
 import type { DescribeProjection } from "../stages/describe.ts";
@@ -10,7 +10,6 @@ export interface EditSnapshot {
   transcript: Transcript;
   overlays: Overlays;
   bgm: Bgm | null;
-  shorts: Shorts | null;
 }
 
 export type ReviewTimeAxis = "source" | "output";
@@ -88,7 +87,6 @@ export interface ReviewSelectionInput {
   playheadSec?: number;
   selectedRange?: { startSec: number; endSec: number };
   selectedIds?: string[];
-  activeShortName?: string | null;
 }
 
 export interface SlicedReviewContext {
@@ -106,7 +104,6 @@ export function snapshotOfReviewDocs(docs: ReviewDocs): EditSnapshot {
     transcript: docs.transcript,
     overlays: docs.overlays,
     bgm: docs.bgm,
-    shorts: docs.shorts,
   };
 }
 
@@ -403,7 +400,6 @@ export const DIFF_PREVIEW_BEHAVIOR: Record<ReviewEventKind, DiffPreviewBehavior>
   wipe: { mode: "bounded", padSec: 3 },
   "caption-track": { mode: "bounded", padSec: 3 },
   bgm: { mode: "bounded", padSec: 4 },
-  short: { mode: "bounded", padSec: 3 },
   json: { mode: "bounded", padSec: 3 },
 };
 

@@ -11,26 +11,6 @@ import {
   relevantInputs,
 } from "../src/lib/framesIndex.ts";
 
-/* ---------------- relevantInputs ---------------- */
-
-test("relevantInputs: 本編経路(shortName省略)は cutplan/transcript/overlays", () => {
-  assert.deepEqual(relevantInputs(), [
-    "cutplan.json",
-    "transcript.json",
-    "overlays.json",
-  ]);
-});
-
-test("relevantInputs: ショート経路(shortName指定)は shorts/transcript/overlays", () => {
-  assert.deepEqual(relevantInputs("intro"), [
-    "shorts.json",
-    "transcript.json",
-    "overlays.json",
-  ]);
-  // ショート名の中身自体はファイル集合に影響しない(shorts.json 全体を見る)
-  assert.deepEqual(relevantInputs("outro"), relevantInputs("intro"));
-});
-
 /* ---------------- hashContent ---------------- */
 
 test("hashContent: 決定論的(同じ内容→同じハッシュ)", () => {

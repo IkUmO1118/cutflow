@@ -79,7 +79,7 @@ plan:
   `警告: plan.perception が config.yaml にありません。...` を先に出し、
   `audio=off / ocr=off / systemSpeech=off` と表示して継続する
 - どちらも LLM に算術はさせない(値はこちらで丸めて記述文として渡し、番号選択
-  だけをさせる)。`plan-shorts` はこの機能の対象外(触らない)
+  だけをさせる)
 - 画像(スクリーンショット)そのものを LLM に渡すマルチモーダル入力は
   **やらない**(既定 provider の claude-code では画像添付が難しく、provider 非依存の
   `complete` 設計に反するため。開発系チャンネルは画面の主役が文字なので OCR で
@@ -118,7 +118,7 @@ plan:
 - words を持たない収録(`whisper.wordTimestamps` 無効時に撮った素材等)では
   分割点が作れず候補は分割されない(例外を投げず、実質 disabled 相当に劣化)
 - `enabled: false`(既定)のときは候補格子・LLM 入力とも導入前とバイト等価
-- `remeta` / `plan-shorts` は対象外(触らない)
+- `remeta` は対象外(触らない)
 
 
 ## plan --cuts-only の観測ループ(config.yaml の plan.loop。既定オフ)
@@ -135,7 +135,7 @@ plan:
     stopWhenAssertionsPass: true  # assertions.json + 目標尺が満たされたら停止
 ```
 
-- 対象は `plan --cuts-only` のみ。通常の `plan`、`remeta`、`plan-shorts` は従来どおり
+- 対象は `plan --cuts-only` のみ。通常の `plan`、`remeta` は従来どおり
   1ショット
 - 観測は `describe --json` 相当の構造射影と `assertions.json` の Tier 1 構造評価だけを
   使う。OCR や実 A/V の重い観測はこのループには接続しない
@@ -166,7 +166,7 @@ plan:
       ocr: true         # 候補の画面テキストを OCR で読む(ocr_screen)
 ```
 
-- 対象は `plan --cuts-only` のみ。通常の `plan`、`remeta`、`plan-shorts` は従来どおり
+- 対象は `plan --cuts-only` のみ。通常の `plan`、`remeta` は従来どおり
   1ショット(触らない)
 - LLM が握れるのは read-only の知覚 tool(`describe_timeline` / `get_frames` /
   `probe_av` / `probe_materials` / `ocr_screen`)と検証 tool(`set_cuts` /
@@ -254,7 +254,7 @@ plan:
 - `plan.loop.targetOutDurationSec` が設定されていれば(ループが無効でも)、
   モード行の直後に「目標の出力尺は約 N 秒。冗長を削ってこの尺に近づける」の
   1行が単発 `plan` のプロンプトにも足される。未設定なら何も足されない
-- `remeta` / `plan-shorts` は対象外(cut 判断ではないので触らない)
+- `remeta` は対象外(cut 判断ではないので触らない)
 
 
 ## plan のスタイル注入(config.yaml の plan.styleProfile。既定オフ)
@@ -296,7 +296,7 @@ plan:
   `警告: plan.styleProfile が config.yaml にありません。スタイル注入はオフです。`
   に続けて `plan スタイル注入: off`
 - v1 の注入先は **plan / plan --cuts-only の cut 判断プロンプトのみ**。
-  `remeta`(章立て・タイトル・概要欄)・`plan-shorts` / `plan-materials` /
+  `remeta`(章立て・タイトル・概要欄) / `plan-materials` /
   `plan-effects` / `plan-bgm` は対象外(v2 拡張点として明示 defer)。
   `plan --cuts-only` の観測ループ(`plan.loop`)を使う場合も、再調整の
   critique 反復にはこのブロックを渡さない(生成ターンにだけ渡す)
@@ -402,5 +402,4 @@ describe:
   **合計秒**を渡すのに対し、これは残した keep の**どこに何秒**の間があるかを
   `describe`(散文/`--json`)に出す(「ここを詰める/カットを足す」判断の材料)。
   `cuts.auto.json` の無音区間から算出する純関数で**新規計測はしない**。既定 false。
-
 

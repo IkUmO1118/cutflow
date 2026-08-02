@@ -2666,7 +2666,6 @@
   .tlClip.blur { background: #5d93ba; top: 5px; bottom: 5px; }
   .tlClip.annotation { background: #5d93ba; top: 5px; bottom: 5px; }
   .tlClip.bgm { background: #8F5DBA; }
-  .tlClip.short { background: hsl(var(--oc-warning)); }
   /* ワイプ本体・BGM は背景レイヤー表示(ポインタ素通し・選択不可) */
   .tlClip.static { pointer-events: none; border-radius: 0; opacity: 0.8; }
   .tlClip.static .tlClipLabel { color: hsl(var(--oc-muted-foreground)); }
@@ -3353,17 +3352,6 @@
   stroke: hsl(var(--oc-primary));
   stroke-width: 2;
   stroke-dasharray: 3 2;
-}
-
-.ocSidePanel .shortsPanel .panelHead {
-  min-height: 2.75rem;
-  padding: 0 0.65rem;
-  border-bottom: 1px solid hsl(var(--oc-border));
-  color: hsl(var(--oc-muted-foreground));
-}
-
-.ocSidePanel .shortsPanel .panelHead .icon {
-  margin-left: auto;
 }
 
 /* Materials behavior remains in Panels.tsx; only its existing states are skinned. */
@@ -4884,7 +4872,6 @@
 .ocTimeline .tlClip.blur { background: #5d93ba; }
 .ocTimeline .tlClip.annotation { background: #5d93ba; }
 .ocTimeline .tlClip.bgm { background: #8F5DBA; }
-.ocTimeline .tlClip.short { background: hsl(32 78% 37%); }
 
 .ocTimeline .tlClip:is(.wipeFull, .zoom, .blur, .annotation) {
   top: 0.3rem;

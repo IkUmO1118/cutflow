@@ -276,33 +276,6 @@ test("stampSaveBody: overlays の全「指せる配列」に採番する", () =>
   assert.match(out.overlays!.captionTracks![0].id as string, ID_RE);
 });
 
-test("stampSaveBody: bgm/shorts にも採番する", () => {
-  const body: SaveRequest = {
-    bgm: { tracks: [{ start: 0, end: 1, file: "bgm.mp3" }] },
-    shorts: {
-      shorts: [
-        {
-          name: "s1",
-          approved: false,
-          ranges: [{ start: 0, end: 1 }],
-          captionTracks: [{ track: 1 }],
-        },
-      ],
-    },
-  };
-  const out = stampSaveBody(body, true, new Set());
-  assert.match(out.bgm!.tracks[0].id as string, ID_RE);
-  assert.match(out.shorts!.shorts[0].ranges[0].id as string, ID_RE);
-  assert.match(out.shorts!.shorts[0].captionTracks![0].id as string, ID_RE);
-});
-
-test("stampSaveBody: bgm/shorts の null(削除シグナル)は idEnabled=true でも保つ", () => {
-  const body: SaveRequest = { bgm: null, shorts: null };
-  const out = stampSaveBody(body, true, new Set());
-  assert.equal(out.bgm, null);
-  assert.equal(out.shorts, null);
-});
-
 test("stampSaveBody: body に無いドキュメントは undefined のまま(触らない)", () => {
   const body: SaveRequest = {};
   const out = stampSaveBody(body, true, new Set());

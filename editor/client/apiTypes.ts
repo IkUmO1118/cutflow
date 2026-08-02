@@ -9,7 +9,6 @@ import type {
   Interval,
   Manifest,
   Overlays,
-  Shorts,
   Transcript,
   WordTiming,
 } from "../../src/types.ts";
@@ -86,9 +85,6 @@ export interface ProjectData {
    * 全編1曲として流す(後方互換)。エディタでは編集せず表示・再生のみ */
   bgm: Bgm | null;
   bgmFile: string | null;
-  /** shorts.json(ショート動画の定義)。無ければ null(このセッションでは
-   * ショート未定義)。エディタでは編集して /api/save の shorts で保存する */
-  shorts: Shorts | null;
   /** cuts.auto.json の無音区間(BGM ダッキングをプレビューでも再現する
    * ために渡す。スクリプトタブの虚構タイムスタンプ判定の無音証拠にも使う)。
    * detect 未実行なら null */
@@ -126,7 +122,7 @@ export interface ProjectData {
   aiRoutes: { text: string; structured: string; vision?: string };
   aiReviewCfg: { vlm: boolean; maxImages: number; maxRefinements: number };
   /** 並行制御用の内容バージョン(§8.3)。存在する編集ファイル(cutplan/overlays/
-   *  transcript/bgm/shorts)ごとの "sha256:…"。存在しないファイルはキーごと省略。
+   *  transcript/bgm)ごとの "sha256:…"。存在しないファイルはキーごと省略。
    *  client は不透明 token として保持し save 時に baseHashes として echo する
    *  (再計算はしない)。 */
   contentHashes: Record<string, string>;
@@ -164,9 +160,6 @@ export interface EditorCfg {
   maxUploadMb: number;
   /** タイムラインに置く画像素材・尺不明素材の既定の尺(秒) */
   defaultImageDurationSec: number;
-  /** ショート新規追加時、選択中の keep クリップもプレイヘッドも
-   * 無いときの既定レンジ長(秒) */
-  defaultShortRangeSec: number;
 }
 
 /** POST /api/config のレスポンス。保存後の解決済み設定(クライアントは
@@ -189,7 +182,6 @@ export type { AiCapabilities, AiProfileStatus };
 export interface AiFrameRequest {
   times: number[];
   axis?: "source" | "output";
-  activeShortName?: string | null;
   ocr?: boolean;
   fullRes?: boolean;
 }
@@ -215,8 +207,6 @@ export interface DraftData {
   transcript: Transcript;
   /** BGM の区間配置(bgm.json)。未設定なら null */
   bgm: Bgm | null;
-  /** ショート動画の定義(shorts.json)。古い draft には無いので省略可 */
-  shorts?: Shorts | null;
 }
 
 /** GET /api/peaks のレスポンス。マイク音声の波形ピーク(タイムライン描画用)。
@@ -310,9 +300,6 @@ export interface SaveRequest {
   /** BGM の区間配置。`null` / 空 tracks は bgm.json を削除する(= 全編1曲の
    * 後方互換へ戻す)。`undefined`(キー無し)は bgm.json を触らない */
   bgm?: Bgm | null;
-  /** ショート動画の定義。`null` / 空 shorts は shorts.json を削除する。
-   * `undefined`(キー無し)は shorts.json を触らない */
-  shorts?: Shorts | null;
   /** client が読み込んだ各ファイルの内容バージョン("sha256:…" / 読み込み時に
    *  存在しなければ null)。送られていれば server は一致時のみ書き、不一致なら
    *  全体を 409 stale_base で拒否する。キー自体が無ければ従来どおり無条件保存

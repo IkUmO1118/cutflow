@@ -88,7 +88,6 @@ test("buildSnapshotRenderProps: candidate caption/overlay/blur/annotation をデ
         }],
       },
       bgm: null,
-      shorts: null,
     };
 
     const props = buildSnapshotRenderProps({ dir, cfg, snapshot });
@@ -126,35 +125,6 @@ test("buildSnapshotRenderProps: candidate cutplan の keep 集合で output 写�
       { start: propsB.captions[0]?.start, end: propsB.captions[0]?.end },
       { start: 2, end: 4 },
     );
-  });
-});
-
-test("resolveSnapshotRenderContext: short snapshot をメモリ上 docs から解決できる", () => {
-  withTmpProject((dir) => {
-    const snapshot: EditSnapshot = {
-      ...readEditSnapshot(dir),
-      shorts: {
-        shorts: [{
-          name: "intro",
-          approved: false,
-          profile: "vertical",
-          ranges: [{ start: 20, end: 30 }],
-          captionTracks: [{ track: 1, x: 540, y: 1400 }],
-        }],
-      },
-    };
-
-    const ctx = resolveSnapshotRenderContext({ dir, cfg, snapshot, shortName: "intro" });
-    assert.equal(ctx.props.durationSec, 10);
-    assert.deepEqual(ctx.profile, PROFILES.vertical);
-    assert.deepEqual(ctx.props.captionDefaultPos, {
-      x: PROFILES.vertical.layout?.caption?.x ?? 540,
-      y: PROFILES.vertical.layout?.caption?.y ?? 1560,
-      anchor: "center",
-    });
-    assert.equal(ctx.props.captions.length, 1);
-    assert.equal(ctx.props.captions[0]?.text, "later caption");
-    assert.deepEqual(ctx.props.captions[0]?.pos, { x: 540, y: 1400 });
   });
 });
 

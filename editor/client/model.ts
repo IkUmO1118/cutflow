@@ -21,7 +21,6 @@ export function videoFileForPreview(manifest: Manifest): string {
 }
 
 /** overlays.json のどの配列か(hide 系はエディタ非表示の手書き互換)。
- * "short" はショートモードの ranges 帯(shorts.json のショート単位)。
  * "zoom" はズーム演出(overlays.json の zooms)の区間。
  * "blur" は領域ぼかし(overlays.json の blurs)の区間。
  * "annotation" は注釈グラフィック(overlays.json の annotations)の区間 */
@@ -29,7 +28,6 @@ export type SpanKind =
   | "overlays"
   | "wipeFull"
   | "hideCaption"
-  | "short"
   | "zoom"
   | "blur"
   | "annotation";
@@ -40,14 +38,12 @@ export type AddKind =
   | "wipeFull"
   | "caption"
   | "bgm"
-  | "short"
   | "zoom"
   | "blur"
   | "annotation";
 
 /** 選択・ドラッグの対象。index は各ドキュメントの配列の添字
  * (caption は transcript.segments、insert は overlays.inserts の添字、
- * short はショートモード中の選択中ショートの ranges の添字、
  * zoom は overlays.zooms の添字、blur は overlays.blurs の添字、
  * annotation は overlays.annotations の添字)。
  * captionTrack だけは例外で、index は**配列の添字ではなくテロップトラック番号**
@@ -63,7 +59,6 @@ export type SelKind =
   | "wipeFull"
   | "wipe"
   | "bgm"
-  | "short"
   | "zoom"
   | "blur"
   | "annotation";
@@ -82,7 +77,6 @@ export type TrackId =
   | "annotation"
   | "cut"
   | "bgm"
-  | "short"
   | `ov${number}`
   | `cap${number}`;
 
@@ -121,14 +115,14 @@ const TRACK_DEFS = {
     hint:
       "領域ぼかし区間(overlays.json の blurs)。秘匿情報の目隠し。" +
       "ドラッグで区間を作成。かかるのはベース映像だけで、ズームには追従せず" +
-      "出力px固定(ショートには継承されない)",
+      "出力px固定",
   },
   annotation: {
     id: "annotation", label: "注釈", createKind: "annotation",
     hint:
       "注釈グラフィック区間(overlays.json の annotations)。矢印・囲み・" +
       "スポットライトで「ここを見ろ」を示す。ドラッグで区間を作成(既定は囲み)。" +
-      "最前面(テロップより上)・ズームには追従せず出力px固定(ショートには継承されない)",
+      "最前面(テロップより上)・ズームには追従せず出力px固定",
   },
   cut: {
     id: "cut", label: "映像", audio: "cut",
@@ -144,17 +138,7 @@ const TRACK_DEFS = {
       "ドロップで追加。区間を並べれば曲の切り替え・重ねれば重奏。覆っていない" +
       "時間は無音(bgm.json が無ければ収録フォルダ直下の bgm.* を全編で流す)",
   },
-  short: {
-    id: "short", label: "ショート範囲", createKind: "short",
-    hint:
-      "このショートの ranges(元収録の keep 集合。本編のカットとは独立)。" +
-      "ドラッグで移動・端をトリム、空きをドラッグで区間を追加",
-  },
 } satisfies Partial<Record<TrackId, TrackDef>>;
-
-/** ショートモードのタイムライン専用トラック(ranges 帯)。App.tsx が
- * この1本 + テロップトラックだけを Timeline へ渡す(D6: 別ビューを作らない) */
-export const SHORT_TRACK_DEF: TrackDef = TRACK_DEFS.short;
 
 /** 素材トラック(V1, V2, ... 可変個数)の定義 */
 const materialTrackDef = (n: number): TrackDef => ({
@@ -235,9 +219,9 @@ export const ROW_H = 26;
 /** OpenCut classic の型別トラック行高(px)。apps/web/src/timeline/components/layout.ts */
 export const TRACK_H = { video: 65, audio: 50, text: 25, effect: 25 } as const;
 
-/** トラック id → 既定の行高(px)。素材/映像/short=video, bgm=audio, テロップ=text, 演出=effect */
+/** トラック id → 既定の行高(px)。素材/映像=video, bgm=audio, テロップ=text, 演出=effect */
 export const trackHeightFor = (id: TrackId): number => {
-  if (id === "cut" || id === "short" || ovNum(id) !== null) return TRACK_H.video;
+  if (id === "cut" || ovNum(id) !== null) return TRACK_H.video;
   if (id === "bgm") return TRACK_H.audio;
   if (id === "caption" || capNum(id) !== null) return TRACK_H.text;
   return TRACK_H.effect;
@@ -1031,7 +1015,6 @@ function diffTrackIdForEventKind(kind: string): TrackId | null {
     case "wipe": return "wipe";
     case "caption-track": return "caption";
     case "bgm": return "bgm";
-    case "short": return "short";
     default: return null;
   }
 }

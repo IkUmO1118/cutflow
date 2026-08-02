@@ -1,17 +1,15 @@
 import { cliCmd } from "../lib/cliName.ts";
 import {
   existsSync,
-  mkdirSync,
   readFileSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { isCutplanApproved, isShortApproved } from "../lib/approval.ts";
+import { isCutplanApproved } from "../lib/approval.ts";
 import {
   verifyPlayableVideo,
-  verifyRenderedVideo,
 } from "../lib/chunkCache.ts";
 import {
   publishAsTransaction,
@@ -20,7 +18,7 @@ import { buildCutCacheKey, cutCacheKeyEquals } from "../lib/cutCache.ts";
 import { colorTagArgs, colorTagsOfProbe, type ColorTags } from "../lib/colorTags.ts";
 import { run } from "../lib/exec.ts";
 import { probe } from "../lib/ffmpeg.ts";
-import { renderEngine, renderEngineFromProps } from "./renderEngine.ts";
+import { renderEngine } from "./renderEngine.ts";
 import {
   audioSourceOf,
   keepAudioParts,
@@ -31,7 +29,7 @@ import {
   materialFilesOf,
   renderCacheKeyEquals,
 } from "../lib/renderKey.ts";
-import { defaultShortProfileName, resolveProfile } from "../lib/profile.ts";
+import { resolveProfile } from "../lib/profile.ts";
 import { buildRenderProps } from "../lib/renderProps.ts";
 import { renderCfgWithDesign } from "../lib/designAsset.ts";
 import { prepareDesignAssetsForProps } from "../lib/designStill.ts";
@@ -39,8 +37,7 @@ import {
   compositionDurationInFrames,
   compositionDurationSec,
 } from "../lib/renderFrameMath.ts";
-import { loadShort, loadShorts } from "../lib/shorts.ts";
-import { mergeIntervals, playbackSegmentsOf } from "../lib/timeline.ts";
+import { playbackSegmentsOf } from "../lib/timeline.ts";
 import { readCursorSidecar } from "./planEffects.ts";
 import type { CursorDwellSample } from "../lib/cursorAnchors.ts";
 import { timed, timedSync, setTimingSink, clearTimingSink } from "../lib/timing.ts";
@@ -62,7 +59,6 @@ import type {
   CutPlan,
   Manifest,
   Overlays,
-  Short,
   Transcript,
 } from "../types.ts";
 import type { RenderProps } from "../lib/renderPropsTypes.ts";
@@ -335,201 +331,6 @@ async function runRenderMain(
   collector.setPath("engine");
   collector.output = probeOutput(outPath, props);
   writeFileSync(renderKeyPath, JSON.stringify(renderKey, null, 2));
-  return outPath;
-}
-
-/**
- * ショート1本のレンダー。shorts.json から name を1件読み、
- * shortKeeps(= mergeIntervals(short.ranges)。本編 cutplan とは独立。D2)を
- * keep 集合として cut.<name>.mp4 → shorts/<name>.mp4 を作る。
- * 承認ゲート(strict): isShortApproved(name 別の承認レコード。本編の承認は
- * 流用しない)。boolean short.approved にはフォールバックしない。
- */
-export async function renderShort(dir: string, cfg: Config, name: string): Promise<string> {
-  const short = loadShort(dir, name);
-  const manifest = JSON.parse(
-    readFileSync(join(dir, "manifest.json"), "utf8"),
-  ) as Manifest;
-  const transcript = JSON.parse(
-    readFileSync(join(dir, "transcript.json"), "utf8"),
-  ) as Transcript;
-  return renderOneShort(dir, cfg, manifest, transcript, short);
-}
-
-/**
- * approved な全ショートをレンダーする。未承認のショートは1行ログでスキップを
- * 明示する(黙って飛ばさない)。shorts.json 自体が無ければエラー
- */
-export async function renderShorts(dir: string, cfg: Config): Promise<string[]> {
-  const shorts = loadShorts(dir);
-  if (!shorts) {
-    throw new Error("shorts.json がありません(このフォルダにショートは未定義です)");
-  }
-  const manifest = JSON.parse(
-    readFileSync(join(dir, "manifest.json"), "utf8"),
-  ) as Manifest;
-  const transcript = JSON.parse(
-    readFileSync(join(dir, "transcript.json"), "utf8"),
-  ) as Transcript;
-  const outputs: string[] = [];
-  for (const short of shorts.shorts) {
-    const gate = isShortApproved(dir, short);
-    if (!gate.ok) {
-      console.log(`スキップ: ショート "${short.name}"(${gate.reason})`);
-      continue;
-    }
-    outputs.push(await renderOneShort(dir, cfg, manifest, transcript, short));
-  }
-  return outputs;
-}
-
-/**
- * ショート1本の実処理。本編 render の2段構成(cutFullRes → buildRenderProps →
- * エンジン書き出し)をそのまま流用し、keep 集合だけショートの ranges に差し替える。
- * キャッシュは full-skip(render.<name>.key.json)+ cut 再利用
- * (cut.<name>.keeps.json)のみ。チャンク差分レンダーはショートには使わない(D4)
- */
-async function renderOneShort(
-  dir: string,
-  cfg: Config,
-  manifest: Manifest,
-  transcript: Transcript,
-  short: Short,
-): Promise<string> {
-  const gate = isShortApproved(dir, short);
-  if (!gate.ok) {
-    throw new Error(
-      `ショート "${short.name}" を render できません: ${gate.reason}\n` +
-        `preview で確認のうえ \`${cliCmd()} approve <dir> --short ${short.name}\` で` +
-        "承認してください(GUI ならチェックボックス)。",
-    );
-  }
-  const name = short.name;
-  const shortKeeps = mergeIntervals(short.ranges).map((k) => ({ ...k, speed: 1 }));
-
-  const cutPath = join(dir, `cut.${name}.mp4`);
-  const cutKeepsPath = join(dir, `cut.${name}.keeps.json`);
-  const sourceStat = statSync(join(dir, manifest.source));
-  const cacheKey = buildCutCacheKey({
-    keeps: shortKeeps,
-    manifest,
-    cfg,
-    sourceMtimeMs: sourceStat.mtimeMs,
-    sourceSize: sourceStat.size,
-  });
-  const cachedKey = existsSync(cutKeepsPath)
-    ? (JSON.parse(readFileSync(cutKeepsPath, "utf8")) as CutCacheKey)
-    : null;
-  if (existsSync(cutPath) && cachedKey && cutCacheKeyEquals(cachedKey, cacheKey)) {
-    console.log(`cut.${name}.mp4 を再利用します(カット・音声設定に変更なし)`);
-  } else {
-    await publishAsTransaction({
-      finalPath: cutPath,
-      inputs: [
-        { path: join(dir, manifest.source), mtimeMs: sourceStat.mtimeMs, size: sourceStat.size },
-      ],
-      produce: (tmp) => cutFullRes(dir, manifest, shortKeeps, tmp, cfg),
-      verify: (tmp) => verifyPlayableVideo(tmp),
-      commit: () => writeFileSync(cutKeepsPath, JSON.stringify(cacheKey, null, 2)),
-    });
-  }
-
-  // ショートは本編 overlays.json の素材/インサート/wipeFull/hideCaption と
-  // bgm.json を継承しない(v1 スコープ注記。D2)。テロップは transcript を
-  // 流用し、captionTracks だけショート専用の上書きを既存の解決機構に相乗りさせる。
-  // colorFilter だけは例外的に継承する(演出ではなく収録の見た目補正なので、
-  // 本編とショートで肌色が変わる事故を防ぐ)。blurs は継承しない(座標が
-  // 本編の出力px基準に束縛され、ショートの座標系とは一致しないため。
-  // 座標がずれた矩形を黙って継承する方が危険という判断。Main.tsx 側も
-  // !props.layout でゲートし二重に塞いでいる)
-  const overlaysPath = join(dir, "overlays.json");
-  const mainOverlays: Overlays = existsSync(overlaysPath)
-    ? (JSON.parse(readFileSync(overlaysPath, "utf8")) as Overlays)
-    : {};
-  const profile = resolveProfile(
-    manifest.video.screenRegion,
-    short.profile ?? defaultShortProfileName(hasCamera(manifest)),
-  );
-  const shortOverlays: Overlays = {
-    captionTracks: short.captionTracks,
-    ...(mainOverlays.colorFilter ? { colorFilter: mainOverlays.colorFilter } : {}),
-  };
-  const props = buildRenderProps({
-    manifest,
-    keeps: shortKeeps,
-    transcript,
-    overlays: shortOverlays,
-    renderCfg: cfg.render,
-    width: profile.width,
-    height: profile.height,
-    profile,
-    videoFile: `cut.${name}.mp4`,
-    bgm: null,
-    bgmFallbackFile: null,
-    silences: null,
-    overlayExists: (f) => existsSync(join(dir, f)),
-    warn: (msg) => console.warn(`警告: ${msg}`),
-  });
-  const propsPath = join(dir, `render.${name}.props.json`);
-  writeFileSync(propsPath, JSON.stringify(props, null, 2));
-
-  const shortsDir = join(dir, "shorts");
-  mkdirSync(shortsDir, { recursive: true });
-  const outPath = join(shortsDir, `${name}.mp4`);
-  const hardwareAcceleration = cfg.render.hardwareAcceleration ?? "if-possible";
-
-  // full-skip キャッシュ(render.<name>.key.json)。本編と同じ判定ロジックを
-  // name 別ファイルで流用する(チャンク差分レンダーはショートには入れない)
-  const renderKeyPath = join(dir, `render.${name}.key.json`);
-  const cutStat = statSync(cutPath);
-  const renderKey = buildRenderCacheKey({
-    props,
-    dir,
-    cut: { mtimeMs: cutStat.mtimeMs, size: cutStat.size },
-    hardwareAcceleration,
-    statFile: (p) => {
-      const s = statSync(p);
-      return { mtimeMs: s.mtimeMs, size: s.size };
-    },
-  });
-  const cachedRenderKey = existsSync(renderKeyPath)
-    ? (JSON.parse(readFileSync(renderKeyPath, "utf8")) as RenderCacheKey)
-    : null;
-  if (
-    existsSync(outPath) &&
-    cachedRenderKey &&
-    renderCacheKeyEquals(cachedRenderKey, renderKey)
-  ) {
-    console.log(`shorts/${name}.mp4 を再利用します(編集内容・素材に変更なし)`);
-    return outPath;
-  }
-
-  const totalFrames = compositionDurationInFrames(props.durationSec, props.fps);
-  const durationSec = compositionDurationSec(props.durationSec, props.fps);
-  await publishAsTransaction({
-    finalPath: outPath,
-    inputs: [
-      { path: cutPath, mtimeMs: cutStat.mtimeMs, size: cutStat.size },
-      ...materialStatsOf(dir, props).map((m) => ({
-        path: join(dir, m.file),
-        mtimeMs: m.mtimeMs,
-        size: m.size,
-      })),
-    ],
-    produce: async (tmp) => {
-      await timed(`エンジン(${name})`, () =>
-        renderEngineFromProps({
-          dir,
-          props,
-          cutPath,
-          outPath: tmp,
-          label: name,
-        }),
-      );
-    },
-    verify: (tmp) => verifyRenderedVideo(tmp, totalFrames, durationSec, props.fps),
-    commit: () => writeFileSync(renderKeyPath, JSON.stringify(renderKey, null, 2)),
-  });
   return outPath;
 }
 

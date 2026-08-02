@@ -99,8 +99,7 @@ function hasAnyId(proj: DescribeProjection): boolean {
     some(proj.overlays.hideCaption) ||
     some(proj.overlays.captionTracks) ||
     some(proj.chapters) ||
-    some(proj.bgm.tracks) ||
-    proj.shorts.some((s) => some(s.ranges) || some(s.captionTracks))
+    some(proj.bgm.tracks)
   );
 }
 
@@ -168,22 +167,12 @@ export function evaluateStructural(
         };
 
       case "outDuration": {
-        let actual: number;
-        if (a.short !== undefined) {
-          const short = proj.shorts.find((s) => s.name === a.short);
-          if (!short) {
-            return { ...base, status: "error", message: `ショートが見つかりません: ${a.short}` };
-          }
-          actual = short.outDurationSec;
-        } else {
-          actual = proj.summary.outDurationSec;
-        }
+        const actual = proj.summary.outDurationSec;
         const ok = compareOp(actual, a.op, a.value, DURATION_EQ_EPS_SEC);
-        const subject = a.short ? `ショート "${a.short}" の出力尺` : "出力尺";
         return {
           ...base,
           status: ok ? "pass" : "fail",
-          message: `${subject} ${fmtT(actual)} ${a.op} ${fmtT(a.value)}: ${ok ? "満たされています" : "満たされていません"}`,
+          message: `出力尺 ${fmtT(actual)} ${a.op} ${fmtT(a.value)}: ${ok ? "満たされています" : "満たされていません"}`,
         };
       }
 

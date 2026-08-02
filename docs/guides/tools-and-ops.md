@@ -35,8 +35,8 @@ node src/cli.ts editor <dir> --stop     # 止める(冪等。起動していな�
 ## GUI エディタ起動中の外部 JSON 編集
 
 GUI エディタを開いたまま、Claude Code や別のエディタで
-`cutplan.json` / `transcript.json` / `overlays.json` / `bgm.json` /
-`shorts.json` を編集してよい。GUI 側に未保存の編集が無ければ、外部変更は
+`cutplan.json` / `transcript.json` / `overlays.json` / `bgm.json` を
+編集してよい。GUI 側に未保存の編集が無ければ、外部変更は
 従来どおり自動で読み込まれる。
 
 GUI 側にも未保存の編集があるときは、エディタ上部に外部変更バナーが出る。
@@ -68,7 +68,7 @@ node src/cli.ts frames-serve <dir> --port 5000  # ポートを変えたいとき
 
 起動している間、`frames <dir> --t ...` 等は自動でデーモンを検出して撮影を
 委譲する(何も指定しなくてよい)。**暖めるのは bundle(webpack)と browser
-だけ**で、`config.yaml` と編集 JSON(cutplan/transcript/overlays/shorts)は
+だけ**で、`config.yaml` と編集 JSON(cutplan/transcript/overlays)は
 毎リクエスト読み直すので、デーモン経由でも単発実行と出る絵は完全に同一
 (config 編集・JSON 編集は即座に反映される)。
 
@@ -125,12 +125,12 @@ OBS は既定で `.mkv` に録画し、停止後に同じ内容を `.mp4` へス
 `--logs-only` では対象外(ログでも使い捨て下書きでもないため)。
 
 - 既定: すべての中間生成物(`cuts.auto.json` / `proxy.mp4` /
-  `cut*.mp4` / `render.chunks/` / `frames/` / `shorts/` / 各 `*.probe/` / `whisper-out.*` /
+  `render.chunks/` / `frames/` / 各 `*.probe/` / `whisper-out.*` /
   `*.suggested.json` / `plan.first.json` / `plan-effects.first.json` /
   `.remotion/`(Remotion が収録フォルダへ落とす headless Chrome。収録ごとに約200MB
   重複し、次の render / frames が自動で取り直す) 等)を削除。
 - `--cache-only`: 再生成の重いキャッシュ(`proxy.mp4` / `cut*.mp4` / `render.chunks/` /
-   `frames/` / `shorts/` / `materials.probe/` / `av.probe/` / `review.probe/` /
+   `frames/` / `materials.probe/` / `av.probe/` / `review.probe/` /
    `.remotion/` / `preview.mp4` / `*.key.json` / `render.props.json`)だけを消す。再文字起こしが数分かかる
    `whisper-out.*` や `cuts.auto.json` 等の**軽くて再生成が高価**な
    中間生成物は残す。write-once初版の`plan.first.json` / `plan-effects.first.json`も残す。

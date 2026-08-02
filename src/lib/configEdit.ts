@@ -2,7 +2,6 @@ import { isCollection, parse, parseDocument, YAMLMap } from "yaml";
 import type { Document } from "yaml";
 import {
   DEFAULT_IMAGE_DURATION_SEC,
-  DEFAULT_SHORT_RANGE_SEC,
   validateAiConfig,
 } from "./config.ts";
 import type { AiConfig, Config } from "./config.ts";
@@ -52,7 +51,6 @@ export interface ConfigPatch {
   editor?: {
     maxUploadMb?: number;
     defaultImageDurationSec?: number | null;
-    defaultShortRangeSec?: number | null;
     aiReview?: {
       vlm?: boolean;
       maxImages?: number;
@@ -91,7 +89,6 @@ const NUM_RULES: Record<string, NumRule> = {
   "preview.width": { min: 320, max: 3840, int: true, even: true },
   "editor.maxUploadMb": { min: 1, max: 100000, int: true },
   "editor.defaultImageDurationSec": { min: 0.5, max: 120 },
-  "editor.defaultShortRangeSec": { min: 0.5, max: 180 },
   "editor.aiReview.maxImages": { min: 1, max: 4, int: true },
   "editor.aiReview.maxRefinements": { min: 1, max: 3, int: true },
 };
@@ -105,7 +102,6 @@ const NULLABLE = new Set([
   "render.captionBackground",
   "render.hardwareAcceleration",
   "editor.defaultImageDurationSec",
-  "editor.defaultShortRangeSec",
 ]);
 
 /** 文字列キーの最大長(色は CSS カラー、フォントはスタック想定) */
@@ -312,7 +308,7 @@ export function validateConfigPatch(patch: unknown): string[] {
     walk(
       "editor",
       p.editor,
-      ["maxUploadMb", "defaultImageDurationSec", "defaultShortRangeSec", "aiReview"],
+      ["maxUploadMb", "defaultImageDurationSec", "aiReview"],
       ["aiReview"],
     );
     if (p.editor.aiReview !== undefined) {
@@ -413,12 +409,10 @@ export function syncEditorCfgFromYaml(cfg: Config, rawYaml: string): void {
 export function resolvedEditorCfg(
   cfg: Config,
   defaultMaxUploadMb: number,
-): { maxUploadMb: number; defaultImageDurationSec: number; defaultShortRangeSec: number } {
+): { maxUploadMb: number; defaultImageDurationSec: number } {
   return {
     maxUploadMb: cfg.editor?.maxUploadMb ?? defaultMaxUploadMb,
     defaultImageDurationSec:
       cfg.editor?.defaultImageDurationSec ?? cfg.stills?.defaultDurationSec ?? DEFAULT_IMAGE_DURATION_SEC,
-    defaultShortRangeSec:
-      cfg.editor?.defaultShortRangeSec ?? DEFAULT_SHORT_RANGE_SEC,
   };
 }

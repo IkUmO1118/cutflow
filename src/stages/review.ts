@@ -68,7 +68,6 @@ export interface ReviewStill {
 }
 
 export interface ReviewKey {
-  shortName: string | null;
   proposalId?: string;
   baseHash: string;
   candidateHash: string;
@@ -116,7 +115,6 @@ export interface ReviewHooks {
 }
 
 export interface ReviewOptions {
-  shortName?: string;
   secondaryObservation?: "none" | "vlm";
   provider?: SecondaryObservationProvider;
   hooks?: ReviewHooks;
@@ -142,10 +140,9 @@ export async function reviewEdit(
   if (specErrors.length > 0) {
     throw new Error(specErrors.map((error) => `${error.where}: ${error.message}`).join(" / "));
   }
-  const shortName = opts.shortName ?? null;
   const fullRes = spec.frames.some((frame) => frame.fullRes === true);
-  const beforeCtx = buildReviewRenderContext(dir, cfg, base, shortName, fullRes);
-  const afterCtx = buildReviewRenderContext(dir, cfg, candidate, shortName, fullRes);
+  const beforeCtx = buildReviewRenderContext(dir, cfg, base, fullRes);
+  const afterCtx = buildReviewRenderContext(dir, cfg, candidate, fullRes);
   const normalized = normalizeReviewSpec(spec, {
     sourceDurationSec: beforeCtx.manifest.durationSec,
     baseOutputDurationSec: beforeCtx.durationSec,
@@ -159,7 +156,6 @@ export async function reviewEdit(
     bgm: candidate.bgm,
     chapters: null,
     meta: null,
-    shorts: candidate.shorts,
     thumbnail: null,
   });
   const warnings = [...normalized.warnings];
@@ -270,10 +266,9 @@ export async function reviewEdit(
     schemaVersion: 1,
     createdAt: new Date().toISOString(),
     key: {
-      shortName,
       baseHash: digest(base),
       candidateHash: digest(candidate),
-      specHash: digest({ spec, shortName }),
+      specHash: digest({ spec }),
     },
     range: {
       source: normalized.range.axis === "source" ? normalized.range : undefined,
@@ -303,10 +298,9 @@ function buildReviewRenderContext(
   dir: string,
   cfg: Config,
   snapshot: EditSnapshot,
-  shortName: string | null,
   fullRes = false,
 ): ReviewRenderContext {
-  const ctx = resolveSnapshotRenderContext({ dir, cfg, snapshot, fullRes, ...(shortName ? { shortName } : {}) });
+  const ctx = resolveSnapshotRenderContext({ dir, cfg, snapshot, fullRes });
   const inserts = (ctx.overlays.inserts ?? []).filter((insert) => existsSync(join(dir, insert.file)));
   return {
     manifest: ctx.manifest,

@@ -32,9 +32,7 @@ import {
 import type { EngineDevAssets, MutableEditorClientAssets } from "./clientBuild.ts";
 import {
   clearCutplanApproval,
-  clearShortApproval,
   writeCutplanApproval,
-  writeShortApproval,
 } from "../src/lib/approval.ts";
 import {
   checkBaseHashes,
@@ -86,7 +84,6 @@ import {
   validateConfigPatch,
 } from "../src/lib/configEdit.ts";
 import type { ConfigPatch } from "../src/lib/configEdit.ts";
-import { loadShorts } from "../src/lib/shorts.ts";
 import { hasCamera, manifestCompositionFps } from "../src/types.ts";
 import { applyProposalResolution, proposalDiff } from "../src/lib/docDiff.ts";
 import { snapshotOfReviewDocs, validateReviewSpec } from "../src/lib/review.ts";
@@ -97,7 +94,6 @@ import type {
   CutPlan,
   Manifest,
   Overlays,
-  Shorts,
   Transcript,
 } from "../src/types.ts";
 import type {
@@ -286,7 +282,6 @@ const WATCHED_FILES = [
   "overlays.json",
   "transcript.json",
   "bgm.json",
-  "shorts.json",
   "chapters.json",
   "meta.json",
   "thumbnail.json",
@@ -309,7 +304,6 @@ interface StoredProposal {
   normalizedReviewSpec: ReviewSpec;
   baseDocs: ReviewDocs;
   baseDocsHash: string;
-  activeShortName: string | null;
   instruction: string;
   parentProposalId: string | null;
   refinementIteration: number;
@@ -534,7 +528,6 @@ async function handle(
         base,
         spec,
         hashEditableDocsState(currentEditableDocs(dir)),
-        body.activeShortName ?? null,
       );
     });
     sendJson(res, 200, { proposalId: record.proposalId, proposal: record.proposal });
@@ -562,7 +555,6 @@ async function handle(
         snapshotOfReviewDocs(candidate),
         record.normalizedReviewSpec,
         {
-          shortName: record.activeShortName ?? undefined,
           secondaryObservation,
         },
       );
@@ -626,7 +618,6 @@ async function handle(
         snapshotOfReviewDocs(candidate),
         record.normalizedReviewSpec,
         {
-          shortName: record.activeShortName ?? undefined,
           secondaryObservation: body.vlm === true ? "vlm" : "none",
         },
       );
@@ -684,7 +675,6 @@ async function handle(
         record.baseDocs,
         spec,
         record.baseDocsHash,
-        record.activeShortName,
         record.proposalId,
         record.refinementIteration + 1,
         record.lineageExpiresAtMs,
@@ -710,7 +700,6 @@ async function handle(
       dir,
       { mode: "times", times, axis: body.axis ?? "source" },
       cfg,
-      body.activeShortName ?? undefined,
       body.ocr === true,
       body.fullRes === true,
     );
@@ -1179,7 +1168,6 @@ function hashEditableDocsState(docs: EditableDocs & { meta: unknown | null }): s
     cutplan: docs.cutplan,
     meta: docs.meta,
     overlays: docs.overlays,
-    shorts: docs.shorts,
     thumbnail: docs.thumbnail,
     transcript: docs.transcript,
   }));
@@ -1214,7 +1202,6 @@ function storeProposal(
   baseDocs: ReviewDocs,
   normalizedReviewSpec: ReviewSpec,
   baseDocsHash: string,
-  activeShortName: string | null,
   parentProposalId: string | null = null,
   refinementIteration = 0,
   lineageExpiresAtMs?: number,
@@ -1229,7 +1216,6 @@ function storeProposal(
     normalizedReviewSpec: deepClone(normalizedReviewSpec),
     baseDocs: deepClone(baseDocs),
     baseDocsHash,
-    activeShortName,
     instruction,
     parentProposalId,
     refinementIteration,
@@ -1265,7 +1251,6 @@ function currentReviewDocs(dir: string) {
     overlays: docs.overlays ?? {},
     transcript: docs.transcript,
     bgm: docs.bgm ?? null,
-    shorts: docs.shorts ?? null,
   };
 }
 
@@ -1401,7 +1386,6 @@ function validateReviewCandidate(dir: string, candidate: ReturnType<typeof curre
     bgm: candidate.bgm,
     chapters: null,
     meta: null,
-    shorts: candidate.shorts,
     thumbnail: null,
   });
   return validate.errors.map((error) => `${error.file} ${error.where}: ${error.message}`);
@@ -1532,7 +1516,6 @@ export function loadProject(dir: string, cfg: Config): ProjectData {
     dirFiles,
     bgm: readJson<Bgm | null>("bgm.json", null),
     bgmFile: findBgm(dir),
-    shorts: loadShorts(dir),
     silences: readJson<AutoCuts | null>("cuts.auto.json", null)?.silences ?? null,
     silenceCutReason: cfg.detect?.silenceCutReason ?? DEFAULT_SILENCE_CUT_REASON,
     proxyFile,
@@ -1967,26 +1950,13 @@ export function stampSaveBody(
       }
     : body.overlays;
 
-  // bgm/shorts は null(削除シグナル)を pass-through する(?. と ?? はここでは
+  // bgm は null(削除シグナル)を pass-through する(?. と ?? はここでは
   // 使わない: null と undefined を区別する SaveRequest の契約を保つ)
   const bgm = body.bgm
     ? { ...body.bgm, tracks: ensureIds(body.bgm.tracks, ID_PREFIX.bgmTrack, used) }
     : body.bgm;
 
-  const shorts = body.shorts
-    ? {
-        ...body.shorts,
-        shorts: body.shorts.shorts.map((s) => ({
-          ...s,
-          ranges: ensureIds(s.ranges, ID_PREFIX.range, used),
-          captionTracks: s.captionTracks
-            ? ensureIds(s.captionTracks, ID_PREFIX.captionTrack, used)
-            : s.captionTracks,
-        })),
-      }
-    : body.shorts;
-
-  return { ...body, cutplan, transcript, overlays, bgm, shorts };
+  return { ...body, cutplan, transcript, overlays, bgm };
 }
 
 /** body が書いた/削除したファイルの保存後の内容ハッシュ(削除は null)。
@@ -2037,7 +2007,7 @@ export function saveProject(dir: string, body: SaveRequest): void {
   const idEnabled = hasAnyId(idDocs);
   const stampedBody = stampSaveBody(body, idEnabled, usedIdsOf(idDocs));
 
-  const write = (file: string, data: CutPlan | Overlays | Transcript | Bgm | Shorts) => {
+  const write = (file: string, data: CutPlan | Overlays | Transcript | Bgm) => {
     const json = JSON.stringify(data, null, 2);
     lastWrittenHash.set(file, hashOfString(json)); // 書いた内容のハッシュを記録
     writeFileSync(join(dir, file), json);
@@ -2061,23 +2031,6 @@ export function saveProject(dir: string, body: SaveRequest): void {
       const p = join(dir, "bgm.json");
       if (existsSync(p)) {
         lastWrittenHash.set("bgm.json", null);
-        rmSync(p);
-      }
-    }
-  }
-  // ショート: 1件以上あれば shorts.json を書き、無ければ削除する(bgm と同型)
-  if (stampedBody.shorts !== undefined) {
-    if (stampedBody.shorts && stampedBody.shorts.shorts.length > 0) {
-      write("shorts.json", stampedBody.shorts);
-      // 各ショートの approved トグルに応じて name 別の承認レコードを mint/clear
-      for (const short of stampedBody.shorts.shorts) {
-        if (short.approved) writeShortApproval(dir, short, "gui");
-        else clearShortApproval(dir, short.name);
-      }
-    } else {
-      const p = join(dir, "shorts.json");
-      if (existsSync(p)) {
-        lastWrittenHash.set("shorts.json", null);
         rmSync(p);
       }
     }

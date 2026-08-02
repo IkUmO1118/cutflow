@@ -14,9 +14,9 @@ const ROOT = join(import.meta.dirname, "..");
 const AGENTS_MD = readFileSync(join(ROOT, "AGENTS_CONTRACT.md"), "utf8");
 const CLI_TS = readFileSync(join(ROOT, "src", "cli.ts"), "utf8");
 
-/** 8編集ファイルの一次資料(test/schema.test.ts と同じ導出。§理由はそちらの
+/** 7編集ファイルの一次資料(test/schema.test.ts と同じ導出。§理由はそちらの
  * コメント参照: files.ts の EDITABLE_FILES は plan/transcribe 再実行時の
- * backup 対象という狭い5件集合で、8編集ファイル全体の出所ではない) */
+ * backup 対象という狭い5件集合で、7編集ファイル全体の出所ではない) */
 const EDITABLE_FILE_NAMES: string[] = [...Object.values(APPLY_FILE_NAME), "meta.json"];
 
 /** src/cli.ts の `.command("<name> ...")` 登録から実際のコマンド名だけを
@@ -25,7 +25,7 @@ function extractCliCommandNames(source: string): string[] {
   return [...source.matchAll(/\.command\("([a-zA-Z0-9-]+)/g)].map((m) => m[1]);
 }
 
-test("AGENTS_CONTRACT.md: 編集ファイル表が8編集ファイルを過不足なく含む", () => {
+test("AGENTS_CONTRACT.md: 編集ファイル表が7編集ファイルを過不足なく含む", () => {
   for (const f of EDITABLE_FILE_NAMES) {
     assert.ok(AGENTS_MD.includes(`\`${f}\``), `${f} が AGENTS_CONTRACT.md に見つかりません`);
   }

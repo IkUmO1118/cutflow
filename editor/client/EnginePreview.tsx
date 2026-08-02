@@ -200,7 +200,7 @@ export const EnginePreview = forwardRef<PreviewHandle, EnginePreviewProps>(funct
 
   // mount 時に1回だけ GPU 初期化+AudioContext/Scheduler/Clock を組み立てる。
   // key={videoVersion}(App.tsx 側)で全体が remount される前提なので、
-  // width/height/short 切替は常にこの effect の再実行(=新規 mount)で拾う
+  // width/height 切替は常にこの effect の再実行(=新規 mount)で拾う
   useEffect(() => {
     let cancelled = false;
     const host = hostRef.current;

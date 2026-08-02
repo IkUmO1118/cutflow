@@ -101,7 +101,7 @@ FrameWright は**ローカルファースト**です。映像・画面・カメ�
 
 外部に出るのは**テキストだけ**で、LLM を使う3コマンドに限られます。
 
-- `plan` / `remeta` / `plan-shorts` は、**文字起こしテキスト(`transcript.json` の
+- `plan` / `remeta` は、**文字起こしテキスト(`transcript.json` の
   発話内容)**と、あれば **`brief.md`(企画ブリーフ)**を LLM に送ります。
 - 送り先は `config.yaml` の `ai.provider` 次第です。既定 `claude-code` は
   `claude` CLI 経由、`codex` は Codex CLI 経由、`anthropic` / `openai` は各 API へ
@@ -110,7 +110,7 @@ FrameWright は**ローカルファースト**です。映像・画面・カメ�
 したがって、**機密を口に出す収録では発話内容が外部 LLM に渡る**点に注意して
 ください(画面に機密を映さない注意は
 [recording-guide.md](recording-guide.md) のチェックリスト参照)。LLM を一切
-使いたくない場合は `plan` / `remeta` / `plan-shorts` を実行しなければ、
+使いたくない場合は `plan` / `remeta` を実行しなければ、
 パイプラインは完全ローカルで完結します(カットは手編集で作れます)。
 
 ---

@@ -239,19 +239,6 @@ test("chunk分類 audio: 変更で audioKey だけ変わる(映像キーは不�
   }
 });
 
-test("chunk分類 preview-only / shorts-only / via-cutstat: どのキーも変えない", () => {
-  const before = keysOf(BASE);
-  const inert: ChunkClass[] = ["preview-only", "shorts-only", "via-cutstat"];
-  for (const cls of inert) {
-    for (const key of classifiedKeys(cls)) {
-      const after = keysOf(MUTATIONS[key](BASE));
-      assert.equal(after.global, before.global, `${key}(${cls}): global が変わった`);
-      assert.equal(after.chunk, before.chunk, `${key}(${cls}): chunkVideoKey が変わった`);
-      assert.equal(after.audio, before.audio, `${key}(${cls}): audioKey が変わった`);
-    }
-  }
-});
-
 test("射影の分離: overlay の volume は音声のみに効く(映像キー不変・audioKey 変化)", () => {
   const before = keysOf(BASE);
   const after = keysOf({ ...BASE, overlays: [{ ...BASE.overlays[0], volume: 1 }] });

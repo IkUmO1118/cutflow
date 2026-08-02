@@ -214,17 +214,9 @@ export interface Config {
   ai?: AiConfig;
   /** 旧 LLM 設定。互換のため読み続けるが、新規設定は ai.provider を使う */
   llm?: { backend: LegacyLlmBackend; model: string };
-  /** ショート LLM ハイライト自動選定(plan-shorts)の設定。省略可
-   * (古い config.yaml との互換。省略時は既定値を使う) */
-  planShorts?: {
-    /** 1本のショートの尺の上限(秒)。plan-shorts が LLM の選定した区間集合の
-     * 尺合計をこの値以下に収める(超過は末尾区間を落とす)。
-     * 省略時 DEFAULT_PLAN_SHORTS_MAX_DURATION_SEC(60) */
-    maxDurationSec?: number;
-  };
   /** カット判断 LLM(plan / plan --cuts-only / remeta)へ発話テキスト以外の
    * 知覚を添える設定。省略可(古い config.yaml との互換。省略時は全項目オフ=
-   * plan の LLM 入力・plan.raw.txt が現状とバイト等価)。plan-shorts は対象外。
+   * plan の LLM 入力・plan.raw.txt が現状とバイト等価)。
    * §docs/plans/2026-07-07-plan-eyes-ears-design.md */
   plan?: {
     /** カット判断の積極度。safe=現状とバイト等価 / balanced=既定(明確な冗長は切る) /
@@ -583,10 +575,6 @@ export interface Config {
     /** タイムラインに置く画像素材・尺不明素材の既定の尺(秒)。
      * 省略時は DEFAULT_IMAGE_DURATION_SEC */
     defaultImageDurationSec?: number;
-    /** ショート新規追加(addShort)時、選択中の keep クリップも
-     * プレイヘッドも無いときの既定レンジ長(秒)。
-     * 省略時は DEFAULT_SHORT_RANGE_SEC */
-    defaultShortRangeSec?: number;
     aiReview?: {
       /** before/after still を外部APIへ送る明示的opt-in。既定false */
       vlm?: boolean;
@@ -718,7 +706,7 @@ export interface Config {
       webcamReactiveMinScale?: number;
     };
     /** ベースレイアウトのデザイン。plain は背景画像 + 画面パネル、
-     * obs-canvas はさらにカメラ円を描く。ショートには継承しない。
+     * obs-canvas はさらにカメラ円を描く。縦プロファイルには継承しない。
      * 省略 / enabled: false で各収録レイアウトの従来描画とバイト等価。
      * 有効時は静的design assetが揃えばdesign FAST基底で合成し、欠ければ
      * 通常のRemotionレンダーへ保守的にフォールバックする
@@ -785,8 +773,6 @@ export interface Config {
 /** editor.defaultImageDurationSec 未指定時の既定(秒) */
 export const DEFAULT_IMAGE_DURATION_SEC = 4;
 
-/** editor.defaultShortRangeSec 未指定時の既定(秒) */
-export const DEFAULT_SHORT_RANGE_SEC = 10;
 export const DEFAULT_AI_TIMEOUT_MS = 120_000;
 export const DEFAULT_AI_MAX_RETRIES = 1;
 export const DEFAULT_AI_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
@@ -810,14 +796,6 @@ export function resolveAiReviewCfg(cfg: Config): { vlm: boolean; maxImages: numb
     vlm: cfg.editor?.aiReview?.vlm ?? false,
     maxImages: Math.max(1, Math.min(MAX_AI_IMAGES, Math.trunc(requested))),
   };
-}
-
-/** planShorts.maxDurationSec 未指定時の既定(秒)。YouTube ショートの上限に合わせる */
-export const DEFAULT_PLAN_SHORTS_MAX_DURATION_SEC = 60;
-
-/** plan-shorts の1本あたりの尺上限(秒)を解決する(省略時は既定値) */
-export function planShortsMaxSec(cfg: Config): number {
-  return cfg.planShorts?.maxDurationSec ?? DEFAULT_PLAN_SHORTS_MAX_DURATION_SEC;
 }
 
 /** plan.perception.ocrMaxSegments 未指定時の既定(区間数) */

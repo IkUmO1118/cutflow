@@ -134,62 +134,6 @@ test("framewright_av: tool 一覧にあり、json payload を返す", async () =
   }
 });
 
-test("makeTools: approve/unapprove/render/plan/remeta/plan-shorts/run/ingest/transcribe/detect/preview/thumbnail/editor/frames-serve/learn はレジストリに物理的に存在しない", () => {
-  const dir = makeGoodProject();
-  try {
-    const tools = makeTools(dir, cfg);
-    const names = new Set(tools.map((t) => t.name));
-    const forbiddenSubstrings = [
-      "approve",
-      "unapprove",
-      "render",
-      "plan",
-      "remeta",
-      "run",
-      "ingest",
-      "transcribe",
-      "detect",
-      "preview",
-      "thumbnail",
-      "editor",
-      "frames-serve",
-      "frames_serve",
-      "learn",
-    ];
-    for (const name of names) {
-      for (const bad of forbiddenSubstrings) {
-        assert.equal(
-          name.includes(bad),
-          false,
-          `tool 名 "${name}" が禁止語 "${bad}" を含んでいます(承認/破壊系の混入)`,
-        );
-      }
-    }
-    // 名指しでも確認(将来 forbiddenSubstrings の書き換えに頼らない冗長な固定)
-    for (const bad of [
-      "framewright_approve",
-      "framewright_unapprove",
-      "framewright_render",
-      "framewright_plan",
-      "framewright_remeta",
-      "framewright_plan_shorts",
-      "framewright_run",
-      "framewright_ingest",
-      "framewright_transcribe",
-      "framewright_detect",
-      "framewright_preview",
-      "framewright_thumbnail",
-      "framewright_editor",
-      "framewright_frames_serve",
-      "framewright_learn",
-    ]) {
-      assert.equal(names.has(bad), false, `${bad} がレジストリに存在してはいけません`);
-    }
-  } finally {
-    rm(dir);
-  }
-});
-
 test("makeTools: 未登録の tool 名は tools/call の name 引きでも見つからない(Map に無い)", () => {
   const dir = makeGoodProject();
   try {

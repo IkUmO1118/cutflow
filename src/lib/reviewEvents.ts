@@ -15,7 +15,6 @@ export type ReviewEventKind =
   | "wipe"
   | "caption-track"
   | "bgm"
-  | "short"
   | "json";
 
 export type ReviewEventStatus = "use" | "skip" | "mixed" | "unreviewed";
@@ -185,8 +184,6 @@ function warningGroupLabel(kind: ReviewEventKind): string {
       return "字幕トラック";
     case "bgm":
       return "BGM";
-    case "short":
-      return "ショート";
     default:
       return "JSON";
   }
@@ -251,7 +248,6 @@ function kindOf(hunk: Hunk): ReviewEventKind {
   if (file === "overlays" && arrayKey === "wipeFull") return "wipe";
   if (file === "overlays" && arrayKey === "captionTracks") return "caption-track";
   if (file === "bgm") return "bgm";
-  if (file === "shorts") return "short";
   return "json";
 }
 
@@ -283,7 +279,6 @@ function titleOf(kind: ReviewEventKind, hunks: Hunk[]): string {
   }
   if (kind === "cut" && (field === "action" || field === "start" || field === "end")) return "カット範囲を変更";
   if (kind === "bgm" && field === "volume") return "BGM 音量を変更";
-  if (kind === "short" && (field === "ranges" || field === "start" || field === "end")) return "ショート範囲を変更";
   return "JSON 変更";
 }
 
@@ -309,8 +304,6 @@ function checkPointsOf(kind: ReviewEventKind): string[] {
       return ["話の意味がつながっているか", "音声や画面が不自然に切れていないか"];
     case "bgm":
       return ["声を邪魔していないか", "区間の入りと終わりが自然か"];
-    case "short":
-      return ["冒頭で内容が伝わるか", "切り出し範囲が主題に合っているか"];
     default:
       return ["変更内容が意図に合っているか"];
   }

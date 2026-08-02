@@ -13,7 +13,6 @@ export const CONCURRENCY_FILES = [
   "overlays.json",
   "transcript.json",
   "bgm.json",
-  "shorts.json",
 ] as const;
 
 /** SaveRequest のドキュメントキー → ファイル名。 */
@@ -22,7 +21,6 @@ export const DOC_FILE: Record<string, string> = {
   overlays: "overlays.json",
   transcript: "transcript.json",
   bgm: "bgm.json",
-  shorts: "shorts.json",
 };
 
 /** client が /api/project で受け取り save 時に echo する不透明バージョン token。

@@ -112,10 +112,13 @@ human final がある場合だけ、従来の agreement (`exact`) / rescue (`dir
 | `chapters.json` | **概要欄チャプター用メタデータ**(`start` / `title` のみ)。動画への描画には使われない: 章タイトルは plan が「章」という名前のテロップトラックとして transcript.json に書き、以降はただのテロップとして編集する | YouTube 概要欄に載せる章タイトルの言い換え |
 | `overlays.json` | **演出**: 素材の表示(全画面または `rect` で部分配置。頭出し・音量・不透明度・フェード付き)・インサート編集・ワイプ全画面・常駐ワイプの `wipeStyle`(位置・サイズ・丸み・影。8アンカー、出力px、未指定時は config 継承)・**ズーム**(`zooms`)・**領域ぼかし**(`blurs`)・**注釈グラフィック**(`annotations`)・**簡易カラー調整**(`colorFilter`)・字幕非表示・重なり順・テロップトラック標準。zooms/blurs/annotations の `reasonId` は任意の演出分類 id(`docs/edit-skills/effects/recipes/<id>.md`。7分類)。未知 id と型/系不整合は警告、非文字列はエラー。`reasonId` は描画・承認hashに影響しない | B-roll を挟む、カメラだけの場面を作る、開発画面の API キーを隠す、画面の一点を指し示す(下の「演出」参照) |
 | `bgm.json` | **BGM**を区間ごとに配置(`tracks[]`: `{start, end, file, timebase?, volumeDb?, startFrom?, fadeInSec?, fadeOutSec?}`)。`timebase` は `"source"`(省略時)=元収録の秒 / `"output"`=出力(カット後・挿入込み)の秒。冒頭 intro・末尾 ending・挿入クリップの中へ BGM を当てるときは `"output"` を使う。覆っていない区間は無音、別ファイルの区間で曲の切り替え・重奏。無ければ収録フォルダ直下の `bgm.*` を全編1曲で流す(後方互換) | イントロだけ BGM なし、途中で曲を変える、別の BGM を足す(下の「BGM」参照) |
-| `shorts.json` | **ショート動画**の元データ(`shorts[]`: `{name, profile?, approved, ranges[], captionTracks?}`)。`name` は出力ファイル名(`shorts/<name>.mp4`)。`profile` は `default` / `vertical` / `vertical-screen` / `vertical-cover` から選ぶ組み込みレイアウト(省略時の既定は camera 有り→`vertical`、plain→`vertical-screen`)。`ranges` は元収録の秒で、本編 `cutplan.json` の keep とは独立したこのショート専用の keep 集合(本編でカットした素材も含められる)。`captionTracks` は `overlays.json` と同型の縦用テロップ位置/スタイル上書き。`approved` はこのショート(縦動画)を人間が確認したかどうかの**承認意図の表示**(**AI は自分で true にしない**。実際の render ゲートは `approvals.json` の承認レコード) | ショート動画を切り出したいとき |
 | `thumbnail.json` | **サムネイル**(`thumbnail.png`)の元データ(`{t, texts[]}`)。下記「サムネイル生成」参照 | サムネイルを作りたいとき |
 | `meta.json` | 動画には影響なし。タイトル・概要欄の**下書き** | 投稿時のコピペ元 |
-| `rules.md` | **チャンネルの恒久ルール**(自由 Markdown。テロップ表記・トーン/声色・禁止語・ペーシング・章の付け方・タイトルの型など「毎回守る型」)。収録フォルダの親ディレクトリに置くと**チャンネル共通**、収録フォルダ直下に置くと**この収録だけの上書き/追加**(両方あれば連結し、収録固有が優先)。`plan` / `plan --cuts-only` / `remeta` / `plan-shorts` / `plan-materials` / `plan-effects` / `plan-bgm` の LLM プロンプトに注入される。`brief.md`(今回の見せ場・中身)とは役割が別(下記「チャンネル rules と learn」参照) | チャンネル全体の編集方針を一貫させたい、この回だけ例外を効かせたいとき |
+| `rules.md` | **チャンネルの恒久ルール**(自由 Markdown。テロップ表記・トーン/声色・禁止語・ペーシング・章の付け方・タイトルの型など「毎回守る型」)。収録フォルダの親ディレクトリに置くと**チャンネル共通**、収録フォルダ直下に置くと**この収録だけの上書き/追加**(両方あれば連結し、収録固有が優先)。`plan` / `plan --cuts-only` / `remeta` / `plan-materials` / `plan-effects` / `plan-bgm` の LLM プロンプトに注入される。`brief.md`(今回の見せ場・中身)とは役割が別(下記「チャンネル rules と learn」参照) | チャンネル全体の編集方針を一貫させたい、この回だけ例外を効かせたいとき |
+
+旧 `shorts.json` は削除済み機能のデータで、FrameWright は読み書きも自動削除も
+しない。`validate` は移行警告を1件出すだけで成功する。縦動画はP1以降の
+キャンバスを使い、独立した9:16プロジェクトとして作成する。
 
 `manifest.layout:"stills"` の映像なしプロジェクトでは、ナレーション音声が動画尺を決める。スライドは `overlays.json` の `overlays[]` に `rect` なしで置く(全画面表示)。`inserts[]` は intro/ending など本当に出力尺を伸ばしたいクリップ専用で、通常のスライドには使わない。
 
@@ -137,8 +140,8 @@ human final がある場合だけ、従来の agreement (`exact`) / rescue (`dir
 GUI エディタでは `timebase:"output"` の BGM は読み取り専用として表示される。
 
 **触らない第3カテゴリ**(編集ファイルにも中間生成物にも属さない):
-`approvals.json`(**承認レコード**。`cutplan.json` / `shorts.json` 各ショートの
-keep 集合の sha256 ハッシュに束縛され、`render` の唯一のゲート。内容が変わると
+`approvals.json`(**承認レコード**。`cutplan.json` の keep 集合の sha256
+ハッシュに束縛され、`render` の唯一のゲート。内容が変わると
 自動失効する。`node src/cli.ts approve` / `unapprove` コマンドと GUI エディタの
 保存(チェックボックス)だけが書く。**人間や AI が直接編集・作成しない**。
 詳細は下記「承認(approve/unapprove)」参照)。
@@ -146,8 +149,7 @@ keep 集合の sha256 ハッシュに束縛され、`render` の唯一のゲー�
 insert、BGM、演出、出力尺の変更では失効しないため、最終 render の内容確認は別途必要。
 
 **触らないファイル**(中間生成物。再実行すると上書きされる):
-`manifest.json` / `cuts.auto.json` / `plan.raw.txt` / `plan-shorts.raw.txt`
-(plan-shorts の LLM 生応答の記録) / `plan-materials.raw.txt`
+`manifest.json` / `cuts.auto.json` / `plan.raw.txt` / `plan-materials.raw.txt`
 (plan-materials の LLM 生応答の記録。用途は plan.raw.txt と同じ) / `render.props.json` /
 `whisper-out.*` / `plan-bgm.raw.txt`(plan-bgm の LLM 生応答の記録。
 用途は plan.raw.txt と同じ) / `cut.mp4` / `cut.m4a` / `cut.keeps.json`(cut.mp4/cut.m4a の再利用可否を
@@ -166,10 +168,7 @@ bgm)・hardwareAcceleration 設定が前回と同じなら render は engine 書
 システム音声(systemAudio)・ノイズ除去(denoise)・プレビュー幅・エンコーダ・
 オールイントラ設定(`preview.proxyIntra`。既定 true=GOP1の全フレーム I。
 false で従来の短 GOP に戻る)・元収録ファイルが前回の生成と同じなら陳腐化
-なしと判定する。無ければ常に「陳腐化なし」扱いになる) / `cut.<name>.mp4` / `cut.<name>.keeps.json` /
-`render.<name>.props.json` / `render.<name>.key.json`(いずれもショート
-`<name>` 専用の中間生成物。仕組みは無印の同名ファイルと同じ。詳細は下記
-「ショート動画」参照) / `rules.suggested.md`
+なしと判定する。無ければ常に「陳腐化なし」扱いになる) / `rules.suggested.md`
 (`learn` が書く下書き。使い捨てで、次回の `learn` 実行で黙って上書きされる。
 採用したい項目は人間が手で `rules.md` に転記する。詳細は下記「チャンネル
 rules と learn」参照) / `av.probe/`(`av <dir>` の差分更新型キャッシュ。
@@ -670,7 +669,7 @@ FrameWright はフレーム撮影・render・HyperFrames の検査/書き出し�
 | ズーム/ぼかし/囲みの演出(overlays / plan-effects / effect-check) | [guides/effects.md](guides/effects.md) |
 | 音量・BGM・A/V フィードバック(plan-bgm / bgm-fit / av) | [guides/audio-bgm.md](guides/audio-bgm.md) |
 | スタイルの一貫性とチャンネル学習(style-profile / style-check / rules / learn) | [guides/style-and-rules.md](guides/style-and-rules.md) |
-| 承認して書き出す・ショート・サムネイル(approve / render / shorts / thumbnail) | [guides/export.md](guides/export.md) |
+| 承認して書き出す・サムネイル(approve / render / thumbnail) | [guides/export.md](guides/export.md) |
 | AI プロバイダ・MCP・GUI の AI 提案/検索をつなぐ | [guides/ai-agents.md](guides/ai-agents.md) |
 | AI やスクリプトで安全に編集する(id / apply / assert / 契約) | [guides/safe-editing.md](guides/safe-editing.md) |
 | GUI エディタ運用・frames-serve・掃除(clean) | [guides/tools-and-ops.md](guides/tools-and-ops.md) |
@@ -691,4 +690,4 @@ FrameWright はフレーム撮影・render・HyperFrames の検査/書き出し�
 | plan-effects / effect-check / 検品を閉じる(E6/E7)/ 演出(overlays.json) | [guides/effects.md](guides/effects.md) |
 | A/V(av)/ bgm-fit / 音量 / BGM / plan-bgm | [guides/audio-bgm.md](guides/audio-bgm.md) |
 | スタイルプロファイル抽出 / profile 逸脱検出 / チャンネル rules と learn | [guides/style-and-rules.md](guides/style-and-rules.md) |
-| 承認(approve/unapprove)/ ショート動画 / サムネイル生成 / render の高速化 / render 中のマシン負荷 | [guides/export.md](guides/export.md) |
+| 承認(approve/unapprove)/ サムネイル生成 / render の高速化 / render 中のマシン負荷 | [guides/export.md](guides/export.md) |

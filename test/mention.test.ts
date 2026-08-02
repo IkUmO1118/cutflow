@@ -14,7 +14,6 @@ const emptyDocs: LoadedDocs = {
   bgm: null,
   chapters: null,
   meta: null,
-  shorts: null,
   thumbnail: null,
 };
 
@@ -34,27 +33,17 @@ test("collectIds: 全ファイルを網羅する(各種別1件ずつ)", () => {
     },
     chapters: { chapters: [{ id: "ch_j0j0j0", start: 0, title: "導入" }] },
     bgm: { tracks: [{ id: "bg_k1k1k1", start: 0, end: 1, file: "bgm.mp3" }] },
-    shorts: {
-      shorts: [
-        {
-          name: "intro",
-          approved: false,
-          ranges: [{ id: "rg_l2l2l2", start: 0, end: 1 }],
-          captionTracks: [{ id: "ct_m3m3m3", track: 1 }],
-        },
-      ],
-    },
     thumbnail: { t: 0, texts: [{ id: "tx_n4n4n4", text: "hi", pos: { x: 0, y: 0 } }] },
   };
   const index = collectIds(docs);
   for (const id of [
     "seg_a1a1a1", "cap_b2b2b2", "mat_c3c3c3", "ins_d4d4d4", "wf_e5e5e5",
     "hc_f6f6f6", "zm_g7g7g7", "bl_h8h8h8", "ct_i9i9i9", "ch_j0j0j0",
-    "bg_k1k1k1", "rg_l2l2l2", "ct_m3m3m3", "tx_n4n4n4", "intro",
+    "bg_k1k1k1", "tx_n4n4n4",
   ]) {
     assert.ok(index.has(id), `missing ${id}`);
   }
-  assert.equal(index.size, 15);
+  assert.equal(index.size, 12);
 });
 
 test("resolveMention: '@cap_xxx' と 'cap_xxx' の両方を解決する", () => {
@@ -70,21 +59,6 @@ test("resolveMention: '@cap_xxx' と 'cap_xxx' の両方を解決する", () => 
   assert.equal(a!.file, "transcript.json");
   assert.equal(a!.kind, "caption");
   assert.equal(a!.path, "segments[0]");
-  assert.deepEqual(a, b);
-});
-
-test("resolveMention: short は name で解決する('@intro' と '@short:intro' の両方)", () => {
-  const docs: LoadedDocs = {
-    ...emptyDocs,
-    shorts: { shorts: [{ name: "intro", approved: false, ranges: [{ start: 0, end: 1 }] }] },
-  };
-  const index = collectIds(docs);
-  const a = resolveMention("@intro", index);
-  const b = resolveMention("@short:intro", index);
-  assert.ok(a);
-  assert.ok(b);
-  assert.equal(a!.kind, "short");
-  assert.equal(a!.file, "shorts.json");
   assert.deepEqual(a, b);
 });
 

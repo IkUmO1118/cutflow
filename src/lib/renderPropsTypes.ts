@@ -193,7 +193,7 @@ export type RenderProps = {
   };
   /** true = ワイプ(カメラ)を cut.mp4 に焼き込み済み。Main.tsx はワイプレイヤーを
    * 描かない(ベース抽出1回の高速レンダー。docs/plans/perf-render-single-extraction.md)。
-   * 最終レンダーの composite 経路でのみ立つ。エディタ Player / short では未指定 */
+   * 最終レンダーの composite 経路でのみ立つ。エディタ Player では未指定 */
   wipeBurnedIn?: boolean;
   /** 簡易カラー調整(overlays.json の colorFilter)。ベース映像(画面クロップ+
    * カメラ)だけに CSS filter として効く(src/lib/colorFilter.ts が変換)。
@@ -202,7 +202,7 @@ export type RenderProps = {
   /** ベースレイアウトのデザイン(背景画像 + 画面パネル + optionalなカメラ円)。
    * config.yaml の render.design を buildRenderProps が出力px の矩形へ解決した
    * もの(src/lib/design.ts)。省略時は従来の「画面全面 + 右下ワイプ」。
-   * layout(縦プリセット)経路には載らない=ショートには継承されない */
+   * layout(縦プリセット)経路には載らない=縦プロファイルには継承されない */
   design?: DesignProps;
   /** ベース映像パネルの配置(縦プリセット用。src/lib/profile.ts の
    * Profile.layout から buildRenderProps が渡す)。省略時は現行ワイプ経路
@@ -291,11 +291,11 @@ export type RenderProps = {
   /** 領域ぼかし(overlays.json の blurs。カット後の秒へ写像・
    * strength 解決済み)。ベース映像(画面クロップ)の rect 部分だけを
    * 隠す。zoom 追従なしの出力px固定。省略時(空)は現行の描画と完全に同じ。
-   * props.layout(ショート/縦)経路では描画しない(本編のみ) */
+   * props.layout(縦プロファイル)経路では描画しない(本編のみ) */
   blurs?: ResolvedBlur[];
   /** 注釈グラフィック(overlays.json の annotations。カット後の秒へ写像・
    * 既定解決済み)。最前面に出力px固定で描く。省略時(空)は現行の描画と
-   * 完全に同じ。props.layout(ショート/縦)経路では描画しない(本編のみ) */
+   * 完全に同じ。props.layout(縦プロファイル)経路では描画しない(本編のみ) */
   annotations?: ResolvedAnnotation[];
   /** カット境界のディップ・トゥ・ブラック(config.yaml の render.cutTransition
    * が dip-to-black のときだけ載る)。sec は黒への往復の合計秒 */

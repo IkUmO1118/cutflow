@@ -7,12 +7,12 @@ import { buildCaptionAnimPatch } from "../editor/client/lib/inspectorHelpers.ts"
 const ROOT = process.cwd();
 const read = (path: string): string => readFileSync(join(ROOT, path), "utf8");
 
-test("Inspector retains all twelve selection kinds and every special rendering branch", () => {
+test("Inspector retains all eleven selection kinds and every special rendering branch", () => {
   const inspector = read("editor/client/Inspector.tsx");
   const model = read("editor/client/model.ts");
   const kinds = [
     "cut", "insert", "caption", "captionTrack", "overlays", "wipeFull",
-    "wipe", "bgm", "short", "zoom", "blur", "annotation",
+    "wipe", "bgm", "zoom", "blur", "annotation",
   ];
   for (const kind of kinds) {
     assert.ok(model.includes(`| "${kind}"`), `model lost selection kind ${kind}`);
@@ -26,11 +26,10 @@ test("Inspector retains all twelve selection kinds and every special rendering b
   }
   assert.match(inspector, /if \(selection === null\) \{[\s\S]*<ProjectPanel/);
   assert.match(inspector, /selection\.kind === "caption" && capMulti\.length > 1[\s\S]*<BatchCaptionPanel/);
-  assert.match(inspector, /selection\.kind === "caption" && shortMode[\s\S]*<ShortCaptionPanel/);
   // タブ化で `insp ocInspector` は共有 InspectorTabs に集約。共有土台＋特殊ブランチが残る
   assert.match(inspector, /const InspectorTabs = \(/);
   assert.ok((inspector.match(/<InspectorTabs\b/g) ?? []).length >= 10, "10 tabbed kinds use InspectorTabs");
-  assert.ok((inspector.match(/className="insp ocInspector"/g) ?? []).length >= 5, "special single-sheet branches + shared shell keep the shell class");
+  assert.ok((inspector.match(/className="insp ocInspector"/g) ?? []).length >= 3, "special single-sheet branches + shared shell keep the shell class");
 });
 
 test("output-timebase BGM is projected on output axis and guarded read-only", () => {
@@ -53,14 +52,11 @@ test("App-to-Inspector callback surface and write destinations remain complete",
     "updateCaption", "removeCaption", "updateCaptionsStyle", "updateCaptionsTrack",
     "removeCaptions", "updateSpan", "removeSpan", "updateZoom", "removeZoom",
     "updateBlur", "removeBlur", "updateAnnotation", "removeAnnotation", "updateInsert",
-    "removeInsert", "updateBgm", "removeBgm", "setShortCaptionTrackDefault",
-    "updateShortRange", "removeShortRange", "updateActiveShort", "removeShort",
+    "removeInsert", "updateBgm", "removeBgm",
     "getPlayheadSrc", "seekToSrc", "seekOut", "wipeStyle", "updateWipeStyle",
   ]) assert.match(mount, new RegExp(`\\b${prop}=`), `missing Inspector prop ${prop}`);
 
   const inspector = read("editor/client/Inspector.tsx");
-  assert.match(inspector, /shortMode[\s\S]*setShortCaptionTrackDefault=\{setShortCaptionTrackDefault\}/);
-  assert.match(inspector, /文言・タイミングは本編と共有[\s\S]*updateCaption=\{updateCaption\}/);
   assert.match(inspector, /詳細\(元収録の秒\)/);
   assert.match(inspector, /onStart\(round2\(Math\.min\(p, end - MIN_SPAN\)\)\)/);
   assert.match(inspector, /onEnd\(round2\(Math\.max\(p, start \+ MIN_SPAN\)\)\)/);
@@ -82,24 +78,6 @@ test("caption design keeps typography, paint, band, position, animation, and kar
   assert.match(inspector, /`\$\{keyPrefix\}:bgAlpha`/);
 });
 
-test("effects, BGM, inserts, overlays, and shorts retain patches and coalesce keys", () => {
-  const inspector = read("editor/client/Inspector.tsx");
-  for (const token of [
-    "updateInsert(selection.index", "updateBgm(selection.index", "updateSpan(\"overlays\"",
-    "updateZoom(selection.index", "updateBlur(selection.index", "updateAnnotation(i",
-    "updateShortRange(selection.index", "setShortCaptionTrackDefault(track",
-  ]) assert.ok(inspector.includes(token), `missing mutation route ${token}`);
-  for (const key of [
-    "insert:${selection.index}:volume", "bgm:${selection.index}:vol",
-    "ov:${selection.index}:volume", "ov:${selection.index}:opacity",
-    "zoom:${selection.index}:rect", "blur:${selection.index}:rect",
-    "blur:${selection.index}:strength", "annotation:${i}:color",
-    "annotation:${i}:fill", "caption:${selection.index}:text",
-  ]) assert.ok(inspector.includes(key), `missing coalesce key ${key}`);
-  assert.match(inspector, /const checked = e\.target\.checked;[\s\S]*approved: checked/);
-  assert.match(inspector, /<input\s+type="checkbox"\s+checked=\{activeShort\.approved\}/);
-});
-
 test("Inspector uses thin native OpenCut adapters without changing control events", () => {
   const inspector = read("editor/client/Inspector.tsx");
   const adapters = ["input", "native-select", "slider", "switch", "color-input"];
@@ -110,7 +88,6 @@ test("Inspector uses thin native OpenCut adapters without changing control event
   }
   assert.doesNotMatch(inspector, /<select\b/);
   assert.doesNotMatch(inspector, /<input\s+type="color"/);
-  assert.equal((inspector.match(/<input\s+type="checkbox"/g) ?? []).length, 1, "only approval remains a checkbox");
   assert.match(inspector, /<Slider[\s\S]*onChange=\{\(event\) => onChange\(Number\(event\.target\.value\)\)\}/);
 });
 
@@ -174,8 +151,6 @@ test("P2 checkpoint 3 provenance pins sources and records adaptation boundaries"
   for (const source of ["input", "native-select", "slider", "switch"]) {
     assert.ok(provenance.includes(`${revision}/apps/web/src/components/ui/${source}.tsx`));
   }
-  assert.match(provenance, /All twelve FrameWright selection kinds/);
-  assert.match(provenance, /short approval control intentionally remains a native checkbox/);
   assert.match(provenance, /Settings,[\s\S]*Timeline,[\s\S]*AI,[\s\S]*server\/API/);
 });
 

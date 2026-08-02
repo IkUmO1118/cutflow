@@ -20,12 +20,6 @@ test("tempPathFor: dirname(finalPath) 直下・ドット始まり・pid を含�
   assert.ok(p.endsWith(".mp4"), ".mp4 末尾");
 });
 
-test("tempPathFor: 異なる finalPath で異なる temp path", () => {
-  const a = tempPathFor("/rec/dir/final.mp4", 1);
-  const b = tempPathFor("/rec/dir/shorts/x.mp4", 1);
-  assert.notEqual(a, b);
-});
-
 test("tempPathFor: 異なる pid で異なる temp path(同じ finalPath)", () => {
   const a = tempPathFor("/rec/dir/final.mp4", 1);
   const b = tempPathFor("/rec/dir/final.mp4", 2);

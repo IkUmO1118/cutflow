@@ -3,7 +3,7 @@
 //
 // 露出するのは「読む」(describe/validate/frames/materials/assert)+
 // 「承認スコープ外の安全編集」(apply/id-stamp)だけ。approve/unapprove/
-// render/plan/remeta/plan-shorts/run/ingest/transcribe/detect/preview/
+// render/plan/remeta/run/ingest/transcribe/detect/preview/
 // thumbnail/editor/frames-serve/learn は**この配列に存在しない**
 // (=tools/list に出ず、tools/call の name 引きでも見つからず -32602 になる。
 // これが唯一確実な防御。運用ルールや description の注意書きに頼らない)。
@@ -98,7 +98,6 @@ interface FramesArgs {
   captions?: boolean;
   every?: number;
   out?: boolean;
-  short?: string;
   ocr?: boolean;
   fullRes?: boolean;
 }
@@ -121,10 +120,6 @@ function parseFramesArgs(raw: unknown): FramesArgs {
   if (a.out !== undefined) {
     if (typeof a.out !== "boolean") throw new JsonRpcError(-32602, "out must be a boolean");
     args.out = a.out;
-  }
-  if (a.short !== undefined) {
-    if (typeof a.short !== "string") throw new JsonRpcError(-32602, "short must be a string");
-    args.short = a.short;
   }
   if (a.ocr !== undefined) {
     if (typeof a.ocr !== "boolean") throw new JsonRpcError(-32602, "ocr must be a boolean");
@@ -225,7 +220,6 @@ function materialsHumanLines(index: MaterialsIndex): string[] {
 interface AvArgs {
   range?: string;
   every?: number;
-  short?: string;
   fullRes?: boolean;
   motionOnly?: boolean;
   soundOnly?: boolean;
@@ -241,10 +235,6 @@ function parseAvArgs(raw: unknown): AvArgs {
   if (a.every !== undefined) {
     if (typeof a.every !== "number") throw new JsonRpcError(-32602, "every must be a number");
     args.every = a.every;
-  }
-  if (a.short !== undefined) {
-    if (typeof a.short !== "string") throw new JsonRpcError(-32602, "short must be a string");
-    args.short = a.short;
   }
   if (a.fullRes !== undefined) {
     if (typeof a.fullRes !== "boolean") throw new JsonRpcError(-32602, "fullRes must be a boolean");
@@ -347,7 +337,6 @@ export function makeTools(dir: string, cfg: Config): ToolDef[] {
           captions: { type: "boolean", description: "one shot per caption (full audit)" },
           every: { type: "number", description: "sample the output timeline every N seconds" },
           out: { type: "boolean", description: "interpret t as output (post-cut) seconds" },
-          short: { type: "string", description: "render the named short's vertical layout instead" },
           ocr: { type: "boolean", description: "also OCR on-screen text (macOS only)" },
           fullRes: { type: "boolean", description: "use full-resolution base video instead of proxy" },
         },
@@ -356,7 +345,7 @@ export function makeTools(dir: string, cfg: Config): ToolDef[] {
       handler: async (rawArgs) => {
         const args = parseFramesArgs(rawArgs);
         const req = buildFrameRequest(args);
-        const shots = await frames(dir, req, cfg, args.short, args.ocr === true, args.fullRes === true);
+        const shots = await frames(dir, req, cfg, args.ocr === true, args.fullRes === true);
         return toToolResult(framesHumanLines(shots), shots, false);
       },
     },
@@ -431,7 +420,6 @@ export function makeTools(dir: string, cfg: Config): ToolDef[] {
         properties: {
           spec: { type: "object" },
           candidate: { type: "object" },
-          short: { type: "string" },
           secondaryObservation: { type: "string", enum: ["none", "vlm"] },
         },
         additionalProperties: false,
@@ -449,7 +437,6 @@ export function makeTools(dir: string, cfg: Config): ToolDef[] {
         const base = readEditSnapshot(dir);
         const candidate = isObj(args.candidate) ? args.candidate as unknown as EditSnapshot : base;
         const bundle = await reviewEdit(dir, cfg, base, candidate, args.spec as unknown as ReviewSpec, {
-          shortName: typeof args.short === "string" ? args.short : undefined,
           secondaryObservation: args.secondaryObservation === "vlm" ? "vlm" : "none",
         });
         const primaryWarn = bundle.observation.checks.filter((check) => check.status === "warn").length;
@@ -543,7 +530,6 @@ export function makeTools(dir: string, cfg: Config): ToolDef[] {
         properties: {
           range: { type: "string", description: "output-time range, e.g. \"10-25.5\"" },
           every: { type: "number", description: "motion sample interval in seconds" },
-          short: { type: "string", description: "named short from shorts.json" },
           fullRes: { type: "boolean", description: "use source video instead of proxy for motion" },
           motionOnly: { type: "boolean", description: "collect motion only" },
           soundOnly: { type: "boolean", description: "collect sound only" },
@@ -555,7 +541,6 @@ export function makeTools(dir: string, cfg: Config): ToolDef[] {
         const result = await av(dir, {
           range: parseRange(args.range),
           everySec: args.every,
-          short: args.short,
           fullRes: args.fullRes,
           motionOnly: args.motionOnly,
           soundOnly: args.soundOnly,

@@ -27,7 +27,7 @@ export async function complete(prompt: string, cfg: Config): Promise<string> {
 export async function completeForPurpose(
   prompt: string,
   cfg: Config,
-  purpose: "plan" | "plan-shorts" | "editor-proposal" | "vision-review" | "other",
+  purpose: "plan" | "editor-proposal" | "vision-review" | "other",
 ): Promise<string> {
   const res = await completeAi({
     route: "text",
@@ -42,7 +42,7 @@ export async function completeWithJsonSchema(
   prompt: string,
   cfg: Config,
   format: JsonSchemaTextFormat,
-  purpose: "plan" | "plan-shorts" | "editor-proposal" | "vision-review" | "other" = "other",
+  purpose: "plan" | "editor-proposal" | "vision-review" | "other" = "other",
 ): Promise<string> {
   const res = await completeAi({
     route: "structured",

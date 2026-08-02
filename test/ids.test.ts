@@ -20,7 +20,6 @@ const emptyDocs: EditableDocs = {
   overlays: null,
   chapters: null,
   bgm: null,
-  shorts: null,
   thumbnail: null,
 };
 
@@ -144,22 +143,6 @@ test("hasAnyId: 空 docs(全ファイル null)で false", () => {
   assert.equal(hasAnyId(emptyDocs), false);
 });
 
-test("hasAnyId: 1つでも id が有れば true(深い場所=shorts.ranges でも検出)", () => {
-  const docs: EditableDocs = {
-    ...emptyDocs,
-    shorts: {
-      shorts: [
-        {
-          name: "s1",
-          approved: false,
-          ranges: [{ id: "rg_abc123", start: 0, end: 1 }],
-        },
-      ],
-    },
-  };
-  assert.equal(hasAnyId(docs), true);
-});
-
 test("stampDocs: 空 docs(全ファイル null)は no-op", () => {
   const out = stampDocs(emptyDocs);
   assert.deepEqual(out, emptyDocs);
@@ -180,16 +163,6 @@ test("stampDocs: 全「指せる配列」に id を採番する", () => {
     },
     chapters: { chapters: [{ start: 0, title: "導入" }] },
     bgm: { tracks: [{ start: 0, end: 1, file: "bgm.mp3" }] },
-    shorts: {
-      shorts: [
-        {
-          name: "s1",
-          approved: false,
-          ranges: [{ start: 0, end: 1 }],
-          captionTracks: [{ track: 1 }],
-        },
-      ],
-    },
     thumbnail: { t: 0, texts: [{ text: "hi", pos: { x: 0, y: 0 } }] },
   };
   const out = stampDocs(docs);
@@ -204,8 +177,6 @@ test("stampDocs: 全「指せる配列」に id を採番する", () => {
   assert.match(out.overlays!.captionTracks![0].id as string, /^ct_/);
   assert.match(out.chapters!.chapters[0].id as string, /^ch_/);
   assert.match(out.bgm!.tracks[0].id as string, /^bg_/);
-  assert.match(out.shorts!.shorts[0].ranges[0].id as string, /^rg_/);
-  assert.match(out.shorts!.shorts[0].captionTracks![0].id as string, /^ct_/);
   assert.match(out.thumbnail!.texts[0].id as string, /^tx_/);
 });
 
@@ -222,7 +193,6 @@ test("stampDocs: 冪等(2回通して deepEqual)", () => {
     overlays: null,
     chapters: null,
     bgm: null,
-    shorts: null,
     thumbnail: null,
   };
   const once = stampDocs(docs);

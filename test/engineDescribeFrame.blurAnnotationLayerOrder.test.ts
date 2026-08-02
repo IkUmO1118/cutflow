@@ -41,15 +41,6 @@ test("describeBlurItems: radiusPx は blurRadiusPx(strength) と一致", () => {
   assert.equal(item.content.radiusPx, blurRadiusPx(0.5));
 });
 
-test("describeBlurItems: props.layout(ショート)は空(本編のみ)", () => {
-  const props: RenderProps = {
-    ...base,
-    layout: { panels: [] },
-    blurs: [{ start: 0, end: 10, rect: { x: 0, y: 0, w: 100, h: 100 }, strength: 0.5 }],
-  };
-  assert.deepEqual(describeBlurItems(props, 5), []);
-});
-
 test("describeAnnotationItems: arrow は from/to/color/widthPx/headPx をそのまま content に持つ", () => {
   const props: RenderProps = {
     ...base,

@@ -8,7 +8,7 @@ import type {
 } from "react";
 import { captionTrack } from "../../src/types.ts";
 import type { Hunk } from "../../src/lib/docDiff.ts";
-import type { Interval, Overlays, Shorts, Transcript } from "../../src/types.ts";
+import type { Interval, Overlays, Transcript } from "../../src/types.ts";
 import { toSourceTime } from "../../src/lib/timeline.ts";
 import type { TimelineEntry } from "../../src/lib/timeline.ts";
 import type { HyperframeCard, ScriptData } from "./apiTypes.ts";
@@ -1051,117 +1051,6 @@ export const CaptionsPanel = ({
   );
 };
 
-/**
- * 左パネル「ショート」タブ。shorts.json の一覧・追加・削除・リネームを行う
- * (5-5)。ranges・プリセット・承認・字幕配置はプレビュー下のショートモード
- * (App.tsx の本編/ショートセレクタ)とタイムライン・
- * インスペクタで編集する(D6: このタブは CRUD だけに絞る)。
- */
-export const ShortsPanel = ({
-  shorts,
-  activeShortName,
-  onSelect,
-  onAdd,
-  onRemove,
-  onRename,
-}: {
-  shorts: Shorts | null;
-  /** 現在編集中のショート名(プレビュー下のセレクタと同じ状態) */
-  activeShortName: string | null;
-  /** 行クリックでそのショートの編集モードへ切り替える */
-  onSelect: (name: string) => void;
-  /** ショートを1本追加する(既定 ranges 付き。App 側で自動生成した名前) */
-  onAdd: () => void;
-  onRemove: (name: string) => void;
-  onRename: (oldName: string, newName: string) => void;
-}) => {
-  const [renaming, setRenaming] = useState<{ name: string; value: string } | null>(null);
-  const list = shorts?.shorts ?? [];
-  return (
-    <div className="shortsPanel">
-      <PanelHeader
-        title={`${list.length} 件`}
-        actions={<button className="icon" onClick={onAdd}>＋ ショートを追加</button>}
-      />
-      {list.length === 0 ? (
-        <EmptyState
-          icon={<Scissors size={20} />}
-          title="最初のショートを作成"
-          description="作成すると、プレビュー下のセレクタが自動でそのショートに切り替わります。"
-          actions={(
-            <Button variant="secondary" size="sm" onClick={onAdd}>
-              <Plus size={13} aria-hidden />
-              ショートを追加
-            </Button>
-          )}
-        />
-      ) : (
-        <div className="capList">
-          {list.map((s) => {
-            const totalSec = s.ranges.reduce((a, r) => a + Math.max(0, r.end - r.start), 0);
-            return (
-              <div
-                className={`capRow${s.name === activeShortName ? " sel" : ""}`}
-                key={s.name}
-                onClick={() => onSelect(s.name)}
-              >
-                <div className="capRowMeta mono">
-                  {renaming?.name === s.name ? (
-                    <input
-                      autoFocus
-                      value={renaming.value}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => setRenaming({ name: s.name, value: e.target.value })}
-                      onBlur={() => {
-                        onRename(s.name, renaming.value);
-                        setRenaming(null);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-                        else if (e.key === "Escape") setRenaming(null);
-                      }}
-                    />
-                  ) : (
-                    <span
-                      onDoubleClick={(e) => {
-                        e.stopPropagation();
-                        setRenaming({ name: s.name, value: s.name });
-                      }}
-                      title="ダブルクリックで名前を変更"
-                    >
-                      {s.name}
-                    </span>
-                  )}
-                  <span className="dim">{s.profile ?? "vertical"}</span>
-                  <span className="dim">{fmtTime(totalSec)}</span>
-                  {!s.approved && <span className="warnText">未承認</span>}
-                </div>
-                <div className="btnRow" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    className="danger"
-                    onClick={() => {
-                      if (window.confirm(`ショート「${s.name}」を削除しますか?`)) {
-                        onRemove(s.name);
-                      }
-                    }}
-                  >
-                    削除
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-      <p className="dim hint" style={{ padding: "0 14px" }}>
-        行クリックでそのショートの編集モードへ切り替わります(プレビュー下の
-        セレクタと同じ)。ranges・レイアウト・承認・字幕配置はショート
-        モードのタイムライン・プレビュー・インスペクタで編集します。
-      </p>
-    </div>
-  );
-};
-
 /* ---------------- スクリプトタブ(文字ベース編集) ---------------- */
 
 /** カット後の秒 → 「ここまでに再生した元収録の位置」。keep の上はその元秒、
@@ -1349,7 +1238,7 @@ export const ScriptPanel = ({
   /** いまのモードの元秒→カット後秒の写像(カラオケ・シーク用) */
   timeline: TimelineEntry[];
   playing: boolean;
-  /** false(ショートモード)は表示・シークのみでカット編集を出さない */
+  /** false は表示・シークのみでカット編集を出さない */
   editable: boolean;
   onSeekSrc: (src: number) => void;
   /** 選択した語の範囲(元収録の秒)をカットへ */
@@ -1543,7 +1432,7 @@ export const ScriptPanel = ({
           <span className="dim">
             {editable
               ? "文字をドラッグで選択 → カット(Delete でも)。クリックでシーク"
-              : "ショート編集中は表示・シークのみ(カット編集は本編モードで)"}
+              : "表示・シークのみ"}
           </span>
         )}
       </div>
@@ -1583,15 +1472,12 @@ export const ScriptPanel = ({
 };
 
 /** 左レール「設定」タブ。OpenCut の Settings(Project info)相当。ただし本編の
- * 解像度・アスペクト比・fps は収録で決まるため読み取り専用で表示する
- * (縦・別アスペクトはショートで作る)。詳細な編集は既存の設定モーダルを開く。 */
+ * 解像度・アスペクト比・fps は収録で決まるため読み取り専用で表示する。 */
 export const SettingsPanel = ({
   projectName,
   output,
   fps,
-  shortsCount,
   onOpenFullSettings,
-  onGoShorts,
 }: {
   /** プロジェクト名(収録フォルダ名) */
   projectName: string;
@@ -1599,12 +1485,8 @@ export const SettingsPanel = ({
   output: { w: number; h: number };
   /** 合成 fps(整数) */
   fps: number;
-  /** 定義済みショート数(縦動画への導線用) */
-  shortsCount: number;
   /** 既存の設定モーダルを開く */
   onOpenFullSettings: () => void;
-  /** ショートタブへ切り替える */
-  onGoShorts: () => void;
 }) => {
   const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
   const g = output.w > 0 && output.h > 0 ? gcd(output.w, output.h) : 1;
@@ -1629,10 +1511,8 @@ export const SettingsPanel = ({
       </div>
       <p className="ocPaneNote">
         解像度・アスペクト比・fps は収録(録画)で決まり、本編では変更できません。
-        縦動画や別アスペクトは「ショート」で作成します({shortsCount} 件)。
       </p>
       <div className="ocPaneStack">
-        <Button variant="outline" size="sm" onClick={onGoShorts}>ショートを開く</Button>
         <Button variant="outline" size="sm" onClick={onOpenFullSettings}>詳細設定を開く…</Button>
       </div>
     </div>

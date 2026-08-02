@@ -39,8 +39,6 @@ import type {
 } from "../../src/lib/docDiff.ts";
 import type { TimelineEntry } from "../../src/lib/timeline.ts";
 import { isImageFile } from "../../src/lib/overlayFade.ts";
-import { defaultShortProfileName, PROFILES } from "../../src/lib/profile.ts";
-import type { Profile } from "../../src/lib/profile.ts";
 import {
   CAPTION_DEFAULT_OUTLINE,
   DEFAULT_LAYER_ORDER,
@@ -68,8 +66,6 @@ import type {
   LayerId,
   Overlays,
   Region,
-  Short,
-  Shorts,
   Transcript,
   WipeStyle,
 } from "../../src/types.ts";
@@ -112,7 +108,6 @@ import {
   PresetPanel,
   ScriptPanel,
   SettingsPanel,
-  ShortsPanel,
 } from "./Panels.tsx";
 import { SettingsModal, buildConfigPatch, patchTouchesProxy } from "./SettingsModal.tsx";
 import type { AiSettingsValue, CfgValues } from "./SettingsModal.tsx";
@@ -180,7 +175,6 @@ import {
 } from "lucide-react";
 import {
   SCRIPT_CUT_REASON,
-  SHORT_TRACK_DEF,
   buildTracks,
   cutSourceRange,
   buildDiffTracks,
@@ -256,7 +250,7 @@ type CaptionEntry = Transcript["segments"][number];
  * start/end を保持し、ペースト時に再生ヘッドの元秒へ平行移動する)。
  * 対象はカット後タイムライン上で中身を複製できるクリップだけ:
  * caption / overlays(素材)/ zoom / blur / annotation / bgm。
- * insert(タイムライン再構成を伴う)・wipe・cut(ベース映像)・short は対象外 */
+ * insert(タイムライン再構成を伴う)・wipe・cut(ベース映像)は対象外 */
 type Clipboard =
   | { kind: "caption"; entry: CaptionEntry }
   | { kind: "overlays"; entry: OverlayEntry }
@@ -323,25 +317,10 @@ const MIN_SPAN = 0.01;
 const DEFAULT_ADD_SEC = 3;
 /** ⌘D(duplicateSelected)で複製できる選択 kind。caption/overlays/zoom/blur/
  * annotation/bgm は buildClip+insertClipAt 経由、insert は専用分岐(at+durationSec)。
- * wipe / 映像 keep(cut) / ショート範囲(short) / captionTrack は対象外 */
+ * wipe / 映像 keep(cut) / captionTrack は対象外 */
 const DUPLICABLE = new Set<string>(["caption", "overlays", "zoom", "blur", "annotation", "bgm", "insert"]);
 /** プレビュー表示倍率のプリセット(Fit を除く)。プレビューのみに効く */
 const PREVIEW_ZOOMS: readonly number[] = [0.25, 0.5, 0.75, 1, 1.5, 2];
-
-/** ショートの profile 名 → Profile。src/lib/profile.ts の resolveProfile と
- * 同じ規則(省略時 defaultShortProfileName(hasCamera)。render.ts / frames.ts と
- * 同じ既定)だが、"default" は cfg 丸ごとではなく出力解像度(screenRegion)だけで足りる */
-const resolveShortProfile = (
-  name: string | undefined,
-  output: { w: number; h: number },
-  hasCamera: boolean,
-): Profile => {
-  const key = name ?? defaultShortProfileName(hasCamera);
-  if (key === "default") return { width: output.w, height: output.h };
-  const p = PROFILES[key];
-  if (!p) throw new Error(`未知の profile 名です: ${key}`);
-  return p;
-};
 
 const aiWorkflowPhaseLabel = (workflow: AiWorkflowState | null): string => {
   if (!workflow) return "待機";
@@ -395,7 +374,6 @@ function diffTrackIdForEvent(event: { kind: string }): string | null {
     case "wipe": return "wipe";
     case "caption-track": return "caption";
     case "bgm": return "bgm";
-    case "short": return "short";
     default: return null;
   }
 }
@@ -412,7 +390,6 @@ type HistoryDocs = {
   overlays: Overlays;
   transcript: Transcript;
   bgm: Bgm | null;
-  shorts?: Shorts | null;
 };
 /** undo 履歴の上限(それより古い編集は切り捨てる) */
 const HISTORY_MAX = 100;
@@ -425,16 +402,13 @@ const draftDiffers = (d: DraftData, p: ProjectData): boolean =>
   JSON.stringify(d.cutplan) !== JSON.stringify(p.cutplan) ||
   JSON.stringify(d.overlays) !== JSON.stringify(p.overlays) ||
   JSON.stringify(d.transcript) !== JSON.stringify(p.transcript) ||
-  JSON.stringify(d.bgm ?? null) !== JSON.stringify(p.bgm ?? null) ||
-  (d.shorts !== undefined &&
-    JSON.stringify(d.shorts ?? null) !== JSON.stringify(p.shorts ?? null));
+  JSON.stringify(d.bgm ?? null) !== JSON.stringify(p.bgm ?? null);
 
 const reviewDocsOf = (p: ProjectData): ReviewDocs => ({
   cutplan: p.cutplan,
   overlays: p.overlays,
   transcript: p.transcript,
   bgm: p.bgm,
-  shorts: p.shorts,
 });
 
 const formatReviewFrame = (frame: ReviewFrameRequest): string =>
@@ -470,7 +444,6 @@ const PANEL_TABS = [
   ["stickers", "ステッカー"],
   ["effects", "エフェクト"],
   ["adjust", "色調整"],
-  ["shorts", "ショート"],
   // 「AI 生成」は道具ではなく生成の入口なので、レール末尾の「設定」の直上に置く
   ["hyperframes", "AI 生成"],
   ["settings", "設定"],
@@ -486,7 +459,6 @@ const PanelTabIcon = ({ tab }: { tab: PanelTab }) => {
   if (tab === "stickers") return <Smile {...p} />;
   if (tab === "effects") return <Wand2 {...p} />;
   if (tab === "adjust") return <SlidersHorizontal {...p} />;
-  if (tab === "shorts") return <Smartphone {...p} />;
   return <Settings {...p} />;
 };
 
@@ -515,7 +487,6 @@ const DOC_FILE: Record<string, string> = {
   overlays: "overlays.json",
   transcript: "transcript.json",
   bgm: "bgm.json",
-  shorts: "shorts.json",
 };
 
 /** body が触るドキュメントごとに、読み込み時点の base ハッシュ(baseHashesRef)
@@ -567,14 +538,6 @@ export const App = () => {
    * bgm.* を全編1曲で流す後方互換)。区間を1つでも作ると非 null になり、
    * 保存で bgm.json が書かれる(全区間を消すと bgm.json は削除される) */
   const [bgm, setBgm] = useState<Bgm | null>(null);
-  /** ショート動画の定義(shorts.json)。null = 未定義。CRUD・ranges・
-   * captionTracks・profile・approved の編集はここに集約する。
-   * cutplan/overlays/transcript/bgm の undo 履歴には含めない
-   * (別ドキュメントで、範囲ドラッグ程度の編集に undo 一貫性のコストを
-   * 払う価値が薄いと判断した意図的な簡略化) */
-  const [shorts, setShorts] = useState<Shorts | null>(null);
-  /** 選択中のショート名。null = 本編モード(プレビュー下のセレクタで切替) */
-  const [activeShortName, setActiveShortName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // 通知トースト(error / job)。要対応の継続条件はバナー行が持つ(T4)
   const { addToast, updateToast, dismissToast } = useToasts();
@@ -728,7 +691,6 @@ export const App = () => {
         setOverlays(p.overlays);
         setTranscript(p.transcript);
         setBgm(p.bgm);
-        setShorts(p.shorts);
         baseHashesRef.current = p.contentHashes ?? {};
         // proxy.* の陳腐化はサーバーが proxy.key.json とファイルから毎回
         // 判定する(config.yaml が別セッション・別ツールで変わった場合も
@@ -1038,11 +1000,7 @@ export const App = () => {
       setOverlays(p.overlays);
       setTranscript(p.transcript);
       setBgm(p.bgm);
-      setShorts(p.shorts);
       baseHashesRef.current = p.contentHashes ?? {};
-      if (!p.shorts?.shorts.some((s) => s.name === activeShortName)) {
-        setActiveShortName(null);
-      }
       if (p.proxyStale) {
         setProxyStale(true);
         setProxyStaleDismissed(false);
@@ -1076,12 +1034,8 @@ export const App = () => {
     setOverlays(merged.overlays);
     setTranscript(merged.transcript);
     setBgm(merged.bgm);
-    setShorts(merged.shorts);
     setProj(theirs);
     baseHashesRef.current = theirs.contentHashes ?? {};
-    if (!merged.shorts?.shorts.some((s) => s.name === activeShortName)) {
-      setActiveShortName(null);
-    }
     if (theirs.proxyStale) {
       setProxyStale(true);
       setProxyStaleDismissed(false);
@@ -1105,7 +1059,7 @@ export const App = () => {
     try {
       const theirs = await getProject();
       const base = reviewDocsOf(proj);
-      const mine: ReviewDocs = { cutplan, overlays, transcript, bgm, shorts };
+      const mine: ReviewDocs = { cutplan, overlays, transcript, bgm };
       const theirsDocs = reviewDocsOf(theirs);
       const result = threeWayDiff(base, mine, theirsDocs);
       if (result.cleanMerge) {
@@ -1207,7 +1161,7 @@ export const App = () => {
   /** イベントハンドラから最新の編集ドキュメントを参照するための控え */
   const docsRef = useRef<HistoryDocs | null>(null);
   docsRef.current =
-    cutplan && overlays && transcript ? { cutplan, overlays, transcript, bgm, shorts } : null;
+    cutplan && overlays && transcript ? { cutplan, overlays, transcript, bgm } : null;
 
   /** クリップのコピー&ペースト用のアプリ内クリップボード(OS のクリップボードは
    * 経由しない)。⌘C で選択中クリップの中身を控え、⌘V で再生ヘッド位置へ複製する */
@@ -1230,8 +1184,7 @@ export const App = () => {
       top?.cutplan === d.cutplan &&
       top?.overlays === d.overlays &&
       top?.transcript === d.transcript &&
-      top?.bgm === d.bgm &&
-      top?.shorts === d.shorts
+      top?.bgm === d.bgm
     ) {
       return;
     }
@@ -1252,7 +1205,6 @@ export const App = () => {
     setOverlays(d.overlays);
     setTranscript(d.transcript);
     setBgm(d.bgm);
-    setShorts(d.shorts !== undefined ? d.shorts ?? null : shorts);
     setCapMulti([]); // 添字がずれている可能性があるので複数選択は解除
     setSelectionState((sel) => (selectionValid(sel, d) ? sel : null));
   };
@@ -1325,52 +1277,6 @@ export const App = () => {
     return list.length > 0 ? mergeIntervals(list) : null;
   }, [proj, cutplan]);
 
-  /* ---------------- ショートモード ----------------
-   * 選択中のショートは本編とは独立の keep 集合(ranges)を持つ別の出力。
-   * D2/D4 の実装(src/stages/render.ts の renderOneShort)と同じ規則:
-   * ranges を mergeIntervals した集合がそのままショートの keep 集合になり
-   * (本編 cutplan とは交差させない)、overlays/inserts/wipeFull/bgm は
-   * 継承しない(v1 スコープ)。 */
-  const activeShort = useMemo(
-    () => (activeShortName ? (shorts?.shorts.find((s) => s.name === activeShortName) ?? null) : null),
-    [shorts, activeShortName],
-  );
-  const shortMode = activeShort !== null;
-  // 選択中のショートが削除された等で見つからなくなったら本編モードへ戻る
-  useEffect(() => {
-    if (activeShortName && !activeShort) setActiveShortName(null);
-  }, [activeShortName, activeShort]);
-  // モード切替(本編⇔ショート、ショート間)では選択を持ち越さない
-  // (indices の意味がモードごとに違うため)
-  useEffect(() => {
-    setSelectionState(null);
-    setCapMulti([]);
-  }, [activeShortName]);
-  // 本編からショートへ切り替えた時、インスペクタが閉じていれば自動で開く
-  // (右インスペクタの「ショート」節の発見性を担保する一度きりのナッジ。
-  // ショート間の切替や本編へ戻す操作では再オープンしない)
-  const wasShortRef = useRef(false);
-  useEffect(() => {
-    if (activeShortName && !wasShortRef.current) setInspOpen(true);
-    wasShortRef.current = activeShortName !== null;
-  }, [activeShortName]);
-  const shortKeepsMerged = useMemo(
-    () => mergeIntervals(activeShort?.ranges ?? []),
-    [activeShort],
-  );
-  const shortTimelineMemo = useMemo(
-    () => buildTimeline(shortKeepsMerged, []),
-    [shortKeepsMerged],
-  );
-  /** 共有コード(再生・シーク・テロップ表示・ドラッグ)が参照する「いまの
-   * モードの写像」。本編モードでは main の timeline と同じ */
-  const curTimeline = shortMode ? shortTimelineMemo : timeline;
-  /** テロップの位置/スタイル解決に使う captionTracks の出典。ショートモードは
-   * shorts.json の当該ショートの captionTracks(D2)、本編は overlays.json */
-  const curCaptionOverlays = useMemo<Overlays>(
-    () => (shortMode && activeShort ? { captionTracks: activeShort.captionTracks } : (overlays ?? {})),
-    [shortMode, activeShort, overlays],
-  );
   /** 重なり順(下→上)。overlays.json の layerOrder を正規化したもの */
   const layerOrder = useMemo(
     () =>
@@ -1407,49 +1313,11 @@ export const App = () => {
       : []),
     [proj],
   );
-  /** Timeline へ渡すトラック一覧。ショートモードは ranges 帯 + テロップ
-   * トラックだけに絞る(D6: 別ビューを作らず既存 Timeline を最小限流用) */
-  const timelineTracks = useMemo(
-    () => (shortMode ? [SHORT_TRACK_DEF, ...tracks.filter((t) => capNum(t.id) !== null)] : tracks),
-    [shortMode, tracks],
-  );
+  const timelineTracks = tracks;
 
   const built = useMemo(() => {
     if (!proj || !cutplan || !overlays || !transcript) return null;
     const warnings: string[] = [];
-    if (shortMode && activeShort) {
-      // ショートモード: render.ts の renderOneShort と同じ組み立て
-      // (keeps = shortKeepsMerged、overlays は captionTracks だけ、
-      // bgm/silences なし、profile で出力サイズ・レイアウトを切替)。
-      // 手編集で不正な profile 名が入っている可能性があるので、throw させず
-      // 警告して既定(defaultShortProfileName(proj.hasCamera))にフォールバックする
-      // (validate は別途エラーにする)
-      let shortProfile: Profile;
-      try {
-        shortProfile = resolveShortProfile(activeShort.profile, proj.output, proj.hasCamera);
-      } catch (e) {
-        warnings.push((e as Error).message);
-        shortProfile = resolveShortProfile(undefined, proj.output, proj.hasCamera);
-      }
-      const props = buildRenderProps({
-        manifest: proj.manifest,
-        keeps: shortKeepsMerged,
-        transcript,
-        overlays: { captionTracks: activeShort.captionTracks },
-        renderCfg: proj.renderCfg,
-        width: shortProfile.width,
-        height: shortProfile.height,
-        profile: shortProfile,
-        videoFile: "media/proxy.mp4",
-        videoIsSource: true,
-        bgm: null,
-        bgmFallbackFile: null,
-        silences: null,
-        overlayExists: () => true,
-        warn: (m) => warnings.push(m),
-      });
-      return { warnings, props };
-    }
     const props = buildRenderProps({
       manifest: proj.manifest,
       keeps,
@@ -1478,7 +1346,7 @@ export const App = () => {
           "プレビュー・レンダーには効いています(テロップの直接編集を推奨)",
       );
     }
-    // ぼかし×ズームの時間重なり・ぼかし×ショートの非継承は buildRenderProps が
+    // ぼかし×ズームの時間重なりは buildRenderProps が
     // 出さない validate.ts 専用の warn なので、hideCaption と同じ流儀で
     // ここに明示 push する(判断5。保存は通す=warn であって error ではない)
     const blurs = overlays.blurs ?? [];
@@ -1493,20 +1361,6 @@ export const App = () => {
           break;
         }
       }
-      if ((shorts?.shorts.length ?? 0) > 0) {
-        warnings.push(
-          "本編に領域ぼかしがありますが、ショートには継承されません。" +
-            "ショートに秘匿情報が写る場合は別途隠してください",
-        );
-      }
-    }
-    // 注釈グラフィックのショート非継承警告(validate.ts と parity。
-    // annotation×zoom の時間重なりは validate が警告しないのでここでも出さない)
-    if ((overlays.annotations?.length ?? 0) > 0 && (shorts?.shorts.length ?? 0) > 0) {
-      warnings.push(
-        "本編に注釈グラフィックがありますが、ショートには継承されません。" +
-          "ショートにも指し示したい場合は別途足してください",
-      );
     }
     // codec 非対応の素材が overlays/inserts で使われていると Player でも黒く映る。
     // 素材パネルのプレースホルダだけでは Player の空表示を説明できないので
@@ -1552,8 +1406,7 @@ export const App = () => {
       },
     };
   }, [
-    proj, cutplan, overlays, transcript, bgm, keeps, shortMode, activeShort, shortKeepsMerged,
-    shorts, mediaCodecFacts,
+    proj, cutplan, overlays, transcript, bgm, keeps, mediaCodecFacts,
   ]);
 
   const aiWorkflowReview = isAiWorkflowReviewState(aiWorkflow) ? aiWorkflow : null;
@@ -1583,13 +1436,13 @@ export const App = () => {
     const tr = focusedDiffEvent?.timeRange;
     if (!tr || !focusedDiffEvent) return null;
     // F2: バウンド再生の範囲もカット後秒で持つ(playhead と同じ軸)
-    const pieces = remapInterval(tr.startSec, tr.endSec, curTimeline);
+    const pieces = remapInterval(tr.startSec, tr.endSec, timeline);
     if (pieces.length === 0) return null;
     return diffPreviewRange(
       { startSec: pieces[0].start, endSec: pieces[pieces.length - 1].end },
       focusedDiffEvent.kind,
     );
-  }, [focusedDiffEvent, curTimeline]);
+  }, [focusedDiffEvent, timeline]);
 
   /** F8: 「後」= いまフォーカスしている1件だけを当てた絵。
    * 承認済みのものは既に live docs に入っているので重ねない */
@@ -1606,7 +1459,7 @@ export const App = () => {
       .filter((h): h is Hunk => Boolean(h) && !review.settled.has(h));
     if (targets.length === 0) return null;
     const merged = applyProposalResolution(
-      { cutplan, overlays, transcript, bgm, shorts },
+      { cutplan, overlays, transcript, bgm },
       review.response.proposal.proposedDocs,
       review.diff,
       resolutionForOnly(review.diff.hunks, targets),
@@ -1641,7 +1494,7 @@ export const App = () => {
         ...(design ? { design } : {}),
       },
     };
-  }, [proj, cutplan, overlays, transcript, bgm, shorts, aiEditEnabled, aiWorkflow, focusedDiffEvent]);
+  }, [proj, cutplan, overlays, transcript, bgm, aiEditEnabled, aiWorkflow, focusedDiffEvent]);
 
   /** Player に渡す props。トラック別ミュート・レイヤーの一時非表示は
    * プレビューにだけ効かせる(built.props は書き出しと同じ内容のまま保つ) */
@@ -1690,9 +1543,6 @@ export const App = () => {
   const srcDur = proj?.manifest.durationSec ?? 0;
   /** 画像素材・尺不明素材を置くときの既定の尺(秒)。config で変更できる */
   const defaultImgSec = proj?.editorCfg.defaultImageDurationSec ?? 4;
-  /** ショート新規追加(addShort)で、選択中の keep クリップもプレイヘッドの
-   * 位置も取れないときの既定レンジ長(秒)。config で変更できる */
-  const defaultShortRangeSec = proj?.editorCfg.defaultShortRangeSec ?? 10;
 
   // 未保存の編集の有無。JSON 全体の stringify 比較はドキュメントが
   // 差し替わったときだけ行う(毎レンダーで3ドキュメントを直列化すると、
@@ -1713,12 +1563,8 @@ export const App = () => {
     () => !!proj && JSON.stringify(bgm ?? null) !== JSON.stringify(proj.bgm ?? null),
     [proj, bgm],
   );
-  const shortsDirty = useMemo(
-    () => !!proj && JSON.stringify(shorts ?? null) !== JSON.stringify(proj.shorts ?? null),
-    [proj, shorts],
-  );
   const anyDirty =
-    cutplanDirty || overlaysDirty || transcriptDirty || bgmDirty || shortsDirty;
+    cutplanDirty || overlaysDirty || transcriptDirty || bgmDirty;
   const aiBusy = aiWorkflow?.phase === "proposing";
   const aiWorkflowLocked =
     aiWorkflow !== null &&
@@ -1893,13 +1739,13 @@ export const App = () => {
     seekOut(clamp((e.clientX - rect.left) / rect.width, 0, 1) * duration);
   };
   /** カット後の時刻を元収録の秒へ(終端は少し内側に丸める)。
-   * ショートモードでは当該ショートの写像(curTimeline)を使う */
+   * 読み取り専用モードでは現在の写像(timeline)を使う */
   const srcAt = (outT: number): number | null =>
-    toSourceTime(clamp(outT, 0, Math.max(0, duration - 0.01)), curTimeline);
+    toSourceTime(clamp(outT, 0, Math.max(0, duration - 0.01)), timeline);
   /** 元収録の秒へ再生ヘッドを移動(カット内なら直後の keep へスナップ)。
    * インスペクタの「ここを再生」・発言リストのクリックが使う */
   const seekToSrc = (src: number) => {
-    const o = snapToOutput(src, curTimeline);
+    const o = snapToOutput(src, timeline);
     if (o !== null) seekOut(clamp(o, 0, Math.max(0, duration - 0.01)));
   };
   /** 再生ヘッド位置の元収録の秒(カット外・挿入クリップ上は null)を返す。
@@ -1907,42 +1753,14 @@ export const App = () => {
    * 読む(ボタンの活性は usePlayheadSelector で null かどうかだけ購読) */
   const getPlayheadSrc = useCallback(
     (): number | null =>
-      toSourceTime(clamp(playhead.get(), 0, Math.max(0, duration - 0.01)), curTimeline),
-    [curTimeline, duration],
+      toSourceTime(clamp(playhead.get(), 0, Math.max(0, duration - 0.01)), timeline),
+    [timeline, duration],
   );
 
   /* ---------------- タイムラインのクリップ ---------------- */
 
   const clips = useMemo<Clip[]>(() => {
     if (!transcript || !built) return [];
-    if (shortMode) {
-      // ショートモード: テロップ(位置編集用に流用)+ ranges 帯だけを描く
-      // (D6: 新規サーフェスは最小限。overlays/cut/bgm/insert は非対応・v1)
-      if (!activeShort) return [];
-      const cs: Clip[] = [];
-      transcript.segments.forEach((s, i) => {
-        const parts = remapInterval(s.start, s.end, shortTimelineMemo);
-        parts.forEach((iv, j) => {
-          cs.push({
-            kind: "caption", index: i, track: capId(captionTrack(s)),
-            outStart: iv.start, outEnd: iv.end, label: s.text.trim(), editable: true,
-            noTrimStart: j > 0, noTrimEnd: j < parts.length - 1,
-          });
-        });
-      });
-      activeShort.ranges.forEach((r, i) => {
-        const parts = remapInterval(r.start, r.end, shortTimelineMemo);
-        parts.forEach((iv, j) => {
-          cs.push({
-            kind: "short", index: i, track: "short",
-            outStart: iv.start, outEnd: iv.end,
-            label: `${r.start.toFixed(1)}s〜${r.end.toFixed(1)}s`, editable: true,
-            noTrimStart: j > 0, noTrimEnd: j < parts.length - 1,
-          });
-        });
-      });
-      return cs;
-    }
     if (!cutplan || !overlays) return [];
     const cs: Clip[] = [];
     // テロップ: transcript.segments を直接編集する(index = segments の添字)。
@@ -2095,7 +1913,6 @@ export const App = () => {
     return cs;
   }, [
     cutplan, overlays, transcript, bgm, built, timeline, duration, proj?.bgmFile,
-    shortMode, activeShort, shortTimelineMemo,
   ]);
 
   /** ステッカー/エフェクト タブからドラッグ中のプリセット。null = ドラッグしていない。
@@ -2123,7 +1940,7 @@ export const App = () => {
     : false;
   /** F2: 元収録秒の区間をカット後秒へ */
   const diffTimeToOutput = (startSec: number, endSec: number) => {
-    const pieces = remapInterval(startSec, endSec, curTimeline);
+    const pieces = remapInterval(startSec, endSec, timeline);
     if (pieces.length > 0) {
       return {
         start: pieces[0].start,
@@ -2131,7 +1948,7 @@ export const App = () => {
         inCut: false,
       };
     }
-    const snapped = snapToOutput(startSec, curTimeline);
+    const snapped = snapToOutput(startSec, timeline);
     if (snapped === null) return null;
     return { start: snapped, end: snapped, inCut: true };
   };
@@ -2202,7 +2019,6 @@ export const App = () => {
    * または「今インスペクタで編集中のテロップトラック」、またはプリセットの
    * ドラッグ中でその行が対象トラックのときだけ表示(OpenCut 流)。 */
   const visibleTracks = useMemo(() => {
-    if (shortMode) return timelineTracks;
     const occupied = new Set(clips.map((c) => c.track));
     // F3: AI提案のあるトラックは、まだクリップが1つも無くても表示する
     const hasDiff = new Set(diffTracks.map((dt) => dt.sourceTrack.id));
@@ -2217,7 +2033,7 @@ export const App = () => {
           selection?.kind === "captionTrack" &&
           selection.index === t.renamableCaption),
     );
-  }, [timelineTracks, clips, shortMode, selection, presetDrag, diffTracks, proj?.hasCamera]);
+  }, [timelineTracks, clips, selection, presetDrag, diffTracks, proj?.hasCamera]);
 
   /* ---------------- カット編集(分割・keep⇄cut・復元) ----------------
    * cut 区間は削除せず記録として残す(plan の候補と同じ扱い)。だから
@@ -2228,8 +2044,7 @@ export const App = () => {
    * 上まで伸び直したものは出さない)。同じ継ぎ目に複数の記録があるときは
    * stack で横に少しずらして両方掴めるようにする */
   const cutMarks = useMemo(() => {
-    // ショートモードには「カット記録」の概念がない(ranges は独立の keep 集合)
-    if (!cutplan || shortMode) return [];
+    if (!cutplan) return [];
     const marks: CutMark[] = [];
     const stackAt = new Map<number, number>();
     cutplan.segments.forEach((s, i) => {
@@ -2241,7 +2056,7 @@ export const App = () => {
       marks.push({ index: i, out, durSec: round2(s.end - s.start), reason: s.reason, stack });
     });
     return marks;
-  }, [cutplan, timeline, duration, shortMode]);
+  }, [cutplan, timeline, duration]);
 
   /** outT が keep 区間の内側(境界から MIN_SPAN より内)にあるときだけ
    * 分割できる。-1 = 分割できる位置ではない。再生ヘッドの現在値は
@@ -2267,7 +2082,7 @@ export const App = () => {
     return sp ? sp.index : -1;
   };
 
-  /** 選択中スパンの {start,end}(元収録の秒)。cut/insert/wipe/short/captionTrack は null。 */
+  /** 選択中スパンの {start,end}(元収録の秒)。cut/insert/wipe/captionTrack は null。 */
   const selectedSpanInterval = (): { start: number; end: number } | null => {
     if (!selection) return null;
     const { kind, index } = selection;
@@ -2287,22 +2102,22 @@ export const App = () => {
    * 判定(getSplitDisabled)がスパン選択時にも点灯するように使う */
   const spanSplittableAt = (outT: number): boolean => {
     const span = selectedSpanInterval();
-    if (span === null || shortMode) return false;
-    const at = toSourceTime(clamp(outT, 0, Math.max(0, duration - 0.01)), curTimeline);
+    if (span === null) return false;
+    const at = toSourceTime(clamp(outT, 0, Math.max(0, duration - 0.01)), timeline);
     return at !== null && at > span.start + MIN_SPAN && at < span.end - MIN_SPAN;
   };
 
   /** 分割ボタンの非活性判定。Timeline 側がボタン単体で再生ヘッドを購読して
    * 評価する(App を毎フレーム再レンダーしないため関数で渡す) */
   const getSplitDisabled = (outT: number): boolean =>
-    shortMode || (splitIndexAt(outT) === -1 && splitInsertIndexAt(outT) === -1 && !spanSplittableAt(outT));
+    splitIndexAt(outT) === -1 && splitInsertIndexAt(outT) === -1 && !spanSplittableAt(outT);
 
   /** 選択中のスパンを再生ヘッド位置で2つに割る(⌘K がスパン選択時に使う)。
    * 左が元 id を保持・右は id を落とす(splitAtPlayhead と同じ規約)。元収録の秒で
    * 書くので dual-axis 写像は不変。承認 hash は cut 集合に束縛されるため失効しない。
    * 割れたら true(呼び出し側は return)、対象外/範囲外は false(既存の分割へ委譲)。 */
   const splitSelectedSpan = (): boolean => {
-    if (!selection || shortMode) return false;
+    if (!selection) return false;
     const { kind, index } = selection;
     const at = srcAt(playhead.get());
     if (at === null) return false;
@@ -2406,7 +2221,7 @@ export const App = () => {
    * 優先して2分割する(cut/insert の分割は選択が無い/対象外のときのみ) */
   const splitAtPlayhead = () => {
     if (splitSelectedSpan()) return;
-    if (!cutplan || shortMode) return;
+    if (!cutplan) return;
     const outT = playhead.get();
     const splitIndex = splitIndexAt(outT);
     if (splitIndex === -1) {
@@ -2503,7 +2318,7 @@ export const App = () => {
   /** スクリプトタブ: 選択した語の範囲(元収録の秒)をカットする。
    * 範囲計算は model.ts の純関数(cutSourceRange)で、ここは履歴と state だけ */
   const cutScriptRange = (start: number, end: number) => {
-    if (!cutplan || shortMode) return;
+    if (!cutplan) return;
     const r = cutSourceRange(cutplan.segments, { start, end }, MIN_SPAN);
     if (!r.ok) {
       if (r.reason === "empty") setError("すべての映像をカットすることはできません");
@@ -2515,7 +2330,7 @@ export const App = () => {
 
   /** スクリプトタブ: 取り消し線の範囲(元収録の秒)を keep へ戻す */
   const restoreScriptRange = (start: number, end: number) => {
-    if (!cutplan || shortMode) return;
+    if (!cutplan) return;
     const r = restoreSourceRange(cutplan.segments, { start, end }, MIN_SPAN);
     if (!r.ok) return;
     pushHistory();
@@ -2567,9 +2382,9 @@ export const App = () => {
     return transcript.segments.map((s, i) => ({
       index: i,
       empty: s.text.trim().length === 0,
-      ivs: remapInterval(s.start, s.end, curTimeline),
+      ivs: remapInterval(s.start, s.end, timeline),
     }));
-  }, [transcript, curTimeline]);
+  }, [transcript, timeline]);
 
   /** outT に表示中のテロップの添字列(LiveCaptionOverlay の購読キー)。
    * キーが変わったとき=表示中の組が入れ替わったときだけ本体を作り直す */
@@ -2595,10 +2410,10 @@ export const App = () => {
         const s = transcript.segments[c.index];
         // 実効位置が確定しているものはトラックの anchor に従い、
         // 位置未指定(下部中央)は engine と同じフォールバック位置を掴ませる。
-        // ショートモードは curCaptionOverlays(当該ショートの captionTracks)
+        // 読み取り専用モードは overlays(現在の captionTracks)
         // から解決する(D2/5-4)
-        const pos = captionPosOf(s, curCaptionOverlays);
-        const style = captionStyleOf(s, curCaptionOverlays);
+        const pos = captionPosOf(s, overlays);
+        const style = captionStyleOf(s, overlays);
         const fontSizePx = style?.fontSizePx ?? built.props.caption.fontSizePx;
         // 当たり判定枠を「テキスト芯」ではなく「実際に見える字幕」に合わせる
         // ため、縁取り(WebkitTextStroke)と座布団(background の padding)の
@@ -2622,7 +2437,7 @@ export const App = () => {
             index: c.index,
             text: s.text.trim(),
             pos: pos ?? std.pos,
-            anchor: pos ? captionAnchorOf(s, curCaptionOverlays) : std.anchor,
+            anchor: pos ? captionAnchorOf(s, overlays) : std.anchor,
             fontSizePx,
             // config の既定(render.caption*)まで解決して渡す(当たり判定の
             // フォント計量を本編の見た目と一致させる)
@@ -2635,19 +2450,18 @@ export const App = () => {
         ];
       });
     },
-    [captionIntervals, transcript, overlays, built, stdCaptionPosFor, curCaptionOverlays],
+    [captionIntervals, transcript, overlays, built, stdCaptionPosFor, overlays],
   );
 
   /** 素材(overlays.overlays)ごとのカット後の表示区間。テロップと同じ流儀で
    * 再生ヘッド購読時の「いま表示中か」を軽く判定するための前計算 */
   const overlayIntervals = useMemo(() => {
-    // ショートモードは overlays.json の素材(部分配置)を継承しない(v1 スコープ)
-    if (!overlays || shortMode) return [];
+    if (!overlays) return [];
     return (overlays.overlays ?? []).map((sp, i) => ({
       index: i,
       ivs: remapInterval(sp.start, sp.end, timeline),
     }));
-  }, [overlays, timeline, shortMode]);
+  }, [overlays, timeline]);
 
   /** outT に表示中の「部分配置(rect あり)」素材の添字列(購読キー)。
    * 全画面(rect なし)はプレビュー上に枠を出さないので含めない */
@@ -2679,14 +2493,14 @@ export const App = () => {
   );
 
   /** ズーム(overlays.zooms)ごとのカット後の表示区間。素材(部分配置)と
-   * 同じ流儀でプレビュー上に rect の枠を出す(ショートモードは継承しない) */
+   * 同じ流儀でプレビュー上に rect の枠を出す */
   const zoomIntervals = useMemo(() => {
-    if (!overlays || shortMode) return [];
+    if (!overlays) return [];
     return (overlays.zooms ?? []).map((z, i) => ({
       index: i,
       ivs: remapInterval(z.start, z.end, timeline),
     }));
-  }, [overlays, timeline, shortMode]);
+  }, [overlays, timeline]);
 
   /** outT に表示中のズーム区間の添字列(購読キー) */
   const visibleZoomKey = useCallback(
@@ -2715,14 +2529,14 @@ export const App = () => {
   );
 
   /** ぼかし(overlays.blurs)ごとのカット後の表示区間。zoom と同じ流儀で
-   * プレビュー上に rect の枠を出す(ショートモードは継承しない) */
+   * プレビュー上に rect の枠を出す */
   const blurIntervals = useMemo(() => {
-    if (!overlays || shortMode) return [];
+    if (!overlays) return [];
     return (overlays.blurs ?? []).map((b, i) => ({
       index: i,
       ivs: remapInterval(b.start, b.end, timeline),
     }));
-  }, [overlays, timeline, shortMode]);
+  }, [overlays, timeline]);
 
   /** outT に表示中のぼかし区間の添字列(購読キー) */
   const visibleBlurKey = useCallback(
@@ -2754,12 +2568,12 @@ export const App = () => {
    * と arrow(点)は type で排他的に扱い、それぞれ別のオーバーレイへ渡す
    * (両方に出すと二重枠になる) */
   const annotationIntervals = useMemo(() => {
-    if (!overlays || shortMode) return [];
+    if (!overlays) return [];
     return (overlays.annotations ?? []).map((a, i) => ({
       index: i,
       ivs: remapInterval(a.start, a.end, timeline),
     }));
-  }, [overlays, timeline, shortMode]);
+  }, [overlays, timeline]);
 
   /** outT に表示中の box/spotlight 注釈の添字列(購読キー) */
   const visibleAnnotationRectKey = useCallback(
@@ -2899,154 +2713,6 @@ export const App = () => {
     });
   };
 
-  /* ---------------- ショート編集(CRUD・ranges・captionTracks) ----------------
-   * shorts.json への書き込みはすべてここに集約する。cutplan/overlays/
-   * transcript/bgm の undo 履歴(pushHistory/HistoryDocs)には含めない
-   * (別ドキュメントで、この程度の編集に undo 一貫性のコストを払う価値が
-   * 薄いと判断した意図的な簡略化)。 */
-
-  /** 選択中ショートを部分更新する(見つからなければ何もしない) */
-  const updateActiveShort = (updater: (s: Short) => Short) => {
-    if (!activeShortName) return;
-    setShorts((prev) => {
-      if (!prev) return prev;
-      const idx = prev.shorts.findIndex((s) => s.name === activeShortName);
-      if (idx === -1) return prev;
-      const next = [...prev.shorts];
-      next[idx] = updater(next[idx]);
-      return { shorts: next };
-    });
-  };
-
-  /** ショートモードのテロップトラック標準位置/スタイル/座標基準の設定
-   * (null で解除、undefined は現状維持)。setCaptionTrackDefault と同じ形
-   * だが書き込み先が shorts.json の当該ショートの captionTracks(D2/5-4:
-   * ショートは per-segment 上書きを持たず、常にトラック単位) */
-  const setShortCaptionTrackDefault = (
-    track: number,
-    patch: {
-      pos?: CaptionPos | null;
-      style?: CaptionStyle | null;
-      anchor?: "center" | "topLeft" | null;
-    },
-  ) => {
-    updateActiveShort((short) => {
-      const entry = {
-        ...((short.captionTracks ?? []).find((t) => t.track === track) ?? { track }),
-      };
-      if (patch.pos !== undefined) {
-        if (patch.pos) {
-          entry.x = patch.pos.x;
-          entry.y = patch.pos.y;
-        } else {
-          delete entry.x;
-          delete entry.y;
-        }
-      }
-      if (patch.style !== undefined) {
-        if (patch.style && Object.keys(patch.style).length > 0) entry.style = patch.style;
-        else delete entry.style;
-      }
-      if (patch.anchor !== undefined) {
-        if (patch.anchor && patch.anchor !== "center") entry.anchor = patch.anchor;
-        else delete entry.anchor;
-      }
-      const list = (short.captionTracks ?? []).filter((t) => t.track !== track);
-      if (
-        entry.x !== undefined ||
-        entry.y !== undefined ||
-        entry.style ||
-        entry.name !== undefined ||
-        entry.anchor !== undefined
-      ) {
-        list.push(entry);
-      }
-      list.sort((a, b) => a.track - b.track);
-      const next: Short = { ...short, captionTracks: list };
-      if (list.length === 0) delete next.captionTracks;
-      return next;
-    });
-  };
-
-  /** ショートの ranges 区間を更新(タイムラインのドラッグ・Inspector の
-   * タイミング編集の両方から呼ばれる) */
-  const updateShortRange = (i: number, patch: Partial<{ start: number; end: number }>) => {
-    updateActiveShort((short) => {
-      const ranges = [...short.ranges];
-      if (!ranges[i]) return short;
-      ranges[i] = { ...ranges[i], ...patch };
-      return { ...short, ranges };
-    });
-  };
-  /** ranges 区間を1つ追加(元収録の秒) */
-  const addShortRange = (start: number, end: number) => {
-    if (!activeShort) return;
-    const index = activeShort.ranges.length;
-    updateActiveShort((short) => ({ ...short, ranges: [...short.ranges, { start, end }] }));
-    setSelection({ kind: "short", index });
-  };
-  /** ranges 区間を1つ削除(最後の1件は残す。cutKeepSeg と同じ理由) */
-  const removeShortRange = (i: number) => {
-    if (!activeShort) return;
-    if (activeShort.ranges.length <= 1) {
-      setError("ショートの最後の区間は削除できません");
-      return;
-    }
-    updateActiveShort((short) => ({ ...short, ranges: short.ranges.filter((_, j) => j !== i) }));
-    setSelection(null);
-  };
-
-  /** 収録内で一意なショート名を作る("short-1", "short-2", ...) */
-  const nextShortName = (): string => {
-    const used = new Set((shorts?.shorts ?? []).map((s) => s.name));
-    for (let i = 1; ; i++) {
-      const name = `short-${i}`;
-      if (!used.has(name)) return name;
-    }
-  };
-  /** ショートを1本追加(承認は人間の仕事なので approved: false 固定)。
-   * 既定 ranges は優先順に: (a) 本編で keep クリップ選択中ならその区間、
-   * (b) 無ければプレイヘッドの現在元秒から defaultShortRangeSec 分、
-   * (c) それも取れなければ先頭から defaultShortRangeSec 分。
-   * 追加したショートへそのままモードを切り替える */
-  const addShort = () => {
-    const name = nextShortName();
-    const selCut =
-      selection?.kind === "cut" ? cutplan?.segments[selection.index] : undefined;
-    let range: { start: number; end: number };
-    if (selCut) {
-      range = { start: round2(selCut.start), end: round2(selCut.end) };
-    } else {
-      const src = toSourceTime(playhead.get(), timeline);
-      const start = src !== null ? round2(src) : 0;
-      range = { start, end: round2(Math.min(start + defaultShortRangeSec, srcDur)) };
-    }
-    const short: Short = { name, approved: false, ranges: [range] };
-    setShorts((prev) => ({ shorts: [...(prev?.shorts ?? []), short] }));
-    setActiveShortName(name);
-  };
-  /** ショートをリネーム(名前は shorts.json 内で一意な必要がある) */
-  const renameShort = (oldName: string, newName: string): void => {
-    const trimmed = newName.trim();
-    if (!trimmed || trimmed === oldName) return;
-    if ((shorts?.shorts ?? []).some((s) => s.name === trimmed)) {
-      setError(`ショート名が重複しています: ${trimmed}`);
-      return;
-    }
-    setShorts(
-      (prev) =>
-        prev && {
-          shorts: prev.shorts.map((s) => (s.name === oldName ? { ...s, name: trimmed } : s)),
-        },
-    );
-    if (activeShortName === oldName) setActiveShortName(trimmed);
-  };
-  /** ショートを削除する(確認は呼び出し側 = パネルで挟む) */
-  const removeShort = (name: string) => {
-    setShorts((prev) => prev && { shorts: prev.shorts.filter((s) => s.name !== name) });
-    if (activeShortName === name) setActiveShortName(null);
-  };
-
   /* ---------------- ドラッグ編集 ----------------
    * ドラッグ開始時点のドキュメント・写像・掴んだクリップの位置を控えておき、
    * 毎回「控え+累計移動量」から作り直す(トリムでタイムライン自体が動いても
@@ -3060,10 +2726,7 @@ export const App = () => {
     overlays: Overlays;
     transcript: Transcript;
     bgm: Bgm | null;
-    /** ショートモードのドラッグ開始時スナップショット(本編モードでは null) */
-    shorts: Shorts | null;
-    /** ドラッグ開始時の写像と、掴んだクリップのカット後位置(Δ の基準)。
-     * ショートモードでは shortTimelineMemo(当該ショートの写像) */
+    /** ドラッグ開始時の写像と、掴んだクリップのカット後位置(Δ の基準)。 */
     timeline: TimelineEntry[];
     grabOutStart: number;
     grabOutEnd: number;
@@ -3074,8 +2737,8 @@ export const App = () => {
   const onDragStart = (sel: NonNullable<Selection>, mode: DragMode, clip: Clip) => {
     if (!cutplan || !overlays || !transcript) return;
     dragRef.current = {
-      sel, mode, cutplan, overlays, transcript, bgm, shorts,
-      timeline: curTimeline, grabOutStart: clip.outStart, grabOutEnd: clip.outEnd, pushed: false,
+      sel, mode, cutplan, overlays, transcript, bgm,
+      timeline: timeline, grabOutStart: clip.outStart, grabOutEnd: clip.outEnd, pushed: false,
     };
   };
   const onDragEnd = () => {
@@ -3086,9 +2749,7 @@ export const App = () => {
     if (!ctx) return;
     // クリックだけ(移動なし)では積まない。ドラッグ中の更新は毎回届くが
     // 履歴はドラッグ開始前の状態1回分だけ(1ドラッグ=1 undo)。
-    // ショート(shorts.json)の編集は cutplan/overlays/transcript/bgm の
-    // undo 履歴には含めない(意図的な簡略化。上のコメント参照)
-    if (!ctx.pushed && ctx.sel.kind !== "short") {
+    if (!ctx.pushed) {
       ctx.pushed = true;
       pushHistory();
     }
@@ -3313,24 +2974,6 @@ export const App = () => {
       }
       tracks[sel.index] = next;
       setBgm({ tracks });
-    } else if (sel.kind === "short") {
-      // ショートの ranges 区間。move/trim の計算は overlays/wipeFull と同じ
-      // retime を流用(ranges は重なり・不整列でもよい。mergeIntervals は
-      // buildRenderProps 側で行う。D2)
-      const shortsDoc = ctx.shorts;
-      if (!shortsDoc) return;
-      const idx = shortsDoc.shorts.findIndex((s) => s.name === activeShortName);
-      if (idx === -1) return;
-      const short = shortsDoc.shorts[idx];
-      const ranges = [...short.ranges];
-      const r = ranges[sel.index];
-      if (!r) return;
-      const t = retime(r);
-      if (!t) return;
-      ranges[sel.index] = t;
-      setShorts({
-        shorts: shortsDoc.shorts.map((s, i) => (i === idx ? { ...short, ranges } : s)),
-      });
     }
   };
 
@@ -3474,7 +3117,6 @@ export const App = () => {
     else if (kind === "blur") addBlurSpan(start, end);
     else if (kind === "annotation") addAnnotationSpan(start, end);
     else if (kind === "bgm") addBgmSpan(start, end);
-    else if (kind === "short") addShortRange(start, end);
     else addCaption(start, end, track);
   };
   /** 再生ヘッド位置に既定尺の区間を1つ足す(左レール Effects/Transitions タブの共通入口)。
@@ -3596,8 +3238,6 @@ export const App = () => {
       addByKind("annotation", round2(s), round2(e));
     } else if (track === "bgm") {
       addByKind("bgm", round2(s), round2(e));
-    } else if (track === "short") {
-      addByKind("short", round2(s), round2(e));
     } else if (cn !== null) {
       addByKind("caption", round2(s), round2(e), cn);
     }
@@ -4187,7 +3827,6 @@ export const App = () => {
     else if (selection.kind === "zoom") removeZoom(selection.index);
     else if (selection.kind === "blur") removeBlur(selection.index);
     else if (selection.kind === "annotation") removeAnnotation(selection.index);
-    else if (selection.kind === "short") removeShortRange(selection.index);
     else if (selection.kind === "cut") {
       // 映像クリップの Delete は削除ではなくカット(記録に倒すだけ。
       // 継ぎ目の印からいつでも戻せる)
@@ -4199,7 +3838,7 @@ export const App = () => {
 
   /** 指定した選択(kind/index)の中身を Clipboard スナップショットへ複製する。
    * copySelected(⌘C)と duplicateSelected(⌘D)の共通経路。複製できる中身を
-   * 持たない選択(insert / wipe / 映像 keep / ショート範囲)は null */
+   * 持たない選択(insert / wipe / 映像 keep / 読み取り専用範囲)は null */
   const buildClip = (kind: SelKind, index: number): Clipboard | null => {
     if (kind === "caption") {
       const s = transcript?.segments[index];
@@ -4224,11 +3863,11 @@ export const App = () => {
   };
 
   /** 選択中クリップの中身をクリップボードへ控える(⌘C)。複製できる中身を
-   * 持たない選択(insert / wipe / 映像 keep / ショート範囲)は対象外 */
+   * 持たない選択(insert / wipe / 映像 keep / 読み取り専用範囲)は対象外 */
   const copySelected = () => {
     if (!selection) return;
     const clip = buildClip(selection.kind, selection.index);
-    // 複製できる中身が無い選択(insert / wipe / 映像 keep / ショート範囲)は無反応
+    // 複製できる中身が無い選択(insert / wipe / 映像 keep / 読み取り専用範囲)は無反応
     if (!clip) return;
     clipboardRef.current = clip;
   };
@@ -4336,8 +3975,6 @@ export const App = () => {
   const pasteClipboard = () => {
     const clip = clipboardRef.current;
     if (!clip) return;
-    // ショートモードは本編クリップの座標系と別なので今は貼らせない(範囲だけ扱う)
-    if (shortMode) return;
     // 再生ヘッドが keep 区間の外(カット/挿入クリップ上)なら貼り付け先が無い
     const base = srcAt(playhead.get());
     if (base === null) return;
@@ -4348,7 +3985,7 @@ export const App = () => {
    * (insertClipAt)を base=元 end で再利用するので dual-axis 変換は paste と共通。
    * insert は Clipboard 非対応なので専用分岐(at+durationSec で直後へ)。 */
   const duplicateSelected = () => {
-    if (!selection || shortMode) return;
+    if (!selection) return;
     const { kind, index } = selection;
     if (kind === "insert") {
       const ins = overlays?.inserts?.[index];
@@ -4363,7 +4000,7 @@ export const App = () => {
       return;
     }
     const clip = buildClip(kind, index);
-    if (!clip) return; // 複製非対応 kind(wipe / 映像 keep / ショート範囲)は無反応
+    if (!clip) return; // 複製非対応 kind(wipe / 映像 keep / 読み取り専用範囲)は無反応
     insertClipAt(clip, clip.entry.end); // 元の直後(元収録の秒)へ
   };
 
@@ -4377,10 +4014,6 @@ export const App = () => {
       ...(JSON.stringify(transcript) !== JSON.stringify(proj.transcript) ? { transcript } : {}),
       // bgm は null(bgm.json 削除)も送るので、キーの有無で変更を判定する
       ...(JSON.stringify(bgm ?? null) !== JSON.stringify(proj.bgm ?? null) ? { bgm } : {}),
-      // shorts も同様、null/空は shorts.json 削除
-      ...(JSON.stringify(shorts ?? null) !== JSON.stringify(proj.shorts ?? null)
-        ? { shorts }
-        : {}),
     };
     if (Object.keys(body).length > 0) {
       try {
@@ -4398,7 +4031,7 @@ export const App = () => {
         throw e; // heavyJob 409 等はこれまでどおり呼び出し側/エラー表示へ
       }
     }
-    setProj({ ...proj, cutplan, overlays, transcript, bgm, shorts });
+    setProj({ ...proj, cutplan, overlays, transcript, bgm });
     // 保存 = こちらの内容で上書きすると選んだということ。外部変更の警告は下げる
     setExternalChange(false);
     setAiWorkflow((wf) =>
@@ -4443,7 +4076,6 @@ export const App = () => {
     setOverlays(d.overlays);
     setTranscript(d.transcript);
     setBgm(d.bgm ?? null);
-    setShorts(d.shorts !== undefined ? d.shorts ?? null : shorts);
     setCapMulti([]);
     setSelectionState((sel) => (selectionValid(sel, d) ? sel : null));
     setDraftOffer(null);
@@ -4460,7 +4092,6 @@ export const App = () => {
     const playheadSec = getPlayheadSrc() ?? undefined;
     const ctx: AiSelectionContext = {
       scope,
-      activeShortName,
     };
     if (scope !== "global") {
       ctx.outputSec = round2(outputSec);
@@ -4516,12 +4147,6 @@ export const App = () => {
       setObject("annotation", overlays?.annotations?.[selection.index]);
     } else if (selection.kind === "bgm") {
       setObject("range", bgm?.tracks?.[selection.index]);
-    } else if (selection.kind === "short") {
-      ctx.selectedKind = "short";
-      const range = activeShort?.ranges[selection.index];
-      const id = idOf(range);
-      if (id) ctx.selectedIds = [id];
-      addRange(range);
     }
     return ctx;
   };
@@ -4537,7 +4162,6 @@ export const App = () => {
     try {
       const response = await postAiPropose({
         instruction,
-        activeShortName,
         selection: buildAiSelectionContext(scope),
       });
       const diff = proposalDiff(reviewDocsOf(proj), response.proposal.proposedDocs);
@@ -4596,10 +4220,6 @@ export const App = () => {
     setOverlays(merged.overlays);
     setTranscript(merged.transcript);
     setBgm(merged.bgm);
-    setShorts(merged.shorts);
-    if (!merged.shorts?.shorts.some((s) => s.name === activeShortName)) {
-      setActiveShortName(null);
-    }
     setCapMulti([]);
     setSelectionState((sel) => (selectionValid(sel, merged) ? sel : null));
   };
@@ -4742,7 +4362,6 @@ export const App = () => {
         overlays: merged.overlays,
         transcript: merged.transcript,
         bgm: merged.bgm,
-        shorts: merged.shorts,
       };
       const resp = await postSave({
         ...aiSaveBody,
@@ -5339,7 +4958,7 @@ export const App = () => {
           const trackId = diffTrackIdForEvent(nextEvent);
           if (trackId) setFocusedDiffTrackId(`${DIFF_TRACK_PREFIX}${trackId}`);
           if (nextEvent.timeRange) {
-            const outSec = snapToOutput(nextEvent.timeRange.startSec, curTimeline);
+            const outSec = snapToOutput(nextEvent.timeRange.startSec, timeline);
           }
           return;
         }
@@ -5356,7 +4975,7 @@ export const App = () => {
           const trackId = diffTrackIdForEvent(prevEvent);
           if (trackId) setFocusedDiffTrackId(`${DIFF_TRACK_PREFIX}${trackId}`);
           if (prevEvent.timeRange) {
-            const outSec = snapToOutput(prevEvent.timeRange.startSec, curTimeline);
+            const outSec = snapToOutput(prevEvent.timeRange.startSec, timeline);
           }
           return;
         }
@@ -5545,7 +5164,7 @@ export const App = () => {
 
     if (side === "theirs") {
       const merged = applyProposalResolution(
-        { cutplan, overlays, transcript, bgm, shorts },
+        { cutplan, overlays, transcript, bgm },
         review.response.proposal.proposedDocs,
         review.diff,
         resolutionForOnly(review.diff.hunks, hunks),
@@ -6120,12 +5739,12 @@ export const App = () => {
                 <ScriptPanel
                   script={script}
                   error={scriptError}
-                  keeps={shortMode ? shortKeepsMerged : keeps}
+                  keeps={keeps}
                   silences={silenceEvidence}
                   noBridgeSpans={scriptCutSpans}
-                  timeline={curTimeline}
+                  timeline={timeline}
                   playing={playing}
-                  editable={!shortMode}
+                  editable
                   onSeekSrc={seekToSrc}
                   onCutRange={cutScriptRange}
                   onRestoreRange={restoreScriptRange}
@@ -6175,16 +5794,6 @@ export const App = () => {
                 />
               </>
             )}
-            {tab === "shorts" && (
-              <ShortsPanel
-                shorts={shorts}
-                activeShortName={activeShortName}
-                onSelect={setActiveShortName}
-                onAdd={addShort}
-                onRemove={removeShort}
-                onRename={renameShort}
-              />
-            )}
             {tab === "adjust" && (
               <>
                 <PanelHeader title="色調整" />
@@ -6227,9 +5836,7 @@ export const App = () => {
                   projectName={proj.dir.replace(/\/+$/, "").split("/").pop() ?? proj.dir}
                   output={proj.output}
                   fps={manifestCompositionFps(proj.manifest)}
-                  shortsCount={shorts?.shorts.length ?? 0}
                   onOpenFullSettings={openSettings}
-                  onGoShorts={() => setTab("shorts")}
                 />
               </>
             )}
@@ -6333,17 +5940,8 @@ export const App = () => {
                 selection={selection?.kind === "caption" ? selection.index : null}
                 onSelect={(i) => setSelection({ kind: "caption", index: i })}
                 onMove={(i, pos) => {
-                  // ショートモードは transcript ではなく当該ショートの
-                  // captionTracks(トラック単位)へ書く(D2/5-4)
-                  if (shortMode) {
-                    const trk = captionTrack(transcript.segments[i] ?? {});
-                    setShortCaptionTrackDefault(trk, { pos });
-                  } else {
-                    updateCaption(i, { pos }, `caption:${i}:drag`);
-                  }
+                  updateCaption(i, { pos }, `caption:${i}:drag`);
                 }}
-                // 文言(text)は本編・ショートで共有(pos と違いトラック単位で
-                // ないので shortMode でも transcript を直接書く)
                 onCommitText={(i, text) =>
                   updateCaption(i, { text }, `caption:${i}:text`)
                 }
@@ -6461,22 +6059,6 @@ export const App = () => {
           </Button>
         </div>
         <div className="tRight">
-          {/* 本編/各ショートの切替。プレビュー・タイムラインの表示対象を変える
-              操作なので、ヘッダーではなく再生コントロール側に置く */}
-          <span className="modeSwitch">
-            <select
-              value={activeShortName ?? ""}
-              title="本編 / 各ショートの切替"
-              onChange={(e) => setActiveShortName(e.target.value || null)}
-            >
-              <option value="">本編</option>
-              {(shorts?.shorts ?? []).map((s) => (
-                <option key={s.name} value={s.name}>
-                  ショート: {s.name}
-                </option>
-              ))}
-            </select>
-          </span>
           <NativeSelect
             className="zoomSel"
             value={previewZoom === "fit" ? "fit" : String(previewZoom)}
@@ -6649,7 +6231,7 @@ export const App = () => {
                 radiusPx: built.props.wipe.style?.radiusPx ?? 0,
                 shadow: built.props.wipe.style?.shadow ?? false,
               }}
-              timeline={curTimeline}
+              timeline={timeline}
               srcDur={srcDur}
               duration={duration}
               getPlayheadSrc={getPlayheadSrc}
@@ -6684,13 +6266,6 @@ export const App = () => {
               removeInsert={removeInsert}
               updateBgm={updateBgm}
               removeBgm={removeBgm}
-              shortMode={shortMode}
-              activeShort={activeShort}
-              setShortCaptionTrackDefault={setShortCaptionTrackDefault}
-              updateShortRange={updateShortRange}
-              removeShortRange={removeShortRange}
-              updateActiveShort={updateActiveShort}
-              removeShort={removeShort}
             />
           </div>
               </aside>
@@ -6802,8 +6377,7 @@ export const App = () => {
 
 /** ヘッダー直下の要対応バナー行(T4)。draftOffer / externalChange / proxyStale /
  * engineFailure /
- * warnings(built.warnings。hideCaption・blurs×zoom重なり・blursのショート非継承・
- * ショートprofileフォールバック等)は「ユーザーが操作するまで真であり続ける条件」で、
+ * warnings(built.warnings。hideCaption・blurs×zoom重なり・blursの座標警告等)は「ユーザーが操作するまで真であり続ける条件」で、
  * 時間で消える通知(トースト)とは寿命モデルが違うのでバナーに残す(warnings は
  * 対象の JSON を直せば次の再計算で自然に消える。個別の「後で」は持たない)。
  * いずれも真でなければ何も描かない。複数同時成立(externalChange + proxyStale 等)は

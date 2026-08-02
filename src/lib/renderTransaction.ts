@@ -4,7 +4,7 @@ import { basename, dirname, join } from "node:path";
 /**
  * §8.4 Render 完成物を transaction として公開する(単一 video file 限定)。
  *
- * cut.mp4 / final.mp4 / shorts/<name>.mp4 のいずれも「作りかけの成果物が
+ * cut.mp4 / final.mp4 のいずれも「作りかけの成果物が
  * 前回の正常な成果物を上書きする」事故(produce 中のクラッシュ・verify NG・
  * 入力ファイルの並行変更)を避けたい。そのため常に一時ファイルへ書き
  * (produce)、検査し(verify)、入力が書き込み中に変化していないか確認し

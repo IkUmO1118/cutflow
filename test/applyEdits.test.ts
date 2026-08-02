@@ -212,16 +212,6 @@ test("compileOps: 配列添字パス(words[0])はエラー", () => {
   assert.equal(errors[0].where, "ops[0].field");
 });
 
-test("compileOps: set で approved を指すとエラー(cutplan・short どちらも)", () => {
-  const docs = baseDocs();
-  // short 自体(@intro)の approved を触ろうとする
-  const ops: EditOp[] = [{ op: "set", target: "@intro", field: "approved", value: true }];
-  const { errors, body } = compileOps(docs, ops);
-  assert.equal(errors.length, 1);
-  assert.ok(errors[0].message.includes("approved"));
-  assert.deepEqual(body, {});
-});
-
 test("compileOps: add の value に approved を含めるとエラー", () => {
   const docs = baseDocs();
   const ops: EditOp[] = [
@@ -230,14 +220,6 @@ test("compileOps: add の value に approved を含めるとエラー", () => {
   const { errors } = compileOps(docs, ops);
   assert.equal(errors.length, 1);
   assert.ok(errors[0].message.includes("approved"));
-});
-
-test("compileOps: shorts 配下(ranges)への set/remove は対象外(replace に委ねる)", () => {
-  const docs = baseDocs();
-  const ops: EditOp[] = [{ op: "set", target: "@rg_e5e5e5", field: "start", value: 5 }];
-  const { errors } = compileOps(docs, ops);
-  assert.equal(errors.length, 1);
-  assert.ok(errors[0].message.includes("replace"));
 });
 
 test("compileOps: 未触の docs は元 docs を変更しない(呼び出し側の docs は不変)", () => {
@@ -389,19 +371,6 @@ test("applyEdits: ops で cutplan の他フィールドを編集しても approv
     assert.deepEqual(result.written, ["cutplan.json"]);
     const cutplan = JSON.parse(readRaw(dir, "cutplan.json"));
     assert.equal(cutplan.approved, false); // disk の元値のまま
-  });
-});
-
-test("applyEdits: set で approved を狙っても書けない(cutplan/short 両方)", () => {
-  withTmpProject((dir) => {
-    writeFileSync(
-      join(dir, "shorts.json"),
-      JSON.stringify({ shorts: [{ name: "s1", approved: false, ranges: [{ id: "rg_z9z9z9", start: 0, end: 1 }] }] }),
-    );
-    const patch: ApplyPatch = { ops: [{ op: "set", target: "@intro", field: "approved", value: true }] };
-    // @intro は存在しない(name は s1)ので、まず未解決 target のエラーになる
-    const plan = planApply(dir, patch);
-    assert.ok(plan.errors.length > 0);
   });
 });
 

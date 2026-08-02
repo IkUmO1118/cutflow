@@ -1,6 +1,6 @@
-// lib/approval.ts — 承認ハッシュ(cutplan/short の keep 集合に束縛)と
+// lib/approval.ts — 承認ハッシュ(cutplan の keep 集合に束縛)と
 // レコード I/O(approvals.json)を固定する。ここが render の唯一のゲート
-// (isCutplanApproved / isShortApproved)になるので、事故A(生の boolean
+// (isCutplanApproved)になるので、事故A(生の boolean
 // approved:true が render を通す)・事故B(承認後の編集で古い内容が render
 // される)を確実に潰せているかを主眼に検証する。
 import { test } from "node:test";
@@ -10,16 +10,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   clearCutplanApproval,
-  clearShortApproval,
   cutplanApprovalHash,
   isCutplanApproved,
-  isShortApproved,
   readApprovals,
-  shortApprovalHash,
   writeCutplanApproval,
-  writeShortApproval,
 } from "../src/lib/approval.ts";
-import type { CutPlan, Short } from "../src/types.ts";
+import type { CutPlan } from "../src/types.ts";
 
 function cutplanOf(segments: CutPlan["segments"]): CutPlan {
   return { approved: false, segments };
@@ -121,39 +117,6 @@ test("cutplanApprovalHash: speed が変わると hash も変わる", () => {
   assert.notEqual(a, b);
 });
 
-function shortOf(overrides: Partial<Short> = {}): Short {
-  return {
-    name: "clip-1",
-    approved: false,
-    ranges: [{ start: 100, end: 110 }],
-    ...overrides,
-  };
-}
-
-test("shortApprovalHash: 同一 ranges/profile → 同一 hash", () => {
-  const a = shortApprovalHash(shortOf());
-  const b = shortApprovalHash(shortOf());
-  assert.equal(a, b);
-});
-
-test("shortApprovalHash: profile を変えると hash 変化", () => {
-  const a = shortApprovalHash(shortOf({ profile: "vertical" }));
-  const b = shortApprovalHash(shortOf({ profile: "vertical-cover" }));
-  assert.notEqual(a, b);
-});
-
-test("shortApprovalHash: name(rename)は hash に影響しない", () => {
-  const a = shortApprovalHash(shortOf({ name: "clip-1" }));
-  const b = shortApprovalHash(shortOf({ name: "clip-renamed" }));
-  assert.equal(a, b);
-});
-
-test("shortApprovalHash: ranges が変わると hash 変化", () => {
-  const a = shortApprovalHash(shortOf());
-  const b = shortApprovalHash(shortOf({ ranges: [{ start: 100, end: 111 }] }));
-  assert.notEqual(a, b);
-});
-
 /* ---------------- fs I/O + ゲート判定 ---------------- */
 
 function withTmpDir(fn: (dir: string) => void): void {
@@ -206,28 +169,6 @@ test("clearCutplanApproval: レコードを消すと再び未承認になる", (
     clearCutplanApproval(dir);
     assert.equal(isCutplanApproved(dir, cutplan).ok, false);
     assert.equal(readApprovals(dir).cutplan, undefined);
-  });
-});
-
-test("isShortApproved: name 別にレコードを持つ(他のショートに影響しない)", () => {
-  withTmpDir((dir) => {
-    const a = shortOf({ name: "a" });
-    const b = shortOf({ name: "b", ranges: [{ start: 200, end: 210 }] });
-    writeShortApproval(dir, a, "gui");
-    assert.equal(isShortApproved(dir, a).ok, true);
-    assert.equal(isShortApproved(dir, b).ok, false);
-  });
-});
-
-test("clearShortApproval: 該当 name だけ消え、他のショートは残る", () => {
-  withTmpDir((dir) => {
-    const a = shortOf({ name: "a" });
-    const b = shortOf({ name: "b", ranges: [{ start: 200, end: 210 }] });
-    writeShortApproval(dir, a, "gui");
-    writeShortApproval(dir, b, "gui");
-    clearShortApproval(dir, "a");
-    assert.equal(isShortApproved(dir, a).ok, false);
-    assert.equal(isShortApproved(dir, b).ok, true);
   });
 });
 

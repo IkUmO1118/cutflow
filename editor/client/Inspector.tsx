@@ -38,7 +38,6 @@ import type {
   CutPlan,
   Overlays,
   Region,
-  Short,
   SpotlightShape,
   Transcript,
   WipeAnchor,
@@ -46,7 +45,6 @@ import type {
 } from "../../src/types.ts";
 import { remapInterval } from "../../src/lib/timeline.ts";
 import type { TimelineEntry } from "../../src/lib/timeline.ts";
-import { defaultShortProfileName, PROFILES, profileSupportsPlain } from "../../src/lib/profile.ts";
 import type { RenderProps } from "../../src/lib/renderPropsTypes.ts";
 import type { AnnotationPatch, Selection } from "./model.ts";
 import { usePlayheadSelector } from "./playhead.ts";
@@ -271,13 +269,6 @@ export const Inspector = ({
   removeInsert,
   updateBgm,
   removeBgm,
-  shortMode,
-  activeShort,
-  setShortCaptionTrackDefault,
-  updateShortRange,
-  removeShortRange,
-  updateActiveShort,
-  removeShort,
 }: {
   selection: Selection;
   /** 複数選択中のテロップ(transcript.segments の添字。2件以上のときだけ) */
@@ -322,8 +313,7 @@ export const Inspector = ({
     approved: boolean;
     bgmFile: string | null;
     bgmTracks: number;
-    /** カメラ(ワイプ)を持つレイアウトか。plain のショート profile ピッカーの
-     * 絞り込みに使う(vertical を非表示にする) */
+    /** カメラ(ワイプ)を持つレイアウトか */
     hasCamera: boolean;
   };
   /** テロップトラックの標準位置・スタイル・座標基準を設定
@@ -385,83 +375,9 @@ export const Inspector = ({
   removeInsert: (i: number) => void;
   updateBgm: (i: number, patch: Partial<BgmTrack>, coalesceKey?: string) => void;
   removeBgm: (i: number) => void;
-  /** ショートモードか(選択中のショートがある)。true のとき「caption」選択は
-   * 位置/スタイル編集を transcript ではなくショートの captionTracks へ書く */
-  shortMode: boolean;
-  /** ショートモード中の選択中ショート(null = 本編モード) */
-  activeShort: Short | null;
-  /** ショートモードのテロップトラック標準位置/スタイル/座標基準の設定
-   * (null で解除、undefined は現状維持)。setCaptionTrackDefault のショート版 */
-  setShortCaptionTrackDefault: (
-    track: number,
-    patch: {
-      pos?: CaptionPos | null;
-      style?: CaptionStyle | null;
-      anchor?: "center" | "topLeft" | null;
-    },
-  ) => void;
-  updateShortRange: (i: number, patch: Partial<{ start: number; end: number }>) => void;
-  removeShortRange: (i: number) => void;
-  /** 選択中ショートを部分更新する(ショートの「プロパティ」節=profile/承認の編集用) */
-  updateActiveShort: (updater: (s: Short) => Short) => void;
-  /** ショートを1本削除する(確認はこのパネル側で挟む) */
-  removeShort: (name: string) => void;
 }) => {
   if (selection === null) {
-    return (
-      <ProjectPanel
-        shortSection={
-          activeShort && (
-            <ShortPropertiesSection
-              activeShort={activeShort}
-              hasCamera={project.hasCamera}
-              updateActiveShort={updateActiveShort}
-              removeShort={removeShort}
-            />
-          )
-        }
-      />
-    );
-  }
-
-  /* ---------------- ショート範囲(ranges) ---------------- */
-
-  if (selection.kind === "short") {
-    const r = activeShort?.ranges[selection.index];
-    if (!r || !activeShort) return null;
-    return (
-      <div className="insp ocInspector">
-        <InspHead
-          kind="ショート範囲"
-          title={activeShort.name}
-          chips={[`長さ ${fmtTime(Math.max(0, r.end - r.start))}`]}
-        />
-        <TimingSection
-          start={r.start}
-          end={r.end}
-          timeline={timeline}
-          getPlayheadSrc={getPlayheadSrc}
-          seekToSrc={seekToSrc}
-          onStart={(v) => updateShortRange(selection.index, { start: v })}
-          onEnd={(v) => updateShortRange(selection.index, { end: v })}
-        />
-        <Section title="">
-          <button className="danger" onClick={() => removeShortRange(selection.index)}>
-            この区間を削除
-          </button>
-          <p className="dim hint">
-            本編の cutplan とは独立の、このショート専用の keep 区間です
-            (shorts.json の ranges)。飛び区間を複数追加して連結できます。
-          </p>
-        </Section>
-        <ShortPropertiesSection
-          activeShort={activeShort}
-          hasCamera={project.hasCamera}
-          updateActiveShort={updateActiveShort}
-          removeShort={removeShort}
-        />
-      </div>
-    );
+    return <ProjectPanel />;
   }
 
   /* ---------------- テロップ(複数選択の一括編集) ---------------- */
@@ -477,36 +393,6 @@ export const Inspector = ({
         updateCaptionsStyle={updateCaptionsStyle}
         updateCaptionsTrack={updateCaptionsTrack}
         removeCaptions={removeCaptions}
-      />
-    );
-  }
-
-  /* ---------------- テロップ(単体・ショートモード) ----------------
-   * ショートは per-segment の pos/style 上書きを持たない(D2: 常に
-   * トラック単位。captionTracks の解決機構に相乗り)。本編の transcript の
-   * pos/style は書き換えない(5-4)。文言・タイミングは本編と共有なので
-   * そのまま transcript へ書く */
-
-  if (selection.kind === "caption" && shortMode) {
-    const s = transcript.segments[selection.index];
-    if (!s) return null;
-    return (
-      <ShortCaptionPanel
-        s={s}
-        index={selection.index}
-        overlays={overlays}
-        capTracks={capTracks}
-        activeShort={activeShort}
-        captionDefaults={captionDefaults}
-        stdCaptionPos={stdCaptionPos}
-        output={output}
-        marginPx={marginPx}
-        timeline={timeline}
-        getPlayheadSrc={getPlayheadSrc}
-        seekToSrc={seekToSrc}
-        updateCaption={updateCaption}
-        removeCaption={removeCaption}
-        setShortCaptionTrackDefault={setShortCaptionTrackDefault}
       />
     );
   }
@@ -3600,339 +3486,10 @@ const BatchCaptionPanel = ({
   );
 };
 
-/* ================= ショートモードのテロップ編集(位置/スタイルのみ) ================= */
-
-/**
- * ショートモードで選択中のテロップの編集パネル。本編の単体テロップ編集
- * (上の巨大なブロック)とは別コンポーネントに分けてある(D6: 既存の
- * 本編パスは1バイトも変えない)。文言・タイミングは transcript(本編と共有)
- * へ、位置・スタイルは常にトラック単位で当該ショートの captionTracks へ書く
- * (per-segment 上書きは持たない。D2)。
- */
-const ShortCaptionPanel = ({
-  s,
-  index,
-  overlays,
-  capTracks,
-  activeShort,
-  captionDefaults,
-  stdCaptionPos,
-  output,
-  marginPx,
-  timeline,
-  getPlayheadSrc,
-  seekToSrc,
-  updateCaption,
-  removeCaption,
-  setShortCaptionTrackDefault,
-}: {
-  s: Transcript["segments"][number];
-  index: number;
-  overlays: Overlays;
-  capTracks: number;
-  activeShort: Short | null;
-  captionDefaults: RenderProps["caption"];
-  stdCaptionPos: CaptionPos;
-  output: { w: number; h: number };
-  marginPx: number;
-  timeline: TimelineEntry[];
-  getPlayheadSrc: () => number | null;
-  seekToSrc: (src: number) => void;
-  updateCaption: (
-    i: number,
-    patch: Partial<Transcript["segments"][number]>,
-    coalesceKey?: string,
-  ) => void;
-  removeCaption: (i: number) => void;
-  setShortCaptionTrackDefault: (
-    track: number,
-    patch: {
-      pos?: CaptionPos | null;
-      style?: CaptionStyle | null;
-      anchor?: "center" | "topLeft" | null;
-    },
-  ) => void;
-}) => {
-  const track = captionTrack(s);
-  const trackDef = (activeShort?.captionTracks ?? []).find((t) => t.track === track);
-  const anchor = trackDef?.anchor ?? "center";
-  const eff: CaptionPos =
-    trackDef?.x !== undefined && trackDef?.y !== undefined
-      ? { x: trackDef.x, y: trackDef.y }
-      : stdCaptionPos;
-  const base: CaptionStyle = {
-    fontSizePx: captionDefaults.fontSizePx,
-    color: captionDefaults.color ?? CAPTION_DEFAULT_COLOR,
-    outlineColor: captionDefaults.outlineColor ?? CAPTION_DEFAULT_OUTLINE,
-    fontFamily: captionDefaults.fontFamily ?? CAPTION_DEFAULT_FONT_FAMILY,
-    fontWeight: captionDefaults.fontWeight ?? CAPTION_DEFAULT_FONT_WEIGHT,
-    ...trackDef?.style,
-  };
-  const posLabel = anchor === "topLeft" ? "テキスト左上" : "テキスト中心";
-  const outlineOn = (base.outlineColor ?? CAPTION_DEFAULT_OUTLINE) !== "none";
-  /** ショートのトラック標準スタイルを項目単位で更新(undefined で項目を消す) */
-  const patchStyle = (p: Partial<CaptionStyle>) => {
-    const st: CaptionStyle = { ...trackDef?.style, ...p };
-    for (const k of Object.keys(st) as (keyof CaptionStyle)[]) {
-      if (st[k] === undefined) delete st[k];
-    }
-    setShortCaptionTrackDefault(track, { style: Object.keys(st).length > 0 ? st : null });
-  };
-  const applyPosPreset = (h: "l" | "c" | "r", v: "t" | "m" | "b") => {
-    const { w: tw, h: th } = measureCaption(
-      s.text,
-      base.fontSizePx ?? captionDefaults.fontSizePx,
-      base.fontFamily ?? CAPTION_DEFAULT_FONT_FAMILY,
-      base.fontWeight ?? CAPTION_DEFAULT_FONT_WEIGHT,
-    );
-    const m = marginPx;
-    const x =
-      anchor === "topLeft"
-        ? h === "l" ? m : h === "c" ? Math.round((output.w - tw) / 2) : output.w - m - tw
-        : h === "l"
-          ? m + Math.round(tw / 2)
-          : h === "c"
-            ? Math.round(output.w / 2)
-            : output.w - m - Math.round(tw / 2);
-    const y =
-      anchor === "topLeft"
-        ? v === "t" ? m : v === "m" ? Math.round((output.h - th) / 2) : output.h - m - th
-        : v === "t"
-          ? m + Math.round(th / 2)
-          : v === "m"
-            ? Math.round(output.h / 2)
-            : output.h - m - Math.round(th / 2);
-    setShortCaptionTrackDefault(track, { pos: { x, y } });
-  };
-  return (
-    <div className="insp ocInspector">
-      <Section title={captionTrackName(track, overlays, capTracks)} className="captionTextSec">
-        <Input
-          className="capTextInput"
-          type="text"
-          value={s.text}
-          onChange={(e) =>
-            updateCaption(index, { text: e.target.value }, `caption:${index}:text`)
-          }
-        />
-      </Section>
-      <Section title="配置(このショート専用・トラック単位)">
-        <div className="capPositionGrid">
-            <div className="capField">
-              <label>X</label>
-              <NumInput
-                value={trackDef?.x}
-                allowEmpty
-                placeholder={String(eff.x)}
-                title={`${posLabel}の出力px。空欄=このショートの既定位置`}
-                onCommit={(v) =>
-                  setShortCaptionTrackDefault(track, {
-                    pos: v !== undefined ? { ...eff, x: Math.round(v) } : null,
-                  })
-                }
-              />
-            </div>
-            <div className="capField">
-              <label>Y</label>
-              <NumInput
-                value={trackDef?.y}
-                allowEmpty
-                placeholder={String(eff.y)}
-                title={`${posLabel}の出力px。空欄=このショートの既定位置`}
-                onCommit={(v) =>
-                  setShortCaptionTrackDefault(track, {
-                    pos: v !== undefined ? { ...eff, y: Math.round(v) } : null,
-                  })
-                }
-              />
-            </div>
-            <div className="anchorWide">
-              <AnchorPointControl onPick={applyPosPreset} />
-            </div>
-        </div>
-      </Section>
-      <Section title="タイポグラフィ(このショート専用・トラック単位)">
-        <div className="capControlStack typographyControls">
-        <div className="capField noLabel">
-          <NumInput
-            value={trackDef?.style?.fontSizePx}
-            allowEmpty
-            placeholder={String(base.fontSizePx)}
-            title="このショートでのフォントサイズ"
-            onCommit={(v) => patchStyle({ fontSizePx: v !== undefined ? Math.round(v) : undefined })}
-          />
-        </div>
-        <div className="capField wide noLabel">
-          <NativeSelect
-            value={base.fontFamily ?? CAPTION_DEFAULT_FONT_FAMILY}
-            onChange={(e) => patchStyle({ fontFamily: e.target.value })}
-          >
-            {FONT_PRESETS.map((p) => (
-              <option key={p.value} value={p.value}>
-                {p.label}
-              </option>
-            ))}
-          </NativeSelect>
-        </div>
-        <div className="capField noLabel">
-          <NativeSelect
-            value={trackDef?.style?.fontWeight ?? 400}
-            onChange={(e) => patchStyle({ fontWeight: Number(e.target.value) })}
-          >
-            {CAPTION_WEIGHT_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </NativeSelect>
-        </div>
-        </div>
-      </Section>
-      <Section title="塗り(このショート専用・トラック単位)">
-        <div className="capControlStack paintControls">
-        <div className="capField swatchField">
-          <label>文字色</label>
-          <ColorInput
-            value={base.color}
-            onChange={(e) => patchStyle({ color: e.target.value })}
-          />
-        </div>
-        <div className="capField swatchField">
-          <label>縁取り</label>
-          <Switch
-            checked={outlineOn}
-            onChange={(e) =>
-              patchStyle(
-                e.target.checked
-                  ? { outlineColor: undefined }
-                  : { outlineColor: "none" },
-              )
-            }
-          />
-          {outlineOn && (
-            <ColorInput
-              value={base.outlineColor !== "none" ? base.outlineColor : CAPTION_DEFAULT_OUTLINE}
-              onChange={(e) => patchStyle({ outlineColor: e.target.value })}
-            />
-          )}
-        </div>
-        </div>
-        {trackDef?.style && (
-          <p className="dim hint">
-            <button className="linkish" onClick={() => setShortCaptionTrackDefault(track, { style: null })}>
-              スタイルを標準に戻す
-            </button>
-          </p>
-        )}
-      </Section>
-      <Section title="">
-        <button className="danger" onClick={() => removeCaption(index)}>
-          このテロップを削除(本編にも反映されます)
-        </button>
-        <p className="dim hint">
-          位置・スタイルはこのショート専用(shorts.json のトラック単位設定)。
-          文言・タイミングは本編と共有の transcript.json に保存されます。
-          プレビュー上のドラッグでも位置を動かせます。
-        </p>
-      </Section>
-    </div>
-  );
-};
-
-/** profile ピッカーの並び(縦を先頭・default を末尾)と1行説明。
- * docs/decisions.md 2026-07-06 論点3・論点4のコピーそのまま。
- * 表示するかどうかは hasCamera || profileSupportsPlain(name) で絞る */
-const SHORT_PROFILE_OPTIONS: { value: string; title: string }[] = [
-  { value: "vertical", title: "カメラ+画面の2段(OBS 収録向け)" },
-  { value: "vertical-screen", title: "画面だけを縦に(通常動画向け)" },
-  { value: "vertical-cover", title: "収録全体を縦いっぱいに(元から縦の動画向け)" },
-  { value: "default", title: "横16:9(本編と同じ・横向きの切り抜き用)" },
-];
-
-/* ================= ショートのプロパティ(profile / 承認 / 削除) =================
- * ヘッダーの shortBar(#5/T5, docs/decisions.md 2026-07-06 論点3)を移設したもの。
- * activeShort が非 null の間(未選択時のプロジェクト要約/ショート範囲選択時)に
- * 差し込む。profile 選択肢は hasCamera(論点3)で絞り込む: plain(カメラ無し)は
- * profileSupportsPlain が false の項目(= vertical)を disable ではなく非表示にする */
-const ShortPropertiesSection = ({
-  activeShort,
-  hasCamera,
-  updateActiveShort,
-  removeShort,
-}: {
-  activeShort: Short;
-  hasCamera: boolean;
-  updateActiveShort: (updater: (s: Short) => Short) => void;
-  removeShort: (name: string) => void;
-}) => {
-  const defaultName = defaultShortProfileName(hasCamera);
-  const options = SHORT_PROFILE_OPTIONS.filter(
-    (o) => hasCamera || profileSupportsPlain(o.value),
-  ).map((o) => ({ value: o.value, label: o.value, title: o.title }));
-  return (
-  <>
-    <Section title="ショート">
-      <div className="field">
-        <label title="出力プロファイル(レイアウトプリセット)">プロファイル</label>
-        <Segmented
-          value={activeShort.profile ?? defaultName}
-          options={options}
-          onChange={(name) => {
-            updateActiveShort((s) => {
-              const next = { ...s };
-              if (name === defaultName) delete next.profile;
-              else next.profile = name;
-              return next;
-            });
-          }}
-        />
-      </div>
-      <div className="field">
-        <label title="このショート(縦動画)を人間が確認したか。render --short のゲート">
-          承認済み
-        </label>
-        <input
-          type="checkbox"
-          checked={activeShort.approved}
-          onChange={(e) => {
-            const checked = e.target.checked;
-            updateActiveShort((s) => ({ ...s, approved: checked }));
-          }}
-        />
-      </div>
-    </Section>
-    <Section title="">
-      <button
-        className="danger"
-        onClick={() => {
-          if (
-            window.confirm(
-              `ショート「${activeShort.name}」を削除しますか?\n` +
-                "shorts.json から削除され、元に戻せません(⌘Z も効きません)。",
-            )
-          ) {
-            removeShort(activeShort.name);
-          }
-        }}
-      >
-        このショートを削除
-      </button>
-    </Section>
-  </>
-  );
-};
-
 /* ================= 未選択時: プロジェクトの要約 ================= */
 
-const ProjectPanel = ({
-  shortSection,
-}: {
-  /** ショートモード中(activeShort が非 null)に上部へ差し込む「ショート」節。
-   * 本編モードでは undefined */
-  shortSection?: ReactNode;
-}) => (
+const ProjectPanel = () => (
   <div className="insp ocInspector">
-    {shortSection}
     <div className="inspEmpty">
       <div className="inspEmptyIcon">
         <SlidersHorizontal size={24} aria-hidden="true" />

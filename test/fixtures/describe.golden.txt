@@ -26,7 +26,3 @@ approved: false / テロップ 4件 / BGM bgm.json(2区間: materials/bgm1.mp3, 
   元 0:45.0 → 出力 0:40.0 スナップ章
 
 タイトル案: タイトル案1 / タイトル案2 / タイトル案3
-
-ショート(shorts.json):
-  short-1 profile=vertical approved=true 元 0:35.0–0:45.0 → 出力尺 0:10.0
-  short-2 profile=vertical approved=false 元 1:50.0–2:00.0 → 出力尺 0:10.0

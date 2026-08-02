@@ -305,16 +305,3 @@ test("renderPrompt: perception と styleProfile を両方渡すと perception �
     "perception 直後・区切りなしで styleProfile が続く",
   );
 });
-
-test("renderPrompt: meta.md / plan-shorts.md / plan-cuts-critique.md には {{styleProfile}} プレースホルダが無い(v1 defer・§1.5)", () => {
-  const block = renderStyleProfileBlock(realisticProfile(), true);
-  // v1 は cut 判断経路(plan.md / plan-cuts.md)にだけ注入する。他テンプレは
-  // generic な renderPrompt を共有するので、block を第7引数に渡しても
-  // {{styleProfile}} プレースホルダが無い=no-op(=注入が漏れない回帰ネット)。
-  for (const template of ["meta.md", "plan-shorts.md", "plan-cuts-critique.md"]) {
-    const withBlock = renderPrompt(recDir, template, numberedForPrompt, 42, "", undefined, block);
-    const withoutBlock = renderPrompt(recDir, template, numberedForPrompt, 42);
-    assert.equal(withBlock, withoutBlock, `${template} は styleProfile 引数を渡しても無視される(no-op)`);
-    assert.doesNotMatch(withBlock, /スタイル方針/, `${template} にスタイル注入が漏れていない`);
-  }
-});

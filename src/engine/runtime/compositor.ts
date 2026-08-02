@@ -40,7 +40,7 @@ export function quadToTransform(quad: Rect): CompositorLayerInput["transform"] {
 /**
  * blur 2パス合成の分割点(§2・§5落とし穴)。`describeFrame` 本体
  * (src/engine/describeFrame.ts の同名関数)は items を
- * 「base→shortPanels→inserts→blurs→layerOrderスタック(caption/素材/wipe)→
+ * 「base→profilePanels→inserts→blurs→layerOrderスタック(caption/素材/wipe)→
  * annotations→cutTransition」の固定順で push する(グループ=役割の順)ため、
  * blurRegion アイテムの前後で配列を割るだけで「下層(base+inserts)/上層」の
  * 役割分割になる(layerOrder の配列順そのものには依存しない。CLAUDE.md の

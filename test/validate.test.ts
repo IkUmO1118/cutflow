@@ -40,7 +40,6 @@ function baseDocs(over: Partial<LoadedDocs> = {}): LoadedDocs {
     bgm: null,
     chapters: null,
     meta: null,
-    shorts: null,
     thumbnail: null,
     ...over,
   };
@@ -49,6 +48,43 @@ function baseDocs(over: Partial<LoadedDocs> = {}): LoadedDocs {
 test("妥当な docs はエラーなし", () => {
   const r = validateDocs(DIR, baseDocs());
   assert.deepEqual(r.errors, []);
+});
+
+test("validate: legacy shorts.json は内容を読まず移行警告だけを1件出す", () => {
+  const dir = mkdtempSync(join(tmpdir(), "framewright-legacy-shorts-"));
+  try {
+    writeFileSync(join(dir, "manifest.json"), JSON.stringify({ durationSec: 10 }));
+    writeFileSync(join(dir, "cutplan.json"), JSON.stringify({
+      approved: false,
+      segments: [{ start: 0, end: 10, action: "keep", reason: "本編" }],
+    }));
+    writeFileSync(join(dir, "transcript.json"), JSON.stringify({ segments: [] }));
+    writeFileSync(join(dir, "shorts.json"), "{not valid json");
+    const result = validate(dir);
+    assert.deepEqual(result.errors, []);
+    const migration = result.warnings.filter((warning) => warning.file === "shorts.json");
+    assert.equal(migration.length, 1);
+    assert.match(migration[0].message, /使われなくなりました/);
+    assert.match(migration[0].message, /不要なら手で削除してください/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("validate: legacy shorts.json が無ければ移行警告を出さない", () => {
+  const dir = mkdtempSync(join(tmpdir(), "framewright-no-legacy-shorts-"));
+  try {
+    writeFileSync(join(dir, "manifest.json"), JSON.stringify({ durationSec: 10 }));
+    writeFileSync(join(dir, "cutplan.json"), JSON.stringify({
+      approved: false,
+      segments: [{ start: 0, end: 10, action: "keep", reason: "本編" }],
+    }));
+    writeFileSync(join(dir, "transcript.json"), JSON.stringify({ segments: [] }));
+    const result = validate(dir);
+    assert.equal(result.warnings.some((warning) => warning.file === "shorts.json"), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("approved が真偽値でないとエラー", () => {
@@ -615,29 +651,6 @@ test("blurs: 全体がカット区間内だと警告", () => {
   assert.ok(r.warnings.some((w) => w.where === "blurs[0]" && w.message.includes("表示されません")));
 });
 
-test("blurs: shorts.json があると継承されない警告が出る", () => {
-  const r = validateDocs(DIR, baseDocs({
-    manifest: manifestWithScreen,
-    overlays: {
-      blurs: [{ start: 1, end: 5, rect: { x: 0, y: 0, w: 500, h: 200 } }],
-    },
-    shorts: {
-      shorts: [{ name: "s1", approved: false, ranges: [{ start: 0, end: 5 }] }],
-    },
-  }));
-  assert.ok(r.warnings.some((w) => w.where === "blurs" && w.message.includes("継承されません")));
-});
-
-test("blurs: shorts.json が無ければ継承されない警告は出ない", () => {
-  const r = validateDocs(DIR, baseDocs({
-    manifest: manifestWithScreen,
-    overlays: {
-      blurs: [{ start: 1, end: 5, rect: { x: 0, y: 0, w: 500, h: 200 } }],
-    },
-  }));
-  assert.ok(!r.warnings.some((w) => w.where === "blurs" && w.message.includes("継承されません")));
-});
-
 /* -------- overlays.json の annotations -------- */
 
 test("annotations: 妥当な arrow/box/spotlight はエラー・警告なし", () => {
@@ -778,29 +791,6 @@ test("annotations: 全体がカット区間内だと警告", () => {
   assert.ok(r.warnings.some((w) => w.where === "annotations[0]" && w.message.includes("表示されません")));
 });
 
-test("annotations: shorts.json があると継承されない警告が出る", () => {
-  const r = validateDocs(DIR, baseDocs({
-    manifest: manifestWithScreen,
-    overlays: {
-      annotations: [{ type: "box", start: 1, end: 5, rect: { x: 0, y: 0, w: 500, h: 200 } }],
-    },
-    shorts: {
-      shorts: [{ name: "s1", approved: false, ranges: [{ start: 0, end: 5 }] }],
-    },
-  }));
-  assert.ok(r.warnings.some((w) => w.where === "annotations" && w.message.includes("継承されません")));
-});
-
-test("annotations: shorts.json が無ければ継承されない警告は出ない", () => {
-  const r = validateDocs(DIR, baseDocs({
-    manifest: manifestWithScreen,
-    overlays: {
-      annotations: [{ type: "box", start: 1, end: 5, rect: { x: 0, y: 0, w: 500, h: 200 } }],
-    },
-  }));
-  assert.ok(!r.warnings.some((w) => w.where === "annotations" && w.message.includes("継承されません")));
-});
-
 test("annotations: 未指定の overlays は既存の検査結果と不変(未知キー警告が誤発火しない)", () => {
   const r = validateDocs(DIR, baseDocs({ manifest: manifestWithScreen, overlays: {} }));
   assert.deepEqual(r.errors, []);
@@ -828,18 +818,6 @@ test("plain: wipeFull が空配列/未指定はエラーなし", () => {
   assert.ok(!empty.errors.some((e) => e.where === "wipeFull"));
   const none = validateDocs(DIR, baseDocs({ manifest: manifestPlain, overlays: {} }));
   assert.ok(!none.errors.some((e) => e.where === "wipeFull"));
-});
-
-test("stills: cameraRegion はエラー、スライド無しとshortsは警告", () => {
-  const manifest = {
-    ...manifestWithScreen,
-    layout: "stills",
-    video: { ...manifestWithScreen.video, cameraRegion: { x: 0, y: 0, w: 100, h: 100 } },
-  };
-  const r = validateDocs(DIR, baseDocs({ manifest, overlays: {}, shorts: { shorts: [] } }));
-  assert.ok(r.errors.some((e) => e.where === "video.cameraRegion"));
-  assert.ok(r.warnings.some((w) => w.where === "overlays" && w.message.includes("スライド")));
-  assert.ok(r.warnings.some((w) => w.file === "shorts.json" && w.message.includes("継承")));
 });
 
 test("stills: スライドを inserts の静止画だけで置く誤用は警告", () => {
@@ -1524,151 +1502,6 @@ function validShort(over: Record<string, unknown> = {}) {
     ...over,
   };
 }
-
-test("shorts.json が無い収録では validate の出力が現状と完全一致する", () => {
-  const withoutFile = validateDocs(DIR, baseDocs({ shorts: null }));
-  const withDefaultKey = validateDocs(DIR, baseDocs());
-  assert.deepEqual(withoutFile, withDefaultKey);
-  assert.deepEqual(withoutFile.errors, []);
-});
-
-test("shorts: 妥当な構成はエラーなし", () => {
-  const r = validateDocs(DIR, baseDocs({ shorts: { shorts: [validShort()] } }));
-  assert.deepEqual(r.errors, []);
-});
-
-test("shorts: 未知の profile 名はエラー", () => {
-  const r = validateDocs(DIR, baseDocs({
-    shorts: { shorts: [validShort({ profile: "square" })] },
-  }));
-  assert.ok(r.errors.some((e) => e.message.includes("profile")));
-});
-
-test("shorts: name の重複・不正文字はエラー", () => {
-  const r = validateDocs(DIR, baseDocs({
-    shorts: {
-      shorts: [
-        validShort({ name: "Hook Mistake!" }), // 不正文字
-        validShort({ name: "dup" }),
-        validShort({ name: "dup" }), // 重複
-      ],
-    },
-  }));
-  assert.ok(r.errors.some((e) => e.where === "shorts[0]" && e.message.includes("name")));
-  assert.ok(r.errors.some((e) => e.where === "shorts[2]" && e.message.includes("重複")));
-});
-
-test("shorts: approved が真偽値でないとエラー", () => {
-  const r = validateDocs(DIR, baseDocs({
-    shorts: { shorts: [validShort({ approved: "yes" })] },
-  }));
-  assert.ok(r.errors.some((e) => e.message.includes("approved")));
-});
-
-test("shorts: ranges が空・逆転はエラー", () => {
-  const r = validateDocs(DIR, baseDocs({
-    shorts: {
-      shorts: [
-        validShort({ name: "empty-ranges", ranges: [] }),
-        validShort({ name: "reversed", ranges: [{ start: 20, end: 10 }] }),
-      ],
-    },
-  }));
-  assert.ok(r.errors.some((e) => e.where === "shorts[0].ranges" && e.message.includes("1件以上")));
-  assert.ok(r.errors.some((e) => e.where === "shorts[1].ranges[0]"));
-});
-
-test("shorts: captionTracks は overlays.captionTracks と同じ検査(不正 anchor・track 重複)", () => {
-  const r = validateDocs(DIR, baseDocs({
-    shorts: {
-      shorts: [
-        validShort({
-          captionTracks: [
-            { track: 1, anchor: "middle" },
-            { track: 1, x: 10, y: 10 },
-          ],
-        }),
-      ],
-    },
-  }));
-  assert.ok(r.errors.some((e) => e.message.includes("anchor")));
-  assert.ok(r.errors.some((e) => e.message.includes("重複")));
-});
-
-test("shorts: captionTracks の座標が profile 範囲外だと警告", () => {
-  const r = validateDocs(DIR, baseDocs({
-    shorts: {
-      shorts: [
-        // vertical は 1080x1920。x が幅を超える
-        validShort({ captionTracks: [{ track: 1, x: 5000, y: 100 }] }),
-      ],
-    },
-  }));
-  assert.ok(r.warnings.some((w) => w.message.includes("幅") && w.message.includes("外です")));
-});
-
-/* -------- B4: plain のショート profile ガード(panels の source 集合で判定) -------- */
-
-test("plain: ショート profile vertical(画面+カメラ2段)はエラー", () => {
-  const r = validateDocs(DIR, baseDocs({
-    manifest: manifestPlain,
-    shorts: { shorts: [validShort({ profile: "vertical" })] },
-  }));
-  assert.ok(r.errors.some((e) => e.where === "shorts[0].profile" && e.message.includes("vertical-cover")));
-});
-
-test("plain: ショート profile vertical-cover(カメラ全面)・default はエラーなし", () => {
-  const cover = validateDocs(DIR, baseDocs({
-    manifest: manifestPlain,
-    shorts: { shorts: [validShort({ profile: "vertical-cover" })] },
-  }));
-  assert.ok(!cover.errors.some((e) => e.where === "shorts[0].profile"));
-  const def = validateDocs(DIR, baseDocs({
-    manifest: manifestPlain,
-    shorts: { shorts: [validShort({ profile: "default" })] },
-  }));
-  assert.ok(!def.errors.some((e) => e.where === "shorts[0].profile"));
-});
-
-test("plain: ショート profile vertical-screen(画面のみ)はエラーなし", () => {
-  const r = validateDocs(DIR, baseDocs({
-    manifest: manifestPlain,
-    shorts: { shorts: [validShort({ profile: "vertical-screen" })] },
-  }));
-  assert.ok(!r.errors.some((e) => e.where === "shorts[0].profile"));
-});
-
-test("plain: ショート profile 省略はエラーなし(既定が vertical-screen に解決される)", () => {
-  const withoutProfile = validShort() as Record<string, unknown>;
-  delete withoutProfile.profile;
-  const r = validateDocs(DIR, baseDocs({
-    manifest: manifestPlain,
-    shorts: { shorts: [withoutProfile] },
-  }));
-  assert.ok(!r.errors.some((e) => e.where === "shorts[0].profile"));
-});
-
-test("camera 案件: ショート profile 省略はエラーなし(既定 vertical のまま・退行なし)", () => {
-  const withoutProfile = validShort() as Record<string, unknown>;
-  delete withoutProfile.profile;
-  const r = validateDocs(DIR, baseDocs({
-    shorts: { shorts: [withoutProfile] },
-  }));
-  assert.ok(!r.errors.some((e) => e.where === "shorts[0].profile"));
-});
-
-test("obs-canvas: ショート profile vertical / vertical-cover はどちらも従来どおりエラーなし", () => {
-  const r = validateDocs(DIR, baseDocs({
-    manifest: manifestWithScreen,
-    shorts: {
-      shorts: [
-        validShort({ name: "a", profile: "vertical" }),
-        validShort({ name: "b", profile: "vertical-cover" }),
-      ],
-    },
-  }));
-  assert.ok(!r.errors.some((e) => e.where.endsWith(".profile")));
-});
 
 /* ---------------- fs 版 validate(dir): frames 鮮度警告(stale-PNG 対策) ---------------- */
 // docs/plans/2026-07-07-frames-server-design.md 課題1。frames/index.json

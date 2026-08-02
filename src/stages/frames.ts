@@ -71,11 +71,10 @@ export async function frames(
   dir: string,
   req: FrameRequest,
   cfg: Config,
-  shortName?: string,
   ocr?: boolean,
   fullRes?: boolean,
 ): Promise<FrameShot[]> {
-  return framesEngine(dir, req, cfg, shortName, ocr, fullRes);
+  return framesEngine(dir, req, cfg, ocr, fullRes);
 }
 
 /** M4: エンジン経路の frames 実装。createEngineSession でヘッドレス Chrome を
@@ -87,7 +86,6 @@ export async function framesEngine(
   dir: string,
   req: FrameRequest,
   cfg: Config,
-  shortName?: string,
   ocr?: boolean,
   fullRes?: boolean,
   warmSession?: Awaited<ReturnType<typeof createEngineSession>>,
@@ -95,7 +93,7 @@ export async function framesEngine(
   const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")) as Manifest;
   const snapshot = readEditSnapshot(dir);
 
-  const renderCtx = resolveSnapshotRenderContext({ dir, cfg, snapshot, shortName, fullRes });
+  const renderCtx = resolveSnapshotRenderContext({ dir, cfg, snapshot, fullRes });
   const { keeps, overlays } = renderCtx;
 
   const props = await prepareDesignAssetsForProps({
@@ -166,7 +164,6 @@ export async function framesEngine(
     }
     writeFramesIndex(dir, {
       mode: req.mode,
-      short: shortName ?? null,
       ocr: ocr ?? false,
       fullRes: fullRes ?? false,
       count: unique.length,

@@ -225,7 +225,6 @@ export async function planBgm(dir: string, cfg: Config): Promise<PlanBgmResult> 
     bgm,
     chapters,
     meta: readJsonOrNull<unknown>(join(dir, "meta.json")),
-    shorts: readJsonOrNull<unknown>(join(dir, "shorts.json")),
     thumbnail: readJsonOrNull<unknown>(join(dir, "thumbnail.json")),
   };
   const checked = validateDocs(dir, loaded);

@@ -10,7 +10,7 @@
 // CLI apply が共有する唯一の merge(§論点3)。
 // T3: アトミック適用のコア本体。planApply(相1: 読むだけ・検査だけ・書かない)/
 // applyEdits(相2: errors ゼロのときだけ backup→tmp/rename で全書き込み)。
-// approved(cutplan/short)は常にディスク現状の値へ強制する(apply では承認を
+// approved(cutplan)は常にディスク現状の値へ強制する(apply では承認を
 // 変更できない=§不変条件2)。process.exit・console には一切依存しない
 // (§論点7 MCP seam)。
 
@@ -25,13 +25,13 @@ import { collectIds, resolveMention } from "./mention.ts";
 import type { MentionTarget } from "./mention.ts";
 import { validateDocs } from "../stages/validate.ts";
 import type { LoadedDocs, Problem } from "../stages/validate.ts";
-import type { ApplyBody, ApplyPatch, EditOp, Short } from "../types.ts";
+import type { ApplyBody, ApplyPatch, EditOp } from "../types.ts";
 
 function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-/** compileOps/mergeBodyOverDisk が扱う「apply が書ける7ファイル」の共通キー
+/** compileOps/mergeBodyOverDisk が扱う「apply が書ける6ファイル」の共通キー
  * (ApplyBody のキーと同じ。LoadedDocs ともキー名が一致する) */
 export const APPLY_FILE_KEYS = [
   "cutplan",
@@ -39,7 +39,6 @@ export const APPLY_FILE_KEYS = [
   "overlays",
   "chapters",
   "bgm",
-  "shorts",
   "thumbnail",
 ] as const;
 export type ApplyFileKey = (typeof APPLY_FILE_KEYS)[number];
@@ -51,12 +50,11 @@ export const APPLY_FILE_NAME: Record<ApplyFileKey, string> = {
   overlays: "overlays.json",
   chapters: "chapters.json",
   bgm: "bgm.json",
-  shorts: "shorts.json",
   thumbnail: "thumbnail.json",
 };
 
 /** `@id` 解決先(MentionTarget)の kind → { 所属ファイルのキー, 配列のプロパティ名 }。
- * "captionTrack" と "range"/"short" は file で分岐が要るため別扱い(arraySpecFor 参照) */
+ * "captionTrack" は file で分岐が要るため別扱い(arraySpecFor 参照) */
 const KIND_ARRAY: Partial<Record<string, { bodyKey: ApplyFileKey; arrayKey: string }>> = {
   // set/remove は field パスに制限を持たない(§下記)ため、cutSegment 配下は
   // start/end/action/reason に加えて reasonId(§docs/plans/2026-07-20-cut-
@@ -79,12 +77,6 @@ const KIND_ARRAY: Partial<Record<string, { bodyKey: ApplyFileKey; arrayKey: stri
 /**
  * MentionTarget から「所属する配列とそのプロパティ名」を引く。
  * - captionTrack は overlays.json(トラック標準設定)のときだけ対応する。
- *   shorts.json 配下(shorts[].captionTracks)は MentionTarget.index が
- *   ショート内の添字しか持たず、どのショート(shorts[]の添字)かを
- *   一意に復元できない(Feature 2 の MentionTarget はその情報を持たない設計)
- *   ため、set/remove の対象にはできない(全置換パッチ(replace)に委ねる)。
- * - short(ショート自体)は shorts.shorts の直接の添字なので対応できる。
- * - range(shorts[].ranges)は captionTrack と同じ理由で非対応。
  */
 function arraySpecFor(
   target: MentionTarget,
@@ -93,13 +85,10 @@ function arraySpecFor(
     if (target.file === "overlays.json") return { bodyKey: "overlays", arrayKey: "captionTracks" };
     return null;
   }
-  if (target.kind === "short") return { bodyKey: "shorts", arrayKey: "shorts" };
-  if (target.kind === "range") return null;
   return KIND_ARRAY[target.kind] ?? null;
 }
 
-/** add の target(コレクション選択子)の allow-list。
- * shorts[] 自体・shorts 配下(ranges/captionTracks)は対象外(§スコープ外) */
+/** add の target(コレクション選択子)の allow-list。 */
 const ADD_SELECTORS: Record<string, { bodyKey: ApplyFileKey; arrayKey: string }> = {
   "cutplan.segments": { bodyKey: "cutplan", arrayKey: "segments" },
   "transcript.segments": { bodyKey: "transcript", arrayKey: "segments" },
@@ -217,8 +206,7 @@ export function compileOps(docs: LoadedDocs, ops: EditOp[]): CompileOpsResult {
           file: "(patch)",
           where: `${where}.target`,
           message:
-            `${target}(${resolved.kind})は set の対象にできません` +
-            "(shorts 配下の ranges/captionTracks は replace で編集してください)",
+            `${target}(${resolved.kind})は set の対象にできません`,
         });
         return;
       }
@@ -290,8 +278,7 @@ export function compileOps(docs: LoadedDocs, ops: EditOp[]): CompileOpsResult {
           file: "(patch)",
           where: `${where}.target`,
           message:
-            `${target}(${resolved.kind})は remove の対象にできません` +
-            "(shorts 配下の ranges/captionTracks は replace で編集してください)",
+            `${target}(${resolved.kind})は remove の対象にできません`,
         });
         return;
       }
@@ -369,7 +356,7 @@ export function compileOps(docs: LoadedDocs, ops: EditOp[]): CompileOpsResult {
  * merge(§論点3)。
  *
  * cutplan/transcript/overlays/chapters/thumbnail は `??`(body に無ければ
- * ディスク現状)、bgm/shorts は `!== undefined`(`null` = 削除シグナルを
+ * ディスク現状)、bgm は `!== undefined`(`null` = 削除シグナルを
  * ディスク現状へフォールバックさせず区別する)。この使い分けは
  * editor/server.ts の旧 saveProject(§735–745)のインライン実装と完全に同じ
  * (キー集合・読み込み順・`??`/`!== undefined` の使い分けを1文字も変えていない
@@ -388,7 +375,6 @@ export function mergeBodyOverDisk(dir: string, body: ApplyBody): LoadedDocs {
     bgm: body.bgm !== undefined ? body.bgm : readDisk("bgm.json"),
     chapters: body.chapters ?? readDisk("chapters.json"),
     meta: readDisk("meta.json"),
-    shorts: body.shorts !== undefined ? body.shorts : readDisk("shorts.json"),
     thumbnail: body.thumbnail ?? readDisk("thumbnail.json"),
   };
 }
@@ -426,18 +412,16 @@ function readDiskDocs(dir: string): { docs: LoadedDocs; errors: Problem[] } {
     bgm: readJson("bgm.json", false),
     chapters: readJson("chapters.json", false),
     meta: readJson("meta.json", false),
-    shorts: readJson("shorts.json", false),
     thumbnail: readJson("thumbnail.json", false),
   };
   return { docs, errors };
 }
 
 /**
- * cutplan.json/shorts.json の `approved` を必ずディスク現状の値へ強制する
+ * cutplan.json の `approved` を必ずディスク現状の値へ強制する
  * (§不変条件2)。呼び出し側が異なる値を指定していればエラーを積む
  * (「差分を検出したら拒否する」§論点6)。body を直接 mutate せず新しい
- * オブジェクトを返す。shorts は name で disk 上の対応するショートを探し、
- * 見つからない(=新規ショート)場合は「未承認(false)」を強制する
+ * オブジェクトを返す。
  */
 function enforceApprovedUnchanged(disk: LoadedDocs, body: ApplyBody, errors: Problem[]): ApplyBody {
   const next: ApplyBody = { ...body };
@@ -452,24 +436,6 @@ function enforceApprovedUnchanged(disk: LoadedDocs, body: ApplyBody, errors: Pro
       }
       next.cutplan = { ...next.cutplan, approved: diskApproved };
     }
-  }
-
-  if (next.shorts !== undefined && next.shorts !== null) {
-    const diskShorts = disk.shorts;
-    const diskList: Short[] =
-      isObj(diskShorts) && Array.isArray(diskShorts.shorts) ? (diskShorts.shorts as Short[]) : [];
-    const forced = next.shorts.shorts.map((s) => {
-      const diskApproved = diskList.find((d) => d.name === s.name)?.approved ?? false;
-      if (typeof s.approved === "boolean" && s.approved !== diskApproved) {
-        errors.push({
-          file: "shorts.json",
-          where: `shorts(name="${s.name}")`,
-          message: APPROVED_BLOCKED_MESSAGE,
-        });
-      }
-      return { ...s, approved: diskApproved };
-    });
-    next.shorts = { ...next.shorts, shorts: forced };
   }
 
   return next;
@@ -493,7 +459,6 @@ function stampNewElements(dir: string, body: ApplyBody): ApplyBody {
     overlays: body.overlays !== undefined ? body.overlays : idDocs.overlays,
     chapters: body.chapters !== undefined ? body.chapters : idDocs.chapters,
     bgm: body.bgm !== undefined ? body.bgm : idDocs.bgm,
-    shorts: body.shorts !== undefined ? body.shorts : idDocs.shorts,
     thumbnail: body.thumbnail !== undefined ? body.thumbnail : idDocs.thumbnail,
   };
   const stamped = stampDocs(candidate);
@@ -600,7 +565,7 @@ export function applyEdits(dir: string, patch: ApplyPatch): ApplyResult {
   const written: string[] = [];
   for (const key of touchedKeys) {
     const file = APPLY_FILE_NAME[key];
-    // 安全側の防御(構造的に起こり得ない): APPLY_FILE_NAME は固定7ファイルのみで
+    // 安全側の防御(構造的に起こり得ない): APPLY_FILE_NAME は固定6ファイルのみで
     // approvals.json(fileRole "approval")・GENERATED_FILES(fileRole "generated")
     // のいずれとも重ならない(§不変条件1・5)
     const role = fileRole(file);
@@ -610,7 +575,7 @@ export function applyEdits(dir: string, patch: ApplyPatch): ApplyResult {
     const value = (plan.body as Record<string, unknown>)[key];
     const abs = join(dir, file);
     if (value === null) {
-      // bgm.json / shorts.json の削除シグナル(saveProject と同じセマンティクス)
+      // bgm.json の削除シグナル(saveProject と同じセマンティクス)
       if (existsSync(abs)) rmSync(abs);
     } else {
       const tmp = `${abs}.tmp`;

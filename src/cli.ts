@@ -9,9 +9,7 @@ import { backupEditableFiles } from "./lib/backup.ts";
 import { EDITABLE_FILES } from "./lib/files.ts";
 import {
   clearCutplanApproval,
-  clearShortApproval,
   writeCutplanApproval,
-  writeShortApproval,
 } from "./lib/approval.ts";
 import {
   aiProfileStatuses,
@@ -30,12 +28,10 @@ import { setLogLevel } from "./lib/obs.ts";
 import type { LogLevel } from "./lib/obs.ts";
 import { timed } from "./lib/timing.ts";
 import { findSource } from "./lib/findSource.ts";
-import { loadShort, loadShorts } from "./lib/shorts.ts";
 import { ingest } from "./stages/ingest.ts";
 import { transcribe } from "./stages/transcribe.ts";
 import { detect } from "./stages/detect.ts";
 import { plan, remeta } from "./stages/plan.ts";
-import { planShorts } from "./stages/planShorts.ts";
 import { planMaterials } from "./stages/planMaterials.ts";
 import { planEffects } from "./stages/planEffects.ts";
 import { autoZoom, autoZoomIfFresh } from "./stages/autoZoom.ts";
@@ -49,7 +45,7 @@ import { auditHyperframe, formatHyperframeAuditReport } from "./stages/hyperfram
 import { formatFreezeReport, freezeHyperframe } from "./stages/hyperframeFreeze.ts";
 import { learn } from "./stages/learn.ts";
 import { preview } from "./stages/preview.ts";
-import { render, renderShort, renderShorts } from "./stages/render.ts";
+import { render } from "./stages/render.ts";
 import { validate } from "./stages/validate.ts";
 import { assert as assertProject } from "./stages/assert.ts";
 import { idStamp } from "./stages/idStamp.ts";
@@ -227,7 +223,7 @@ function parseRangeOpt(v: string | undefined): { startSec: number; endSec: numbe
 }
 
 /**
- * plan / run / plan-shorts の再実行ガード。LLM の生成物で上書きされるファイルが
+ * plan / run の再実行ガード。LLM の生成物で上書きされるファイルが
  * 既にあるときは --force を要求し(運用ルールだけに頼らない防御)、実行する場合も
  * 先に手編集ファイル一式を backups/ へ退避する(上書き事故からの復元手段)
  */
@@ -248,8 +244,6 @@ function guardRerun(
     );
   }
   // 退避対象は標準の手編集ファイルに加え、このコマンドが上書きする outputs も含める
-  // (plan-shorts の shorts.json は EDITABLE_FILES に無いので、これが無いと
-  // 手編集した shorts.json を退避せず上書きしてしまう)
   const backupList = [...new Set([...EDITABLE_FILES, ...outputs])];
   const dest = backupEditableFiles(dir, backupList);
   if (dest) {
@@ -527,37 +521,6 @@ program
     const m = await remeta(abs, cfg);
     console.log(`remeta 完了: タイトル案 ${m.titles.length}件`);
     for (const t of m.titles) console.log(`  ${t}`);
-  });
-
-program
-  .command("plan-shorts <dir>")
-  .description(
-    "LLM でショート向きの見せ場を選ばせ shorts.json の下書きを生成(全て approved:false。承認は人間)",
-  )
-  .option(
-    "--force",
-    "既存の shorts.json を上書きして再実行(実行前に backups/ へ退避)",
-  )
-  .action(async (dir: string, opts: { force?: boolean }) => {
-    const cfg = loadConfig(program.opts().config);
-    const abs = resolveDir(dir);
-    guardRerun(abs, ["shorts.json"], opts.force === true, "plan-shorts");
-    console.log("plan-shorts 実行中(LLM でショート候補を選定)...");
-    const shorts = await planShorts(abs, cfg);
-    console.log(
-      `plan-shorts 完了: ${shorts.shorts.length}本のショート下書きを生成` +
-        "(全て approved:false)",
-    );
-    for (const s of shorts.shorts) {
-      const dur = s.ranges.reduce((a, r) => a + (r.end - r.start), 0);
-      console.log(
-        `  ${s.name}: ${s.ranges.length}区間 / ${dur.toFixed(1)}秒`,
-      );
-    }
-    console.log(
-      "\n次のステップ: preview か GUI エディタ(ショートモード)で確認し、" +
-        "各ショートの approved を true にしてから render --short してください。",
-    );
   });
 
 program
@@ -1313,7 +1276,6 @@ program
   .option("--out", "--t をカット後(preview/final)の秒として解釈する")
   .option("--captions", "テロップ全件の一巡監査(各テロップの表示中間で1枚ずつ)")
   .option("--every <sec>", "カット後タイムラインを一定間隔でサンプリング(秒)")
-  .option("--short <name>", "指定したショートの縦レイアウトで PNG に(shorts.json)")
   .option(
     "--ocr",
     "画面 OCR(Apple Vision)でその時刻の画面内テキストを読む(macOS専用。" +
@@ -1331,7 +1293,6 @@ program
       out?: boolean;
       captions?: boolean;
       every?: string;
-      short?: string;
       ocr?: boolean;
       fullRes?: boolean;
     },
@@ -1361,15 +1322,14 @@ program
       });
       req = { mode: "times", times, axis: opts.out ? "output" : "source" };
     }
-    if (opts.short) console.log(`ショート "${opts.short}" のフレームを出力します`);
     const abs = resolveDir(dir);
-    const frameOpts = { short: opts.short, ocr: opts.ocr === true, fullRes: opts.fullRes === true };
+    const frameOpts = { ocr: opts.ocr === true, fullRes: opts.fullRes === true };
     // 常駐デーモン(frames-serve)が起動していれば自動検出して委譲し、
     // bundle+browser のコールドコストを省く。portfile が無い/応答しなければ
     // 現行どおりの単発実行(既存挙動は1バイトも変わらない)
     const served = await tryServeFrames(abs, req, frameOpts);
     const shots =
-      served ?? (await frames(abs, req, cfg, opts.short, frameOpts.ocr, frameOpts.fullRes));
+      served ?? (await frames(abs, req, cfg, frameOpts.ocr, frameOpts.fullRes));
     for (const s of shots) {
       const head =
         req.mode === "times"
@@ -1523,7 +1483,6 @@ program
   )
   .option("--range <a-b>", "出力(カット後)秒の範囲。例 10-25.5")
   .option("--every <sec>", "motion のサンプル間隔(秒)")
-  .option("--short <name>", "本編ではなく shorts.json の指定ショートを対象にする")
   .option("--full-res", "motion の基映像に proxy.mp4 ではなく元収録を使う")
   .option("--motion-only", "motion だけを取得する")
   .option("--sound-only", "sound だけを取得する")
@@ -1532,7 +1491,6 @@ program
     opts: {
       range?: string;
       every?: string;
-      short?: string;
       fullRes?: boolean;
       motionOnly?: boolean;
       soundOnly?: boolean;
@@ -1546,7 +1504,6 @@ program
     const result = await av(abs, {
       range: parseRangeOpt(opts.range),
       everySec: opts.every !== undefined ? Number(opts.every) : undefined,
-      short: opts.short,
       fullRes: opts.fullRes === true,
       motionOnly: opts.motionOnly === true,
       soundOnly: opts.soundOnly === true,
@@ -1609,11 +1566,10 @@ program
   )
   .requiredOption("--spec <file>", "ReviewSpec JSON")
   .option("--candidate <file>", "candidate EditSnapshot JSON。省略時は現在の編集状態を使う")
-  .option("--short <name>", "本編ではなく指定ショートを対象にする")
   .option("--json", "bundle JSON を stdout に出す")
   .action(async (
     dir: string,
-    opts: { spec: string; candidate?: string; short?: string; json?: boolean },
+    opts: { spec: string; candidate?: string; json?: boolean },
   ) => {
     const cfg = loadConfig(program.opts().config);
     const abs = resolveDir(dir);
@@ -1621,7 +1577,6 @@ program
     const candidate = opts.candidate ? readJsonFile<EditSnapshot>(opts.candidate) : base;
     const spec = readJsonFile<ReviewSpec>(opts.spec);
     const bundle = await reviewEdit(abs, cfg, base, candidate, spec, {
-      shortName: opts.short,
       secondaryObservation: "none",
     });
     if (opts.json === true) {
@@ -1684,16 +1639,6 @@ program
     console.log(`thumbnail 完了: ${out}`);
   });
 
-/** shorts.json の該当 name の approved だけを書き換える(他のショート・他の
- * フィールドはそのまま)。shorts.json が無い/name が無いときは loadShort と
- * 同じ明確なエラーメッセージにするため loadShort に検査を委ねる */
-function updateShortApprovedFlag(dir: string, name: string, approved: boolean): void {
-  loadShort(dir, name); // 存在検査(無ければここで分かりやすいエラーを投げる)
-  const shorts = loadShorts(dir)!;
-  shorts.shorts = shorts.shorts.map((s) => (s.name === name ? { ...s, approved } : s));
-  writeFileSync(join(dir, "shorts.json"), JSON.stringify(shorts, null, 2));
-}
-
 /** cutplan.json の approved だけを書き換える(segments はそのまま) */
 function updateCutplanApprovedFlag(dir: string, approved: boolean): CutPlan {
   const cutplan = JSON.parse(
@@ -1718,15 +1663,14 @@ async function confirmYesNo(question: string): Promise<boolean> {
 program
   .command("approve <dir>")
   .description(
-    "cutplan(または --short 指定でショート)の内容ハッシュを approvals.json に記録して承認する" +
+    "cutplan の内容ハッシュを approvals.json に記録して承認する" +
       "(render の唯一のゲート。承認は人間の対話操作)",
   )
-  .option("--short <name>", "指定したショートを承認(shorts.json)")
   .option(
     "--yes",
     "非対話環境でも承認する(意図的バイパス。preview 未確認のまま承認できてしまうため通常は使わない)",
   )
-  .action(async (dir: string, opts: { short?: string; yes?: boolean }) => {
+  .action(async (dir: string, opts: { yes?: boolean }) => {
     const abs = resolveDir(dir);
     const cfg = loadConfig(program.opts().config);
     // 壊れた内容を承認しない: 先に validate を通す
@@ -1746,70 +1690,33 @@ program
       );
     }
     if (interactive && opts.yes !== true) {
-      const what = opts.short ? `ショート "${opts.short}" の縦動画` : "preview.mp4";
-      const ok = await confirmYesNo(`${what} を確認しましたか? 承認しますか? [y/N] `);
+      const ok = await confirmYesNo("preview.mp4 を確認しましたか? 承認しますか? [y/N] ");
       if (!ok) {
         console.log("承認しませんでした(preview で確認してから再実行してください)");
         return;
       }
     }
-    if (opts.short) {
-      const short = loadShort(abs, opts.short);
-      writeShortApproval(abs, short, "cli");
-      updateShortApprovedFlag(abs, opts.short, true);
-      console.log(`承認しました: ショート "${opts.short}"(approvals.json に記録)`);
-    } else {
-      const cutplan = updateCutplanApprovedFlag(abs, true);
-      writeCutplanApproval(abs, cutplan, "cli");
-      console.log("承認しました: 本編(approvals.json に記録)");
-    }
+    const cutplan = updateCutplanApprovedFlag(abs, true);
+    writeCutplanApproval(abs, cutplan, "cli");
+    console.log("承認しました: 本編(approvals.json に記録)");
   });
 
 program
   .command("unapprove <dir>")
-  .description(
-    "承認レコードを取り消す(cutplan、または --short 指定でショート)。安全側の操作なので確認は不要",
-  )
-  .option("--short <name>", "指定したショートの承認を取り消す(shorts.json)")
-  .action((dir: string, opts: { short?: string }) => {
+  .description("承認レコードを取り消す(cutplan)。安全側の操作なので確認は不要")
+  .action((dir: string) => {
     const abs = resolveDir(dir);
-    if (opts.short) {
-      clearShortApproval(abs, opts.short);
-      updateShortApprovedFlag(abs, opts.short, false);
-      console.log(`承認を取り消しました: ショート "${opts.short}"`);
-    } else {
-      clearCutplanApproval(abs);
-      updateCutplanApprovedFlag(abs, false);
-      console.log("承認を取り消しました: 本編");
-    }
+    clearCutplanApproval(abs);
+    updateCutplanApprovedFlag(abs, false);
+    console.log("承認を取り消しました: 本編");
   });
 
 program
   .command("render <dir>")
-  .description(
-    "承認済み cutplan.json から最終動画を生成(ワイプ+テロップ → final.mp4)。" +
-      "--short/--shorts でショート動画(shorts.json)を書き出す",
-  )
-  .option("--short <name>", "指定した1本のショートだけレンダー(shorts/<name>.mp4)")
-  .option("--shorts", "approved な全ショートをレンダー(未承認はスキップしログ表示)")
-  .action(async (dir: string, opts: { short?: string; shorts?: boolean }) => {
+  .description("承認済み cutplan.json から最終動画を生成(ワイプ+テロップ → final.mp4)")
+  .action(async (dir: string) => {
     const cfg = loadConfig(program.opts().config);
     const abs = resolveDir(dir);
-    if (opts.short && opts.shorts) {
-      throw new Error("--short と --shorts は同時に指定できません");
-    }
-    if (opts.short) {
-      console.log(`ショート "${opts.short}" をレンダー中...`);
-      const out = await renderShort(abs, cfg, opts.short);
-      console.log(`render 完了: ${out}`);
-      return;
-    }
-    if (opts.shorts) {
-      const outs = await renderShorts(abs, cfg);
-      for (const out of outs) console.log(`render 完了: ${out}`);
-      if (outs.length === 0) console.log("レンダーしたショートはありません");
-      return;
-    }
     console.log("render 実行中(初回は headless Chrome の取得で数分かかります)...");
     const out = await render(abs, cfg);
     console.log(`render 完了: ${out}`);
@@ -1826,14 +1733,14 @@ program
   .option("--dry-run", "削除せず、削除対象の一覧と解放バイトだけを表示する")
   .option(
     "--cache-only",
-    "再生成の重いキャッシュ(proxy/cut/frames/shorts/*.probe 等)だけを消し、" +
+    "再生成の重いキャッシュ(proxy/cut/frames/*.probe 等)だけを消し、" +
       "manifest.json / cuts.auto.json / whisper-out.* 等の軽い中間生成物は残す",
   )
   .option(
     "--logs-only",
     "ログ・使い捨て下書き・検品結果(*.raw.txt / cuts.auto.json / *-fit.suggested.json / " +
       "effect-check.json / style-check.json / preview.mp4 / frames/ 等)だけを消し、" +
-      "リレンダー最適化(cut/render.*)・proxy・whisper-out.*・manifest.json・shorts/ は残す。--cache-only とは排他",
+      "リレンダー最適化(cut/render.*)・proxy・whisper-out.*・manifest.json は残す。--cache-only とは排他",
   )
   .option("--json", "CleanPlan を JSON で標準出力に出す(パイプ可。--dry-run と併用で機械可読な削除計画)")
   .action(async (dir: string, opts: { dryRun?: boolean; cacheOnly?: boolean; logsOnly?: boolean; json?: boolean }) => {

@@ -496,7 +496,6 @@ export async function planEffects(
     bgm: readJsonOrNull<unknown>(join(dir, "bgm.json")),
     chapters: readJsonOrNull<unknown>(join(dir, "chapters.json")),
     meta: readJsonOrNull<unknown>(join(dir, "meta.json")),
-    shorts: readJsonOrNull<unknown>(join(dir, "shorts.json")),
     thumbnail: readJsonOrNull<unknown>(join(dir, "thumbnail.json")),
   };
   const checked = validateDocs(dir, loaded);

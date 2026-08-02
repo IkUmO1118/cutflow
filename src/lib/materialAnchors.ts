@@ -1,7 +1,7 @@
 // M1(+M4): 素材配置候補の生成(番号選択・人間承認)の純関数群。
 // §docs/plans/2026-07-11-m1-material-placement-candidates-design.md
 //
-// plan-shorts の numberSegments と同じ「番号 → 実体」変換の思想: LLM には
+// 「番号 → 実体」変換の思想: LLM には
 // (anchorId × materialId) のペアだけを選ばせ、時刻・ファイルパス・尺は
 // すべてコード側(このファイル)が実在の値から組み立てる。
 import { collectWords, candidateText } from "./candidates.ts";

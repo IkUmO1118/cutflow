@@ -8,7 +8,7 @@
 import { cliCmd } from "../lib/cliName.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { join, normalize, resolve, sep } from "node:path";
-import { isCutplanApproved, isShortApproved } from "../lib/approval.ts";
+import { isCutplanApproved } from "../lib/approval.ts";
 import {
   DEFAULT_EFFECT_CHECK_DENSITY_WINDOW_SEC,
   DEFAULT_EFFECT_CHECK_MAX_PER_WINDOW,
@@ -19,7 +19,6 @@ import { resolveStillsCfg } from "../lib/config.ts";
 import { framesFreshness } from "../lib/framesIndex.ts";
 import { ID_PREFIX, ID_RE } from "../lib/ids.ts";
 import { collectIdOccurrences } from "../lib/mention.ts";
-import { defaultShortProfileName, PROFILES, profileSupportsPlain } from "../lib/profile.ts";
 import { CUT_REASON_IDS, REASON_ID_FAMILY } from "../lib/reasonIds.ts";
 import type { CutReasonId } from "../lib/reasonIds.ts";
 import { EFFECT_REASON_IDS, EFFECT_REASON_ID_FAMILY } from "../lib/effectReasonIds.ts";
@@ -36,7 +35,7 @@ import {
   MIN_PLAYBACK_SPEED,
   ovNum,
 } from "../types.ts";
-import type { CutPlan, Interval, Manifest, Short, Transcript, WipeAnchor } from "../types.ts";
+import type { CutPlan, Interval, Manifest, Transcript, WipeAnchor } from "../types.ts";
 import type { Config } from "../lib/config.ts";
 
 export interface Problem {
@@ -70,7 +69,6 @@ export interface LoadedDocs {
   bgm: unknown;
   chapters: unknown;
   meta: unknown;
-  shorts: unknown;
   thumbnail: unknown;
 }
 
@@ -104,13 +102,23 @@ export function validate(dir: string, cfg?: Config): ValidateResult {
     bgm: readJson("bgm.json", false),
     chapters: readJson("chapters.json", false),
     meta: readJson("meta.json", false),
-    shorts: readJson("shorts.json", false),
     thumbnail: readJson("thumbnail.json", false),
   };
   const result = validateDocs(dir, docs, preErrors, cfg);
+  if (existsSync(join(dir, "shorts.json"))) {
+    result.warnings.push({
+      file: "shorts.json",
+      where: "-",
+      message:
+        "shorts.json は使われなくなりました(ショート機能は削除されました)。\n" +
+        "  縦動画は「9:16 のプロジェクトを新しく作る」形で作成します。\n" +
+        "  この収録の shorts.json / shorts/ / cut.*.mp4 は FrameWright が触らなくなるため、\n" +
+        "  不要なら手で削除してください。",
+    });
+  }
   // 承認レコード(approvals.json)の陳腐化警告は fs 版ラッパにだけ足す
   // (approvals.json は validateDocs の LoadedDocs に含まれない=純関数のままにする)。
-  // 既に error があるプロジェクトでは cutplan/shorts の形が保証されないため
+  // 既に error があるプロジェクトでは cutplan の形が保証されないため
   // スキップする(新たな error は出さない・警告どまりの方針を守る)
   if (result.errors.length === 0) checkApprovalFreshness(dir, docs, result.warnings);
   // frames の stale-PNG 罠対策(設計 docs/plans/2026-07-07-frames-server-design.md
@@ -164,24 +172,6 @@ function checkApprovalFreshness(
           "この状態では render は拒否されます。preview で確認のうえ " +
           `\`${cliCmd()} approve <dir>\` で再承認してください`,
       });
-    }
-  }
-  const shorts = docs.shorts;
-  if (isObj(shorts) && Array.isArray(shorts.shorts)) {
-    for (const s of shorts.shorts) {
-      if (!isObj(s) || s.approved !== true) continue;
-      if (typeof s.name !== "string" || !Array.isArray(s.ranges)) continue;
-      const gate = isShortApproved(dir, s as unknown as Short);
-      if (!gate.ok) {
-        warnings.push({
-          file: "shorts.json",
-          where: `shorts(name="${s.name}")`,
-          message:
-            `approved: true ですが承認レコードが無効です(${gate.reason})。` +
-            `この状態では render --short は拒否されます。preview で確認のうえ ` +
-            `\`${cliCmd()} approve <dir> --short ${s.name}\` で再承認してください`,
-        });
-      }
     }
   }
 }
@@ -241,7 +231,7 @@ export function validateDocs(
     }
   };
 
-  const { cutplan, transcript, overlays, bgm, chapters, meta, shorts, thumbnail } = docs;
+  const { cutplan, transcript, overlays, bgm, chapters, meta, thumbnail } = docs;
   const manifest = docs.manifest as Manifest | null;
   const duration = manifest?.durationSec;
   if (manifest && !isNum(duration)) {
@@ -815,17 +805,6 @@ export function validateDocs(
         }
       }
     });
-    if (
-      Array.isArray(overlays.blurs) && overlays.blurs.length > 0 &&
-      isObj(shorts) && Array.isArray(shorts.shorts) && shorts.shorts.length > 0
-    ) {
-      warn(
-        f, "blurs",
-        "本編に領域ぼかしがありますが、ショートには継承されません。" +
-          "ショートに秘匿情報が写る場合は別途隠してください",
-      );
-    }
-
     if (overlays.annotations !== undefined && !Array.isArray(overlays.annotations)) {
       err(f, "annotations", "配列ではありません");
     }
@@ -960,17 +939,6 @@ export function validateDocs(
         );
       }
     }
-    if (
-      Array.isArray(overlays.annotations) && overlays.annotations.length > 0 &&
-      isObj(shorts) && Array.isArray(shorts.shorts) && shorts.shorts.length > 0
-    ) {
-      warn(
-        f, "annotations",
-        "本編に注釈グラフィックがありますが、ショートには継承されません。" +
-          "ショートにも指し示したい場合は別途足してください",
-      );
-    }
-
     if (overlays.colorFilter !== undefined) {
       const cfw = "colorFilter";
       if (!isObj(overlays.colorFilter)) {
@@ -1043,9 +1011,6 @@ export function validateDocs(
           "映像なしプロジェクトのスライドは overlays(全画面画像)で置きます" +
           "(inserts は出力尺を伸ばすため、ナレーションより動画が長くなります)",
       );
-    }
-    if (shorts !== null) {
-      warn("shorts.json", "-", "映像なしプロジェクトのスライドはショートへ継承されません");
     }
   }
 
@@ -1147,76 +1112,6 @@ export function validateDocs(
     if (typeof meta.description !== "string") {
       warn(f, "description", "文字列ではありません");
     }
-  }
-
-  /* ---------------- shorts.json ---------------- */
-
-  if (isObj(shorts)) {
-    const f = "shorts.json";
-    if (!Array.isArray(shorts.shorts)) {
-      err(f, "shorts", "配列ではありません");
-    } else {
-      const seenNames = new Set<string>();
-      shorts.shorts.forEach((s: unknown, i: number) => {
-        const w = `shorts[${i}]`;
-        if (!isObj(s)) return err(f, w, "オブジェクトではありません");
-        if (typeof s.name !== "string" || s.name === "" || !/^[a-z0-9_-]+$/.test(s.name)) {
-          err(f, w, `name は半角小英数字・ハイフン・アンダースコアのみです(現在: ${JSON.stringify(s.name)})`);
-        } else if (seenNames.has(s.name)) {
-          err(f, w, `name が重複しています: ${s.name}`);
-        } else {
-          seenNames.add(s.name);
-        }
-        if (s.profile !== undefined && (typeof s.profile !== "string" || !(s.profile in PROFILES))) {
-          err(
-            f,
-            w,
-            `profile が未知のプロファイル名です(現在: ${JSON.stringify(s.profile)}。有効: ${Object.keys(PROFILES).join(" / ")})`,
-          );
-        }
-        if (typeof s.approved !== "boolean") {
-          err(f, w, "approved は true / false のどちらかにしてください");
-        }
-        if (!Array.isArray(s.ranges) || s.ranges.length === 0) {
-          err(f, `${w}.ranges`, "配列で1件以上必要です(このショートの keep 区間)");
-        } else {
-          s.ranges.forEach((r: unknown, j: number) => {
-            const rw = `${w}.ranges[${j}]`;
-            if (!isObj(r)) return err(f, rw, "オブジェクトではありません");
-            checkSpan(f, rw, r, dur, err);
-          });
-        }
-        // 座標はみ出し警告は解決後の profile サイズと比べる。省略時は
-        // ショートの既定(camera 有り→vertical、plain→vertical-screen。
-        // profile 名不正のときは判定しない)
-        const profileName =
-          typeof s.profile === "string" ? s.profile : defaultShortProfileName(cameraPresent);
-        const profileDef = PROFILES[profileName];
-        // plain(カメラ無し)は画面+カメラの2段構成(vertical)を作れない。
-        // 判定は profile 名ではなく panels の source 集合で行う(将来プリセットが
-        // 増えても壊れない=profileSupportsPlain に一本化。camera のみ
-        // (vertical-cover)・screen のみ(vertical-screen)・layout 無し(default)は許可
-        if (!cameraPresent && !profileSupportsPlain(profileName)) {
-          err(
-            f,
-            `${w}.profile`,
-            `profile "${profileName}" は画面+カメラの2段構成用です。` +
-              "plain(カメラ無し)には vertical-cover か default を使ってください",
-          );
-        }
-        checkCaptionTracks(f, `${w}.captionTracks`, s.captionTracks, err, warn, (t, tw) => {
-          if (!profileDef) return;
-          if (isNum(t.x) && (t.x < 0 || t.x > profileDef.width)) {
-            warn(f, tw, `x(${t.x})が profile "${profileName}" の幅(${profileDef.width})の外です`);
-          }
-          if (isNum(t.y) && (t.y < 0 || t.y > profileDef.height)) {
-            warn(f, tw, `y(${t.y})が profile "${profileName}" の高さ(${profileDef.height})の外です`);
-          }
-        });
-      });
-    }
-  } else if (shorts !== null && shorts !== undefined) {
-    err("shorts.json", "-", "オブジェクトではありません");
   }
 
   /* ---------------- thumbnail.json ---------------- */
@@ -1378,10 +1273,10 @@ function checkChapterSync(
   }
 }
 
-/** captionTracks 配列(overlays.json / shorts.json の各ショートで共用)の検査:
+/** captionTracks 配列(overlays.json)の検査:
  * track は正整数で重複禁止、anchor は center/topLeft、x/y は数値、
  * style は checkStyle。onEntry があれば妥当なエントリごとに呼び出し側固有の
- * 追加チェック(例: shorts の座標はみ出し警告)を行う */
+ * 追加チェックを行う */
 function checkCaptionTracks(
   file: string,
   key: string,
@@ -1579,12 +1474,7 @@ function checkIds(
   docs: LoadedDocs,
   warn: (f: string, w: string, m: string) => void,
 ): void {
-  // short は name を id 代わりに使う(専用の id フィールドは持たない)ため、
-  // collectIdOccurrences が返す short エントリはここでの id 有効判定・
-  // 重複/形式/接頭辞検査の対象から除く(shorts.json の name 重複・形式検査は
-  // 既存の別チェックが担う。ここに含めると shorts.json があるだけで
-  // 「id 無しプロジェクト」の警告件数が動いてしまう=バイト等価が壊れる)
-  const occurrences = collectIdOccurrences(docs).filter(([, target]) => target.kind !== "short");
+  const occurrences = collectIdOccurrences(docs);
   if (occurrences.length === 0) return;
 
   // 重複 id: 2件目以降を、既出の所在を添えて警告
@@ -1613,7 +1503,7 @@ function checkIds(
     }
   }
 
-  // 接頭辞ミスマッチ(コピペ由来の取り違え検出。short は id を持たないため対象外)
+  // 接頭辞ミスマッチ(コピペ由来の取り違え検出)
   const kindPrefix: Record<string, string | undefined> = ID_PREFIX;
   for (const [id, target] of occurrences) {
     const expected = kindPrefix[target.kind];
@@ -1661,14 +1551,6 @@ function countAddressableMissingIds(docs: LoadedDocs): number {
   if (isObj(chapters)) scan(chapters.chapters);
   const bgm = docs.bgm;
   if (isObj(bgm)) scan(bgm.tracks);
-  const shorts = docs.shorts;
-  if (isObj(shorts) && Array.isArray(shorts.shorts)) {
-    for (const s of shorts.shorts) {
-      if (!isObj(s)) continue;
-      scan(s.ranges);
-      scan(s.captionTracks);
-    }
-  }
   const thumbnail = docs.thumbnail;
   if (isObj(thumbnail)) scan(thumbnail.texts);
   return missing;

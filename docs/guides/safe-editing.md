@@ -6,22 +6,20 @@
 ## 安定 id / @-mention
 
 編集ファイルの各要素(`cutplan.segments` / `transcript.segments` /
-`overlays.json` の各配列 / `chapters.chapters` / `bgm.tracks` / 各ショートの
-`ranges`・`captionTracks` / `thumbnail.texts`)には、任意で**安定 id**
+`overlays.json` の各配列 / `chapters.chapters` / `bgm.tracks` /
+`thumbnail.texts`)には、任意で**安定 id**
 (`id?: string`。例 `seg_a1b2c3`)を付けられる。文法は
 `<種別を表す2〜3文字の接頭辞>_<英数字6桁>`(`seg`=cutplan の区間 / `cap`=テロップ /
 `mat`=素材 / `ins`=挿入 / `zm`=ズーム / `bl`=ぼかし / `wf`=ワイプ全画面 /
 `hc`=字幕非表示 / `ct`=テロップトラック標準設定 / `ch`=章 / `bg`=BGM区間 /
-`rg`=ショートの range / `tx`=サムネのテキスト)。**shorts(ショート本体)だけは
-`name` がそのまま id 代わり**で、別の id フィールドは持たない
-(`@<name>` または `@short:<name>` で指せる)。
+`tx`=サムネのテキスト)。
 
 - **一度振ったら内容・位置が変わっても不変**(id は「この要素」を指す
   永続アドレス。`@id` で人間/AI が位置に依存せず参照できる)。
 - **opt-in・sticky**: プロジェクトに `id` が1つも無ければ「id 無効」で、
   全コマンドの出力は本機能導入前と完全に同じ(バイト等価)。`id-stamp <dir>`
-  を一度実行すると「id 有効」になり、以後は `plan` / `transcribe` /
-  `plan-shorts` の再実行や GUI 保存が新規要素にだけ id を採番し、既存 id は
+  を一度実行すると「id 有効」になり、以後は `plan` / `transcribe` の
+  再実行や GUI 保存が新規要素にだけ id を採番し、既存 id は
   常に保つ。**id 無効なプロジェクトを触らない限り、この機能は一切見えない**。
 - **`id-stamp <dir>`**: 既存プロジェクトへの一括採番コマンド(冪等。既存 id は
   不変、無い要素にだけ新規採番。内容が実際に変わったファイルだけ書く)。
@@ -73,14 +71,12 @@ node src/cli.ts apply <dir> --patch edit.json --dry-run   # 検査・要約だ�
   `overlays.overlays` / `overlays.inserts` / `overlays.zooms` /
   `overlays.blurs` / `overlays.wipeFull` / `overlays.hideCaption` /
   `overlays.captionTracks` / `chapters.chapters` / `bgm.tracks` /
-  `thumbnail.texts`)のみ。**shorts[] 自体の追加、および shorts 配下
-  (`ranges`/`captionTracks`)への set/remove/add は対象外**(`@id` だけでは
-  「どのショートか」を一意に復元できないため。全置換(`replace`)で編集する)。
+  `thumbnail.texts`)のみ。
   `cut`/`keep` も独立 op にせず `{op:"set", target:"@seg_x", field:"action", value:"cut"}`
   で表す。
 - **`replace`**(ファイル単位の全置換。`SaveRequest` と同型の低水準の脱出
-  ハッチ): split・要素の並べ替え・shorts[] 自体の追加など、`ops` の3種で
-  表せない編集に使う。`bgm`/`shorts` は `null` で該当ファイルを削除できる
+  ハッチ): split・要素の並べ替えなど、`ops` の3種で
+  表せない編集に使う。`bgm` は `null` で該当ファイルを削除できる
   (`undefined` はそのファイルを触らない)。
 
 **守られる不変条件**(コードで強制。「自分の判断で回避」できない):
@@ -89,8 +85,8 @@ node src/cli.ts apply <dir> --patch edit.json --dry-run   # 検査・要約だ�
    `approve`/`unapprove` コマンドと GUI 保存の専権のまま。
 2. **`approved` を変更できない**。`set` の `field` に `approved` を指定、
    `add` の `value` に `approved` を含める、`replace` で
-   `cutplan.approved`/`shorts[].approved` をディスク現状と違う値にする
-   —— いずれもエラーで拒否される(cutplan/short の `approved` は常に
+   `cutplan.approved` をディスク現状と違う値にする
+   —— いずれもエラーで拒否される(cutplan の `approved` は常に
    ディスク現状の値へ強制されて書き戻される)。承認を変えたいときは
    `approve <dir>` / `unapprove <dir>` を使う。
 3. **エラー時ゼロ書き込み**: 宛先未解決・op 不正・JSON パース失敗・
@@ -100,8 +96,8 @@ node src/cli.ts apply <dir> --patch edit.json --dry-run   # 検査・要約だ�
 4. **書き込みはファイル単位で `<file>.tmp` → rename(アトミック確定)**。
    書く前に `backupEditableFiles` と同じ仕組みで上書き対象の現状を
    `backups/<日時>/` へ退避する。
-5. **apply が書けるのは cutplan/transcript/overlays/chapters/bgm/shorts/
-   thumbnail の7ファイルだけ**(`meta.json` は id を持つ要素が無いため
+5. **apply が書けるのは cutplan/transcript/overlays/chapters/bgm/
+   thumbnail の6ファイルだけ**(`meta.json` は id を持つ要素が無いため
    `apply` のスキーマ自体に含まれない。触りたいときは通常の Write/Edit で
    直接編集する)。`approvals.json` や中間生成物は物理的に書き込み対象に
    入らない。
@@ -121,8 +117,8 @@ exit 1。`--dry-run` は `@id` 単位の変更要約(`field: 旧 → 新`)と
 
 `validate` が答えるのは「この編集は**壊れていない**か」(スキーマ・keep の
 重なり・参照ファイルの存在・尺超えという普遍の不変条件)。一方 `assert <dir>`
-が答えるのは「この編集は**私が意図した状態になっている**か」——「ショートを
-60秒以内に収めたはずだ」「@cap_x のテロップは本編に残っているはずだ」
+が答えるのは「この編集は**私が意図した状態になっている**か」——「@cap_x の
+テロップは本編に残っているはずだ」
 「API キーを写した区間は目隠しできているはずだ」というこの収録固有の期待値。
 
 期待値は `assertions.json`(収録フォルダ直下)に平文で宣言する。人間/AI が
@@ -163,7 +159,7 @@ node src/cli.ts assert <dir> --json     # AssertReport を純 JSON で stdout(�
 
 | type | フィールド | 意味 |
 |---|---|---|
-| `outDuration` | `op, value, short?` | 出力尺の比較。`short` 指定でそのショートの `outDurationSec`、省略で本編 `summary.outDurationSec` |
+| `outDuration` | `op, value` | 本編の出力尺(`summary.outDurationSec`)の比較 |
 | `keepCount` | `op, value` | keep 区間数(`summary.keepCount`)の比較 |
 | `captionVisible` | `ref, visible?` | `@id` のテロップが出力に現れるか。`visible` 省略時 true |
 | `captionText` | `ref, contains?, equals?` | `@id` のテロップ本文が部分一致/完全一致するか(手編集で文言が保たれたかの確認) |
@@ -203,9 +199,9 @@ Claude Code に限らず、任意のコーディングエージェント・素�
 射影であり、新しい真実は宣言しない。ずれたら `npm test`(`test/schema.test.ts` /
 `test/agentsMd.test.ts`)が落ちる)。
 
-- **`schemas/*.schema.json`**(draft 2020-12): 8編集ファイル
+- **`schemas/*.schema.json`**(draft 2020-12): 7編集ファイル
   (`cutplan` / `transcript` / `overlays` / `bgm` / `chapters` / `meta` /
-  `shorts` / `thumbnail`)それぞれに1スキーマ + 共有 `$defs`
+  `thumbnail`)それぞれに1スキーマ + 共有 `$defs`
   (`schemas/common.schema.json`。`Region` / `CaptionPos` / `CaptionStyle` 系 /
   `WordTiming` / `Annotation` union / `CaptionTrackDef` / `id` パターン /
   `Interval`)。`schemas/apply-patch.schema.json` は `apply` コマンドの入力形
@@ -234,5 +230,4 @@ Claude Code に限らず、任意のコーディングエージェント・素�
 はテスト専用の vendored な JSON Schema 部分集合バリデータ(`$ref` / `$defs` /
 `type` / `required` / `properties` / `additionalProperties` / `enum` /
 `const` / `pattern` / `items` / `oneOf` / `minimum` / `maximum` / `minItems`)。
-
 

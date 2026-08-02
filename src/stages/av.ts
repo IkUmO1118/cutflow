@@ -6,7 +6,6 @@ import { resolveAvCfg } from "../lib/config.ts";
 import { run } from "../lib/exec.ts";
 import { detectSilence } from "../lib/ffmpeg.ts";
 import { audioSourceOf } from "../lib/loudness.ts";
-import { loadShort } from "../lib/shorts.ts";
 import {
   buildTimelineModel,
   insertSpansOf,
@@ -50,7 +49,6 @@ const AV_AXIS_GENERATION = 2;
 export interface AvOptions {
   range?: { startSec: number; endSec: number };
   everySec?: number;
-  short?: string;
   fullRes?: boolean;
   motionOnly?: boolean;
   soundOnly?: boolean;
@@ -61,7 +59,6 @@ export interface MotionReport {
   capturedAt: string;
   key: Record<string, unknown>;
   range: { startSec: number; endSec: number };
-  short: string | null;
   base: "proxy" | "source";
   strip: {
     file: string;
@@ -78,7 +75,6 @@ export interface SoundReport {
   capturedAt: string;
   key: Record<string, unknown>;
   range: { startSec: number; endSec: number };
-  short: string | null;
   mix: {
     integratedLufs: number;
     loudnessRangeLu: number;
@@ -124,17 +120,9 @@ export async function av(dir: string, opts: AvOptions, cfg: Config): Promise<AvR
   const manifest = readJson<Manifest>("manifest.json", null);
   const transcript = readJson<Transcript>("transcript.json", { language: "ja", model: "", segments: [] });
   const bgm = readOptionalJson<Bgm>("bgm.json");
-  let keeps: Interval[];
-  let overlays: Overlays;
-  if (opts.short) {
-    const short = loadShort(dir, opts.short);
-    keeps = mergeIntervals(short.ranges);
-    overlays = { captionTracks: short.captionTracks };
-  } else {
-    const cutplan = readJson<CutPlan>("cutplan.json", null);
-    keeps = mergeIntervals(cutplan.segments.filter((s) => s.action === "keep"));
-    overlays = readJson<Overlays>("overlays.json", {});
-  }
+  const cutplan = readJson<CutPlan>("cutplan.json", null);
+  const keeps = mergeIntervals(cutplan.segments.filter((s) => s.action === "keep"));
+  const overlays = readJson<Overlays>("overlays.json", {});
   if (keeps.length === 0) throw new Error("keep 区間が0件です");
 
   // --range は出力(カット後・挿入込み)の秒。挿入区間そのものは av の
@@ -168,7 +156,6 @@ export async function av(dir: string, opts: AvOptions, cfg: Config): Promise<AvR
       insertsFingerprint,
       outDir,
       range,
-      short: opts.short ?? null,
       fullRes: opts.fullRes === true,
       rootCfg: cfg,
       cfg: avCfg,
@@ -188,7 +175,6 @@ export async function av(dir: string, opts: AvOptions, cfg: Config): Promise<AvR
       keeps,
       rangedKeeps,
       range,
-      short: opts.short ?? null,
       outDir,
       insertsFingerprint,
       cfg,
@@ -207,7 +193,6 @@ async function collectMotion(args: {
   insertsFingerprint: string;
   outDir: string;
   range: { startSec: number; endSec: number };
-  short: string | null;
   fullRes: boolean;
   rootCfg: Config;
   cfg: ReturnType<typeof resolveAvCfg>;
@@ -222,7 +207,6 @@ async function collectMotion(args: {
     insertsFingerprint,
     outDir,
     range,
-    short,
     fullRes,
     rootCfg,
     cfg,
@@ -243,7 +227,6 @@ async function collectMotion(args: {
     keepsHash: keepsDigest,
     insertsFingerprint,
     range,
-    short,
     everySec,
     cols: cfg.cols,
     freeze: cfg.freeze,
@@ -329,7 +312,6 @@ async function collectMotion(args: {
     capturedAt: new Date().toISOString(),
     key,
     range,
-    short,
     base: fullRes ? "source" : "proxy",
     strip: { file: join(AV_DIR, STRIP_FILE), cols: cfg.cols, rows, tiles },
     motion,
@@ -349,7 +331,6 @@ async function collectSound(args: {
   keeps: Interval[];
   rangedKeeps: Interval[];
   range: { startSec: number; endSec: number };
-  short: string | null;
   outDir: string;
   insertsFingerprint: string;
   cfg: Config;
@@ -365,7 +346,6 @@ async function collectSound(args: {
     keeps,
     rangedKeeps,
     range,
-    short,
     outDir,
     insertsFingerprint,
     cfg,
@@ -387,7 +367,6 @@ async function collectSound(args: {
       targetLufs: cfg.render.targetLufs,
     },
     range,
-    short,
     windowSec: avCfg.windowSec,
   };
   const jsonPath = join(outDir, SOUND_FILE);
@@ -516,7 +495,6 @@ async function collectSound(args: {
     capturedAt: new Date().toISOString(),
     key,
     range,
-    short,
     mix,
     silences,
     tracks,
