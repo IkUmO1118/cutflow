@@ -60,6 +60,9 @@ export const PROXY_GOP_FRAMES = 6;
  * proxy.mp4 / preview.mp4 のビデオエンコード ffmpeg 引数。
  * GOP は既定1秒(-g 30。opts.gopFrames で上書き=プロキシは PROXY_GOP_FRAMES)、
  * +faststart はブラウザの初期ロード短縮のため、エンコーダに依らず必ず付ける。
+ * ブラウザが読むファイルは、この関数を通らない経路(音声のみプロキシ等)でも
+ * 必ず +faststart を付けること。moov が末尾だとエディタのベース音声が
+ * 例外も出さずに無音になる(S3-fix4)。
  * videotoolbox の品質指定は crf ではなく -q:v(0〜100、大きいほど高品質)。
  * 品質値(-q:v 65 / -crf 24)は、エディタのプレビューがプロキシを
  * アップスケール表示する(=圧縮ノイズも拡大される)前提の水準。

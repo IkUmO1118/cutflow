@@ -4,7 +4,7 @@
 // proxy.mp4 は古い(再生成が要る)と判定されること。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildProxyCacheKey, proxyCacheKeyEquals, proxyFileName } from "../src/lib/proxyCache.ts";
+import { buildProxyCacheKey, PROXY_CACHE_GENERATION, proxyCacheKeyEquals, proxyFileName } from "../src/lib/proxyCache.ts";
 import { PROXY_GOP_FRAMES, videoEncodeArgs } from "../src/lib/videoEncode.ts";
 import type { Config } from "../src/lib/config.ts";
 
@@ -141,4 +141,8 @@ test("proxyFileName: stills は音声専用 proxy.m4a、それ以外は proxy.mp
   assert.equal(proxyFileName({ layout: "stills" }), "proxy.m4a");
   assert.equal(proxyFileName({ layout: "plain" }), "proxy.mp4");
   assert.equal(proxyFileName({}), "proxy.mp4");
+});
+
+test("buildProxyCacheKey: proxy cache generation を含む", () => {
+  assert.equal(keyOf({}).generation, PROXY_CACHE_GENERATION);
 });

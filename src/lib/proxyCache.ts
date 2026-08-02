@@ -2,6 +2,8 @@ import type { Config } from "./config.ts";
 import { proxyGopFrames, resolveVideoEncoder, videoEncodeArgs } from "./videoEncode.ts";
 import type { ColorTags } from "./colorTags.ts";
 
+export const PROXY_CACHE_GENERATION = 2;
+
 export function proxyFileName(manifest: { layout?: string }): "proxy.mp4" | "proxy.m4a" {
   return manifest.layout === "stills" ? "proxy.m4a" : "proxy.mp4";
 }
@@ -16,6 +18,7 @@ export function proxyFileName(manifest: { layout?: string }): "proxy.mp4" | "pro
  * (videoEncoder はその一部と重複するが、可読性のため残す)
  */
 export interface ProxyCacheKey {
+  generation: number;
   targetLufs: number;
   systemAudio: { mix: boolean; volumeDb: number };
   denoise: { mic: boolean; noiseFloorDb: number };
@@ -37,6 +40,7 @@ export function buildProxyCacheKey(args: {
 }): ProxyCacheKey {
   const { cfg, sourceFile, sourceMtimeMs, sourceSize, colorTags } = args;
   return {
+    generation: PROXY_CACHE_GENERATION,
     targetLufs: cfg.render.targetLufs,
     systemAudio: {
       mix: cfg.render.systemAudio?.mix ?? false,

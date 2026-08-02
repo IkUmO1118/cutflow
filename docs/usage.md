@@ -119,6 +119,18 @@ human final がある場合だけ、従来の agreement (`exact`) / rescue (`dir
 
 `manifest.layout:"stills"` の映像なしプロジェクトでは、ナレーション音声が動画尺を決める。スライドは `overlays.json` の `overlays[]` に `rect` なしで置く(全画面表示)。`inserts[]` は intro/ending など本当に出力尺を伸ばしたいクリップ専用で、通常のスライドには使わない。
 
+映像なしプロジェクトのコマンド対応:
+
+| コマンド | 対応 |
+|---|---|
+| `ingest` / `transcribe` / `detect` / `run` | 対応。`run` は `plan.perception.ocr` が有効でも画面 OCR を警告付きでスキップする |
+| `editor` | 対応。stills は音声のみの `proxy.m4a` を使う |
+| `validate` / `describe` / `apply` | 対応 |
+| `frames` | 対応。ベース映像なしの合成 still を撮る |
+| `av --sound-only` | 対応。motion は自動スキップ |
+| `render` | 対応 |
+| `preview` | 非対応。最終確認は `frames` / `render` を使う |
+
 `describe <dir> --json` の `overlays.inserts[]` は `kind` (`"image"` / `"video"`)を含む。`"image"` は宣言した `durationSec` 全体を表示する静止画クリップで、音声を持たない。
 同出力の区間射影は `out` が出力秒を表す。要素の `timebase` は保存文書どおりで、
 省略時は source、`"output"` のときは `start` / `end` 自体も出力秒である。

@@ -46,11 +46,19 @@ export function findSource(dir: string): string {
     );
   }
 
+  if (rawCandidates.length === 0 && candidates.length > 1) {
+    throw new Error(
+      `${dir} に音声ファイルが複数あります(${candidates.join(", ")})。` +
+        "元ファイルにする1本だけを収録フォルダ直下に置き、BGM や素材は materials/ へ移してください",
+    );
+  }
+
   if (candidates.length > 1) {
     // raw.* を優先、それ以外は最初の1本
     const raw = candidates.find((f) => f.startsWith("raw."));
     if (raw) return raw;
-    console.warn(`動画が複数あります。${candidates[0]} を使います。`);
+    const kind = rawCandidates.length > 0 ? "動画" : "音声";
+    console.warn(`${kind}が複数あります。${candidates[0]} を使います。`);
   }
   return candidates[0];
 }

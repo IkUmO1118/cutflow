@@ -15,6 +15,30 @@ import type { ProxyCacheKey } from "../lib/proxyCache.ts";
 import type { Config } from "../lib/config.ts";
 import type { Manifest } from "../types.ts";
 
+/** stills(音声のみ)プロキシの ffmpeg 引数。moov 先頭配置(+faststart)は
+ * ブラウザの Range 読み出しに必須(S3-fix4)。 */
+export function stillsProxyArgs(args: {
+  input: string;
+  audioParts: string[];
+  loudnorm: string;
+  output: string;
+}): string[] {
+  return [
+    "-y", "-v", "error",
+    "-i", args.input,
+    "-filter_complex",
+    [
+      ...args.audioParts,
+      `[a0]${args.loudnorm}[aout]`,
+    ].join(";"),
+    "-map", "[aout]",
+    // loudnorm は内部で 192kHz にアップサンプルするため 48kHz に戻す
+    "-c:a", "aac", "-ar", "48000",
+    "-movflags", "+faststart",
+    args.output,
+  ];
+}
+
 function probeSync(file: string) {
   return JSON.parse(execFileSync("ffprobe", [
     "-v", "error",
@@ -57,19 +81,12 @@ export async function buildProxy(dir: string, cfg: Config): Promise<string> {
   const sourceStat = statSync(input);
   const output = join(dir, proxyFileName(manifest));
   if (manifest.layout === "stills") {
-    await run("ffmpeg", [
-      "-y", "-v", "error",
-      "-i", input,
-      "-filter_complex",
-      [
-        ...keepAudioParts(source, whole),
-        `[a0]${loudnorm}[aout]`,
-      ].join(";"),
-      "-map", "[aout]",
-      // loudnorm は内部で 192kHz にアップサンプルするため 48kHz に戻す
-      "-c:a", "aac", "-ar", "48000",
+    await run("ffmpeg", stillsProxyArgs({
+      input,
+      audioParts: keepAudioParts(source, whole),
+      loudnorm,
       output,
-    ]);
+    }));
   } else {
     await run("ffmpeg", [
       "-y", "-v", "error",
