@@ -342,25 +342,16 @@ export async function plan(
   const templateFile = opts.cutsOnly ? "plan-cuts.md" : "plan.md";
   const pc = resolvePerceptionCfg(cfg);
   const audio = pc.audio ? computeAudioFeatures(numbered, auto.silences) : null;
-  // ocr 経路のみ manifest.json を読む(audio だけなら manifest は不要)。
-  // stills は映像ストリームを持たないため ffmpeg の静止画抽出を試みない。
-  let ocr = null;
-  if (pc.ocr) {
-    const manifest = readStageJson<Manifest>(join(dir, "manifest.json"), "ingest");
-    if (manifest.layout === "stills") {
-      console.warn(
-        '警告: 映像なしプロジェクト(layout:"stills")のため plan.perception.ocr はスキップします',
-      );
-    } else {
-      ocr = await computeSegmentOcr(
+  // ocr 経路のみ manifest.json を読む(audio だけなら manifest は不要)
+  const ocr = pc.ocr
+    ? await computeSegmentOcr(
         dir,
-        manifest,
+        readStageJson<Manifest>(join(dir, "manifest.json"), "ingest"),
         numbered,
         { ocrMaxSegments: pc.ocrMaxSegments, ocrMaxLines: pc.ocrMaxLines, languages: cfg.ocr?.languages },
         (msg) => console.warn(`警告: ${msg}`),
-      );
-    }
-  }
+      )
+    : null;
   // システム音声の発話(transcript.system.json)を各区間へ帰属(§D7)。
   // systemSpeech オフ or ファイル不在なら null=従来出力とバイト等価
   const sysT = pc.systemSpeech ? loadSystemTranscript(dir) : null;

@@ -1416,7 +1416,6 @@ export const App = () => {
   const built = useMemo(() => {
     if (!proj || !cutplan || !overlays || !transcript) return null;
     const warnings: string[] = [];
-    const previewVideoFile = proj.manifest.layout === "stills" ? "" : "media/proxy.mp4";
     if (shortMode && activeShort) {
       // ショートモード: render.ts の renderOneShort と同じ組み立て
       // (keeps = shortKeepsMerged、overlays は captionTracks だけ、
@@ -1440,7 +1439,7 @@ export const App = () => {
         width: shortProfile.width,
         height: shortProfile.height,
         profile: shortProfile,
-        videoFile: previewVideoFile,
+        videoFile: "media/proxy.mp4",
         videoIsSource: true,
         bgm: null,
         bgmFallbackFile: null,
@@ -1461,7 +1460,7 @@ export const App = () => {
       // fresh な連続ベイクはカット後時刻で1本として再生する。欠落・陳腐・
       // keep 編集直後は source proxy へ即時フォールバックする。canvas
       // プレビューは bake 自体が起動しない(前段のガード)ので常に生
-      videoFile: previewVideoFile,
+      videoFile: "media/proxy.mp4",
       videoIsSource: true,
       // bgm.json(区間配置)を優先。無ければ収録フォルダ直下の bgm.* を
       // 全編1曲で流す(後方互換)。素材ファイルはこの後 media/ 経由に付け替える
@@ -1612,7 +1611,6 @@ export const App = () => {
       resolutionForOnly(review.diff.hunks, targets),
     );
 
-    const previewVideoFile = proj.manifest.layout === "stills" ? "" : "media/proxy.mp4";
     const props = buildRenderProps({
       manifest: proj.manifest,
       keeps: keepsOf(merged.cutplan),
@@ -1621,7 +1619,7 @@ export const App = () => {
       renderCfg: proj.renderCfg,
       width: proj.output.w,
       height: proj.output.h,
-      videoFile: previewVideoFile,
+      videoFile: "media/proxy.mp4",
       videoIsSource: true,
       bgm: merged.bgm,
       bgmFallbackFile: proj.bgmFile,
@@ -1830,13 +1828,6 @@ export const App = () => {
   useEffect(() => {
     localStorage.setItem("framewright.editor.trackMuted", JSON.stringify(trackMuted));
   }, [trackMuted]);
-  // 動画なし(stills)では元音声が唯一の基準メディア。以前のプロジェクトで
-  // 保存された cut ミュートを引き継ぐと、音量表示が100%でも永久に無音に
-  // 見えるため、プロジェクトを開いた時点で元音声だけ明示的に戻す。
-  useEffect(() => {
-    if (proj?.manifest.layout !== "stills") return;
-    setTrackMuted((muted) => muted.cut ? { ...muted, cut: false } : muted);
-  }, [proj?.manifest.layout]);
   const toggleTrackMute = (id: AudioTrackId) =>
     setTrackMuted((m) => ({ ...m, [id]: !m[id] }));
   const toggleTrackHide = (id: LayerId) =>
@@ -4892,12 +4883,7 @@ export const App = () => {
   // 失敗したときだけビューアに再試行ボタンが出る
   const proxyKickedRef = useRef(false);
   useEffect(() => {
-    if (
-      !proj ||
-      proj.manifest.layout === "stills" ||
-      proj.proxyExists ||
-      proxyKickedRef.current
-    ) return;
+    if (!proj || proj.proxyExists || proxyKickedRef.current) return;
     proxyKickedRef.current = true;
     void generateProxy();
   }, [proj]);
@@ -6266,7 +6252,7 @@ export const App = () => {
             >
               <div className="viewerCol panel shellSurface" ref={viewerColRef}>
         <div className="viewer">
-          {proj.manifest.layout === "stills" || proj.proxyExists ? (
+          {proj.proxyExists ? (
             <div
               className="viewerScale"
               style={previewZoom === "fit" ? undefined : { transform: `scale(${previewZoom})` }}
@@ -6275,11 +6261,6 @@ export const App = () => {
                 key={videoVersion}
                 ref={playerRef}
                 props={playerProps ?? built.props}
-                baseAudioFile={
-                  proj.manifest.layout === "stills"
-                    ? `media/${proj.manifest.source}`
-                    : "media/proxy.mp4"
-                }
                 durationInFrames={durationInFrames}
                 fps={fps}
                 loop={loop}
