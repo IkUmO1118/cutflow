@@ -84,7 +84,6 @@ async function thumbnailEngine(dir: string, cfg: Config): Promise<string> {
   };
   const session = await createEngineSession(dir, {
     props,
-    durationSec: props.durationSec,
     sourceUrls,
   });
 

@@ -23,7 +23,6 @@ declare global {
 
 export interface ExportConfig {
   props: RenderProps;
-  durationSec: number;
   videoFile: string;
   sourceUrls: Record<string, string>;
 }
@@ -63,7 +62,7 @@ async function init(): Promise<void> {
   if (ready) return;
   const cfg = window.__EXPORT_CONFIG__;
   props = cfg.props;
-  durSec = cfg.durationSec;
+  durSec = props.durationSec;
 
   const statusEl = document.getElementById("export-status") as HTMLDivElement;
   statusEl.textContent = "フォント読込中…";

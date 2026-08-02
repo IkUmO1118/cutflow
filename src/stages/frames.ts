@@ -141,7 +141,6 @@ export async function framesEngine(
   const ownSession = !warmSession;
   const session = warmSession ?? (await createEngineSession(dir, {
     props,
-    durationSec: maxOut + props.fps > 0 ? props.durationSec : 0,
     sourceUrls,
   }));
 

@@ -527,7 +527,6 @@ async function renderClipDefault(args: {
 }): Promise<void> {
   const session = await createEngineSession(args.dir, {
     props: args.ctx.props,
-    durationSec: args.ctx.durationSec,
     sourceUrls: sourceUrlsOf(args.ctx.props),
   });
   const pipe = startFramePipe({ fps: args.ctx.fps, outPath: args.outFile });

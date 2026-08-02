@@ -521,7 +521,6 @@ async function renderOneShort(
         renderEngineFromProps({
           dir,
           props,
-          durationSec: props.durationSec,
           cutPath,
           outPath: tmp,
           label: name,
