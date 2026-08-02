@@ -27,10 +27,6 @@ test("describeWipeLayer: cameraRegion が無ければ空配列", () => {
   assert.deepEqual(describeWipeLayer({ ...base, cameraRegion: undefined }, 5), []);
 });
 
-test("describeWipeLayer: wipeBurnedIn は空配列(render高速パスで焼き込み済み)", () => {
-  assert.deepEqual(describeWipeLayer({ ...base, wipeBurnedIn: true }, 5), []);
-});
-
 test("describeWipeLayer: 挿入クリップの穴(baseSourceTimeAt null)は空配列", () => {
   const withInsert: RenderProps = {
     ...base,

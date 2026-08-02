@@ -191,10 +191,6 @@ export type RenderProps = {
     transitionSec?: number;
     reactiveMinScale?: number;
   };
-  /** true = ワイプ(カメラ)を cut.mp4 に焼き込み済み。Main.tsx はワイプレイヤーを
-   * 描かない(ベース抽出1回の高速レンダー。docs/plans/perf-render-single-extraction.md)。
-   * 最終レンダーの composite 経路でのみ立つ。エディタ Player では未指定 */
-  wipeBurnedIn?: boolean;
   /** 簡易カラー調整(overlays.json の colorFilter)。ベース映像(画面クロップ+
    * カメラ)だけに CSS filter として効く(src/lib/colorFilter.ts が変換)。
    * 素材オーバーレイ・挿入クリップには効かない。省略時は無補正 */

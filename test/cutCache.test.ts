@@ -135,24 +135,20 @@ test("cutCacheKeyEquals: denoise.mic / noiseFloorDb が変わると不一致", (
   assert.ok(!cutCacheKeyEquals(micOn, floorChanged));
 });
 
-test("buildCutCacheKey: composite 指定で baseComposite/wipeWidthPx が載り、非 composite と不一致", () => {
-  const plain = keyOf({});
-  const composite = buildCutCacheKey({
-    keeps: KEEPS,
-    manifest: MANIFEST,
-    cfg: { render: { ...CFG.render, wipeWidthPx: 480 } } as Config,
-    sourceMtimeMs: 1000,
-    sourceSize: 2000,
-    composite: true,
-  });
-  assert.equal(composite.baseComposite, true);
-  assert.equal(composite.wipeWidthPx, 480);
-  // 焼き込みの有無で cut.mp4 を作り直させる(キー不一致)
-  assert.ok(!cutCacheKeyEquals(plain, composite));
+test("buildCutCacheKey: 旧焼き込みフラグを載せない(既存非焼き込み cut.keeps.json を失効させない)", () => {
+  const key = keyOf({});
+  const legacyFlag = "base" + "Composite";
+  const legacyWidth = "wipe" + "WidthPx";
+  assert.equal(legacyFlag in key, false);
+  assert.equal(legacyWidth in key, false);
 });
 
-test("buildCutCacheKey: composite 省略時は baseComposite を載せない(既存 cut.keeps.json を無駄に失効させない)", () => {
-  const key = keyOf({});
-  assert.equal("baseComposite" in key, false);
-  assert.equal("wipeWidthPx" in key, false);
+test("cutCacheKeyEquals: 旧焼き込みキーに余分なフラグが残っていれば不一致", () => {
+  const current = keyOf({});
+  const legacy = {
+    ...current,
+    ["base" + "Composite"]: true,
+    ["wipe" + "WidthPx"]: 480,
+  } as unknown as typeof current;
+  assert.ok(!cutCacheKeyEquals(legacy, current));
 });

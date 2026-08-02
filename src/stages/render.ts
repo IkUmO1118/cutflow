@@ -49,7 +49,6 @@ import {
 } from "../lib/renderReport.ts";
 import { logStage } from "../lib/obs.ts";
 import { resolveVideoEncoder } from "../lib/videoEncode.ts";
-import { hasCamera } from "../types.ts";
 import type { CutCacheKey } from "../lib/cutCache.ts";
 import type { RenderCacheKey } from "../lib/renderKey.ts";
 import type { Config } from "../lib/config.ts";
@@ -62,45 +61,6 @@ import type {
   Transcript,
 } from "../types.ts";
 import type { RenderProps } from "../lib/renderPropsTypes.ts";
-import type { Region } from "../types.ts";
-
-/** ワイプ焼き込みの幾何(Main.tsx の wipeLayer と一致させる。camera 前提)。
- * ww = config の wipeWidthPx、wh はカメラ領域のアスペクトで決まる高さ */
-function wipeGeom(manifest: Manifest, cfg: Config): { ww: number; wh: number } | null {
-  const cam = manifest.video.cameraRegion;
-  if (!cam) return null;
-  const ww = cfg.render.wipeWidthPx;
-  return { ww, wh: Math.round((ww * cam.h) / cam.w) };
-}
-
-/** 出力px矩形の交差判定 */
-function rectsIntersect(a: Region, b: Region): boolean {
-  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
-}
-
-/**
- * ワイプ(カメラ)を cut.mp4 に焼き込んで Remotion のベース映像抽出を2回→1回に
- * 減らせる収録か(docs/plans/perf-render-single-extraction.md)。camera があり、
- * zoom / wipeFull が無く、ワイプ矩形と交差する blur も無いときだけ true。
- * 不適格なら従来の拡張キャンバス(3840)ベース+2抽出へフォールバック(挙動 bit 等価)。
- */
-export function canBurnWipe(manifest: Manifest, overlays: Overlays, cfg: Config): boolean {
-  if (!hasCamera(manifest)) return false;
-  // 非 landscape キャンバスは profile.layout でパネル合成する。従来の
-  // screen 全面+右下 wipe を cut.mp4 に焼く高速経路とは幾何が異なる。
-  if (manifest.canvas !== undefined && manifest.canvas !== "landscape") return false;
-  // デザイン(背景 + 画面パネル + カメラ円)有効時は、ベースの幾何が
-  // 「画面全面 + 右下 flush ワイプ」ではないので焼き込めない(Remotion 側の
-  // design描画か、静的assetを使うdesign FAST基底で合成する。§src/lib/design.ts)
-  if (cfg.render.design?.enabled) return false;
-  if ((overlays.zooms?.length ?? 0) > 0) return false;
-  if ((overlays.wipeFull?.length ?? 0) > 0) return false;
-  const g = wipeGeom(manifest, cfg);
-  if (!g) return false;
-  const sr = manifest.video.screenRegion;
-  const wipeRect: Region = { x: sr.w - g.ww, y: sr.h - g.wh, w: g.ww, h: g.wh };
-  return !(overlays.blurs ?? []).some((b) => rectsIntersect(b.rect, wipeRect));
-}
 
 /**
  * 最終レンダー。2段構成:
@@ -178,11 +138,6 @@ async function runRenderMain(
     throw new Error("keep 区間が0件です(cutplan.json を確認してください)");
   }
 
-  // ワイプを cut.mp4 に焼き込めるなら Remotion のベース抽出が2回→1回で済む(高速化)。
-  // zoom/wipeFull があると焼き込めない=従来の 3840 ベース+2抽出へフォールバック
-  const composite = canBurnWipe(manifest, overlaysIn, cfg);
-  if (composite) console.log("ワイプを cut.mp4 に焼き込みます(ベース抽出1回の高速レンダー)");
-
   // 1. keep 区間をフル解像度で結合(音声はマイク+システム音声のミックス、
   //    ラウドネス正規化込み)。keeps・音声設定・元収録ファイルが前回の
   //    render から変わっていなければ cut.mp4 を再利用し、ffmpeg cut
@@ -200,7 +155,6 @@ async function runRenderMain(
     cfg,
     sourceMtimeMs: sourceStat.mtimeMs,
     sourceSize: sourceStat.size,
-    composite,
     colorTags,
   });
   const cachedKey = existsSync(cutKeepsPath)
@@ -215,7 +169,7 @@ async function runRenderMain(
       inputs: [
         { path: sourcePath, mtimeMs: sourceStat.mtimeMs, size: sourceStat.size },
       ],
-      produce: (tmp) => cutFullRes(dir, manifest, keeps, tmp, cfg, { composite, colorTags }),
+      produce: (tmp) => cutFullRes(dir, manifest, keeps, tmp, cfg, { colorTags }),
       verify: (tmp) => audioOnly ? verifyPlayableAudio(tmp) : verifyPlayableVideo(tmp),
       commit: () => writeFileSync(cutKeepsPath, JSON.stringify(cacheKey, null, 2)),
     });
@@ -271,15 +225,6 @@ async function runRenderMain(
     overlayExists: (f) => existsSync(join(dir, f)),
     warn: (msg) => console.warn(`警告: ${msg}`),
   });
-  // composite 時: ベースは焼き込み済み 1920x1080 の単一映像。canvas/screenRegion を
-  // その寸法に、wipeBurnedIn を立てて Main.tsx のワイプレイヤーを畳む。cameraRegion は
-  // 残す(字幕の reserve が使う=焼き込みワイプへの重なりを防ぐ)
-  if (composite) {
-    const sr = manifest.video.screenRegion;
-    props.canvas = { w: sr.w, h: sr.h };
-    props.screenRegion = { x: 0, y: 0, w: sr.w, h: sr.h };
-    props.wipeBurnedIn = true;
-  }
   props = await timed("design静的資産準備", () =>
     prepareDesignAssetsForProps({
       dir,
@@ -397,7 +342,7 @@ async function cutFullRes(
   keeps: { start: number; end: number; speed: number }[],
   output: string,
   cfg: Config,
-  opts: { composite?: boolean; colorTags?: ColorTags } = {},
+  opts: { colorTags?: ColorTags } = {},
 ): Promise<void> {
   const input = join(dir, manifest.source);
   const source = audioSourceOf(manifest, cfg);
@@ -437,31 +382,13 @@ async function cutFullRes(
     return;
   }
 
-  // composite: 連結後の拡張キャンバス [vc] から画面クロップ + カメラワイプ(右下 flush)を
-  // 出力解像度の1本 [vout] に焼き込む(Main.tsx の wipeLayer と同じ幾何)。これで
-  // Remotion 側のベース映像抽出が2回→1回に減る(cut.mp4 自体も 3840→1920 で軽くなる)
-  const g = opts.composite ? wipeGeom(manifest, cfg) : null;
-  const cam = manifest.video.cameraRegion;
-  const compositeParts =
-    g && cam
-      ? (() => {
-          const sr = manifest.video.screenRegion;
-          return [
-            `[vc]split=2[s0][s1]`,
-            `[s0]crop=${sr.w}:${sr.h}:${sr.x}:${sr.y}[scr]`,
-            `[s1]crop=${cam.w}:${cam.h}:${cam.x}:${cam.y},scale=${g.ww}:${g.wh}[cw]`,
-            `[scr][cw]overlay=${sr.w - g.ww}:${sr.h - g.wh}[vout]`,
-          ];
-        })()
-      : [];
-  const videoOut = compositeParts.length > 0 ? "[vout]" : "[vc]";
+  const videoOut = "[vc]";
 
   const interleaved = keeps.flatMap((_, i) => [`[v${i}]`, `[a${i}]`]).join("");
   const parts = [
     ...videoParts,
     ...audioParts,
     `${interleaved}concat=n=${keeps.length}:v=1:a=1[vc][ac]`,
-    ...compositeParts,
     `[ac]${loudnorm}[aout]`,
   ];
 

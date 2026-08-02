@@ -54,9 +54,6 @@ const CLASSIFICATION = {
   screenRegion: { chunk: "global", fast: "base" },
   cameraRegion: { chunk: "global", fast: "base" },
   wipe: { chunk: "global", fast: "base" },
-  // フラグは cut.mp4 の内容(カメラ焼き込み済みか)の記述子。フラグが変わる
-  // ときは cut.mp4 自体が再生成されており cutStat で全チャンク無効になる
-  wipeBurnedIn: { chunk: "via-cutstat", fast: "base" },
   colorFilter: { chunk: "global", fast: "base" },
   design: { chunk: "global", fast: "base" },
   layout: { chunk: "shorts-only", fast: "shorts-only" },
@@ -139,7 +136,6 @@ const MUTATIONS: Record<keyof RenderProps, (p: RenderProps) => RenderProps> = {
   screenRegion: (p) => ({ ...p, screenRegion: { ...p.screenRegion, w: 1720 } }),
   cameraRegion: (p) => ({ ...p, cameraRegion: { x: 2000, y: 0, w: 1840, h: 1080 } }),
   wipe: (p) => ({ ...p, wipe: { ...p.wipe, widthPx: 400 } }),
-  wipeBurnedIn: (p) => ({ ...p, wipeBurnedIn: true }),
   colorFilter: (p) => ({ ...p, colorFilter: { brightness: 1.2 } }),
   design: (p) => ({
     ...p,

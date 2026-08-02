@@ -247,8 +247,7 @@ function wipeReactiveShrink(
  * グループ2: カメラ(ワイプ)+ wipeFull(全画面化の遷移)+ zoom 連動のワイプ
  * 縮小。design 有無で矩形の式が分岐する(design.camera があれば
  * wipeRectAt、無ければ props.wipe.style)し、縮小は選択アンカー基準で行う。
- * 縦プロファイル(layout あり)・カメラ無し・wipeBurnedIn(render 高速パスで
- * cut.mp4 に焼き込み済み)のいずれかなら何も出さない
+ * 縦プロファイル(layout あり)・カメラ無しのいずれかなら何も出さない
  * (Main.tsx:370-372 の layerNode("wipe") 分岐の逐語移植)。
  *
  * カメラは zoom transform を受けない(zoom 器の外側にある独立レイヤー。
@@ -256,7 +255,7 @@ function wipeReactiveShrink(
  * グループ5(layerOrder)で行う(このグループでは items 配列末尾に積むだけ)
  */
 export function describeWipeLayer(props: RenderProps, tOut: number): FrameItem[] {
-  if (props.layout || !props.cameraRegion || props.wipeBurnedIn) return [];
+  if (props.layout || !props.cameraRegion) return [];
   const sourceTimeSec = baseSourceTimeAt(props, tOut);
   if (sourceTimeSec === null) return [];
 
