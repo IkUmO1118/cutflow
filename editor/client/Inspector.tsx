@@ -266,6 +266,7 @@ export const Inspector = ({
   updateAnnotation,
   removeAnnotation,
   updateInsert,
+  reorderInsert,
   removeInsert,
   updateBgm,
   removeBgm,
@@ -372,6 +373,7 @@ export const Inspector = ({
   updateAnnotation: (i: number, patch: AnnotationPatch, coalesceKey?: string) => void;
   removeAnnotation: (i: number) => void;
   updateInsert: (i: number, patch: Partial<InsertEntry>, coalesceKey?: string) => void;
+  reorderInsert: (i: number, direction: "before" | "after") => void;
   removeInsert: (i: number) => void;
   updateBgm: (i: number, patch: Partial<BgmTrack>, coalesceKey?: string) => void;
   removeBgm: (i: number) => void;
@@ -892,6 +894,11 @@ export const Inspector = ({
   if (selection.kind === "insert") {
     const ins = (overlays.inserts ?? [])[selection.index];
     if (!ins) return null;
+    const sameAtIndices = (overlays.inserts ?? [])
+      .map((entry, index) => ({ entry, index }))
+      .filter(({ entry }) => entry.at === ins.at)
+      .map(({ index }) => index);
+    const sameAtPos = sameAtIndices.indexOf(selection.index);
     const isVideo = VIDEO_EXT_RE.test(ins.file);
     const volPct = Math.round((ins.volume ?? 1) * 100);
     return (
@@ -907,6 +914,27 @@ export const Inspector = ({
               <div className="capFlat capFlatNoGap">
                 <Section title="タイミング">
                   <div className="capControlStack">
+                  {sameAtIndices.length > 1 && (
+                    <div className="capField wide insertOrderControls">
+                      <label>同じ位置での順序</label>
+                      <button
+                        type="button"
+                        disabled={sameAtPos <= 0}
+                        title="同じ挿入位置にある前のクリップと順序を入れ替える"
+                        onClick={() => reorderInsert(selection.index, "before")}
+                      >
+                        前へ
+                      </button>
+                      <button
+                        type="button"
+                        disabled={sameAtPos < 0 || sameAtPos >= sameAtIndices.length - 1}
+                        title="同じ挿入位置にある後ろのクリップと順序を入れ替える"
+                        onClick={() => reorderInsert(selection.index, "after")}
+                      >
+                        後ろへ
+                      </button>
+                    </div>
+                  )}
                   <div className="capField wide">
                     <label>尺(秒)</label>
                     <NumInput

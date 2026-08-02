@@ -1,6 +1,6 @@
 # 編集器ファースト母艦 — 「収録1本のパイプライン」から「プロジェクトを開いて編集する」へ
 
-> 状態: **IN PROGRESS — P0–P3 COMPLETE / VERIFIED**(2026-08-02 発足・ユーザー批准済み)。FrameWright の入口を
+> 状態: **IN PROGRESS — P0–P4 COMPLETE / VERIFIED**(2026-08-02 発足・ユーザー批准済み)。FrameWright の入口を
 > 「`run` を通したフォルダを後から覗く」から「**標準 NLE と同じくプロジェクトを
 > 開いて編集を始める**」へ作り替えること。あわせて **shorts 動線を削除**し、
 > その中に埋もれていた**キャンバス(出力サイズ)をプロジェクトの一級属性へ昇格**させる。
@@ -35,8 +35,8 @@ S0〜S5 が landing 済みで、本母艦はその上に立つ) /
 
 ## 0. 他エージェント向け: 現在地と次の一手
 
-- **現在地(2026-08-02)**: **P0〜P3 は実装・独立検証済み**。
-  次は §5 の P4(inserts のタイムライン一級化)へ進む。
+- **現在地(2026-08-02)**: **P0〜P4 は実装・独立検証済み**。
+  次は §5 の P5(プロジェクトランチャー + `derive`)へ進む。
 - **絶対に飛ばしてはいけない前提**: sequence-time 母艦(S0〜S5)が landing 済みで
   あること。特に S3(映像なしプロジェクト)は本母艦の「音声+画像ベースの編集」が
   既に成立している根拠で、本母艦はそこへ**入口と UI を足すだけ**である。
@@ -137,7 +137,7 @@ whisper も LLM も呼ばない。つまり「`run` を打たないとエディ�
 | P1 | `2026-08-02-editor-first-p1-canvas-promotion-design.md` | COMPLETE / VERIFIED | キャンバスのプロジェクト昇格。9:16 が第一級に |
 | P2 | `2026-08-02-editor-first-p2-entry-design.md` | COMPLETE / VERIFIED | 空フォルダで開く / ベースメディアを GUI で選ぶ |
 | P3 | `2026-08-02-editor-first-p3-run-redefinition-design.md` | COMPLETE / VERIFIED | `run` = 「AI に初版を作らせる」+ bootstrap マーカー |
-| P4 | `2026-08-02-editor-first-p4-insert-clips-design.md` | PLANNED | inserts の移動・順序・クリップ表示 |
+| P4 | `2026-08-02-editor-first-p4-insert-clips-design.md` | COMPLETE / VERIFIED | inserts の移動・順序・クリップ表示 |
 | P5 | `2026-08-02-editor-first-p5-launcher-and-derive-design.md` | PLANNED | ランチャー + `derive`(shorts の後継動線) |
 
 各段の概要は以下。**詳細は必ず plan を正とする**(以下は要約)。
@@ -212,6 +212,9 @@ whisper も LLM も呼ばない。つまり「`run` を打たないとエディ�
 
 ### P4 — inserts のタイムライン一級化
 
+**状態: COMPLETE / VERIFIED(2026-08-02)。** 実装・判断・実測の詳細は
+`docs/plans/2026-08-02-editor-first-p4-insert-clips-design.md` §7。
+
 (3) を潰す。データモデルは変えない。**plan 起草時の調査で、想定より遥かに
 小さいことが判明した**: トリム・分割・複製・素材ドロップは既に実装済みで、
 欠けているのは**本体ドラッグでの移動(`at`)と同一 `at` の順序**だけ。
@@ -258,6 +261,10 @@ whisper も LLM も呼ばない。つまり「`run` を打たないとエディ�
    **P0 はコマンドとファイル分類の両方を変えるので `AGENTS_CONTRACT.md` 必須。**
 
 ## 9. 意思決定ログ
+
+- **2026-08-02(P4 COMPLETE / VERIFIED)**: insert の本体ドラッグ移動と keep 吸着、
+  同一 `at` 内の順序操作、basename + 動画/静止画表示を実装。主担当の
+  独立実測で typecheck、2726/2726 tests、focused 8/8、本番エディタbundleを確認した。
 
 - **2026-08-02(P3 COMPLETE / VERIFIED)**: bootstrap marker の完全内容照合、
   共通 `runDraft`、manifest 有り ingest 省略、API/UI/force/backups/進捗を実装。

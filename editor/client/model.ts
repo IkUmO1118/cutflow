@@ -259,6 +259,8 @@ export interface Clip {
   outStart: number;
   outEnd: number;
   label?: string;
+  /** insert 素材の種別。cut トラック上で動画/静止画を見分ける表示にだけ使う */
+  mediaKind?: "video" | "image";
   /** false は選択・ドラッグ不可 */
   editable: boolean;
   /** 背景レイヤー表示(ワイプ本体・BGM)。ポインタも素通しする */
@@ -281,6 +283,36 @@ export interface Clip {
 export interface TimeSpan {
   start: number;
   end: number;
+}
+
+/**
+ * 元収録秒を keep 区間へ寄せる。cut 内なら直後の keep の先頭、最後の
+ * keep より後ろならその末尾へ寄せる。エディタ上で insert のアンカーを
+ * ドラッグしたときに、見た目上動かない cut 内の死に領域を作らないための
+ * UI 都合の写像であり、render の timeline 写像とは分けておく。
+ */
+export function snapToKeep(srcSec: number, keeps: readonly Interval[]): number {
+  if (keeps.length === 0) return srcSec;
+  for (const keep of keeps) {
+    if (srcSec < keep.start) return keep.start;
+    if (srcSec <= keep.end) return srcSec;
+  }
+  return keeps[keeps.length - 1].end;
+}
+
+/** 配列順が再生順になる同一 at の insert について、交換相手の添字を返す。 */
+export function sameAtInsertNeighbor(
+  inserts: readonly { at: number }[],
+  index: number,
+  direction: "before" | "after",
+): number | null {
+  const selected = inserts[index];
+  if (!selected) return null;
+  const step = direction === "before" ? -1 : 1;
+  for (let i = index + step; i >= 0 && i < inserts.length; i += step) {
+    if (inserts[i].at === selected.at) return i;
+  }
+  return null;
 }
 
 /* ---------------- スクリプトタブの範囲カット/復元 ----------------

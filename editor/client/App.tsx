@@ -184,6 +184,8 @@ import {
   resolutionForOnly,
   fitZoomSpan,
   restoreSourceRange,
+  sameAtInsertNeighbor,
+  snapToKeep,
   shouldEnterCopilotMode,
   splitSpanAt,
   videoFileForPreview,
@@ -1923,10 +1925,12 @@ export const App = () => {
     // 左端=頭出し(In点トリム)、右端=尺の調整
     insertSpans(keeps, inserts).forEach((sp) => {
       const ins = inserts[sp.index];
+      const fileName = ins.file.split(/[\\/]/).pop() ?? ins.file;
       cs.push({
         kind: "insert", index: sp.index, track: "cut",
         outStart: sp.start, outEnd: sp.end,
-        label: `↳ ${ins.file.replace(/^materials\//, "")}`,
+        label: fileName,
+        mediaKind: isImageFile(ins.file) ? "image" : "video",
         editable: true,
         wave: { src: ins.file, startSec: ins.startFrom ?? 0 },
       });
@@ -2891,20 +2895,20 @@ export const App = () => {
         else delete next.startFrom;
         arr[sel.index] = next;
       } else {
-        // move: 自分を除いた写像の上でアンカー(元収録の秒)を追従させる
+        // move: 自分を除いたドラッグ開始時の写像の上でアンカー(元収録の秒)を
+        // 追従させる。毎フレーム ctx の初期値から作り直す既存 transient 経路を
+        // 保ち、cut 内へ落ちた値だけ直後の keep へ寄せる。
         const others = arr.filter((_, j) => j !== sel.index);
-        const tlx = buildTimeline(keepsOf(ctx.cutplan), others);
+        const dragKeeps = keepsOf(ctx.cutplan);
+        const tlx = buildTimeline(dragKeeps, others);
         const durX = timelineDuration(tlx);
         const out0 = snapToOutput(ins.at, tlx) ?? durX;
         const target = out0 + d;
-        if (target >= durX - 0.005) {
-          // 末尾までドラッグしたら「最後の keep の後ろ」にアンカーする
-          arr[sel.index] = { ...ins, at: round2(srcDur) };
-        } else {
-          const ns = toSourceTime(clamp(target, 0, Math.max(0, durX - 0.01)), tlx);
-          if (ns === null) return;
-          arr[sel.index] = { ...ins, at: round2(ns) };
-        }
+        const ns = target >= durX - 0.005
+          ? srcDur
+          : toSourceTime(clamp(target, 0, Math.max(0, durX - 0.01)), tlx);
+        if (ns === null) return;
+        arr[sel.index] = { ...ins, at: round2(snapToKeep(ns, dragKeeps)) };
       }
       setOverlays({ ...ctx.overlays, inserts: arr });
     } else if (sel.kind === "caption") {
@@ -3835,6 +3839,21 @@ export const App = () => {
       (prev) => prev && { ...prev, inserts: (prev.inserts ?? []).filter((_, j) => j !== i) },
     );
     setSelection(null);
+  };
+  /** 同じ at の insert だけの相対順を1つ動かす。配列順が同値アンカーの
+   * 再生順なので、間に別時刻の要素があっても最寄りの同値要素と交換する。 */
+  const reorderInsert = (i: number, direction: "before" | "after") => {
+    if (!overlays) return;
+    const arr = overlays.inserts ?? [];
+    const ins = arr[i];
+    if (!ins) return;
+    const swap = sameAtInsertNeighbor(arr, i, direction);
+    if (swap === null) return;
+    pushHistory();
+    const next = [...arr];
+    [next[i], next[swap]] = [next[swap], next[i]];
+    setOverlays({ ...overlays, inserts: next });
+    setSelection({ kind: "insert", index: swap });
   };
 
   const updateBgm = (
@@ -6427,6 +6446,7 @@ export const App = () => {
               updateAnnotation={updateAnnotation}
               removeAnnotation={removeAnnotation}
               updateInsert={updateInsert}
+              reorderInsert={reorderInsert}
               removeInsert={removeInsert}
               updateBgm={updateBgm}
               removeBgm={removeBgm}

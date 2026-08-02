@@ -4863,6 +4863,24 @@
 /* OpenCut classic type colors with FrameWright-only families preserved. */
 .ocTimeline .tlClip.cut { background: #3a4658; }
 .ocTimeline .tlClip.insert { background: #9a3412; }
+.ocTimeline .tlClip.insert.image { background: #854d0e; }
+.ocTimeline .tlClip.insert.video { background: #9a3412; }
+.ocTimeline .tlClip.insert .tlInsertKind {
+  flex: 0 0 auto;
+  min-width: 1rem;
+  margin-left: 0.28rem;
+  color: hsl(38 95% 92% / 0.9);
+  font-size: 0.56rem;
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+}
+.ocTimeline .tlClip.insert .tlClipLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .ocTimeline .tlClip.chapter { background: #7a5a12; }
 .ocTimeline .tlClip.caption { background: #5DBAA0; }
 .ocTimeline .tlClip.overlays { background: #BA5D7A; }

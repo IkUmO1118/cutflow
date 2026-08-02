@@ -1320,7 +1320,7 @@ export const Timeline = ({
                       nodes.push(
                         <div
                           key={g.keys[i]}
-                          className={`tlClip ${clip.kind}${isSel(clip) ? " sel" : ""}${clip.static ? " static" : ""}${
+                          className={`tlClip ${clip.kind}${clip.mediaKind ? ` ${clip.mediaKind}` : ""}${isSel(clip) ? " sel" : ""}${clip.static ? " static" : ""}${
                             aiClipMarks?.get(`${clip.kind}:${clip.index}`)
                               ? ` aiMark ${aiClipMarks.get(`${clip.kind}:${clip.index}`)}`
                               : ""
@@ -1347,6 +1347,11 @@ export const Timeline = ({
                               className="tlEdge l"
                               onPointerDown={(e) => onClipDown(e, clip, "trim-start")}
                             />
+                          )}
+                          {clip.kind === "insert" && clip.mediaKind && (
+                            <span className="tlInsertKind" aria-hidden="true">
+                              {clip.mediaKind === "image" ? "静" : "▶"}
+                            </span>
                           )}
                           <span className="tlClipLabel">{clip.label}</span>
                           {clip.editable && !clip.noTrimEnd && (
