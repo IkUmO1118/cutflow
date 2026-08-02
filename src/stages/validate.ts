@@ -83,7 +83,7 @@ export function validate(dir: string, cfg?: Config): ValidateResult {
         preErrors.push({
           file,
           where: "-",
-          message: "ファイルがありません。先にパイプライン(run)を実行してください",
+          message: `${cliCmd()} editor <dir> でベースメディアを選んでください`,
         });
       }
       return null;

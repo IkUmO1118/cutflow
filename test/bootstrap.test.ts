@@ -2,7 +2,7 @@
 // cutplan が、stages/validate.ts の検査(validateDocs)を通ることを固定する。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bootstrapProjectWithLayout, emptyTranscript, initialCutplan } from "../src/stages/bootstrap.ts";
@@ -37,6 +37,16 @@ test("初期 cutplan(全編 keep)は validateDocs を通る", () => {
   assert.deepEqual(r.errors, []);
   assert.equal(initialCutplan(100).segments[0].end, 100);
   assert.equal(initialCutplan(100).approved, false);
+});
+
+test("bootstrapProjectWithLayout: 空フォルダは正常終了し1バイトも書かない", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "framewright-bootstrap-empty-"));
+  try {
+    await bootstrapProjectWithLayout(dir, cfg(), undefined);
+    assert.deepEqual(readdirSync(dir), []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("bootstrapProjectWithLayout: 既存 manifest と明示 layout が食い違うと拒否する", async () => {

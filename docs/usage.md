@@ -13,18 +13,20 @@
 > が個別の全オプション。「いつ使うか」で引く早見表は
 > [guides/command-reference.md](guides/command-reference.md)。
 
-FrameWright は「全部AI任せ」のツールではない。**まずエディタで全編 keep の動画を開き、
+FrameWright は「全部AI任せ」のツールではない。**まずエディタでプロジェクトを開き、
+空ならベース動画/音声とキャンバスを画面内で選び、
 必要な自動処理だけを明示実行し、以降は人間が JSON を直しながら preview / render と
 往復する**のが正しい使い方。
 
 ## 全体フロー
 
 ```
-① 収録 → ~/Movies/framewright/<日付-内容>/ に mkv を置く
+① 収録 → ~/Movies/framewright/<日付-内容>/ に mkv を置く(空フォルダから始めてもよい)
      (企画ブリーフがあれば brief.md としてコピーしておくと plan の材料になる)
 
 ② node src/cli.ts editor <フォルダ>
-     自動カットなしで開く。manifest / 空 transcript / 全編 keep cutplan が無ければ作られる
+     フォルダが無ければ作って開く。メディアが未確定ならGUIで選ぶ
+     確定後、manifest / 空 transcript / 全編 keep cutplan が無ければ作られる
      OBS 拡張キャンバスなら: node src/cli.ts editor <フォルダ> --layout obs-canvas
      縦プロジェクトなら: node src/cli.ts editor <フォルダ> --canvas portrait
 

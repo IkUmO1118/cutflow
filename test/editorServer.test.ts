@@ -5,7 +5,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import type { IncomingMessage } from "node:http";
+import { Readable } from "node:stream";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -13,6 +15,9 @@ import {
   buildHyperframeCards,
   loadProject,
   loadScript,
+  saveBaseUpload,
+  saveUpload,
+  selectBaseMedia,
   refineRequestKey,
   stampSaveBody,
   validateRefineRequest,
@@ -49,6 +54,42 @@ const authorProfile = (overrides: Partial<AiProfileStatus> = {}): AiProfileStatu
   },
   ...overrides,
 });
+
+function p2Cfg(editor?: Config["editor"]): Config {
+  return {
+    recordingsDir: "/tmp",
+    ingest: {
+      screenRegion: { x: 0, y: 0, w: 1920, h: 1080 },
+      cameraRegion: { x: 1920, y: 0, w: 1920, h: 1080 },
+      micTrack: 1,
+      systemTrack: 2,
+    },
+    whisper: { bin: "whisper-cli", model: "model.bin", language: "ja" },
+    detect: { silenceDb: -35, minSilenceSec: 0.7, padSec: 0.15, minKeepSec: 0.4 },
+    plan: { targetMinutes: 10 },
+    preview: { width: 1280 },
+    render: {} as Config["render"],
+    editor,
+  };
+}
+
+function tinyWav(): Buffer {
+  const samples = 1600;
+  const dataBytes = samples * 2;
+  const out = Buffer.alloc(44 + dataBytes);
+  out.write("RIFF", 0); out.writeUInt32LE(36 + dataBytes, 4); out.write("WAVE", 8);
+  out.write("fmt ", 12); out.writeUInt32LE(16, 16); out.writeUInt16LE(1, 20);
+  out.writeUInt16LE(1, 22); out.writeUInt32LE(16000, 24); out.writeUInt32LE(32000, 28);
+  out.writeUInt16LE(2, 32); out.writeUInt16LE(16, 34); out.write("data", 36);
+  out.writeUInt32LE(dataBytes, 40);
+  return out;
+}
+
+function uploadRequest(bytes: Buffer, declared = bytes.length): IncomingMessage {
+  return Object.assign(Readable.from([bytes]), {
+    headers: { "content-length": String(declared) },
+  }) as unknown as IncomingMessage;
+}
 
 test("validateHyperframeAuthorRequest: {name,brief,assets?} だけを厳格に受理する", () => {
   assert.deepEqual(validateHyperframeAuthorRequest({ name: "ending-card.v2", brief: "締めカード" }), []);
@@ -319,6 +360,8 @@ test("loadProject: /api/project 相当の payload に planPerception を含む",
       preview: { width: 1280 },
       plan: { perception: { audio: true, ocr: true, systemSpeech: false } },
     } as Config);
+    assert.equal(project.state, "ready");
+    if (project.state !== "ready") throw new Error("ready expected");
     assert.deepEqual(project.planPerception, {
       explicit: true,
       audio: true,
@@ -328,6 +371,85 @@ test("loadProject: /api/project 相当の payload に planPerception を含む",
       systemSpeech: false,
       warnings: [],
     });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadProject: manifest が無いフォルダは empty 状態と候補を返す", () => {
+  const dir = mkdtempSync(join(tmpdir(), "framewright-editor-empty-"));
+  try {
+    writeFileSync(join(dir, "a.mp4"), "x");
+    const project = loadProject(dir, { render: {}, preview: { width: 1280 } } as Config);
+    assert.deepEqual(project, {
+      state: "empty",
+      dir,
+      candidates: [{ file: "a.mp4", kind: "video", current: false }],
+      dirFiles: ["a.mp4"],
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("selectBaseMedia: 候補外/パストラバーサルを拒否し、既存 manifest は409", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "framewright-base-media-reject-"));
+  try {
+    writeFileSync(join(dir, "base.wav"), tinyWav());
+    await assert.rejects(
+      () => selectBaseMedia(dir, p2Cfg(), { file: "../base.wav", canvas: "landscape" }),
+      (error: unknown) => (error as { status?: number }).status === 400,
+    );
+    writeFileSync(join(dir, "manifest.json"), "{}");
+    await assert.rejects(
+      () => selectBaseMedia(dir, p2Cfg(), { file: "base.wav", canvas: "landscape" }),
+      (error: unknown) => (error as { status?: number }).status === 409,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("selectBaseMedia: 成功時に manifest/transcript/cutplan を揃えて ready を返す", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "framewright-base-media-ready-"));
+  try {
+    writeFileSync(join(dir, "voice.wav"), tinyWav());
+    const project = await selectBaseMedia(dir, p2Cfg(), { file: "voice.wav", canvas: "square" });
+    assert.equal(project.state, "ready");
+    assert.equal(project.manifest.source, "voice.wav");
+    assert.equal(project.manifest.canvas, "square");
+    for (const file of ["manifest.json", "transcript.json", "cutplan.json"]) {
+      assert.equal(existsSync(join(dir, file)), true, file);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("upload helpers: base は直下、通常素材は materials/ へバイト等価で保存する", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "framewright-upload-dest-"));
+  const baseBytes = tinyWav();
+  const materialBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+  try {
+    const base = await saveBaseUpload(dir, "voice.wav", uploadRequest(baseBytes), p2Cfg());
+    const material = await saveUpload(dir, "image.png", uploadRequest(materialBytes), p2Cfg());
+    assert.equal(base.file, "voice.wav");
+    assert.equal(material.file, "materials/image.png");
+    assert.deepEqual(readFileSync(join(dir, base.file)), baseBytes);
+    assert.deepEqual(readFileSync(join(dir, material.file)), materialBytes);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("saveBaseUpload: maxBaseUploadMb の Content-Length 上限を413で拒否する", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "framewright-base-upload-limit-"));
+  try {
+    await assert.rejects(
+      () => saveBaseUpload(dir, "large.mp4", uploadRequest(Buffer.alloc(0), 1024 * 1024 + 1), p2Cfg({ maxBaseUploadMb: 1 })),
+      (error: unknown) => (error as { status?: number }).status === 413,
+    );
+    assert.equal(existsSync(join(dir, "large.mp4")), false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

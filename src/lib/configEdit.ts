@@ -50,6 +50,7 @@ export interface ConfigPatch {
   preview?: { width?: number; videoEncoder?: "libx264" | "videotoolbox" };
   editor?: {
     maxUploadMb?: number;
+    maxBaseUploadMb?: number;
     defaultImageDurationSec?: number | null;
     aiReview?: {
       vlm?: boolean;
@@ -88,6 +89,7 @@ const NUM_RULES: Record<string, NumRule> = {
   "render.zoom.easeSec": { min: 0, max: 3 },
   "preview.width": { min: 320, max: 3840, int: true, even: true },
   "editor.maxUploadMb": { min: 1, max: 100000, int: true },
+  "editor.maxBaseUploadMb": { min: 1, max: 100000, int: true },
   "editor.defaultImageDurationSec": { min: 0.5, max: 120 },
   "editor.aiReview.maxImages": { min: 1, max: 4, int: true },
   "editor.aiReview.maxRefinements": { min: 1, max: 3, int: true },
@@ -308,7 +310,7 @@ export function validateConfigPatch(patch: unknown): string[] {
     walk(
       "editor",
       p.editor,
-      ["maxUploadMb", "defaultImageDurationSec", "aiReview"],
+      ["maxUploadMb", "maxBaseUploadMb", "defaultImageDurationSec", "aiReview"],
       ["aiReview"],
     );
     if (p.editor.aiReview !== undefined) {
@@ -409,9 +411,10 @@ export function syncEditorCfgFromYaml(cfg: Config, rawYaml: string): void {
 export function resolvedEditorCfg(
   cfg: Config,
   defaultMaxUploadMb: number,
-): { maxUploadMb: number; defaultImageDurationSec: number } {
+): { maxUploadMb: number; maxBaseUploadMb: number; defaultImageDurationSec: number } {
   return {
     maxUploadMb: cfg.editor?.maxUploadMb ?? defaultMaxUploadMb,
+    maxBaseUploadMb: cfg.editor?.maxBaseUploadMb ?? 16384,
     defaultImageDurationSec:
       cfg.editor?.defaultImageDurationSec ?? cfg.stills?.defaultDurationSec ?? DEFAULT_IMAGE_DURATION_SEC,
   };

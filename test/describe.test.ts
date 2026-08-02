@@ -76,7 +76,12 @@ test("bgm.json など任意ファイルが無いフォルダでも describe が�
 test("必須ファイルが欠けていれば従来どおりエラーになる", () => {
   const empty = mkdtempSync(join(tmpdir(), "framewright-describe-empty-"));
   try {
-    assert.throws(() => describe(empty), /manifest\.json がありません/);
+    assert.throws(
+      () => describe(empty),
+      (error: unknown) => /manifest\.json がありません/.test((error as Error).message) &&
+        /editor <dir> でベースメディアを選んでください/.test((error as Error).message) &&
+        !/run/.test((error as Error).message),
+    );
   } finally {
     rmSync(empty, { recursive: true, force: true });
   }

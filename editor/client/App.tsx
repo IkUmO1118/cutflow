@@ -76,7 +76,8 @@ import type {
   AiSelectionContext,
   DraftData,
   HyperframeCard,
-  ProjectData,
+  EmptyProjectData,
+  ReadyProjectData,
   SaveRequest,
   ScriptData,
 } from "./apiTypes.ts";
@@ -232,8 +233,10 @@ import {
   postHyperframeAuthor,
   postReveal,
   postSave,
+  postBaseMedia,
   probeMaterialDuration,
   uploadMaterial,
+  uploadBaseMedia,
   ApiError,
 } from "./widgets.tsx";
 import type { Peaks } from "./widgets.tsx";
@@ -398,13 +401,13 @@ const HISTORY_MAX = 100;
 const HISTORY_COALESCE_MS = 2000;
 
 /** 退避された下書きがディスクの正のデータと異なるか(同じなら復元不要) */
-const draftDiffers = (d: DraftData, p: ProjectData): boolean =>
+const draftDiffers = (d: DraftData, p: ReadyProjectData): boolean =>
   JSON.stringify(d.cutplan) !== JSON.stringify(p.cutplan) ||
   JSON.stringify(d.overlays) !== JSON.stringify(p.overlays) ||
   JSON.stringify(d.transcript) !== JSON.stringify(p.transcript) ||
   JSON.stringify(d.bgm ?? null) !== JSON.stringify(p.bgm ?? null);
 
-const reviewDocsOf = (p: ProjectData): ReviewDocs => ({
+const reviewDocsOf = (p: ReadyProjectData): ReviewDocs => ({
   cutplan: p.cutplan,
   overlays: p.overlays,
   transcript: p.transcript,
@@ -530,7 +533,11 @@ function applySaveHashes(
  */
 export const App = () => {
   const { preference: themePreference, effectiveTheme, setPreference: setThemePreference } = useTheme();
-  const [proj, setProj] = useState<ProjectData | null>(null);
+  const [proj, setProj] = useState<ReadyProjectData | null>(null);
+  const [emptyProj, setEmptyProj] = useState<EmptyProjectData | null>(null);
+  const [baseCanvas, setBaseCanvas] = useState("landscape");
+  const [baseBusy, setBaseBusy] = useState(false);
+  const baseInputRef = useRef<HTMLInputElement>(null);
   const [cutplan, setCutplan] = useState<CutPlan | null>(null);
   const [overlays, setOverlays] = useState<Overlays | null>(null);
   const [transcript, setTranscript] = useState<Transcript | null>(null);
@@ -686,6 +693,11 @@ export const App = () => {
   useEffect(() => {
     getProject()
       .then((p) => {
+        if (p.state === "empty") {
+          setEmptyProj(p);
+          if (p.canvas) setBaseCanvas(p.canvas);
+          return;
+        }
         setProj(p);
         setCutplan(p.cutplan);
         setOverlays(p.overlays);
@@ -713,13 +725,48 @@ export const App = () => {
       .catch((e: Error) => setError(e.message));
   }, []);
 
+  const acceptReadyProject = (p: ReadyProjectData) => {
+    setEmptyProj(null);
+    setProj(p);
+    setCutplan(p.cutplan);
+    setOverlays(p.overlays);
+    setTranscript(p.transcript);
+    setBgm(p.bgm);
+    baseHashesRef.current = p.contentHashes ?? {};
+    setError(null);
+  };
+
+  const chooseBaseMedia = async (file: string) => {
+    setBaseBusy(true);
+    setError(null);
+    try {
+      acceptReadyProject(await postBaseMedia(file, baseCanvas));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBaseBusy(false);
+    }
+  };
+
+  const uploadBase = async (file: File) => {
+    setBaseBusy(true);
+    setError(null);
+    try {
+      acceptReadyProject(await uploadBaseMedia(file, baseCanvas));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBaseBusy(false);
+    }
+  };
+
   /* ---------------- 外部変更のホットリロード ---------------- */
 
   /** 収録フォルダの JSON が外部(Claude Code や手編集)で変わったのに、
    * こちらにも未保存の編集があって自動では読み込み直せない状態 */
   const [externalChange, setExternalChange] = useState(false);
   const [diffReview, setDiffReview] = useState<{
-    theirs: ProjectData;
+    theirs: ReadyProjectData;
     result: ThreeWayResult;
   } | null>(null);
   const [diffResolution, setDiffResolution] = useState<Resolution>(() => new Map());
@@ -833,13 +880,13 @@ export const App = () => {
     localStorage.setItem("framewright.editor.playbackRate", String(playbackRate));
   }, [playbackRate]);
 
-  const cfgValuesOf = (p: ProjectData): CfgValues => ({
+  const cfgValuesOf = (p: ReadyProjectData): CfgValues => ({
     renderCfg: p.renderCfg,
     previewCfg: p.previewCfg,
     editorCfg: p.editorCfg,
     aiCfg: aiSettingsOf(p),
   });
-  const aiSettingsOf = (p: ProjectData): AiSettingsValue => {
+  const aiSettingsOf = (p: ReadyProjectData): AiSettingsValue => {
     const textProfile = p.aiProfiles.find((profile) => profile.name === p.aiRoutes.text);
     const structuredProfile = p.aiProfiles.find((profile) => profile.name === p.aiRoutes.structured);
     const sameMain =
@@ -854,7 +901,7 @@ export const App = () => {
       review: p.aiReviewCfg,
     };
   };
-  const projectWithCfgPatch = (p: ProjectData, patch: Partial<CfgValues>): ProjectData => {
+  const projectWithCfgPatch = (p: ReadyProjectData, patch: Partial<CfgValues>): ReadyProjectData => {
     let next = {
       ...p,
       ...(patch.renderCfg ? { renderCfg: patch.renderCfg } : {}),
@@ -981,6 +1028,11 @@ export const App = () => {
   const reloadFromDisk = async () => {
     try {
       const p = await getProject();
+      if (p.state === "empty") {
+        setProj(null);
+        setEmptyProj(p);
+        return;
+      }
       // 設定モーダルの編集中は、ライブ反映済みの設定値をリロードで失わない
       // (config.yaml はこのモーダル以外から変わらないので、現値の温存で正しい)
       setProj((prev) =>
@@ -1028,7 +1080,7 @@ export const App = () => {
     }
   };
 
-  const applyMergedDocs = (theirs: ProjectData, merged: ReviewDocs, recordHistory: boolean) => {
+  const applyMergedDocs = (theirs: ReadyProjectData, merged: ReviewDocs, recordHistory: boolean) => {
     if (recordHistory) pushHistory();
     setCutplan(merged.cutplan);
     setOverlays(merged.overlays);
@@ -1058,6 +1110,7 @@ export const App = () => {
     }
     try {
       const theirs = await getProject();
+      if (theirs.state === "empty") throw new Error("ベースメディアが未確定です");
       const base = reviewDocsOf(proj);
       const mine: ReviewDocs = { cutplan, overlays, transcript, bgm };
       const theirsDocs = reviewDocsOf(theirs);
@@ -5118,6 +5171,65 @@ export const App = () => {
   }, [aiWorkflow]);
 
   /* ---------------- 描画 ---------------- */
+
+  if (emptyProj) {
+    return (
+      <main className="baseMediaEntry">
+        <section className="baseMediaCard">
+          <div className="baseMediaEyebrow">FrameWright / {emptyProj.dir.replace(/\/+$/, "").split("/").pop()}</div>
+          <h1>この動画の元になるファイルを選んでください</h1>
+          <p>ベースメディアはプロジェクトの時間軸になります。作成後は変更できません。</p>
+          <label className="baseCanvasLabel">
+            キャンバス
+            <select value={baseCanvas} onChange={(e) => setBaseCanvas(e.target.value)} disabled={baseBusy}>
+              <option value="landscape">16:9 横</option>
+              <option value="portrait">9:16 縦 (カメラ+画面)</option>
+              <option value="portrait-cover">9:16 縦 (カメラ全面)</option>
+              <option value="portrait-screen">9:16 縦 (画面中心)</option>
+              <option value="square">1:1 正方形</option>
+              <option value="portrait-4x5">4:5 縦</option>
+            </select>
+          </label>
+          {emptyProj.candidates.length > 0 ? (
+            <div className="baseCandidateList">
+              {emptyProj.candidates.map((candidate) => (
+                <button key={candidate.file} disabled={baseBusy} onClick={() => void chooseBaseMedia(candidate.file)}>
+                  <span>{candidate.file}</span>
+                  <small>{candidate.kind === "video" ? "動画" : "音声"}</small>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div
+              className="baseDropZone"
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                const file = e.dataTransfer.files[0];
+                if (file) void uploadBase(file);
+              }}
+              onClick={() => baseInputRef.current?.click()}
+            >
+              動画または音声をここへドロップ<br /><small>またはクリックして選択</small>
+            </div>
+          )}
+          <input
+            ref={baseInputRef}
+            hidden
+            type="file"
+            accept="video/mp4,video/quicktime,audio/*,.mkv,.mov,.mp4,.mp3,.m4a,.wav,.aac,.flac,.ogg"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void uploadBase(file);
+              e.target.value = "";
+            }}
+          />
+          {error && <p className="baseMediaError">{error}</p>}
+          {baseBusy && <p>メディアを解析しています…</p>}
+        </section>
+      </main>
+    );
+  }
 
   if (error && !proj) {
     return <AppStateView kind="error" title="プロジェクトを開けません" description={error} />;

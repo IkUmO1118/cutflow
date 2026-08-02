@@ -23,6 +23,7 @@ import type {
   MediaFactsData,
   PeaksData,
   ProjectData,
+  ReadyProjectData,
   ProxyResponse,
   SaveRequest,
   SaveResponse,
@@ -42,6 +43,25 @@ export class ApiError extends Error {
 
 export async function getProject(): Promise<ProjectData> {
   return (await request("/api/project", undefined)) as ProjectData;
+}
+
+export async function postBaseMedia(file: string, canvas: string): Promise<ReadyProjectData> {
+  return (await request("/api/base-media", { file, canvas })) as ReadyProjectData;
+}
+
+export async function uploadBaseMedia(file: File, canvas: string): Promise<ReadyProjectData> {
+  const res = await fetch(
+    `/api/upload?as=base&name=${encodeURIComponent(file.name)}&canvas=${encodeURIComponent(canvas)}`,
+    { method: "POST", body: file },
+  );
+  const data: unknown = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg = data && typeof data === "object" && "error" in data
+      ? String((data as { error: unknown }).error)
+      : res.statusText;
+    throw new Error(msg);
+  }
+  return data as ReadyProjectData;
 }
 
 /** スクリプトタブの元データ(元収録の全文文字起こし)。タブを初めて開いた

@@ -49,7 +49,9 @@ import type { DisplayVerdict, VideoCodecFacts } from "../src/lib/mediaCodec.ts";
 import { ensureIds, hasAnyId, ID_PREFIX, usedIdsOf } from "../src/lib/ids.ts";
 import { mergeBodyOverDisk } from "../src/lib/applyEdits.ts";
 import { bootstrapProjectWithLayout } from "../src/stages/bootstrap.ts";
-import { outputSize, resolveCanvas } from "../src/lib/profile.ts";
+import { ingest } from "../src/stages/ingest.ts";
+import { listSourceCandidates } from "../src/lib/findSource.ts";
+import { isCanvasPreset, outputSize, resolveCanvas } from "../src/lib/profile.ts";
 import { EditorAiError, proposeEditorAi, refineEditorAi } from "../src/stages/editorAi.ts";
 import type { AiProposeResponse as EditorAiStageProposeResponse } from "../src/stages/editorAi.ts";
 import { reviewSpecOfProposalReview } from "../src/lib/editorAiReview.ts";
@@ -108,6 +110,7 @@ import type {
   AiRefineRequest,
   AiReviewRequest,
   ProjectData,
+  ReadyProjectData,
   SaveRequest,
   ScriptData,
   ScriptSegment,
@@ -143,7 +146,7 @@ export async function startEditor(
   // 無いものだけ決定的に補う(既存ファイルには触れない)。loadProject の
   // 3点チェックは最終防壁として残す
   await bootstrapProjectWithLayout(dir, cfg, layout, canvas);
-  await prepareEditorDesignAssets(dir, cfg);
+  if (existsSync(join(dir, "manifest.json"))) await prepareEditorDesignAssets(dir, cfg);
 
   const editorDir = dirname(fileURLToPath(import.meta.url));
 
@@ -192,7 +195,7 @@ export async function startEditor(
   });
 
   const server = createServer((req, res) => {
-    handle(req, res, dir, cfg, cfgPath, assets, hub, engineDevAssets).catch((err: Error) => {
+    handle(req, res, dir, cfg, cfgPath, assets, hub, engineDevAssets, layout, canvas).catch((err: Error) => {
       // HttpError は想定内の拒否(不正な保存=400、大きすぎる素材=413 等)。
       // それ以外は想定外なのでログに残して 500 で返す
       if (err instanceof HttpError) {
@@ -275,6 +278,8 @@ export class HttpError extends Error {
 
 /** 素材アップロードの上限の既定値(config で editor.maxUploadMb 未指定のとき) */
 const DEFAULT_MAX_UPLOAD_MB = 2048;
+/** ベースメディアは長尺収録を想定するため素材とは別上限にする。 */
+const DEFAULT_MAX_BASE_UPLOAD_MB = 16384;
 /** brief を含む単発 author request の JSON 上限。 */
 const HYPERFRAME_AUTHOR_JSON_OVERHEAD_BYTES = 256 * 1024;
 
@@ -335,6 +340,8 @@ async function handle(
   assets: MutableEditorClientAssets,
   hub: EventHub,
   engineDevAssets: EngineDevAssets,
+  layout?: "obs-canvas" | "plain" | "auto" | "stills",
+  initialCanvas?: string,
 ): Promise<void> {
   const url = new URL(req.url ?? "/", "http://localhost");
   const path = url.pathname;
@@ -385,7 +392,15 @@ async function handle(
     return;
   }
   if (req.method === "GET" && path === "/api/project") {
-    sendJson(res, 200, loadProject(dir, cfg));
+    const project = loadProject(dir, cfg);
+    sendJson(res, 200, project.state === "empty" && initialCanvas
+      ? { ...project, canvas: initialCanvas }
+      : project);
+    return;
+  }
+  if (req.method === "POST" && path === "/api/base-media") {
+    const body = (await readBody(req)) as { file?: unknown; canvas?: unknown };
+    sendJson(res, 200, await selectBaseMedia(dir, cfg, body, layout, initialCanvas));
     return;
   }
   if (req.method === "GET" && path === "/api/script") {
@@ -766,6 +781,20 @@ async function handle(
     return;
   }
   if (req.method === "POST" && path === "/api/upload") {
+    if (url.searchParams.get("as") === "base") {
+      if (existsSync(join(dir, "manifest.json"))) {
+        throw new HttpError(409, "ベースメディアは既に確定しています。別プロジェクトを作成してください");
+      }
+      const saved = await saveBaseUpload(dir, url.searchParams.get("name") ?? "", req, cfg);
+      sendJson(res, 200, await selectBaseMedia(
+        dir,
+        cfg,
+        { file: saved.file, canvas: url.searchParams.get("canvas") ?? initialCanvas },
+        layout,
+        initialCanvas,
+      ));
+      return;
+    }
     const saved = await saveUpload(dir, url.searchParams.get("name") ?? "", req, cfg);
     sendJson(res, 200, saved);
     return;
@@ -1463,19 +1492,32 @@ export function loadScript(dir: string): ScriptData {
   return { source: "transcript", segments };
 }
 
+function listDirFiles(dir: string): string[] {
+  return readdirSync(dir, { recursive: true, withFileTypes: true })
+    .filter((e) => e.isFile() && !e.name.startsWith("."))
+    .map((e) => {
+      const parent = (e.parentPath ?? dir).slice(dir.length).replace(/^\//, "");
+      return parent ? `${parent}/${e.name}` : e.name;
+    })
+    .sort();
+}
+
 export function loadProject(dir: string, cfg: Config): ProjectData {
-  const aiRuntime = resolveAiRuntimeConfig(cfg);
   const readJson = <T>(file: string, fallback: T): T => {
     const p = join(dir, file);
     return existsSync(p) ? (JSON.parse(readFileSync(p, "utf8")) as T) : fallback;
   };
   const manifest = readJson<Manifest | null>("manifest.json", null);
+  if (!manifest) {
+    return { state: "empty", dir, candidates: listSourceCandidates(dir), dirFiles: listDirFiles(dir) };
+  }
+  const aiRuntime = resolveAiRuntimeConfig(cfg);
   const transcript = readJson<Transcript | null>("transcript.json", null);
   const cutplan = readJson<CutPlan | null>("cutplan.json", null);
-  if (!manifest || !transcript || !cutplan) {
+  if (!transcript || !cutplan) {
     throw new Error(
       `${dir} に manifest/transcript/cutplan が揃っていません。` +
-        "先にパイプライン(run)を実行してください",
+        "破損したプロジェクトです。editor を再起動して補完してください",
     );
   }
   // plain / obs-canvas 共通で、デザインの背景取り込み(render.design/ への
@@ -1485,13 +1527,7 @@ export function loadProject(dir: string, cfg: Config): ProjectData {
   const designRenderCfg = renderCfgWithDesign(dir, cfg);
 
   // 素材選択やオーバーレイの存在チェック用にフォルダ内の全ファイルを渡す
-  const dirFiles = readdirSync(dir, { recursive: true, withFileTypes: true })
-    .filter((e) => e.isFile() && !e.name.startsWith("."))
-    .map((e) => {
-      const parent = (e.parentPath ?? dir).slice(dir.length).replace(/^\//, "");
-      return parent ? `${parent}/${e.name}` : e.name;
-    })
-    .sort();
+  const dirFiles = listDirFiles(dir);
   // 前回のセッションの未保存編集(自動退避)。壊れていたら無いものとして扱う
   let draft: DraftData | null = null;
   try {
@@ -1509,6 +1545,7 @@ export function loadProject(dir: string, cfg: Config): ProjectData {
     proxyStale = true;
   }
   return {
+    state: "ready",
     dir,
     manifest,
     transcript,
@@ -1541,6 +1578,34 @@ export function loadProject(dir: string, cfg: Config): ProjectData {
   };
 }
 
+/** 未確定プロジェクトのベースメディアを一度だけ確定し、通常状態まで補完する。 */
+export async function selectBaseMedia(
+  dir: string,
+  cfg: Config,
+  body: { file?: unknown; canvas?: unknown },
+  layout?: "obs-canvas" | "plain" | "auto" | "stills",
+  initialCanvas?: string,
+): Promise<ReadyProjectData> {
+  if (existsSync(join(dir, "manifest.json"))) {
+    throw new HttpError(409, "ベースメディアは既に確定しています。別プロジェクトを作成してください");
+  }
+  if (typeof body.file !== "string" || !listSourceCandidates(dir).some((c) => c.file === body.file)) {
+    throw new HttpError(400, `ベースメディア候補ではありません: ${String(body.file ?? "")}`);
+  }
+  const canvas = body.canvas === undefined || body.canvas === null || body.canvas === ""
+    ? initialCanvas
+    : body.canvas;
+  if (canvas !== undefined && (typeof canvas !== "string" || !isCanvasPreset(canvas))) {
+    throw new HttpError(400, `キャンバスが不正です: ${String(canvas)}`);
+  }
+  await ingest(dir, body.file, cfg, layout, undefined, canvas);
+  await bootstrapProjectWithLayout(dir, cfg, layout, canvas);
+  await prepareEditorDesignAssets(dir, cfg);
+  const project = loadProject(dir, cfg);
+  if (project.state !== "ready") throw new Error("ベースメディアを確定できませんでした");
+  return project;
+}
+
 function resolvedEditorDesign(
   dir: string,
   cfg: Config,
@@ -1561,7 +1626,7 @@ function editorDesignAssets(
   cfg: Config,
   manifest?: Manifest,
   renderCfg?: Config["render"],
-): { designAssets?: NonNullable<ProjectData["designAssets"]> } {
+): { designAssets?: NonNullable<ReadyProjectData["designAssets"]> } {
   const resolved = resolvedEditorDesign(dir, cfg, manifest, renderCfg);
   if (!resolved) return {};
   const prepared = existingDesignAssets(resolved);
@@ -1831,15 +1896,48 @@ async function* limitBytes(
   src: AsyncIterable<Buffer>,
   maxBytes: number,
   maxMb: number,
+  label = "素材",
 ): AsyncGenerator<Buffer> {
   let total = 0;
   for await (const chunk of src) {
     total += chunk.length;
     if (total > maxBytes) {
-      throw new HttpError(413, `素材が上限(${maxMb}MB)を超えています`);
+      throw new HttpError(413, `${label}が上限(${maxMb}MB)を超えています`);
     }
     yield chunk;
   }
+}
+
+const BASE_MEDIA_EXT = /^\.(mkv|mp4|mov|mp3|m4a|wav|aac|flac|ogg)$/;
+
+export async function saveBaseUpload(
+  dir: string,
+  rawName: string,
+  req: IncomingMessage,
+  cfg: Config,
+): Promise<{ file: string }> {
+  const safe = basename(rawName).replace(/[\\/:*?"<>|]/g, "_").replace(/^\.+/, "");
+  const ext = extname(safe).toLowerCase();
+  if (!safe || !BASE_MEDIA_EXT.test(ext)) {
+    throw new HttpError(400, `ベースメディアにできない拡張子です: ${rawName}`);
+  }
+  const maxMb = cfg.editor?.maxBaseUploadMb ?? DEFAULT_MAX_BASE_UPLOAD_MB;
+  const maxBytes = maxMb * 1024 * 1024;
+  const declared = Number(req.headers["content-length"]);
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    throw new HttpError(413, `ベースメディアが上限(${maxMb}MB)を超えています`);
+  }
+  const stem = safe.slice(0, -ext.length) || "base-media";
+  let name = `${stem}${ext}`;
+  for (let i = 2; existsSync(join(dir, name)); i++) name = `${stem}-${i}${ext}`;
+  const abs = join(dir, name);
+  try {
+    await pipeline(limitBytes(req, maxBytes, maxMb, "ベースメディア"), createWriteStream(abs));
+  } catch (error) {
+    rmSync(abs, { force: true });
+    throw error;
+  }
+  return { file: name };
 }
 
 /**
@@ -1847,7 +1945,7 @@ async function* limitBytes(
  * 動画なら ffprobe で長さを測って返す(エディタが区間の初期長に使う)。
  * 同名ファイルがあれば -2, -3 … と付けて衝突を避ける
  */
-async function saveUpload(
+export async function saveUpload(
   dir: string,
   rawName: string,
   req: IncomingMessage,

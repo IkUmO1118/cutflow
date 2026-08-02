@@ -19,6 +19,18 @@ import type { LoadedDocs } from "../src/stages/validate.ts";
 // docs を渡すのでディスクには触れない
 const DIR = "/tmp/framewright-test";
 
+test("fs版 validate: 空フォルダは run ではなく editor のベースメディア選択へ誘導する", () => {
+  const dir = mkdtempSync(join(tmpdir(), "framewright-validate-empty-"));
+  try {
+    const result = validate(dir);
+    assert.ok(result.errors.length >= 3);
+    assert.ok(result.errors.every((error) => error.message.includes("editor <dir> でベースメディアを選んでください")));
+    assert.ok(result.errors.every((error) => !error.message.includes("run")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 /** 妥当な最小構成(必要なものだけ上書きして使う) */
 function baseDocs(over: Partial<LoadedDocs> = {}): LoadedDocs {
   return {

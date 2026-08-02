@@ -572,6 +572,8 @@ export interface Config {
   editor?: {
     /** 素材アップロード(/api/upload)の1ファイルの上限(MB)。省略時は既定値 */
     maxUploadMb?: number;
+    /** ベースメディアアップロード(/api/upload?as=base)の上限(MB)。 */
+    maxBaseUploadMb?: number;
     /** タイムラインに置く画像素材・尺不明素材の既定の尺(秒)。
      * 省略時は DEFAULT_IMAGE_DURATION_SEC */
     defaultImageDurationSec?: number;

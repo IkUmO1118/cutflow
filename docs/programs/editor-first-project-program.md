@@ -1,6 +1,6 @@
 # 編集器ファースト母艦 — 「収録1本のパイプライン」から「プロジェクトを開いて編集する」へ
 
-> 状態: **IN PROGRESS — P0–P1 COMPLETE / VERIFIED**(2026-08-02 発足・ユーザー批准済み)。FrameWright の入口を
+> 状態: **IN PROGRESS — P0–P2 COMPLETE / VERIFIED**(2026-08-02 発足・ユーザー批准済み)。FrameWright の入口を
 > 「`run` を通したフォルダを後から覗く」から「**標準 NLE と同じくプロジェクトを
 > 開いて編集を始める**」へ作り替えること。あわせて **shorts 動線を削除**し、
 > その中に埋もれていた**キャンバス(出力サイズ)をプロジェクトの一級属性へ昇格**させる。
@@ -35,8 +35,8 @@ S0〜S5 が landing 済みで、本母艦はその上に立つ) /
 
 ## 0. 他エージェント向け: 現在地と次の一手
 
-- **現在地(2026-08-02)**: **P0(shorts 削除)・P1(canvas のプロジェクト昇格)は
-  実装・独立検証済み**。次は §5 の P2(入口の編集器ファースト化)へ進む。
+- **現在地(2026-08-02)**: **P0〜P2 は実装・独立検証済み**。
+  次は §5 の P3(`run` の再定義)へ進む。
 - **絶対に飛ばしてはいけない前提**: sequence-time 母艦(S0〜S5)が landing 済みで
   あること。特に S3(映像なしプロジェクト)は本母艦の「音声+画像ベースの編集」が
   既に成立している根拠で、本母艦はそこへ**入口と UI を足すだけ**である。
@@ -135,7 +135,7 @@ whisper も LLM も呼ばない。つまり「`run` を打たないとエディ�
 |---|---|---|---|
 | P0 | `2026-08-02-editor-first-p0-shorts-removal-design.md` | COMPLETE / VERIFIED | shorts 削除(113ファイル) |
 | P1 | `2026-08-02-editor-first-p1-canvas-promotion-design.md` | COMPLETE / VERIFIED | キャンバスのプロジェクト昇格。9:16 が第一級に |
-| P2 | `2026-08-02-editor-first-p2-entry-design.md` | PLANNED | 空フォルダで開く / ベースメディアを GUI で選ぶ |
+| P2 | `2026-08-02-editor-first-p2-entry-design.md` | COMPLETE / VERIFIED | 空フォルダで開く / ベースメディアを GUI で選ぶ |
 | P3 | `2026-08-02-editor-first-p3-run-redefinition-design.md` | PLANNED | `run` = 「AI に初版を作らせる」+ bootstrap マーカー |
 | P4 | `2026-08-02-editor-first-p4-insert-clips-design.md` | PLANNED | inserts の移動・順序・クリップ表示 |
 | P5 | `2026-08-02-editor-first-p5-launcher-and-derive-design.md` | PLANNED | ランチャー + `derive`(shorts の後継動線) |
@@ -188,6 +188,9 @@ whisper も LLM も呼ばない。つまり「`run` を打たないとエディ�
 **出荷**: 9:16 のプロジェクトが第一級で作れる。
 
 ### P2 — 入口の編集器ファースト化
+
+**状態: COMPLETE / VERIFIED(2026-08-02)。** 実装・判断・実測の詳細は
+`docs/plans/2026-08-02-editor-first-p2-entry-design.md` §8。
 
 (1)(2) を潰す。
 
@@ -253,6 +256,10 @@ whisper も LLM も呼ばない。つまり「`run` を打たないとエディ�
 
 ## 9. 意思決定ログ
 
+- **2026-08-02(P2 COMPLETE / VERIFIED)**: 空フォルダを正常状態にし、source候補の
+  列挙/一意解決、`state:empty|ready`、base-media API/upload、canvas付きempty UI、
+  未存在dir作成を実装。主担当の独立実測で typecheck、2704/2704 tests、空bootstrap
+  no-write、HTTP empty応答と配信bundleを確認した。
 - **2026-08-02(P1 COMPLETE / VERIFIED)**: `manifest.canvas`、6プリセット、
   `resolveCanvas` / `outputSize`、CLI/bootstrap/editor 配線を実装。canvas 省略時の
   landscape は従来寸法を維持する。主担当の独立実測で typecheck、2692/2692 tests、

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { cliCmd } from "./lib/cliName.ts";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { Command, Help } from "commander";
@@ -1784,10 +1784,14 @@ program
   .option("--status", "この収録のエディタが起動しているか表示する")
   .action(async (dir: string, opts: { layout?: string; canvas?: string; detach?: boolean; stop?: boolean; status?: boolean }) => {
     const explicit = program.opts().config as string | undefined;
-    const abs = resolveDir(dir);
+    const abs = resolve(dir);
 
     const modes = [opts.detach, opts.stop, opts.status].filter(Boolean).length;
     if (modes > 1) throw new Error("--detach / --stop / --status は同時に指定できません");
+    if (!existsSync(abs)) {
+      if (opts.stop === true || opts.status === true) throw new Error(`フォルダがありません: ${abs}`);
+      mkdirSync(abs, { recursive: true });
+    }
 
     if (opts.status === true) {
       const entry = await liveEditor(abs);

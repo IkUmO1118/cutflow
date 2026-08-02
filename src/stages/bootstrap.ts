@@ -1,7 +1,7 @@
 import { cliCmd } from "../lib/cliName.ts";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { findSource } from "../lib/findSource.ts";
+import { resolveSource } from "../lib/findSource.ts";
 import { ingest } from "./ingest.ts";
 import type { Config } from "../lib/config.ts";
 import { manifestLayout, type CutPlan, type Manifest, type Transcript } from "../types.ts";
@@ -64,8 +64,10 @@ export async function bootstrapProjectWithLayout(
       }
     }
   } else {
+    const source = resolveSource(dir);
+    if (source === null) return;
     console.log("manifest.json が無いため ingest を実行します(動画を解析)...");
-    manifest = await ingest(dir, findSource(dir), cfg, layout, undefined, canvas);
+    manifest = await ingest(dir, source, cfg, layout, undefined, canvas);
   }
 
   const transcriptPath = join(dir, "transcript.json");

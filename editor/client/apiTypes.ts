@@ -16,6 +16,7 @@ import type { Profile } from "../../src/lib/profile.ts";
 import type { FrameShot } from "../../src/stages/frames.ts";
 import type { ReviewBundle, ReviewKey } from "../../src/stages/review.ts";
 import type { PreparedDesignAssets } from "../../src/lib/design.ts";
+import type { SourceCandidate } from "../../src/lib/findSource.ts";
 export type {
   AiProposeRequest,
   AiScope,
@@ -74,7 +75,17 @@ export interface AiDoctorResult {
 
 /** GET /api/project のレスポンス。収録フォルダの編集に必要な全データ
  * (chapters.json は YouTube チャプター用メタデータでエディタでは扱わない) */
-export interface ProjectData {
+export interface EmptyProjectData {
+  state: "empty";
+  dir: string;
+  candidates: SourceCandidate[];
+  dirFiles: string[];
+  /** editor --canvas で初回値を明示した場合の選択初期値。 */
+  canvas?: string;
+}
+
+export interface ReadyProjectData {
+  state: "ready";
   dir: string;
   manifest: Manifest;
   transcript: Transcript;
@@ -131,6 +142,8 @@ export interface ProjectData {
   contentHashes: Record<string, string>;
 }
 
+export type ProjectData = EmptyProjectData | ReadyProjectData;
+
 export type PlanPerceptionStatus = PerceptionStatus;
 
 /** GET /api/script のレスポンス。元収録の全文スクリプト(AI が編集する前の
@@ -161,6 +174,7 @@ export interface ScriptSegment {
 /** エディタ設定の解決済み実値(config.yaml editor セクション+既定値) */
 export interface EditorCfg {
   maxUploadMb: number;
+  maxBaseUploadMb: number;
   /** タイムラインに置く画像素材・尺不明素材の既定の尺(秒) */
   defaultImageDurationSec: number;
 }
@@ -196,7 +210,7 @@ export interface AiFrameResponse {
 export interface ProxyResponse {
   ok: true;
   path: string;
-  proxyFile: ProjectData["proxyFile"];
+  proxyFile: ReadyProjectData["proxyFile"];
 }
 
 /** POST /api/draft のボディ = .editor-draft.json の中身。未保存の編集を
@@ -290,6 +304,11 @@ export interface UploadResult {
   file: string;
   /** 動画素材の長さ(秒)。画像や取得失敗時は null */
   durationSec: number | null;
+}
+
+export interface BaseMediaRequest {
+  file: string;
+  canvas?: string;
 }
 
 /** POST /api/save のボディ。含まれるドキュメントだけがファイルに書かれる。

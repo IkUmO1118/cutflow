@@ -194,12 +194,13 @@ render:
   // render.bgm / render.bgm.ducking が丸ごと無い状態への深いブロック書き込み
   const out = applyConfigEdits(raw, {
     render: { bgm: { volumeDb: -18, ducking: { duckDb: -10, fadeSec: 0.5 } } },
-    editor: { maxUploadMb: 4096 },
+    editor: { maxUploadMb: 4096, maxBaseUploadMb: 16384 },
   });
   const cfg = parse(out) as Config;
   assert.equal(cfg.render.bgm.volumeDb, -18);
   assert.deepEqual(cfg.render.bgm.ducking, { duckDb: -10, fadeSec: 0.5 });
   assert.equal(cfg.editor?.maxUploadMb, 4096);
+  assert.equal(cfg.editor?.maxBaseUploadMb, 16384);
   assert.equal(cfg.render.wipeWidthPx, 480); // 既存キーは保たれる
 });
 
@@ -242,6 +243,7 @@ test("validateConfigPatch: 正常系は空配列", () => {
       preview: { width: 1280, videoEncoder: "videotoolbox" },
       editor: {
         maxUploadMb: 2048,
+        maxBaseUploadMb: 16384,
         defaultImageDurationSec: 4,
         aiReview: { vlm: true, maxImages: 4, maxRefinements: 2 },
       },

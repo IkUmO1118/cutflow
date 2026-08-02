@@ -85,7 +85,7 @@ function loadDescribeInputs(dir: string): DescribeInputs {
   const readRequired = <T>(file: string): T => {
     const p = join(dir, file);
     if (!existsSync(p)) {
-      throw new Error(`${file} がありません。先にパイプライン(run)を実行してください`);
+      throw new Error(`${file} がありません。${cliCmd()} editor <dir> でベースメディアを選んでください`);
     }
     return JSON.parse(readFileSync(p, "utf8")) as T;
   };

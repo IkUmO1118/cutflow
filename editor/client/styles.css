@@ -6922,3 +6922,32 @@
   font-size: 11px;
   display: flex; align-items: center; justify-content: center;
 }
+
+.baseMediaEntry {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: hsl(var(--oc-background));
+  color: hsl(var(--oc-foreground));
+}
+.baseMediaCard {
+  width: min(680px, 100%);
+  padding: 32px;
+  border: 1px solid hsl(var(--oc-border));
+  border-radius: 14px;
+  background: hsl(var(--oc-card));
+  box-shadow: 0 18px 60px hsl(0 0% 0% / 0.22);
+}
+.baseMediaCard h1 { margin: 8px 0; font-size: 26px; }
+.baseMediaCard p { color: hsl(var(--oc-muted-foreground)); }
+.baseMediaEyebrow { color: hsl(var(--oc-primary)); font-size: 12px; font-weight: 600; }
+.baseCanvasLabel { display: grid; gap: 6px; margin: 24px 0 16px; font-size: 13px; }
+.baseCanvasLabel select { min-height: 38px; padding: 0 10px; border: 1px solid hsl(var(--oc-border)); border-radius: 7px; background: hsl(var(--oc-background)); color: inherit; }
+.baseCandidateList { display: grid; gap: 8px; }
+.baseCandidateList button { display: flex; justify-content: space-between; align-items: center; min-height: 48px; padding: 0 14px; border: 1px solid hsl(var(--oc-border)); border-radius: 8px; background: transparent; color: inherit; cursor: pointer; }
+.baseCandidateList button:hover { border-color: hsl(var(--oc-primary)); background: hsl(var(--oc-accent) / .12); }
+.baseCandidateList small, .baseDropZone small { color: hsl(var(--oc-muted-foreground)); }
+.baseDropZone { padding: 42px 20px; border: 2px dashed hsl(var(--oc-border)); border-radius: 10px; text-align: center; cursor: pointer; }
+.baseDropZone:hover { border-color: hsl(var(--oc-primary)); background: hsl(var(--oc-accent) / .08); }
+.baseMediaCard .baseMediaError { color: hsl(var(--oc-destructive)); }

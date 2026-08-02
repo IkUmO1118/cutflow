@@ -67,3 +67,10 @@ test("AGENTS_CONTRACT.md: render.design cacheはplain/obs共通でcameraRegion�
   assert.match(section, /plain and obs-canvas recordings/);
   assert.doesNotMatch(section, /cameraRegion/);
 });
+
+test("AGENTS_CONTRACT.md: editor は未存在dir作成と空/曖昧候補のGUI選択を明記する", () => {
+  const editorRow = AGENTS_MD.split("\n").find((line) => line.startsWith("| `editor <dir>` |")) ?? "";
+  assert.match(editorRow, /creating `<dir>` when it does not exist/);
+  assert.match(editorRow, /empty folder or ambiguous base-media candidates/);
+  assert.match(editorRow, /explicit GUI selection/);
+});

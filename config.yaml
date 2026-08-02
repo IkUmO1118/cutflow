@@ -300,10 +300,10 @@ editor:
   # 素材アップロード1ファイルの上限(MB)。動画素材も置けるよう大きめ。
   # ローカル限定サーバーだが、暴走したアップロードでディスクを埋めない歯止め
   maxUploadMb: 2048
+  # プロジェクト作成時のベース動画・音声アップロード上限(MB)。長尺収録向けに別枠
+  maxBaseUploadMb: 16384
   # タイムラインに置く画像素材・尺不明素材の既定の尺(秒)
   defaultImageDurationSec: 4
-  # ショート新規追加時、選択中の keep クリップもプレイヘッドも
-  # 無いときの既定レンジ長(秒)
   defaultShortRangeSec: 10
   aiReview:
     vlm: false
