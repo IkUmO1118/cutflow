@@ -313,6 +313,11 @@ export type RenderProps = {
   baseSegments?: {
     start: number;
     videoStart: number;
+    /** cut.mp4 の音声を索引する開始位置(常にカット後の秒)。
+     * videoIsSource:true のとき videoStart は元収録の秒になるため、
+     * 音声ベッド(insertMix)はこちらを使う。省略時は videoStart に
+     * フォールバック(旧 render.props.json との互換)。 */
+    audioStart?: number;
     durationSec: number;
     playbackRate?: number;
   }[];

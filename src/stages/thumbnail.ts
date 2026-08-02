@@ -16,6 +16,7 @@ import { resolveProfile } from "../lib/profile.ts";
 import { buildRenderProps } from "../lib/renderProps.ts";
 import { renderCfgWithDesign } from "../lib/designAsset.ts";
 import { createEngineSession } from "../lib/engineSession.ts";
+import { buildTimeline, toOutputTime } from "../lib/timeline.ts";
 import type { Config } from "../lib/config.ts";
 import type { Manifest, Overlays, Thumbnail, Transcript } from "../types.ts";
 
@@ -37,6 +38,16 @@ function buildThumbnailProps(dir: string, cfg: Config): { props: ReturnType<type
   const mainOverlays = readJson<Overlays>("overlays.json", false) ?? {};
 
   const keeps = [{ start: 0, end: manifest.durationSec }];
+  // thumbnail.t は「元収録の秒」だが renderAndCapture は出力秒を取る。
+  // keeps を全編にすることで写像を恒等にしているため、前提を実行時に固定する。
+  const tl = buildTimeline(keeps);
+  const mapped = toOutputTime(thumb.t, tl);
+  if (mapped === null || Math.abs(mapped - thumb.t) > 0.01) {
+    throw new Error(
+      `thumbnail: 時刻写像が恒等ではありません(t=${thumb.t} → ${mapped})。` +
+        "thumbnail.ts の keeps 構築を見直してください",
+    );
+  }
   const transcript: Transcript = {
     language: "", model: "",
     segments: thumb.texts.map((t, i) => ({

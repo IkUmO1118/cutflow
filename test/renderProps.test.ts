@@ -115,9 +115,29 @@ test("buildRenderProps: editor proxy 経路では speed を playbackRate に載�
     warn: () => {},
   });
   assert.deepEqual(props.baseSegments, [
-    { start: 0, videoStart: 0, durationSec: 5, playbackRate: 2 },
+    { start: 0, videoStart: 0, audioStart: 0, durationSec: 5, playbackRate: 2 },
   ]);
   assert.equal(props.durationSec, 5);
+});
+
+test("buildRenderProps: audioStart は videoIsSource に依らず常にカット後の秒", () => {
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 10 }, { start: 20, end: 30 }],
+    transcript: { segments: [] },
+    overlays: {},
+    renderCfg,
+    width: 1920,
+    height: 1080,
+    videoFile: "raw.mkv",
+    videoIsSource: true,
+    bgm: null,
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.equal(props.baseSegments?.[1].videoStart, 20);
+  assert.equal(props.baseSegments?.[1].audioStart, 10);
 });
 
 test("buildRenderProps: profile 省略時は profile 指定なしの現行 props と deep-equal", () => {

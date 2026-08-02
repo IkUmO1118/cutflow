@@ -511,6 +511,7 @@ export function buildRenderProps(args: {
     videoStart: videoIsSource
       ? e.sourceStart
       : (toOutputTime(e.sourceStart, keepsOnly) ?? 0),
+    audioStart: toOutputTime(e.sourceStart, keepsOnly) ?? 0,
     durationSec: round2(e.outputEnd - e.outputStart),
     ...(videoIsSource && e.speed !== 1 ? { playbackRate: e.speed } : {}),
   }));
@@ -525,6 +526,7 @@ export function buildRenderProps(args: {
         last.videoStart + last.durationSec * (last.playbackRate ?? 1),
         seg.videoStart,
       ) &&
+      near(last.audioStart + last.durationSec, seg.audioStart) &&
       (last.playbackRate ?? 1) === (seg.playbackRate ?? 1)
     ) {
       last.durationSec = round2(last.durationSec + seg.durationSec);

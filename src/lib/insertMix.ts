@@ -70,10 +70,11 @@ export function baseLayoutOf(props: RenderProps): BaseLayout {
 
   const base: BaseFrameSeg[] = baseSegsIn.map((seg, i) => {
     const fs = spans.base[i];
+    const audioStart = seg.audioStart ?? seg.videoStart;
     return {
       fromFrame: fs.from,
       toFrame: fs.from + fs.durationInFrames,
-      videoStartFrame: Math.round(seg.videoStart * fps),
+      videoStartFrame: Math.round(audioStart * fps),
       ...(seg.playbackRate !== undefined ? { playbackRate: seg.playbackRate } : {}),
     };
   });
@@ -251,8 +252,7 @@ export async function mixInsertAudio(args: {
   const { dir, props, cutPath, outM4a } = args;
   const layout = baseLayoutOf(props);
   if (!layout.ok) {
-    // runFastRender の try/catch がフルレンダーへ落とす(fastPlan が本来
-    // ここへ来る前に全編フォールバックしているはず。破れたら実装バグ)
+    // validate が事前に弾く前提のバックストップ。ここへ来たら実装バグ。
     throw new Error(`insert-mix に不正な baseSegments(${layout.reason})`);
   }
   const fastDir = join(dir, "render.fast");

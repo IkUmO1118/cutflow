@@ -4,7 +4,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   buildTimeline,
+  buildTimelineModel,
   insertSpans,
+  insertSpansOf,
   mergeIntervals,
   playbackSegmentsOf,
   remapInterval,
@@ -78,6 +80,24 @@ test("挿入は keep を割り、アンカー以降を後ろへずらす", () =>
     { sourceStart: 5, sourceEnd: 10, outputStart: 7, outputEnd: 12, speed: 1 },
   ]);
   assert.deepEqual(insertSpans(single, inserts), [{ start: 5, end: 7, index: 0 }]);
+});
+
+test("buildTimelineModel: at が同値の挿入は宣言順に並ぶ", () => {
+  const built = buildTimelineModel([{ start: 0, end: 10 }], [
+    { at: 5, durationSec: 1 },
+    { at: 5, durationSec: 2 },
+  ]);
+  assert.deepEqual(built.inserts.map((s) => s.index), [0, 1]);
+  assert.equal(built.inserts[0].start, 5);
+  assert.equal(built.inserts[1].start, 6);
+});
+
+test("insertSpansOf: 壊れた要素を落とし、存在しないファイルは落とさない", () => {
+  assert.deepEqual(insertSpansOf([
+    { at: 1, durationSec: 2 },
+    { at: "x", durationSec: 2 },
+    { at: 3, durationSec: 0 },
+  ]), [{ at: 1, durationSec: 2 }]);
 });
 
 test("remapIntervalPieces: keep/cut/insert をまたいでも piece を結合しない", () => {

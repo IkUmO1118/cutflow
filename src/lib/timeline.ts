@@ -78,6 +78,26 @@ export function insertSpans(
   return buildTimelineModel(keeps, inserts).inserts;
 }
 
+/** overlays.inserts を buildTimelineModel が食える形へ正規化する。
+ * 壊れた要素(at/durationSec が数値でない・durationSec<=0)は落とす。
+ * ファイル存在は見ない。validate / av は存在を別途検査し、renderProps は
+ * 実在する素材だけを active insert として採用するため、この差は意図的。 */
+export function insertSpansOf(
+  inserts: { at?: unknown; durationSec?: unknown }[] | undefined,
+): InsertSpan[] {
+  if (!Array.isArray(inserts)) return [];
+  return inserts.flatMap((o) =>
+    o &&
+      typeof o.at === "number" &&
+      Number.isFinite(o.at) &&
+      typeof o.durationSec === "number" &&
+      Number.isFinite(o.durationSec) &&
+      o.durationSec > 0
+      ? [{ at: o.at, durationSec: o.durationSec }]
+      : [],
+  );
+}
+
 export function timelineDuration(timeline: TimelineEntry[]): number {
   return timeline.length === 0 ? 0 : timeline[timeline.length - 1].outputEnd;
 }
@@ -88,7 +108,7 @@ export function buildTimelineModel(
 ): BuiltTimeline {
   const pending = inserts
     .map((ins, index) => ({ ...ins, index }))
-    .sort((a, b) => a.at - b.at);
+    .sort((a, b) => (a.at - b.at) || (a.index - b.index));
   const segments = normalizePlaybackSegments(keeps);
   const entries: TimelineEntry[] = [];
   const spans: { start: number; end: number; index: number }[] = [];

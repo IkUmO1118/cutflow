@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Config } from "../lib/config.ts";
@@ -6,7 +7,14 @@ import { run } from "../lib/exec.ts";
 import { detectSilence } from "../lib/ffmpeg.ts";
 import { audioSourceOf } from "../lib/loudness.ts";
 import { loadShort } from "../lib/shorts.ts";
-import { buildTimeline, mergeIntervals, toSourceTime, type TimelineEntry } from "../lib/timeline.ts";
+import {
+  buildTimelineModel,
+  insertSpansOf,
+  mergeIntervals,
+  toSourceTime,
+  type InsertSpan,
+  type TimelineEntry,
+} from "../lib/timeline.ts";
 import { buildRenderProps } from "../lib/renderProps.ts";
 import { renderCfgWithDesign } from "../lib/designAsset.ts";
 import {
@@ -126,11 +134,16 @@ export async function av(dir: string, opts: AvOptions, cfg: Config): Promise<AvR
   }
   if (keeps.length === 0) throw new Error("keep 区間が0件です");
 
-  const timeline = buildTimeline(keeps);
-  const totalDurationSec = round2(keeps.reduce((sum, keep) => sum + (keep.end - keep.start), 0));
+  // --range は出力(カット後・挿入込み)の秒。挿入区間そのものは av の
+  // 対象外だが、軸は frames --out / render と一致させる。
+  const insertSpans = insertSpansOf(overlays.inserts);
+  const built = buildTimelineModel(keeps, insertSpans);
+  const timeline = built.entries;
+  const totalDurationSec = built.durationSec;
   const range = normalizeRange(opts.range, totalDurationSec);
   const rangedKeeps = sliceKeepsByOutputRange(timeline, range);
   if (rangedKeeps.length === 0) throw new Error("指定 range に対応する keep 区間がありません");
+  const insertsFingerprint = fingerprintInserts(insertSpans);
 
   const avCfg = resolveAvCfg(cfg);
   const everySec = opts.everySec ?? avCfg.everySec;
@@ -147,6 +160,7 @@ export async function av(dir: string, opts: AvOptions, cfg: Config): Promise<AvR
       manifest,
       timeline,
       keepsHash: keepsHash(rangedKeeps),
+      insertsFingerprint,
       outDir,
       range,
       short: opts.short ?? null,
@@ -171,6 +185,7 @@ export async function av(dir: string, opts: AvOptions, cfg: Config): Promise<AvR
       range,
       short: opts.short ?? null,
       outDir,
+      insertsFingerprint,
       cfg,
       avCfg,
     });
@@ -184,6 +199,7 @@ async function collectMotion(args: {
   manifest: Manifest;
   timeline: TimelineEntry[];
   keepsHash: string;
+  insertsFingerprint: string;
   outDir: string;
   range: { startSec: number; endSec: number };
   short: string | null;
@@ -193,7 +209,21 @@ async function collectMotion(args: {
   everySec: number;
   rangedKeeps: Interval[];
 }): Promise<MotionReport> {
-  const { dir, manifest, timeline, keepsHash: keepsDigest, outDir, range, short, fullRes, rootCfg, cfg, everySec, rangedKeeps } = args;
+  const {
+    dir,
+    manifest,
+    timeline,
+    keepsHash: keepsDigest,
+    insertsFingerprint,
+    outDir,
+    range,
+    short,
+    fullRes,
+    rootCfg,
+    cfg,
+    everySec,
+    rangedKeeps,
+  } = args;
   const baseFile = fullRes ? join(dir, manifest.source) : join(dir, "proxy.mp4");
   if (!fullRes) {
     if (!existsSync(baseFile) || isProxyStale(dir, rootCfg)) await buildProxy(dir, rootCfg);
@@ -204,6 +234,7 @@ async function collectMotion(args: {
   const key = {
     base: { file: fullRes ? manifest.source : "proxy.mp4", mtimeMs: baseStat.mtimeMs, size: baseStat.size },
     keepsHash: keepsDigest,
+    insertsFingerprint,
     range,
     short,
     everySec,
@@ -304,16 +335,33 @@ async function collectSound(args: {
   range: { startSec: number; endSec: number };
   short: string | null;
   outDir: string;
+  insertsFingerprint: string;
   cfg: Config;
   avCfg: ReturnType<typeof resolveAvCfg>;
 }): Promise<SoundReport> {
-  const { dir, manifest, transcript, bgm, overlays, timeline, keeps, rangedKeeps, range, short, outDir, cfg, avCfg } = args;
+  const {
+    dir,
+    manifest,
+    transcript,
+    bgm,
+    overlays,
+    timeline,
+    keeps,
+    rangedKeeps,
+    range,
+    short,
+    outDir,
+    insertsFingerprint,
+    cfg,
+    avCfg,
+  } = args;
   const sourceFile = join(dir, manifest.source);
   const sourceStat = statSync(sourceFile);
   const source = audioSourceOf(manifest, cfg);
   const key = {
     source: { file: manifest.source, mtimeMs: sourceStat.mtimeMs, size: sourceStat.size },
     keepsHash: keepsHash(rangedKeeps),
+    insertsFingerprint,
     audio: {
       systemMix: source.systemStream !== null,
       systemVolumeDb: source.systemVolumeDb,
@@ -521,7 +569,7 @@ function normalizeRange(
   return { startSec: round2(startSec), endSec: round2(endSec) };
 }
 
-function sliceKeepsByOutputRange(
+export function sliceKeepsByOutputRange(
   timeline: TimelineEntry[],
   range: { startSec: number; endSec: number },
 ): Interval[] {
@@ -534,6 +582,10 @@ function sliceKeepsByOutputRange(
       end: round2(entry.sourceStart + (end - entry.outputStart) * entry.speed),
     }];
   });
+}
+
+function fingerprintInserts(inserts: InsertSpan[]): string {
+  return createHash("sha256").update(JSON.stringify(inserts)).digest("hex").slice(0, 8);
 }
 
 function sampleTimes(range: { startSec: number; endSec: number }, everySec: number): number[] {

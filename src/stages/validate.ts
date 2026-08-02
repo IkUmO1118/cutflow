@@ -22,7 +22,7 @@ import { CUT_REASON_IDS, REASON_ID_FAMILY } from "../lib/reasonIds.ts";
 import type { CutReasonId } from "../lib/reasonIds.ts";
 import { EFFECT_REASON_IDS, EFFECT_REASON_ID_FAMILY } from "../lib/effectReasonIds.ts";
 import type { EffectReasonFamily, EffectReasonId } from "../lib/effectReasonIds.ts";
-import { buildTimeline, playbackSegmentsOf, remapInterval } from "../lib/timeline.ts";
+import { buildTimelineModel, insertSpansOf, playbackSegmentsOf, remapInterval } from "../lib/timeline.ts";
 import type { TimelineEntry } from "../lib/timeline.ts";
 import { transcriptHasWords } from "../lib/words.ts";
 import {
@@ -345,9 +345,18 @@ export function validateDocs(
     err("cutplan.json", "-", "オブジェクトではありません");
   }
 
-  // テロップ・演出の「カット内で表示されない」警告に使う時刻写像
-  const timeline: TimelineEntry[] | null =
-    errors.length === 0 && playbackKeeps.length > 0 ? buildTimeline(playbackKeeps) : null;
+  // テロップ・演出の「カット内で表示されない」警告に使う時刻写像。
+  // 挿入(overlays.inserts)は出力タイムラインを伸ばすので renderProps と同じく
+  // 挿入込みで組む。壊れた insert 要素は insertSpansOf で落とす。
+  const insertSpans = isObj(overlays) && Array.isArray((overlays as { inserts?: unknown }).inserts)
+    ? insertSpansOf((overlays as { inserts?: { at?: unknown; durationSec?: unknown }[] }).inserts)
+    : [];
+  const built = errors.length === 0 && playbackKeeps.length > 0
+    ? buildTimelineModel(playbackKeeps, insertSpans)
+    : null;
+  const timeline: TimelineEntry[] | null = built ? built.entries : null;
+  /** 出力(カット後・挿入込み)の総尺。S1/S2 の検証がこれを使う */
+  const outputDurationSec: number | null = built ? built.durationSec : null;
   /** 区間がカット後の動画に一瞬でも現れるか(写像が作れないときは true 扱い) */
   const visible = (start: number, end: number): boolean =>
     !timeline || remapInterval(start, end, timeline).length > 0;
@@ -555,6 +564,17 @@ export function validateDocs(
         checkFit(w, o.fit);
       },
     );
+    if (
+      insertSpans.length > 0 &&
+      playbackKeeps.some((keep) => keep.speed !== DEFAULT_PLAYBACK_SPEED)
+    ) {
+      err(
+        f,
+        "inserts",
+        "挿入クリップと可変速 keep は併用できません(音声ベッドを組み立てられません)。" +
+          "挿入を消すか、keep の speed を 1 に戻してください",
+      );
+    }
 
     for (const key of ["wipeFull", "hideCaption"] as const) {
       if (overlays[key] !== undefined && !Array.isArray(overlays[key])) {

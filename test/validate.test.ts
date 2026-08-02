@@ -1065,6 +1065,53 @@ test("insert: volume の範囲外・負のフェードはエラー", () => {
   assert.ok(r.errors.some((e) => e.where === "inserts[1]" && e.message.includes("fadeOutSec")));
 });
 
+test("validate: 挿入 + 可変速 keep はエラー", () => {
+  const dir = mkdtempSync(join(tmpdir(), "framewright-validate-insert-speed-"));
+  try {
+    mkdirSync(join(dir, "materials"), { recursive: true });
+    writeFileSync(join(dir, "materials/x.mp4"), "");
+    const r = validateDocs(dir, baseDocs({
+      cutplan: {
+        approved: false,
+        segments: [{ start: 0, end: 10, action: "keep", reason: "a", speed: 2 }],
+      },
+      overlays: { inserts: [{ at: 5, file: "materials/x.mp4", durationSec: 2 }] },
+    }));
+    assert.ok(r.errors.some((e) => e.where === "inserts" && e.message.includes("可変速 keep")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("validate: 挿入があっても speed が全て 1 ならエラーにならない", () => {
+  const dir = mkdtempSync(join(tmpdir(), "framewright-validate-insert-speed-"));
+  try {
+    mkdirSync(join(dir, "materials"), { recursive: true });
+    writeFileSync(join(dir, "materials/x.mp4"), "");
+    const r = validateDocs(dir, baseDocs({
+      cutplan: {
+        approved: false,
+        segments: [{ start: 0, end: 10, action: "keep", reason: "a", speed: 1 }],
+      },
+      overlays: { inserts: [{ at: 5, file: "materials/x.mp4", durationSec: 2 }] },
+    }));
+    assert.deepEqual(r.errors, []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("validate: 可変速 keep があっても挿入が0件ならエラーにならない", () => {
+  const r = validateDocs(DIR, baseDocs({
+    cutplan: {
+      approved: false,
+      segments: [{ start: 0, end: 10, action: "keep", reason: "a", speed: 2 }],
+    },
+    overlays: {},
+  }));
+  assert.deepEqual(r.errors, []);
+});
+
 test("overlay: 画像拡張子以外(.mkv 等)は動画扱いで volume / startFrom の誤警告を出さない", () => {
   // レンダラー(remotion/Main.tsx の isImageFile)は画像リスト外をすべて
   // OffthreadVideo で再生する。validate が逆の警告を出すと AI 編集者を欺く
@@ -1108,6 +1155,41 @@ test("overlay: フェード長すぎ警告は元区間長ではなくカット�
   assert.ok(
     r.warnings.some((w) => w.where === "overlays[0]" && w.message.includes("フェード")),
   );
+});
+
+test("validate: 挿入をまたぐ overlay の visibleSec は挿入込みでも実表示秒の合計で計算される", () => {
+  const r = validateDocs(DIR, baseDocs({
+    cutplan: {
+      approved: false,
+      segments: [{ start: 0, end: 10, action: "keep", reason: "a" }],
+    },
+    overlays: {
+      inserts: [{ at: 5, file: "materials/x.mp4", durationSec: 4 }],
+      overlays: [
+        { start: 4, end: 6, file: "materials/x.mp4", fadeInSec: 1, fadeOutSec: 1 },
+      ],
+    },
+  }));
+  assert.ok(!r.warnings.some((w) => w.where === "overlays[0]" && w.message.includes("フェード")));
+});
+
+test("validate: 挿入が0件なら警告の出方は従来と同一", () => {
+  const docs = baseDocs({
+    cutplan: {
+      approved: false,
+      segments: [
+        { start: 0, end: 2, action: "keep", reason: "a" },
+        { start: 2, end: 9, action: "cut", reason: "b" },
+        { start: 9, end: 10, action: "keep", reason: "c" },
+      ],
+    },
+    overlays: {
+      overlays: [
+        { start: 1, end: 10, file: "materials/x.mp4", fadeInSec: 1.5, fadeOutSec: 1.5 },
+      ],
+    },
+  });
+  assert.deepEqual(validateDocs(DIR, docs), validateDocs(DIR, structuredClone(docs)));
 });
 
 test("style.fontWeight は 100〜900 の範囲外をエラーにする(文書と同じ範囲)", () => {

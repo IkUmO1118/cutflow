@@ -364,6 +364,7 @@ render を中止し、黙った黒画面 MP4 を公開しない。ANGLE の結�
     node src/cli.ts hyperframe-place <dir> --name <name> --at <元収録の秒>
     # 既定は overlay(全画面 or --rect で部分配置)。--as insert で
     # ベース映像への挿入編集にできる(insert は --rect / --track を取らない)
+    # at が同じ insert が複数あるときは overlays.json に書いた順に並ぶ。
 
 尺(`durationSec`)は決定論的に解決する: `--duration <s>` を明示すればそれ、
 無ければ `hyperframe.<name>.key.json` の `durationSec`、それも無ければ
