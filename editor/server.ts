@@ -56,7 +56,7 @@ import { ingest } from "../src/stages/ingest.ts";
 import { runDraft } from "../src/stages/runDraft.ts";
 import { deriveProject } from "../src/stages/derive.ts";
 import { listSourceCandidates } from "../src/lib/findSource.ts";
-import { isCanvasPreset, outputSize, resolveCanvas } from "../src/lib/profile.ts";
+import { isBaseLayoutPreset, isCanvasPreset, outputSize, resolveCanvas } from "../src/lib/profile.ts";
 import { EditorAiError, proposeEditorAi, refineEditorAi } from "../src/stages/editorAi.ts";
 import type { AiProposeResponse as EditorAiStageProposeResponse } from "../src/stages/editorAi.ts";
 import { reviewSpecOfProposalReview } from "../src/lib/editorAiReview.ts";
@@ -146,6 +146,7 @@ export async function startEditor(
   cfgPath: string,
   layout?: "obs-canvas" | "plain" | "auto" | "stills",
   canvas?: string,
+  baseLayout?: string,
   launcherMode = false,
 ): Promise<void> {
   // 動画ファイルだけの収録フォルダでも開けるように、必須3ファイルのうち
@@ -153,7 +154,7 @@ export async function startEditor(
   // 3点チェックは最終防壁として残す
   mkdirSync(dir, { recursive: true });
   if (!launcherMode) {
-    await bootstrapProjectWithLayout(dir, cfg, layout, canvas);
+    await bootstrapProjectWithLayout(dir, cfg, layout, canvas, baseLayout);
     if (existsSync(join(dir, "manifest.json"))) await prepareEditorDesignAssets(dir, cfg);
   }
 
@@ -214,7 +215,7 @@ export async function startEditor(
   }
 
   const server = createServer((req, res) => {
-    handle(req, res, dir, cfg, cfgPath, assets, hub, engineDevAssets, layout, canvas, launcherMode, watchProject).catch((err: Error) => {
+    handle(req, res, dir, cfg, cfgPath, assets, hub, engineDevAssets, layout, canvas, baseLayout, launcherMode, watchProject).catch((err: Error) => {
       // HttpError は想定内の拒否(不正な保存=400、大きすぎる素材=413 等)。
       // それ以外は想定外なのでログに残して 500 で返す
       if (err instanceof HttpError) {
@@ -362,8 +363,8 @@ export function listProjects(rootDir: string): ProjectSummary[] {
 
 export function createProjectDirectory(
   rootDir: string,
-  body: { name?: unknown; canvas?: unknown; layout?: unknown },
-): { dir: string; name: string; canvas: string; layout?: string } {
+  body: { name?: unknown; canvas?: unknown; layout?: unknown; baseLayout?: unknown },
+): { dir: string; name: string; canvas: string; layout?: string; baseLayout?: string } {
   if (typeof body.name !== "string") throw new HttpError(400, "プロジェクト名を指定してください");
   const name = normalizeProjectName(body.name);
   if (!name) throw new HttpError(400, "プロジェクト名が空です");
@@ -373,11 +374,15 @@ export function createProjectDirectory(
   if (layout !== undefined && layout !== "plain" && layout !== "obs-canvas" && layout !== "auto") {
     throw new HttpError(400, `未知の layout です: ${layout}`);
   }
+  const baseLayout = body.baseLayout === undefined ? undefined : String(body.baseLayout);
+  if (baseLayout !== undefined && !isBaseLayoutPreset(baseLayout)) {
+    throw new HttpError(400, `未知の baseLayout です: ${baseLayout}`);
+  }
   mkdirSync(rootDir, { recursive: true });
   const dir = resolveLauncherProject(rootDir, name);
   if (existsSync(dir)) throw new HttpError(409, `プロジェクトは既に存在します: ${name}`);
   mkdirSync(dir);
-  return { dir, name, canvas, ...(layout ? { layout } : {}) };
+  return { dir, name, canvas, ...(layout ? { layout } : {}), ...(baseLayout ? { baseLayout } : {}) };
 }
 
 /** 素材アップロードの上限の既定値(config で editor.maxUploadMb 未指定のとき) */
@@ -446,6 +451,7 @@ async function handle(
   engineDevAssets: EngineDevAssets,
   layout?: "obs-canvas" | "plain" | "auto" | "stills",
   initialCanvas?: string,
+  initialBaseLayout?: string,
   launcherMode = false,
   watchProject?: (dir: string) => void,
 ): Promise<void> {
@@ -476,8 +482,13 @@ async function handle(
       }
       layout = requestedLayout;
     }
+    const requestedBaseLayout = url.searchParams.get("baseLayout") ?? url.searchParams.get("base-layout");
+    if (requestedBaseLayout) {
+      if (!isBaseLayoutPreset(requestedBaseLayout)) throw new HttpError(400, `未知の baseLayout です: ${requestedBaseLayout}`);
+      initialBaseLayout = requestedBaseLayout;
+    }
     if (path === "/") {
-      await bootstrapProjectWithLayout(dir, cfg, layout, initialCanvas);
+      await bootstrapProjectWithLayout(dir, cfg, layout, initialCanvas, initialBaseLayout);
       if (existsSync(join(dir, "manifest.json"))) await prepareEditorDesignAssets(dir, cfg);
       watchProject?.(dir);
     }
@@ -525,7 +536,7 @@ async function handle(
     return;
   }
   if (launcherMode && req.method === "POST" && path === "/api/projects") {
-    const body = await readBody(req) as { name?: unknown; canvas?: unknown; layout?: unknown };
+    const body = await readBody(req) as { name?: unknown; canvas?: unknown; layout?: unknown; baseLayout?: unknown };
     const created = createProjectDirectory(rootDir, body);
     sendJson(res, 201, created);
     return;
@@ -543,18 +554,18 @@ async function handle(
   }
   if (req.method === "GET" && path === "/api/project") {
     const project = loadProject(dir, cfg);
-    sendJson(res, 200, project.state === "empty" && initialCanvas
-      ? { ...project, canvas: initialCanvas }
+    sendJson(res, 200, project.state === "empty" && (initialCanvas || initialBaseLayout)
+      ? { ...project, ...(initialCanvas ? { canvas: initialCanvas } : {}), ...(initialBaseLayout ? { baseLayout: initialBaseLayout } : {}) }
       : project);
     return;
   }
   if (req.method === "POST" && path === "/api/base-media") {
-    const body = (await readBody(req)) as { file?: unknown; canvas?: unknown };
-    sendJson(res, 200, await selectBaseMedia(dir, cfg, body, layout, initialCanvas));
+    const body = (await readBody(req)) as { file?: unknown; canvas?: unknown; baseLayout?: unknown };
+    sendJson(res, 200, await selectBaseMedia(dir, cfg, body, layout, initialCanvas, initialBaseLayout));
     return;
   }
   if (req.method === "POST" && path === "/api/derive") {
-    const body = await readBody(req) as { name?: unknown; canvas?: unknown; ranges?: unknown };
+    const body = await readBody(req) as { name?: unknown; canvas?: unknown; baseLayout?: unknown; ranges?: unknown };
     if (typeof body.name !== "string" || typeof body.canvas !== "string" || !Array.isArray(body.ranges)) {
       throw new HttpError(400, "name / canvas / ranges を指定してください");
     }
@@ -564,7 +575,13 @@ async function handle(
       if (typeof item.start !== "number" || typeof item.end !== "number") throw new HttpError(400, "ranges が不正です");
       return { start: item.start, end: item.end };
     });
-    const result = await deriveProject({ sourceDir: dir, name: body.name, canvas: body.canvas, ranges, cfg }, { log: console.log });
+    const baseLayout = body.baseLayout === undefined || body.baseLayout === null || body.baseLayout === ""
+      ? undefined
+      : String(body.baseLayout);
+    if (baseLayout !== undefined && !isBaseLayoutPreset(baseLayout)) {
+      throw new HttpError(400, `未知の baseLayout です: ${baseLayout}`);
+    }
+    const result = await deriveProject({ sourceDir: dir, name: body.name, canvas: body.canvas, baseLayout, ranges, cfg }, { log: console.log });
     sendJson(res, 201, { dir: result.dir, name: basename(result.dir) });
     return;
   }
@@ -954,9 +971,14 @@ async function handle(
       sendJson(res, 200, await selectBaseMedia(
         dir,
         cfg,
-        { file: saved.file, canvas: url.searchParams.get("canvas") ?? initialCanvas },
+        {
+          file: saved.file,
+          canvas: url.searchParams.get("canvas") ?? initialCanvas,
+          baseLayout: url.searchParams.get("baseLayout") ?? url.searchParams.get("base-layout") ?? initialBaseLayout,
+        },
         layout,
         initialCanvas,
+        initialBaseLayout,
       ));
       return;
     }
@@ -1760,9 +1782,10 @@ export function loadProject(dir: string, cfg: Config): ProjectData {
 export async function selectBaseMedia(
   dir: string,
   cfg: Config,
-  body: { file?: unknown; canvas?: unknown },
+  body: { file?: unknown; canvas?: unknown; baseLayout?: unknown },
   layout?: "obs-canvas" | "plain" | "auto" | "stills",
   initialCanvas?: string,
+  initialBaseLayout?: string,
 ): Promise<ReadyProjectData> {
   if (existsSync(join(dir, "manifest.json"))) {
     throw new HttpError(409, "ベースメディアは既に確定しています。別プロジェクトを作成してください");
@@ -1776,8 +1799,14 @@ export async function selectBaseMedia(
   if (canvas !== undefined && (typeof canvas !== "string" || !isCanvasPreset(canvas))) {
     throw new HttpError(400, `キャンバスが不正です: ${String(canvas)}`);
   }
-  await ingest(dir, body.file, cfg, layout, undefined, canvas);
-  await bootstrapProjectWithLayout(dir, cfg, layout, canvas);
+  const baseLayout = body.baseLayout === undefined || body.baseLayout === null || body.baseLayout === ""
+    ? initialBaseLayout
+    : body.baseLayout;
+  if (baseLayout !== undefined && (typeof baseLayout !== "string" || !isBaseLayoutPreset(baseLayout))) {
+    throw new HttpError(400, `ベース配置が不正です: ${String(baseLayout)}`);
+  }
+  await ingest(dir, body.file, cfg, layout, undefined, canvas, baseLayout);
+  await bootstrapProjectWithLayout(dir, cfg, layout, canvas, baseLayout);
   await prepareEditorDesignAssets(dir, cfg);
   const project = loadProject(dir, cfg);
   if (project.state !== "ready") throw new Error("ベースメディアを確定できませんでした");

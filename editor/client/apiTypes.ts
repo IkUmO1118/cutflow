@@ -82,6 +82,8 @@ export interface EmptyProjectData {
   dirFiles: string[];
   /** editor --canvas で初回値を明示した場合の選択初期値。 */
   canvas?: string;
+  /** editor --base-layout で初回値を明示した場合の選択初期値。 */
+  baseLayout?: string;
 }
 
 export interface ReadyProjectData {
@@ -151,6 +153,7 @@ export interface ProjectSummary {
   hasManifest: boolean;
   durationSec: number | null;
   canvas: string;
+  baseLayout?: string;
   rendered: boolean;
   modifiedAt: string;
 }
@@ -320,6 +323,7 @@ export interface UploadResult {
 export interface BaseMediaRequest {
   file: string;
   canvas?: string;
+  baseLayout?: string;
 }
 
 /** POST /api/save のボディ。含まれるドキュメントだけがファイルに書かれる。

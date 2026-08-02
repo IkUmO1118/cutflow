@@ -17,6 +17,7 @@ export interface RunDraftOptions {
   layout?: Parameters<typeof ingest>[3];
   tracks?: Parameters<typeof ingest>[4];
   canvas?: Parameters<typeof ingest>[5];
+  baseLayout?: Parameters<typeof ingest>[6];
   /** detect 完了後、plan 開始前の通知（CLI の知覚 status 表示用）。 */
   beforePlan?: () => void;
 }
@@ -54,7 +55,7 @@ export async function runDraft(
   guardRerun(dir, RUN_OUTPUTS, options.force === true, "run");
   if (!existsSync(join(dir, "manifest.json"))) {
     await deps.stage("ingest", () =>
-      deps.ingest(dir, deps.findSource(dir), cfg, options.layout, options.tracks, options.canvas));
+      deps.ingest(dir, deps.findSource(dir), cfg, options.layout, options.tracks, options.canvas, options.baseLayout));
   }
   await deps.stage("transcribe", () => deps.transcribe(dir, cfg));
   const detected = await deps.stage("detect", () => deps.detect(dir, cfg));

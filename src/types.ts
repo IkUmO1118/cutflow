@@ -13,8 +13,11 @@ export interface Manifest {
    *  plain:      通常動画。カメラ無し。screenRegion は全フレーム
    *  stills:     音声のみの元ファイル。映像は inserts[] の静止画で構成 */
   layout?: "obs-canvas" | "plain" | "stills";
-  /** 作成時に固定する出力キャンバス。省略時は screenRegion の寸法(従来どおり)。 */
+  /** 作成時に固定する出力キャンバス(サイズ)。省略時は screenRegion の寸法(従来どおり)。 */
   canvas?: string;
+  /** 作成時に固定するベース映像(画面/カメラ)の置き方。省略時 "auto"。
+   *  camera / stack はカメラのある obs-canvas 収録でのみ有効。 */
+  baseLayout?: string;
   video: {
     width: number;
     height: number;

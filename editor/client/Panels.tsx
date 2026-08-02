@@ -1476,6 +1476,7 @@ export const ScriptPanel = ({
 export const SettingsPanel = ({
   projectName,
   canvas,
+  baseLayout,
   output,
   fps,
   onOpenFullSettings,
@@ -1484,6 +1485,8 @@ export const SettingsPanel = ({
   projectName: string;
   /** manifest の作成時固定キャンバス名 */
   canvas: string;
+  /** manifest の作成時固定ベース配置 */
+  baseLayout: string;
   /** 最終レンダー出力の解像度(px) */
   output: { w: number; h: number };
   /** 合成 fps(整数) */
@@ -1499,6 +1502,10 @@ export const SettingsPanel = ({
       <div className="ocSettingsRow">
         <span className="ocSettingsLabel">キャンバス</span>
         <span className="ocSettingsValue mono">{canvas}</span>
+      </div>
+      <div className="ocSettingsRow">
+        <span className="ocSettingsLabel">ベース配置</span>
+        <span className="ocSettingsValue mono">{baseLayout}</span>
       </div>
       <div className="ocSettingsRow">
         <span className="ocSettingsLabel">プロジェクト名</span>

@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import type { Config } from "../lib/config.ts";
-import { isCanvasPreset } from "../lib/profile.ts";
+import { isBaseLayoutPreset, isCanvasPreset } from "../lib/profile.ts";
 import { mergeIntervals } from "../lib/timeline.ts";
 import type { CutPlan, Interval, Manifest } from "../types.ts";
 import { ingest } from "./ingest.ts";
@@ -21,6 +21,7 @@ export interface DeriveRequest {
   sourceDir: string;
   name: string;
   canvas: string;
+  baseLayout?: string;
   ranges: Interval[];
   cfg: Config;
 }
@@ -105,6 +106,9 @@ export async function deriveProject(request: DeriveRequest, deps: DeriveDeps = {
   const manifestPath = join(sourceDir, "manifest.json");
   if (!existsSync(manifestPath)) throw new Error(`元プロジェクトに manifest.json がありません: ${sourceDir}`);
   if (!isCanvasPreset(request.canvas)) throw new Error(`未知の canvas 名です: ${request.canvas}`);
+  if (request.baseLayout !== undefined && !isBaseLayoutPreset(request.baseLayout)) {
+    throw new Error(`未知の baseLayout 名です: ${request.baseLayout}`);
+  }
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Manifest;
   const cutplan = buildDerivedCutplan(manifest.durationSec, request.ranges);
   const safeName = basename(request.name).replace(/[\\/:*?"<>|]/g, "_").replace(/^\.+/, "");
@@ -130,6 +134,7 @@ export async function deriveProject(request: DeriveRequest, deps: DeriveDeps = {
       manifest.layout ?? "obs-canvas",
       undefined,
       request.canvas,
+      request.baseLayout,
     );
     copyFileSync(transcriptPath, join(destination, "transcript.json"));
     writeFileSync(join(destination, "cutplan.json"), JSON.stringify(cutplan, null, 2));

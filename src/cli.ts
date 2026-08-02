@@ -28,7 +28,7 @@ import { editorLogFilePath, liveEditor, startDetachedEditor, stopEditor } from "
 import { setLogLevel } from "./lib/obs.ts";
 import type { LogLevel } from "./lib/obs.ts";
 import { timed } from "./lib/timing.ts";
-import { CANVAS_PRESETS, isCanvasPreset } from "./lib/profile.ts";
+import { BASE_LAYOUTS, CANVAS_SIZES, isBaseLayoutPreset, isCanvasPreset } from "./lib/profile.ts";
 import { findSource } from "./lib/findSource.ts";
 import { ingest } from "./stages/ingest.ts";
 import { deriveProject, parseDeriveRange } from "./stages/derive.ts";
@@ -192,7 +192,13 @@ function parseLayoutOpt(v: string | undefined): "obs-canvas" | "plain" | "auto" 
 function parseCanvasOpt(v: string | undefined): string | undefined {
   if (v === undefined) return undefined;
   if (isCanvasPreset(v)) return v;
-  throw new Error(`--canvas の値が不正です: ${v}(${Object.keys(CANVAS_PRESETS).join("|")} のいずれか)`);
+  throw new Error(`--canvas の値が不正です: ${v}(${Object.keys(CANVAS_SIZES).join("|")} のいずれか)`);
+}
+
+function parseBaseLayoutOpt(v: string | undefined): string | undefined {
+  if (v === undefined) return undefined;
+  if (isBaseLayoutPreset(v)) return v;
+  throw new Error(`--base-layout の値が不正です: ${v}(${Object.keys(BASE_LAYOUTS).join("|")} のいずれか)`);
 }
 
 /** --mic-track / --system-track を検査して数値へ。未指定は undefined。
@@ -399,15 +405,17 @@ program
     "収録レイアウト(plain|obs-canvas|auto)。省略時は plain",
   )
   .option("--canvas <preset>", "出力キャンバス(作成時固定)")
+  .option("--base-layout <kind>", "ベース映像配置(auto|screen|camera|stack、作成時固定)")
   .option("--mic-track <n>", "マイク音声のトラック番号(1始まり)。config を一時上書き")
   .option("--system-track <n>", "システム音声のトラック番号(1始まり)。config を一時上書き")
-  .action(async (dir: string, opts: { layout?: string; canvas?: string; micTrack?: string; systemTrack?: string }) => {
+  .action(async (dir: string, opts: { layout?: string; canvas?: string; baseLayout?: string; micTrack?: string; systemTrack?: string }) => {
     const cfg = loadConfig(program.opts().config);
     const abs = resolveDir(dir);
     const layout = parseLayoutOpt(opts.layout);
     const tracks = parseTrackOpts(opts.micTrack, opts.systemTrack);
     const canvas = parseCanvasOpt(opts.canvas);
-    const m = await ingest(abs, findSource(abs), cfg, layout, tracks, canvas);
+    const baseLayout = parseBaseLayoutOpt(opts.baseLayout);
+    const m = await ingest(abs, findSource(abs), cfg, layout, tracks, canvas, baseLayout);
     console.log(
       `ingest 完了: ${m.durationSec.toFixed(1)}秒 / ` +
         `${m.video.width}x${m.video.height} ${m.video.fps.toFixed(0)}fps / ` +
@@ -420,19 +428,21 @@ program
   .description("元メディアと transcript を共有する派生プロジェクトを作成")
   .requiredOption("--name <name>", "新しいプロジェクトのフォルダ名")
   .requiredOption("--canvas <preset>", "派生先の出力キャンバス")
+  .option("--base-layout <kind>", "派生先のベース映像配置(auto|screen|camera|stack)")
   .requiredOption(
     "--range <start-end>",
     "元収録秒の採用範囲(複数指定可)",
     (value: string, previous: string[]) => [...previous, value],
     [] as string[],
   )
-  .action(async (dir: string, opts: { name: string; canvas: string; range: string[] }) => {
+  .action(async (dir: string, opts: { name: string; canvas: string; baseLayout?: string; range: string[] }) => {
     if (opts.range.length === 0) throw new Error("--range を1つ以上指定してください");
     const cfg = loadConfig(program.opts().config);
     const result = await deriveProject({
       sourceDir: resolveDir(dir),
       name: opts.name,
       canvas: parseCanvasOpt(opts.canvas)!,
+      baseLayout: parseBaseLayoutOpt(opts.baseLayout),
       ranges: opts.range.map(parseDeriveRange),
       cfg,
     }, { log: console.log });
@@ -1774,10 +1784,11 @@ program
     "初回 bootstrap 時の収録レイアウト(plain|obs-canvas|auto)。省略時は plain",
   )
   .option("--canvas <preset>", "初回 bootstrap 時の出力キャンバス(作成時固定)")
+  .option("--base-layout <kind>", "初回 bootstrap 時のベース映像配置(auto|screen|camera|stack、作成時固定)")
   .option("--detach", "バックグラウンドで起動してターミナルを返す(ログは ~/.framewright/editor/)")
   .option("--stop", "デタッチ起動中のエディタを止める")
   .option("--status", "この収録のエディタが起動しているか表示する")
-  .action(async (dir: string | undefined, opts: { layout?: string; canvas?: string; detach?: boolean; stop?: boolean; status?: boolean }) => {
+  .action(async (dir: string | undefined, opts: { layout?: string; canvas?: string; baseLayout?: string; detach?: boolean; stop?: boolean; status?: boolean }) => {
     const explicit = program.opts().config as string | undefined;
     const cfg = loadConfig(explicit);
     const launcherMode = dir === undefined;
@@ -1817,7 +1828,7 @@ program
 
     if (opts.detach === true) {
       // 子プロセス(= 自分自身の editor コマンド)が listen して portfile を書く
-      const entry = await startDetachedEditor(abs, { layout: opts.layout, canvas: opts.canvas, configPath: explicit });
+      const entry = await startDetachedEditor(abs, { layout: opts.layout, canvas: opts.canvas, baseLayout: opts.baseLayout, configPath: explicit });
       console.log(`エディタ起動(バックグラウンド): http://127.0.0.1:${entry.port}(対象: ${entry.dir})`);
       console.log(`  ログ: ${editorLogFilePath(abs)}`);
       console.log(`  停止: ${cliCmd()} editor ${dir} --stop`);
@@ -1826,11 +1837,12 @@ program
 
     const layout = parseLayoutOpt(opts.layout);
     const canvas = parseCanvasOpt(opts.canvas);
+    const baseLayout = parseBaseLayoutOpt(opts.baseLayout);
     // 設定画面(POST /api/config)が書き戻す先。読んだ config.yaml と同じパス
     const cfgPath = resolveConfigPath(explicit);
     // esbuild 等のエディタ専用依存を CLI 起動時に読ませないため動的 import
     const { startEditor } = await import("../editor/server.ts");
-    await startEditor(abs, cfg, cfgPath, layout, canvas, launcherMode);
+    await startEditor(abs, cfg, cfgPath, layout, canvas, baseLayout, launcherMode);
   });
 
 program
@@ -1859,14 +1871,16 @@ program
     "収録レイアウト(plain|obs-canvas|auto)。manifest が無いときだけ有効",
   )
   .option("--canvas <preset>", "出力キャンバス。manifest が無い作成時だけ有効")
+  .option("--base-layout <kind>", "ベース映像配置。manifest が無い作成時だけ有効")
   .option("--mic-track <n>", "マイク音声トラック(1始まり)。manifest が無いときだけ有効")
   .option("--system-track <n>", "システム音声トラック(1始まり)。manifest が無いときだけ有効")
-  .action(async (dir: string, opts: { force?: boolean; layout?: string; canvas?: string; micTrack?: string; systemTrack?: string }) => {
+  .action(async (dir: string, opts: { force?: boolean; layout?: string; canvas?: string; baseLayout?: string; micTrack?: string; systemTrack?: string }) => {
     const cfg = loadConfig(program.opts().config);
     const abs = resolveDir(dir);
     const layout = parseLayoutOpt(opts.layout);
     const tracks = parseTrackOpts(opts.micTrack, opts.systemTrack);
     const canvas = parseCanvasOpt(opts.canvas);
+    const baseLayout = parseBaseLayoutOpt(opts.baseLayout);
     // P2 以降 ingest はプロジェクト作成時に完了済み。manifest の無い旧来の
     // 収録フォルダだけは後方互換として従来どおり ingest から始める。
     // ▸ stage 行(stderr・レベルゲート・所要時間付き)として出す。進捗は obs
@@ -1878,6 +1892,7 @@ program
       layout,
       tracks,
       canvas,
+      baseLayout,
       beforePlan: () => printPerceptionStatus(cfg),
     }, { stage: timed });
     const c = result.detected;

@@ -85,7 +85,7 @@ import type {
 import { initialCanvasFromSearch, isLauncherRoute, projectPath, projectPrefix } from "./route.ts";
 import type { ReviewBundle } from "../../src/stages/review.ts";
 import type { ReviewFrameRequest } from "../../src/lib/review.ts";
-import { CANVAS_PRESETS } from "../../src/lib/profile.ts";
+import { CANVAS_SIZES } from "../../src/lib/profile.ts";
 import { reviewSpecOfProposalReview } from "../../src/lib/editorAiReview.ts";
 import {
   HYPERFRAME_NAME_RE,
@@ -540,17 +540,45 @@ function applySaveHashes(
  * 各 JSON(元収録の秒)。
  * 正のデータは cutplan / overlays / transcript の各 JSON(元収録の秒)。
  */
+/** 比の文字列("16:9")からタイルのプレビュー寸法(px)を出す。長辺 44px 固定で、
+ *  短辺を比で縮める。9種類のプリセットの形が一目で見分けられるようにするための表示専用。 */
+function aspectBox(aspect: string): { w: number; h: number } {
+  const [a, b] = aspect.split(":").map(Number);
+  if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0 || b <= 0) return { w: 44, h: 44 };
+  const long = 44;
+  return a >= b
+    ? { w: long, h: Math.round((long * b) / a) }
+    : { w: Math.round((long * a) / b), h: long };
+}
+
+/** 収録フォルダ名の既定値。今日の日付を入れておき、続きを打つだけで済むようにする
+ *  (`YYYY-MM-DD-` まで。人間が手で日付を打つ手間を消す) */
+function defaultProjectName(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-`;
+}
+
 function LauncherApp() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
-  const [name, setName] = useState("");
+  const [name, setName] = useState(defaultProjectName);
   const [canvas, setCanvas] = useState("landscape");
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [open, setOpen] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     getProjects().then(setProjects).catch((e) => setError((e as Error).message));
   }, []);
+  useEffect(() => {
+    if (open) nameRef.current?.focus();
+  }, [open]);
+  const trimmed = name.trim();
+  // 409 を待たずにその場で伝える。サーバ側の衝突検査は残したまま、UI の応答だけ早める
+  const duplicate = projects.some((p) => p.name === trimmed);
+  const canCreate = trimmed.length > 0 && !duplicate && !creating;
   const create = async () => {
-    if (!name.trim()) return;
+    if (!canCreate) return;
     setCreating(true);
     setError(null);
     try {
@@ -563,28 +591,104 @@ function LauncherApp() {
   };
   return (
     <main className="launcher">
-      <header className="launcherHeader"><strong>FrameWright</strong><span>プロジェクト</span></header>
-      <section className="launcherCreate">
-        <h1>新規プロジェクト</h1>
-        <input aria-label="プロジェクト名" placeholder="例: 2026-08-02-talk" value={name} onChange={(e) => setName(e.target.value)} />
-        <select aria-label="キャンバス" value={canvas} onChange={(e) => setCanvas(e.target.value)}>
-          {Object.keys(CANVAS_PRESETS).map((key) => <option key={key} value={key}>{key}</option>)}
-        </select>
-        <button className="primary" disabled={creating || !name.trim()} onClick={() => void create()}>
-          {creating ? "作成中…" : "作成して開く"}
+      <header className="launcherHeader">
+        <strong>FrameWright</strong>
+        <span>プロジェクト</span>
+        <button
+          className={open ? "" : "primary"}
+          aria-expanded={open}
+          onClick={() => { setError(null); setOpen((v) => !v); }}
+        >
+          {open ? "キャンセル" : "+ 新規プロジェクト"}
         </button>
-      </section>
-      {error && <p className="launcherError">{error}</p>}
+      </header>
+
+      {open && (
+        <section className="launcherCreate" aria-label="新規プロジェクト">
+          <label className="launcherField">
+            <span>プロジェクト名</span>
+            <input
+              ref={nameRef}
+              aria-label="プロジェクト名"
+              placeholder="例: 2026-08-03-talk"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && canCreate) void create(); }}
+            />
+          </label>
+          {duplicate && <p className="launcherHint warn">同じ名前のプロジェクトが既にあります</p>}
+
+          <div className="launcherField">
+            <span>キャンバス</span>
+            <div className="canvasTiles" role="radiogroup" aria-label="キャンバス">
+              {Object.entries(CANVAS_SIZES).map(([key, preset]) => {
+                const box = aspectBox(preset.aspect);
+                const dims = preset.width && preset.height
+                  ? `${preset.width}×${preset.height}`
+                  : "収録のまま";
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    role="radio"
+                    aria-checked={canvas === key}
+                    className={`canvasTile${canvas === key ? " sel" : ""}`}
+                    onClick={() => setCanvas(key)}
+                    title={`${preset.label}(${dims})`}
+                  >
+                    <span className="canvasTileShapeBox">
+                      <span className="canvasTileShape" style={{ width: box.w, height: box.h }} />
+                    </span>
+                    <strong>{preset.aspect}</strong>
+                    <span className="canvasTileLabel">{preset.label}</span>
+                    <span className="canvasTileDims">{dims}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {error && <p className="launcherError">{error}</p>}
+          <div className="launcherActions">
+            <p className="launcherHint">作成後、次の画面で元になる動画・音声を選びます。</p>
+            <button className="primary" disabled={!canCreate} onClick={() => void create()}>
+              {creating ? "作成中…" : "作成して開く"}
+            </button>
+          </div>
+        </section>
+      )}
+
+      {!open && error && <p className="launcherError">{error}</p>}
+
       <section className="launcherGrid" aria-label="プロジェクト一覧">
-        {projects.map((project) => (
-          <a className="projectCard" key={project.name} href={`/p/${encodeURIComponent(project.name)}/`}>
-            <strong>{project.name}</strong>
-            <span>{project.hasManifest && project.durationSec !== null ? fmtTime(project.durationSec) : "メディア未選択"}</span>
-            <span>{project.canvas}{project.rendered ? " · 書き出し済み" : ""}</span>
-            <time>{new Date(project.modifiedAt).toLocaleString()}</time>
-          </a>
-        ))}
-        {projects.length === 0 && <p className="dim">まだプロジェクトがありません。</p>}
+        {projects.map((project) => {
+          const preset = CANVAS_SIZES[project.canvas];
+          const box = aspectBox(preset?.aspect ?? "16:9");
+          const ready = project.hasManifest && project.durationSec !== null;
+          return (
+            <a className="projectCard" key={project.name} href={`/p/${encodeURIComponent(project.name)}/`}>
+              <span className="projectCardTop">
+                <span className="canvasTileShapeBox sm">
+                  <span className="canvasTileShape" style={{ width: box.w * 0.8, height: box.h * 0.8 }} />
+                </span>
+                <strong>{project.name}</strong>
+              </span>
+              <span className="projectCardMeta">
+                {ready
+                  ? <span className="projectCardDur">{fmtTime(project.durationSec!)}</span>
+                  : <span className="projectCardTodo">メディア未選択</span>}
+                <span>{preset?.aspect ?? project.canvas}</span>
+                {project.rendered && <span className="projectCardBadge">書き出し済み</span>}
+              </span>
+              <time>{new Date(project.modifiedAt).toLocaleString()}</time>
+            </a>
+          );
+        })}
+        {projects.length === 0 && (
+          <p className="dim">
+            まだプロジェクトがありません。「+ 新規プロジェクト」から始めます。
+          </p>
+        )}
       </section>
     </main>
   );
@@ -5296,12 +5400,7 @@ const EditorApp = () => {
           <label className="baseCanvasLabel">
             キャンバス
             <select value={baseCanvas} onChange={(e) => setBaseCanvas(e.target.value)} disabled={baseBusy}>
-              <option value="landscape">16:9 横</option>
-              <option value="portrait">9:16 縦 (カメラ+画面)</option>
-              <option value="portrait-cover">9:16 縦 (カメラ全面)</option>
-              <option value="portrait-screen">9:16 縦 (画面中心)</option>
-              <option value="square">1:1 正方形</option>
-              <option value="portrait-4x5">4:5 縦</option>
+              {Object.entries(CANVAS_SIZES).map(([key, preset]) => <option key={key} value={key}>{key} — {preset.label}</option>)}
             </select>
           </label>
           {emptyProj.candidates.length > 0 ? (
@@ -6098,6 +6197,7 @@ const EditorApp = () => {
                 <SettingsPanel
                   projectName={proj.dir.replace(/\/+$/, "").split("/").pop() ?? proj.dir}
                   canvas={proj.manifest.canvas ?? "landscape"}
+                  baseLayout={proj.manifest.baseLayout ?? "auto"}
                   output={proj.output}
                   fps={manifestCompositionFps(proj.manifest)}
                   onOpenFullSettings={openSettings}

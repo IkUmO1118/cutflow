@@ -598,6 +598,8 @@ export interface Config {
   render: {
     /** ingest 時の既定キャンバス。--canvas が優先。省略時 landscape。 */
     canvas?: string;
+    /** ingest 時の既定ベース配置。--base-layout が優先。省略時 auto。 */
+    baseLayout?: string;
     wipeWidthPx: number;
     wipeMarginPx: number;
     /** ワイプ全画面(wipeFull)の出入りの遷移時間(秒)。

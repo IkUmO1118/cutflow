@@ -2,7 +2,7 @@
 // auto は寸法/縦横比による OBS 判定)を固定する。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { resolveLayout, resolveAudioTracks, layoutChangeWarning } from "../src/stages/ingest.ts";
+import { assertBaseLayoutCompatible, resolveLayout, resolveAudioTracks, layoutChangeWarning } from "../src/stages/ingest.ts";
 import type { Config } from "../src/lib/config.ts";
 import type { Manifest } from "../src/types.ts";
 
@@ -176,4 +176,22 @@ test("layoutChangeWarning: plain → obs-canvas で警告文を出す", () => {
   assert.match(w!, /plain/);
   assert.match(w!, /obs-canvas/);
   assert.match(w!, /--layout plain/);
+});
+
+test("assertBaseLayoutCompatible: camera 系 baseLayout はカメラ無し manifest で ingest 時に拒否する", () => {
+  const plain: Manifest = {
+    ...obsManifest(),
+    layout: "plain",
+    baseLayout: "camera",
+    video: {
+      width: 1920, height: 1080, fps: 60,
+      screenRegion: { x: 0, y: 0, w: 1920, h: 1080 },
+    },
+  };
+  assert.throws(
+    () => assertBaseLayoutCompatible(plain),
+    /この収録にはカメラがありません\(layout: plain\)。baseLayout camera は camera 領域を持つ obs-canvas 収録でだけ使えます/,
+  );
+  assert.doesNotThrow(() => assertBaseLayoutCompatible({ ...plain, baseLayout: "screen" }));
+  assert.doesNotThrow(() => assertBaseLayoutCompatible({ ...obsManifest(), baseLayout: "stack" }));
 });

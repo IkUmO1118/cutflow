@@ -391,6 +391,8 @@ export interface SourceInfo {
   layout: "obs-canvas" | "plain" | "stills";
   /** manifest.canvas がある新規プロジェクトだけに載る(旧収録は byte 不変)。 */
   canvas?: { name: string; width: number; height: number };
+  /** manifest.baseLayout がある新規プロジェクトだけに載る(旧収録は byte 不変)。 */
+  baseLayout?: string;
   video: {
     width: number;
     height: number;
@@ -927,6 +929,7 @@ function buildProjection(inp: DescribeInputs, cfg?: Config): DescribeProjection 
     ...(manifest.canvas !== undefined
       ? { canvas: { name: manifest.canvas, width: outputSize(manifest).w, height: outputSize(manifest).h } }
       : {}),
+    ...(manifest.baseLayout !== undefined ? { baseLayout: manifest.baseLayout } : {}),
     video: {
       width: manifest.video.width,
       height: manifest.video.height,

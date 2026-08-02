@@ -31,13 +31,14 @@ import {
   captionTrack,
   DEFAULT_PLAYBACK_SPEED,
   hasCamera,
+  manifestLayout,
   MAX_PLAYBACK_SPEED,
   MIN_PLAYBACK_SPEED,
   ovNum,
 } from "../types.ts";
 import type { CutPlan, Interval, Manifest, Transcript, WipeAnchor } from "../types.ts";
 import type { Config } from "../lib/config.ts";
-import { isCanvasPreset, outputSize } from "../lib/profile.ts";
+import { isBaseLayoutPreset, isCanvasPreset, outputSize } from "../lib/profile.ts";
 
 export interface Problem {
   /** 対象ファイル(収録フォルダ内の名前) */
@@ -250,6 +251,22 @@ export function validateDocs(
   }
   if (manifest?.canvas !== undefined && !isCanvasPreset(manifest.canvas)) {
     err("manifest.json", "canvas", `未知の canvas 名です: ${JSON.stringify(manifest.canvas)}`);
+  }
+  if (manifest?.baseLayout !== undefined && !isBaseLayoutPreset(manifest.baseLayout)) {
+    err("manifest.json", "baseLayout", `未知の baseLayout 名です: ${JSON.stringify(manifest.baseLayout)}`);
+  }
+  if (
+    manifest?.baseLayout !== undefined &&
+    isBaseLayoutPreset(manifest.baseLayout) &&
+    (manifest.baseLayout === "camera" || manifest.baseLayout === "stack") &&
+    !cameraPresent
+  ) {
+    err(
+      "manifest.json",
+      "baseLayout",
+      `この収録にはカメラがありません(layout: ${manifestLayout(manifest)})。` +
+        `baseLayout ${manifest.baseLayout} は camera 領域を持つ obs-canvas 収録でだけ使えます`,
+    );
   }
   if (manifest?.layout === "stills" && manifest.video?.cameraRegion !== undefined) {
     err("manifest.json", "video.cameraRegion", "映像なしプロジェクトにカメラ領域は持てません");

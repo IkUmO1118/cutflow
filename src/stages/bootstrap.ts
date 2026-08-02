@@ -30,7 +30,7 @@ export function initialCutplan(durationSec: number): CutPlan {
  * (transcribe / plan は明示的な CLI 実行に任せる)。
  */
 export async function bootstrapProject(dir: string, cfg: Config): Promise<void> {
-  return bootstrapProjectWithLayout(dir, cfg, undefined, undefined);
+  return bootstrapProjectWithLayout(dir, cfg, undefined, undefined, undefined);
 }
 
 export async function bootstrapProjectWithLayout(
@@ -38,6 +38,7 @@ export async function bootstrapProjectWithLayout(
   cfg: Config,
   layout: "obs-canvas" | "plain" | "auto" | "stills" | undefined,
   canvas?: string,
+  baseLayout?: string,
 ): Promise<void> {
   const manifestPath = join(dir, "manifest.json");
   let manifest: Manifest;
@@ -65,11 +66,22 @@ export async function bootstrapProjectWithLayout(
         );
       }
     }
+    if (baseLayout !== undefined) {
+      const current = manifest.baseLayout ?? "auto";
+      if (current !== baseLayout) {
+        throw new Error(
+          `manifest.json は既に baseLayout=${current} として作成済みです。` +
+            `指定された --base-layout ${baseLayout} では開けません。\n` +
+            "ベース配置を変える場合は、意図を確認してから ingest を明示的に再実行してください: " +
+            `${cliCmd()} ingest <dir> --base-layout ${baseLayout}`,
+        );
+      }
+    }
   } else {
     const source = resolveSource(dir);
     if (source === null) return;
     console.log("manifest.json が無いため ingest を実行します(動画を解析)...");
-    manifest = await ingest(dir, source, cfg, layout, undefined, canvas);
+    manifest = await ingest(dir, source, cfg, layout, undefined, canvas, baseLayout);
   }
 
   const transcriptPath = join(dir, "transcript.json");

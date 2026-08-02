@@ -445,6 +445,48 @@ test("manifest.canvas: 未知名は明示的なエラー", () => {
   ));
 });
 
+test("manifest.baseLayout: plain/stills では camera 系を拒否し、screen/auto/未設定は通す", () => {
+  for (const baseLayout of ["camera", "stack"]) {
+    const r = validateDocs(DIR, baseDocs({
+      manifest: { ...manifestPlain, baseLayout },
+    }));
+    assert.ok(r.errors.some((e) =>
+      e.file === "manifest.json" &&
+      e.where === "baseLayout" &&
+      e.message ===
+        `この収録にはカメラがありません(layout: plain)。` +
+          `baseLayout ${baseLayout} は camera 領域を持つ obs-canvas 収録でだけ使えます`,
+    ));
+  }
+
+  const stills = validateDocs(DIR, baseDocs({
+    manifest: { ...manifestPlain, layout: "stills", baseLayout: "camera" },
+  }));
+  assert.ok(stills.errors.some((e) =>
+    e.file === "manifest.json" &&
+    e.where === "baseLayout" &&
+    e.message.includes("layout: stills"),
+  ));
+
+  for (const manifest of [
+    { ...manifestPlain, baseLayout: "screen" },
+    { ...manifestPlain, baseLayout: "auto" },
+    manifestPlain,
+  ]) {
+    const r = validateDocs(DIR, baseDocs({ manifest }));
+    assert.ok(!r.errors.some((e) => e.file === "manifest.json" && e.where === "baseLayout"));
+  }
+});
+
+test("manifest.baseLayout: obs-canvas の camera/stack はカメラ有りなら通る", () => {
+  for (const baseLayout of ["camera", "stack"]) {
+    const r = validateDocs(DIR, baseDocs({
+      manifest: { ...manifestWithScreen, baseLayout },
+    }));
+    assert.ok(!r.errors.some((e) => e.file === "manifest.json" && e.where === "baseLayout"));
+  }
+});
+
 test("effect reasonId不在は既存のwarn/errorを増やさない(sticky off)", () => {
   const overlays = {
     zooms: [{ start: 1, end: 5, rect: { x: 0, y: 0, w: 960, h: 540 } }],

@@ -51,21 +51,21 @@ export async function getProjects(): Promise<ProjectSummary[]> {
   return (await request("/api/projects", undefined)) as ProjectSummary[];
 }
 
-export async function createProject(name: string, canvas: string, layout = "plain"): Promise<{ dir: string; name: string; canvas: string; layout?: string }> {
-  return (await request("/api/projects", { name, canvas, layout })) as { dir: string; name: string; canvas: string; layout?: string };
+export async function createProject(name: string, canvas: string, baseLayout = "auto", layout = "plain"): Promise<{ dir: string; name: string; canvas: string; layout?: string; baseLayout?: string }> {
+  return (await request("/api/projects", { name, canvas, baseLayout, layout })) as { dir: string; name: string; canvas: string; layout?: string; baseLayout?: string };
 }
 
-export async function postDerive(name: string, canvas: string, ranges: Array<{ start: number; end: number }>): Promise<{ dir: string; name: string }> {
-  return (await request("/api/derive", { name, canvas, ranges })) as { dir: string; name: string };
+export async function postDerive(name: string, canvas: string, ranges: Array<{ start: number; end: number }>, baseLayout = "auto"): Promise<{ dir: string; name: string }> {
+  return (await request("/api/derive", { name, canvas, baseLayout, ranges })) as { dir: string; name: string };
 }
 
-export async function postBaseMedia(file: string, canvas: string): Promise<ReadyProjectData> {
-  return (await request("/api/base-media", { file, canvas })) as ReadyProjectData;
+export async function postBaseMedia(file: string, canvas: string, baseLayout = "auto"): Promise<ReadyProjectData> {
+  return (await request("/api/base-media", { file, canvas, baseLayout })) as ReadyProjectData;
 }
 
-export async function uploadBaseMedia(file: File, canvas: string): Promise<ReadyProjectData> {
+export async function uploadBaseMedia(file: File, canvas: string, baseLayout = "auto"): Promise<ReadyProjectData> {
   const res = await fetch(
-    projectPath(`/api/upload?as=base&name=${encodeURIComponent(file.name)}&canvas=${encodeURIComponent(canvas)}`),
+    projectPath(`/api/upload?as=base&name=${encodeURIComponent(file.name)}&canvas=${encodeURIComponent(canvas)}&baseLayout=${encodeURIComponent(baseLayout)}`),
     { method: "POST", body: file },
   );
   const data: unknown = await res.json().catch(() => null);

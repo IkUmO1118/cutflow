@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -10,6 +10,9 @@ import {
   normalizeProjectName,
   resolveLauncherProject,
 } from "../editor/server.ts";
+
+const ROOT = process.cwd();
+const read = (path: string): string => readFileSync(join(ROOT, path), "utf8");
 
 test("project launcher: 直下ディレクトリを列挙し共有/hiddenを除外する", () => {
   const root = mkdtempSync(join(tmpdir(), "framewright-launcher-"));
@@ -47,4 +50,28 @@ test("project launcher: 新規作成は正規化し、衝突と traversal を拒
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("project creation UI hides baseLayout inputs while API helpers keep defaulted signatures", () => {
+  const app = read("editor/client/App.tsx");
+  const widgets = read("editor/client/widgets.tsx");
+  const panels = read("editor/client/Panels.tsx");
+
+  assert.doesNotMatch(app, /aria-label="ベース配置"/);
+  assert.doesNotMatch(app, /window\.prompt\("ベース配置/);
+  assert.doesNotMatch(app, /initialBaseLayoutFromSearch/);
+  assert.doesNotMatch(app, /baseLayout=\$\{encodeURIComponent\(baseLayout\)\}/);
+  assert.match(app, /createProject\(name\.trim\(\), canvas\)/);
+  assert.match(app, /postBaseMedia\(file, baseCanvas\)/);
+  assert.match(app, /uploadBaseMedia\(file, baseCanvas\)/);
+  assert.match(app, /postDerive\(name, canvas, \[\{ start: segment\.start, end: segment\.end \}\]\)/);
+
+  assert.match(widgets, /createProject\(name: string, canvas: string, baseLayout = "auto", layout = "plain"\)/);
+  assert.match(widgets, /postDerive\(name: string, canvas: string, ranges: Array<\{ start: number; end: number \}>, baseLayout = "auto"\)/);
+  assert.match(widgets, /postBaseMedia\(file: string, canvas: string, baseLayout = "auto"\)/);
+  assert.match(widgets, /uploadBaseMedia\(file: File, canvas: string, baseLayout = "auto"\)/);
+
+  assert.match(app, /baseLayout=\{proj\.manifest\.baseLayout \?\? "auto"\}/);
+  assert.match(panels, /<span className="ocSettingsLabel">ベース配置<\/span>/);
+  assert.match(panels, /<span className="ocSettingsValue mono">\{baseLayout\}<\/span>/);
 });

@@ -1,6 +1,6 @@
-// 出力キャンバス(サイズ+ベース映像のパネル配置+字幕既定)の組み込み定数。
+// 出力キャンバス(サイズ)とベース映像の置き方の組み込み定数。
 // config.yaml には追加しない(D1: プリセットは閉じた組み込み。設定爆発の回避)。
-import type { Manifest, Region } from "../types.ts";
+import { hasCamera, type Manifest, type Region } from "../types.ts";
 
 /** レイアウトを構成する1パネル(ベース映像の一部)。座標系は overlays の
  * rect と同じ出力px+Region+fit */
@@ -23,59 +23,138 @@ export interface Profile {
   };
 }
 
-export const CANVAS_PRESETS: Record<string, Profile> = {
-  landscape: { width: 1920, height: 1080 }, // 寸法は resolveCanvas が screenRegion で上書き
-  portrait: {
-    width: 1080,
-    height: 1920,
-    layout: {
-      panels: [
-        { source: "camera", rect: { x: 0, y: 0, w: 1080, h: 607 }, fit: "cover" },
-        { source: "screen", rect: { x: 0, y: 607, w: 1080, h: 607 }, fit: "cover" },
-      ], // y=1214..1920(約706px)はテロップ/タイトル帯(背景黒)
-      caption: { x: 540, y: 1560, anchor: "center", fontScale: 1.6 },
-    },
-  },
-  "portrait-cover": {
-    width: 1080,
-    height: 1920,
-    layout: {
-      panels: [{ source: "camera", rect: { x: 0, y: 0, w: 1080, h: 1920 }, fit: "cover" }],
-      caption: { x: 540, y: 1500, anchor: "center", fontScale: 1.6 },
-    },
-  },
-  "portrait-screen": {
-    width: 1080,
-    height: 1920,
-    layout: {
-      // screen を上3/4(0..1440)へ contain。16:9 は 1080x608 のフル幅帯として
-      // その枠の縦中央(約 y=416..1024)にレターボックスされ、左右も上下も
-      // 決して切れない(contain)。縦・スクエア収録はこの枠をより広く使う。
-      // 下1/4(1440..1920, 480px)はテロップ/タイトル帯(背景黒)
-      panels: [{ source: "screen", rect: { x: 0, y: 0, w: 1080, h: 1440 }, fit: "contain" }],
-      caption: { x: 540, y: 1680, anchor: "center", fontScale: 1.6 },
-    },
-  },
-  square: {
-    width: 1080,
-    height: 1080,
-    layout: {
-      panels: [{ source: "screen", rect: { x: 0, y: 0, w: 1080, h: 864 }, fit: "contain" }],
-      caption: { x: 540, y: 972, anchor: "center", fontScale: 1.3 },
-    },
-  },
-  "portrait-4x5": {
-    width: 1080,
-    height: 1350,
-    layout: {
-      panels: [{ source: "screen", rect: { x: 0, y: 0, w: 1080, h: 1080 }, fit: "contain" }],
-      caption: { x: 540, y: 1215, anchor: "center", fontScale: 1.4 },
-    },
-  },
+export interface CanvasSize {
+  /** 固定寸法。省略時は screenRegion の寸法を使う(landscape だけ) */
+  width?: number;
+  height?: number;
+  /** UI に出す用途名 */
+  label: string;
+  /** アスペクト比の表示文字列(例 "16:9")。UI がタイルの形と見出しに使う。
+   *  landscape は寸法を持たない(収録のまま)ので、ここが唯一の比の出所 */
+  aspect: string;
+}
+
+export interface BaseLayoutPreset {
+  label: string;
+}
+
+export type BaseLayoutKind = "screen" | "camera" | "stack";
+export type BaseLayoutName = "auto" | BaseLayoutKind;
+
+export const CANVAS_SIZES: Record<string, CanvasSize> = {
+  landscape: { label: "YouTube 動画(収録のまま)", aspect: "16:9" },
+  "landscape-hd": { width: 1920, height: 1080, label: "YouTube 動画(1080p)", aspect: "16:9" },
+  "landscape-4k": { width: 3840, height: 2160, label: "YouTube 動画(4K)", aspect: "16:9" },
+  portrait: { width: 1080, height: 1920, label: "ショート(Shorts/Reels/TikTok)", aspect: "9:16" },
+  "portrait-4k": { width: 2160, height: 3840, label: "ショート(4K)", aspect: "9:16" },
+  square: { width: 1080, height: 1080, label: "Instagram フィード", aspect: "1:1" },
+  "portrait-4x5": { width: 1080, height: 1350, label: "Instagram 縦", aspect: "4:5" },
+  cinema: { width: 2560, height: 1080, label: "シネマ", aspect: "21:9" },
+  classic: { width: 1440, height: 1080, label: "4:3", aspect: "4:3" },
 };
 
+export const BASE_LAYOUTS: Record<BaseLayoutName, BaseLayoutPreset> = {
+  auto: { label: "自動" },
+  screen: { label: "画面のみ" },
+  camera: { label: "カメラのみ" },
+  stack: { label: "カメラ+画面(上下)" },
+};
+
+const LEGACY_CANVAS_ALIASES: Record<string, { canvas: string; baseLayout?: BaseLayoutName }> = {
+  landscape: { canvas: "landscape" },
+  portrait: { canvas: "portrait" },
+  "portrait-cover": { canvas: "portrait", baseLayout: "camera" },
+  "portrait-screen": { canvas: "portrait", baseLayout: "screen" },
+  square: { canvas: "square" },
+  "portrait-4x5": { canvas: "portrait-4x5" },
+};
+
+const LAYOUT_FONT_SCALE: Record<BaseLayoutKind, number> = { screen: 1.6, camera: 1.6, stack: 1.6 };
+
+const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
+
+function captionBand(size: { width: number; height: number }): number {
+  return Math.round(clamp(0.40 * size.width, 0.15 * size.height, 0.30 * size.height));
+}
+
+/** キャンバス寸法 + レイアウト種別から Profile.layout を組み立てる単一の出所。 */
+export function buildLayout(
+  kind: BaseLayoutKind,
+  size: { width: number; height: number },
+): NonNullable<Profile["layout"]> {
+  const band = captionBand(size);
+  const caption = {
+    x: size.width / 2,
+    y: size.height - band / 2,
+    anchor: "center" as const,
+    fontScale: LAYOUT_FONT_SCALE[kind] * (size.width / 1080),
+  };
+  if (kind === "screen") {
+    return {
+      panels: [{ source: "screen", rect: { x: 0, y: 0, w: size.width, h: size.height - band }, fit: "contain" }],
+      caption,
+    };
+  }
+  if (kind === "camera") {
+    return {
+      panels: [{ source: "camera", rect: { x: 0, y: 0, w: size.width, h: size.height }, fit: "cover" }],
+      caption,
+    };
+  }
+  const contentH = size.height - band;
+  const firstH = Math.floor(contentH / 2);
+  const secondH = contentH - firstH;
+  return {
+    panels: [
+      { source: "camera", rect: { x: 0, y: 0, w: size.width, h: firstH }, fit: "cover" },
+      { source: "screen", rect: { x: 0, y: firstH, w: size.width, h: secondH }, fit: "cover" },
+    ],
+    caption,
+  };
+}
+
 export const isCanvasPreset = (name: string): boolean =>
-  Object.prototype.hasOwnProperty.call(CANVAS_PRESETS, name);
+  Object.prototype.hasOwnProperty.call(CANVAS_SIZES, name) ||
+  Object.prototype.hasOwnProperty.call(LEGACY_CANVAS_ALIASES, name);
+
+export const isBaseLayoutPreset = (name: string): name is BaseLayoutName =>
+  Object.prototype.hasOwnProperty.call(BASE_LAYOUTS, name);
+
+export function normalizeCanvasRequest(manifest: Pick<Manifest, "canvas" | "baseLayout">): {
+  canvas: string;
+  baseLayout?: BaseLayoutName;
+} {
+  const rawCanvas = manifest.canvas ?? "landscape";
+  const legacy = Object.prototype.hasOwnProperty.call(LEGACY_CANVAS_ALIASES, rawCanvas)
+    ? LEGACY_CANVAS_ALIASES[rawCanvas]
+    : undefined;
+  const canvas = legacy?.canvas ?? rawCanvas;
+  const rawBaseLayout = manifest.baseLayout;
+  if (rawBaseLayout !== undefined && !isBaseLayoutPreset(rawBaseLayout)) {
+    throw new Error(`未知の baseLayout 名です: ${rawBaseLayout}`);
+  }
+  return {
+    canvas,
+    ...(rawBaseLayout !== undefined ? { baseLayout: rawBaseLayout } : legacy?.baseLayout ? { baseLayout: legacy.baseLayout } : {}),
+  };
+}
+
+export function resolveBaseLayoutKind(
+  manifest: Manifest,
+  canvasKey = normalizeCanvasRequest(manifest).canvas,
+  baseLayout = normalizeCanvasRequest(manifest).baseLayout,
+): BaseLayoutKind | null {
+  if (baseLayout !== undefined && baseLayout !== "auto") return baseLayout;
+  if (canvasKey === "landscape" && baseLayout === undefined) return null;
+  if (canvasKey.startsWith("landscape")) return null;
+  return hasCamera(manifest) ? "stack" : "screen";
+}
+
+/** 旧 import 互換用。UI や新規検証では CANVAS_SIZES を使う。 */
+export const CANVAS_PRESETS: Record<string, Profile> = Object.fromEntries(
+  Object.entries(CANVAS_SIZES).filter(([, size]) => size.width !== undefined && size.height !== undefined)
+    .map(([key, size]) => [key, { width: size.width!, height: size.height! }]),
+) as Record<string, Profile>;
 
 /**
  * プロジェクトのキャンバスを解決する唯一の関数。canvas 省略/
@@ -83,13 +162,16 @@ export const isCanvasPreset = (name: string): boolean =>
  * その他は固定サイズとパネル配置を返し、未知名は throw する。
  */
 export function resolveCanvas(manifest: Manifest): Profile {
-  const key = manifest.canvas ?? "landscape";
-  if (key === "landscape") {
-    return { width: manifest.video.screenRegion.w, height: manifest.video.screenRegion.h };
-  }
-  if (!isCanvasPreset(key)) throw new Error(`未知の canvas 名です: ${key}`);
-  const profile = CANVAS_PRESETS[key];
-  return profile;
+  const normalized = normalizeCanvasRequest(manifest);
+  const size = Object.prototype.hasOwnProperty.call(CANVAS_SIZES, normalized.canvas)
+    ? CANVAS_SIZES[normalized.canvas]
+    : undefined;
+  if (!size) throw new Error(`未知の canvas 名です: ${normalized.canvas}`);
+  const width = size.width ?? manifest.video.screenRegion.w;
+  const height = size.height ?? manifest.video.screenRegion.h;
+  const kind = resolveBaseLayoutKind(manifest, normalized.canvas, normalized.baseLayout);
+  if (kind === null) return { width, height };
+  return { width, height, layout: buildLayout(kind, { width, height }) };
 }
 
 export function outputSize(manifest: Manifest): { w: number; h: number } {

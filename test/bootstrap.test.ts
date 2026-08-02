@@ -86,6 +86,23 @@ test("bootstrapProjectWithLayout: 既存 manifest と明示 canvas が食い違�
   }
 });
 
+test("bootstrapProjectWithLayout: 既存 manifest と明示 baseLayout が食い違うと拒否する", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "framewright-bootstrap-base-layout-"));
+  try {
+    writeFileSync(join(dir, "manifest.json"), JSON.stringify({
+      durationSec: 10, layout: "plain", canvas: "portrait", baseLayout: "screen",
+      video: { width: 1920, height: 1080, fps: 30, screenRegion: { x: 0, y: 0, w: 1920, h: 1080 } },
+      audio: { micStream: 0, systemStream: null, micWav: "audio/mic.wav" },
+    }, null, 2));
+    await assert.rejects(
+      () => bootstrapProjectWithLayout(dir, cfg(), undefined, "portrait", "camera"),
+      /manifest\.json は既に baseLayout=screen として作成済み/,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 function cfg(): Config {
   return {
     recordingsDir: "/tmp",
