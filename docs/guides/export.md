@@ -92,8 +92,33 @@ render 全体が落ちることがある。
 
 旧 `shorts.json` は削除済み機能のデータで、FrameWright は読み書きも自動削除もしない。
 `validate` は移行警告を1件出すだけで成功する。既存の `shorts.json` / `shorts/` /
-`cut.*.mp4` が不要なら、人間が確認して手で削除する。縦動画はP1以降の
-キャンバスを使い、独立した9:16プロジェクトとして作成する。
+`cut.*.mp4` が不要なら、人間が確認して手で削除する(`clean` も消さない)。
+
+**1プロジェクト = 1フォルダ = 1出力**になったので、縦動画は「同じフォルダの中の
+第二の出力」ではなく**独立した 9:16 プロジェクト**として作る。既存の
+`shorts.json` からの移行は手作業で、旧フィールドの行き先は次のとおり。
+
+| 旧 `shorts[]` のフィールド | 移行先 |
+|---|---|
+| `name` | 派生プロジェクトのフォルダ名(`derive --name`) |
+| `profile` | 派生先の `--canvas`(+ 必要なら `--base-layout`) |
+| `ranges` | 派生先の `cutplan.json` の keep(`derive --range`。元収録の秒のまま) |
+| `captionTracks` | 派生先の `overlays.json` の `captionTracks`(手で書き写す) |
+| `approved` / `approvals.shorts[name]` | 派生先で通常どおり `approve` し直す |
+
+```sh
+# 旧 shorts の1エントリ = 1派生プロジェクト
+node src/cli.ts derive <元プロジェクト> --name <旧 name> \
+  --canvas portrait --range 120-165 --range 300-330
+```
+
+`--range` は旧 `ranges` と同じく**元収録の秒**。元メディアは symlink
+(非対応ならハードリンク → コピー)で共有し、`transcript.json` は引き継ぐ。
+`captionTracks` 以外の `overlays.json` / `bgm.json` / `chapters.json` /
+`meta.json` は引き継がない(座標が出力px絶対で、キャンバスが変わると無意味。
+旧 shorts が `blurs` / `annotations` を継承しなかったのと同じ理由)。
+詳細は [command-reference.md の `derive`](command-reference.md) と
+[editor.md の「派生プロジェクト」](editor.md)。
 
 ## サムネイル生成(thumbnail.json)
 

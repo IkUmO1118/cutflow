@@ -24,15 +24,18 @@ FrameWright は「全部AI任せ」のツールではない。**まずエディ�
 ① 収録 → ~/Movies/framewright/<日付-内容>/ に mkv を置く(空フォルダから始めてもよい)
      (企画ブリーフがあれば brief.md としてコピーしておくと plan の材料になる)
 
-② node src/cli.ts editor <フォルダ>
+② node src/cli.ts editor                    プロジェクト一覧(ランチャー)から選ぶ・作る
+   node src/cli.ts editor <フォルダ>        フォルダを直接開く
      フォルダが無ければ作って開く。メディアが未確定ならGUIで選ぶ
      確定後、manifest / 空 transcript / 全編 keep cutplan が無ければ作られる
      OBS 拡張キャンバスなら: node src/cli.ts editor <フォルダ> --layout obs-canvas
      縦プロジェクトなら: node src/cli.ts editor <フォルダ> --canvas portrait
 
 ③ 必要なら明示実行:
+     node src/cli.ts run <フォルダ>          AI に初版を作らせる(下の3段をまとめて)
      node src/cli.ts transcribe <フォルダ>   文字起こし
      node src/cli.ts plan <フォルダ>         AI カット案・章立て
+     ※ GUI ならヘッダーの「AI に初版を作らせる」が run と同じ処理
 
 ④ 人間の編集タイム(下の表のファイルを直す)
 
@@ -51,7 +54,14 @@ FrameWright は「全部AI任せ」のツールではない。**まずエディ�
        一致しないと render は拒否される)
 
 ⑧ meta.json のタイトル案・概要欄、chapters.json の章をYouTube投稿に使う
+
+⑨ 別サイズも出すなら node src/cli.ts derive <フォルダ> …
+     元メディアを共有する派生プロジェクトを作り、②〜⑦ をそちらでもう一巡
+     (→ 下の「縦動画・別キャンバスの作り方」)
 ```
+
+**1プロジェクト = 1フォルダ = 1出力。** 同じフォルダから複数の出力を出す動線
+(旧 shorts)は無く、別サイズは派生プロジェクトとして表現する。
 
 ## 出力キャンバス
 

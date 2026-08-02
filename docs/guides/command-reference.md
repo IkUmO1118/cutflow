@@ -28,9 +28,11 @@
 
 | コマンド | 使う場面 |
 |---|---|
-| `run <dir>` | 自動下書きを一括生成したい上級/バッチ用(ingest → transcribe → detect → plan → id-stamp)。2回目以降は `--force` が必要(実行前に backups/ へ退避)。末尾で条件を満たすときだけ `autozoom` を非破壊に自動実行する |
+| `run <dir>` | **AI に初版を作らせたい**とき(transcribe → detect → plan → id-stamp)。エディタのヘッダー「AI に初版を作らせる」と同じ処理。`manifest.json` がまだ無いフォルダでは先に `ingest` も走る(このときだけ `--layout` / `--canvas` / `--base-layout` / `--mic-track` / `--system-track` が効く)。**人間の編集がある**生成物を上書きするときだけ `--force` が必要(実行前に backups/ へ退避)。エディタで開いた直後の bootstrap 生成物(空 transcript / 全編 keep cutplan)は内容照合で判別されるので `--force` なしで通る。末尾で条件を満たすときだけ `autozoom` を非破壊に自動実行する |
 | `ingest` / `transcribe` / `detect` | config.yaml を変えて部分的にやり直すとき(例: `detect.silenceDb` 調整)。detect をやり直すとカット候補が変わるので cutplan も作り直しになる。transcribe の再実行はテロップの手編集ごと上書きする(既存の transcript.json は backups/ へ退避される)。`whisper.wordTimestamps`(既定 true)が有効だと transcribe が各テロップに `words[]`(語単位タイミング。テロップの `style.karaoke` が消費する)を付ける。既存収録は再 transcribe が要る。`whisper.captionSplit`(省略時オフ)を書くと、長い1発話を「約 `maxChars` 文字」の読みやすい1テロップへ決定論で割り直す(日本語の文節末+無音ギャップ+文字数上限。LLM も再文字起こしも使わない) |
-| `editor <dir> --layout <plain\|obs-canvas\|auto>` / `ingest <dir> --layout …` / `run <dir> --layout …` | 収録レイアウトを明示するとき。既定は `plain`=通常動画(1画面・カメラ無し。出力解像度=収録の実寸)。画面+カメラを1本に同時収録した横長素材を左右に分けて使う場合だけ `--layout obs-canvas`。`auto` はキャンバス寸法が `screenRegion + cameraRegion` と完全一致、または十分な超横長なら obs-canvas、それ以外は plain |
+| `editor <dir> --layout <plain\|obs-canvas\|auto>` / `ingest <dir> --layout …` / `run <dir> --layout …` | **入力**の収録形式を明示するとき。既定は `plain`=通常動画(1画面・カメラ無し。出力解像度=収録の実寸)。画面+カメラを1本に同時収録した横長素材を左右に分けて使う場合だけ `--layout obs-canvas`。`auto` はキャンバス寸法が `screenRegion + cameraRegion` と完全一致、または十分な超横長なら obs-canvas、それ以外は plain |
+| `editor <dir> --canvas <preset>` / `ingest <dir> --canvas …`(`run` は manifest が無いときだけ) | **出力**サイズを明示するとき(`landscape` 既定 / `landscape-hd` / `landscape-4k` / `portrait` / `portrait-4k` / `square` / `portrait-4x5` / `cinema` / `classic`)。**作成時固定**で後から変えられない。一覧と寸法は [../usage.md の「出力キャンバス」](../usage.md) |
+| `editor <dir> --base-layout <auto\|screen\|camera\|stack>` / `ingest <dir> --base-layout …` | 出力キャンバス上への**ベース映像の置き方**を明示するとき。既定 `auto`。`camera` / `stack` はカメラ領域を持つ `obs-canvas` 収録でだけ有効。`--canvas` と同じく作成時固定。エディタの新規作成 UI には出ないので、`auto` 以外はこのフラグで作る |
 | `ingest <dir> --mic-track <n>` / `--system-track <n>`(`run` も同じ) | 音声トラックの割当が `config.yaml` の `ingest.micTrack`/`systemTrack`(既定 1/2)と違うとき、一時的に上書きする(1始まりの番号)。`ingest` はまず設定値を尊重し、範囲外なら音声トラックが1本ならそれを mic とみなし、複数本ならメタデータ(タイトル)から推定し、それでも判別できなければ**見つかった全トラックの一覧を提示して停止**する(黙って別トラックを mic として抽出することはない) |
 | `plan <dir>` | プロンプト(prompts/plan.md)改良後など、LLM 判断だけやり直すとき。**上書き注意**(2回目以降は `--force` が必要) |
 | `plan <dir> --cuts-only` | カット判断だけをやり直したいとき(章立て・タイトル案・概要欄は変えたくない)。cutplan.json / plan.raw.txt だけを書く |
@@ -40,7 +42,9 @@
 
 | コマンド | 使う場面 |
 |---|---|
-| `editor <dir>` | **GUI で編集したい**とき。カット境界のドラッグ・テロップの配置と文言・素材の挿入・承認・プレビュー生成・レンダーまでブラウザで完結する。外部(手編集や AI)の JSON 変更はホットリロードで反映される。`--detach` でバックグラウンド起動(`--status` / `--stop`)。**画面と操作の一覧は [editor.md](editor.md)**(画面内はヘッダーの「?」) |
+| `editor`(引数なし) | **どのプロジェクトを開くか選びたい / 新しく作りたい**とき。`config.yaml` の `recordingsDir` 直下のプロジェクト一覧(ランチャー)をブラウザで開く。カードから開くと `/p/<フォルダ名>/` へ移る。「+ 新規プロジェクト」は名前とキャンバスを決めてフォルダを作るだけ(`ingest` は走らず、次の画面でベースメディアを選ぶ)。`--detach` / `--status` / `--stop` はプロジェクト単位の機能なので引数なしでは使えない |
+| `editor <dir>` | **GUI で編集したい**とき。カット境界のドラッグ・テロップの配置と文言・素材の挿入・AI 初版生成・派生プロジェクト作成・承認・プレビュー生成・レンダーまでブラウザで完結する。**まだ無いフォルダを指定しても作って開ける**。ベースメディアが未確定なら画面内で選ぶ(候補が複数あってもファイル名から推測せず人間が選ぶ)。外部(手編集や AI)の JSON 変更はホットリロードで反映される。`--detach` でバックグラウンド起動(`--status` / `--stop`)。**画面と操作の一覧は [editor.md](editor.md)**(画面内はヘッダーの「?」) |
+| `derive <dir> --name <名前> --canvas <preset> --range <開始-終了>` | **同じ収録から別サイズの出力も作りたい**とき(縦ショート等。旧 shorts 動線の後継)。元プロジェクトの兄弟フォルダに新しいプロジェクトを作り、ベースメディアを symlink(非対応ならハードリンク → コピー)で共有し `transcript.json` を引き継ぐ。`--range` は**元収録の秒**で複数指定でき、その範囲が keep になる。`overlays` / `bgm` / `chapters` / `meta` / `approvals` は引き継がない。派生先が既にあればエラー(`--force` は無い)。エディタでは keep 区間を選んでヘッダーの「この範囲で派生」 |
 | `preview <dir>` | cutplan.json を編集するたび。承認前でも動く |
 | `approve <dir>` | previewを確認してcutplanを承認したいとき。`approvals.json` に keep 集合のハッシュを記録する。対話操作で、非対話環境からは `--yes` が無いと拒否される |
 | `unapprove <dir>` | cutplanの承認を取り消すとき |

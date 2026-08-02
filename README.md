@@ -14,21 +14,35 @@ LLM に渡るのは**文字起こしテキスト**(と任意の `brief.md`)だ�
 
 ## パイプライン
 
+入口は**エディタでプロジェクトを開くこと**です(標準的な NLE と同じ)。
+自動処理はユーザーが明示的に頼んだときだけ走ります。
+
 ```
-収録した動画1本 (mp4 / mkv / mov)
+① editor          プロジェクトを開く(空フォルダでもよい)
+     └─ 画面内でベース動画/音声とキャンバス(16:9 / 9:16 / 1:1 …)を選ぶ
+     └─ ingest が走り manifest.json + 空 transcript + 全編 keep cutplan ができる
   │
-  ├─ ingest      映像解析・マイク音声抽出          → manifest.json
-  ├─ transcribe  whisper.cpp で文字起こし          → transcript.json / .srt
-  ├─ detect      無音検出(ffmpeg・決定的)         → cuts.auto.json
-  ├─ plan        LLMで意味カット・章立て           → cutplan.json / chapters.json / meta.json
-  ├─ preview     カット結果の確認用動画            → preview.mp4
+② run(任意)     AI に初版を作らせる = transcribe → detect → plan
+     ├─ transcribe  whisper.cpp で文字起こし    → transcript.json / .srt
+     ├─ detect      無音検出(ffmpeg・決定的)   → cuts.auto.json
+     └─ plan        LLMで意味カット・章立て     → cutplan.json / chapters.json / meta.json
   │
-  ├─ ★ 人間が preview を見て cutplan.json を修正・承認(承認ゲート)
+③ 編集            エディタ、または収録フォルダの JSON を直接編集
   │
-  └─ render      Remotion で合成                   → cut.mp4(中間)/ final.mp4
+④ preview         カット結果の確認用動画       → preview.mp4
+  │
+  ├─ ★ 人間が preview を見て approve(承認ゲート。AI は通せない)
+  │
+⑤ render          合成エンジンで書き出し        → cut.mp4(中間)/ final.mp4
 ```
 
 各ステージは JSON を読んで JSON を書くだけなので、単独で再実行できます。
+`run` は②だけを指すので、収録直後に1発叩く従来の使い方もそのまま通ります
+(`manifest.json` がまだ無いフォルダでは `ingest` から始めます)。
+
+**1プロジェクト = 1フォルダ = 1出力**です。同じ収録から縦のショートも作りたい
+場合は、元メディアを共有する**派生プロジェクト**を `derive` で作ります
+(→ [縦動画・別サイズを作る](#縦動画別サイズを作る))。
 
 ## セットアップ
 
@@ -85,8 +99,7 @@ node src/cli.ts doctor    # リンク不要。リポジトリのルートから
 > `docker build -t framewright .` → `docker run --rm framewright doctor --no-ai` を叩くと、
 > 必須チェック(Node / ffmpeg / ffprobe / config)が緑になった Linux 環境をそのまま
 > 確認できます(whisper は同梱しないので warn=想定内)。収録フォルダは
-> `-v ~/Movies/framewright:/recordings` でマウントして編集します。初回 `render` 時のみ
-> Remotion が headless Chrome を自動取得します(数分)。
+> `-v ~/Movies/framewright:/recordings` でマウントして編集します。
 
 > **既定の AI provider `claude-code` は `claude` CLI(Claude Code)の
 > インストールと認証(ログイン)が前提です。** 未導入だと `plan` 段で
@@ -115,20 +128,58 @@ npm run sample        # = bash scripts/make-sample.sh
 ```
 
 実行後に表示される3コマンド(`editor` / `approve` / `render`)をそのまま叩けば、
-自動カット済みのサンプルが `examples/sample/final.mp4` として書き出されます
-(初回 `render` は Remotion が headless Chrome を取得するため数分かかります)。
+自動カット済みのサンプルが `examples/sample/final.mp4` として書き出されます。
 片付けは `rm -rf examples/sample`。詳細は
 [docs/getting-started.md の「サンプルで試す」](docs/getting-started.md#22-サンプルで試すobswhisper-不要)。
 
-収録1本 = 1フォルダ(中に mkv/mp4/mov を1本)。
+### プロジェクトを開く
+
+引数なしで `editor` を起動すると、`config.yaml` の `recordingsDir`
+(既定 `~/Movies/framewright`)にあるプロジェクトの一覧(ランチャー)が開きます。
 
 ```sh
-# まずエディタで開く(自動カットなし。動画は全編 keep のまま)
+node src/cli.ts editor            # プロジェクト一覧。「+ 新規プロジェクト」から作れる
+```
+
+一覧では各プロジェクトの尺・キャンバス比・書き出し済みバッジが並び、
+「+ 新規プロジェクト」で名前とキャンバスを選ぶと空のプロジェクトができます。
+開いた先で**ベースになる動画/音声を画面から選ぶ**と(候補が1本しか無ければ自動で
+確定)、そこが編集開始点です。
+
+フォルダを直接指定しても同じです(まだ存在しないフォルダ名でも作って開きます)。
+
+```sh
+# プロジェクトを1つ開く。全編 keep の状態から編集を始められる
 node src/cli.ts editor ~/Movies/framewright/2026-07-02-my-recording
 
-# 自動カット案までまとめて作る上級/バッチ用
+# 縦(9:16)のプロジェクトとして作る
+node src/cli.ts editor ~/Movies/framewright/2026-08-03-short --canvas portrait
+
+# AI に初版(文字起こし・自動カット案・章立て)を作らせる
+#   エディタのヘッダー「AI に初版を作らせる」ボタンと同じ処理
 node src/cli.ts run ~/Movies/framewright/2026-07-02-my-recording
 ```
+
+キャンバス(出力サイズ)と `--base-layout`(ベース映像の置き方)は
+**プロジェクト作成時に固定**され、後から変更できません(テロップ・ぼかし・
+注釈・ズームの座標がすべて出力px絶対のため)。一覧は
+[docs/usage.md の「出力キャンバス」](docs/usage.md)。
+
+### 縦動画・別サイズを作る
+
+本編から縦のショートも出したい、という場合は**派生プロジェクト**を作ります。
+元メディア(と `transcript.json`)を共有したまま、別キャンバス・別のカット・
+別の承認を持つ独立したプロジェクトになります。
+
+```sh
+node src/cli.ts derive <元プロジェクト> --name 2026-08-03-short \
+  --canvas portrait --range 120-165 --range 300-330
+```
+
+エディタからは、タイムラインで keep 区間を選んでヘッダーの
+**「この範囲で派生」**を押すと同じことができます。`--range` は元収録の秒です。
+overlays / BGM / 章 / タイトル / 承認は、キャンバスも構成も違うので引き継ぎません
+(派生先で作り直します)。
 
 ### コマンドの全体像
 
@@ -141,9 +192,10 @@ node src/cli.ts run ~/Movies/framewright/2026-07-02-my-recording
 |---|---|---|
 | 基本の流れ | `doctor` / `editor` / `run` / `preview` / `approve` / `render` | 環境確認 → 編集 → 承認 → 書き出し |
 | 取り込み〜カット案 | `ingest` / `transcribe` / `detect` / `plan` / `remeta` | `run` の各段を個別にやり直す |
+| 別サイズを出す | `derive` | 元メディアを共有する派生プロジェクトを作る(縦ショート等) |
 | 編集を当てる | `validate` / `describe` / `apply` / `id-stamp` / `assert` | JSON 編集の検査・要約・アトミック適用 |
 | 中身を知る(知覚) | `frames` / `materials` / `av` / `search` | 人間や AI が動画の中身を確認する |
-| AI に下書きさせる | `plan-shorts` / `plan-materials` / `plan-effects` / `plan-bgm` | ショート・素材・演出・BGM の下書き(カットと承認には触れない) |
+| AI に下書きさせる | `plan-materials` / `plan-effects` / `plan-bgm` | 素材・演出・BGM の下書き(カットと承認には触れない) |
 | 検品する | `material-fit` / `effect-check` / `bgm-fit` / `style-check` | 編集の不整合を検出し修正案を出す(書き込まない) |
 | HyperFrames | `hyperframe` ほか | 無音の作図素材(章タイトル・図解)を作る |
 | エージェント連携 | `mcp` | MCP 対応エージェントにこのフォルダを開かせる |
@@ -180,13 +232,13 @@ render は2段構成です。まず ffmpeg が keep 区間をフル解像度の�
 `cut.mp4` を作り(音声はマイクと**システム音声(収録の2トラック目)の自動ミックス**を
 ツーパスの loudnorm で **-14 LUFS に自動正規化**。音声トラックが1本の収録では
 そのままマイク扱いになります)、
-次に Remotion がその上に「画面クロップ+字幕+章カード」(拡張キャンバスなら
-右下ワイプも)を合成して `final.mp4` を出力します。収録フォルダに `bgm.mp3` を置けば
+次に合成エンジン(`src/engine/` の WebCodecs + WebGPU)がその上に
+「画面クロップ+字幕+章カード」(拡張キャンバスなら右下ワイプも)を
+キャンバス寸法で合成して `final.mp4` を出力します。収録フォルダに `bgm.mp3` を置けば
 **BGM も自動で合成**されます(ループ+終端フェードアウト+**発話中の自動
 ダッキング**)。
 字幕サイズ・目標音量・BGM音量(拡張キャンバスならワイプの大きさも)は
-config.yaml の `render` セクションで変更できます。初回実行時は Remotion が
-headless Chrome を自動ダウンロードします(数分)。
+config.yaml の `render` セクションで変更できます。
 
 plan は LLM に「残す候補区間」の番号リストを渡し、番号単位で
 カット判断させます(理由付き)。結果の `cutplan.json` を確認・編集し、
@@ -198,7 +250,7 @@ plan は LLM に「残す候補区間」の番号リストを渡し、番号単�
 **人間がテロップやカットを調整しながら使う手順は [docs/usage.md](docs/usage.md)
 (概要+目的別索引)を参照してください。目的別ガイドは [docs/guides/](docs/guides/):
 どのJSONを直すと何が変わるかは usage.md、plan 再実行の注意点は
-[cut-planning.md](docs/guides/cut-planning.md)、Remotion Studio の使い方は
+[cut-planning.md](docs/guides/cut-planning.md)、テロップとレイアウトの調整は
 [captions-layout.md](docs/guides/captions-layout.md)。**
 
 標準 `config.yaml` は `plan.perception.audio/ocr` を明示オンにしており、
@@ -253,8 +305,9 @@ FrameWright は「画面デモ+解説の収録 → YouTube」という**単一�
 フォント・座布団)/ 素材オーバーレイ(全画面・PiP)/ インサート編集 / ワイプ
 全画面+遷移 / ズーム / ディップ・トゥ・ブラック / 簡易カラー調整(明るさ・
 コントラスト・彩度の全編一律3値)/ BGM(区間配置・発話ダッキング・フェード)/
-章立て / サムネイル / ショート(縦・複数プロファイル)/ マイク+システム音声
-ミックス+-14 LUFS 自動正規化 / ノイズ除去。
+章立て / サムネイル / 出力キャンバス(16:9・9:16・1:1・4:5・21:9・4:3 と
+ベース映像の置き方の組み合わせ)/ 派生プロジェクト(元メディアを共有する
+別サイズの出力)/ マイク+システム音声ミックス+-14 LUFS 自動正規化 / ノイズ除去。
 
 **意図的に持たない機能**(欠落ではなく設計上の割り切り):
 
