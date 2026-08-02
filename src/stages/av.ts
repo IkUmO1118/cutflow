@@ -11,7 +11,6 @@ import {
   buildTimelineModel,
   insertSpansOf,
   mergeIntervals,
-  toSourceTime,
   type InsertSpan,
   type TimelineEntry,
 } from "../lib/timeline.ts";
@@ -19,6 +18,8 @@ import { buildRenderProps } from "../lib/renderProps.ts";
 import { renderCfgWithDesign } from "../lib/designAsset.ts";
 import {
   aggregateMaxByWindow,
+  elapsedSpanSec,
+  elapsedToSource,
   keepsHash,
   mapSamplesToOutput,
   parseAstats,
@@ -26,6 +27,7 @@ import {
   parseEbur128,
   parseFreezedetect,
   parseScdet,
+  toOutputTimeInclusiveEnd,
   type AstatsEnvelopeSample,
 } from "../lib/avParse.ts";
 import {
@@ -42,7 +44,8 @@ export const AV_DIR = "av.probe";
 const MOTION_FILE = "motion.json";
 export const SOUND_FILE = "sound.json";
 const STRIP_FILE = "motion.strip.png";
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
+const AV_AXIS_GENERATION = 2;
 
 export interface AvOptions {
   range?: { startSec: number; endSec: number };
@@ -67,7 +70,7 @@ export interface MotionReport {
     tiles: { index: number; outSec: number; sourceSec: number }[];
   };
   motion: { outSec: number; sourceSec: number; sceneScore: number }[];
-  frozen: { outSec: number; endOutSec: number; lenSec: number }[];
+  frozen: { outSec: number; endOutSec: number; sourceSec: number; endSourceSec: number; lenSec: number }[];
 }
 
 export interface SoundReport {
@@ -83,7 +86,7 @@ export interface SoundReport {
     clipping: { peakDbfs: number; clippedSamples: number };
     envelope: { outSec: number; sourceSec: number; shortTermLufs: number }[];
   } | null;
-  silences: { outSec: number; endOutSec: number; lenSec: number }[];
+  silences: { outSec: number; endOutSec: number; sourceSec: number; endSourceSec: number; lenSec: number }[];
   tracks: {
     windowSec: number;
     samples: {
@@ -231,9 +234,11 @@ async function collectMotion(args: {
     if (!existsSync(baseFile) || isProxyStale(dir, rootCfg)) await buildProxy(dir, rootCfg);
   }
   const baseStat = statSync(baseFile);
-  const tileCount = sampleTimes(range, everySec).length;
+  const elapsedSpan = elapsedSpanSec(rangedKeeps);
+  const tileCount = sampleTimes({ startSec: 0, endSec: elapsedSpan }, everySec).length;
   const rows = Math.max(1, Math.ceil(tileCount / cfg.cols));
   const key = {
+    axisGeneration: AV_AXIS_GENERATION,
     base: { file: fullRes ? manifest.source : "proxy.mp4", mtimeMs: baseStat.mtimeMs, size: baseStat.size },
     keepsHash: keepsDigest,
     insertsFingerprint,
@@ -289,9 +294,8 @@ async function collectMotion(args: {
     { allowFailure: true },
   );
 
-  const durationSec = round2(range.endSec - range.startSec);
-  const motionBuckets = aggregateMaxByWindow(parseScdet(motionRun.stderr), durationSec, everySec);
-  const motion = mapSamplesToOutput(motionBuckets, timeline, range.startSec).map((sample) => ({
+  const motionBuckets = aggregateMaxByWindow(parseScdet(motionRun.stderr), elapsedSpan, everySec);
+  const motion = mapSamplesToOutput(motionBuckets, timeline, rangedKeeps).map((sample) => ({
     outSec: sample.outSec,
     sourceSec: sample.sourceSec,
     sceneScore: round3(sample.value),
@@ -299,16 +303,26 @@ async function collectMotion(args: {
   const frozen = mapSamplesToOutput(
     parseFreezedetect(freezeRun.stderr).map((span) => ({ t: span.start, endT: span.end })),
     timeline,
-    range.startSec,
-  ).map((span) => ({
-    outSec: span.outSec,
-    endOutSec: round2(range.startSec + span.endT),
-    lenSec: round2(span.endT - span.t),
-  }));
+    rangedKeeps,
+  ).flatMap((span) => {
+    const endSourceSec = elapsedToSource(span.endT, rangedKeeps);
+    if (endSourceSec === null) return [];
+    const endOutSec = toOutputTimeInclusiveEnd(endSourceSec, timeline);
+    if (endOutSec === null) return [];
+    return [{
+      outSec: span.outSec,
+      endOutSec,
+      sourceSec: span.sourceSec,
+      endSourceSec,
+      lenSec: round2(span.endT - span.t),
+    }];
+  });
 
-  const tiles = sampleTimes(range, everySec).flatMap((outSec, index) => {
-    const sourceSec = toSourceTime(outSec, timeline);
-    return sourceSec === null ? [] : [{ index, outSec, sourceSec }];
+  const tiles = sampleTimes({ startSec: 0, endSec: elapsedSpan }, everySec).flatMap((elapsedSec, index) => {
+    const sourceSec = elapsedToSource(elapsedSec, rangedKeeps);
+    if (sourceSec === null) return [];
+    const outSec = toOutputTimeInclusiveEnd(sourceSec, timeline);
+    return outSec === null ? [] : [{ index, outSec, sourceSec }];
   });
   const report: MotionReport = {
     schemaVersion: SCHEMA_VERSION,
@@ -361,6 +375,7 @@ async function collectSound(args: {
   const sourceStat = statSync(sourceFile);
   const source = audioSourceOf(manifest, cfg);
   const key = {
+    axisGeneration: AV_AXIS_GENERATION,
     source: { file: manifest.source, mtimeMs: sourceStat.mtimeMs, size: sourceStat.size },
     keepsHash: keepsHash(rangedKeeps),
     insertsFingerprint,
@@ -421,7 +436,7 @@ async function collectSound(args: {
       loudnessRangeLu: eburStats.loudnessRangeLu,
       truePeakDbtp: eburStats.truePeakDbtp,
       clipping: { peakDbfs: astatsStats.peakDbfs, clippedSamples: astatsStats.clippedSamples },
-      envelope: mapSamplesToOutput(eburStats.envelope, timeline, range.startSec).map((sample) => ({
+      envelope: mapSamplesToOutput(eburStats.envelope, timeline, rangedKeeps).map((sample) => ({
         outSec: sample.outSec,
         sourceSec: sample.sourceSec,
         shortTermLufs: sample.shortTermLufs,
@@ -447,11 +462,24 @@ async function collectSound(args: {
         "16000",
         silenceAudio,
       ]);
-      silences = (await detectSilence(silenceAudio, cfg.detect.silenceDb, cfg.detect.minSilenceSec)).map((span) => ({
-        outSec: round2(range.startSec + span.start),
-        endOutSec: round2(range.startSec + span.end),
-        lenSec: round2(span.end - span.start),
-      }));
+      silences = mapSamplesToOutput(
+        (await detectSilence(silenceAudio, cfg.detect.silenceDb, cfg.detect.minSilenceSec))
+          .map((span) => ({ t: span.start, endT: span.end })),
+        timeline,
+        rangedKeeps,
+      ).flatMap((span) => {
+        const endSourceSec = elapsedToSource(span.endT, rangedKeeps);
+        if (endSourceSec === null) return [];
+        const endOutSec = toOutputTimeInclusiveEnd(endSourceSec, timeline);
+        if (endOutSec === null) return [];
+        return [{
+          outSec: span.outSec,
+          endOutSec,
+          sourceSec: span.sourceSec,
+          endSourceSec,
+          lenSec: round2(span.endT - span.t),
+        }];
+      });
     } finally {
       rmSync(silenceAudio, { force: true });
     }
@@ -463,7 +491,7 @@ async function collectSound(args: {
         : await collectTrackRms(sourceFile, source.systemStream, rangedKeeps, avCfg.windowSec);
     tracks = {
       windowSec: avCfg.windowSec,
-      samples: combineTrackSamples(micSamples, systemSamples, timeline, range.startSec),
+      samples: combineTrackSamples(micSamples, systemSamples, timeline, rangedKeeps),
     };
   }
 
@@ -542,9 +570,9 @@ function combineTrackSamples(
   micSamples: AstatsEnvelopeSample[],
   systemSamples: AstatsEnvelopeSample[] | null,
   timeline: TimelineEntry[],
-  outOffsetSec: number,
+  segments: Interval[],
 ): NonNullable<NonNullable<SoundReport["tracks"]>["samples"]> {
-  return mapSamplesToOutput(micSamples, timeline, outOffsetSec).map((mic, index) => {
+  return mapSamplesToOutput(micSamples, timeline, segments).map((mic, index) => {
     const sys = systemSamples?.[index];
     const systemRmsDb = sys ? sys.rmsDb : null;
     let louder: "mic" | "system" | "tie" | null = null;

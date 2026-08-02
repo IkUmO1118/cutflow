@@ -137,13 +137,12 @@ test("buildEffectAnchors: 重なる motion ウィンドウはマージして1ア
   assert.equal(motionAnchors[0].end, 11.5);
 });
 
-test("buildEffectAnchors: frozen(静止)区間は timeline で元収録の秒へ変換される", () => {
-  // 単一 keep [50,150] → output 0..100 の1:1写像(offset +50)
+test("buildEffectAnchors: frozen は av の sourceSec をそのまま使う", () => {
   const cp = cutplan([{ start: 50, end: 150, action: "keep" }]);
   const t = transcript([]);
   const motion: MotionLike = {
     motion: [],
-    frozen: [{ outSec: 10, endOutSec: 20, lenSec: 10 }],
+    frozen: [{ outSec: 10, endOutSec: 20, sourceSec: 60, endSourceSec: 70, lenSec: 10 }],
   };
   const anchors = buildEffectAnchors(cp, t, [], motion, ACFG);
   const motionAnchors = anchors.filter((a) => a.source === "motion");
@@ -151,6 +150,19 @@ test("buildEffectAnchors: frozen(静止)区間は timeline で元収録の秒へ
   assert.equal(motionAnchors[0].start, 60);
   assert.equal(motionAnchors[0].end, 70);
   assert.match(motionAnchors[0].text, /静止/);
+});
+
+test("buildEffectAnchors: frozen は outSec ではなく sourceSec を採る", () => {
+  const cp = cutplan([{ start: 0, end: 30, action: "keep" }]);
+  const t = transcript([]);
+  const motion: MotionLike = {
+    motion: [],
+    frozen: [{ outSec: 24, endOutSec: 28, sourceSec: 20, endSourceSec: 24, lenSec: 4 }],
+  };
+  const anchors = buildEffectAnchors(cp, t, [], motion, ACFG);
+  const frozenAnchor = anchors.find((a) => a.text.startsWith("静止"));
+  assert.equal(frozenAnchor?.start, 20);
+  assert.equal(frozenAnchor?.end, 24);
 });
 
 /* ---------------- buildEffectAnchors: speech / id / rect ---------------- */

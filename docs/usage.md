@@ -173,7 +173,8 @@ false で従来の短 GOP に戻る)・元収録ファイルが前回の生成�
 (`learn` が書く下書き。使い捨てで、次回の `learn` 実行で黙って上書きされる。
 採用したい項目は人間が手で `rules.md` に転記する。詳細は下記「チャンネル
 rules と learn」参照) / `av.probe/`(`av <dir>` の差分更新型キャッシュ。
-`motion.json` / `sound.json` / `motion.strip.png`) / `plan-effects.raw.txt`
+`motion.json` / `sound.json` / `motion.strip.png`。`frozen[]` と `silences[]` は
+`outSec` / `endOutSec` に加えて `sourceSec` / `endSourceSec` も持つ) / `plan-effects.raw.txt`
 (plan-effects の LLM 生応答の記録。用途は plan.raw.txt と同じ) /
 `style.probe/`(`style-profile` が channel 直下(収録フォルダの親、または
 `--from` にファイルを渡したときはそのファイルの親)に書くスタイルプロファイル

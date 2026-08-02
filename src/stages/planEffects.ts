@@ -288,7 +288,7 @@ export function readMotion(dir: string): MotionLike | null {
   if (!existsSync(p)) return null;
   const raw = JSON.parse(readFileSync(p, "utf8")) as {
     motion?: { outSec: number; sourceSec: number; sceneScore: number }[];
-    frozen?: { outSec: number; endOutSec: number; lenSec: number }[];
+    frozen?: { outSec: number; endOutSec: number; sourceSec: number; endSourceSec: number; lenSec: number }[];
   };
   return { motion: raw.motion ?? [], frozen: raw.frozen ?? [] };
 }
