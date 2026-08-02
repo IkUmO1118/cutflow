@@ -64,6 +64,8 @@ export interface Region {
 /** transcribe が生成(transcript.json)。JSON Schema: schemas/transcript.schema.json
  * (スキーマを変えたらこのコメント・validate.ts・usage.md と揃える。§5点セット) */
 export interface Transcript {
+  /** 開くために決定論的に作った未編集の初期値。人間/AI が書けば消える。 */
+  generatedBy?: "bootstrap";
   language: string;
   model: string;
   segments: TranscriptSegment[];
@@ -309,6 +311,8 @@ export interface Interval {
 /** plan が生成、人間が編集して承認する(cutplan.json)。JSON Schema:
  * schemas/cutplan.schema.json(§5点セット) */
 export interface CutPlan {
+  /** 開くために決定論的に作った未編集の初期値。人間/AI が書けば消える。 */
+  generatedBy?: "bootstrap";
   /** 人間の承認意図の表示(GUI チェックボックスのモデル)。**render のゲートでは
    * ない**(src/lib/approval.ts を参照)。render は approvals.json の承認
    * レコード(keep 集合のハッシュに束縛)だけを見る。ここが true でもレコードが

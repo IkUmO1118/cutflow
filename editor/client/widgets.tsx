@@ -189,6 +189,11 @@ export async function postPreview(): Promise<{ path: string }> {
   return (await request("/api/preview", {})) as { path: string };
 }
 
+/** AI に初版(transcribe→detect→plan)を作らせる。 */
+export async function postRun(force: boolean): Promise<void> {
+  await request("/api/run", { force });
+}
+
 /** 最終レンダー(final.mp4)。approved: true が必要で、数分かかることがある。
  * 入力はディスクの JSON を読むので、呼ぶ前に保存しておくこと */
 export async function postRender(): Promise<{ path: string }> {

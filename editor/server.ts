@@ -48,8 +48,11 @@ import { classifyBrowserDisplayable } from "../src/lib/mediaCodec.ts";
 import type { DisplayVerdict, VideoCodecFacts } from "../src/lib/mediaCodec.ts";
 import { ensureIds, hasAnyId, ID_PREFIX, usedIdsOf } from "../src/lib/ids.ts";
 import { mergeBodyOverDisk } from "../src/lib/applyEdits.ts";
+import { withoutBootstrapMarker } from "../src/lib/bootstrapArtifact.ts";
+import { rerunConflicts } from "../src/lib/rerunGuard.ts";
 import { bootstrapProjectWithLayout } from "../src/stages/bootstrap.ts";
 import { ingest } from "../src/stages/ingest.ts";
+import { runDraft } from "../src/stages/runDraft.ts";
 import { listSourceCandidates } from "../src/lib/findSource.ts";
 import { isCanvasPreset, outputSize, resolveCanvas } from "../src/lib/profile.ts";
 import { EditorAiError, proposeEditorAi, refineEditorAi } from "../src/stages/editorAi.ts";
@@ -847,6 +850,15 @@ async function handle(
     sendJson(res, 200, { ok: true, path: out, proxyFile: proxyFileName(manifest) });
     return;
   }
+  if (req.method === "POST" && path === "/api/run") {
+    const body = (await readBody(req)) as { force?: unknown };
+    const force = body.force === true;
+    await runHeavyJob("run", "run", async () => {
+      await runDraft(dir, cfg, { force });
+    });
+    sendJson(res, 200, { ok: true });
+    return;
+  }
   if (req.method === "POST" && (path === "/api/preview" || path === "/api/render")) {
     // 承認後のプレビュー生成・最終レンダーを GUI から起動する
     // (承認チェックはヘッダーにあるのに、これまでは実行だけターミナルへ
@@ -1115,6 +1127,7 @@ export function ensureHyperframeAuthorNameAvailable(dir: string, name: string): 
 }
 
 type HeavyJobStage =
+  | "run"
   | "preview"
   | "render"
   | "review"
@@ -1130,7 +1143,9 @@ const proposalStore = new Map<string, StoredProposal>();
 
 /** ジョブ名の日本語表記(409 メッセージ用) */
 const jaStage = (s: HeavyJobStage): string =>
-  s === "render"
+  s === "run"
+    ? "AI初版生成"
+    : s === "render"
     ? "レンダー"
     : s === "hyperframe-author"
       ? "AI素材の生成"
@@ -1552,6 +1567,7 @@ export function loadProject(dir: string, cfg: Config): ProjectData {
     cutplan,
     overlays: readJson<Overlays>("overlays.json", {}),
     contentHashes: contentHashesOf(dir),
+    runNeedsForce: rerunConflicts(dir, ["transcript.json", "cutplan.json", "chapters.json", "meta.json"]).length > 0,
     dirFiles,
     bgm: readJson<Bgm | null>("bgm.json", null),
     bgmFile: findBgm(dir),
@@ -2106,6 +2122,10 @@ export function saveProject(dir: string, body: SaveRequest): void {
   const idDocs = readEditableDocs(dir);
   const idEnabled = hasAnyId(idDocs);
   const stampedBody = stampSaveBody(body, idEnabled, usedIdsOf(idDocs));
+  // GUI が保存した時点で bootstrap の未編集初期値ではない。クライアントが
+  // 古いマーカーを round-trip しても永続化境界で必ず除去する。
+  if (stampedBody.cutplan) stampedBody.cutplan = withoutBootstrapMarker(stampedBody.cutplan);
+  if (stampedBody.transcript) stampedBody.transcript = withoutBootstrapMarker(stampedBody.transcript);
 
   const write = (file: string, data: CutPlan | Overlays | Transcript | Bgm) => {
     const json = JSON.stringify(data, null, 2);

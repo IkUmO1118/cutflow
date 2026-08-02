@@ -18,6 +18,7 @@ import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "nod
 import { join } from "node:path";
 import { backupEditableFiles } from "./backup.ts";
 import { fileRole } from "./files.ts";
+import { withoutBootstrapMarker } from "./bootstrapArtifact.ts";
 import { hasAnyId, stampDocs, usedIdsOf } from "./ids.ts";
 import type { EditableDocs } from "./ids.ts";
 import { readEditableDocs } from "../stages/idStamp.ts";
@@ -535,6 +536,10 @@ export function planApply(dir: string, patch: ApplyPatch): ApplyPlan {
   let body: ApplyBody = { ...opsBody, ...replace };
   body = enforceApprovedUnchanged(docs, body, errors);
   body = stampNewElements(dir, body);
+  // apply が触った文書は bootstrap 初期値ではない。全置換/ops のどちらでも
+  // マーカーを永続化境界で確実に落とす。
+  if (body.cutplan !== undefined) body.cutplan = withoutBootstrapMarker(body.cutplan);
+  if (body.transcript !== undefined) body.transcript = withoutBootstrapMarker(body.transcript);
 
   const merged = mergeBodyOverDisk(dir, body);
   const { errors: valErrors, warnings } = validateDocs(dir, merged);

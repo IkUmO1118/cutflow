@@ -331,6 +331,19 @@ test("applyEdits: 成功時は changedFiles(変更のあるファイル)だけ�
   });
 });
 
+test("applyEdits: touch した文書から bootstrap marker を消す", () => {
+  withTmpProject((dir) => {
+    const current = JSON.parse(readRaw(dir, "cutplan.json"));
+    current.generatedBy = "bootstrap";
+    writeFileSync(join(dir, "cutplan.json"), JSON.stringify(current, null, 2));
+    const result = applyEdits(dir, {
+      ops: [{ op: "set", target: "@seg_a1a1a1", field: "reason", value: "更新" }],
+    });
+    assert.deepEqual(result.plan.errors, []);
+    assert.equal(JSON.parse(readRaw(dir, "cutplan.json")).generatedBy, undefined);
+  });
+});
+
 test("P2-9: applyEdits: set で cutplan segment の reasonId をディスクへ書ける(検査付きアトミック書込み)", () => {
   withTmpProject((dir) => {
     const patch: ApplyPatch = { ops: [{ op: "set", target: "@seg_a1a1a1", field: "reasonId", value: "demo-wait" }] };

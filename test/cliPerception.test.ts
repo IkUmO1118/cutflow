@@ -8,6 +8,10 @@ const cliSrc = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "..", "src", "cli.ts"),
   "utf8",
 );
+const runDraftSrc = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "..", "src", "stages", "runDraft.ts"),
+  "utf8",
+);
 
 function commandBlock(name: string): string {
   const start = cliSrc.indexOf(`.command("${name}")`);
@@ -19,6 +23,7 @@ function commandBlock(name: string): string {
 test("cli: plan/remeta/run は知覚 status を実行前に表示する", () => {
   assert.match(commandBlock("plan <dir>"), /printPerceptionStatus\(cfg\);[\s\S]*await plan\(abs, cfg/);
   assert.match(commandBlock("remeta <dir>"), /printPerceptionStatus\(cfg\);[\s\S]*await remeta\(abs, cfg/);
-  // run は plan を timed("plan", () => plan(abs, cfg)) でラップするため await 直後ではない
-  assert.match(commandBlock("run <dir>"), /printPerceptionStatus\(cfg\);[\s\S]*plan\(abs, cfg/);
+  // runDraft の beforePlan callback が detect 後・plan 前の表示を担う
+  assert.match(commandBlock("run <dir>"), /beforePlan: \(\) => printPerceptionStatus\(cfg\)/);
+  assert.ok(runDraftSrc.indexOf("options.beforePlan?.()") < runDraftSrc.indexOf("deps.plan(dir, cfg)"));
 });

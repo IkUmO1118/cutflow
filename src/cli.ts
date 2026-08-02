@@ -7,6 +7,7 @@ import { Command, Help } from "commander";
 import { commandSummaries, formatCommandList, formatRootHelp } from "./lib/cliHelp.ts";
 import { backupEditableFiles } from "./lib/backup.ts";
 import { EDITABLE_FILES } from "./lib/files.ts";
+import { guardRerun } from "./lib/rerunGuard.ts";
 import {
   clearCutplanApproval,
   writeCutplanApproval,
@@ -33,6 +34,7 @@ import { ingest } from "./stages/ingest.ts";
 import { transcribe } from "./stages/transcribe.ts";
 import { detect } from "./stages/detect.ts";
 import { plan, remeta } from "./stages/plan.ts";
+import { runDraft } from "./stages/runDraft.ts";
 import { planMaterials } from "./stages/planMaterials.ts";
 import { planEffects } from "./stages/planEffects.ts";
 import { autoZoom, autoZoomIfFresh } from "./stages/autoZoom.ts";
@@ -227,38 +229,6 @@ function parseRangeOpt(v: string | undefined): { startSec: number; endSec: numbe
     throw new Error(`--range の値が不正です: ${v}(例 10-25.5)`);
   }
   return { startSec, endSec };
-}
-
-/**
- * plan / run の再実行ガード。LLM の生成物で上書きされるファイルが
- * 既にあるときは --force を要求し(運用ルールだけに頼らない防御)、実行する場合も
- * 先に手編集ファイル一式を backups/ へ退避する(上書き事故からの復元手段)
- */
-function guardRerun(
-  dir: string,
-  outputs: string[],
-  force: boolean,
-  cmd: string,
-): void {
-  const existing = outputs.filter((f) => existsSync(join(dir, f)));
-  if (existing.length === 0) return;
-  if (!force) {
-    throw new Error(
-      `${existing.join(" / ")} が既にあります。${cmd} の再実行はこれらを ` +
-        "LLM の生成物で上書きし、手編集が消えます。\n" +
-        "やり直す場合は --force を付けてください(実行前に手編集ファイルを " +
-        "backups/ へ退避します)",
-    );
-  }
-  // 退避対象は標準の手編集ファイルに加え、このコマンドが上書きする outputs も含める
-  const backupList = [...new Set([...EDITABLE_FILES, ...outputs])];
-  const dest = backupEditableFiles(dir, backupList);
-  if (dest) {
-    console.log(
-      `上書き前に手編集ファイルを退避しました: ${dest}\n` +
-        "(戻すには退避先のファイルを収録フォルダ直下へコピーし直す)",
-    );
-  }
 }
 
 /**
@@ -1850,53 +1820,52 @@ program
 
 program
   .command("run <dir>")
-  .description("ingest → transcribe → detect → plan を順に実行(承認ゲートまで)")
+  .description("AI に初版を作らせる(transcribe → detect → plan。manifest が無ければ ingest も実行)")
   .option(
     "--force",
     "既存の transcript / cutplan 等を上書きして再実行(実行前に backups/ へ退避)",
   )
   .option(
     "--layout <layout>",
-    "収録レイアウト(plain|obs-canvas|auto)。省略時は plain",
+    "収録レイアウト(plain|obs-canvas|auto)。manifest が無いときだけ有効",
   )
-  .option("--canvas <preset>", "出力キャンバス(作成時固定)")
-  .option("--mic-track <n>", "マイク音声のトラック番号(1始まり)。config を一時上書き")
-  .option("--system-track <n>", "システム音声のトラック番号(1始まり)。config を一時上書き")
+  .option("--canvas <preset>", "出力キャンバス。manifest が無い作成時だけ有効")
+  .option("--mic-track <n>", "マイク音声トラック(1始まり)。manifest が無いときだけ有効")
+  .option("--system-track <n>", "システム音声トラック(1始まり)。manifest が無いときだけ有効")
   .action(async (dir: string, opts: { force?: boolean; layout?: string; canvas?: string; micTrack?: string; systemTrack?: string }) => {
     const cfg = loadConfig(program.opts().config);
     const abs = resolveDir(dir);
     const layout = parseLayoutOpt(opts.layout);
     const tracks = parseTrackOpts(opts.micTrack, opts.systemTrack);
     const canvas = parseCanvasOpt(opts.canvas);
-    guardRerun(
-      abs,
-      ["transcript.json", "cutplan.json", "chapters.json", "meta.json"],
-      opts.force === true,
-      "run",
-    );
-    // パイプラインの背骨(ingest→transcribe→detect→plan)は timed() 経由で
+    // P2 以降 ingest はプロジェクト作成時に完了済み。manifest の無い旧来の
+    // 収録フォルダだけは後方互換として従来どおり ingest から始める。
     // ▸ stage 行(stderr・レベルゲート・所要時間付き)として出す。進捗は obs
     // チャネルへ、結果要約(尺の縮み・カット案)は stdout に残す(--quiet でも
     // 成果は出るが、工程の進捗は静かになる)。plan の LLM 実行中は AI クライアントが
     // ✦ AI 行を heartbeat として出すので、事前ヒントの console.log は不要
-    await timed("ingest", () => ingest(abs, findSource(abs), cfg, layout, tracks, canvas));
-    await timed("transcribe", () => transcribe(abs, cfg));
-    const c = await timed("detect", () => detect(abs, cfg));
+    const result = await runDraft(abs, cfg, {
+      force: opts.force,
+      layout,
+      tracks,
+      canvas,
+      beforePlan: () => printPerceptionStatus(cfg),
+    }, { stage: timed });
+    const c = result.detected;
     console.log(`detect: ${c.originalDurationSec}秒 → ${c.keptDurationSec}秒`);
-    printPerceptionStatus(cfg);
-    const p = await timed("plan", () => plan(abs, cfg));
+    const p = result.planned;
     printPlanSummary(p.segments);
 
     // 新規収録を初回から id 有効(@-mention 可能)にする。id-stamp は冪等・
     // approvals.json 非改変なので、run の末尾に置いても安全
-    const { changed } = idStamp(abs);
+    const { changed } = result.stamped;
     if (changed.length > 0) {
       console.log(`id-stamp 完了: ${changed.join(", ")}`);
     }
 
     // 新規 watch 収録には dwell 由来 zoom を自動挿入(既存編集は触らない・
     // config の plan.cursor.autoZoom で off 可)。判定は autoZoomIfFresh に閉じる
-    const az = autoZoomIfFresh(abs, cfg);
+    const az = result.autoZoom;
     if (az) {
       console.log(`autozoom: zoom${az.placedCount}件を自動配置`);
     }

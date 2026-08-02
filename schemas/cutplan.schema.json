@@ -6,6 +6,7 @@
   "required": ["approved", "segments"],
   "properties": {
     "approved": { "type": "boolean" },
+    "generatedBy": { "const": "bootstrap" },
     "segments": {
       "type": "array",
       "items": {

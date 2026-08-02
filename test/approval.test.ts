@@ -66,6 +66,12 @@ test("T-i: cutplanApprovalHash: reasonId の有無は hash に影響しない(�
   assert.equal(a, b);
 });
 
+test("cutplanApprovalHash: generatedBy bootstrap の有無は承認 hash に影響しない", () => {
+  const base = cutplanOf(BASE_SEGMENTS);
+  const marked: CutPlan = { ...base, approved: true, generatedBy: "bootstrap" };
+  assert.equal(cutplanApprovalHash(base), cutplanApprovalHash(marked));
+});
+
 test("cutplanApprovalHash: cut セグメントの有無は hash に影響しない", () => {
   const withCuts = cutplanApprovalHash(cutplanOf(BASE_SEGMENTS));
   const keepsOnly = cutplanApprovalHash(

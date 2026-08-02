@@ -227,6 +227,7 @@ import {
   postAiRefine,
   postAiReview,
   postPreview,
+  postRun,
   postProxy,
   postRender,
   postHyperframeRender,
@@ -555,7 +556,7 @@ export const App = () => {
   /** GUI から起動した書き出しジョブ(preview / render)。running 中はボタンを
    * 無効化し、done で完了先を出す。null は非実行 */
   const [job, setJob] = useState<{
-    stage: "preview" | "render";
+    stage: "run" | "preview" | "render";
     status: "running" | "done";
     path?: string;
   } | null>(null);
@@ -4553,6 +4554,44 @@ export const App = () => {
     }
   };
 
+  /** AI 初版生成。bootstrap のままなら確認なし、手編集があれば明示確認して
+   * 保存→backups 退避付き force 実行にする。多重起動は client/server 両方で抑止。 */
+  const runInitialDraft = async () => {
+    if (job?.status === "running" || !proj) return;
+    const needsForce = proj.runNeedsForce || anyDirty;
+    if (needsForce && !window.confirm(
+      "手編集した内容が AI の生成物で上書きされます。実行前に backups/ へ退避します",
+    )) return;
+    setError(null);
+    if (anyDirty) {
+      setBusy("save");
+      try {
+        await save();
+      } catch (e) {
+        setError((e as Error).message);
+        return;
+      } finally {
+        setBusy(null);
+      }
+    }
+    setJob({ stage: "run", status: "running" });
+    const toastId = addToast({
+      kind: "progress",
+      message: "AI が初版を生成中…(文字起こしと編集案の作成に時間がかかります)",
+    });
+    try {
+      await postRun(needsForce);
+      const next = await getProject();
+      if (next.state === "ready") acceptReadyProject(next);
+      setJob(null);
+      updateToast(toastId, { kind: "success", message: "AI の初版ができました", ttlMs: 6000 });
+    } catch (e) {
+      setError((e as Error).message);
+      setJob(null);
+      dismissToast(toastId);
+    }
+  };
+
   // proxy.* が無ければ開いた時点で自動生成を始める。プロキシ無しの
   // エディタは再生できず「生成しない」選択肢が無いので、確認は挟まない
   // (生成中もタイムライン・テロップの編集と保存は普通にできる)。
@@ -5494,6 +5533,16 @@ export const App = () => {
             </fieldset>
           </PopoverContent>
         </Popover>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={job?.status === "running" || busy !== null}
+          title="文字起こし・無音検出・編集案をまとめて生成する"
+          onClick={() => void runInitialDraft()}
+        >
+          <Sparkles size={14} aria-hidden />
+          AI に初版を作らせる
+        </Button>
         <Popover open={exportOpen} onOpenChange={setExportOpen}>
           <PopoverTrigger asChild>
             <Button

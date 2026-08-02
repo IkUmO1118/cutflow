@@ -56,7 +56,8 @@ FrameWright は「全部AI任せ」のツールではない。**まずエディ�
 ## 出力キャンバス
 
 キャンバスはプロジェクト作成時に固定する出力解像度とベース映像配置のセットです。
-`ingest` / `run` / `editor` の初回実行に `--canvas <preset>` を付けます。省略時は
+`ingest` / `editor` の初回実行、または manifest の無い旧形式フォルダでの
+`run` に `--canvas <preset>` を付けます。省略時は
 `config.yaml` の `render.canvas`、それも省略時は `landscape` で、従来どおり
 `screenRegion` の解像度を使います。
 
@@ -596,7 +597,8 @@ node src/cli.ts autozoom <dir> --force   # 既存 zooms を上書き(backups/ �
 ```
 
 **既定 ON の自動挿入**: `config.yaml` の `plan.cursor.autoZoom`(省略時 `true`)
-が有効なとき、`run`(ingest→transcribe→detect→plan→id-stamp)の末尾で
+が有効なとき、`run`(transcribe→detect→plan→id-stamp。manifest が無い旧形式
+フォルダだけ ingest も先行)の末尾で
 同じ決定論を非破壊に自動実行する。呼ぶのは次を**すべて**満たすときだけで、
 1 つでも欠ければ静かにスキップする(1 行 log のみ・run は止まらない):
 

@@ -37,6 +37,8 @@ test("初期 cutplan(全編 keep)は validateDocs を通る", () => {
   assert.deepEqual(r.errors, []);
   assert.equal(initialCutplan(100).segments[0].end, 100);
   assert.equal(initialCutplan(100).approved, false);
+  assert.equal(initialCutplan(100).generatedBy, "bootstrap");
+  assert.equal(emptyTranscript().generatedBy, "bootstrap");
 });
 
 test("bootstrapProjectWithLayout: 空フォルダは正常終了し1バイトも書かない", async () => {

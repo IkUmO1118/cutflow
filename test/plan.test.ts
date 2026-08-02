@@ -106,6 +106,7 @@ const numbered: NumberedSegment[] = [
 
 test("buildCutplan: idCtx 省略時は id に一切触れない(導入前とバイト等価)", () => {
   const cutplan = buildCutplan(numbered, [{ id: 3, reason: "余談カット" }]);
+  assert.equal(cutplan.generatedBy, undefined, "AI が作った cutplan に bootstrap marker を残さない");
   for (const s of cutplan.segments) assert.equal("id" in s, false);
 });
 

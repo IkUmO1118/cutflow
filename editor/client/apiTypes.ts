@@ -140,6 +140,8 @@ export interface ReadyProjectData {
    *  client は不透明 token として保持し save 時に baseHashes として echo する
    *  (再計算はしない)。 */
   contentHashes: Record<string, string>;
+  /** AI 初版生成が手編集を上書きするため確認と backups 退避を要するか。 */
+  runNeedsForce: boolean;
 }
 
 export type ProjectData = EmptyProjectData | ReadyProjectData;

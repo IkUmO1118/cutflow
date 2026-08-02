@@ -82,6 +82,17 @@ test("saveProject: overlays/transcript も body の内容そのままで書か�
   });
 });
 
+test("saveProject: GUI 保存した cutplan/transcript から bootstrap marker を消す", () => {
+  withTmpProject((dir) => {
+    saveProject(dir, {
+      cutplan: { approved: false, generatedBy: "bootstrap", segments: [{ start: 0, end: 10, action: "keep", reason: "初期状態(全編)" }] },
+      transcript: { generatedBy: "bootstrap", segments: [] } as SaveRequest["transcript"],
+    });
+    assert.equal(JSON.parse(readFileSync(join(dir, "cutplan.json"), "utf8")).generatedBy, undefined);
+    assert.equal(JSON.parse(readFileSync(join(dir, "transcript.json"), "utf8")).generatedBy, undefined);
+  });
+});
+
 test("saveProject: bgm を null で渡すと bgm.json を削除する(既存挙動)", () => {
   withTmpProject((dir) => {
     writeFileSync(join(dir, "bgm.json"), JSON.stringify({ tracks: [{ start: 0, end: 1, file: "bgm.mp3" }] }));

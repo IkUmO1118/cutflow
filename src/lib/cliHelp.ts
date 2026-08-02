@@ -27,9 +27,9 @@ export const COMMAND_GROUPS: CommandGroup[] = [
   },
   {
     title: "取り込み〜カット案",
-    note: "run は一括、以下は個別のやり直し用。plan/run の再実行には --force が要る",
+    note: "run は AI 初版の一括生成。以下は個別のやり直し用",
     commands: [
-      { name: "run", summary: "取り込み〜カット案までを一括(初回用)" },
+      { name: "run", summary: "AI に初版を作らせる(transcribe→detect→plan)" },
       { name: "ingest", summary: "収録ファイルを解析(manifest.json・音声抽出)" },
       { name: "transcribe", summary: "文字起こし(transcript.json / .srt)" },
       { name: "detect", summary: "無音からカット候補(cuts.auto.json)" },

@@ -5,18 +5,20 @@ import { resolveSource } from "../lib/findSource.ts";
 import { ingest } from "./ingest.ts";
 import type { Config } from "../lib/config.ts";
 import { manifestLayout, type CutPlan, type Manifest, type Transcript } from "../types.ts";
+import { BOOTSTRAP_CUT_REASON } from "../lib/bootstrapArtifact.ts";
 
 /** transcript.json が無いときに書く初期値。何も文字起こししていない状態 */
 export function emptyTranscript(): Transcript {
-  return { segments: [] } as unknown as Transcript;
+  return { generatedBy: "bootstrap", segments: [] } as unknown as Transcript;
 }
 
 /** cutplan.json が無いときに書く初期値。全編を keep のまま人間の編集を待つ */
 export function initialCutplan(durationSec: number): CutPlan {
   return {
     approved: false,
+    generatedBy: "bootstrap",
     segments: [
-      { action: "keep", start: 0, end: durationSec, reason: "初期状態(全編)" },
+      { action: "keep", start: 0, end: durationSec, reason: BOOTSTRAP_CUT_REASON },
     ],
   };
 }

@@ -1,5 +1,6 @@
 {
   "approved": false,
+  "generatedBy": "bootstrap",
   "segments": [
     { "id": "seg_a1b2c3", "start": 0, "end": 10, "action": "keep", "reason": "導入の挨拶", "speed": 0.5 },
     { "id": "seg_d4e5f6", "start": 10, "end": 12, "action": "cut", "reason": "言い淀み", "reasonId": "stumble" },
