@@ -71,11 +71,14 @@ function overrunSuggestion(ref: MaterialRef, id: string, newSec: number): EditOp
  * - underrun: materialDurationSec - startFrom > declaredSec * underrunRatio
  *     → 素材の大半が未使用。既定は reason のみ(suggestion 無し)。
  *       cfg.suggestUnderrunExtend のときだけ実尺いっぱいへ延ばす set を出す。
- * 画像素材(probe.durationSec 無し)・id 未採番の参照は除外する(呼び出し側の
+ * 画像素材・id 未採番の参照は除外する(呼び出し側の
  * `id-stamp` 前提チェックに委ねる) */
 export function detectFit(index: MaterialsIndex, cfg: MaterialFitCfg): FitFinding[] {
   const findings: FitFinding[] = [];
   for (const entry of index.materials) {
+    // 画像に固有の尺はない。JPEG の ffprobe は image2 の 0.04 秒を返すため、
+    // durationSec の有無では静止画判定をしてはいけない。
+    if (entry.kind === "image") continue;
     const materialDurationSec = entry.probe?.durationSec;
     if (materialDurationSec === undefined) continue;
     for (const ref of entry.references) {

@@ -14,6 +14,8 @@ import {
   DEFAULT_EFFECT_CHECK_MAX_PER_WINDOW,
 } from "../lib/config.ts";
 import { fmtT } from "../lib/fmt.ts";
+import { isImageFile } from "../lib/overlayFade.ts";
+import { resolveStillsCfg } from "../lib/config.ts";
 import { framesFreshness } from "../lib/framesIndex.ts";
 import { ID_PREFIX, ID_RE } from "../lib/ids.ts";
 import { collectIdOccurrences } from "../lib/mention.ts";
@@ -35,6 +37,7 @@ import {
   ovNum,
 } from "../types.ts";
 import type { CutPlan, Interval, Manifest, Short, Transcript, WipeAnchor } from "../types.ts";
+import type { Config } from "../lib/config.ts";
 
 export interface Problem {
   /** 対象ファイル(収録フォルダ内の名前) */
@@ -71,7 +74,7 @@ export interface LoadedDocs {
   thumbnail: unknown;
 }
 
-export function validate(dir: string): ValidateResult {
+export function validate(dir: string, cfg?: Config): ValidateResult {
   const preErrors: Problem[] = [];
   /** JSON を読む。無ければ null、壊れていればエラーに積んで null */
   const readJson = (file: string, required: boolean): unknown => {
@@ -104,7 +107,7 @@ export function validate(dir: string): ValidateResult {
     shorts: readJson("shorts.json", false),
     thumbnail: readJson("thumbnail.json", false),
   };
-  const result = validateDocs(dir, docs, preErrors);
+  const result = validateDocs(dir, docs, preErrors, cfg);
   // 承認レコード(approvals.json)の陳腐化警告は fs 版ラッパにだけ足す
   // (approvals.json は validateDocs の LoadedDocs に含まれない=純関数のままにする)。
   // 既に error があるプロジェクトでは cutplan/shorts の形が保証されないため
@@ -192,9 +195,14 @@ export function validateDocs(
   dir: string,
   docs: LoadedDocs,
   preErrors: Problem[] = [],
+  cfg?: Config,
 ): ValidateResult {
   const errors: Problem[] = [...preErrors];
   const warnings: Problem[] = [];
+  const stillsCfg = cfg ? resolveStillsCfg(cfg) : {
+    defaultDurationSec: 5,
+    maxShareWarnRatio: 0.5,
+  };
   const err = (file: string, where: string, message: string): void => {
     errors.push({ file, where, message });
   };
@@ -459,11 +467,6 @@ export function validateDocs(
         err(f, w, `fit は "contain" か "cover" です(現在: ${JSON.stringify(fit)})`);
       }
     };
-    // 画像かどうかはレンダラー(src/lib/overlayFade.ts の isImageFile)と同じ判定に
-    // する: 画像拡張子リストに該当しなければすべて動画扱い(.mkv 等も
-    // OffthreadVideo で音声・頭出しが有効に再生される)
-    const isImageFile = (file: unknown): boolean =>
-      typeof file === "string" && /\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(file);
     /** overlays / inserts 共通の再生系オプション(頭出し・音量・フェード)の検査。
      * spanSec = 表示される長さ(フェードの長すぎ警告用。不明なら null) */
     const checkPlayback = (
@@ -474,14 +477,14 @@ export function validateDocs(
       if (o.startFrom !== undefined) {
         if (!isNum(o.startFrom) || o.startFrom < 0) {
           err(f, w, `startFrom(頭出し・素材内の開始秒)は0以上の数です: ${JSON.stringify(o.startFrom)}`);
-        } else if (o.startFrom > 0 && isImageFile(o.file)) {
+        } else if (o.startFrom > 0 && typeof o.file === "string" && isImageFile(o.file)) {
           warn(f, w, "startFrom は動画素材のみ有効です(画像では無視されます)");
         }
       }
       if (o.volume !== undefined) {
         if (!isNum(o.volume) || o.volume < 0 || o.volume > 2) {
           err(f, w, `volume は 0〜2 の数値です(1=素材のまま。現在: ${JSON.stringify(o.volume)})`);
-        } else if (isImageFile(o.file)) {
+        } else if (typeof o.file === "string" && isImageFile(o.file)) {
           warn(f, w, "画像素材に音声はありません(volume は無視されます)");
         }
       }
@@ -558,6 +561,21 @@ export function validateDocs(
         }
         if (!isNum(o.durationSec) || o.durationSec <= 0) {
           err(f, w, `durationSec(挿入する尺)は正の数です: ${JSON.stringify(o.durationSec)}`);
+        }
+        if (
+          stillsCfg.maxShareWarnRatio > 0 &&
+          outputDurationSec !== null &&
+          outputDurationSec > 0 &&
+          isNum(o.durationSec) &&
+          o.durationSec / outputDurationSec > stillsCfg.maxShareWarnRatio
+        ) {
+          warn(
+            f,
+            w,
+            `durationSec(${fmtT(o.durationSec)})が出力尺(${fmtT(outputDurationSec)})の` +
+              `${Math.round((o.durationSec / outputDurationSec) * 100)}%を占めます` +
+              `(桁の書き間違いでなければ無視してください)`,
+          );
         }
         checkPlayback(w, o, isNum(o.durationSec) && o.durationSec > 0 ? o.durationSec : null);
         checkFile(w, o.file);

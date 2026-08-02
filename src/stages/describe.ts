@@ -7,6 +7,7 @@ import { cliCmd } from "../lib/cliName.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fmtT } from "../lib/fmt.ts";
+import { isImageFile } from "../lib/overlayFade.ts";
 import { resolveDescribePausesCfg } from "../lib/config.ts";
 import type { Config } from "../lib/config.ts";
 import { DEFAULT_SILENCE_CUT_REASON } from "../lib/buildCutplan.ts";
@@ -305,7 +306,7 @@ export function describe(dir: string, cfg?: Config): string {
     insertSpans(keeps, inserts).forEach((sp) => {
       const ins = inserts[sp.index];
       lines.push(
-        `  挿入 元 ${fmtT(ins.at)} の手前に ${ins.file}(${ins.durationSec}秒)→ 出力 ${fmtT(sp.start)}–${fmtT(sp.end)}`,
+        `  挿入${isImageFile(ins.file) ? " [静止画]" : ""} 元 ${fmtT(ins.at)} の手前に ${ins.file}(${ins.durationSec}秒)→ 出力 ${fmtT(sp.start)}–${fmtT(sp.end)}`,
       );
     });
     for (const w of wipeList) {
@@ -588,6 +589,8 @@ export interface InsertEntry {
   at: number;
   file: string;
   durationSec: number;
+  /** image は宣言尺いっぱい表示される無音の静止画クリップ。 */
+  kind: "image" | "video";
   startFrom?: number;
   fit?: "contain" | "cover";
   volume?: number;
@@ -1131,6 +1134,7 @@ function buildProjection(inp: DescribeInputs, cfg?: Config): DescribeProjection 
       at: ins.at,
       file: ins.file,
       durationSec: ins.durationSec,
+      kind: isImageFile(ins.file) ? "image" : "video",
       ...(ins.startFrom !== undefined ? { startFrom: ins.startFrom } : {}),
       ...(ins.fit !== undefined ? { fit: ins.fit } : {}),
       ...(ins.volume !== undefined ? { volume: ins.volume } : {}),

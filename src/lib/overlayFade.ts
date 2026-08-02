@@ -28,9 +28,11 @@ export const fadeFactor = (
   return g;
 };
 
-/** Main.tsx から verbatim 移設(1文字も変えない) */
-export const isImageFile = (f: string): boolean =>
-  /\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(f);
+/** 画像とみなす拡張子。描画と知覚(materials/material-fit)の単一の出所。
+ * Node 非依存(ブラウザ側も import するため path モジュールを使わない)。 */
+export const IMAGE_EXT_RE = /\.(png|jpe?g|webp|gif|bmp|avif|tiff?|heic|heif)$/i;
+
+export const isImageFile = (f: string): boolean => IMAGE_EXT_RE.test(f);
 
 /** overlay の出力フレーム区間。**Main.tsx の <Sequence from/durationInFrames> と
  * 同一式でなければならない**(round(end*fps) ではない。半端秒で 1 フレームずれる)。

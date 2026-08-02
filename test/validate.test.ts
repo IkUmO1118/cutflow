@@ -1120,6 +1120,35 @@ test("validate: 挿入があっても speed が全て 1 ならエラーになら
   }
 });
 
+test("validate: 出力尺の過半を占める挿入は警告(エラーではない)", () => {
+  const r = validateDocs(DIR, baseDocs({
+    cutplan: {
+      approved: false,
+      segments: [{ start: 0, end: 30, action: "keep", reason: "keep" }],
+    },
+    overlays: { inserts: [{ at: 10, file: "materials/x.mp4", durationSec: 40 }] },
+  }));
+  assert.equal(r.errors.some((e) => e.where === "inserts[0]" && e.message.includes("durationSec")), false);
+  assert.ok(r.warnings.some((w) => w.where === "inserts[0]" && w.message.includes("出力尺")));
+});
+
+test("validate: 通常尺の挿入と maxShareWarnRatio:0 は長尺警告を出さない", () => {
+  const docs = baseDocs({
+    cutplan: {
+      approved: false,
+      segments: [{ start: 0, end: 30, action: "keep", reason: "keep" }],
+    },
+    overlays: { inserts: [{ at: 10, file: "materials/x.mp4", durationSec: 40 }] },
+  });
+  const disabled = validateDocs(DIR, docs, [], { stills: { maxShareWarnRatio: 0 } } as never);
+  assert.equal(disabled.warnings.some((w) => w.where === "inserts[0]" && w.message.includes("出力尺")), false);
+
+  const normal = validateDocs(DIR, baseDocs({
+    overlays: { inserts: [{ at: 10, file: "materials/x.mp4", durationSec: 2 }] },
+  }));
+  assert.equal(normal.warnings.some((w) => w.where === "inserts[0]" && w.message.includes("出力尺")), false);
+});
+
 test("validate: 可変速 keep があっても挿入が0件ならエラーにならない", () => {
   const r = validateDocs(DIR, baseDocs({
     cutplan: {

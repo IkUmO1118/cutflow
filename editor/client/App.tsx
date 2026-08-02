@@ -38,6 +38,7 @@ import type {
   ThreeWayResult,
 } from "../../src/lib/docDiff.ts";
 import type { TimelineEntry } from "../../src/lib/timeline.ts";
+import { isImageFile } from "../../src/lib/overlayFade.ts";
 import { defaultShortProfileName, PROFILES } from "../../src/lib/profile.ts";
 import type { Profile } from "../../src/lib/profile.ts";
 import {
@@ -310,7 +311,6 @@ const isMaterialFile = (f: string) =>
   /\.(png|jpe?g|webp|gif|bmp|avif|mp4|mov|webm|mp3|m4a|wav|aac|ogg|flac)$/i.test(f);
 
 /** 画像素材か(startFrom 頭出しの効かないもの)。動画・音声は false */
-const isImageFile = (f: string) => /\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(f);
 
 const keepsOf = (plan: CutPlan) => plan.segments.filter((s) => s.action === "keep");
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -3138,11 +3138,20 @@ export const App = () => {
       const arr = [...(ctx.overlays.inserts ?? [])];
       const ins = arr[sel.index];
       if (!ins) return;
+      const isStill = isImageFile(ins.file);
       if (mode === "trim-end") {
         arr[sel.index] = {
           ...ins,
           durationSec: round2(Math.max(MIN_SPAN, ins.durationSec + d)),
         };
+      } else if (mode === "trim-start" && isStill) {
+        // 静止画に In 点は無い。左端を左へ引く(d<0)と尺が伸び、右へ引くと縮む。
+        const next = {
+          ...ins,
+          durationSec: round2(Math.max(MIN_SPAN, ins.durationSec - d)),
+        };
+        delete next.startFrom;
+        arr[sel.index] = next;
       } else if (mode === "trim-start") {
         // 頭出し(In点トリム / ripple-trim-in): 割り込み位置 at は固定。素材の頭を
         // 削り(startFrom 増・尺減)、out 点(startFrom+尺)は保つ。左端は動かず

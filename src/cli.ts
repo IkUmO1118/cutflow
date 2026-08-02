@@ -1059,7 +1059,8 @@ program
     "編集ファイル(cutplan/transcript/overlays 等)の整合性を検査(JSON 編集後に実行)",
   )
   .action((dir: string) => {
-    const r = validate(resolveDir(dir));
+    const cfg = loadConfig(program.opts().config);
+    const r = validate(resolveDir(dir), cfg);
     for (const w of r.warnings) console.log(`⚠ ${w.file} ${w.where}: ${w.message}`);
     for (const e of r.errors) console.error(`✖ ${e.file} ${e.where}: ${e.message}`);
     if (r.errors.length > 0) {
@@ -1727,8 +1728,9 @@ program
   )
   .action(async (dir: string, opts: { short?: string; yes?: boolean }) => {
     const abs = resolveDir(dir);
+    const cfg = loadConfig(program.opts().config);
     // 壊れた内容を承認しない: 先に validate を通す
-    const r = validate(abs);
+    const r = validate(abs, cfg);
     if (r.errors.length > 0) {
       for (const e of r.errors) console.error(`✖ ${e.file} ${e.where}: ${e.message}`);
       throw new Error(

@@ -158,6 +158,20 @@ test("detectFit: 画像素材(probe.durationSec 無し)は除外", () => {
   assert.deepEqual(detectFit(index, DEFAULT_CFG), []);
 });
 
+test("detectFit: JPEG スチル(probe.durationSec=0.04)も除外される", () => {
+  const index = makeIndex([
+    {
+      file: "materials/slide.jpg",
+      present: true,
+      kind: "image",
+      probe: { durationSec: 0.04, hasAudio: false, width: 1920, height: 1080 },
+      references: [{ as: "insert", id: "ins_img001", at: 0, durationSec: 8 }],
+      used: true,
+    },
+  ]);
+  assert.deepEqual(detectFit(index, DEFAULT_CFG), []);
+});
+
 test("detectFit: @id の無い参照は除外(id-stamp 前提チェックは呼び出し側の責務)", () => {
   const index = makeIndex([
     {
