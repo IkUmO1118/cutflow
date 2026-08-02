@@ -100,8 +100,10 @@ human final がある場合だけ、従来の agreement (`exact`) / rescue (`dir
 
 ## どのファイルを直すと何が変わるか
 
-時刻はすべて**元動画(収録ファイル)の秒**で書く。カット後の時刻への
-換算はツールが自動でやるので、頭の中で引き算する必要はない。
+文書内の時刻は原則として**元動画(収録ファイル)の秒**で書く。文書に
+`timebase:"output"` がある要素だけは出力秒で、`timebase` 省略は source 互換。
+一方、`frames --out` や review API の `axis` は「今回どの軸で問い合わせるか」
+を表す request の指定であり、保存文書の所属軸を表す `timebase` とは別物。
 
 | ファイル | 直すと変わるもの | 編集する場面 |
 |---|---|---|
@@ -116,6 +118,9 @@ human final がある場合だけ、従来の agreement (`exact`) / rescue (`dir
 | `rules.md` | **チャンネルの恒久ルール**(自由 Markdown。テロップ表記・トーン/声色・禁止語・ペーシング・章の付け方・タイトルの型など「毎回守る型」)。収録フォルダの親ディレクトリに置くと**チャンネル共通**、収録フォルダ直下に置くと**この収録だけの上書き/追加**(両方あれば連結し、収録固有が優先)。`plan` / `plan --cuts-only` / `remeta` / `plan-shorts` / `plan-materials` / `plan-effects` / `plan-bgm` の LLM プロンプトに注入される。`brief.md`(今回の見せ場・中身)とは役割が別(下記「チャンネル rules と learn」参照) | チャンネル全体の編集方針を一貫させたい、この回だけ例外を効かせたいとき |
 
 `describe <dir> --json` の `overlays.inserts[]` は `kind` (`"image"` / `"video"`)を含む。`"image"` は宣言した `durationSec` 全体を表示する静止画クリップで、音声を持たない。
+同出力の区間射影は `out` が出力秒を表す。要素の `timebase` は保存文書どおりで、
+省略時は source、`"output"` のときは `start` / `end` 自体も出力秒である。
+GUI エディタでは `timebase:"output"` の BGM は読み取り専用として表示される。
 
 **触らない第3カテゴリ**(編集ファイルにも中間生成物にも属さない):
 `approvals.json`(**承認レコード**。`cutplan.json` / `shorts.json` 各ショートの
@@ -123,6 +128,8 @@ keep 集合の sha256 ハッシュに束縛され、`render` の唯一のゲー�
 自動失効する。`node src/cli.ts approve` / `unapprove` コマンドと GUI エディタの
 保存(チェックボックス)だけが書く。**人間や AI が直接編集・作成しない**。
 詳細は下記「承認(approve/unapprove)」参照)。
+本編の承認 hash はカット判断(keep の `[start,end]`)だけを対象とする。
+insert、BGM、演出、出力尺の変更では失効しないため、最終 render の内容確認は別途必要。
 
 **触らないファイル**(中間生成物。再実行すると上書きされる):
 `manifest.json` / `cuts.auto.json` / `plan.raw.txt` / `plan-shorts.raw.txt`

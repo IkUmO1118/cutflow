@@ -2062,11 +2062,15 @@ export const App = () => {
     if (bgm?.tracks?.length) {
       bgm.tracks.forEach((t, i) => {
         const label = t.file.replace(/^materials\//, "");
-        const parts = remapInterval(t.start, t.end, timeline);
+        const outputTimebase = t.timebase === "output";
+        const parts = outputTimebase
+          ? [{ start: Math.max(0, t.start), end: Math.min(duration, t.end) }].filter((iv) => iv.end > iv.start)
+          : remapInterval(t.start, t.end, timeline);
         parts.forEach((iv, j) => {
           cs.push({
             kind: "bgm", index: i, track: "bgm",
-            outStart: iv.start, outEnd: iv.end, label, editable: true,
+            outStart: iv.start, outEnd: iv.end, label,
+            editable: !outputTimebase,
             noTrimStart: j > 0, noTrimEnd: j < parts.length - 1,
             wave: { src: t.file, startSec: t.startFrom ?? 0, loop: true },
           });
@@ -2267,7 +2271,10 @@ export const App = () => {
     if (!selection) return null;
     const { kind, index } = selection;
     if (kind === "caption") { const s = transcript?.segments[index]; return s ? { start: s.start, end: s.end } : null; }
-    if (kind === "bgm") { const t = bgm?.tracks?.[index]; return t ? { start: t.start, end: t.end } : null; }
+    if (kind === "bgm") {
+      const t = bgm?.tracks?.[index];
+      return t && t.timebase !== "output" ? { start: t.start, end: t.end } : null;
+    }
     if (kind === "overlays") { const o = overlays?.overlays?.[index]; return o ? { start: o.start, end: o.end } : null; }
     if (kind === "zoom") { const z = overlays?.zooms?.[index]; return z ? { start: z.start, end: z.end } : null; }
     if (kind === "blur") { const b = overlays?.blurs?.[index]; return b ? { start: b.start, end: b.end } : null; }
@@ -2325,6 +2332,7 @@ export const App = () => {
     }
     if (kind === "bgm") {
       const t = bgm?.tracks?.[index]; if (!t) return false;
+      if (t.timebase === "output") return false;
       const sp = splitSpanAt(t.start, t.end, at, MIN_SPAN); if (!sp) return false;
       const advance = round2((t.startFrom ?? 0) + (at - t.start));
       pushHistory();
@@ -3286,6 +3294,7 @@ export const App = () => {
       }
       const sp = tracks[sel.index];
       if (!sp) return;
+      if (sp.timebase === "output") return;
       const t = retime(sp);
       if (!t) return;
       const next = { ...sp, ...t };
@@ -4136,6 +4145,7 @@ export const App = () => {
     patch: Partial<Bgm["tracks"][number]>,
     coalesceKey?: string,
   ) => {
+    if (bgm?.tracks[i]?.timebase === "output") return;
     pushHistory(coalesceKey ?? null);
     setBgm((prev) => {
       if (!prev) return prev;
@@ -4151,6 +4161,7 @@ export const App = () => {
     });
   };
   const removeBgm = (i: number) => {
+    if (bgm?.tracks[i]?.timebase === "output") return;
     pushHistory();
     setBgm((prev) => {
       if (!prev) return prev;
@@ -4206,7 +4217,7 @@ export const App = () => {
       return s ? { kind, entry: structuredClone(s) } : null;
     } else if (kind === "bgm") {
       const s = bgm?.tracks?.[index];
-      return s ? { kind, entry: structuredClone(s) } : null;
+      return s && s.timebase !== "output" ? { kind, entry: structuredClone(s) } : null;
     }
     return null;
   };

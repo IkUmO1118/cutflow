@@ -2001,6 +2001,17 @@ export function hashesForBody(dir: string, body: SaveRequest): Record<string, st
 /** 編集結果の保存。渡されたドキュメントだけを書く(それ以外のファイルは不可侵)。
  * export はテスト用(test/saveProject.test.ts。HTTP サーバは起動せず直接呼ぶ) */
 export function saveProject(dir: string, body: SaveRequest): void {
+  // output-timebase BGM is intentionally read-only in the editor. Enforce the
+  // boundary at persistence too, so keyboard, drag, Inspector, and AI/whole-doc
+  // save paths cannot accidentally reinterpret output seconds as source seconds.
+  if (body.bgm !== undefined) {
+    const diskBgm = readEditableDocs(dir).bgm;
+    const before = diskBgm?.tracks.filter((t) => t.timebase === "output") ?? [];
+    const after = body.bgm?.tracks.filter((t) => t.timebase === "output") ?? [];
+    if (JSON.stringify(before) !== JSON.stringify(after)) {
+      throw new HttpError(400, "timebase:output の BGM はエディタでは読み取り専用です");
+    }
+  }
   // 書く前に CLI の validate と同じ純粋検査を通す。GUI が壊れた JSON を書き、
   // preview / render で数分後に気づく事故を防ぐ。ディスクの現状(manifest や
   // 変更していないファイル)に body の変更を重ねた状態を検査する。
