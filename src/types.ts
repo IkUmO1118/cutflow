@@ -901,9 +901,18 @@ export interface Bgm {
      * バイト等価(opt-in・sticky。採番は `id-stamp` / 生成 / GUI 保存が行う)。
      * **render / 承認 hash には一切影響しない**(アドレッシング専用) */
     id?: string;
-    /** 流し始め(元収録の秒) */
+    /** この区間の時刻(start/end)が属する時間軸。省略時 "source"。
+     *  - "source" … 元収録の秒(従来どおり)。cut に追随して縮み、
+     *    挿入をまたぐときは繋がった1本の区間になる
+     *  - "output" … 出力(カット後・挿入込み)の秒。元収録に対応時刻が
+     *    無い区間(冒頭 intro・末尾 ending・挿入の中)へ BGM を当てるために使う。
+     *    cut を編集しても位置は動かない
+     *  出力秒は `describe <dir>` の「出力」列や `describe <dir> --json` の
+     *  `keeps[].outStart/outEnd`・`inserts[].out` で確認できる */
+    timebase?: "source" | "output";
+    /** 流し始め(timebase が属する時間軸の秒) */
     start: number;
-    /** 流し終わり(元収録の秒) */
+    /** 流し終わり(timebase が属する時間軸の秒) */
     end: number;
     /** BGM ファイル(収録フォルダからの相対パス。例: bgm.mp3 / materials/outro.mp3) */
     file: string;

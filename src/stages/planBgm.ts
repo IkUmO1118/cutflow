@@ -25,7 +25,7 @@ import { readRules } from "./plan.ts";
 import { validateDocs } from "./validate.ts";
 import type { LoadedDocs } from "./validate.ts";
 import type { Config } from "../lib/config.ts";
-import type { Bgm, Chapters, CutPlan, Manifest } from "../types.ts";
+import type { Bgm, Chapters, CutPlan, Manifest, Overlays } from "../types.ts";
 
 /** LLM 応答スキーマ(prompts/plan-bgm.md の出力形式と対応) */
 export interface AssignmentsSelection {
@@ -155,6 +155,7 @@ export async function planBgm(dir: string, cfg: Config): Promise<PlanBgmResult> 
   const cutplan = readStageJson<CutPlan>(join(dir, "cutplan.json"), "plan");
   const manifest = readStageJson<Manifest>(join(dir, "manifest.json"), "ingest");
   const chapters = readJsonOrNull<Chapters>(join(dir, "chapters.json"));
+  const overlays = readJsonOrNull<Overlays>(join(dir, "overlays.json"));
   if (!chapters) {
     console.log(
       "chapters.json がありません。大カット境界だけで区間割りします(区間の意味づけは薄くなります)",
@@ -172,7 +173,7 @@ export async function planBgm(dir: string, cfg: Config): Promise<PlanBgmResult> 
 
   const slotCfg = resolveBgmSlotCfg(cfg);
   const anchors = buildBgmAnchors(cutplan, chapters, manifest.durationSec, slotCfg);
-  const slots = anchorsToSlots(anchors, cutplan, slotCfg);
+  const slots = anchorsToSlots(anchors, cutplan, slotCfg, overlays?.inserts);
   if (slots.length === 0) {
     throw new Error(
       "BGM を置ける区間スロットが0件です(cutplan.json の keep 区間を確認してください)",

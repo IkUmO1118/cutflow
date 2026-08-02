@@ -10,6 +10,7 @@
       "fadeInSec": 1,
       "fadeOutSec": 2
     },
+    { "timebase": "output", "start": 0, "end": 8, "file": "materials/intro-bgm.mp3" },
     { "start": 60, "end": 120, "file": "materials/outro.mp3" }
   ]
 }

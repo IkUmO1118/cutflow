@@ -1541,7 +1541,7 @@ test("buildRenderProps: bgm.json の tracks はカット後区間に写像され
   assert.equal(props.bgm[0].fadeOutSec, 2);
 });
 
-test("buildRenderProps: 挿入で割れた BGM はフェードを端の断片だけに載せる", () => {
+test("buildRenderProps: 挿入をまたぐ BGM は1本の連続区間になる", () => {
   const props = buildRenderProps({
     manifest,
     keeps: [{ start: 0, end: 30 }],
@@ -1557,11 +1557,53 @@ test("buildRenderProps: 挿入で割れた BGM はフェードを端の断片だ
     overlayExists: () => true,
     warn: () => {},
   });
-  assert.equal(props.bgm.length, 2);
+  assert.equal(props.bgm.length, 1);
+  assert.equal(props.bgm[0].start, 5);
+  assert.equal(props.bgm[0].end, 20);
   assert.equal(props.bgm[0].fadeInSec, 1);
-  assert.equal(props.bgm[0].fadeOutSec, undefined);
-  assert.equal(props.bgm[1].fadeInSec, undefined);
-  assert.equal(props.bgm[1].fadeOutSec, 2);
+  assert.equal(props.bgm[0].fadeOutSec, 2);
+});
+
+test("buildRenderProps: timebase output は出力秒を直接使い出力尺へクランプする", () => {
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 30 }],
+    transcript: { segments: [] },
+    overlays: { inserts: [{ at: 0, file: "materials/intro.mp4", durationSec: 8 }] },
+    renderCfg,
+    width: 1920,
+    height: 1080,
+    videoFile: "cut.mp4",
+    bgm: { tracks: [{ timebase: "output", start: 0, end: 40, file: "bgm.mp3" }] },
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.deepEqual(
+    props.bgm.map((t) => ({ start: t.start, end: t.end })),
+    [{ start: 0, end: 38 }],
+  );
+});
+
+test("buildRenderProps: 挿入があってもカットは詰まる(凸包は射影後)", () => {
+  const props = buildRenderProps({
+    manifest,
+    keeps: [{ start: 0, end: 10 }, { start: 20, end: 30 }],
+    transcript: { segments: [] },
+    overlays: { inserts: [{ at: 5, file: "materials/ins.mp4", durationSec: 2 }] },
+    renderCfg,
+    width: 1920,
+    height: 1080,
+    videoFile: "cut.mp4",
+    bgm: { tracks: [{ start: 2, end: 25, file: "bgm.mp3" }] },
+    bgmFallbackFile: null,
+    overlayExists: () => true,
+    warn: () => {},
+  });
+  assert.deepEqual(
+    props.bgm.map((t) => ({ start: t.start, end: t.end })),
+    [{ start: 2, end: 17 }],
+  );
 });
 
 test("buildRenderProps: 存在しない BGM 素材は warn して区間ごと落ちる", () => {

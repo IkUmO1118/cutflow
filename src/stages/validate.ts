@@ -1012,7 +1012,13 @@ export function validateDocs(
       const w = `tracks[${i}]`;
       if (!isObj(t)) return err(f, w, "オブジェクトではありません");
       counts.bgm++;
-      checkSpan(f, w, t, dur, err, warn);
+      if (t.timebase !== undefined && t.timebase !== "source" && t.timebase !== "output") {
+        err(f, w, `timebase は "source" か "output" です: ${JSON.stringify(t.timebase)}`);
+      } else if (t.timebase === "output") {
+        checkSpan(f, w, t, outputDurationSec, err, warn, "出力の長さ");
+      } else {
+        checkSpan(f, w, t, dur, err, warn);
+      }
       // file: 収録フォルダ内の相対パスで実在すること
       if (typeof t.file !== "string" || t.file === "") {
         err(f, w, "file(収録フォルダからの相対パス)がありません");
@@ -1222,6 +1228,7 @@ function checkSpan(
   dur: number | null,
   err: (f: string, w: string, m: string) => void,
   warn?: (f: string, w: string, m: string) => void,
+  durLabel = "収録の長さ",
 ): void {
   if (!isNum(s.start) || !isNum(s.end)) {
     return err(file, where, `start / end が数値ではありません(現在: ${JSON.stringify(s.start)} / ${JSON.stringify(s.end)})`);
@@ -1231,7 +1238,7 @@ function checkSpan(
     return err(file, where, `start(${fmtT(s.start)})>= end(${fmtT(s.end)})`);
   }
   if (dur !== null && s.end > dur + DUR_EPS) {
-    const msg = `end(${fmtT(s.end)})が収録の長さ(${fmtT(dur)})を超えています`;
+    const msg = `end(${fmtT(s.end)})が${durLabel}(${fmtT(dur)})を超えています`;
     if (warn) warn(file, where, msg);
     else err(file, where, msg);
   }

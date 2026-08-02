@@ -1052,6 +1052,25 @@ test("bgm: 未知キーは警告、tracks 非配列はエラー", () => {
   assert.ok(r2.errors.some((e) => e.where === "tracks" && e.message.includes("配列")));
 });
 
+test("bgm: timebase output は挿入込みの出力尺で検査する", () => {
+  const r = validateDocs(DIR, baseDocs({
+    cutplan: {
+      approved: false,
+      segments: [{ start: 0, end: 10, action: "keep", reason: "keep" }],
+    },
+    overlays: { inserts: [{ at: 0, file: "materials/x.mp4", durationSec: 3 }] },
+    bgm: { tracks: [{ timebase: "output", start: 0, end: 14, file: "bgm.mp3" }] },
+  }));
+  assert.ok(r.warnings.some((w) => w.where === "tracks[0]" && w.message.includes("出力の長さ")));
+});
+
+test("bgm: 不正な timebase はエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    bgm: { tracks: [{ timebase: "timeline", start: 0, end: 5, file: "bgm.mp3" }] },
+  }));
+  assert.ok(r.errors.some((e) => e.where === "tracks[0]" && e.message.includes("timebase")));
+});
+
 test("insert: volume の範囲外・負のフェードはエラー", () => {
   const r = validateDocs(DIR, baseDocs({
     overlays: {

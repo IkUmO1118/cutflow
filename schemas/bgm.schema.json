@@ -13,6 +13,7 @@
         "required": ["start", "end", "file"],
         "properties": {
           "id": { "$ref": "common.schema.json#/$defs/id" },
+          "timebase": { "enum": ["source", "output"] },
           "start": { "type": "number" },
           "end": { "type": "number" },
           "file": { "type": "string" },

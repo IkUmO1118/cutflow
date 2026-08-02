@@ -205,7 +205,7 @@ export function describe(dir: string, cfg?: Config): string {
   );
   const bgmDesc =
     bgm && bgm.tracks?.length
-      ? `bgm.json(${bgm.tracks.length}区間: ${[...new Set(bgm.tracks.map((t) => t.file))].join(", ")})`
+      ? `bgm.json(${bgm.tracks.length}区間${bgm.tracks.some((t) => t.timebase === "output") ? `・うち${bgm.tracks.filter((t) => t.timebase === "output").length}件は出力秒指定` : ""}: ${[...new Set(bgm.tracks.map((t) => t.file))].join(", ")})`
       : (["bgm.mp3", "bgm.m4a", "bgm.wav"].find((f) => existsSync(join(dir, f))) ?? "なし");
   lines.push(
     `approved: ${cutplan.approved} / テロップ ${transcript.segments.length}件 / BGM ${bgmDesc}`,
