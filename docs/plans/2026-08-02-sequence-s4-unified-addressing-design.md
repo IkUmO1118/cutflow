@@ -91,6 +91,9 @@ S0〜S3 の運用で見つけた「軸に起因する事故・混乱」をここ
 - 2026-08-02  `stills frames --out` で出力秒のフレームを期待したが、暗黙に
   `proxy.mp4` を source media として選び 404 になった。request の output 軸に
   source media 前提が漏れた。
+- 2026-08-02  stills で inserts をスライドに使ったため、出力尺がナレーションより
+  長くなり出力の 59%(170秒中100秒)が背景だけになった。ripple 挿入と
+  「上を覆う overlay」の取り違え。
 
 ---
 

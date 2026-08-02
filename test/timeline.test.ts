@@ -112,6 +112,20 @@ test("remapIntervalPieces: keep/cut/insert をまたいでも piece を結合し
   ]);
 });
 
+test("stills: スライドを overlays に置けば出力尺はナレーションのままになる", () => {
+  // overlays は buildTimelineModel の inserts に渡らないため、keeps [0,100] の総和が出力尺。
+  const built = buildTimelineModel([{ start: 0, end: 100 }], []);
+  assert.equal(built.durationSec, 100);
+});
+
+test("stills: スライドを inserts に置くと出力尺が伸びる(誤用の記録)", () => {
+  const built = buildTimelineModel([{ start: 0, end: 100 }], [
+    { at: 0, durationSec: 40 },
+    { at: 50, durationSec: 30 },
+  ]);
+  assert.equal(built.durationSec, 170);
+});
+
 test("speed 2 の keep は出力尺が半分になる", () => {
   const tl = buildTimeline([{ start: 10, end: 20, speed: 2 }]);
   assert.deepEqual(tl, [

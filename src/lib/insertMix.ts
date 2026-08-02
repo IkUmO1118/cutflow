@@ -164,26 +164,16 @@ export function buildInsertBedPcm(args: {
   // うるので、区間まるごと1ブロックでコピーする(出力側の境界は frame 格子
   // に一致する)
   const cutSampleLen = Math.floor(cutPcm.length / ch);
-  if (props.videoFile === "") {
-    // Audio-only/stills projects have no base video whose audio should ripple
-    // around insert spans. Their cut.m4a is narration, so keep it continuous
-    // from output zero while still allowing insert audio below to replace it.
-    const len = Math.min(n, cutSampleLen);
+  for (const seg of layout.base) {
+    const outFrom = frameSampleRange(seg.fromFrame, sr, fps).fromSample;
+    const outTo = frameSampleRange(seg.toFrame, sr, fps).fromSample;
+    const srcFrom = frameSampleRange(seg.videoStartFrame, sr, fps).fromSample;
+    const len = Math.min(outTo - outFrom, cutSampleLen - srcFrom);
     for (let s = 0; s < len; s++) {
-      for (let c = 0; c < ch; c++) bed[s * ch + c] = cutPcm[s * ch + c];
-    }
-  } else {
-    for (const seg of layout.base) {
-      const outFrom = frameSampleRange(seg.fromFrame, sr, fps).fromSample;
-      const outTo = frameSampleRange(seg.toFrame, sr, fps).fromSample;
-      const srcFrom = frameSampleRange(seg.videoStartFrame, sr, fps).fromSample;
-      const len = Math.min(outTo - outFrom, cutSampleLen - srcFrom);
-      for (let s = 0; s < len; s++) {
-        const outOffset = (outFrom + s) * ch;
-        const srcOffset = (srcFrom + s) * ch;
-        for (let c = 0; c < ch; c++) {
-          bed[outOffset + c] = cutPcm[srcOffset + c];
-        }
+      const outOffset = (outFrom + s) * ch;
+      const srcOffset = (srcFrom + s) * ch;
+      for (let c = 0; c < ch; c++) {
+        bed[outOffset + c] = cutPcm[srcOffset + c];
       }
     }
   }

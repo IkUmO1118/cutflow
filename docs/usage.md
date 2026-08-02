@@ -89,7 +89,7 @@ human final がある場合だけ、従来の agreement (`exact`) / rescue (`dir
 
 初回に本当に触る必要があるのは3点だけ: `recordingsDir`(収録の置き場所)/
 `ai.provider`(生成 AI の入口。`claude-code` は APIキー不要の既定)/
-`ingest.layout`(収録レイアウト。`plain`=通常動画 / `obs-canvas`=画面+カメラ / `stills`=音声のみを元に静止画insertで構成)。音声ファイルだけのフォルダは自動的に `stills` になり、canvas は `ingest.stills`(省略時1920x1080/30fps)を使う。
+`ingest.layout`(収録レイアウト。`plain`=通常動画 / `obs-canvas`=画面+カメラ / `stills`=音声のみを元に全画面スライド overlay で構成)。音声ファイルだけのフォルダは自動的に `stills` になり、canvas は `ingest.stills`(省略時1920x1080/30fps)を使う。
 リポジトリ直下の `config.yaml`(全項目版・333行)を最初から読む必要はなく、
 同じくリポジトリ直下にある `config.minimal.yaml`(必須セクションだけの完結ファイル・
 約45行)を使うと過負荷を避けられる。使い方は2通り: 各コマンドに
@@ -116,6 +116,8 @@ human final がある場合だけ、従来の agreement (`exact`) / rescue (`dir
 | `thumbnail.json` | **サムネイル**(`thumbnail.png`)の元データ(`{t, texts[]}`)。下記「サムネイル生成」参照 | サムネイルを作りたいとき |
 | `meta.json` | 動画には影響なし。タイトル・概要欄の**下書き** | 投稿時のコピペ元 |
 | `rules.md` | **チャンネルの恒久ルール**(自由 Markdown。テロップ表記・トーン/声色・禁止語・ペーシング・章の付け方・タイトルの型など「毎回守る型」)。収録フォルダの親ディレクトリに置くと**チャンネル共通**、収録フォルダ直下に置くと**この収録だけの上書き/追加**(両方あれば連結し、収録固有が優先)。`plan` / `plan --cuts-only` / `remeta` / `plan-shorts` / `plan-materials` / `plan-effects` / `plan-bgm` の LLM プロンプトに注入される。`brief.md`(今回の見せ場・中身)とは役割が別(下記「チャンネル rules と learn」参照) | チャンネル全体の編集方針を一貫させたい、この回だけ例外を効かせたいとき |
+
+`manifest.layout:"stills"` の映像なしプロジェクトでは、ナレーション音声が動画尺を決める。スライドは `overlays.json` の `overlays[]` に `rect` なしで置く(全画面表示)。`inserts[]` は intro/ending など本当に出力尺を伸ばしたいクリップ専用で、通常のスライドには使わない。
 
 `describe <dir> --json` の `overlays.inserts[]` は `kind` (`"image"` / `"video"`)を含む。`"image"` は宣言した `durationSec` 全体を表示する静止画クリップで、音声を持たない。
 同出力の区間射影は `out` が出力秒を表す。要素の `timebase` は保存文書どおりで、

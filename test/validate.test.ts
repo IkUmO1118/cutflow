@@ -838,8 +838,17 @@ test("stills: cameraRegion はエラー、スライド無しとshortsは警告",
   };
   const r = validateDocs(DIR, baseDocs({ manifest, overlays: {}, shorts: { shorts: [] } }));
   assert.ok(r.errors.some((e) => e.where === "video.cameraRegion"));
-  assert.ok(r.warnings.some((w) => w.where === "inserts" && w.message.includes("スライド")));
+  assert.ok(r.warnings.some((w) => w.where === "overlays" && w.message.includes("スライド")));
   assert.ok(r.warnings.some((w) => w.file === "shorts.json" && w.message.includes("継承")));
+});
+
+test("stills: スライドを inserts の静止画だけで置く誤用は警告", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: { ...manifestWithScreen, layout: "stills" },
+    overlays: { inserts: [{ at: 0, durationSec: 10, file: "materials/slide.png" }] },
+  }));
+  assert.ok(r.warnings.some((w) => w.where === "overlays" && w.message.includes("スライド")));
+  assert.ok(r.warnings.some((w) => w.where === "inserts" && w.message.includes("ナレーションより動画が長くなります")));
 });
 
 test("plain: layerOrder に wipe が含まれると警告(無視される旨)", () => {

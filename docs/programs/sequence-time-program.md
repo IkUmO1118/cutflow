@@ -1,6 +1,6 @@
 # シーケンス時間母艦 — 「元収録1本がマスタークロック」を脱し、出力(シーケンス)時間を第一級の番地にする
 
-> 状態: **IMPLEMENTED(2026-08-02・S0〜S4 landing / 実メディアゲート完走)**。FrameWright の
+> 状態: **IMPLEMENTED(S0/S1/S2/S4)/ S3 は訂正中(2026-08-02)**。FrameWright の
 > 「**すべての編集ファイルが元収録の秒で番地付けされる**」という単一時間軸の前提を、
 > 本物の NLE と同じ **二層構造(Source 領域 / Sequence 領域)** へ作り替えること。
 > 起点はユーザーからの4件の要望(§2)で、調査の結果**4件すべてが同一の構造的原因に
@@ -34,15 +34,17 @@
 | S0 | `2026-08-02-sequence-s0-timeline-integrity-design.md` | IMPLEMENTED | 時間軸の一貫性(既存バグ4件+軸の不一致2件) |
 | S1 | `2026-08-02-sequence-s1-audio-sequence-time-design.md` | IMPLEMENTED | 要望(2)(3) 完全解決。`timebase` の初出 |
 | S2 | `2026-08-02-sequence-s2-still-clips-design.md` | IMPLEMENTED | 要望(4) 根本解決。スチルが一級クリップに |
-| S3 | `2026-08-02-sequence-s3-source-independent-project-design.md` | IMPLEMENTED | 要望(1) 完全解決。映像なしプロジェクト |
+| S3 | `2026-08-02-sequence-s3-source-independent-project-design.md` / 訂正: `2026-08-02-sequence-s3-fix-slides-as-overlays-design.md` | SUPERSEDED-IN-PART | 要望(1) 映像なしプロジェクト。時間モデルは訂正中 |
 | S4 | `2026-08-02-sequence-s4-unified-addressing-design.md` | IMPLEMENTED | 番地契約の統一・軸事故の回帰固定 |
 
 ---
 
 ## 0. 他エージェント向け: 現在地と次の一手
 
-- **現在地(2026-08-02)**: S0〜S4 実装・focused commit 済み。実スライドショーと
-  intro+BGM 動画の render ゲート、既存 pixel gate を完走。
+- **現在地(2026-08-02)**: S0/S1/S2/S4 は実装・focused commit 済み。S3 は
+  「スライド = inserts[]」が誤りだったため訂正中。実スライドショーの render
+  ゲート完走は、背景だけの区間が残る構成でも成功するため、スライドショーの
+  正しさを保証していなかった。
 - **次の一手**: 本母艦の不変条件を回帰テストで維持する。新しい document
   timebase の適用先や plan-* の出力秒対応は、実害を記録して別 plan で扱う。
 - **絶対に飛ばしてはいけない前提**: S0 の T1(`validate` の挿入認識)は S1 の
@@ -251,7 +253,10 @@ plan: `docs/plans/2026-08-02-sequence-s3-source-independent-project-design.md`
 `frames`、`apply`、承認 hash、エディタが**すべてそのまま動く**。
 判別子は `manifest.layout: "stills"` の1つだけ(既存の `layout` 分岐に相乗り)。
 
-**出荷**: 要望(1) が完全解決。
+**訂正中**: 要望(1) の入口/ffmpeg 経路は landing 済みだが、スライドは
+`inserts[]` ではなく全画面 `overlays[]` として扱う必要がある。`inserts[]` は
+ripple で出力尺を伸ばすため、スライドショーではナレーションより動画が長くなる。
+訂正 plan: `docs/plans/2026-08-02-sequence-s3-fix-slides-as-overlays-design.md`。
 
 ### S4 — 番地契約の統一(GATED)
 plan: `docs/plans/2026-08-02-sequence-s4-unified-addressing-design.md`
@@ -339,5 +344,16 @@ plan: `docs/plans/2026-08-02-sequence-s4-unified-addressing-design.md`
   破壊が割に合わないため。
 - **2026-08-02**: 挿入の出力秒アンカーを**却下**(§6)。要望(4)の根本診断が
   「アンカー軸」ではなく「スチルの尺の扱い」であったため。
+- **2026-08-02(訂正)**: S3 の「スライド = inserts[]」は誤りだったため差し戻す。
+  inserts は ripple(出力尺を伸ばす)で、スライドショーでは尺はナレーションが
+  決めるべきだった。要望(4)「画像を引き伸ばす」の理屈を要望(1)へ誤って
+  持ち込んだのが原因。正しくは全画面 overlays[](出力尺を変えず span を覆う)。
+  実装は plan に忠実で、insertMix の videoFile==="" 分岐は症状(音声のぶつ切り)
+  だけを塞ぐ対症療法として入っていた。訂正 plan =
+  `docs/plans/2026-08-02-sequence-s3-fix-slides-as-overlays-design.md`。
+- **2026-08-02(訂正)**: S3-B7(design の hasCamera ゲート緩和)は
+  describeBaseLayer の videoFile==="" 早期 return が背景画像ブロックより手前に
+  あるため、背景**画像**には効いていなかった(効いていたのは backgroundColor
+  のみ)。`src/engine/` を一度も変更しなかったことが見落としの原因。
 - **未記入**: §6 の未決3件(承認 hash × 挿入 / A1 の config 化 / S3 の preview)は
   該当段の着手時に本ログへ結論を追記する。

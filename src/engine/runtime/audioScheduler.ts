@@ -183,6 +183,9 @@ export class AudioScheduler {
 
   private baseInput: InstanceType<typeof Input> | null = null;
   private baseSink: AudioBufferSink | null = null;
+  /** Safari 等で mediabunny の WAV/PCM 経路が失敗した場合に使う共有結果。 */
+  private baseDecodedBufferPromise: Promise<AudioBuffer> | null = null;
+  private baseFallbackWarned = false;
   private readonly bgmSinks = new Map<string, { input: InstanceType<typeof Input>; sink: AudioBufferSink }>();
   private readonly overlaySinks = new Map<string, { input: InstanceType<typeof Input>; sink: AudioBufferSink }>();
   private readonly insertSinks = new Map<string, { input: InstanceType<typeof Input>; sink: AudioBufferSink }>();
@@ -239,6 +242,18 @@ export class AudioScheduler {
     this.baseInput = input;
     this.baseSink = new AudioBufferSink(track);
     return this.baseSink;
+  }
+
+  private ensureBaseDecodedBuffer(): Promise<AudioBuffer> {
+    this.baseDecodedBufferPromise ??= fetch(this.opts.baseAudioUrl)
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`base audio の取得に失敗しました: HTTP ${response.status}`);
+        }
+        return response.arrayBuffer();
+      })
+      .then((bytes) => this.audioContext.decodeAudioData(bytes));
+    return this.baseDecodedBufferPromise;
   }
 
   private async ensureBgmSink(file: string, resolveUrl: (file: string) => string): Promise<AudioBufferSink | null> {
@@ -551,29 +566,101 @@ export class AudioScheduler {
   }
 
   private async scheduleBaseEntry(entry: TimelineEntry, sessionId: number): Promise<void> {
-    const sink = await this.ensureBaseSink();
-    if (!sink || sessionId !== this.sessionId) return;
-    const chunks: AudioBuffer[] = [];
-    for await (const chunk of sink.buffers(entry.sourceStart, entry.sourceEnd)) {
-      if (sessionId !== this.sessionId) return;
-      chunks.push(chunk.buffer);
+    // Safari では WAV/PCM が「例外なし・デコード結果0件」になることがある。
+    // WAV はブラウザ標準の decodeAudioData が広く安定しているため、最初から
+    // こちらを使い、無音のまま成功扱いになる mediabunny 経路を避ける。
+    if (this.opts.baseAudioUrl.split("?", 1)[0].toLowerCase().endsWith(".wav")) {
+      try {
+        await this.scheduleDecodedBaseEntry(entry, sessionId);
+      } catch (err) {
+        console.error(
+          "AudioScheduler: WAV 基準音声の再生に失敗しました: " +
+            String((err as Error)?.message ?? err),
+        );
+      }
+      return;
     }
-    const buffer = concatAudioBuffers(chunks, this.audioContext);
-    if (!buffer || sessionId !== this.sessionId) return;
+    try {
+      const sink = await this.ensureBaseSink();
+      if (!sink) {
+        await this.scheduleDecodedBaseEntry(entry, sessionId);
+        return;
+      }
+      if (sessionId !== this.sessionId) return;
+      const chunks: AudioBuffer[] = [];
+      for await (const chunk of sink.buffers(entry.sourceStart, entry.sourceEnd)) {
+        if (sessionId !== this.sessionId) return;
+        chunks.push(chunk.buffer);
+      }
+      const buffer = concatAudioBuffers(chunks, this.audioContext);
+      if (!buffer) {
+        if (!this.baseFallbackWarned) {
+          this.baseFallbackWarned = true;
+          console.warn(
+            "AudioScheduler: mediabunny の基準音声デコード結果が空のため Web Audio へ切り替えます",
+          );
+        }
+        await this.scheduleDecodedBaseEntry(entry, sessionId);
+        return;
+      }
+      if (sessionId !== this.sessionId) return;
+      this.startBaseNode(buffer, entry, sessionId, 0);
+    } catch (err) {
+      if (!this.baseFallbackWarned) {
+        this.baseFallbackWarned = true;
+        console.warn(
+          "AudioScheduler: mediabunny で基準音声を読めないため Web Audio へ切り替えます: " +
+            String((err as Error)?.message ?? err),
+        );
+      }
+      try {
+        await this.scheduleDecodedBaseEntry(entry, sessionId);
+      } catch (fallbackErr) {
+        console.error(
+          "AudioScheduler: 基準音声の再生に失敗しました: " +
+            String((fallbackErr as Error)?.message ?? fallbackErr),
+        );
+      }
+    }
+  }
+
+  private async scheduleDecodedBaseEntry(
+    entry: TimelineEntry,
+    sessionId: number,
+  ): Promise<void> {
+    const buffer = await this.ensureBaseDecodedBuffer();
+    if (sessionId !== this.sessionId) return;
+    this.startBaseNode(buffer, entry, sessionId, entry.sourceStart);
+  }
+
+  private startBaseNode(
+    buffer: AudioBuffer,
+    entry: TimelineEntry,
+    sessionId: number,
+    sourceOffset: number,
+  ): void {
+    if (sessionId !== this.sessionId) return;
     const node = this.audioContext.createBufferSource();
     node.buffer = buffer;
     const combinedRate = entry.speed * (this.mapping.rate ?? 1);
     if (combinedRate !== 1) node.playbackRate.value = combinedRate;
     node.connect(this.masterGain);
     const startAt = contextTimeForOutputSec(this.mapping, entry.outputStart);
+    const sourceDuration = entry.sourceEnd - entry.sourceStart;
     if (startAt >= this.audioContext.currentTime) {
-      node.start(startAt);
+      node.start(startAt, sourceOffset, sourceDuration);
     } else {
-      const offset = this.audioContext.currentTime - startAt;
-      if (offset < buffer.duration) node.start(this.audioContext.currentTime, offset);
+      const lateBySourceSec = (this.audioContext.currentTime - startAt) * combinedRate;
+      if (lateBySourceSec < sourceDuration) {
+        node.start(
+          this.audioContext.currentTime,
+          sourceOffset + lateBySourceSec,
+          sourceDuration - lateBySourceSec,
+        );
+      }
       else return;
     }
-    this.trackNode(node, buffer.duration, this.queuedBaseNodes);
+    this.trackNode(node, sourceDuration, this.queuedBaseNodes);
   }
 
   private async scheduleBgmTrack(

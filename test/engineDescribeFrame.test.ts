@@ -40,6 +40,30 @@ test("describeBaseLayer: videoFile 空はプレースホルダー扱いで空配
   assert.deepEqual(describeBaseLayer({ ...base, videoFile: "" }, 5), []);
 });
 
+test("describeBaseLayer: videoFile が空でも design.backgroundFile は描かれる", () => {
+  const design = resolveDesign(
+    {
+      enabled: true,
+      backgroundFile: "render.design/bg.png",
+      screen: { marginXPx: 100, marginBottomPx: 90, radiusPx: 24, shadow: true },
+    },
+    1920,
+    1080,
+    true,
+  );
+  const items = describeBaseLayer({ ...base, videoFile: "", design }, 0);
+  assert.equal(items.length, 1);
+  const item = items[0];
+  assert.equal(item.kind, "external");
+  if (item.kind !== "external") throw new Error("unreachable");
+  assert.equal(item.sourceKind, "image");
+  assert.equal(item.sourceId, "render.design/bg.png");
+});
+
+test("describeBaseLayer: videoFile が空で背景も無ければ空配列", () => {
+  assert.deepEqual(describeBaseLayer({ ...base, videoFile: "", design: undefined }, 0), []);
+});
+
 test("describeBaseLayer: props.layout があるショート経路は空配列(グループ6の担当)", () => {
   const withLayout: RenderProps = {
     ...base,

@@ -1023,9 +1023,26 @@ export function validateDocs(
   }
 
   if (manifest?.layout === "stills") {
-    const inserts = isObj(overlays) && Array.isArray(overlays.inserts) ? overlays.inserts : [];
-    if (inserts.length === 0) {
-      warn("overlays.json", "inserts", "スライド(inserts の静止画クリップ)が1件もありません。画面が背景だけになります");
+    // スライドは全画面 overlay(出力尺を変えない)。inserts は intro/ending の
+    // ような「本当に尺を足すクリップ」専用で、スライドには使わない(S3-fix)。
+    const slides = isObj(overlays) && Array.isArray(overlays.overlays) ? overlays.overlays : [];
+    if (slides.length === 0) {
+      warn(
+        "overlays.json",
+        "overlays",
+        "スライド(overlays の全画面画像)が1件もありません。画面が背景だけになります",
+      );
+    }
+    const imageInserts = (isObj(overlays) && Array.isArray(overlays.inserts) ? overlays.inserts : [])
+      .filter((o) => isObj(o) && typeof o.file === "string" && isImageFile(o.file));
+    if (imageInserts.length > 0 && slides.length === 0) {
+      warn(
+        "overlays.json",
+        "inserts",
+        `静止画が inserts に${imageInserts.length}件あります。` +
+          "映像なしプロジェクトのスライドは overlays(全画面画像)で置きます" +
+          "(inserts は出力尺を伸ばすため、ナレーションより動画が長くなります)",
+      );
     }
     if (shorts !== null) {
       warn("shorts.json", "-", "映像なしプロジェクトのスライドはショートへ継承されません");

@@ -1,7 +1,7 @@
 # S3: 映像なしプロジェクト — 画像だけ + 音声ファイルで動画を作る
 
 親ドキュメント: `docs/programs/sequence-time-program.md`(シーケンス時間母艦)
-状態: **IMPLEMENTED** / 2026-08-02
+状態: **SUPERSEDED-IN-PART**(2026-08-02。時間モデルは `2026-08-02-sequence-s3-fix-slides-as-overlays-design.md` が訂正) / 2026-08-02
 前提: **S0 landing 必須**(`baseSegments[].audioStart` を音声のみ経路が使う)。
 **S1 landing 必須**(スライドは無音なので BGM/ナレーション以外に音源が無い)。
 **S2 landing 強く推奨**(V1 が全部スチルになるため B1/B4/B5 がそのまま効く)。
@@ -20,9 +20,9 @@ manifest.json   source: "narration.m4a"     ← 映像ストリーム無し
                 durationSec: 612.4           ← 音声の尺 = 「元収録の秒」の軸
                 video: { width/height/fps は config 由来。screenRegion は canvas 全面 }
 
-overlays.json   inserts: [                   ← スライド = 静止画クリップ(S2)
-                  { at: 0,   file: "materials/s1.png", durationSec: 42 },
-                  { at: 42,  file: "materials/s2.png", durationSec: 53 }, ...
+overlays.json   overlays: [                  ← スライド = 全画面画像 overlay(S3-fix)
+                  { start: 0,  end: 42, file: "materials/s1.png" },
+                  { start: 42, end: 95, file: "materials/s2.png" }, ...
                 ]
 bgm.json        音楽(timebase は "source" でも "output" でもよい)
 transcript.json whisper が音声から起こしたテロップ(そのまま動く)
@@ -40,10 +40,15 @@ cutplan.json    音声の秒で不要部分をカット(スライドも一緒に
 `validate.checkSpan`、承認 hash、エディタの時間軸まで波及する。
 **同じ機能を得るのに変更範囲が数倍**になる。
 
-### スライドは `overlays[]` ではなく `inserts[]`
-`overlays[]` は出力尺を伸ばせない(`remapIntervalPieces` が既存 entries との
-交差しか返さない)。スライドは V1 のクリップであって上に重ねる素材ではない。
-`inserts[]` = ベース映像トラックへの挿入 = V1 のクリップ、が正しい対応。
+### 訂正: スライドは `inserts[]` ではなく `overlays[]`
+当初の「スライドは `inserts[]`」判断は誤りだった。`inserts[]` は ripple
+(出力尺を伸ばして後続を押し出す)なので、スライドショーではスライドを置くほど
+出力がナレーションより長くなる。スライドショーの尺はナレーション音声が決め、
+スライドはその上を全画面で覆うだけなので `overlays[]` が正しい。
+
+誤りの原因は、要望(4)「画像を引き伸ばして動画を長くする」の理屈を、要望(1)
+「スライドショー」へそのまま持ち込んだこと。`inserts[]` は intro/ending など
+本当に尺を足したいクリップ専用として残す。
 
 ---
 
@@ -52,11 +57,11 @@ cutplan.json    音声の秒で不要部分をカット(スライドも一緒に
 | 層 | 状態 | 根拠 |
 |---|---|---|
 | `src/lib/timeline.ts` | **変更不要** | 277行の純粋な区間演算。ファイル・コーデック・fps を知らない。`Manifest` を import すらしない |
-| `describeFrame.ts:169` | **実装済み** | `if (props.videoFile === "") return []` = 「ベース映像なし」分岐。`renderPropsTypes.ts:139-141` に「空文字列なら動画なしのプレースホルダー表示」 |
+| `describeFrame.ts:169` | **訂正済み** | `videoFile === ""` でも `design.backgroundFile` は描き、ベース映像だけを出さない |
 | `describeFrame.ts:147-156` | **実装済み** | `baseSourceTimeAt()` が `null` を返す = その時刻にベース映像が無い(挿入中と同じ状態) |
 | `describeFrame.ts:176-187` | **実装済み** | `design.backgroundFile` が全画面 `sourceKind:"image"` としてベース映像**より下**に描かれ、ベース映像が無くても描かれる |
 | `compositor.ts:98-124, 187-209` | **実装済み** | `ImageCache` + `resolveImageLayer`。`fetch`+`createImageBitmap` で1度だけデコードしキャッシュ |
-| `describeFrame.ts:534-552` | **実装済み** | insert は常に全画面 + 黒レターボックス。画像なら `sourceKind:"image"` |
+| `describeFrame.ts:481-500` | **実装済み** | overlay は `rect` 省略で全画面。画像なら `sourceKind:"image"` |
 
 **つまり「映像なし + 全画面静止画 + テロップ」は描画側では既に描ける。**
 ブロッカーは全部**入口(ingest)と ffmpeg 経路**にある。
@@ -350,11 +355,13 @@ stills では**カメラ円を描かない**ことを `describeBaseLayer` 側で
 `src/stages/validate.ts` の manifest 検査へ:
 - `layout === "stills"` かつ `cameraRegion` があればエラー
   (「映像なしプロジェクトにカメラ領域は持てません」)
-- `layout === "stills"` かつ `overlays.inserts` が0件のとき警告
-  (「スライド(inserts の静止画クリップ)が1件もありません。画面が背景だけになります」)
+- `layout === "stills"` かつ `overlays.overlays` が0件のとき警告
+  (「スライド(overlays の全画面画像)が1件もありません。画面が背景だけになります」)
+- `layout === "stills"` かつ `overlays.overlays` が0件で `inserts` に静止画があるとき警告
+  (スライドは `overlays[]` へ置く。`inserts[]` は出力尺を伸ばすため intro/ending 専用)
 - `layout === "stills"` かつ `shorts.json` があればエラーまたは警告
   → **本 plan の射程外。ショートは stills 非対応として警告に留める**
-  (母艦 §7 の「ショートに挿入を導入しない」と整合。スライドは insert なので
+  (母艦 §7 の「ショートに overlays を継承しない」と整合。スライドは overlay なので
   ショートへは継承されず、ショートは背景だけになる)
 
 ---
@@ -379,15 +386,20 @@ node src/cli.ts transcribe ~/Movies/framewright/2026-08-02-slides
 node src/cli.ts detect     ~/Movies/framewright/2026-08-02-slides
 node src/cli.ts plan       ~/Movies/framewright/2026-08-02-slides
 
-# スライドを inserts として並べる(S2 の静止画クリップ)
+# overlays.json にスライドを全画面 overlay として並べる(rect は書かない)
+#   "overlays": [
+#     { "start": 0,  "end": 42,  "file": "materials/s1.png" },
+#     { "start": 42, "end": 100, "file": "materials/s2.png" }
+#   ]
 node src/cli.ts validate  ~/Movies/framewright/2026-08-02-slides
 node src/cli.ts describe  ~/Movies/framewright/2026-08-02-slides
+#   → 出力尺がナレーションと一致(カットしていなければ音声尺)
 node src/cli.ts frames    ~/Movies/framewright/2026-08-02-slides --every 10
-#   → スライドが全画面で写り、テロップが乗っていること
+#   → どの時刻でもスライドが全画面で写り、テロップが乗っていること
 node src/cli.ts approve   ~/Movies/framewright/2026-08-02-slides
 node src/cli.ts render    ~/Movies/framewright/2026-08-02-slides
 node src/cli.ts av        ~/Movies/framewright/2026-08-02-slides --sound-only
-#   → ナレーションが全編で鳴り、BGM も切れないこと
+#   → ナレーションが全編で鳴り、末尾に無音区間が無いこと
 ```
 
 ### 既存(映像あり)収録の非退行
@@ -402,8 +414,10 @@ node src/cli.ts av        ~/Movies/framewright/2026-08-02-slides --sound-only
 
 ## 6. この段の非目標
 
-- **ショートの stills 対応**(§4)。スライドは insert でショートへ継承されない
+- **ショートの stills 対応**(§4)。スライドは overlay でショートへ継承されない
+  (`render.ts` が `shortOverlays` に本編 `overlays` を入れないため)
 - **`preview` の stills 対応**(§B5 で非対応を決定)
+- **stills での blur / annotation 対応**。スライドの一部を隠す・指す需要が出たら別 plan
 - **スライドの自動配置**(`plan-slides` のようなコマンド)。
   スライドと台本の対応は人間が決める。需要が出たら別 plan
 - **画像リスト主導のデータモデル**(§0 で不採用)

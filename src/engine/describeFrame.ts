@@ -166,7 +166,6 @@ function baseSourceTimeAt(props: RenderProps, tOut: number): number | null {
  */
 export function describeBaseLayer(props: RenderProps, tOut: number): FrameItem[] {
   if (props.layout) return []; // ショート経路はグループ6
-  if (props.videoFile === "") return []; // Studio のプレースホルダー表示は対象外
 
   const items: FrameItem[] = [];
   const zoomT = zoomTransformAtOut(props, tOut);
@@ -185,6 +184,11 @@ export function describeBaseLayer(props: RenderProps, tOut: number): FrameItem[]
     };
     items.push(bg);
   }
+
+  // ベース映像が無いプロジェクト(映像なし=stills / Studio のプレースホルダー)。
+  // 背景だけは描く(S3-fix F3)。ここより前で return すると design.backgroundFile
+  // が映像なしプロジェクトで描かれない。
+  if (props.videoFile === "") return items;
 
   const sourceTimeSec = baseSourceTimeAt(props, tOut);
   if (sourceTimeSec !== null) {
