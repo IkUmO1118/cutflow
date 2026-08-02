@@ -42,6 +42,7 @@ const EXPECTED_GENERATED_FILES = [
   "preview-cut.mp4",
   "preview-cut.key.json",
   "proxy.mp4",
+  "proxy.m4a",
   "proxy.key.json",
   "material-fit.suggested.json",
   "effect-check.json",
@@ -86,6 +87,7 @@ test("fileRole: editable / generated / approval / other を正しく判定する
   assert.equal(fileRole("overlays.json"), "editable");
   assert.equal(fileRole("manifest.json"), "generated");
   assert.equal(fileRole("cut.mp4"), "generated");
+  assert.equal(fileRole("proxy.m4a"), "generated");
   assert.equal(fileRole("render.report.json"), "generated");
   assert.equal(fileRole("material-fit.suggested.json"), "generated");
   assert.equal(fileRole("plan.first.json"), "generated");
@@ -162,7 +164,7 @@ test("fileRole: hyperframe-freeze.suggested/ 配下(hyperframe-freeze の使い�
 
 test("isGeneratedCache: 重いキャッシュだけ true、軽い中間生成物は false", () => {
   // cache = true
-  for (const c of ["proxy.mp4", "proxy.key.json",
+  for (const c of ["proxy.mp4", "proxy.m4a", "proxy.key.json",
     "cut.mp4", "cut.keeps.json",
     "preview.mp4", "preview-cut.mp4", "preview-cut.key.json", "render.props.json", "render.key.json",
     "cut.highlight-1.mp4", "render.highlight-1.key.json",
@@ -200,7 +202,7 @@ test("isGeneratedLog: ログ・下書き・検品結果だけ true、最適化/p
   // generated だが log ではない(リレンダー最適化・proxy・高価な再生成物・成果物・必須入力)
   for (const g of ["cut.mp4", "cut.keeps.json",
     "render.props.json", "render.key.json",
-    "proxy.mp4", "proxy.key.json", "manifest.json", "whisper-out.json", "whisper-out.srt",
+    "proxy.mp4", "proxy.m4a", "proxy.key.json", "manifest.json", "whisper-out.json", "whisper-out.srt",
     "transcript.system.json", "whisper-system-out.json", "cut.highlight-1.mp4",
     "render.highlight-1.key.json",
     "shorts/a.mp4", "materials.probe/index.json", "av.probe/motion.json", "render.design/dusk.jpg",
@@ -237,7 +239,7 @@ test("GENERATED_LOG_FILES は GENERATED_FILES の部分集合(リレンダー最
   const log = new Set(GENERATED_LOG_FILES as readonly string[]);
   for (const opt of ["cut.mp4", "cut.keeps.json",
     "render.props.json", "render.key.json",
-    "proxy.mp4", "proxy.key.json"]) {
+    "proxy.mp4", "proxy.m4a", "proxy.key.json"]) {
     assert.ok(!log.has(opt), `${opt}(リレンダー最適化/proxy)が log に混入`);
   }
 });

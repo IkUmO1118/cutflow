@@ -191,6 +191,7 @@ import {
   restoreSourceRange,
   shouldEnterCopilotMode,
   splitSpanAt,
+  videoFileForPreview,
 } from "./model.ts";
 import { ANNOTATION_PRESETS, EFFECT_PRESETS } from "./presets.ts";
 import type { EditorPreset, PresetPatch } from "./presets.ts";
@@ -551,7 +552,7 @@ function applySaveHashes(
  * FrameWright エディタ本体。動画編集ソフトの標準レイアウト:
  * 上=タブパネル(左: 素材/テロップ)+プレビュー(中央)+インスペクタ(右)、
  * 中=トランスポート、下=タイムライン。上部の左右比は分割バーで変えられる。
- * プレビューはエンジンコンポジタ(EnginePreview)で proxy.mp4 を元収録時刻へ
+ * プレビューはエンジンコンポジタ(EnginePreview)で proxy.* を元収録時刻へ
  * 直接シークして描画する。正のデータは cutplan / overlays / transcript の
  * 各 JSON(元収録の秒)。
  * 正のデータは cutplan / overlays / transcript の各 JSON(元収録の秒)。
@@ -578,7 +579,7 @@ export const App = () => {
   // 通知トースト(error / job)。要対応の継続条件はバナー行が持つ(T4)
   const { addToast, updateToast, dismissToast } = useToasts();
   const [busy, setBusy] = useState<"save" | "upload" | null>(null);
-  /** proxy.mp4 の生成中か。busy と分けて、生成中(初回の数十秒)も
+  /** proxy.* の生成中か。busy と分けて、生成中(初回の数十秒)も
    * 編集・保存・アップロードを普通に受け付ける */
   const [proxyBusy, setProxyBusy] = useState(false);
   /** GUI から起動した書き出しジョブ(preview / render)。running 中はボタンを
@@ -599,7 +600,7 @@ export const App = () => {
   // 再生ヘッドの現在位置は React state ではなく playhead ストアが持つ
   // (毎フレームの setState は UI 全体の再レンダー = 再生の乱れになる)
   /** プレビューの音量(%)。書き出しには影響しない。ベースの音量自体は
-   * proxy.mp4 生成時のラウドネス正規化(config の render.targetLufs)が揃える */
+   * proxy.* 生成時のラウドネス正規化(config の render.targetLufs)が揃える */
   const [volumePct, setVolumePct] = useState(() => {
     const saved = Number(localStorage.getItem("framewright.editor.volumePct"));
     return Number.isFinite(saved) && saved > 0 ? Math.min(saved, 100) : 100;
@@ -729,7 +730,7 @@ export const App = () => {
         setBgm(p.bgm);
         setShorts(p.shorts);
         baseHashesRef.current = p.contentHashes ?? {};
-        // proxy.mp4 の陳腐化はサーバーが proxy.key.json とファイルから毎回
+        // proxy.* の陳腐化はサーバーが proxy.key.json とファイルから毎回
         // 判定する(config.yaml が別セッション・別ツールで変わった場合も
         // 拾える)。false→true 方向だけ反映し、既にバナーが出ている
         // (このセッション中の設定保存で立てた)ものは消さない
@@ -780,7 +781,7 @@ export const App = () => {
   /** モーダルを開いた時点の設定の深いコピー(キャンセル復元・保存 diff の
    * 基準)。null = モーダルを開いていない */
   const settingsSnapRef = useRef<CfgValues | null>(null);
-  /** proxy.mp4 に焼き込まれる設定(targetLufs / systemAudio / denoise /
+  /** proxy.* に焼き込まれる設定(targetLufs / systemAudio / denoise /
    * preview.width)を保存した後、プレビューへ反映するには再生成が要ることを促すバナー */
   const [proxyStale, setProxyStale] = useState(false);
   /** 「後で」でバナーだけ閉じても stale という生成ゲートの事実は保持する。 */
@@ -1460,7 +1461,7 @@ export const App = () => {
       // fresh な連続ベイクはカット後時刻で1本として再生する。欠落・陳腐・
       // keep 編集直後は source proxy へ即時フォールバックする。canvas
       // プレビューは bake 自体が起動しない(前段のガード)ので常に生
-      videoFile: "media/proxy.mp4",
+      videoFile: videoFileForPreview(proj.manifest),
       videoIsSource: true,
       // bgm.json(区間配置)を優先。無ければ収録フォルダ直下の bgm.* を
       // 全編1曲で流す(後方互換)。素材ファイルはこの後 media/ 経由に付け替える
@@ -1619,7 +1620,7 @@ export const App = () => {
       renderCfg: proj.renderCfg,
       width: proj.output.w,
       height: proj.output.h,
-      videoFile: "media/proxy.mp4",
+      videoFile: videoFileForPreview(proj.manifest),
       videoIsSource: true,
       bgm: merged.bgm,
       bgmFallbackFile: proj.bgmFile,
@@ -4799,15 +4800,16 @@ export const App = () => {
     }
   };
 
-  /** proxy.mp4(元収録の軽量プロキシ)を生成 → プレイヤー再読み込み。
+  /** proxy.*(元収録の軽量プロキシ)を生成 → プレイヤー再読み込み。
    * 収録ごとに1回だけ。カットは焼き込まないので編集による再生成は不要 */
   const generateProxy = async (): Promise<boolean> => {
     setProxyBusy(true);
     setError(null);
     try {
-      await postProxy();
+      const proxy = await postProxy();
       setProj((p) => p && {
         ...p,
+        proxyFile: proxy.proxyFile,
         proxyExists: true,
       });
       setVideoVersion((v) => v + 1);
@@ -4877,7 +4879,7 @@ export const App = () => {
     }
   };
 
-  // proxy.mp4 が無ければ開いた時点で自動生成を始める。プロキシ無しの
+  // proxy.* が無ければ開いた時点で自動生成を始める。プロキシ無しの
   // エディタは再生できず「生成しない」選択肢が無いので、確認は挟まない
   // (生成中もタイムライン・テロップの編集と保存は普通にできる)。
   // 失敗したときだけビューアに再試行ボタンが出る
@@ -6266,6 +6268,7 @@ export const App = () => {
                 loop={loop}
                 playbackRate={playbackRate}
                 initialVolume={playerVolume}
+                baseAudioFile={`media/${proj.proxyFile}`}
                 onFallback={setEngineFailure}
               />
               {/* 素材(部分配置)の移動・リサイズ枠。テロップ枠より下(DOM 前)に
@@ -6359,7 +6362,7 @@ export const App = () => {
             <div className="noPreview">
               {proxyBusy || !error ? (
                 <p>
-                  編集用プロキシ(proxy.mp4)を作成しています…
+                  編集用プロキシ(proxy.*)を作成しています…
                   <br />
                   初回のみ、元収録の長さに応じて数十秒かかります。
                   この間もタイムラインの編集はできます
@@ -6888,7 +6891,7 @@ const HeaderBanners = ({
         <div
           className="banner"
           title={
-            "ラウドネス・システム音声・プレビュー幅は proxy.mp4 に焼き込まれるため、" +
+            "ラウドネス・システム音声・プレビュー幅は proxy.* に焼き込まれるため、" +
             "再生成するまでエディタのプレビューには反映されません(書き出しには反映済み)"
           }
         >

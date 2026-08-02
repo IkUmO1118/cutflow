@@ -45,6 +45,11 @@
   「スライド = inserts[]」が誤りだったため訂正中。実スライドショーの render
   ゲート完走は、背景だけの区間が残る構成でも成功するため、スライドショーの
   正しさを保証していなかった。
+- **2026-08-02(訂正)**: S3 §B4「stills では proxy を作らない」は、エディタが
+  ベース音声として正規化済み proxy を必要とする点を見落としていた。
+  訂正 = stills は音声のみの `proxy.m4a` を作り、名前の単一の出所を
+  `proxyFileName()` に置く。plan =
+  `docs/plans/2026-08-02-sequence-s3-fix2-editor-stills-preview-design.md`。
 - **次の一手**: 本母艦の不変条件を回帰テストで維持する。新しい document
   timebase の適用先や plan-* の出力秒対応は、実害を記録して別 plan で扱う。
 - **絶対に飛ばしてはいけない前提**: S0 の T1(`validate` の挿入認識)は S1 の

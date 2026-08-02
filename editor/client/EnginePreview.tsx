@@ -16,7 +16,7 @@ import type { RenderProps } from "../../src/lib/renderPropsTypes.ts";
 import { audioSignatureOf, timelineFromBaseSegments } from "./enginePreviewTimeline.ts";
 import type { PreviewMetricsSource } from "./metrics.ts";
 
-/** App.tsx の built props memo は videoFile("media/proxy.mp4")に加え、
+/** App.tsx の built props memo は videoFile("media/proxy.mp4" or "")に加え、
  * overlays[].file / inserts[].file / bgm[].file / design の背景・素材ファイルを
  * すべて `media/${元パス}` へ書き換え済み(Player の staticFile 用の付け替え。
  * App.tsx:1580 付近)。EnginePreview はこの**書き換え後**の props を受け取る
@@ -25,8 +25,6 @@ import type { PreviewMetricsSource } from "./metrics.ts";
  * `/media/` を足していた=同じ関数名でも規約が違う。混同しないこと)。
  * encodeURIComponent は Timeline.tsx/AiVisualReview.tsx の mediaUrl と同じ
  * 規約(素材ファイル名の空白/日本語等を安全に URL 化する) */
-const VIDEO_FILE = "media/proxy.mp4";
-
 /** 描画がこの回数だけ**連続で**失敗したら legacy(Player)へ落とす。
  * 1〜2回は frameSource 側のデコーダ作り直しで自力復帰できるため、
  * すぐには落とさない */
@@ -66,6 +64,8 @@ export interface EnginePreviewProps {
   loop: boolean;
   playbackRate: number;
   initialVolume: number;
+  /** ベース音声のプロキシ。通常動画は proxy.mp4、stills は proxy.m4a。 */
+  baseAudioFile: string;
   /** WebGPU 非対応/初期化失敗時に呼ばれる(throw しない。§2-2 決定)。
    * 呼び出し側(App.tsx)は legacy(Player)へ切り替える */
   onFallback: (reason: string) => void;
@@ -74,7 +74,7 @@ export interface EnginePreviewProps {
 type Listener<T extends PlayerEventTypes> = CallbackListener<T>;
 
 export const EnginePreview = forwardRef<PreviewHandle, EnginePreviewProps>(function EnginePreview(
-  { props, durationInFrames, fps, loop, playbackRate, initialVolume, onFallback },
+  { props, durationInFrames, fps, loop, playbackRate, initialVolume, baseAudioFile, onFallback },
   ref,
 ) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -84,6 +84,8 @@ export const EnginePreview = forwardRef<PreviewHandle, EnginePreviewProps>(funct
   // 「今の値」を常に指す出口として使う
   const propsRef = useRef(props);
   propsRef.current = props;
+  const baseAudioFileRef = useRef(baseAudioFile);
+  baseAudioFileRef.current = baseAudioFile;
   const loopRef = useRef(loop);
   loopRef.current = loop;
   const fpsRef = useRef(fps);
@@ -154,7 +156,7 @@ export const EnginePreview = forwardRef<PreviewHandle, EnginePreviewProps>(funct
   // timeline)が変わっていたら AudioScheduler を作り直す(§2-4 #5)
   useEffect(() => {
     if (!readyRef.current) return;
-    const sig = audioSignatureOf(props);
+    const sig = JSON.stringify({ baseAudioFile, props: audioSignatureOf(props) });
     if (sig !== audioSigRef.current) {
       audioSigRef.current = sig;
       const audioContext = audioContextRef.current;
@@ -163,7 +165,7 @@ export const EnginePreview = forwardRef<PreviewHandle, EnginePreviewProps>(funct
         schedulerRef.current?.dispose();
         const scheduler = new AudioScheduler({
           audioContext,
-          baseAudioUrl: resolveUrl(VIDEO_FILE),
+          baseAudioUrl: resolveUrl(baseAudioFileRef.current),
           timeline: timelineFromBaseSegments(props),
           bgm: props.bgm,
           fps: fpsRef.current,
@@ -179,7 +181,7 @@ export const EnginePreview = forwardRef<PreviewHandle, EnginePreviewProps>(funct
     }
     if (!playingRef.current) void repaintAt(clockRef.current?.currentOutputSec() ?? 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props]);
+  }, [props, baseAudioFile]);
 
   // トラックミュート: mute のたびにスケジューラを作り直さず setMute で反映
   useEffect(() => {
@@ -232,10 +234,10 @@ export const EnginePreview = forwardRef<PreviewHandle, EnginePreviewProps>(funct
       audioContextRef.current = audioContext;
 
       const initialTimeline = timelineFromBaseSegments(props);
-      audioSigRef.current = audioSignatureOf(props);
+      audioSigRef.current = JSON.stringify({ baseAudioFile, props: audioSignatureOf(props) });
       const scheduler = new AudioScheduler({
         audioContext,
-        baseAudioUrl: resolveUrl(VIDEO_FILE),
+        baseAudioUrl: resolveUrl(baseAudioFileRef.current),
         timeline: initialTimeline,
         bgm: props.bgm,
         fps,

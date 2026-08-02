@@ -24,7 +24,7 @@ function makeFixture(): string {
   put("materials/broll.mp4"); put("backups/20260101-000000/cutplan.json");
   // generated 固定名(消えるべき)
   put("manifest.json"); put("cuts.auto.json"); put("whisper-out.json"); put("whisper-out.srt");
-  put("proxy.mp4"); put("proxy.key.json"); put("cut.mp4"); put("cut.keeps.json");
+  put("proxy.mp4"); put("proxy.m4a"); put("proxy.key.json"); put("cut.mp4"); put("cut.keeps.json");
   put("render.props.json"); put("render.key.json"); put("preview.mp4");
   put("effect-check.json"); put("style-check.json");
   // generated ログ・使い捨て下書き(logs-only 対象)
@@ -61,7 +61,7 @@ test("planClean: 選ぶのは全て generated、editable/approval/other は1件�
     }
     const picked = new Set(plan.targets.map((t) => t.relPath));
     // 消えるべき代表が入っている
-    for (const g of ["cuts.auto.json", "proxy.mp4", "cut.mp4",
+    for (const g of ["cuts.auto.json", "proxy.mp4", "proxy.m4a", "cut.mp4",
       "cut.highlight-1.mp4", "frames", "shorts", "materials.probe",
       "av.probe", "review.probe", "hyperframe.probe", "hyperframe-freeze.suggested",
       "whisper-out.json", "preview.mp4", "plan.first.json", "plan-effects.first.json"]) {
@@ -93,7 +93,7 @@ test("executeClean: generated だけ消え、editable/approval/other/素材は�
       assert.ok(existsSync(join(dir, keep)), `${keep} が消えた`);
     }
     // 消えるべき
-    for (const gone of ["proxy.mp4", "cut.mp4", "cut.highlight-1.mp4",
+    for (const gone of ["proxy.mp4", "proxy.m4a", "cut.mp4", "cut.highlight-1.mp4",
       "frames", "shorts", "materials.probe", "av.probe", "review.probe",
       "hyperframe.probe", "hyperframe-freeze.suggested", "whisper-out.json", "preview.mp4",
       "effect-check.json", "plan.first.json", "plan-effects.first.json", ".remotion"]) {
@@ -108,7 +108,7 @@ test("planClean --cache-only: 重いキャッシュだけ選び、軽い中間�
   const dir = makeFixture();
   try {
     const picked = new Set(planClean(dir, { cacheOnly: true }).targets.map((t) => t.relPath));
-    for (const cache of ["proxy.mp4", "proxy.key.json",
+    for (const cache of ["proxy.mp4", "proxy.m4a", "proxy.key.json",
       "cut.mp4", "cut.keeps.json",
       "preview.mp4", "render.props.json", "render.key.json", "cut.highlight-1.mp4",
       "render.highlight-1.props.json", "frames", "shorts",
@@ -140,7 +140,7 @@ test("planClean --logs-only: ログ・下書き・検品結果だけ選び、レ
     for (const keep of ["cut.mp4", "cut.keeps.json",
       "render.props.json", "render.key.json",
       "cut.highlight-1.mp4", "render.highlight-1.key.json",
-      "proxy.mp4", "proxy.key.json", "whisper-out.json", "whisper-out.srt",
+      "proxy.mp4", "proxy.m4a", "proxy.key.json", "whisper-out.json", "whisper-out.srt",
       "transcript.system.json", "manifest.json", "shorts", "materials.probe", "av.probe",
       "hyperframe.probe", "plan.first.json", "plan-effects.first.json", ".remotion"]) {
       assert.ok(!picked.has(keep), `${keep} を logs-only で消そうとした`);

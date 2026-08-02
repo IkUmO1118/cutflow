@@ -96,10 +96,12 @@ export interface ProjectData {
   /** cutplan の無音カット記録の reason 文言(config.detect.silenceCutReason の
    * 解決値)。スクリプトタブが cut 記録を無音証拠として数える一致判定用 */
   silenceCutReason: string;
-  /** proxy.mp4(元収録の軽量プロキシ。エディタの再生ソース)があるか。
+  /** proxy.mp4 / proxy.m4a(元収録の軽量プロキシ。エディタの再生ソース)のファイル名 */
+  proxyFile: "proxy.mp4" | "proxy.m4a";
+  /** proxy.*(元収録の軽量プロキシ。エディタの再生ソース)があるか。
    * 無ければ POST /api/proxy で生成する(収録ごとに1回) */
   proxyExists: boolean;
-  /** proxy.mp4 が焼き込み済みの設定(ラウドネス・システム音声・プレビュー幅・
+  /** proxy.* が焼き込み済みの設定(ラウドネス・システム音声・プレビュー幅・
    * エンコーダ)か元収録ファイルと食い違っている(古い)か。proxyExists が
    * false のときは常に false(未生成であって陳腐化ではない) */
   proxyStale: boolean;
@@ -194,6 +196,12 @@ export interface AiFrameRequest {
 
 export interface AiFrameResponse {
   shots: FrameShot[];
+}
+
+export interface ProxyResponse {
+  ok: true;
+  path: string;
+  proxyFile: ProjectData["proxyFile"];
 }
 
 /** POST /api/draft のボディ = .editor-draft.json の中身。未保存の編集を

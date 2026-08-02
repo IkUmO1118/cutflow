@@ -2,11 +2,15 @@ import type { Config } from "./config.ts";
 import { proxyGopFrames, resolveVideoEncoder, videoEncodeArgs } from "./videoEncode.ts";
 import type { ColorTags } from "./colorTags.ts";
 
+export function proxyFileName(manifest: { layout?: string }): "proxy.mp4" | "proxy.m4a" {
+  return manifest.layout === "stills" ? "proxy.m4a" : "proxy.mp4";
+}
+
 /**
- * proxy.mp4 の陳腐化を決めるキャッシュキー(proxy.key.json の内容)。
- * proxy.mp4 に焼き込まれる設定(ラウドネス・システム音声・ノイズ除去・
+ * proxy.* の陳腐化を決めるキャッシュキー(proxy.key.json の内容)。
+ * proxy.* に焼き込まれる設定(ラウドネス・システム音声・ノイズ除去・
  * プレビュー幅・エンコード引数)か元収録ファイルが前回の生成から変われば、
- * proxy.mp4 は古い(陳腐化した)ことになる。cutCache.ts と同じ
+ * proxy.* は古い(陳腐化した)ことになる。cutCache.ts と同じ
  * 「JSON.stringify 一致」判定。videoArgs は解決済みの ffmpeg 引数の全体で、
  * コード側の品質・GOP 定数が変わったときも既存プロキシを自動再生成させる
  * (videoEncoder はその一部と重複するが、可読性のため残す)
@@ -50,7 +54,7 @@ export function buildProxyCacheKey(args: {
   };
 }
 
-/** 2つのキャッシュキーが一致するか(一致すれば proxy.mp4 は古くない) */
+/** 2つのキャッシュキーが一致するか(一致すれば proxy.* は古くない) */
 export function proxyCacheKeyEquals(a: ProxyCacheKey, b: ProxyCacheKey): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }

@@ -4,7 +4,7 @@
 // proxy.mp4 は古い(再生成が要る)と判定されること。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildProxyCacheKey, proxyCacheKeyEquals } from "../src/lib/proxyCache.ts";
+import { buildProxyCacheKey, proxyCacheKeyEquals, proxyFileName } from "../src/lib/proxyCache.ts";
 import { PROXY_GOP_FRAMES, videoEncodeArgs } from "../src/lib/videoEncode.ts";
 import type { Config } from "../src/lib/config.ts";
 
@@ -135,4 +135,10 @@ test("proxyCacheKeyEquals: denoise.mic / noiseFloorDb が変わると不一致",
     cfg: { ...CFG, render: { ...CFG.render, denoise: { mic: true, noiseFloorDb: -18 } } } as Config,
   });
   assert.ok(!proxyCacheKeyEquals(micOn, floorChanged));
+});
+
+test("proxyFileName: stills は音声専用 proxy.m4a、それ以外は proxy.mp4", () => {
+  assert.equal(proxyFileName({ layout: "stills" }), "proxy.m4a");
+  assert.equal(proxyFileName({ layout: "plain" }), "proxy.mp4");
+  assert.equal(proxyFileName({}), "proxy.mp4");
 });

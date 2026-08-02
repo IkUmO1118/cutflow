@@ -74,8 +74,8 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
   `preview-cut.mp4` / `preview-cut.key.json`(レガシー。エディタの
   連続プレビュー用に keep を焼き込んだ動画とそのキャッシュキー。
   **FrameWright はもう作らない**が、既存収録に残っているので `clean` が
-  回収する) / `proxy.mp4` /
-  `proxy.key.json`(proxy.mp4 の陳腐化を判定するキャッシュキー。ラウドネス・
+  回収する) / `proxy.mp4` / `proxy.m4a` /
+  `proxy.key.json`(proxy.* の陳腐化を判定するキャッシュキー。ラウドネス・
   システム音声・プレビュー幅・エンコーダ・元収録ファイルが前回の生成と
   同じなら陳腐化なしと判定する。削除すれば陳腐化判定が効かなくなる=常に
   「陳腐化なし」扱い) / `frames/*.png` / `frames/props.json` /

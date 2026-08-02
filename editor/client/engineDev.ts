@@ -24,12 +24,11 @@ interface ProjectData {
   dirFiles: string[];
   bgm: Bgm | null;
   bgmFile: string | null;
+  proxyFile: "proxy.mp4" | "proxy.m4a";
   silences: { start: number; end: number }[] | null;
   renderCfg: Config["render"];
   output: { w: number; h: number };
 }
-
-const VIDEO_FILE = "media/proxy.mp4";
 
 /** sourceId → editor サーバの配信 URL。videoFile("media/proxy.mp4")は
  * それ自体が既に /media/ ルーティングの URL セグメントなのでそのまま使う。
@@ -37,7 +36,7 @@ const VIDEO_FILE = "media/proxy.mp4";
  * editor/client/App.tsx と同じ変換(「素材はローカルサーバーの /media/
  * 経由で配信される」)で /media/ を足す */
 function resolveUrl(sourceId: string): string {
-  return sourceId === VIDEO_FILE ? `/${sourceId}` : `/media/${sourceId}`;
+  return sourceId.startsWith("media/") ? `/${sourceId}` : `/media/${sourceId}`;
 }
 
 function sourceTimeOf(item: ExternalItem): number {
@@ -55,6 +54,8 @@ async function main(): Promise<void> {
   const res = await fetch("/api/project");
   if (!res.ok) throw new Error(`/api/project failed: ${res.status}`);
   const proj = (await res.json()) as ProjectData;
+  const videoFile = proj.manifest.layout === "stills" ? "" : "media/proxy.mp4";
+  const baseAudioFile = `media/${proj.proxyFile}`;
 
   const keeps = proj.cutplan.segments.filter((s) => s.action === "keep");
   const timeline = buildTimeline(keeps);
@@ -68,7 +69,7 @@ async function main(): Promise<void> {
     renderCfg: proj.renderCfg,
     width: proj.output.w,
     height: proj.output.h,
-    videoFile: VIDEO_FILE,
+    videoFile,
     videoIsSource: true,
     bgm: proj.bgm,
     bgmFallbackFile: proj.bgmFile,
@@ -91,7 +92,7 @@ async function main(): Promise<void> {
   const audioContext = new AudioContext();
   const audioScheduler = new AudioScheduler({
     audioContext,
-    baseAudioUrl: resolveUrl(VIDEO_FILE),
+    baseAudioUrl: resolveUrl(baseAudioFile),
     timeline,
     bgm: props.bgm,
     fps: props.fps,
