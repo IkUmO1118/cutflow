@@ -98,7 +98,8 @@ whisper も LLM も呼ばない。つまり「`run` を打たないとエディ�
 ```
 ┌────────────────────────────────────────────────────────────┐
 │ プロジェクト(= 1フォルダ = 1出力)                          │
-│   canvas    : 出力サイズ + ベース映像のパネル配置(作成時固定)│
+│   canvas    : 出力サイズ(作成時固定)                        │
+│   baseLayout: ベース映像の置き方(作成時固定。P6 で canvas から分離)│
 │   base media: master clock。1本(動画 or 音声)              │
 │   overlays / inserts / transcript / bgm / cutplan            │
 └────────────────────────────────────────────────────────────┘
@@ -139,6 +140,9 @@ whisper も LLM も呼ばない。つまり「`run` を打たないとエディ�
 | P3 | `2026-08-02-editor-first-p3-run-redefinition-design.md` | COMPLETE / VERIFIED | `run` = 「AI に初版を作らせる」+ bootstrap マーカー |
 | P4 | `2026-08-02-editor-first-p4-insert-clips-design.md` | COMPLETE / VERIFIED | inserts の移動・順序・クリップ表示 |
 | P5 | `2026-08-02-editor-first-p5-launcher-and-derive-design.md` | COMPLETE / VERIFIED | ランチャー + `derive`(shorts の後継動線) |
+| P6 | `2026-08-02-editor-first-p6-canvas-two-axis-design.md` | IMPLEMENTED | キャンバスの2軸分離(サイズ / ベース映像の置き方) |
+| P7 | `2026-08-03-editor-first-p7-obs-canvas-cost-design.md` | IMPLEMENTED(④(a) は §P8 §1 の理由で打ち切り) | obs-canvas のコスト整理(ガード・露出縮小・高速パス計測) |
+| P8 | `2026-08-03-editor-first-p8-burnwipe-removal-design.md` | IMPLEMENTED | ワイプ焼き込み高速パスの削除 |
 
 各段の概要は以下。**詳細は必ず plan を正とする**(以下は要約)。
 
@@ -264,6 +268,12 @@ whisper も LLM も呼ばない。つまり「`run` を打たないとエディ�
    **P0 はコマンドとファイル分類の両方を変えるので `AGENTS_CONTRACT.md` 必須。**
 
 ## 9. 意思決定ログ
+
+- **2026-08-03(P8 IMPLEMENTED)**: ワイプ焼き込み高速パスを削除。`render.design.enabled`
+  と cursor auto zoom の常用で発火条件を満たす実収録が構造的に無く、今後の
+  canvas/baseLayout 変更のたびに未使用経路へガードを足す維持費だけが残っていたため。
+  `cut.mp4` の通常キャッシュは維持し、旧焼き込みキーは deep-equal のキー差で
+  自動的に不一致になる。
 
 - **2026-08-02(P5 COMPLETE / VERIFIED)**: 引数なし editor のランチャー、安全な
   `/p/<name>/` 束縛、一覧/空project作成、CLI/API共通 `derive`、symlink→hardlink→copy、

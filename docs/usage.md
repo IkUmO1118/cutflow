@@ -55,24 +55,45 @@ FrameWright は「全部AI任せ」のツールではない。**まずエディ�
 
 ## 出力キャンバス
 
-キャンバスはプロジェクト作成時に固定する出力解像度とベース映像配置のセットです。
+キャンバスはプロジェクト作成時に固定する出力解像度です。ベース映像の配置は
+別軸の `baseLayout` として固定します。
 `ingest` / `editor` の初回実行、または manifest の無い旧形式フォルダでの
-`run` に `--canvas <preset>` を付けます。省略時は
+`run` に `--canvas <preset>` と `--base-layout <kind>` を付けます。省略時は
 `config.yaml` の `render.canvas`、それも省略時は `landscape` で、従来どおり
-`screenRegion` の解像度を使います。
+`screenRegion` の解像度を使います。`baseLayout` は省略時 `auto` です。
 
-| preset | 出力 | ベース配置 |
+| canvas | 出力 |
 |---|---:|---|
-| `landscape` | `screenRegion` と同じ | 従来の全面画面+ワイプ |
-| `portrait` | 1080×1920 | カメラ上/画面下+テロップ帯 |
-| `portrait-cover` | 1080×1920 | カメラ全面 |
-| `portrait-screen` | 1080×1920 | 画面 contain+下部テロップ帯 |
-| `square` | 1080×1080 | 画面 contain+下部テロップ帯 |
-| `portrait-4x5` | 1080×1350 | 画面 contain+下部テロップ帯 |
+| `landscape` | `screenRegion` と同じ |
+| `landscape-hd` | 1920×1080 |
+| `landscape-4k` | 3840×2160 |
+| `portrait` | 1080×1920 |
+| `portrait-4k` | 2160×3840 |
+| `square` | 1080×1080 |
+| `portrait-4x5` | 1080×1350 |
+| `cinema` | 2560×1080 |
+| `classic` | 1440×1080 |
 
-`manifest.json` の `canvas` は ingest が書く作成時メタデータで、人間や AI の
-編集対象ではありません。テロップや演出の座標は出力 px で保存されるため、
-エディタでは現在名を読み取り専用で表示し、後からの変更はサポートしません。
+| baseLayout | ベース配置 |
+|---|---|
+| `auto` | `landscape` では従来の全面画面+ワイプ、それ以外はカメラ有りなら上下、カメラ無しなら画面のみ |
+| `screen` | 画面 contain+下部テロップ帯 |
+| `camera` | カメラ全面 |
+| `stack` | カメラ上/画面下+下部テロップ帯 |
+
+`camera` / `stack` は camera 領域を持つ `obs-canvas` 収録でだけ有効です。
+通常動画(`plain`)や音声+静止画(`stills`)では指定できません。
+エディタの新規作成 UI は `baseLayout` を表示しないため、`auto` 以外が必要な場合は
+CLI の `--base-layout camera` / `--base-layout stack` で作成してください。
+
+`manifest.json` の `canvas` / `baseLayout` は ingest が書く作成時メタデータで、
+人間や AI の編集対象ではありません。テロップや演出の座標は出力 px で保存されるため、
+エディタでは現在値を読み取り専用で表示し、後からの変更はサポートしません。
+
+旧 `portrait-cover` / `portrait-screen` は読み込み互換のため受け付けますが、
+新規 UI には出しません。`square` / `portrait-4x5` / `portrait-screen` 相当は
+P6 以降、比率から導出する共通レイアウトになり、テロップ比率と `fontScale` が
+旧プリセット表から変わります。
 
 ## detect の較正と無音圧縮 preset
 
