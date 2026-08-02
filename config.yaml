@@ -483,8 +483,8 @@ ai:
       adapter: openai
       model: gpt-4.1
   routes:
-    text: claude-code
-    structured: claude-code
+    text: codex
+    structured: codex
     vision: cloud-vision
   # 旧形式(後方互換):
   # provider: codex
