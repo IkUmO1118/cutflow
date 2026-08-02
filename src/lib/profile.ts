@@ -1,6 +1,6 @@
-// 出力プロファイル(サイズ+ベース映像のパネル配置+字幕既定)の組み込み定数。
+// 出力キャンバス(サイズ+ベース映像のパネル配置+字幕既定)の組み込み定数。
 // config.yaml には追加しない(D1: プリセットは閉じた組み込み。設定爆発の回避)。
-import type { Region } from "../types.ts";
+import type { Manifest, Region } from "../types.ts";
 
 /** レイアウトを構成する1パネル(ベース映像の一部)。座標系は overlays の
  * rect と同じ出力px+Region+fit */
@@ -23,12 +23,9 @@ export interface Profile {
   };
 }
 
-// 幾何は仮案(実装時にプレビューで調整)。default の width/height は
-// resolveProfile が defaultSize(manifest.video.screenRegion)で上書きする
-// (ここはプレースホルダ)
-export const PROFILES: Record<string, Profile> = {
-  default: { width: 1920, height: 1080 }, // layout 無し = 現行ワイプ経路
-  vertical: {
+export const CANVAS_PRESETS: Record<string, Profile> = {
+  landscape: { width: 1920, height: 1080 }, // 寸法は resolveCanvas が screenRegion で上書き
+  portrait: {
     width: 1080,
     height: 1920,
     layout: {
@@ -39,7 +36,7 @@ export const PROFILES: Record<string, Profile> = {
       caption: { x: 540, y: 1560, anchor: "center", fontScale: 1.6 },
     },
   },
-  "vertical-cover": {
+  "portrait-cover": {
     width: 1080,
     height: 1920,
     layout: {
@@ -47,7 +44,7 @@ export const PROFILES: Record<string, Profile> = {
       caption: { x: 540, y: 1500, anchor: "center", fontScale: 1.6 },
     },
   },
-  "vertical-screen": {
+  "portrait-screen": {
     width: 1080,
     height: 1920,
     layout: {
@@ -59,21 +56,60 @@ export const PROFILES: Record<string, Profile> = {
       caption: { x: 540, y: 1680, anchor: "center", fontScale: 1.6 },
     },
   },
+  square: {
+    width: 1080,
+    height: 1080,
+    layout: {
+      panels: [{ source: "screen", rect: { x: 0, y: 0, w: 1080, h: 864 }, fit: "contain" }],
+      caption: { x: 540, y: 972, anchor: "center", fontScale: 1.3 },
+    },
+  },
+  "portrait-4x5": {
+    width: 1080,
+    height: 1350,
+    layout: {
+      panels: [{ source: "screen", rect: { x: 0, y: 0, w: 1080, h: 1080 }, fit: "contain" }],
+      caption: { x: 540, y: 1215, anchor: "center", fontScale: 1.4 },
+    },
+  },
 };
 
+export const isCanvasPreset = (name: string): boolean =>
+  Object.prototype.hasOwnProperty.call(CANVAS_PRESETS, name);
+
 /**
- * プロファイル名から Profile を解決する。省略/"default" は
- * defaultSize(呼び出し側が渡す出力解像度。通常 manifest.video.screenRegion)
- * のサイズ(layout 無し = 現行ワイプ経路)。縦プリセットは defaultSize を
- * 無視して固定サイズを返す。未知の名前は throw(バリデーションは呼び出し側で
- * 先に済ませる想定)
+ * プロジェクトのキャンバスを解決する唯一の関数。canvas 省略/
+ * landscape は screenRegion の寸法(layout 無し=従来のワイプ経路)。
+ * その他は固定サイズとパネル配置を返し、未知名は throw する。
  */
-export function resolveProfile(defaultSize: { w: number; h: number }, name?: string): Profile {
-  const key = name ?? "default";
-  if (key === "default") {
-    return { width: defaultSize.w, height: defaultSize.h };
+export function resolveCanvas(manifest: Manifest): Profile {
+  const key = manifest.canvas ?? "landscape";
+  if (key === "landscape") {
+    return { width: manifest.video.screenRegion.w, height: manifest.video.screenRegion.h };
   }
-  const profile = PROFILES[key];
-  if (!profile) throw new Error(`未知の profile 名です: ${key}`);
+  if (!isCanvasPreset(key)) throw new Error(`未知の canvas 名です: ${key}`);
+  const profile = CANVAS_PRESETS[key];
   return profile;
+}
+
+export function outputSize(manifest: Manifest): { w: number; h: number } {
+  const canvas = resolveCanvas(manifest);
+  return { w: canvas.width, h: canvas.height };
+}
+
+/** screen ソースがキャンバス上で占める実ピクセル矩形。contain/cover の
+ * レターボックス/クロップ分も含む。screen の無い preset は undefined。 */
+export function screenContentRect(manifest: Manifest): Region | undefined {
+  const canvas = resolveCanvas(manifest);
+  const panel = canvas.layout?.panels.find((p) => p.source === "screen");
+  if (canvas.layout && !panel) return undefined;
+  const target = panel?.rect ?? { x: 0, y: 0, w: canvas.width, h: canvas.height };
+  const source = manifest.video.screenRegion;
+  const fit = panel?.fit ?? "contain";
+  const scale = fit === "cover"
+    ? Math.max(target.w / source.w, target.h / source.h)
+    : Math.min(target.w / source.w, target.h / source.h);
+  const w = source.w * scale;
+  const h = source.h * scale;
+  return { x: target.x + (target.w - w) / 2, y: target.y + (target.h - h) / 2, w, h };
 }

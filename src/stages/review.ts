@@ -39,6 +39,7 @@ import {
 } from "../lib/timeline.ts";
 import { validateDocs } from "./validate.ts";
 import type { Config } from "../lib/config.ts";
+import { outputSize } from "../lib/profile.ts";
 import type { DeterministicReviewObservation, SideObservation } from "../lib/reviewObservation.ts";
 import type { RenderProps } from "../lib/renderPropsTypes.ts";
 import type { Manifest, Overlays } from "../types.ts";
@@ -362,7 +363,7 @@ async function renderReviewStills(args: {
       ...(target.after.note ? { note: target.after.note } : {}),
     };
     if (target.frame.ocr) {
-      const region = { x: 0, y: 0, w: beforeCtx.manifest.video.screenRegion.w, h: beforeCtx.manifest.video.screenRegion.h };
+      const region = { x: 0, y: 0, ...outputSize(beforeCtx.manifest) };
       const beforeOcr = await runOcr(target.beforeFile, region, { warn: (message) => warnings.push(message) });
       const afterOcr = await runOcr(target.afterFile, region, { warn: (message) => warnings.push(message) });
       if (beforeOcr) {
@@ -694,7 +695,7 @@ async function renderHookOcr(
   },
 ): Promise<Pick<ReviewStillSide, "ocrFile">> {
   const ctx = side === "before" ? args.beforeCtx : args.afterCtx;
-  const region = { x: 0, y: 0, w: ctx.manifest.video.screenRegion.w, h: ctx.manifest.video.screenRegion.h };
+  const region = { x: 0, y: 0, ...outputSize(ctx.manifest) };
   const result = await args.runOcr(imageFile, region, { warn: (message) => args.warnings.push(message) });
   if (!result) return {};
   const file = join(args.outDir, "ocr", `${side}-out${outSec.toFixed(2)}s.json`);

@@ -1475,12 +1475,15 @@ export const ScriptPanel = ({
  * 解像度・アスペクト比・fps は収録で決まるため読み取り専用で表示する。 */
 export const SettingsPanel = ({
   projectName,
+  canvas,
   output,
   fps,
   onOpenFullSettings,
 }: {
   /** プロジェクト名(収録フォルダ名) */
   projectName: string;
+  /** manifest の作成時固定キャンバス名 */
+  canvas: string;
   /** 最終レンダー出力の解像度(px) */
   output: { w: number; h: number };
   /** 合成 fps(整数) */
@@ -1493,6 +1496,10 @@ export const SettingsPanel = ({
   const ratio = g > 0 ? `${Math.round(output.w / g)}:${Math.round(output.h / g)}` : "—";
   return (
     <div className="panelBody ocSettingsPanel">
+      <div className="ocSettingsRow">
+        <span className="ocSettingsLabel">キャンバス</span>
+        <span className="ocSettingsValue mono">{canvas}</span>
+      </div>
       <div className="ocSettingsRow">
         <span className="ocSettingsLabel">プロジェクト名</span>
         <span className="ocSettingsValue" title={projectName}>{projectName}</span>
@@ -1510,7 +1517,7 @@ export const SettingsPanel = ({
         <span className="ocSettingsValue mono">{fps} fps</span>
       </div>
       <p className="ocPaneNote">
-        解像度・アスペクト比・fps は収録(録画)で決まり、本編では変更できません。
+        キャンバスと fps は作成時に固定され、本編では変更できません。
       </p>
       <div className="ocPaneStack">
         <Button variant="outline" size="sm" onClick={onOpenFullSettings}>詳細設定を開く…</Button>

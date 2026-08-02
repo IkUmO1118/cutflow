@@ -1,8 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { probe, extractAudio, parseFps } from "../lib/ffmpeg.ts";
-import type { Config } from "../lib/config.ts";
+import { DEFAULT_CANVAS, type Config } from "../lib/config.ts";
 import type { Manifest } from "../types.ts";
+import { isCanvasPreset } from "../lib/profile.ts";
 
 /**
  * 実効レイアウトを決める。優先順: 明示引数(CLI --layout 等) > config
@@ -207,6 +208,7 @@ export async function ingest(
   cfg: Config,
   layout?: "obs-canvas" | "plain" | "auto" | "stills",
   tracks?: { micTrack?: number; systemTrack?: number },
+  canvas?: string,
 ): Promise<Manifest> {
   const sourcePath = join(dir, sourceFile);
   const info = await probe(sourcePath);
@@ -261,6 +263,10 @@ export async function ingest(
     height,
     cfg,
   );
+  const effectiveCanvas = canvas ?? cfg.render.canvas ?? DEFAULT_CANVAS;
+  if (!isCanvasPreset(effectiveCanvas)) {
+    throw new Error(`未知の canvas 名です: ${effectiveCanvas}`);
+  }
 
   const videoInfo =
     effectiveLayout === "plain" || effectiveLayout === "stills"
@@ -283,6 +289,7 @@ export async function ingest(
     source: sourceFile,
     durationSec: parseFloat(info.format.duration),
     layout: effectiveLayout,
+    ...(effectiveCanvas !== DEFAULT_CANVAS ? { canvas: effectiveCanvas } : {}),
     video: videoInfo,
     audio: {
       micStream: micIndex,

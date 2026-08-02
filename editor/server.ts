@@ -49,6 +49,7 @@ import type { DisplayVerdict, VideoCodecFacts } from "../src/lib/mediaCodec.ts";
 import { ensureIds, hasAnyId, ID_PREFIX, usedIdsOf } from "../src/lib/ids.ts";
 import { mergeBodyOverDisk } from "../src/lib/applyEdits.ts";
 import { bootstrapProjectWithLayout } from "../src/stages/bootstrap.ts";
+import { outputSize, resolveCanvas } from "../src/lib/profile.ts";
 import { EditorAiError, proposeEditorAi, refineEditorAi } from "../src/stages/editorAi.ts";
 import type { AiProposeResponse as EditorAiStageProposeResponse } from "../src/stages/editorAi.ts";
 import { reviewSpecOfProposalReview } from "../src/lib/editorAiReview.ts";
@@ -136,11 +137,12 @@ export async function startEditor(
   /** 設定画面(POST /api/config)が書き戻す config.yaml のパス */
   cfgPath: string,
   layout?: "obs-canvas" | "plain" | "auto" | "stills",
+  canvas?: string,
 ): Promise<void> {
   // 動画ファイルだけの収録フォルダでも開けるように、必須3ファイルのうち
   // 無いものだけ決定的に補う(既存ファイルには触れない)。loadProject の
   // 3点チェックは最終防壁として残す
-  await bootstrapProjectWithLayout(dir, cfg, layout);
+  await bootstrapProjectWithLayout(dir, cfg, layout, canvas);
   await prepareEditorDesignAssets(dir, cfg);
 
   const editorDir = dirname(fileURLToPath(import.meta.url));
@@ -1525,7 +1527,8 @@ export function loadProject(dir: string, cfg: Config): ProjectData {
     ...editorDesignAssets(dir, cfg, manifest, designRenderCfg),
     previewCfg: { width: cfg.preview.width, videoEncoder: cfg.preview.videoEncoder, engine: cfg.preview.engine },
     editorCfg: resolvedEditorCfg(cfg, DEFAULT_MAX_UPLOAD_MB),
-    output: { w: manifest.video.screenRegion.w, h: manifest.video.screenRegion.h },
+    output: outputSize(manifest),
+    canvasProfile: resolveCanvas(manifest),
     hasCamera: hasCamera(manifest),
     draft,
     planPerception: resolvePerceptionStatus(cfg),
@@ -1548,8 +1551,7 @@ function resolvedEditorDesign(
     readFileSync(join(dir, "manifest.json"), "utf8"),
   ) as Manifest;
   const currentRenderCfg = renderCfg ?? renderCfgWithDesign(dir, cfg);
-  const width = currentManifest.video.screenRegion.w;
-  const height = currentManifest.video.screenRegion.h;
+  const { w: width, h: height } = outputSize(currentManifest);
   const design = resolveDesign(currentRenderCfg.design, width, height, hasCamera(currentManifest));
   return design ? { dir, design, width, height } : undefined;
 }

@@ -1326,6 +1326,7 @@ export const App = () => {
       renderCfg: proj.renderCfg,
       width: proj.output.w,
       height: proj.output.h,
+      profile: proj.canvasProfile,
       // fresh な連続ベイクはカット後時刻で1本として再生する。欠落・陳腐・
       // keep 編集直後は source proxy へ即時フォールバックする。canvas
       // プレビューは bake 自体が起動しない(前段のガード)ので常に生
@@ -1473,6 +1474,7 @@ export const App = () => {
       renderCfg: proj.renderCfg,
       width: proj.output.w,
       height: proj.output.h,
+      profile: proj.canvasProfile,
       videoFile: videoFileForPreview(proj.manifest),
       videoIsSource: true,
       bgm: merged.bgm,
@@ -5834,6 +5836,7 @@ export const App = () => {
                 <PanelHeader title="設定" />
                 <SettingsPanel
                   projectName={proj.dir.replace(/\/+$/, "").split("/").pop() ?? proj.dir}
+                  canvas={proj.manifest.canvas ?? "landscape"}
                   output={proj.output}
                   fps={manifestCompositionFps(proj.manifest)}
                   onOpenFullSettings={openSettings}

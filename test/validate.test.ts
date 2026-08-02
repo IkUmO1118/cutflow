@@ -424,6 +424,15 @@ const manifestWithScreen = {
   },
 };
 
+test("manifest.canvas: 未知名は明示的なエラー", () => {
+  const r = validateDocs(DIR, baseDocs({
+    manifest: { ...manifestWithScreen, canvas: "not-a-canvas" },
+  }));
+  assert.ok(r.errors.some((e) =>
+    e.file === "manifest.json" && e.where === "canvas" && e.message.includes("未知の canvas 名"),
+  ));
+});
+
 test("effect reasonId不在は既存のwarn/errorを増やさない(sticky off)", () => {
   const overlays = {
     zooms: [{ start: 1, end: 5, rect: { x: 0, y: 0, w: 960, h: 540 } }],
@@ -1490,18 +1499,6 @@ test("thumbnail: style は transcript と同じ検査を共有する(fontWeight 
   }));
   assert.ok(r.errors.some((e) => e.message.includes("fontWeight")));
 });
-
-/* -------- shorts.json -------- */
-
-function validShort(over: Record<string, unknown> = {}) {
-  return {
-    name: "hook-mistake",
-    profile: "vertical",
-    approved: false,
-    ranges: [{ start: 10, end: 20 }],
-    ...over,
-  };
-}
 
 /* ---------------- fs 版 validate(dir): frames 鮮度警告(stale-PNG 対策) ---------------- */
 // docs/plans/2026-07-07-frames-server-design.md 課題1。frames/index.json

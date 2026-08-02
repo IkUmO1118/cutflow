@@ -29,7 +29,7 @@ import {
   materialFilesOf,
   renderCacheKeyEquals,
 } from "../lib/renderKey.ts";
-import { resolveProfile } from "../lib/profile.ts";
+import { resolveCanvas } from "../lib/profile.ts";
 import { buildRenderProps } from "../lib/renderProps.ts";
 import { renderCfgWithDesign } from "../lib/designAsset.ts";
 import { prepareDesignAssetsForProps } from "../lib/designStill.ts";
@@ -86,6 +86,9 @@ function rectsIntersect(a: Region, b: Region): boolean {
  */
 export function canBurnWipe(manifest: Manifest, overlays: Overlays, cfg: Config): boolean {
   if (!hasCamera(manifest)) return false;
+  // 非 landscape キャンバスは profile.layout でパネル合成する。従来の
+  // screen 全面+右下 wipe を cut.mp4 に焼く高速経路とは幾何が異なる。
+  if (manifest.canvas !== undefined && manifest.canvas !== "landscape") return false;
   // デザイン(背景 + 画面パネル + カメラ円)有効時は、ベースの幾何が
   // 「画面全面 + 右下 flush ワイプ」ではないので焼き込めない(Remotion 側の
   // design描画か、静的assetを使うdesign FAST基底で合成する。§src/lib/design.ts)
@@ -250,7 +253,7 @@ async function runRenderMain(
       }))
     : null;
 
-  const profile = resolveProfile(manifest.video.screenRegion, "default");
+  const profile = resolveCanvas(manifest);
   let props = buildRenderProps({
     manifest,
     keeps,
@@ -259,6 +262,7 @@ async function runRenderMain(
     renderCfg: renderCfgWithDesign(dir, cfg),
     width: profile.width,
     height: profile.height,
+    profile,
     videoFile: "cut.mp4",
     bgm,
     bgmFallbackFile: bgmFile,

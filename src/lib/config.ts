@@ -594,6 +594,8 @@ export interface Config {
     };
   };
   render: {
+    /** ingest 時の既定キャンバス。--canvas が優先。省略時 landscape。 */
+    canvas?: string;
     wipeWidthPx: number;
     wipeMarginPx: number;
     /** ワイプ全画面(wipeFull)の出入りの遷移時間(秒)。
@@ -1043,6 +1045,7 @@ export const DEFAULT_HYPERFRAME_CHECK_DEAD_ZONE_MAX_FRAC = 0.5;
 export const DEFAULT_HYPERFRAME_CHECK_ENTRY_MIN_ELEMENTS = 3;
 export const DEFAULT_HYPERFRAME_CHECK_ENTRY_EPSILON_FRAMES = 2;
 export const DEFAULT_HYPERFRAME_CHECK_USE_VLM = true;
+export const DEFAULT_CANVAS = "landscape";
 
 /** hyperframeCheck を既定値で解決する純関数。loadConfig は cfg.hyperframeCheck を
  *  書き換えない */

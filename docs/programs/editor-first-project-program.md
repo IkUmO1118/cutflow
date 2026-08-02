@@ -1,6 +1,6 @@
 # 編集器ファースト母艦 — 「収録1本のパイプライン」から「プロジェクトを開いて編集する」へ
 
-> 状態: **IN PROGRESS — P0 COMPLETE / VERIFIED**(2026-08-02 発足・ユーザー批准済み)。FrameWright の入口を
+> 状態: **IN PROGRESS — P0–P1 COMPLETE / VERIFIED**(2026-08-02 発足・ユーザー批准済み)。FrameWright の入口を
 > 「`run` を通したフォルダを後から覗く」から「**標準 NLE と同じくプロジェクトを
 > 開いて編集を始める**」へ作り替えること。あわせて **shorts 動線を削除**し、
 > その中に埋もれていた**キャンバス(出力サイズ)をプロジェクトの一級属性へ昇格**させる。
@@ -35,8 +35,8 @@ S0〜S5 が landing 済みで、本母艦はその上に立つ) /
 
 ## 0. 他エージェント向け: 現在地と次の一手
 
-- **現在地(2026-08-02)**: **P0(shorts 削除)は実装・独立検証済み**。
-  次は §5 の P1(canvas のプロジェクト昇格)へ進む。
+- **現在地(2026-08-02)**: **P0(shorts 削除)・P1(canvas のプロジェクト昇格)は
+  実装・独立検証済み**。次は §5 の P2(入口の編集器ファースト化)へ進む。
 - **絶対に飛ばしてはいけない前提**: sequence-time 母艦(S0〜S5)が landing 済みで
   あること。特に S3(映像なしプロジェクト)は本母艦の「音声+画像ベースの編集」が
   既に成立している根拠で、本母艦はそこへ**入口と UI を足すだけ**である。
@@ -133,8 +133,8 @@ whisper も LLM も呼ばない。つまり「`run` を打たないとエディ�
 
 | 段 | plan | 状態 | 出荷されるもの |
 |---|---|---|---|
-| P0 | `2026-08-02-editor-first-p0-shorts-removal-design.md` | PLANNED | shorts 削除(113ファイル) |
-| P1 | `2026-08-02-editor-first-p1-canvas-promotion-design.md` | PLANNED | キャンバスのプロジェクト昇格。9:16 が第一級に |
+| P0 | `2026-08-02-editor-first-p0-shorts-removal-design.md` | COMPLETE / VERIFIED | shorts 削除(113ファイル) |
+| P1 | `2026-08-02-editor-first-p1-canvas-promotion-design.md` | COMPLETE / VERIFIED | キャンバスのプロジェクト昇格。9:16 が第一級に |
 | P2 | `2026-08-02-editor-first-p2-entry-design.md` | PLANNED | 空フォルダで開く / ベースメディアを GUI で選ぶ |
 | P3 | `2026-08-02-editor-first-p3-run-redefinition-design.md` | PLANNED | `run` = 「AI に初版を作らせる」+ bootstrap マーカー |
 | P4 | `2026-08-02-editor-first-p4-insert-clips-design.md` | PLANNED | inserts の移動・順序・クリップ表示 |
@@ -174,6 +174,9 @@ whisper も LLM も呼ばない。つまり「`run` を打たないとエディ�
 **警告(exit 0)**で知らせる。FrameWright は勝手に消さない。
 
 ### P1 — キャンバスのプロジェクト昇格
+
+**状態: COMPLETE / VERIFIED(2026-08-02)。** 実装・判断・実測の詳細は
+`docs/plans/2026-08-02-editor-first-p1-canvas-promotion-design.md` §8。
 
 `PROFILES` を Short から切り離し、プロジェクトの一級属性にする。
 
@@ -250,6 +253,10 @@ whisper も LLM も呼ばない。つまり「`run` を打たないとエディ�
 
 ## 9. 意思決定ログ
 
+- **2026-08-02(P1 COMPLETE / VERIFIED)**: `manifest.canvas`、6プリセット、
+  `resolveCanvas` / `outputSize`、CLI/bootstrap/editor 配線を実装。canvas 省略時の
+  landscape は従来寸法を維持する。主担当の独立実測で typecheck、2692/2692 tests、
+  pixel 11/11、square 1080x1080 / 4:5 1080x1350 の実 frames と目視を確認した。
 - **2026-08-02(P0 COMPLETE / VERIFIED)**: shorts 専用の CLI・型・承認・render・
   MCP・editor・schema・prompt を削除。legacy `shorts.json` は内容を読まず警告だけを
   出し、削除しない。主担当の独立実測で typecheck、2691/2691 tests、pixel 11/11、

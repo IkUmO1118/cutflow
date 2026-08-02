@@ -47,6 +47,10 @@ test("canBurnWipe: camera あり・演出無しは true", () => {
   assert.equal(canBurnWipe(CAM, {} as Overlays, CFG), true);
 });
 
+test("canBurnWipe: 非 landscape canvas はパネル合成のため false", () => {
+  assert.equal(canBurnWipe({ ...CAM, canvas: "portrait" }, {} as Overlays, CFG), false);
+});
+
 test("canBurnWipe: plain(カメラ無し)は false", () => {
   assert.equal(canBurnWipe(PLAIN, {} as Overlays, CFG), false);
 });

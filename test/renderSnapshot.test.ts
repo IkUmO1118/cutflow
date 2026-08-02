@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PROFILES } from "../src/lib/profile.ts";
 import {
   buildSnapshotRenderProps,
   readEditSnapshot,

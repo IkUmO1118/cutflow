@@ -27,6 +27,7 @@ import { editorLogFilePath, liveEditor, startDetachedEditor, stopEditor } from "
 import { setLogLevel } from "./lib/obs.ts";
 import type { LogLevel } from "./lib/obs.ts";
 import { timed } from "./lib/timing.ts";
+import { CANVAS_PRESETS, isCanvasPreset } from "./lib/profile.ts";
 import { findSource } from "./lib/findSource.ts";
 import { ingest } from "./stages/ingest.ts";
 import { transcribe } from "./stages/transcribe.ts";
@@ -183,6 +184,12 @@ function parseLayoutOpt(v: string | undefined): "obs-canvas" | "plain" | "auto" 
   if (v === undefined) return undefined;
   if (v === "obs-canvas" || v === "plain" || v === "auto" || v === "stills") return v;
   throw new Error(`--layout の値が不正です: ${v}(plain|obs-canvas|auto|stills のいずれか)`);
+}
+
+function parseCanvasOpt(v: string | undefined): string | undefined {
+  if (v === undefined) return undefined;
+  if (isCanvasPreset(v)) return v;
+  throw new Error(`--canvas の値が不正です: ${v}(${Object.keys(CANVAS_PRESETS).join("|")} のいずれか)`);
 }
 
 /** --mic-track / --system-track を検査して数値へ。未指定は undefined。
@@ -420,14 +427,16 @@ program
     "--layout <layout>",
     "収録レイアウト(plain|obs-canvas|auto)。省略時は plain",
   )
+  .option("--canvas <preset>", "出力キャンバス(作成時固定)")
   .option("--mic-track <n>", "マイク音声のトラック番号(1始まり)。config を一時上書き")
   .option("--system-track <n>", "システム音声のトラック番号(1始まり)。config を一時上書き")
-  .action(async (dir: string, opts: { layout?: string; micTrack?: string; systemTrack?: string }) => {
+  .action(async (dir: string, opts: { layout?: string; canvas?: string; micTrack?: string; systemTrack?: string }) => {
     const cfg = loadConfig(program.opts().config);
     const abs = resolveDir(dir);
     const layout = parseLayoutOpt(opts.layout);
     const tracks = parseTrackOpts(opts.micTrack, opts.systemTrack);
-    const m = await ingest(abs, findSource(abs), cfg, layout, tracks);
+    const canvas = parseCanvasOpt(opts.canvas);
+    const m = await ingest(abs, findSource(abs), cfg, layout, tracks, canvas);
     console.log(
       `ingest 完了: ${m.durationSec.toFixed(1)}秒 / ` +
         `${m.video.width}x${m.video.height} ${m.video.fps.toFixed(0)}fps / ` +
@@ -1769,10 +1778,11 @@ program
     "--layout <layout>",
     "初回 bootstrap 時の収録レイアウト(plain|obs-canvas|auto)。省略時は plain",
   )
+  .option("--canvas <preset>", "初回 bootstrap 時の出力キャンバス(作成時固定)")
   .option("--detach", "バックグラウンドで起動してターミナルを返す(ログは ~/.framewright/editor/)")
   .option("--stop", "デタッチ起動中のエディタを止める")
   .option("--status", "この収録のエディタが起動しているか表示する")
-  .action(async (dir: string, opts: { layout?: string; detach?: boolean; stop?: boolean; status?: boolean }) => {
+  .action(async (dir: string, opts: { layout?: string; canvas?: string; detach?: boolean; stop?: boolean; status?: boolean }) => {
     const explicit = program.opts().config as string | undefined;
     const abs = resolveDir(dir);
 
@@ -1803,7 +1813,7 @@ program
 
     if (opts.detach === true) {
       // 子プロセス(= 自分自身の editor コマンド)が listen して portfile を書く
-      const entry = await startDetachedEditor(abs, { layout: opts.layout, configPath: explicit });
+      const entry = await startDetachedEditor(abs, { layout: opts.layout, canvas: opts.canvas, configPath: explicit });
       console.log(`エディタ起動(バックグラウンド): http://127.0.0.1:${entry.port}(対象: ${entry.dir})`);
       console.log(`  ログ: ${editorLogFilePath(abs)}`);
       console.log(`  停止: ${cliCmd()} editor ${dir} --stop`);
@@ -1812,11 +1822,12 @@ program
 
     const cfg = loadConfig(explicit);
     const layout = parseLayoutOpt(opts.layout);
+    const canvas = parseCanvasOpt(opts.canvas);
     // 設定画面(POST /api/config)が書き戻す先。読んだ config.yaml と同じパス
     const cfgPath = resolveConfigPath(explicit);
     // esbuild 等のエディタ専用依存を CLI 起動時に読ませないため動的 import
     const { startEditor } = await import("../editor/server.ts");
-    await startEditor(abs, cfg, cfgPath, layout);
+    await startEditor(abs, cfg, cfgPath, layout, canvas);
   });
 
 program
@@ -1844,13 +1855,15 @@ program
     "--layout <layout>",
     "収録レイアウト(plain|obs-canvas|auto)。省略時は plain",
   )
+  .option("--canvas <preset>", "出力キャンバス(作成時固定)")
   .option("--mic-track <n>", "マイク音声のトラック番号(1始まり)。config を一時上書き")
   .option("--system-track <n>", "システム音声のトラック番号(1始まり)。config を一時上書き")
-  .action(async (dir: string, opts: { force?: boolean; layout?: string; micTrack?: string; systemTrack?: string }) => {
+  .action(async (dir: string, opts: { force?: boolean; layout?: string; canvas?: string; micTrack?: string; systemTrack?: string }) => {
     const cfg = loadConfig(program.opts().config);
     const abs = resolveDir(dir);
     const layout = parseLayoutOpt(opts.layout);
     const tracks = parseTrackOpts(opts.micTrack, opts.systemTrack);
+    const canvas = parseCanvasOpt(opts.canvas);
     guardRerun(
       abs,
       ["transcript.json", "cutplan.json", "chapters.json", "meta.json"],
@@ -1862,7 +1875,7 @@ program
     // チャネルへ、結果要約(尺の縮み・カット案)は stdout に残す(--quiet でも
     // 成果は出るが、工程の進捗は静かになる)。plan の LLM 実行中は AI クライアントが
     // ✦ AI 行を heartbeat として出すので、事前ヒントの console.log は不要
-    await timed("ingest", () => ingest(abs, findSource(abs), cfg, layout, tracks));
+    await timed("ingest", () => ingest(abs, findSource(abs), cfg, layout, tracks, canvas));
     await timed("transcribe", () => transcribe(abs, cfg));
     const c = await timed("detect", () => detect(abs, cfg));
     console.log(`detect: ${c.originalDurationSec}秒 → ${c.keptDurationSec}秒`);

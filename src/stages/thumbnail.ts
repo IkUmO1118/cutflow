@@ -12,7 +12,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { resolveProfile } from "../lib/profile.ts";
+import { resolveCanvas } from "../lib/profile.ts";
 import { buildRenderProps } from "../lib/renderProps.ts";
 import { renderCfgWithDesign } from "../lib/designAsset.ts";
 import { createEngineSession } from "../lib/engineSession.ts";
@@ -61,7 +61,7 @@ function buildThumbnailProps(dir: string, cfg: Config): { props: ReturnType<type
     ...(mainOverlays.colorFilter ? { colorFilter: mainOverlays.colorFilter } : {}),
   };
 
-  const profile = resolveProfile(manifest.video.screenRegion, "default");
+  const profile = resolveCanvas(manifest);
   const props = buildRenderProps({
     manifest, keeps, transcript, overlays,
     renderCfg: renderCfgWithDesign(dir, cfg),

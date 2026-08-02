@@ -10,7 +10,7 @@ import {
   normalizeLayerOrder,
   ovCountOf,
 } from "../src/lib/renderProps.ts";
-import { PROFILES } from "../src/lib/profile.ts";
+import { CANVAS_PRESETS } from "../src/lib/profile.ts";
 import { mergeIntervals } from "../src/lib/timeline.ts";
 import { cutplanApprovalHash } from "../src/lib/approval.ts";
 import { defaultProps } from "../src/lib/renderPropsTypes.ts";
@@ -227,16 +227,16 @@ test("buildRenderProps: plain収録(OBSではない素の動画)にはdesignを�
   assert.equal(props.cameraRegion, undefined);
 });
 
-test("buildRenderProps: vertical profile → layout/captionDefaultPos/fontSizePx(×fontScale)が入る", () => {
+test("buildRenderProps: portrait canvas profile → layout/captionDefaultPos/fontSizePx(×fontScale)が入る", () => {
   const props = buildRenderProps({
     manifest,
     keeps: [{ start: 0, end: 10 }],
     transcript: { segments: [{ start: 2, end: 5, text: "残る" }] } as Transcript,
     overlays: {},
     renderCfg,
-    width: PROFILES.vertical.width,
-    height: PROFILES.vertical.height,
-    profile: PROFILES.vertical,
+    width: CANVAS_PRESETS.portrait.width,
+    height: CANVAS_PRESETS.portrait.height,
+    profile: CANVAS_PRESETS.portrait,
     videoFile: "cut.mp4",
     bgm: null,
     bgmFallbackFile: null,
@@ -244,7 +244,7 @@ test("buildRenderProps: vertical profile → layout/captionDefaultPos/fontSizePx
     warn: () => {},
   });
 
-  assert.deepEqual(props.layout, { panels: PROFILES.vertical.layout?.panels });
+  assert.deepEqual(props.layout, { panels: CANVAS_PRESETS.portrait.layout?.panels });
   assert.deepEqual(props.captionDefaultPos, { x: 540, y: 1560, anchor: "center" });
   assert.equal(props.caption.fontSizePx, Math.round(renderCfg.captionFontSizePx * 1.6));
 });

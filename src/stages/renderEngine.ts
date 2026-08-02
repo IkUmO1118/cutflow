@@ -17,7 +17,7 @@ import { run } from "../lib/exec.ts";
 import { timed } from "../lib/timing.ts";
 import { renderCfgWithDesign } from "../lib/designAsset.ts";
 import { prepareDesignAssetsForProps } from "../lib/designStill.ts";
-import { resolveProfile } from "../lib/profile.ts";
+import { resolveCanvas } from "../lib/profile.ts";
 import { compositionDurationInFrames } from "../lib/renderFrameMath.ts";
 import { createEngineSession } from "../lib/engineSession.ts";
 import { startFramePipe } from "../lib/framePipe.ts";
@@ -125,7 +125,7 @@ export async function renderEngine(
     ? (JSON.parse(readFileSync(autoCutsPath, "utf8")) as AutoCuts).silences
     : null;
 
-  const profile = resolveProfile(manifest.video.screenRegion, "default");
+  const profile = resolveCanvas(manifest);
   const isStills = manifest.layout === "stills";
   const sourceFile = isStills ? "" : manifest.source;
 
@@ -137,6 +137,7 @@ export async function renderEngine(
     renderCfg: renderCfgWithDesign(dir, cfg),
     width: profile.width,
     height: profile.height,
+    profile,
     videoFile: sourceFile,
     videoIsSource: !isStills,
     bgm,

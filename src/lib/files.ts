@@ -217,7 +217,7 @@ export function isGeneratedLog(relPath: string): boolean {
 
 /** GENERATED_FILES の一員(=手編集しない中間生成物)だが、収録フォルダの中身
  * だけからは復元できないため、clean はフルでも削除しない。ingest の再実行は
- * --layout を知らないと screenRegion/cameraRegion を失う
+ * --layout / --canvas を知らないと screenRegion/cameraRegion/canvas を失う
  * (2026-07-28 に実際に事故として発生)。同じく再生成不可能な plan.first.json /
  * plan-effects.first.json は clean フルで削除される(=再生成不可能な測定資産
  * だが manifest.json のような編集不可逆損害ではない) */

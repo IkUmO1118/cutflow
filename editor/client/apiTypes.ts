@@ -12,6 +12,7 @@ import type {
   Transcript,
   WordTiming,
 } from "../../src/types.ts";
+import type { Profile } from "../../src/lib/profile.ts";
 import type { FrameShot } from "../../src/stages/frames.ts";
 import type { ReviewBundle, ReviewKey } from "../../src/stages/review.ts";
 import type { PreparedDesignAssets } from "../../src/lib/design.ts";
@@ -108,8 +109,10 @@ export interface ProjectData {
   previewCfg: { width: number; videoEncoder?: "libx264" | "videotoolbox"; engine?: "canvas" | "legacy" };
   /** エディタ設定(サーバー側で省略時の既定値まで解決した実値) */
   editorCfg: EditorCfg;
-  /** 最終レンダーの出力解像度(manifest の screenRegion) */
+  /** 最終レンダーの出力解像度(resolveCanvas) */
   output: { w: number; h: number };
+  /** プレビュー/レンダー共通の解決済みキャンバス配置。 */
+  canvasProfile: Profile;
   /** カメラ(ワイプ)を持つレイアウトか(obs-canvas かつ cameraRegion あり)。
    * plain(カメラ無し)ではワイプトラック・全画面区間 UI を出さない */
   hasCamera: boolean;

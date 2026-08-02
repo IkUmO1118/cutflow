@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Config } from "../lib/config.ts";
+import { outputSize } from "../lib/profile.ts";
 import { resolveAvCfg } from "../lib/config.ts";
 import { run } from "../lib/exec.ts";
 import { detectSilence } from "../lib/ffmpeg.ts";
@@ -474,14 +475,15 @@ async function collectSound(args: {
     };
   }
 
+  const out = outputSize(manifest);
   const props = buildRenderProps({
     manifest,
     keeps,
     transcript,
     overlays: { ...overlays, inserts: [] },
     renderCfg: renderCfgWithDesign(dir, cfg),
-    width: manifest.video.screenRegion.w,
-    height: manifest.video.screenRegion.h,
+    width: out.w,
+    height: out.h,
     videoFile: manifest.source,
     videoIsSource: true,
     bgm,

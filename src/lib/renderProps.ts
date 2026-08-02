@@ -134,7 +134,7 @@ export function buildRenderProps(args: {
   /** 出力解像度(通常は config の screenRegion と同じ) */
   width: number;
   height: number;
-  /** 出力プロファイル(src/lib/profile.ts の resolveProfile が返すもの)。
+  /** 出力キャンバス(src/lib/profile.ts の resolveCanvas が返すもの)。
    * layout があれば props.layout に、caption があれば captionDefaultPos と
    * caption.fontSizePx(×fontScale)に反映する。省略時は現行と同一の props
    * (横 default・下部中央テロップ) */

@@ -26,6 +26,7 @@ FrameWright は「全部AI任せ」のツールではない。**まずエディ�
 ② node src/cli.ts editor <フォルダ>
      自動カットなしで開く。manifest / 空 transcript / 全編 keep cutplan が無ければ作られる
      OBS 拡張キャンバスなら: node src/cli.ts editor <フォルダ> --layout obs-canvas
+     縦プロジェクトなら: node src/cli.ts editor <フォルダ> --canvas portrait
 
 ③ 必要なら明示実行:
      node src/cli.ts transcribe <フォルダ>   文字起こし
@@ -49,6 +50,26 @@ FrameWright は「全部AI任せ」のツールではない。**まずエディ�
 
 ⑧ meta.json のタイトル案・概要欄、chapters.json の章をYouTube投稿に使う
 ```
+
+## 出力キャンバス
+
+キャンバスはプロジェクト作成時に固定する出力解像度とベース映像配置のセットです。
+`ingest` / `run` / `editor` の初回実行に `--canvas <preset>` を付けます。省略時は
+`config.yaml` の `render.canvas`、それも省略時は `landscape` で、従来どおり
+`screenRegion` の解像度を使います。
+
+| preset | 出力 | ベース配置 |
+|---|---:|---|
+| `landscape` | `screenRegion` と同じ | 従来の全面画面+ワイプ |
+| `portrait` | 1080×1920 | カメラ上/画面下+テロップ帯 |
+| `portrait-cover` | 1080×1920 | カメラ全面 |
+| `portrait-screen` | 1080×1920 | 画面 contain+下部テロップ帯 |
+| `square` | 1080×1080 | 画面 contain+下部テロップ帯 |
+| `portrait-4x5` | 1080×1350 | 画面 contain+下部テロップ帯 |
+
+`manifest.json` の `canvas` は ingest が書く作成時メタデータで、人間や AI の
+編集対象ではありません。テロップや演出の座標は出力 px で保存されるため、
+エディタでは現在名を読み取り専用で表示し、後からの変更はサポートしません。
 
 ## detect の較正と無音圧縮 preset
 

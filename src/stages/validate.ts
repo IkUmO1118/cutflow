@@ -37,6 +37,7 @@ import {
 } from "../types.ts";
 import type { CutPlan, Interval, Manifest, Transcript, WipeAnchor } from "../types.ts";
 import type { Config } from "../lib/config.ts";
+import { isCanvasPreset, outputSize } from "../lib/profile.ts";
 
 export interface Problem {
   /** 対象ファイル(収録フォルダ内の名前) */
@@ -238,16 +239,17 @@ export function validateDocs(
     err("manifest.json", "durationSec", "数値ではありません(ingest をやり直してください)");
   }
   const dur = isNum(duration) ? duration : null;
-  /** ズームの rect 検査に使う出力解像度(final.mp4 の width/height 相当)。
-   * validate は config.yaml を読まないので manifest.json の screenRegion で代用する
-   * (render.ts の resolveProfile(manifest.video.screenRegion, "default") と同じ値) */
-  const outputRegion = manifest?.video?.screenRegion ?? null;
+  const canvasValid = manifest?.canvas === undefined || isCanvasPreset(manifest.canvas);
+  const outputRegion = manifest?.video && canvasValid ? outputSize(manifest) : null;
   /** ワイプ(カメラ)を持つレイアウトか。manifest / video 欠落時は obs-canvas
    * 扱い(欠落自体は他の検査が拾う。durationSec 検査と同じ他フィールドは
    * 未定義でも構わない緩さ) */
   const cameraPresent = manifest?.video ? hasCamera(manifest) : true;
   if (manifest?.layout !== undefined && !["obs-canvas", "plain", "stills"].includes(manifest.layout)) {
     err("manifest.json", "layout", `layout は obs-canvas / plain / stills のいずれかです: ${JSON.stringify(manifest.layout)}`);
+  }
+  if (manifest?.canvas !== undefined && !isCanvasPreset(manifest.canvas)) {
+    err("manifest.json", "canvas", `未知の canvas 名です: ${JSON.stringify(manifest.canvas)}`);
   }
   if (manifest?.layout === "stills" && manifest.video?.cameraRegion !== undefined) {
     err("manifest.json", "video.cameraRegion", "映像なしプロジェクトにカメラ領域は持てません");

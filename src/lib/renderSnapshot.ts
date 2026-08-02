@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
-import { resolveProfile } from "./profile.ts";
+import { resolveCanvas } from "./profile.ts";
 import { buildRenderProps } from "./renderProps.ts";
 import { renderCfgWithDesign } from "./designAsset.ts";
 import { mergeIntervals } from "./timeline.ts";
@@ -71,7 +71,7 @@ export function resolveSnapshotRenderContext(input: SnapshotRenderInput): Snapsh
 
   const keeps = mergeIntervals(snapshot.cutplan.segments.filter((s) => s.action === "keep"));
   const overlays = snapshot.overlays;
-  const profile = resolveProfile(manifest.video.screenRegion, "default");
+  const profile = resolveCanvas(manifest);
   if (keeps.length === 0) {
     throw new Error("keep 区間が0件です(cutplan.json を確認してください)");
   }

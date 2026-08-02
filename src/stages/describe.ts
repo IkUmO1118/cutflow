@@ -18,6 +18,7 @@ import type { FirstEffectsPlan } from "../lib/firstEffectsPlan.ts";
 import { pausesWithinKeeps } from "../lib/perception.ts";
 import type { KeepPause } from "../lib/perception.ts";
 import { framesFreshness } from "../lib/framesIndex.ts";
+import { outputSize } from "../lib/profile.ts";
 import type { FramesShot } from "../lib/framesIndex.ts";
 import {
   buildTimeline,
@@ -388,6 +389,8 @@ export interface SourceInfo {
   file: string;
   durationSec: number;
   layout: "obs-canvas" | "plain" | "stills";
+  /** manifest.canvas がある新規プロジェクトだけに載る(旧収録は byte 不変)。 */
+  canvas?: { name: string; width: number; height: number };
   video: {
     width: number;
     height: number;
@@ -921,6 +924,9 @@ function buildProjection(inp: DescribeInputs, cfg?: Config): DescribeProjection 
     file: manifest.source,
     durationSec: manifest.durationSec,
     layout: manifestLayout(manifest),
+    ...(manifest.canvas !== undefined
+      ? { canvas: { name: manifest.canvas, width: outputSize(manifest).w, height: outputSize(manifest).h } }
+      : {}),
     video: {
       width: manifest.video.width,
       height: manifest.video.height,

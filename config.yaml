@@ -118,6 +118,9 @@ preview:
 
 # 最終レンダー(engine 合成)のレイアウト
 render:
+  # 作成時の出力キャンバス。ingest --canvas が優先。作成後は固定
+  # landscape / portrait / portrait-cover / portrait-screen / square / portrait-4x5
+  canvas: landscape
   # 右下ワイプ(カメラ)の横幅(px、1920x1080基準)。ワイプは右下角に隙間なく配置される
   wipeWidthPx: 480
   # 字幕・テロップの画面端からの余白(px)。ワイプの位置には影響しない

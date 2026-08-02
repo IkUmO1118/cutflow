@@ -7,6 +7,7 @@ import { mergeBodyOverDisk, planApply } from "../lib/applyEdits.ts";
 import type { ApplyPlan } from "../lib/applyEdits.ts";
 import type { ReviewDocs } from "../lib/docDiff.ts";
 import type { Config } from "../lib/config.ts";
+import { outputSize } from "../lib/profile.ts";
 import { sliceReviewContext, type ReviewFrameRequest, type ReviewRange } from "../lib/review.ts";
 import type { EditorAiReviewPlan } from "../lib/editorAiReview.ts";
 import { describeJson } from "./describe.ts";
@@ -1013,7 +1014,7 @@ export function planEditorAiPatch(
   dir: string,
   parsed: ParsedAiPatchResponse,
 ): AiProposeResponse {
-  const outputBounds = readManifest(dir).video.screenRegion;
+  const outputBounds = { x: 0, y: 0, ...outputSize(readManifest(dir)) };
   const intentPlan = parsed.tasks ? planIntentEdits(dir, parsed.tasks) : null;
   if (intentPlan && intentPlan.errors.length > 0 && hasPatchEdits(parsed.patch)) {
     const patchApplyPlan = planApply(dir, parsed.patch);
