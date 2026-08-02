@@ -16,6 +16,7 @@ import type { DiffTrackDef } from "./model.ts";
 import type { Hunk } from "../../src/lib/docDiff.ts";
 import { reviewEventStatus } from "../../src/lib/reviewEvents.ts";
 import { playhead, usePlayheadSelector } from "./playhead.ts";
+import { projectPath } from "./route.ts";
 import {
   AUDIO_EXT_RE,
   DuplicateIcon,
@@ -1440,12 +1441,12 @@ export const Timeline = ({
             <div className="tlDiffHoverThumbLabel">変更前 / 変更後</div>
             <div className="tlDiffHoverThumbPair">
               <img
-                src={`/media/${encodeURIComponent(hoverThumb.still.beforeFile).replace(/%2F/g, "/")}`}
+                src={projectPath(`/media/${encodeURIComponent(hoverThumb.still.beforeFile).replace(/%2F/g, "/")}`)}
                 alt="変更前"
                 className="tlDiffHoverThumbImg"
               />
               <img
-                src={`/media/${encodeURIComponent(hoverThumb.still.afterFile).replace(/%2F/g, "/")}`}
+                src={projectPath(`/media/${encodeURIComponent(hoverThumb.still.afterFile).replace(/%2F/g, "/")}`)}
                 alt="変更後"
                 className="tlDiffHoverThumbImg"
               />

@@ -31,6 +31,7 @@ import { timed } from "./lib/timing.ts";
 import { CANVAS_PRESETS, isCanvasPreset } from "./lib/profile.ts";
 import { findSource } from "./lib/findSource.ts";
 import { ingest } from "./stages/ingest.ts";
+import { deriveProject, parseDeriveRange } from "./stages/derive.ts";
 import { transcribe } from "./stages/transcribe.ts";
 import { detect } from "./stages/detect.ts";
 import { plan, remeta } from "./stages/plan.ts";
@@ -412,6 +413,30 @@ program
         `${m.video.width}x${m.video.height} ${m.video.fps.toFixed(0)}fps / ` +
         `音声${m.audio.systemStream !== null ? "2" : "1"}トラック`,
     );
+  });
+
+program
+  .command("derive <dir>")
+  .description("元メディアと transcript を共有する派生プロジェクトを作成")
+  .requiredOption("--name <name>", "新しいプロジェクトのフォルダ名")
+  .requiredOption("--canvas <preset>", "派生先の出力キャンバス")
+  .requiredOption(
+    "--range <start-end>",
+    "元収録秒の採用範囲(複数指定可)",
+    (value: string, previous: string[]) => [...previous, value],
+    [] as string[],
+  )
+  .action(async (dir: string, opts: { name: string; canvas: string; range: string[] }) => {
+    if (opts.range.length === 0) throw new Error("--range を1つ以上指定してください");
+    const cfg = loadConfig(program.opts().config);
+    const result = await deriveProject({
+      sourceDir: resolveDir(dir),
+      name: opts.name,
+      canvas: parseCanvasOpt(opts.canvas)!,
+      ranges: opts.range.map(parseDeriveRange),
+      cfg,
+    }, { log: console.log });
+    console.log(`派生プロジェクトを作成しました: ${result.dir}`);
   });
 
 program
@@ -1740,7 +1765,7 @@ program
   });
 
 program
-  .command("editor <dir>")
+  .command("editor [dir]")
   .description(
     "GUI エディタを起動(overlays / transcript / cutplan をブラウザで編集)",
   )
@@ -1752,9 +1777,14 @@ program
   .option("--detach", "バックグラウンドで起動してターミナルを返す(ログは ~/.framewright/editor/)")
   .option("--stop", "デタッチ起動中のエディタを止める")
   .option("--status", "この収録のエディタが起動しているか表示する")
-  .action(async (dir: string, opts: { layout?: string; canvas?: string; detach?: boolean; stop?: boolean; status?: boolean }) => {
+  .action(async (dir: string | undefined, opts: { layout?: string; canvas?: string; detach?: boolean; stop?: boolean; status?: boolean }) => {
     const explicit = program.opts().config as string | undefined;
-    const abs = resolve(dir);
+    const cfg = loadConfig(explicit);
+    const launcherMode = dir === undefined;
+    if (launcherMode && (opts.detach || opts.stop || opts.status)) {
+      throw new Error("dir 省略時のランチャーでは --detach / --stop / --status は使えません");
+    }
+    const abs = launcherMode ? cfg.recordingsDir : resolve(dir);
 
     const modes = [opts.detach, opts.stop, opts.status].filter(Boolean).length;
     if (modes > 1) throw new Error("--detach / --stop / --status は同時に指定できません");
@@ -1794,14 +1824,13 @@ program
       return;
     }
 
-    const cfg = loadConfig(explicit);
     const layout = parseLayoutOpt(opts.layout);
     const canvas = parseCanvasOpt(opts.canvas);
     // 設定画面(POST /api/config)が書き戻す先。読んだ config.yaml と同じパス
     const cfgPath = resolveConfigPath(explicit);
     // esbuild 等のエディタ専用依存を CLI 起動時に読ませないため動的 import
     const { startEditor } = await import("../editor/server.ts");
-    await startEditor(abs, cfg, cfgPath, layout, canvas);
+    await startEditor(abs, cfg, cfgPath, layout, canvas, launcherMode);
   });
 
 program

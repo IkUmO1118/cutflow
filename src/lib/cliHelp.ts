@@ -41,6 +41,7 @@ export const COMMAND_GROUPS: CommandGroup[] = [
     title: "確認・承認・書き出し",
     commands: [
       { name: "editor", summary: "GUI エディタを開く(編集・承認・レンダーまで)" },
+      { name: "derive", summary: "選択範囲を別キャンバスの派生プロジェクトにする" },
       { name: "preview", summary: "カット確認用の軽い動画(preview.mp4)" },
       { name: "approve", summary: "カットを承認(人間の操作。render の唯一のゲート)" },
       { name: "unapprove", summary: "承認を取り消す" },

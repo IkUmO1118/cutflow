@@ -13,6 +13,7 @@
  * バッチが空(何も溜まっていない)ときは送らない。
  */
 import type { PresentationStats } from "../../src/engine/runtime/clock.ts";
+import { projectPath } from "./route.ts";
 
 const FLUSH_INTERVAL_MS = 5000;
 const SAMPLE_INTERVAL_MS = 1000;
@@ -170,10 +171,10 @@ export function startMetricsHarness(source: PreviewMetricsSource): MetricsHandle
     });
     batch = emptyBatch();
     if (useBeacon && navigator.sendBeacon) {
-      navigator.sendBeacon("/metrics", new Blob([payload], { type: "application/json" }));
+      navigator.sendBeacon(projectPath("/metrics"), new Blob([payload], { type: "application/json" }));
       return;
     }
-    fetch("/metrics", {
+    fetch(projectPath("/metrics"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: payload,

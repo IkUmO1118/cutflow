@@ -1,6 +1,6 @@
 # 編集器ファースト母艦 — 「収録1本のパイプライン」から「プロジェクトを開いて編集する」へ
 
-> 状態: **IN PROGRESS — P0–P4 COMPLETE / VERIFIED**(2026-08-02 発足・ユーザー批准済み)。FrameWright の入口を
+> 状態: **COMPLETE / VERIFIED — P0–P5**(2026-08-02 発足・ユーザー批准済み)。FrameWright の入口を
 > 「`run` を通したフォルダを後から覗く」から「**標準 NLE と同じくプロジェクトを
 > 開いて編集を始める**」へ作り替えること。あわせて **shorts 動線を削除**し、
 > その中に埋もれていた**キャンバス(出力サイズ)をプロジェクトの一級属性へ昇格**させる。
@@ -35,8 +35,8 @@ S0〜S5 が landing 済みで、本母艦はその上に立つ) /
 
 ## 0. 他エージェント向け: 現在地と次の一手
 
-- **現在地(2026-08-02)**: **P0〜P4 は実装・独立検証済み**。
-  次は §5 の P5(プロジェクトランチャー + `derive`)へ進む。
+- **現在地(2026-08-02)**: **P0〜P5 の実装・独立検証・focused commit が完了**。
+  編集器ファースト母艦は landing 可能な状態。
 - **絶対に飛ばしてはいけない前提**: sequence-time 母艦(S0〜S5)が landing 済みで
   あること。特に S3(映像なしプロジェクト)は本母艦の「音声+画像ベースの編集」が
   既に成立している根拠で、本母艦はそこへ**入口と UI を足すだけ**である。
@@ -138,7 +138,7 @@ whisper も LLM も呼ばない。つまり「`run` を打たないとエディ�
 | P2 | `2026-08-02-editor-first-p2-entry-design.md` | COMPLETE / VERIFIED | 空フォルダで開く / ベースメディアを GUI で選ぶ |
 | P3 | `2026-08-02-editor-first-p3-run-redefinition-design.md` | COMPLETE / VERIFIED | `run` = 「AI に初版を作らせる」+ bootstrap マーカー |
 | P4 | `2026-08-02-editor-first-p4-insert-clips-design.md` | COMPLETE / VERIFIED | inserts の移動・順序・クリップ表示 |
-| P5 | `2026-08-02-editor-first-p5-launcher-and-derive-design.md` | PLANNED | ランチャー + `derive`(shorts の後継動線) |
+| P5 | `2026-08-02-editor-first-p5-launcher-and-derive-design.md` | COMPLETE / VERIFIED | ランチャー + `derive`(shorts の後継動線) |
 
 各段の概要は以下。**詳細は必ず plan を正とする**(以下は要約)。
 
@@ -221,6 +221,9 @@ whisper も LLM も呼ばない。つまり「`run` を打たないとエディ�
 
 ### P5 — プロジェクトランチャーと派生プロジェクト
 
+**状態: COMPLETE / VERIFIED(2026-08-02)。** 実装・判断・実測の詳細は
+`docs/plans/2026-08-02-editor-first-p5-launcher-and-derive-design.md` §6。
+
 (4) を潰す。`recordingsDir` の一覧から開く。**派生プロジェクト(`derive`)=
 §4 決定1 の実体**もここに置く(旧 `Short` の各フィールドがプロジェクトの
 どこへ行くかの対応表は P5 plan §3.1)。
@@ -261,6 +264,11 @@ whisper も LLM も呼ばない。つまり「`run` を打たないとエディ�
    **P0 はコマンドとファイル分類の両方を変えるので `AGENTS_CONTRACT.md` 必須。**
 
 ## 9. 意思決定ログ
+
+- **2026-08-02(P5 COMPLETE / VERIFIED)**: 引数なし editor のランチャー、安全な
+  `/p/<name>/` 束縛、一覧/空project作成、CLI/API共通 `derive`、symlink→hardlink→copy、
+  keep 選択の派生UIを実装。主担当の独立実測で typecheck、2736/2736 tests、
+  focused 10/10、実HTTP、実derive + validate 0 errors、本番bundleを確認した。
 
 - **2026-08-02(P4 COMPLETE / VERIFIED)**: insert の本体ドラッグ移動と keep 吸着、
   同一 `at` 内の順序操作、basename + 動画/静止画表示を実装。主担当の

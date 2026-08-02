@@ -548,8 +548,10 @@ node src/cli.ts preview <dir>     # カット確認用の軽い動画(人間に�
 node src/cli.ts approve <dir>     # cutplan を承認(approvals.json にレコード。対話操作。非対話は --yes 必須)
 node src/cli.ts render <dir>      # 最終レンダー(approvals.json の承認レコードが必要。boolean approved だけでは通らない)
 node src/cli.ts clean <dir>       # 中間生成物/キャッシュを安全削除(files.ts 分類由来。編集ファイル・approvals.json・materials/・元収録・成果物は触れない。ただし元収録の remux 複製(OBS が .mkv の隣に残す同一内容の .mp4)は ffprobe で内容一致を確認のうえ削除する)。--dry-run / --cache-only(重いキャッシュだけ) / --logs-only(ログ・使い捨て下書き・検品結果・preview・frames だけ。リレンダー最適化 cut/render.*・proxy・whisper-out.*・manifest。--cache-only と排他) / --json
-node src/cli.ts editor <dir>      # GUI エディタ(npm run editor と同じ。終了は Ctrl+C)
+node src/cli.ts editor            # config.yaml の recordingsDir を開くプロジェクトランチャー
+node src/cli.ts editor <dir>      # 1プロジェクトを直接開くGUIエディタ(終了は Ctrl+C)
 node src/cli.ts editor <dir> --detach  # バックグラウンド起動でターミナルを返す(--status / --stop で確認・停止。待受情報とログは ~/.framewright/editor/)
+node src/cli.ts derive <dir> --name <name> --canvas portrait --range 120-165  # 元メディア/transcriptを共有し、指定source秒だけkeepする兄弟プロジェクトを作る
 node src/cli.ts mcp <dir>         # MCP サーバ(stdio。1収録フォルダに束縛。describe/validate/frames/materials/assert/apply/id-stamp だけを露出。承認/render/plan 等は露出しない)
 node src/cli.ts run <dir>         # 収録直後の初回一括(再実行は --force 必須+backups/ へ退避。末尾で config の plan.cursor.autoZoom=true(既定)+cursorサイドカー有り+zooms空のときだけ autozoom を非破壊で自動実行)
 ```

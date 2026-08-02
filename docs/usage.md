@@ -144,6 +144,25 @@ human final がある場合だけ、従来の agreement (`exact`) / rescue (`dir
 しない。`validate` は移行警告を1件出すだけで成功する。縦動画はP1以降の
 キャンバスを使い、独立した9:16プロジェクトとして作成する。
 
+### 縦動画・別キャンバスの作り方
+
+`node src/cli.ts editor` を引数なしで起動すると、`config.yaml` の
+`recordingsDir` にあるプロジェクト一覧が開く。「新規プロジェクト」で
+`portrait` などのキャンバスを選び、空プロジェクトでベースメディアを選べる。
+
+既存プロジェクトの一部を使う場合は、エディタで keep クリップを選択して
+「この範囲で派生」を押すか、元収録の秒で `derive` を実行する。
+
+```sh
+node src/cli.ts derive <元プロジェクト> --name <新しい名前> \
+  --canvas portrait --range 120-165 --range 300-330
+```
+
+派生先は元プロジェクトの兄弟フォルダになる。元メディアは symlink
+(非対応なら hardlink、最後に copy)で共有し、transcript は同じ source 秒のまま
+引き継ぐ。overlays / BGM / chapters / meta / approvals はキャンバスや構成が
+異なるため引き継がず、派生先で改めて編集・承認する。
+
 `manifest.layout:"stills"` の映像なしプロジェクトでは、ナレーション音声が動画尺を決める。スライドは `overlays.json` の `overlays[]` に `rect` なしで置く(全画面表示)。`inserts[]` は intro/ending など本当に出力尺を伸ばしたいクリップ専用で、通常のスライドには使わない。
 
 映像なしプロジェクトのコマンド対応:

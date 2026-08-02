@@ -146,6 +146,15 @@ export interface ReadyProjectData {
 
 export type ProjectData = EmptyProjectData | ReadyProjectData;
 
+export interface ProjectSummary {
+  name: string;
+  hasManifest: boolean;
+  durationSec: number | null;
+  canvas: string;
+  rendered: boolean;
+  modifiedAt: string;
+}
+
 export type PlanPerceptionStatus = PerceptionStatus;
 
 /** GET /api/script のレスポンス。元収録の全文スクリプト(AI が編集する前の

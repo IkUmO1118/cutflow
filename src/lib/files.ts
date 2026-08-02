@@ -119,6 +119,9 @@ const GENERATED_DIRS_NOT_CACHE: readonly string[] = ["hyperframe-freeze.suggeste
  * files.ts をファイル分類の唯一の出所にするため、他コードはここから参照する) */
 export const APPROVAL_FILE = APPROVALS_FILE;
 
+/** channel(recordingsDir) 直下にあるがプロジェクトではない共有/生成ディレクトリ。 */
+export const PROJECT_DIRECTORY_EXCLUDES = ["hyperframe-seeds", "style.probe"] as const;
+
 export type FileRole = "editable" | "generated" | "approval" | "other";
 
 /** 収録フォルダからの相対パス(例: "cutplan.json" / "frames/out10s.png") から

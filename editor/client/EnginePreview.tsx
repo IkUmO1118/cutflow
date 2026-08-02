@@ -15,6 +15,7 @@ import { AudioScheduler } from "../../src/engine/runtime/audioScheduler.ts";
 import type { RenderProps } from "../../src/lib/renderPropsTypes.ts";
 import { audioSignatureOf, timelineFromBaseSegments } from "./enginePreviewTimeline.ts";
 import type { PreviewMetricsSource } from "./metrics.ts";
+import { projectPath } from "./route.ts";
 
 /** App.tsx の built props memo は videoFile("media/proxy.mp4" or "")に加え、
  * overlays[].file / inserts[].file / bgm[].file / design の背景・素材ファイルを
@@ -34,7 +35,7 @@ const REPAINT_FAILURE_LIMIT = 3;
 const SEEK_SAMPLE_LIMIT = 200;
 
 function resolveUrl(sourceId: string): string {
-  return `/${encodeURIComponent(sourceId).replace(/%2F/g, "/")}`;
+  return projectPath(`/${encodeURIComponent(sourceId).replace(/%2F/g, "/")}`);
 }
 
 function sourceTimeOf(item: ExternalItem): number {

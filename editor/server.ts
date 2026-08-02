@@ -49,10 +49,12 @@ import type { DisplayVerdict, VideoCodecFacts } from "../src/lib/mediaCodec.ts";
 import { ensureIds, hasAnyId, ID_PREFIX, usedIdsOf } from "../src/lib/ids.ts";
 import { mergeBodyOverDisk } from "../src/lib/applyEdits.ts";
 import { withoutBootstrapMarker } from "../src/lib/bootstrapArtifact.ts";
+import { PROJECT_DIRECTORY_EXCLUDES } from "../src/lib/files.ts";
 import { rerunConflicts } from "../src/lib/rerunGuard.ts";
 import { bootstrapProjectWithLayout } from "../src/stages/bootstrap.ts";
 import { ingest } from "../src/stages/ingest.ts";
 import { runDraft } from "../src/stages/runDraft.ts";
+import { deriveProject } from "../src/stages/derive.ts";
 import { listSourceCandidates } from "../src/lib/findSource.ts";
 import { isCanvasPreset, outputSize, resolveCanvas } from "../src/lib/profile.ts";
 import { EditorAiError, proposeEditorAi, refineEditorAi } from "../src/stages/editorAi.ts";
@@ -144,12 +146,16 @@ export async function startEditor(
   cfgPath: string,
   layout?: "obs-canvas" | "plain" | "auto" | "stills",
   canvas?: string,
+  launcherMode = false,
 ): Promise<void> {
   // 動画ファイルだけの収録フォルダでも開けるように、必須3ファイルのうち
   // 無いものだけ決定的に補う(既存ファイルには触れない)。loadProject の
   // 3点チェックは最終防壁として残す
-  await bootstrapProjectWithLayout(dir, cfg, layout, canvas);
-  if (existsSync(join(dir, "manifest.json"))) await prepareEditorDesignAssets(dir, cfg);
+  mkdirSync(dir, { recursive: true });
+  if (!launcherMode) {
+    await bootstrapProjectWithLayout(dir, cfg, layout, canvas);
+    if (existsSync(join(dir, "manifest.json"))) await prepareEditorDesignAssets(dir, cfg);
+  }
 
   const editorDir = dirname(fileURLToPath(import.meta.url));
 
@@ -179,26 +185,36 @@ export async function startEditor(
   const hub: EventHub = { clients: new Set() };
   let changed = new Set<string>();
   let notifyTimer: NodeJS.Timeout | null = null;
-  watch(dir, (_event, filename) => {
-    if (!filename || !WATCHED_FILES.includes(filename)) return;
-    changed.add(filename);
+  let projectWatcher: FSWatcher | null = null;
+  let watchedProjectDir = dir;
+  const onProjectFileChange = (filename: string | Buffer | null) => {
+    if (!filename || !WATCHED_FILES.includes(String(filename))) return;
+    changed.add(String(filename));
     notifyTimer ??= setTimeout(() => {
       const candidates = [...changed];
       changed = new Set();
       notifyTimer = null;
-      // フラッシュ時(書き込み完了後)に現ディスク内容をハッシュし、
-      // 自分が最後に書いた内容と違うものだけを「外部変更」として流す。
       const files = candidates.filter((f) =>
-        isExternalChange(fileContentHash(dir, f), lastWrittenHash.get(f)),
+        isExternalChange(fileContentHash(watchedProjectDir, f), lastWrittenHash.get(f)),
       );
       if (files.length === 0) return;
       invalidateStoredProposals();
       for (const c of hub.clients) c.write(`data: ${JSON.stringify({ files })}\n\n`);
     }, 200);
-  });
+  };
+  const watchProject = (projectDir: string) => {
+    projectWatcher?.close();
+    watchedProjectDir = projectDir;
+    projectWatcher = watch(projectDir, (_event, filename) => {
+      onProjectFileChange(filename);
+    });
+  };
+  if (!launcherMode) {
+    projectWatcher = watch(dir, (_event, filename) => onProjectFileChange(filename));
+  }
 
   const server = createServer((req, res) => {
-    handle(req, res, dir, cfg, cfgPath, assets, hub, engineDevAssets, layout, canvas).catch((err: Error) => {
+    handle(req, res, dir, cfg, cfgPath, assets, hub, engineDevAssets, layout, canvas, launcherMode, watchProject).catch((err: Error) => {
       // HttpError は想定内の拒否(不正な保存=400、大きすぎる素材=413 等)。
       // それ以外は想定外なのでログに残して 500 で返す
       if (err instanceof HttpError) {
@@ -244,11 +260,12 @@ export async function startEditor(
   // フォアグラウンド起動でも同じように書くので、`editor <dir> --status` は
   // どちらの起動でも見える。プロセスがどの経路で終わっても最終段で必ず発火する
   // "exit" で同期的に消す(framesServe と同じ判断。async は exit 中に走らない)
-  writeEditorServeFile({ dir, port, pid: process.pid, startedAt: new Date().toISOString() });
+  if (!launcherMode) writeEditorServeFile({ dir, port, pid: process.pid, startedAt: new Date().toISOString() });
   process.on("exit", () => {
     clientReloader.close();
     clientWatcher?.close();
-    removeEditorServeFile(dir);
+    projectWatcher?.close();
+    if (!launcherMode) removeEditorServeFile(dir);
   });
   // シグナルで殺された場合、Node は "exit" を発火しない(既定ハンドラはプロセスを
   // そのまま終了させる)。Ctrl+C(SIGINT)と `editor --stop`(SIGTERM)を明示的に
@@ -259,7 +276,7 @@ export async function startEditor(
   process.on("SIGTERM", () => process.exit(0));
 
   const url = `http://127.0.0.1:${port}`;
-  console.log(`エディタ起動: ${url}(対象: ${dir})`);
+  console.log(`${launcherMode ? "プロジェクトランチャー" : "エディタ"}起動: ${url}(対象: ${dir})`);
   // 使い方への唯一の入口になりがちな行(GUI を開いた人は README へ戻らない)。
   // 画面内からはヘッダーの「?」でも同じ内容を引ける
   console.log("使い方: docs/guides/editor.md(画面内はヘッダーの「?」)");
@@ -277,6 +294,90 @@ export class HttpError extends Error {
     this.status = status;
     this.code = code;
   }
+}
+
+export interface ProjectSummary {
+  name: string;
+  hasManifest: boolean;
+  durationSec: number | null;
+  canvas: string;
+  rendered: boolean;
+  modifiedAt: string;
+}
+
+export function decodeProjectRouteName(encoded: string): string {
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    throw new HttpError(400, "プロジェクト名の URL encoding が不正です");
+  }
+}
+
+/** URL のプロジェクト名を root 配下の直下ディレクトリへ安全に解決する。 */
+export function resolveLauncherProject(rootDir: string, name: string): string {
+  if (!name || basename(name) !== name || name.startsWith(".") || /[\\/]/.test(name)) {
+    throw new HttpError(400, `不正なプロジェクト名です: ${name}`);
+  }
+  const root = resolve(rootDir);
+  const candidate = resolve(root, name);
+  if (!candidate.startsWith(root + sep)) throw new HttpError(400, `不正なプロジェクト名です: ${name}`);
+  return candidate;
+}
+
+export function normalizeProjectName(raw: string): string {
+  return basename(raw).replace(/[\\/:*?"<>|]/g, "_").replace(/^\.+/, "");
+}
+
+export function listProjects(rootDir: string): ProjectSummary[] {
+  mkdirSync(rootDir, { recursive: true });
+  return readdirSync(rootDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith(".") &&
+      !(PROJECT_DIRECTORY_EXCLUDES as readonly string[]).includes(entry.name))
+    .map((entry) => {
+      const projectDir = join(rootDir, entry.name);
+      const manifestPath = join(projectDir, "manifest.json");
+      const hasManifest = existsSync(manifestPath);
+      let durationSec: number | null = null;
+      let canvas = "landscape";
+      if (hasManifest) {
+        try {
+          const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Partial<Manifest>;
+          durationSec = typeof manifest.durationSec === "number" ? manifest.durationSec : null;
+          canvas = typeof manifest.canvas === "string" ? manifest.canvas : "landscape";
+        } catch {
+          // 壊れた manifest もフォルダ自体は一覧から失わせない。
+        }
+      }
+      return {
+        name: entry.name,
+        hasManifest,
+        durationSec,
+        canvas,
+        rendered: existsSync(join(projectDir, "final.mp4")),
+        modifiedAt: statSync(projectDir).mtime.toISOString(),
+      };
+    })
+    .sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt));
+}
+
+export function createProjectDirectory(
+  rootDir: string,
+  body: { name?: unknown; canvas?: unknown; layout?: unknown },
+): { dir: string; name: string; canvas: string; layout?: string } {
+  if (typeof body.name !== "string") throw new HttpError(400, "プロジェクト名を指定してください");
+  const name = normalizeProjectName(body.name);
+  if (!name) throw new HttpError(400, "プロジェクト名が空です");
+  const canvas = body.canvas === undefined ? "landscape" : String(body.canvas);
+  if (!isCanvasPreset(canvas)) throw new HttpError(400, `未知の canvas 名です: ${canvas}`);
+  const layout = body.layout === undefined ? undefined : String(body.layout);
+  if (layout !== undefined && layout !== "plain" && layout !== "obs-canvas" && layout !== "auto") {
+    throw new HttpError(400, `未知の layout です: ${layout}`);
+  }
+  mkdirSync(rootDir, { recursive: true });
+  const dir = resolveLauncherProject(rootDir, name);
+  if (existsSync(dir)) throw new HttpError(409, `プロジェクトは既に存在します: ${name}`);
+  mkdirSync(dir);
+  return { dir, name, canvas, ...(layout ? { layout } : {}) };
 }
 
 /** 素材アップロードの上限の既定値(config で editor.maxUploadMb 未指定のとき) */
@@ -345,9 +446,45 @@ async function handle(
   engineDevAssets: EngineDevAssets,
   layout?: "obs-canvas" | "plain" | "auto" | "stills",
   initialCanvas?: string,
+  launcherMode = false,
+  watchProject?: (dir: string) => void,
 ): Promise<void> {
   const url = new URL(req.url ?? "/", "http://localhost");
-  const path = url.pathname;
+  let path = url.pathname;
+  const rootDir = dir;
+  if (launcherMode && path.startsWith("/p/")) {
+    const match = /^\/p\/([^/]+)(\/.*)?$/.exec(path);
+    if (!match) throw new HttpError(404, "プロジェクトが見つかりません");
+    const name = decodeProjectRouteName(match[1]);
+    dir = resolveLauncherProject(rootDir, name);
+    if (!existsSync(dir) || !statSync(dir).isDirectory()) throw new HttpError(404, `プロジェクトがありません: ${name}`);
+    if (!match[2]) {
+      res.writeHead(302, { Location: `/p/${encodeURIComponent(name)}/` });
+      res.end();
+      return;
+    }
+    path = match[2];
+    const requestedCanvas = url.searchParams.get("canvas");
+    if (requestedCanvas) {
+      if (!isCanvasPreset(requestedCanvas)) throw new HttpError(400, `未知の canvas 名です: ${requestedCanvas}`);
+      initialCanvas = requestedCanvas;
+    }
+    const requestedLayout = url.searchParams.get("layout");
+    if (requestedLayout) {
+      if (requestedLayout !== "plain" && requestedLayout !== "obs-canvas" && requestedLayout !== "auto") {
+        throw new HttpError(400, `未知の layout です: ${requestedLayout}`);
+      }
+      layout = requestedLayout;
+    }
+    if (path === "/") {
+      await bootstrapProjectWithLayout(dir, cfg, layout, initialCanvas);
+      if (existsSync(join(dir, "manifest.json"))) await prepareEditorDesignAssets(dir, cfg);
+      watchProject?.(dir);
+    }
+  } else if (launcherMode && path !== "/" && path !== "/bundle.js" && path !== "/styles.css" &&
+      path !== "/particle_loop_icon.svg" && path !== "/api/ping" && path !== "/api/projects") {
+    throw new HttpError(404, "プロジェクト URL /p/<name>/ を使用してください");
+  }
 
   // DNS rebinding・他サイトからの CSRF 対策。ローカル以外の Host は拒否し、
   // POST は Origin ヘッダがローカルのときだけ通す(ブラウザは POST に必ず
@@ -383,6 +520,16 @@ async function handle(
     sendJson(res, 200, { ok: true, pid: process.pid, dir });
     return;
   }
+  if (launcherMode && req.method === "GET" && path === "/api/projects") {
+    sendJson(res, 200, listProjects(rootDir));
+    return;
+  }
+  if (launcherMode && req.method === "POST" && path === "/api/projects") {
+    const body = await readBody(req) as { name?: unknown; canvas?: unknown; layout?: unknown };
+    const created = createProjectDirectory(rootDir, body);
+    sendJson(res, 201, created);
+    return;
+  }
   if (req.method === "POST" && path === "/metrics") {
     // プレビュー体感計測(M1)のバッチ受信。保存・保存系 API(save/draft 等)とは
     // 完全に独立させる(観測専用・失敗しても編集フローに影響させない)
@@ -404,6 +551,21 @@ async function handle(
   if (req.method === "POST" && path === "/api/base-media") {
     const body = (await readBody(req)) as { file?: unknown; canvas?: unknown };
     sendJson(res, 200, await selectBaseMedia(dir, cfg, body, layout, initialCanvas));
+    return;
+  }
+  if (req.method === "POST" && path === "/api/derive") {
+    const body = await readBody(req) as { name?: unknown; canvas?: unknown; ranges?: unknown };
+    if (typeof body.name !== "string" || typeof body.canvas !== "string" || !Array.isArray(body.ranges)) {
+      throw new HttpError(400, "name / canvas / ranges を指定してください");
+    }
+    const ranges = body.ranges.map((value) => {
+      if (!value || typeof value !== "object") throw new HttpError(400, "ranges が不正です");
+      const item = value as { start?: unknown; end?: unknown };
+      if (typeof item.start !== "number" || typeof item.end !== "number") throw new HttpError(400, "ranges が不正です");
+      return { start: item.start, end: item.end };
+    });
+    const result = await deriveProject({ sourceDir: dir, name: body.name, canvas: body.canvas, ranges, cfg }, { log: console.log });
+    sendJson(res, 201, { dir: result.dir, name: basename(result.dir) });
     return;
   }
   if (req.method === "GET" && path === "/api/script") {

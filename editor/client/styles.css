@@ -59,6 +59,20 @@
   --text-base: var(--oc-text-base);
 }
 
+.launcher { min-height: 100vh; padding: 32px clamp(20px, 6vw, 96px); background: hsl(var(--oc-background)); color: hsl(var(--oc-foreground)); }
+.launcherHeader { display: flex; gap: 12px; align-items: baseline; margin-bottom: 32px; font-size: 18px; }
+.launcherHeader strong { font-size: 26px; }
+.launcherCreate { display: grid; grid-template-columns: minmax(220px, 1fr) 190px auto; gap: 10px; align-items: end; padding: 20px; border: 1px solid hsl(var(--oc-border)); border-radius: 12px; background: hsl(var(--oc-card)); }
+.launcherCreate h1 { grid-column: 1 / -1; margin: 0 0 6px; font-size: 18px; }
+.launcherCreate input, .launcherCreate select { min-height: 38px; padding: 0 10px; border: 1px solid hsl(var(--oc-border)); border-radius: 7px; background: hsl(var(--oc-background)); color: hsl(var(--oc-foreground)); }
+.launcherCreate button { min-height: 38px; }
+.launcherError { color: hsl(var(--oc-destructive)); }
+.launcherGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; margin-top: 24px; }
+.projectCard { display: grid; gap: 8px; padding: 18px; color: inherit; text-decoration: none; border: 1px solid hsl(var(--oc-border)); border-radius: 10px; background: hsl(var(--oc-card)); }
+.projectCard:hover { border-color: hsl(var(--oc-ring)); }
+.projectCard time, .projectCard span { color: hsl(var(--oc-muted-foreground)); font-size: 12px; }
+@media (max-width: 700px) { .launcherCreate { grid-template-columns: 1fr; } }
+
 :root {
   --oc-background: 0 0% 100%;
   --oc-foreground: 0 0% 11%;

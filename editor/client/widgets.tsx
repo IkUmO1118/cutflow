@@ -29,7 +29,9 @@ import type {
   SaveResponse,
   ScriptData,
   UploadResult,
+  ProjectSummary,
 } from "./apiTypes.ts";
+import { projectPath } from "./route.ts";
 
 export class ApiError extends Error {
   status: number;
@@ -45,13 +47,25 @@ export async function getProject(): Promise<ProjectData> {
   return (await request("/api/project", undefined)) as ProjectData;
 }
 
+export async function getProjects(): Promise<ProjectSummary[]> {
+  return (await request("/api/projects", undefined)) as ProjectSummary[];
+}
+
+export async function createProject(name: string, canvas: string, layout = "plain"): Promise<{ dir: string; name: string; canvas: string; layout?: string }> {
+  return (await request("/api/projects", { name, canvas, layout })) as { dir: string; name: string; canvas: string; layout?: string };
+}
+
+export async function postDerive(name: string, canvas: string, ranges: Array<{ start: number; end: number }>): Promise<{ dir: string; name: string }> {
+  return (await request("/api/derive", { name, canvas, ranges })) as { dir: string; name: string };
+}
+
 export async function postBaseMedia(file: string, canvas: string): Promise<ReadyProjectData> {
   return (await request("/api/base-media", { file, canvas })) as ReadyProjectData;
 }
 
 export async function uploadBaseMedia(file: File, canvas: string): Promise<ReadyProjectData> {
   const res = await fetch(
-    `/api/upload?as=base&name=${encodeURIComponent(file.name)}&canvas=${encodeURIComponent(canvas)}`,
+    projectPath(`/api/upload?as=base&name=${encodeURIComponent(file.name)}&canvas=${encodeURIComponent(canvas)}`),
     { method: "POST", body: file },
   );
   const data: unknown = await res.json().catch(() => null);
@@ -214,7 +228,7 @@ export async function deleteMaterial(file: string): Promise<void> {
 
 /** 素材ファイルを収録フォルダの materials/ へアップロードする */
 export async function uploadMaterial(f: File): Promise<UploadResult> {
-  const res = await fetch(`/api/upload?name=${encodeURIComponent(f.name)}`, {
+  const res = await fetch(projectPath(`/api/upload?name=${encodeURIComponent(f.name)}`), {
     method: "POST",
     body: f,
   });
@@ -234,7 +248,7 @@ async function request(
   body: unknown,
   method?: "DELETE",
 ): Promise<unknown> {
-  const res = await fetch(path, body === undefined && method === undefined
+  const res = await fetch(projectPath(path), body === undefined && method === undefined
     ? undefined
     : {
         method: method ?? "POST",

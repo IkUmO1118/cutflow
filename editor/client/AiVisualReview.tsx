@@ -15,6 +15,7 @@ import {
 import { ScrollArea } from "./components/ui/scroll-area.tsx";
 import { ToggleGroup, ToggleGroupItem } from "./components/ui/toggle-group.tsx";
 import { restoreDialogFocus } from "./lib/dialogFocus.ts";
+import { projectPath } from "./route.ts";
 
 type Side = "theirs" | "mine";
 
@@ -669,7 +670,7 @@ function formatSec(value: number): string {
 }
 
 function mediaUrl(file: string): string {
-  return `/media/${encodeURIComponent(file).replace(/%2F/g, "/")}`;
+  return projectPath(`/media/${encodeURIComponent(file).replace(/%2F/g, "/")}`);
 }
 
 function formatValue(value: unknown): string {

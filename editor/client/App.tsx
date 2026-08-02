@@ -78,11 +78,14 @@ import type {
   HyperframeCard,
   EmptyProjectData,
   ReadyProjectData,
+  ProjectSummary,
   SaveRequest,
   ScriptData,
 } from "./apiTypes.ts";
+import { initialCanvasFromSearch, isLauncherRoute, projectPath, projectPrefix } from "./route.ts";
 import type { ReviewBundle } from "../../src/stages/review.ts";
 import type { ReviewFrameRequest } from "../../src/lib/review.ts";
+import { CANVAS_PRESETS } from "../../src/lib/profile.ts";
 import { reviewSpecOfProposalReview } from "../../src/lib/editorAiReview.ts";
 import {
   HYPERFRAME_NAME_RE,
@@ -221,6 +224,8 @@ import {
   getHyperframes,
   getPeaks,
   getProject,
+  getProjects,
+  createProject,
   getScript,
   postAiDoctor,
   postConfig,
@@ -237,6 +242,7 @@ import {
   postReveal,
   postSave,
   postBaseMedia,
+  postDerive,
   probeMaterialDuration,
   uploadMaterial,
   uploadBaseMedia,
@@ -534,11 +540,61 @@ function applySaveHashes(
  * 各 JSON(元収録の秒)。
  * 正のデータは cutplan / overlays / transcript の各 JSON(元収録の秒)。
  */
-export const App = () => {
+function LauncherApp() {
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [name, setName] = useState("");
+  const [canvas, setCanvas] = useState("landscape");
+  const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  useEffect(() => {
+    getProjects().then(setProjects).catch((e) => setError((e as Error).message));
+  }, []);
+  const create = async () => {
+    if (!name.trim()) return;
+    setCreating(true);
+    setError(null);
+    try {
+      const created = await createProject(name.trim(), canvas);
+      location.href = `/p/${encodeURIComponent(created.name)}/?canvas=${encodeURIComponent(canvas)}&layout=plain`;
+    } catch (e) {
+      setError((e as Error).message);
+      setCreating(false);
+    }
+  };
+  return (
+    <main className="launcher">
+      <header className="launcherHeader"><strong>FrameWright</strong><span>プロジェクト</span></header>
+      <section className="launcherCreate">
+        <h1>新規プロジェクト</h1>
+        <input aria-label="プロジェクト名" placeholder="例: 2026-08-02-talk" value={name} onChange={(e) => setName(e.target.value)} />
+        <select aria-label="キャンバス" value={canvas} onChange={(e) => setCanvas(e.target.value)}>
+          {Object.keys(CANVAS_PRESETS).map((key) => <option key={key} value={key}>{key}</option>)}
+        </select>
+        <button className="primary" disabled={creating || !name.trim()} onClick={() => void create()}>
+          {creating ? "作成中…" : "作成して開く"}
+        </button>
+      </section>
+      {error && <p className="launcherError">{error}</p>}
+      <section className="launcherGrid" aria-label="プロジェクト一覧">
+        {projects.map((project) => (
+          <a className="projectCard" key={project.name} href={`/p/${encodeURIComponent(project.name)}/`}>
+            <strong>{project.name}</strong>
+            <span>{project.hasManifest && project.durationSec !== null ? fmtTime(project.durationSec) : "メディア未選択"}</span>
+            <span>{project.canvas}{project.rendered ? " · 書き出し済み" : ""}</span>
+            <time>{new Date(project.modifiedAt).toLocaleString()}</time>
+          </a>
+        ))}
+        {projects.length === 0 && <p className="dim">まだプロジェクトがありません。</p>}
+      </section>
+    </main>
+  );
+}
+
+const EditorApp = () => {
   const { preference: themePreference, effectiveTheme, setPreference: setThemePreference } = useTheme();
   const [proj, setProj] = useState<ReadyProjectData | null>(null);
   const [emptyProj, setEmptyProj] = useState<EmptyProjectData | null>(null);
-  const [baseCanvas, setBaseCanvas] = useState("landscape");
+  const [baseCanvas, setBaseCanvas] = useState(() => initialCanvasFromSearch());
   const [baseBusy, setBaseBusy] = useState(false);
   const baseInputRef = useRef<HTMLInputElement>(null);
   const [cutplan, setCutplan] = useState<CutPlan | null>(null);
@@ -1145,7 +1201,7 @@ export const App = () => {
   reviewExternalRef.current = reviewExternalChange;
   const connectionToastRef = useRef<string | null>(null);
   useEffect(() => {
-    const es = new EventSource("/api/events");
+    const es = new EventSource(projectPath("/api/events"));
     es.onopen = () => {
       if (connectionToastRef.current) {
         dismissToast(connectionToastRef.current);
@@ -5324,6 +5380,23 @@ export const App = () => {
     ? aiWorkflowReview.diff.hunks.filter((h) => !aiWorkflowReview.settled.has(h))
     : [];
 
+  const deriveSelectedKeep = async () => {
+    if (!cutplan || selection?.kind !== "cut") return;
+    const segment = cutplan.segments[selection.index];
+    if (!segment || segment.action !== "keep") return;
+    const name = window.prompt("派生プロジェクト名");
+    if (!name) return;
+    const canvas = window.prompt("キャンバス", "portrait") ?? "";
+    if (!canvas) return;
+    try {
+      const result = await postDerive(name, canvas, [{ start: segment.start, end: segment.end }]);
+      if (projectPrefix()) location.href = `/p/${encodeURIComponent(result.name)}/`;
+      else addToast({ kind: "success", message: `派生プロジェクトを作成しました: ${result.dir}` });
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
   /**
    * F8: hunk を決着させる。承認(theirs)ならその場で編集へ反映し、
    * 却下(mine)なら何もせず捨てる。どちらも UI からは消える。
@@ -5392,6 +5465,14 @@ export const App = () => {
           </TooltipTrigger>
           <TooltipContent>{proj.dir}</TooltipContent>
         </Tooltip>
+        <Button
+          variant="ghost"
+          disabled={selection?.kind !== "cut" || cutplan?.segments[selection.index]?.action !== "keep"}
+          title="選択中の keep 区間から別キャンバスのプロジェクトを作る"
+          onClick={() => void deriveSelectedKeep()}
+        >
+          この範囲で派生
+        </Button>
         <span className="spacer" />
         <Tooltip>
           <TooltipTrigger asChild>
@@ -6665,6 +6746,8 @@ const HeaderBanners = ({
     </>
   );
 };
+
+export const App = () => isLauncherRoute() ? <LauncherApp /> : <EditorApp />;
 
 /* ---------------- 再生ヘッド購読の末端コンポーネント ----------------
  * 再生中の毎フレーム更新をこれらの小さな要素に閉じ込める(App 全体は
