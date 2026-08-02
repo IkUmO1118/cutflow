@@ -173,7 +173,7 @@ export function resolveAudioTracks(
  * effectiveLayout と videoInfo で呼ぶ。 */
 export function layoutChangeWarning(
   oldManifest: Manifest | null,
-  newLayout: "obs-canvas" | "plain",
+  newLayout: "obs-canvas" | "plain" | "stills",
   newVideoInfo: { screenRegion: { x: number; y: number; w: number; h: number }; cameraRegion?: { x: number; y: number; w: number; h: number } },
 ): string | null {
   if (!oldManifest) return null;
@@ -205,18 +205,20 @@ export async function ingest(
   dir: string,
   sourceFile: string,
   cfg: Config,
-  layout?: "obs-canvas" | "plain" | "auto",
+  layout?: "obs-canvas" | "plain" | "auto" | "stills",
   tracks?: { micTrack?: number; systemTrack?: number },
 ): Promise<Manifest> {
   const sourcePath = join(dir, sourceFile);
   const info = await probe(sourcePath);
 
   const video = info.streams.find((s) => s.codec_type === "video");
-  if (!video) throw new Error(`${sourceFile} に映像ストリームがありません`);
-
   const audioStreams = info.streams.filter((s) => s.codec_type === "audio");
   if (audioStreams.length === 0) {
     throw new Error(`${sourceFile} に音声ストリームがありません`);
+  }
+  const isStills = video === undefined;
+  if (isStills && layout !== undefined && layout !== "auto" && layout !== "stills") {
+    throw new Error(`${sourceFile} に映像ストリームが無いため layout は "stills" になります(指定: ${layout})`);
   }
   // OBS のトラック N は N 番目の音声ストリームとして記録される(1始まり)
   const micTrack = tracks?.micTrack ?? cfg.ingest.micTrack;
@@ -249,13 +251,19 @@ export async function ingest(
     await extractAudio(sourcePath, systemIndex!, join(dir, systemWav));
   }
 
-  const width = video.width ?? 0;
-  const height = video.height ?? 0;
-  const fps = parseFps(video.avg_frame_rate);
-  const effectiveLayout = resolveLayout(layout, cfg.ingest.layout, width, height, cfg);
+  const width = isStills ? (cfg.ingest.stills?.width ?? 1920) : (video!.width ?? 0);
+  const height = isStills ? (cfg.ingest.stills?.height ?? 1080) : (video!.height ?? 0);
+  const fps = isStills ? (cfg.ingest.stills?.fps ?? 30) : parseFps(video!.avg_frame_rate);
+  const effectiveLayout = isStills ? "stills" : resolveLayout(
+    layout === "stills" ? undefined : layout,
+    cfg.ingest.layout,
+    width,
+    height,
+    cfg,
+  );
 
   const videoInfo =
-    effectiveLayout === "plain"
+    effectiveLayout === "plain" || effectiveLayout === "stills"
       ? { width, height, fps, screenRegion: { x: 0, y: 0, w: width, h: height } }
       : { width, height, fps, screenRegion: cfg.ingest.screenRegion, cameraRegion: cfg.ingest.cameraRegion };
 

@@ -130,7 +130,8 @@ export async function renderEngine(
     : null;
 
   const profile = resolveProfile(manifest.video.screenRegion, "default");
-  const sourceFile = manifest.source;
+  const isStills = manifest.layout === "stills";
+  const sourceFile = isStills ? "" : manifest.source;
 
   let props = buildRenderProps({
     manifest,
@@ -141,7 +142,7 @@ export async function renderEngine(
     width: profile.width,
     height: profile.height,
     videoFile: sourceFile,
-    videoIsSource: true,
+    videoIsSource: !isStills,
     bgm,
     bgmFallbackFile: bgmFile,
     silences,

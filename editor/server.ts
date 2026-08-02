@@ -138,7 +138,7 @@ export async function startEditor(
   cfg: Config,
   /** 設定画面(POST /api/config)が書き戻す config.yaml のパス */
   cfgPath: string,
-  layout?: "obs-canvas" | "plain" | "auto",
+  layout?: "obs-canvas" | "plain" | "auto" | "stills",
 ): Promise<void> {
   // 動画ファイルだけの収録フォルダでも開けるように、必須3ファイルのうち
   // 無いものだけ決定的に補う(既存ファイルには触れない)。loadProject の

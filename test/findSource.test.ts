@@ -51,6 +51,17 @@ test("findSource: 動画ファイルが1つも無ければ従来どおりのエ�
   }
 });
 
+test("findSource: 動画が無ければ音声を選び bgm fallback 名は除外する", () => {
+  const dir = mkdtempSync(join(tmpdir(), "framewright-findsource-audio-"));
+  try {
+    writeFileSync(join(dir, "bgm.mp3"), "x");
+    writeFileSync(join(dir, "narration.m4a"), "x");
+    assert.equal(findSource(dir), "narration.m4a");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("findSource: manifest.source が実在すればそれを最優先する(除外ルールより優先)", () => {
   const dir = mkdtempSync(join(tmpdir(), "framewright-findsource-"));
   try {

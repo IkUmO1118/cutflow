@@ -256,6 +256,12 @@ export function validateDocs(
    * 扱い(欠落自体は他の検査が拾う。durationSec 検査と同じ他フィールドは
    * 未定義でも構わない緩さ) */
   const cameraPresent = manifest?.video ? hasCamera(manifest) : true;
+  if (manifest?.layout !== undefined && !["obs-canvas", "plain", "stills"].includes(manifest.layout)) {
+    err("manifest.json", "layout", `layout は obs-canvas / plain / stills のいずれかです: ${JSON.stringify(manifest.layout)}`);
+  }
+  if (manifest?.layout === "stills" && manifest.video?.cameraRegion !== undefined) {
+    err("manifest.json", "video.cameraRegion", "映像なしプロジェクトにカメラ領域は持てません");
+  }
 
   /* ---------------- cutplan.json ---------------- */
 
@@ -1014,6 +1020,16 @@ export function validateDocs(
     checkCaptionTracks(f, "captionTracks", overlays.captionTracks, err, warn);
   } else if (overlays !== null) {
     err("overlays.json", "-", "オブジェクトではありません");
+  }
+
+  if (manifest?.layout === "stills") {
+    const inserts = isObj(overlays) && Array.isArray(overlays.inserts) ? overlays.inserts : [];
+    if (inserts.length === 0) {
+      warn("overlays.json", "inserts", "スライド(inserts の静止画クリップ)が1件もありません。画面が背景だけになります");
+    }
+    if (shorts !== null) {
+      warn("shorts.json", "-", "映像なしプロジェクトのスライドはショートへ継承されません");
+    }
   }
 
   /* ---------------- bgm.json ---------------- */

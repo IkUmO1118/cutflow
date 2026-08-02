@@ -83,7 +83,7 @@ false staleness signals or gets silently discarded:
   `plan-materials.raw.txt`, `plan-effects.raw.txt`, `plan-bgm.raw.txt`,
   `render.props.json`,
   `whisper-out.json`, `whisper-out.srt`, `transcript.system.json`,
-  `whisper-system-out.json`, `cut.mp4`, `cut.keeps.json`,
+  `whisper-system-out.json`, `cut.mp4`, `cut.m4a`, `cut.keeps.json`,
   `render.key.json`, `render.report.json` (the machine-readable summary of
   the last `render()` attempt: chosen path — `full-skip` / `engine` — plus
   fallback reason, per-stage timings and success/failure, cache hits,

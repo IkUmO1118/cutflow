@@ -221,7 +221,7 @@ export function filterScrollSamples(
 }
 
 export interface CursorRectGeom {
-  layout: "obs-canvas" | "plain";
+  layout: "obs-canvas" | "plain" | "stills";
   screenRegion: Region;
   /** 元収録のフル解像度(px)。obs-canvas の cursorToOutputPoint 換算にのみ使う */
   recordingWidth: number;

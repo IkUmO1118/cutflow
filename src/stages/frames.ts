@@ -133,9 +133,8 @@ export async function framesEngine(
     if (f.endsWith(".png") || f.endsWith(".ocr.json")) rmSync(join(outDir, f));
   }
 
-  const sourceUrls: Record<string, string> = {
-    [props.videoFile]: `/${props.videoFile}`,
-  };
+  const sourceUrls: Record<string, string> = {};
+  if (props.videoFile) sourceUrls[props.videoFile] = `/${props.videoFile}`;
   for (const o of props.overlays) sourceUrls[o.file] = `/${o.file}`;
   for (const i of props.inserts ?? []) sourceUrls[i.file] = `/${i.file}`;
 

@@ -830,6 +830,18 @@ test("plain: wipeFull が空配列/未指定はエラーなし", () => {
   assert.ok(!none.errors.some((e) => e.where === "wipeFull"));
 });
 
+test("stills: cameraRegion はエラー、スライド無しとshortsは警告", () => {
+  const manifest = {
+    ...manifestWithScreen,
+    layout: "stills",
+    video: { ...manifestWithScreen.video, cameraRegion: { x: 0, y: 0, w: 100, h: 100 } },
+  };
+  const r = validateDocs(DIR, baseDocs({ manifest, overlays: {}, shorts: { shorts: [] } }));
+  assert.ok(r.errors.some((e) => e.where === "video.cameraRegion"));
+  assert.ok(r.warnings.some((w) => w.where === "inserts" && w.message.includes("スライド")));
+  assert.ok(r.warnings.some((w) => w.file === "shorts.json" && w.message.includes("継承")));
+});
+
 test("plain: layerOrder に wipe が含まれると警告(無視される旨)", () => {
   const r = validateDocs(DIR, baseDocs({
     manifest: manifestPlain,

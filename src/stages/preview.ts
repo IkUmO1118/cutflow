@@ -12,6 +12,7 @@ import { playbackSegmentsOf } from "../lib/timeline.ts";
 import { scaleFilter, videoEncodeArgs } from "../lib/videoEncode.ts";
 import type { Config } from "../lib/config.ts";
 import type { CutPlan, Manifest } from "../types.ts";
+import { cliCmd } from "../lib/cliName.ts";
 
 /**
  * cutplan.json の keep 区間だけを繋いだ低解像度の確認動画(preview.mp4)を
@@ -26,6 +27,12 @@ export async function preview(dir: string, cfg: Config): Promise<string> {
   const manifest = JSON.parse(
     readFileSync(join(dir, "manifest.json"), "utf8"),
   ) as Manifest;
+  if (manifest.layout === "stills") {
+    throw new Error(
+      "preview は映像なしプロジェクト(layout:\"stills\")に対応していません。" +
+        `確認は \`${cliCmd()} editor <dir>\` か \`${cliCmd()} render <dir>\` を使ってください`,
+    );
+  }
   const planPath = join(dir, "cutplan.json");
   if (!existsSync(planPath)) {
     throw new Error(`${planPath} がありません。先に plan を実行してください`);

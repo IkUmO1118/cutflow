@@ -23,18 +23,26 @@ export function findSource(dir: string): string {
     return manifestSource;
   }
 
-  const rawCandidates = readdirSync(dir).filter((f) => /\.(mkv|mp4|mov)$/i.test(f));
-  if (rawCandidates.length === 0) {
-    throw new Error(`${dir} に動画ファイル(mkv/mp4/mov)がありません`);
+  const all = readdirSync(dir);
+  const rawCandidates = all.filter((f) => /\.(mkv|mp4|mov)$/i.test(f));
+  // 動画が1本も無いときだけ音声を元ファイル候補にする。bgm.* は後方互換の
+  // BGM bed 名なので、ナレーションと誤認しないよう明示的に除外する。
+  const bgmNames = new Set(["bgm.mp3", "bgm.m4a", "bgm.wav"]);
+  const audioCandidates = rawCandidates.length === 0
+    ? all.filter((f) => /\.(mp3|m4a|wav|aac|flac|ogg)$/i.test(f) && !bgmNames.has(f.toLowerCase()))
+    : [];
+  const pool = rawCandidates.length > 0 ? rawCandidates : audioCandidates;
+  if (pool.length === 0) {
+    throw new Error(`${dir} に動画ファイル(mkv/mp4/mov)も音声ファイル(mp3/m4a/wav 等)もありません`);
   }
 
-  const candidates = rawCandidates.filter(
+  const candidates = pool.filter(
     (f) => !f.startsWith(".") && !f.includes(".tmp.") && fileRole(f) !== "generated" && f !== "final.mp4",
   );
   if (candidates.length === 0) {
     throw new Error(
       `${dir} に元収録らしいファイルがありません` +
-        `(除外した候補: ${rawCandidates.join(", ")})`,
+        `(除外した候補: ${pool.join(", ")})`,
     );
   }
 

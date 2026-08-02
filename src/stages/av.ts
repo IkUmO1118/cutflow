@@ -154,7 +154,9 @@ export async function av(dir: string, opts: AvOptions, cfg: Config): Promise<AvR
   mkdirSync(outDir, { recursive: true });
 
   const result: AvResult = {};
-  if (opts.soundOnly !== true) {
+  if (opts.soundOnly !== true && manifest.layout === "stills") {
+    console.log("映像なしプロジェクトのため motion 解析をスキップします");
+  } else if (opts.soundOnly !== true) {
     const motion = await collectMotion({
       dir,
       manifest,

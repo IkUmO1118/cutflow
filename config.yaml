@@ -21,6 +21,12 @@ ingest:
   # を使う) / auto(寸法/縦横比から OBS らしければ obs-canvas、それ以外は plain)。
   # 省略時 plain。ingest / editor / run の --layout フラグで実行時に上書きできる
   layout: plain
+  # 映像ストリームを持たない音声 source を ingest したときの canvas。
+  # 静止画 insert だけで構成するスライドショーの出力解像度・fpsになる
+  stills:
+    width: 1920
+    height: 1080
+    fps: 30
 
 # 文字起こし(whisper.cpp)
 whisper:

@@ -40,6 +40,10 @@ export async function buildProxy(dir: string, cfg: Config): Promise<string> {
   const manifest = JSON.parse(
     readFileSync(join(dir, "manifest.json"), "utf8"),
   ) as Manifest;
+  if (manifest.layout === "stills") {
+    console.log("映像なしプロジェクトのため proxy.mp4 は作りません");
+    return "";
+  }
   const input = join(dir, manifest.source);
   if (!existsSync(input)) {
     throw new Error(`元収録が見つかりません: ${input}`);
@@ -106,6 +110,7 @@ export function isProxyStale(dir: string, cfg: Config): boolean {
   const manifest = JSON.parse(
     readFileSync(join(dir, "manifest.json"), "utf8"),
   ) as Manifest;
+  if (manifest.layout === "stills") return false;
   const input = join(dir, manifest.source);
   if (!existsSync(input)) return false;
   const sourceStat = statSync(input);

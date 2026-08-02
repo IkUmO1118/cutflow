@@ -183,10 +183,10 @@ function readJsonFile<T>(file: string): T {
 }
 
 /** --layout フラグの値を検査する。未指定は undefined(resolveLayout 既定へ委ねる) */
-function parseLayoutOpt(v: string | undefined): "obs-canvas" | "plain" | "auto" | undefined {
+function parseLayoutOpt(v: string | undefined): "obs-canvas" | "plain" | "auto" | "stills" | undefined {
   if (v === undefined) return undefined;
-  if (v === "obs-canvas" || v === "plain" || v === "auto") return v;
-  throw new Error(`--layout の値が不正です: ${v}(plain|obs-canvas|auto のいずれか)`);
+  if (v === "obs-canvas" || v === "plain" || v === "auto" || v === "stills") return v;
+  throw new Error(`--layout の値が不正です: ${v}(plain|obs-canvas|auto|stills のいずれか)`);
 }
 
 /** --mic-track / --system-track を検査して数値へ。未指定は undefined。

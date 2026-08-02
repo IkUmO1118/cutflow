@@ -41,6 +41,7 @@ export const GENERATED_FILES = [
   "transcript.system.json",
   "whisper-system-out.json",
   "cut.mp4",
+  "cut.m4a",
   "cut.keeps.json",
   "render.key.json",
   "render.report.json",
@@ -159,6 +160,7 @@ export function fileRole(relPath: string): FileRole {
  * 軽い/再生成が高価なので --cache-only では残す。GENERATED_FILES の部分集合であること。 */
 export const GENERATED_CACHE_FILES = [
   "cut.mp4",
+  "cut.m4a",
   "cut.keeps.json",
   "preview.mp4",
   "preview-cut.mp4",

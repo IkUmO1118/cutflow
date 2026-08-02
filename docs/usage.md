@@ -89,7 +89,7 @@ human final がある場合だけ、従来の agreement (`exact`) / rescue (`dir
 
 初回に本当に触る必要があるのは3点だけ: `recordingsDir`(収録の置き場所)/
 `ai.provider`(生成 AI の入口。`claude-code` は APIキー不要の既定)/
-`ingest.layout`(収録レイアウト。`plain`=通常動画 / `obs-canvas`=画面+カメラ)。
+`ingest.layout`(収録レイアウト。`plain`=通常動画 / `obs-canvas`=画面+カメラ / `stills`=音声のみを元に静止画insertで構成)。音声ファイルだけのフォルダは自動的に `stills` になり、canvas は `ingest.stills`(省略時1920x1080/30fps)を使う。
 リポジトリ直下の `config.yaml`(全項目版・333行)を最初から読む必要はなく、
 同じくリポジトリ直下にある `config.minimal.yaml`(必須セクションだけの完結ファイル・
 約45行)を使うと過負荷を避けられる。使い方は2通り: 各コマンドに
@@ -129,7 +129,7 @@ keep 集合の sha256 ハッシュに束縛され、`render` の唯一のゲー�
 (plan-shorts の LLM 生応答の記録) / `plan-materials.raw.txt`
 (plan-materials の LLM 生応答の記録。用途は plan.raw.txt と同じ) / `render.props.json` /
 `whisper-out.*` / `plan-bgm.raw.txt`(plan-bgm の LLM 生応答の記録。
-用途は plan.raw.txt と同じ) / `cut.mp4` / `cut.keeps.json`(cut.mp4 の再利用可否を
+用途は plan.raw.txt と同じ) / `cut.mp4` / `cut.m4a` / `cut.keeps.json`(cut.mp4/cut.m4a の再利用可否を
 判定するキャッシュキー。keeps・音声設定・元収録ファイルが前回と同じなら
 render は ffmpeg cut を省略する。削除すれば常にフル再生成に戻る) /
 `render.key.json`(final.mp4 の再利用可否を判定するキャッシュキー。

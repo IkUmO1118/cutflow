@@ -60,7 +60,7 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
   `render.props.json` / `whisper-out.*` /
   `transcript.system.json`(システム音声の知覚専用文字起こし=描画・編集しない。
   `whisper.systemAudio` 有効時のみ) / `whisper-system-out.json`(その whisper 生出力) /
-  `cut.mp4` / `cut.keeps.json`(cut.mp4 の再利用可否を判定するキャッシュキー。
+  `cut.mp4` / `cut.m4a` / `cut.keeps.json`(cut.mp4/cut.m4a の再利用可否を判定するキャッシュキー。
   削除すれば常にフル再生成に戻る) / `render.key.json`(final.mp4 の再利用
   可否を判定するキャッシュキー。render.props.json・cut.mp4・参照素材ファイル・
   hardwareAcceleration 設定が前回と同じなら engine render を丸ごと省略する。

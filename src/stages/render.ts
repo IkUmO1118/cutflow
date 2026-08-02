@@ -189,11 +189,12 @@ async function runRenderMain(
   //    render から変わっていなければ cut.mp4 を再利用し、ffmpeg cut
   //    (loudnorm実測込み)をスキップする(cut.keeps.json がキャッシュキー。
   //    削除すれば常にフル再生成に戻る)
-  const cutPath = join(dir, "cut.mp4");
+  const audioOnly = manifest.layout === "stills";
+  const cutPath = join(dir, audioOnly ? "cut.m4a" : "cut.mp4");
   const cutKeepsPath = join(dir, "cut.keeps.json");
   const sourcePath = join(dir, manifest.source);
   const sourceStat = statSync(sourcePath);
-  const colorTags = colorTagsOfProbe(await probe(sourcePath));
+  const colorTags = audioOnly ? undefined : colorTagsOfProbe(await probe(sourcePath));
   const cacheKey = buildCutCacheKey({
     keeps,
     manifest,
@@ -207,7 +208,7 @@ async function runRenderMain(
     ? (JSON.parse(readFileSync(cutKeepsPath, "utf8")) as CutCacheKey)
     : null;
   if (existsSync(cutPath) && cachedKey && cutCacheKeyEquals(cachedKey, cacheKey)) {
-    console.log("cut.mp4 を再利用します(カット・音声設定に変更なし)");
+    console.log(`${audioOnly ? "cut.m4a" : "cut.mp4"} を再利用します(カット・音声設定に変更なし)`);
     collector.cutReused = true;
   } else {
     await publishAsTransaction({
@@ -216,7 +217,7 @@ async function runRenderMain(
         { path: sourcePath, mtimeMs: sourceStat.mtimeMs, size: sourceStat.size },
       ],
       produce: (tmp) => cutFullRes(dir, manifest, keeps, tmp, cfg, { composite, colorTags }),
-      verify: (tmp) => verifyPlayableVideo(tmp),
+      verify: (tmp) => audioOnly ? verifyPlayableAudio(tmp) : verifyPlayableVideo(tmp),
       commit: () => writeFileSync(cutKeepsPath, JSON.stringify(cacheKey, null, 2)),
     });
   }
@@ -563,6 +564,23 @@ export function findBgm(dir: string): string | null {
   );
 }
 
+/** stills の cut.m4a が音声ストリームを持つ再生可能ファイルか確認する。 */
+async function verifyPlayableAudio(file: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+  try {
+    const { stdout } = await run("ffprobe", [
+      "-v", "error", "-show_entries", "stream=codec_type:format=duration", "-of", "json", file,
+    ]);
+    const value = JSON.parse(stdout) as { streams?: { codec_type?: string }[]; format?: { duration?: string } };
+    if (!value.streams?.some((stream) => stream.codec_type === "audio")) {
+      return { ok: false, reason: "音声ストリームがありません" };
+    }
+    if (!(Number(value.format?.duration) > 0)) return { ok: false, reason: "duration が不正です" };
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, reason: `ffprobe に失敗しました: ${(error as Error).message}` };
+  }
+}
+
 /**
  * keep 区間を trim+concat し、音声をラウドネス正規化してフル解像度の
  * cut.mp4 を作る。音声はマイク+システム音声のミックス(src/lib/loudness.ts。
@@ -579,7 +597,8 @@ async function cutFullRes(
 ): Promise<void> {
   const input = join(dir, manifest.source);
   const source = audioSourceOf(manifest, cfg);
-  const colorTags = opts.colorTags ?? colorTagsOfProbe(await probe(input));
+  const audioOnly = manifest.layout === "stills";
+  const colorTags = audioOnly ? undefined : (opts.colorTags ?? colorTagsOfProbe(await probe(input)));
 
   const videoParts = keeps.map(
     (k, i) => `[0:v]trim=start=${k.start}:end=${k.end},setpts=${
@@ -596,6 +615,23 @@ async function cutFullRes(
       targetLufs: cfg.render.targetLufs,
     }),
   );
+
+  if (audioOnly) {
+    const labels = keeps.map((_, i) => `[a${i}]`).join("");
+    const parts = [
+      ...audioParts,
+      `${labels}concat=n=${keeps.length}:v=0:a=1[ac]`,
+      `[ac]${loudnorm}[aout]`,
+    ];
+    await timed("ffmpeg cut(音声のみ)", () =>
+      run("ffmpeg", [
+        "-y", "-v", "error", "-i", input,
+        "-filter_complex", parts.join(";"),
+        "-map", "[aout]", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", output,
+      ]),
+    );
+    return;
+  }
 
   // composite: 連結後の拡張キャンバス [vc] から画面クロップ + カメラワイプ(右下 flush)を
   // 出力解像度の1本 [vout] に焼き込む(Main.tsx の wipeLayer と同じ幾何)。これで
@@ -639,7 +675,7 @@ async function cutFullRes(
       "-filter_complex", parts.join(";"),
       "-map", videoOut, "-map", "[aout]",
       ...cutCodecArgs,
-      ...colorTagArgs(colorTags),
+      ...colorTagArgs(colorTags!),
       "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
       output,
     ]),

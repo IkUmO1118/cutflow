@@ -95,6 +95,26 @@ test("buildInsertBedPcm: カット+挿入でも cut.mp4 の音声をカット後
   assert.deepEqual(Array.from(bed.slice(12 * 2, 13 * 2)), Array.from(cutPcm.slice(10 * 2, 11 * 2)));
 });
 
+test("buildInsertBedPcm: stills の narration は先頭 insert 中も output 0 から連続する", () => {
+  const props = mkProps({
+    videoFile: "",
+    durationSec: 2,
+    fps: 2,
+    baseSegments: [{ start: 1, videoStart: 0, audioStart: 0, durationSec: 1 }],
+    inserts: [{ start: 0, end: 1, file: "slide.png", fit: "contain" }],
+  });
+  const bed = buildInsertBedPcm({
+    props,
+    layout: okLayout(props),
+    cutPcm: CUT_PCM_I1,
+    insertPcms: [null],
+    sampleRate: 4,
+    channels: 2,
+  });
+  assert.deepEqual(Array.from(bed.slice(0, CUT_PCM_I1.length)), Array.from(CUT_PCM_I1));
+  assert.deepEqual(Array.from(bed.slice(CUT_PCM_I1.length)), new Array(CUT_PCM_I1.length).fill(0));
+});
+
 test("baseLayoutOf: audioStart 省略の旧 props は videoStart にフォールバックする", () => {
   const props = mkProps({
     durationSec: 1,

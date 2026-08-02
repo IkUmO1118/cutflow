@@ -10,8 +10,9 @@ export interface Manifest {
   durationSec: number;
   /** レイアウト。省略時は "obs-canvas"(旧 manifest 互換)。
    *  obs-canvas: 拡張キャンバス(画面+カメラ横並び)。cameraRegion を持つ
-   *  plain:      通常動画。カメラ無し。screenRegion は全フレーム */
-  layout?: "obs-canvas" | "plain";
+   *  plain:      通常動画。カメラ無し。screenRegion は全フレーム
+   *  stills:     音声のみの元ファイル。映像は inserts[] の静止画で構成 */
+  layout?: "obs-canvas" | "plain" | "stills";
   video: {
     width: number;
     height: number;
@@ -44,8 +45,8 @@ export const manifestCompositionFps = (manifest: Pick<Manifest, "video">): numbe
   Math.round(manifest.video.fps) || 30;
 
 /** manifest のレイアウト(未指定は旧 manifest 互換で obs-canvas) */
-export const manifestLayout = (m: { layout?: string }): "obs-canvas" | "plain" =>
-  m.layout === "plain" ? "plain" : "obs-canvas";
+export const manifestLayout = (m: { layout?: string }): "obs-canvas" | "plain" | "stills" =>
+  m.layout === "plain" || m.layout === "stills" ? m.layout : "obs-canvas";
 
 /** ワイプ(カメラ)を持つレイアウトか。plain・cameraRegion 欠落は false */
 export const hasCamera = (m: Manifest): boolean =>

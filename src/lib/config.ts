@@ -135,6 +135,8 @@ export interface Config {
     /** 収録レイアウトの既定。省略時 "plain"。
      *  auto = 寸法/縦横比から OBS 拡張キャンバスらしければ obs-canvas、それ以外は plain */
     layout?: "obs-canvas" | "plain" | "auto";
+    /** 音声のみを ingest する stills project の canvas。 */
+    stills?: { width?: number; height?: number; fps?: number };
   };
   whisper: {
     bin: string;

@@ -182,7 +182,14 @@ export function buildRenderProps(args: {
   });
   const design = profile?.layout
     ? undefined
-    : resolveDesign(renderCfg.design, width, height, !!manifest.video.cameraRegion, resolvedWipeStyle);
+    : resolveDesign(
+        renderCfg.design,
+        width,
+        height,
+        !!manifest.video.cameraRegion,
+        resolvedWipeStyle,
+        manifest.layout === "stills",
+      );
   if (design?.backgroundFile && !overlayExists(design.backgroundFile)) {
     warn(`背景画像が見つかりません: ${design.backgroundFile}(背景色のみで描画します)`);
     delete design.backgroundFile;

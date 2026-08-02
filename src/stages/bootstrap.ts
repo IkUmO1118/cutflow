@@ -34,7 +34,7 @@ export async function bootstrapProject(dir: string, cfg: Config): Promise<void> 
 export async function bootstrapProjectWithLayout(
   dir: string,
   cfg: Config,
-  layout: "obs-canvas" | "plain" | "auto" | undefined,
+  layout: "obs-canvas" | "plain" | "auto" | "stills" | undefined,
 ): Promise<void> {
   const manifestPath = join(dir, "manifest.json");
   let manifest: Manifest;

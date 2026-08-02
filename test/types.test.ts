@@ -38,6 +38,17 @@ test("manifestLayout: obs-canvas 明示は obs-canvas", () => {
   assert.equal(manifestLayout({ layout: "obs-canvas" }), "obs-canvas");
 });
 
+test("manifestLayout/hasCamera: stills は独立レイアウトでカメラ無し", () => {
+  const stills: Manifest = {
+    ...obsManifest,
+    layout: "stills",
+    source: "narration.m4a",
+    video: { width: 1920, height: 1080, fps: 30, screenRegion: { x: 0, y: 0, w: 1920, h: 1080 } },
+  };
+  assert.equal(manifestLayout(stills), "stills");
+  assert.equal(hasCamera(stills), false);
+});
+
 test("hasCamera: obs-canvas で cameraRegion があれば true", () => {
   assert.equal(hasCamera(obsManifest), true);
 });

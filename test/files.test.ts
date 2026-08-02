@@ -34,6 +34,7 @@ const EXPECTED_GENERATED_FILES = [
   "transcript.system.json",
   "whisper-system-out.json",
   "cut.mp4",
+  "cut.m4a",
   "cut.keeps.json",
   "render.key.json",
   "render.report.json",

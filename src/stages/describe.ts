@@ -413,7 +413,7 @@ export interface SystemAudioProjection {
 export interface SourceInfo {
   file: string;
   durationSec: number;
-  layout: "obs-canvas" | "plain";
+  layout: "obs-canvas" | "plain" | "stills";
   video: {
     width: number;
     height: number;
