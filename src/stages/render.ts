@@ -1,17 +1,15 @@
 import { cliCmd } from "../lib/cliName.ts";
 import {
   existsSync,
-  mkdirSync,
   readFileSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { isCutplanApproved, isShortApproved } from "../lib/approval.ts";
+import { isCutplanApproved } from "../lib/approval.ts";
 import {
   verifyPlayableVideo,
-  verifyRenderedVideo,
 } from "../lib/chunkCache.ts";
 import {
   publishAsTransaction,
@@ -20,7 +18,7 @@ import { buildCutCacheKey, cutCacheKeyEquals } from "../lib/cutCache.ts";
 import { colorTagArgs, colorTagsOfProbe, type ColorTags } from "../lib/colorTags.ts";
 import { run } from "../lib/exec.ts";
 import { probe } from "../lib/ffmpeg.ts";
-import { renderEngine, renderEngineFromProps } from "./renderEngine.ts";
+import { renderEngine } from "./renderEngine.ts";
 import {
   audioSourceOf,
   keepAudioParts,
@@ -31,7 +29,7 @@ import {
   materialFilesOf,
   renderCacheKeyEquals,
 } from "../lib/renderKey.ts";
-import { defaultShortProfileName, resolveProfile } from "../lib/profile.ts";
+import { resolveCanvas } from "../lib/profile.ts";
 import { buildRenderProps } from "../lib/renderProps.ts";
 import { renderCfgWithDesign } from "../lib/designAsset.ts";
 import { prepareDesignAssetsForProps } from "../lib/designStill.ts";
@@ -39,8 +37,7 @@ import {
   compositionDurationInFrames,
   compositionDurationSec,
 } from "../lib/renderFrameMath.ts";
-import { loadShort, loadShorts } from "../lib/shorts.ts";
-import { mergeIntervals, playbackSegmentsOf } from "../lib/timeline.ts";
+import { playbackSegmentsOf } from "../lib/timeline.ts";
 import { readCursorSidecar } from "./planEffects.ts";
 import type { CursorDwellSample } from "../lib/cursorAnchors.ts";
 import { timed, timedSync, setTimingSink, clearTimingSink } from "../lib/timing.ts";
@@ -52,7 +49,6 @@ import {
 } from "../lib/renderReport.ts";
 import { logStage } from "../lib/obs.ts";
 import { resolveVideoEncoder } from "../lib/videoEncode.ts";
-import { hasCamera } from "../types.ts";
 import type { CutCacheKey } from "../lib/cutCache.ts";
 import type { RenderCacheKey } from "../lib/renderKey.ts";
 import type { Config } from "../lib/config.ts";
@@ -62,46 +58,9 @@ import type {
   CutPlan,
   Manifest,
   Overlays,
-  Short,
   Transcript,
 } from "../types.ts";
 import type { RenderProps } from "../lib/renderPropsTypes.ts";
-import type { Region } from "../types.ts";
-
-/** ワイプ焼き込みの幾何(Main.tsx の wipeLayer と一致させる。camera 前提)。
- * ww = config の wipeWidthPx、wh はカメラ領域のアスペクトで決まる高さ */
-function wipeGeom(manifest: Manifest, cfg: Config): { ww: number; wh: number } | null {
-  const cam = manifest.video.cameraRegion;
-  if (!cam) return null;
-  const ww = cfg.render.wipeWidthPx;
-  return { ww, wh: Math.round((ww * cam.h) / cam.w) };
-}
-
-/** 出力px矩形の交差判定 */
-function rectsIntersect(a: Region, b: Region): boolean {
-  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
-}
-
-/**
- * ワイプ(カメラ)を cut.mp4 に焼き込んで Remotion のベース映像抽出を2回→1回に
- * 減らせる収録か(docs/plans/perf-render-single-extraction.md)。camera があり、
- * zoom / wipeFull が無く、ワイプ矩形と交差する blur も無いときだけ true。
- * 不適格なら従来の拡張キャンバス(3840)ベース+2抽出へフォールバック(挙動 bit 等価)。
- */
-export function canBurnWipe(manifest: Manifest, overlays: Overlays, cfg: Config): boolean {
-  if (!hasCamera(manifest)) return false;
-  // デザイン(背景 + 画面パネル + カメラ円)有効時は、ベースの幾何が
-  // 「画面全面 + 右下 flush ワイプ」ではないので焼き込めない(Remotion 側の
-  // design描画か、静的assetを使うdesign FAST基底で合成する。§src/lib/design.ts)
-  if (cfg.render.design?.enabled) return false;
-  if ((overlays.zooms?.length ?? 0) > 0) return false;
-  if ((overlays.wipeFull?.length ?? 0) > 0) return false;
-  const g = wipeGeom(manifest, cfg);
-  if (!g) return false;
-  const sr = manifest.video.screenRegion;
-  const wipeRect: Region = { x: sr.w - g.ww, y: sr.h - g.wh, w: g.ww, h: g.wh };
-  return !(overlays.blurs ?? []).some((b) => rectsIntersect(b.rect, wipeRect));
-}
 
 /**
  * 最終レンダー。2段構成:
@@ -179,11 +138,6 @@ async function runRenderMain(
     throw new Error("keep 区間が0件です(cutplan.json を確認してください)");
   }
 
-  // ワイプを cut.mp4 に焼き込めるなら Remotion のベース抽出が2回→1回で済む(高速化)。
-  // zoom/wipeFull があると焼き込めない=従来の 3840 ベース+2抽出へフォールバック
-  const composite = canBurnWipe(manifest, overlaysIn, cfg);
-  if (composite) console.log("ワイプを cut.mp4 に焼き込みます(ベース抽出1回の高速レンダー)");
-
   // 1. keep 区間をフル解像度で結合(音声はマイク+システム音声のミックス、
   //    ラウドネス正規化込み)。keeps・音声設定・元収録ファイルが前回の
   //    render から変わっていなければ cut.mp4 を再利用し、ffmpeg cut
@@ -201,7 +155,6 @@ async function runRenderMain(
     cfg,
     sourceMtimeMs: sourceStat.mtimeMs,
     sourceSize: sourceStat.size,
-    composite,
     colorTags,
   });
   const cachedKey = existsSync(cutKeepsPath)
@@ -216,7 +169,7 @@ async function runRenderMain(
       inputs: [
         { path: sourcePath, mtimeMs: sourceStat.mtimeMs, size: sourceStat.size },
       ],
-      produce: (tmp) => cutFullRes(dir, manifest, keeps, tmp, cfg, { composite, colorTags }),
+      produce: (tmp) => cutFullRes(dir, manifest, keeps, tmp, cfg, { colorTags }),
       verify: (tmp) => audioOnly ? verifyPlayableAudio(tmp) : verifyPlayableVideo(tmp),
       commit: () => writeFileSync(cutKeepsPath, JSON.stringify(cacheKey, null, 2)),
     });
@@ -254,7 +207,7 @@ async function runRenderMain(
       }))
     : null;
 
-  const profile = resolveProfile(manifest.video.screenRegion, "default");
+  const profile = resolveCanvas(manifest);
   let props = buildRenderProps({
     manifest,
     keeps,
@@ -263,6 +216,7 @@ async function runRenderMain(
     renderCfg: renderCfgWithDesign(dir, cfg),
     width: profile.width,
     height: profile.height,
+    profile,
     videoFile: "cut.mp4",
     bgm,
     bgmFallbackFile: bgmFile,
@@ -271,15 +225,6 @@ async function runRenderMain(
     overlayExists: (f) => existsSync(join(dir, f)),
     warn: (msg) => console.warn(`警告: ${msg}`),
   });
-  // composite 時: ベースは焼き込み済み 1920x1080 の単一映像。canvas/screenRegion を
-  // その寸法に、wipeBurnedIn を立てて Main.tsx のワイプレイヤーを畳む。cameraRegion は
-  // 残す(字幕の reserve が使う=焼き込みワイプへの重なりを防ぐ)
-  if (composite) {
-    const sr = manifest.video.screenRegion;
-    props.canvas = { w: sr.w, h: sr.h };
-    props.screenRegion = { x: 0, y: 0, w: sr.w, h: sr.h };
-    props.wipeBurnedIn = true;
-  }
   props = await timed("design静的資産準備", () =>
     prepareDesignAssetsForProps({
       dir,
@@ -335,201 +280,6 @@ async function runRenderMain(
   collector.setPath("engine");
   collector.output = probeOutput(outPath, props);
   writeFileSync(renderKeyPath, JSON.stringify(renderKey, null, 2));
-  return outPath;
-}
-
-/**
- * ショート1本のレンダー。shorts.json から name を1件読み、
- * shortKeeps(= mergeIntervals(short.ranges)。本編 cutplan とは独立。D2)を
- * keep 集合として cut.<name>.mp4 → shorts/<name>.mp4 を作る。
- * 承認ゲート(strict): isShortApproved(name 別の承認レコード。本編の承認は
- * 流用しない)。boolean short.approved にはフォールバックしない。
- */
-export async function renderShort(dir: string, cfg: Config, name: string): Promise<string> {
-  const short = loadShort(dir, name);
-  const manifest = JSON.parse(
-    readFileSync(join(dir, "manifest.json"), "utf8"),
-  ) as Manifest;
-  const transcript = JSON.parse(
-    readFileSync(join(dir, "transcript.json"), "utf8"),
-  ) as Transcript;
-  return renderOneShort(dir, cfg, manifest, transcript, short);
-}
-
-/**
- * approved な全ショートをレンダーする。未承認のショートは1行ログでスキップを
- * 明示する(黙って飛ばさない)。shorts.json 自体が無ければエラー
- */
-export async function renderShorts(dir: string, cfg: Config): Promise<string[]> {
-  const shorts = loadShorts(dir);
-  if (!shorts) {
-    throw new Error("shorts.json がありません(このフォルダにショートは未定義です)");
-  }
-  const manifest = JSON.parse(
-    readFileSync(join(dir, "manifest.json"), "utf8"),
-  ) as Manifest;
-  const transcript = JSON.parse(
-    readFileSync(join(dir, "transcript.json"), "utf8"),
-  ) as Transcript;
-  const outputs: string[] = [];
-  for (const short of shorts.shorts) {
-    const gate = isShortApproved(dir, short);
-    if (!gate.ok) {
-      console.log(`スキップ: ショート "${short.name}"(${gate.reason})`);
-      continue;
-    }
-    outputs.push(await renderOneShort(dir, cfg, manifest, transcript, short));
-  }
-  return outputs;
-}
-
-/**
- * ショート1本の実処理。本編 render の2段構成(cutFullRes → buildRenderProps →
- * エンジン書き出し)をそのまま流用し、keep 集合だけショートの ranges に差し替える。
- * キャッシュは full-skip(render.<name>.key.json)+ cut 再利用
- * (cut.<name>.keeps.json)のみ。チャンク差分レンダーはショートには使わない(D4)
- */
-async function renderOneShort(
-  dir: string,
-  cfg: Config,
-  manifest: Manifest,
-  transcript: Transcript,
-  short: Short,
-): Promise<string> {
-  const gate = isShortApproved(dir, short);
-  if (!gate.ok) {
-    throw new Error(
-      `ショート "${short.name}" を render できません: ${gate.reason}\n` +
-        `preview で確認のうえ \`${cliCmd()} approve <dir> --short ${short.name}\` で` +
-        "承認してください(GUI ならチェックボックス)。",
-    );
-  }
-  const name = short.name;
-  const shortKeeps = mergeIntervals(short.ranges).map((k) => ({ ...k, speed: 1 }));
-
-  const cutPath = join(dir, `cut.${name}.mp4`);
-  const cutKeepsPath = join(dir, `cut.${name}.keeps.json`);
-  const sourceStat = statSync(join(dir, manifest.source));
-  const cacheKey = buildCutCacheKey({
-    keeps: shortKeeps,
-    manifest,
-    cfg,
-    sourceMtimeMs: sourceStat.mtimeMs,
-    sourceSize: sourceStat.size,
-  });
-  const cachedKey = existsSync(cutKeepsPath)
-    ? (JSON.parse(readFileSync(cutKeepsPath, "utf8")) as CutCacheKey)
-    : null;
-  if (existsSync(cutPath) && cachedKey && cutCacheKeyEquals(cachedKey, cacheKey)) {
-    console.log(`cut.${name}.mp4 を再利用します(カット・音声設定に変更なし)`);
-  } else {
-    await publishAsTransaction({
-      finalPath: cutPath,
-      inputs: [
-        { path: join(dir, manifest.source), mtimeMs: sourceStat.mtimeMs, size: sourceStat.size },
-      ],
-      produce: (tmp) => cutFullRes(dir, manifest, shortKeeps, tmp, cfg),
-      verify: (tmp) => verifyPlayableVideo(tmp),
-      commit: () => writeFileSync(cutKeepsPath, JSON.stringify(cacheKey, null, 2)),
-    });
-  }
-
-  // ショートは本編 overlays.json の素材/インサート/wipeFull/hideCaption と
-  // bgm.json を継承しない(v1 スコープ注記。D2)。テロップは transcript を
-  // 流用し、captionTracks だけショート専用の上書きを既存の解決機構に相乗りさせる。
-  // colorFilter だけは例外的に継承する(演出ではなく収録の見た目補正なので、
-  // 本編とショートで肌色が変わる事故を防ぐ)。blurs は継承しない(座標が
-  // 本編の出力px基準に束縛され、ショートの座標系とは一致しないため。
-  // 座標がずれた矩形を黙って継承する方が危険という判断。Main.tsx 側も
-  // !props.layout でゲートし二重に塞いでいる)
-  const overlaysPath = join(dir, "overlays.json");
-  const mainOverlays: Overlays = existsSync(overlaysPath)
-    ? (JSON.parse(readFileSync(overlaysPath, "utf8")) as Overlays)
-    : {};
-  const profile = resolveProfile(
-    manifest.video.screenRegion,
-    short.profile ?? defaultShortProfileName(hasCamera(manifest)),
-  );
-  const shortOverlays: Overlays = {
-    captionTracks: short.captionTracks,
-    ...(mainOverlays.colorFilter ? { colorFilter: mainOverlays.colorFilter } : {}),
-  };
-  const props = buildRenderProps({
-    manifest,
-    keeps: shortKeeps,
-    transcript,
-    overlays: shortOverlays,
-    renderCfg: cfg.render,
-    width: profile.width,
-    height: profile.height,
-    profile,
-    videoFile: `cut.${name}.mp4`,
-    bgm: null,
-    bgmFallbackFile: null,
-    silences: null,
-    overlayExists: (f) => existsSync(join(dir, f)),
-    warn: (msg) => console.warn(`警告: ${msg}`),
-  });
-  const propsPath = join(dir, `render.${name}.props.json`);
-  writeFileSync(propsPath, JSON.stringify(props, null, 2));
-
-  const shortsDir = join(dir, "shorts");
-  mkdirSync(shortsDir, { recursive: true });
-  const outPath = join(shortsDir, `${name}.mp4`);
-  const hardwareAcceleration = cfg.render.hardwareAcceleration ?? "if-possible";
-
-  // full-skip キャッシュ(render.<name>.key.json)。本編と同じ判定ロジックを
-  // name 別ファイルで流用する(チャンク差分レンダーはショートには入れない)
-  const renderKeyPath = join(dir, `render.${name}.key.json`);
-  const cutStat = statSync(cutPath);
-  const renderKey = buildRenderCacheKey({
-    props,
-    dir,
-    cut: { mtimeMs: cutStat.mtimeMs, size: cutStat.size },
-    hardwareAcceleration,
-    statFile: (p) => {
-      const s = statSync(p);
-      return { mtimeMs: s.mtimeMs, size: s.size };
-    },
-  });
-  const cachedRenderKey = existsSync(renderKeyPath)
-    ? (JSON.parse(readFileSync(renderKeyPath, "utf8")) as RenderCacheKey)
-    : null;
-  if (
-    existsSync(outPath) &&
-    cachedRenderKey &&
-    renderCacheKeyEquals(cachedRenderKey, renderKey)
-  ) {
-    console.log(`shorts/${name}.mp4 を再利用します(編集内容・素材に変更なし)`);
-    return outPath;
-  }
-
-  const totalFrames = compositionDurationInFrames(props.durationSec, props.fps);
-  const durationSec = compositionDurationSec(props.durationSec, props.fps);
-  await publishAsTransaction({
-    finalPath: outPath,
-    inputs: [
-      { path: cutPath, mtimeMs: cutStat.mtimeMs, size: cutStat.size },
-      ...materialStatsOf(dir, props).map((m) => ({
-        path: join(dir, m.file),
-        mtimeMs: m.mtimeMs,
-        size: m.size,
-      })),
-    ],
-    produce: async (tmp) => {
-      await timed(`エンジン(${name})`, () =>
-        renderEngineFromProps({
-          dir,
-          props,
-          cutPath,
-          outPath: tmp,
-          label: name,
-        }),
-      );
-    },
-    verify: (tmp) => verifyRenderedVideo(tmp, totalFrames, durationSec, props.fps),
-    commit: () => writeFileSync(renderKeyPath, JSON.stringify(renderKey, null, 2)),
-  });
   return outPath;
 }
 
@@ -592,7 +342,7 @@ async function cutFullRes(
   keeps: { start: number; end: number; speed: number }[],
   output: string,
   cfg: Config,
-  opts: { composite?: boolean; colorTags?: ColorTags } = {},
+  opts: { colorTags?: ColorTags } = {},
 ): Promise<void> {
   const input = join(dir, manifest.source);
   const source = audioSourceOf(manifest, cfg);
@@ -632,31 +382,13 @@ async function cutFullRes(
     return;
   }
 
-  // composite: 連結後の拡張キャンバス [vc] から画面クロップ + カメラワイプ(右下 flush)を
-  // 出力解像度の1本 [vout] に焼き込む(Main.tsx の wipeLayer と同じ幾何)。これで
-  // Remotion 側のベース映像抽出が2回→1回に減る(cut.mp4 自体も 3840→1920 で軽くなる)
-  const g = opts.composite ? wipeGeom(manifest, cfg) : null;
-  const cam = manifest.video.cameraRegion;
-  const compositeParts =
-    g && cam
-      ? (() => {
-          const sr = manifest.video.screenRegion;
-          return [
-            `[vc]split=2[s0][s1]`,
-            `[s0]crop=${sr.w}:${sr.h}:${sr.x}:${sr.y}[scr]`,
-            `[s1]crop=${cam.w}:${cam.h}:${cam.x}:${cam.y},scale=${g.ww}:${g.wh}[cw]`,
-            `[scr][cw]overlay=${sr.w - g.ww}:${sr.h - g.wh}[vout]`,
-          ];
-        })()
-      : [];
-  const videoOut = compositeParts.length > 0 ? "[vout]" : "[vc]";
+  const videoOut = "[vc]";
 
   const interleaved = keeps.flatMap((_, i) => [`[v${i}]`, `[a${i}]`]).join("");
   const parts = [
     ...videoParts,
     ...audioParts,
     `${interleaved}concat=n=${keeps.length}:v=1:a=1[vc][ac]`,
-    ...compositeParts,
     `[ac]${loudnorm}[aout]`,
   ];
 

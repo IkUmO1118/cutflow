@@ -29,9 +29,6 @@ function withTmpProject(fn: (dir: string) => void): void {
       annotations: [{ type: "box", start: 1, end: 2, rect: { x: 0, y: 0, w: 10, h: 10 } }],
     });
     write("chapters.json", { chapters: [{ start: 0, title: "導入" }] });
-    write("shorts.json", {
-      shorts: [{ name: "s1", approved: false, ranges: [{ start: 0, end: 1 }] }],
-    });
     fn(dir);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -45,7 +42,6 @@ test("id-stamp: 全要素に ID_RE の id が付く", () => {
     assert.ok(changed.includes("transcript.json"));
     assert.ok(changed.includes("overlays.json"));
     assert.ok(changed.includes("chapters.json"));
-    assert.ok(changed.includes("shorts.json"));
     // bgm.json / thumbnail.json は存在しないので書かれない
     assert.ok(!changed.includes("bgm.json"));
     assert.ok(!changed.includes("thumbnail.json"));
@@ -58,7 +54,6 @@ test("id-stamp: 全要素に ID_RE の id が付く", () => {
     assert.match(docs.overlays!.zooms![0].id as string, ID_RE);
     assert.match(docs.overlays!.annotations![0].id as string, ID_RE);
     assert.match(docs.chapters!.chapters[0].id as string, ID_RE);
-    assert.match(docs.shorts!.shorts[0].ranges[0].id as string, ID_RE);
   });
 });
 

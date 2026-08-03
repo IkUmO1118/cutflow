@@ -71,7 +71,6 @@
         "overlays": { "$ref": "overlays.schema.json" },
         "chapters": { "$ref": "chapters.schema.json" },
         "bgm": { "oneOf": [{ "type": "null" }, { "$ref": "bgm.schema.json" }] },
-        "shorts": { "oneOf": [{ "type": "null" }, { "$ref": "shorts.schema.json" }] },
         "thumbnail": { "$ref": "thumbnail.schema.json" }
       }
     }

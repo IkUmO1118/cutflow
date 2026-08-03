@@ -2,7 +2,7 @@
 # G1 画素ゲート用の parity フィクスチャ収録を生成する(合成 raw.mp4 + 素材 + ingest)。
 #
 # scripts/make-sample.sh の書き方(前提チェック→生成→ingest→validate→次の一手)をなぞる。
-# 手書きの編集JSON(cutplan.json/transcript.json/overlays.json/shorts.json)は
+# 手書きの編集JSON(cutplan.json/transcript.json/overlays.json)は
 # このスクリプトが触らない領域(test(engine): G1 フィクスチャの編集 JSON(12シーン)を追加 の
 # コミットで別途用意される。golden の素になるため、再実行しても勝手に変えてはならない)。
 #
@@ -82,7 +82,7 @@ else
   cat <<EOF >&2
 
 ⚠ validate がエラーで止まりました。cutplan.json/transcript.json/overlays.json/
-  shorts.json がまだ無い場合は想定内です(このスクリプトは編集JSONを書きません。
+  編集JSONがまだ無い場合は想定内です(このスクリプトは編集JSONを書きません。
   test(engine): G1 フィクスチャの編集 JSON(12シーン)を追加 で用意されます)。
 EOF
 fi

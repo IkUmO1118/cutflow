@@ -28,7 +28,7 @@ not writing code.** Video files themselves are never touched directly.
 
 ## 3. Editable files
 
-These 8 files are the ones a human or an agent edits directly. Each has a
+These 7 files are the ones a human or an agent edits directly. Each has a
 JSON Schema in `schemas/` (draft 2020-12) that any JSON Schema-aware editor
 or validator can attach for structural validation and autocompletion.
 Schemas are **not** referenced from the JSON files themselves (no injected
@@ -38,14 +38,19 @@ your editor/validator config.
 
 | File | Schema | What it decides |
 |---|---|---|
-| `cutplan.json` | `schemas/cutplan.schema.json` | Which spans of the raw recording survive (`segments[].action: "keep"/"cut"`), each with a human-readable `reason`. Normally segments align to the candidate grid the numbered-selection prompt saw; when `plan.harness.applySplit` (opt-in, default off) is enabled, a segment can also be a word-boundary sub-span produced by the agentic loop's `split_candidate` tool, written only after `validate`+`assert` pass (rolled back otherwise). `segments[].reasonId` (optional, sticky) tags a decision with one of the 13 classification ids in `docs/edit-skills/recipes/*.md` (single source of truth: `src/lib/reasonIds.ts`'s `CUT_REASON_IDS`); `plan.reasonIds.enabled` (config.yaml key, opt-in, default off) lets `plan --cuts-only`'s single-shot path ask the LLM for it (never the loop/harness paths) and also for a bounded `keeps` list (cut-tempting-but-kept spans only). `reasonId` never affects `render`/the approval hash (`cutplanApprovalHash` only looks at keep `[start, end]`) |
-| `transcript.json` | `schemas/transcript.schema.json` | Caption text, timing, per-caption position/style/track, and karaoke word timing |
-| `overlays.json` | `schemas/overlays.schema.json` | All visual production: material overlays, inserts, camera wipe, zooms, blurs, annotations (arrow/box/spotlight), caption track defaults, layer order, color filter. `zooms[]` / `blurs[]` / `annotations[]` may carry optional sticky `reasonId` values from the 7 effect recipes (`src/lib/effectReasonIds.ts` is the closed source). `validate` errors on non-strings and warns on unknown ids or effect-family mismatches. With `plan.reasonIds.enabled` (shared with cut planning), `plan-effects` asks for `effectReasonId`; off preserves its prior prompt/schema bytes. The metadata is projected out of render props and never enters the cut/short approval hashes. |
+| `cutplan.json` | `schemas/cutplan.schema.json` | Which spans of the raw recording survive (`segments[].action: "keep"/"cut"`), each with a human-readable `reason`. `generatedBy: "bootstrap"` is present only on the untouched, deterministic all-keep initial value and is removed by GUI/API/AI writes; absence is conservatively treated as human-edited. Normally segments align to the candidate grid the numbered-selection prompt saw; when `plan.harness.applySplit` (opt-in, default off) is enabled, a segment can also be a word-boundary sub-span produced by the agentic loop's `split_candidate` tool, written only after `validate`+`assert` pass (rolled back otherwise). `segments[].reasonId` (optional, sticky) tags a decision with one of the 13 classification ids in `docs/edit-skills/recipes/*.md` (single source of truth: `src/lib/reasonIds.ts`'s `CUT_REASON_IDS`); `plan.reasonIds.enabled` (config.yaml key, opt-in, default off) lets `plan --cuts-only`'s single-shot path ask the LLM for it (never the loop/harness paths) and also for a bounded `keeps` list (cut-tempting-but-kept spans only). `reasonId` never affects `render`/the approval hash (`cutplanApprovalHash` only looks at keep `[start, end]`) |
+| `transcript.json` | `schemas/transcript.schema.json` | Caption text, timing, per-caption position/style/track, and karaoke word timing. `generatedBy: "bootstrap"` exists only on the untouched empty initial value and is removed on the first GUI/API/AI write. |
+| `overlays.json` | `schemas/overlays.schema.json` | All visual production: material overlays, inserts, camera wipe, zooms, blurs, annotations (arrow/box/spotlight), caption track defaults, layer order, color filter. `zooms[]` / `blurs[]` / `annotations[]` may carry optional sticky `reasonId` values from the 7 effect recipes (`src/lib/effectReasonIds.ts` is the closed source). `validate` errors on non-strings and warns on unknown ids or effect-family mismatches. With `plan.reasonIds.enabled` (shared with cut planning), `plan-effects` asks for `effectReasonId`; off preserves its prior prompt/schema bytes. The metadata is projected out of render props and never enters the cut approval hash. |
 | `bgm.json` | `schemas/bgm.schema.json` | Background music placement per time range. `timebase` is a document property: omitted/`source` means raw-recording seconds; `output` means post-cut/post-insert seconds. Output-time tracks are read-only in the GUI editor. |
 | `chapters.json` | `schemas/chapters.schema.json` | YouTube description chapter markers (not rendered into the video) |
 | `meta.json` | `schemas/meta.schema.json` | Draft titles and description text (does not affect the rendered video) |
-| `shorts.json` | `schemas/shorts.schema.json` | Vertical short-form video definitions (independent keep-ranges + layout profile) |
 | `thumbnail.json` | `schemas/thumbnail.schema.json` | Thumbnail still image source (time + overlaid text) |
+
+Legacy `shorts.json` is no longer an editable project file and no command reads
+or writes it. `validate` emits one migration warning but remains successful;
+FrameWright never deletes the file or related legacy artifacts. Vertical output
+now belongs to a separate 9:16 project/canvas, introduced by the editor-first
+project work after P0.
 
 Full current state of a project (fully expanded, non-truncated) is always
 available machine-readably via:
@@ -71,7 +76,7 @@ duration, which captions must still be visible, that a secret region stays
 blurred, and so on) as plain, git-diffable JSON, and `node src/cli.ts assert
 <dir>` checks the current project against it. It has its own schema
 (`schemas/assertions.schema.json`) but is intentionally excluded from the
-8-file table: no generator command ever writes or overwrites it (unlike
+7-file table: no generator command ever writes or overwrites it (unlike
 `cutplan.json` et al., which `plan`/`run` regenerate), so it survives
 regeneration cycles untouched. It never affects rendering.
 
@@ -83,9 +88,10 @@ false staleness signals or gets silently discarded:
 
 - Fixed-name generated files: `manifest.json` (**not** deleted by `clean` —
   it is irrecoverable from the recording folder contents alone;
-  re-running `ingest` without `--layout` loses `screenRegion`/`cameraRegion`),
+  re-running `ingest` without `--layout` loses `screenRegion`/`cameraRegion`; `canvas`
+  is likewise an ingest-time, creation-fixed decision),
   `cuts.auto.json`,
-  `plan.raw.txt`, `plan.loop.json`, `plan-shorts.raw.txt`,
+  `plan.raw.txt`, `plan.loop.json`,
   `plan-materials.raw.txt`, `plan-effects.raw.txt`, `plan-bgm.raw.txt`,
   `render.props.json`,
   `whisper-out.json`, `whisper-out.srt`, `transcript.system.json`,
@@ -95,8 +101,7 @@ false staleness signals or gets silently discarded:
   fallback reason, per-stage timings and success/failure, cache hits,
   effective concurrency, an input-snapshot hash, an output probe, and an
   overall ok/failed status; a pure local side artifact that is never
-  transmitted anywhere; covers the main render only — shorts are future
-  work), `preview.mp4`, `preview-cut.mp4`, `preview-cut.key.json` (legacy: the
+  transmitted anywhere), `preview.mp4`, `preview-cut.mp4`, `preview-cut.key.json` (legacy: the
   continuous baked cut video for the editor preview and its cache key.
   FrameWright no longer produces them; they remain classified so `clean`
   can reclaim leftovers in older recordings), `proxy.mp4`, `proxy.m4a`,
@@ -140,10 +145,7 @@ false staleness signals or gets silently discarded:
   including malformed ones, are never overwritten under `--force`; it is
   retained by `clean --cache-only` and `clean --logs-only` and removed only by
   full `clean`)
-- Short-name-variable generated files: `cut.<name>.mp4`,
-  `cut.<name>.keeps.json`, `render.<name>.props.json`,
-  `render.<name>.key.json` (one set per `shorts.json` entry), and
-  `hyperframe.<name>.key.json` (one per `hyperframes/<name>.html` card; the
+- Name-variable generated file: `hyperframe.<name>.key.json` (one per `hyperframes/<name>.html` card; the
   cache key gating `hyperframe <dir> --name <name>` reuse of
   `materials/hyperframes/<name>.mp4`, same mechanism as `render.key.json`).
   `hyperframes/<name>.html` (the composition source, human/LLM-editable or
@@ -155,8 +157,7 @@ false staleness signals or gets silently discarded:
   like `materials/` itself, they fall under `fileRole` `"other"` (human/agent
   content, not overwritten by any other command's re-run), and
   `materials/hyperframes/<name>.mp4` is a product on par with `final.mp4`
-- Generated directories (entirely regenerated on each run):
-  `frames/`, `shorts/`
+- Generated directory (entirely regenerated on each run): `frames/`
 - `materials.probe/` — a **cache-style** generated directory (unlike the
   ones above, it is *not* wiped on every run; deleting the whole directory
   forces a full regeneration). Written by `materials <dir>` (`index.json` plus per-material
@@ -270,14 +271,14 @@ enumeration is pinned to it by `test/agentsMd.test.ts`.
 
 `approvals.json` is a **third category**: neither an editable file nor a
 generated artifact. It holds the approval record that gates `render` — a
-sha256 hash of the keep-set (cutplan segments, or a short's ranges) bound to
+sha256 hash of the cutplan keep-set bound to
 an `approvedAt` timestamp. Only two things may write it:
 
-- `node src/cli.ts approve <dir>` / `approve <dir> --short <name>`
+- `node src/cli.ts approve <dir>` / `node src/cli.ts unapprove <dir>`
 - The GUI editor's save action (checkbox)
 
 **An agent must never edit `approvals.json` directly, and must never treat
-`cutplan.json`'s `approved: true` (or a short's `approved: true`) as
+`cutplan.json`'s `approved: true` as
 sufficient for render to proceed.** Those booleans are only a *display of
 human intent*; the real gate is the hash-bound record in `approvals.json`.
 Editing the keep-set after approval invalidates the record automatically
@@ -294,7 +295,7 @@ requires a preview review; it refuses to run non-interactively without
 
 Elements across the editable files (cutplan segments, captions, overlays,
 inserts, zooms, blurs, wipes, hide-caption spans, caption track defs,
-chapters, BGM tracks, short ranges, thumbnail texts) may carry a stable
+chapters, BGM tracks, thumbnail texts) may carry a stable
 `id?` field of the form `<prefix>_<6 lowercase base36 chars>`
 (for example `seg_a1b2c3`). IDs are **opt-in and sticky**: a project with no
 IDs anywhere behaves byte-identically to before this feature existed; once
@@ -318,7 +319,6 @@ Prefix per element kind:
 | caption track def | `ct` |
 | chapter | `ch` |
 | BGM track | `bg` |
-| short range | `rg` |
 | thumbnail text | `tx` |
 
 Discover current IDs with `node src/cli.ts describe <dir> --json`. Assign
@@ -376,12 +376,11 @@ without `--force`; with `--force`, hand-edited files are moved to
 
 | Command | What it does |
 |---|---|
-| `ingest <dir>` | Parse a recording file into `manifest.json` + extracted mic audio |
+| `ingest <dir>` | Parse a recording file into `manifest.json` + extracted mic audio. `--canvas <preset>` fixes the project output canvas size at creation (`landscape` default; also fixed presets such as `landscape-hd`, `portrait`, `portrait-4k`, `square`, `portrait-4x5`, `cinema`, `classic`); `--base-layout <kind>` fixes the base media placement (`auto` default; `screen`, `camera`, `stack`). Legacy canvas keys such as `portrait-cover` / `portrait-screen` remain readable but are not shown in the UI. |
 | `transcribe <dir>` | Transcribe mic audio with whisper.cpp into `transcript.json` |
 | `detect <dir>` | Detect silence to produce cut candidates (`cuts.auto.json`) |
 | `plan <dir>` | Generate cut decisions, chapters, and title drafts with an LLM (§9: do not re-run casually) |
 | `remeta <dir>` | Regenerate chapters/titles/description only, leaving `cutplan.json` untouched |
-| `plan-shorts <dir>` | Draft short-form video picks into `shorts.json` (all `approved: false`) |
 | `plan-materials <dir>` | Draft material (B-roll) placements into `overlays.json`'s `overlays[]` (number-selection only; requires `materials <dir> --all` first) |
 | `plan-effects <dir>` | Draft effect (zoom/blur/annotation) placements into `overlays.json`'s `zooms`/`blurs`/`annotations` (number + type selection only; coordinates come from perception, not the LLM; requires `frames --ocr` and/or `av <dir>` first, or a `<recording base>.cursor.json` sidecar from `record --watch` — cursor dwell detection (OpenScreen port) becomes a fourth anchor source, rect-fused into an OCR box when the dwell focus falls inside one). `plan.reasonIds.enabled` opt-in adds the 7-value `effectReasonId`; non-none ids copy to the generated item, while none decisions create no overlay and are limited to `max(12, ceil(anchorCount * 0.1))` in the parsed selection. After validation succeeds, the deterministic first result is saved write-once as `plan-effects.first.json`; `describe --json` exposes sticky effect classification coverage and first-vs-final transitions. |
 | `autozoom <dir>` | Deterministically place cursor-dwell-derived zooms into `overlays.json`'s `zooms[]` only (no LLM; requires a `<recording base>.cursor.json` sidecar from `record --watch`; every accepted dwell candidate from `detectDwellCandidates` becomes a zoom with `focusMode: "auto"`; generated zoom spans are clamped to `[0, manifest.durationSec]` and dropped below 0.5s after clamping; `blurs`/`annotations`/other `overlays.json` fields are left untouched). Rerunning with existing non-empty `zooms` requires `--force` (backs up editable files first). Also auto-invoked, non-destructively, at the end of `run` when `plan.cursor.autoZoom` (default `true`) is enabled, a cursor sidecar exists, and `overlays.json`'s `zooms` is empty/absent — any one condition failing silently skips it, leaving `run` byte-equivalent to before this feature |
@@ -422,13 +421,14 @@ without `--force`; with `--force`, hand-edited files are moved to
 | `review <dir>` | Generate a deterministic before/after review bundle and write `review.probe/index.json` |
 | `index` | Build the local cross-recording retrieval index |
 | `search <query>` | Search recording/material metadata, OCR, and transcripts locally |
-| `approve <dir>` | Approve the cutplan (or `--short <name>`) into `approvals.json` (interactive; requires `--yes` non-interactively) |
+| `approve <dir>` | Approve the cutplan into `approvals.json` (interactive; requires `--yes` non-interactively) |
 | `unapprove <dir>` | Revoke an approval record |
-| `render <dir>` | Final render; requires a valid approval record (`--short <name>` / `--shorts` for short-form outputs) |
-| `clean <dir>` | Delete a recording folder's generated intermediates/caches. Classification derives solely from `src/lib/files.ts` (`GENERATED_FILES` / `fileRole`): only top-level entries whose role is `generated` are removed. **`manifest.json` is never deleted by `clean`** even in full mode — it is irrecoverable from the recording folder contents alone (re-running `ingest` without `--layout` loses `screenRegion`/`cameraRegion`). Never touches editable files, `approvals.json`, the human `materials/` folder, the raw recording named by `manifest.source`, or products (`final.mp4`/`thumbnail.png`) — but it does remove that recording's automatic remux duplicate (the stream-copied `.mp4` OBS leaves beside the `.mkv`) after verifying content identity with ffprobe at runtime (conditions in §4; excluded under `--logs-only`; skipped entirely when ffprobe is unavailable). `--dry-run` lists without deleting; `--cache-only` removes only heavy re-derivable caches (`proxy.mp4`/`proxy.m4a`/`preview-cut.mp4`/`preview-cut.key.json`/`cut*.mp4`/`frames/`/`shorts/`/`*.probe/`/`render.fast/`/`.remotion/`) and keeps small/expensive-to-regenerate intermediates (`cuts.auto.json`/`whisper-out.*`); `--logs-only` removes only logs, disposable drafts, and inspection results (`*.raw.txt`/`plan.loop.json`/`cuts.auto.json`/`*-fit.suggested.json`/`effect-check.json`/`bgm-fit.json`/`style-check.json`/`preview.mp4`/`preview-cut.mp4`/`preview-cut.key.json`/`frames/`) and keeps re-render optimization caches (`cut*.mp4`/`render.*`), `proxy.*`, expensive perceptions (`whisper-out.*`/`transcript.system.json`/`*.probe/`), `manifest.json`, and products (`shorts/`) — mutually exclusive with `--cache-only`; `--json` emits the machine-readable plan (idempotent; always exit 0) |
-| `editor <dir>` | Launch the GUI editor |
+| `render <dir>` | Final render; requires a valid cutplan approval record |
+| `clean <dir>` | Delete a recording folder's generated intermediates/caches. Classification derives solely from `src/lib/files.ts` (`GENERATED_FILES` / `fileRole`): only top-level entries whose role is `generated` are removed. **`manifest.json` is never deleted by `clean`** even in full mode — it is irrecoverable from the recording folder contents alone (re-running `ingest` without `--layout` / `--canvas` loses `screenRegion`/`cameraRegion`/`canvas`). Never touches editable files, `approvals.json`, the human `materials/` folder, the raw recording named by `manifest.source`, or products (`final.mp4`/`thumbnail.png`); legacy `shorts.json`, `shorts/`, and `cut.*.mp4` are never removed — but it does remove that recording's automatic remux duplicate (the stream-copied `.mp4` OBS leaves beside the `.mkv`) after verifying content identity with ffprobe at runtime (conditions in §4; excluded under `--logs-only`; skipped entirely when ffprobe is unavailable). `--dry-run` lists without deleting; `--cache-only` removes only heavy re-derivable caches (`proxy.mp4`/`proxy.m4a`/`preview-cut.mp4`/`preview-cut.key.json`/`frames/`/`*.probe/`/`render.fast/`/`.remotion/`) and keeps small/expensive-to-regenerate intermediates (`cuts.auto.json`/`whisper-out.*`); `--logs-only` removes only logs, disposable drafts, and inspection results (`*.raw.txt`/`plan.loop.json`/`cuts.auto.json`/`*-fit.suggested.json`/`effect-check.json`/`bgm-fit.json`/`style-check.json`/`preview.mp4`/`preview-cut.mp4`/`preview-cut.key.json`/`frames/`) and keeps re-render optimization caches (`render.*`), `proxy.*`, expensive perceptions (`whisper-out.*`/`transcript.system.json`/`*.probe/`), `manifest.json` — mutually exclusive with `--cache-only`; `--json` emits the machine-readable plan (idempotent; always exit 0) |
+| `editor <dir>` | Launch the GUI editor, creating `<dir>` when it does not exist. An empty folder or ambiguous base-media candidates open normally for explicit GUI selection; `--canvas <preset>` and `--base-layout <kind>` are accepted only for first bootstrap, and existing different values are rejected. With no `<dir>`, launch the project list rooted at `config.yaml`'s `recordingsDir`; launcher URLs bind every request to a validated direct child at `/p/<name>/` and never expose the launcher through MCP |
+| `derive <dir>` | Create a sibling project from one or more required source-time `--range start-end` values. The destination must not exist. The raw source is shared by symlink, then hardlink, then copy fallback; `ingest` creates a destination-specific manifest/canvas/baseLayout, `transcript.json` is copied unchanged, and a non-bootstrap, unapproved cutplan covers the entire source duration. Overlays, BGM, chapters, meta, materials, thumbnail, and approvals are never inherited |
 | `mcp <dir>` | Launch a Model Context Protocol server over stdio, bound to this one recording folder (§11) |
-| `run <dir>` | First-time bulk pipeline: ingest → transcribe → detect → plan → id-stamp, then non-destructively invokes `autozoom`'s logic if fresh (§9: do not re-run casually) |
+| `run <dir>` | Ask AI to create the first draft: transcribe → detect → plan → id-stamp, then non-destructively invoke `autozoom`'s logic if fresh. If `manifest.json` is absent, it first runs `ingest` for backward compatibility; only that branch uses `--layout`, audio-track, and creation-time `--canvas` / `--base-layout` options. Untouched bootstrap transcript/cutplan files do not require `--force`; marker-less or changed content remains protected and is backed up before forced replacement. |
 | `record` | Long-running watcher (macOS only, no `<dir>` argument) that connects to obs-websocket v5 and reacts to the recording button: spawns a vendored Swift cursor-position helper for the duration of each recording, and on stop writes `<recording base>.cursor.json` next to wherever OBS saved the file (not inside a project folder — this runs before ingest). The target display is auto-resolved (obs-websocket capture-source `display_uuid` → the sole active display → telemetry inference from raw cursor samples, in that order); `--display <id>` is a hidden manual override. Requires `--watch`. Never touches editable files, `approvals.json`, or any existing recording folder |
 
 ## 11. MCP tools
@@ -447,7 +447,7 @@ JSON-RPC 2.0 loop over stdin/stdout (`initialize` / `notifications/initialized`
 **The server exposes only "read" (`describe` / `validate` / `frames` /
 `materials` / `assert`) and "safe edits outside the approval scope"
 (`apply` / `id-stamp`).** `approve`, `unapprove`, `render`, `plan`, `remeta`,
-`plan-shorts`, `plan-materials`, `plan-effects`, `plan-bgm`, `run`, `ingest`, `transcribe`, `detect`, `preview`,
+`plan-materials`, `plan-effects`, `plan-bgm`, `run`, `ingest`, `transcribe`, `detect`, `preview`,
 `thumbnail`, `editor`, and `frames-serve` are **never** exposed as tools —
 there is no generic "run a CLI command" tool either, so there is no way to
 reach them through this server. Approval is a human-only action; its actual

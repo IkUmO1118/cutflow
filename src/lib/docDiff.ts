@@ -1,5 +1,5 @@
 import { ID_RE } from "./ids.ts";
-import type { Bgm, CutPlan, Overlays, Shorts, Transcript } from "../types.ts";
+import type { Bgm, CutPlan, Overlays, Transcript } from "../types.ts";
 
 /** 差分レビューが扱う「GUI が保持する編集ドキュメントの束」。 */
 export interface ReviewDocs {
@@ -7,7 +7,6 @@ export interface ReviewDocs {
   overlays: Overlays;
   transcript: Transcript;
   bgm: Bgm | null;
-  shorts: Shorts | null;
 }
 
 export type ReviewFileKey = keyof ReviewDocs;
@@ -63,7 +62,6 @@ const ARRAY_SPECS: ArraySpec[] = [
   { file: "overlays", arrayKey: "blurs" },
   { file: "overlays", arrayKey: "annotations" },
   { file: "bgm", arrayKey: "tracks" },
-  { file: "shorts", arrayKey: "shorts" },
 ];
 
 const TOP_LEVEL_ARRAYS: Record<ReviewFileKey, Set<string>> = {
@@ -71,10 +69,9 @@ const TOP_LEVEL_ARRAYS: Record<ReviewFileKey, Set<string>> = {
   overlays: new Set(ARRAY_SPECS.filter((s) => s.file === "overlays").map((s) => s.arrayKey)),
   transcript: new Set(ARRAY_SPECS.filter((s) => s.file === "transcript").map((s) => s.arrayKey)),
   bgm: new Set(ARRAY_SPECS.filter((s) => s.file === "bgm").map((s) => s.arrayKey)),
-  shorts: new Set(ARRAY_SPECS.filter((s) => s.file === "shorts").map((s) => s.arrayKey)),
 };
 
-const FILE_KEYS: ReviewFileKey[] = ["cutplan", "overlays", "transcript", "bgm", "shorts"];
+const FILE_KEYS: ReviewFileKey[] = ["cutplan", "overlays", "transcript", "bgm"];
 
 function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -318,13 +315,6 @@ function setPath(obj: unknown, field: string | undefined, value: unknown): unkno
 
 function restoreApprovalsFrom(base: ReviewDocs, merged: ReviewDocs): void {
   merged.cutplan.approved = base.cutplan.approved;
-  if (merged.shorts) {
-    const baseByName = new Map((base.shorts?.shorts ?? []).map((s) => [s.name, s.approved]));
-    merged.shorts.shorts = merged.shorts.shorts.map((s) => ({
-      ...s,
-      approved: baseByName.get(s.name) ?? false,
-    }));
-  }
 }
 
 function applyHunkValue(merged: ReviewDocs, hunk: Hunk, value: unknown): void {

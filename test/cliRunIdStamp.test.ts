@@ -1,9 +1,4 @@
-// src/cli.ts の `run <dir>` コマンドの配線を固定する。
-// run は ingest→transcribe→detect→plan の重い統合(whisper/LLM 呼び出し)
-// なので実行はしない。代わりに「plan の後に id-stamp を1回呼ぶ」という
-// 配線(§docs/plans/2026-07-07-stable-ids-design.md タスク9)をソース上で
-// 固定する: run コマンドのブロック内で idStamp(abs) の呼び出しが
-// plan(abs, cfg) の呼び出しより後ろにあること。
+// run の共通本体(src/stages/runDraft.ts)で plan 後に idStamp を1回呼ぶ配線を固定する。
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -12,6 +7,10 @@ import { join, dirname } from "node:path";
 
 const cliSrc = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "..", "src", "cli.ts"),
+  "utf8",
+);
+const runDraftSrc = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "..", "src", "stages", "runDraft.ts"),
   "utf8",
 );
 
@@ -23,22 +22,20 @@ function runCommandBlock(src: string): string {
   return nextCommand === -1 ? src.slice(start) : src.slice(start, nextCommand);
 }
 
-test("run コマンドは idStamp を import している", () => {
-  assert.match(cliSrc, /import\s*\{[^}]*\bidStamp\b[^}]*\}\s*from\s*"\.\/stages\/idStamp\.ts"/);
+test("run コマンドは共通 runDraft を呼ぶ", () => {
+  assert.match(cliSrc, /import\s*\{[^}]*\brunDraft\b[^}]*\}\s*from\s*"\.\/stages\/runDraft\.ts"/);
+  assert.match(runCommandBlock(cliSrc), /await runDraft\(abs, cfg/);
 });
 
-test("run コマンドのブロック内に idStamp(abs) 呼び出しがある", () => {
-  const block = runCommandBlock(cliSrc);
-  assert.match(block, /idStamp\(abs\)/);
+test("runDraft は idStamp を配線している", () => {
+  assert.match(runDraftSrc, /import\s*\{[^}]*\bidStamp\b[^}]*\}\s*from\s*"\.\/idStamp\.ts"/);
+  assert.match(runDraftSrc, /deps\.idStamp\(dir\)/);
 });
 
-test("run コマンド内で idStamp(abs) は plan(abs, cfg) より後ろに呼ばれる(末尾配線)", () => {
-  const block = runCommandBlock(cliSrc);
-  // plan は timed("plan", () => plan(abs, cfg)) でラップされているため
-  // "await" 直後ではなく "plan(abs, cfg)" のリテラルで位置を取る
-  const planIdx = block.indexOf("plan(abs, cfg)");
-  const stampIdx = block.indexOf("idStamp(abs)");
-  assert.ok(planIdx !== -1, "plan(abs, cfg) 呼び出しが見つからない");
-  assert.ok(stampIdx !== -1, "idStamp(abs) 呼び出しが見つからない");
+test("runDraft で idStamp は plan より後ろに呼ばれる(末尾配線)", () => {
+  const planIdx = runDraftSrc.indexOf("deps.plan(dir, cfg)");
+  const stampIdx = runDraftSrc.indexOf("deps.idStamp(dir)");
+  assert.ok(planIdx !== -1, "deps.plan 呼び出しが見つからない");
+  assert.ok(stampIdx !== -1, "deps.idStamp 呼び出しが見つからない");
   assert.ok(stampIdx > planIdx, "idStamp は plan より後ろで呼ばれる必要がある");
 });

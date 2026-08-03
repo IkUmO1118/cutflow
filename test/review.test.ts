@@ -149,7 +149,6 @@ test("sliceReviewContext: selectedIds と playhead から bounded range を作�
     chapters: [],
     meta: { titles: [], description: "" },
     bgm: { source: "none" },
-    shorts: [],
   } as never;
 
   const selected = sliceReviewContext(projection, {
@@ -276,7 +275,7 @@ describe("diffPreviewRange", () => {
   it("全 kind が DIFF_PREVIEW_BEHAVIOR に定義されている", () => {
     const allKinds: string[] = [
       "cut", "caption", "overlay", "insert", "zoom", "blur",
-      "annotation", "wipe", "caption-track", "bgm", "short", "json",
+      "annotation", "wipe", "caption-track", "bgm", "json",
     ];
     for (const kind of allKinds) {
       assert.ok(

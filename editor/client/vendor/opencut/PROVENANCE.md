@@ -71,13 +71,12 @@ server routes, and editing behavior are not vendored.
   behaviorally unchanged.
 - P2 checkpoint 2 adapts the OpenCut token/button vocabulary into an icon rail
   and compact transport without adopting OpenCut's project or media model. The
-  rail exposes exactly FrameWright's four existing capabilities (`materials`,
-  `script`, `captions`, `shorts`) and retains `tab`/`setTab`, script lazy-load,
+  rail exposes FrameWright's existing capabilities and retains `tab`/`setTab`, script lazy-load,
   and conditional child mounting. Materials keep OS-file upload, HyperFrames AI
   authoring, normal/generated/pending/unplayable cards, drag ghosts, placement,
   rebuild/delete context actions, and every gate/error/empty state. The
   transport retains FrameWright's scrub/playhead, source/output timing, volume,
-  rate, loop, main/short mode, frame/second steps, maximize, fullscreen, and
+  rate, loop, frame/second steps, maximize, fullscreen, and
   keyboard-title semantics; only native controls and existing handlers are
   wrapped or token-skinned. A scoped 1024px multi-row rule prevents overlap while
   the dual-axis Timeline and Inspector remain untouched.
@@ -89,10 +88,8 @@ server routes, and editing behavior are not vendored.
   events still use the original per-field coalesce keys and undo grouping.
   The OpenCut visual vocabulary is applied under `.ocInspector`, so Settings,
   Timeline, AI, server/API, and editor data semantics are not reskinned here.
-  All twelve FrameWright selection kinds, project/no-selection, multi-caption, and
-  short-caption branches remain mounted through their original callbacks. The
-  short approval control intentionally remains a native checkbox rather than a
-  switch because it represents a human approval boundary, not a light setting.
+  FrameWright selection kinds, project/no-selection, and multi-caption branches
+  remain mounted through their original callbacks.
 - P3 adapts the pinned OpenCut editor-layout and token sources into a dense,
   layered timeline skin under `.ocTimeline`: compact toolbar and zoom controls,
   readable ruler and track headers, semantic clip colors, selected/hover/focus
@@ -167,7 +164,7 @@ server routes, and editing behavior are not vendored.
   are not shown; only tabs FrameWright actually has values for are surfaced
   (transform=rect/fit, blending=opacity/fade, audio=volume/start-from,
   text=caption copy/typography). Aggregate/special views (multi-selection,
-  short-only caption, cut segment, no selection, short range) remain a single
+  cut segment, no selection) remain a single
   sheet, matching FrameWright's existing behavior for those branches.
 
 ## MIT notice

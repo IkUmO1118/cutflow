@@ -181,7 +181,6 @@ function fileLabel(file: string): string {
   if (file === "cutplan") return "カット";
   if (file === "overlays") return "演出";
   if (file === "bgm") return "BGM";
-  if (file === "shorts") return "ショート";
   return file;
 }
 
@@ -189,7 +188,6 @@ function arrayLabel(arrayKey: string | undefined): string {
   if (arrayKey === "segments") return "項目";
   if (arrayKey === "captionTracks") return "テロップトラック";
   if (arrayKey === "tracks") return "区間";
-  if (arrayKey === "shorts") return "定義";
   if (arrayKey === "ranges") return "範囲";
   return arrayKey ?? "";
 }

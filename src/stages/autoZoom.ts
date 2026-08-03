@@ -22,7 +22,7 @@ import {
   readCursorSidecar,
   readMotion,
 } from "./planEffects.ts";
-import { resolveProfile } from "../lib/profile.ts";
+import { resolveCanvas } from "../lib/profile.ts";
 import { validateDocs } from "./validate.ts";
 import type { LoadedDocs } from "./validate.ts";
 import type { Config } from "../lib/config.ts";
@@ -93,7 +93,7 @@ export function autoZoom(dir: string, cfg: Config): AutoZoomResult {
     .filter((a) => a.source === "cursor")
     .map((a) => ({ anchorId: a.id, effect: "zoom" as const, reason: "" }));
 
-  const profile = resolveProfile(manifest.video.screenRegion, "default");
+  const profile = resolveCanvas(manifest);
   const overlayCfg: EffectOverlayCfg = {
     ...placementCfg,
     outW: profile.width,
@@ -129,7 +129,6 @@ export function autoZoom(dir: string, cfg: Config): AutoZoomResult {
     bgm: readJsonOrNull<unknown>(join(dir, "bgm.json")),
     chapters: readJsonOrNull<unknown>(join(dir, "chapters.json")),
     meta: readJsonOrNull<unknown>(join(dir, "meta.json")),
-    shorts: readJsonOrNull<unknown>(join(dir, "shorts.json")),
     thumbnail: readJsonOrNull<unknown>(join(dir, "thumbnail.json")),
   };
   const checked = validateDocs(dir, loaded);

@@ -30,7 +30,6 @@ import {
   DEFAULT_PLAN_LOOP_MAX_ITERATIONS,
   DEFAULT_PLAN_LOOP_SECONDARY_MAX_CALLS,
   DEFAULT_PLAN_LOOP_SECONDARY_MAX_IMAGES,
-  DEFAULT_PLAN_SHORTS_MAX_DURATION_SEC,
   DEFAULT_PLAN_CURSOR_MIN_DWELL_MS,
   DEFAULT_PLAN_CURSOR_MAX_DWELL_MS,
   DEFAULT_PLAN_CURSOR_MOVE_THRESHOLD,
@@ -46,7 +45,6 @@ import {
   MAX_AI_IMAGES,
   planHarnessEnabled,
   planLoopEnabled,
-  planShortsMaxSec,
   formatPerceptionStatusLines,
   formatStyleProfileStatusLines,
   DEFAULT_LOG_LEVEL,
@@ -196,12 +194,13 @@ render:
   // render.bgm / render.bgm.ducking が丸ごと無い状態への深いブロック書き込み
   const out = applyConfigEdits(raw, {
     render: { bgm: { volumeDb: -18, ducking: { duckDb: -10, fadeSec: 0.5 } } },
-    editor: { maxUploadMb: 4096 },
+    editor: { maxUploadMb: 4096, maxBaseUploadMb: 16384 },
   });
   const cfg = parse(out) as Config;
   assert.equal(cfg.render.bgm.volumeDb, -18);
   assert.deepEqual(cfg.render.bgm.ducking, { duckDb: -10, fadeSec: 0.5 });
   assert.equal(cfg.editor?.maxUploadMb, 4096);
+  assert.equal(cfg.editor?.maxBaseUploadMb, 16384);
   assert.equal(cfg.render.wipeWidthPx, 480); // 既存キーは保たれる
 });
 
@@ -244,8 +243,8 @@ test("validateConfigPatch: 正常系は空配列", () => {
       preview: { width: 1280, videoEncoder: "videotoolbox" },
       editor: {
         maxUploadMb: 2048,
+        maxBaseUploadMb: 16384,
         defaultImageDurationSec: 4,
-        defaultShortRangeSec: 10,
         aiReview: { vlm: true, maxImages: 4, maxRefinements: 2 },
       },
       ai: {
@@ -331,19 +330,6 @@ test("validateConfigPatch: denoise は mic/noiseFloorDb のブロック更新の
   );
   assert.ok(
     validateConfigPatch({ render: { denoise: { mic: true, noiseFloorDb: -90 } } }).length > 0,
-  );
-});
-
-test("planShortsMaxSec: 省略時は既定60・指定時はその値", () => {
-  assert.equal(planShortsMaxSec({} as Config), DEFAULT_PLAN_SHORTS_MAX_DURATION_SEC);
-  assert.equal(planShortsMaxSec({} as Config), 60);
-  assert.equal(
-    planShortsMaxSec({ planShorts: {} } as Config),
-    60,
-  );
-  assert.equal(
-    planShortsMaxSec({ planShorts: { maxDurationSec: 45 } } as Config),
-    45,
   );
 });
 

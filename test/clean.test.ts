@@ -19,8 +19,7 @@ function makeFixture(): string {
   // approval(消えてはいけない)
   put("approvals.json");
   // other(消えてはいけない): 成果物・素材・shorts/bgm/thumbnail JSON・rules・backups
-  put("final.mp4"); put("thumbnail.png"); put("thumbnail.json"); put("bgm.json");
-  put("shorts.json"); put("bgm.mp3"); put("rules.md");
+  put("final.mp4"); put("thumbnail.png"); put("thumbnail.json"); put("bgm.json"); put("shorts.json"); put("bgm.mp3"); put("rules.md");
   put("materials/broll.mp4"); put("backups/20260101-000000/cutplan.json");
   // generated 固定名(消えるべき)
   put("manifest.json"); put("cuts.auto.json"); put("whisper-out.json"); put("whisper-out.srt");
@@ -41,7 +40,6 @@ function makeFixture(): string {
   put("render.highlight-1.props.json"); put("render.highlight-1.key.json");
   // generated ディレクトリ(配下丸ごと消える)
   put("frames/out10s.png"); put("frames/props.json");
-  put("shorts/highlight-1.mp4");
   put("materials.probe/index.json"); put("av.probe/motion.json"); put("review.probe/index.json");
   put("hyperframe.probe/intro/index.json");
   // Remotion が収録フォルダへ落とす headless Chrome(再取得可能・約200MB)
@@ -62,7 +60,7 @@ test("planClean: 選ぶのは全て generated、editable/approval/other は1件�
     const picked = new Set(plan.targets.map((t) => t.relPath));
     // 消えるべき代表が入っている
     for (const g of ["cuts.auto.json", "proxy.mp4", "proxy.m4a", "cut.mp4",
-      "cut.highlight-1.mp4", "frames", "shorts", "materials.probe",
+      "frames", "materials.probe",
       "av.probe", "review.probe", "hyperframe.probe", "hyperframe-freeze.suggested",
       "whisper-out.json", "preview.mp4", "plan.first.json", "plan-effects.first.json"]) {
       assert.ok(picked.has(g), `${g} が削除対象に無い`);
@@ -93,8 +91,8 @@ test("executeClean: generated だけ消え、editable/approval/other/素材は�
       assert.ok(existsSync(join(dir, keep)), `${keep} が消えた`);
     }
     // 消えるべき
-    for (const gone of ["proxy.mp4", "proxy.m4a", "cut.mp4", "cut.highlight-1.mp4",
-      "frames", "shorts", "materials.probe", "av.probe", "review.probe",
+    for (const gone of ["proxy.mp4", "proxy.m4a", "cut.mp4",
+      "frames", "materials.probe", "av.probe", "review.probe",
       "hyperframe.probe", "hyperframe-freeze.suggested", "whisper-out.json", "preview.mp4",
       "effect-check.json", "plan.first.json", "plan-effects.first.json", ".remotion"]) {
       assert.ok(!existsSync(join(dir, gone)), `${gone} が残っている`);
@@ -110,8 +108,7 @@ test("planClean --cache-only: 重いキャッシュだけ選び、軽い中間�
     const picked = new Set(planClean(dir, { cacheOnly: true }).targets.map((t) => t.relPath));
     for (const cache of ["proxy.mp4", "proxy.m4a", "proxy.key.json",
       "cut.mp4", "cut.keeps.json",
-      "preview.mp4", "render.props.json", "render.key.json", "cut.highlight-1.mp4",
-      "render.highlight-1.props.json", "frames", "shorts",
+      "preview.mp4", "render.props.json", "render.key.json", "frames",
       "materials.probe", "av.probe", "review.probe", "hyperframe.probe", ".remotion"]) {
       assert.ok(picked.has(cache), `${cache} が cache-only 対象に無い`);
     }

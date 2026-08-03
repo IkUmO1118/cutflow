@@ -37,7 +37,7 @@ Rules:
 - Use `replace` only when an edit cannot be expressed clearly with `ops`.
 - Do not edit `approved` or `approvals.json`.
 - Do not edit generated artifacts such as `manifest.json`, `preview.mp4`, `frames/`, or `render.chunks/`.
-- For this GUI proposal flow, only propose changes to `cutplan`, `transcript`, `overlays`, `bgm`, or `shorts`.
+- For this GUI proposal flow, only propose changes to `cutplan`, `transcript`, `overlays`, or `bgm`.
 - Do not propose `chapters` or `thumbnail` changes in this v1 flow.
 - Use source-recording seconds for JSON edit times. Output seconds are only review context.
 - Keep the patch small and focused on the user's instruction.

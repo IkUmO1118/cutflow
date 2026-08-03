@@ -149,37 +149,6 @@ test("keepCount: == は整数の厳密一致(許容誤差の影響を受けな�
   assert.equal(outcomeOf(proj, { type: "keepCount", op: "==", value: 4 }).status, "fail");
 });
 
-test("outDuration: short 指定でそのショートの outDurationSec を見る(本編は無視)", () => {
-  const proj = baseProj({
-    summary: { ...baseProj().summary, outDurationSec: 999 },
-    shorts: [
-      {
-        name: "intro",
-        profile: "vertical",
-        approved: false,
-        ranges: [{ start: 0, end: 30 }],
-        mergedRanges: [],
-        outDurationSec: 30,
-      },
-    ],
-  });
-  assert.equal(
-    outcomeOf(proj, { type: "outDuration", op: "<=", value: 60, short: "intro" }).status,
-    "pass",
-  );
-  assert.equal(
-    outcomeOf(proj, { type: "outDuration", op: "<=", value: 10, short: "intro" }).status,
-    "fail",
-  );
-});
-
-test("outDuration: 存在しない short 名は error", () => {
-  const proj = baseProj();
-  const o = outcomeOf(proj, { type: "outDuration", op: "<=", value: 60, short: "nope" });
-  assert.equal(o.status, "error");
-  assert.match(o.message, /nope/);
-});
-
 /* ---------------- keepCount ---------------- */
 
 test("keepCount: summary.keepCount と比較される", () => {

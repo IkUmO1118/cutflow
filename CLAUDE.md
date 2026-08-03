@@ -13,8 +13,11 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
 ## AI が動画を編集するときの決まり
 
 - 編集 = 収録フォルダ内の `cutplan.json` / `transcript.json` / `overlays.json` /
-  `bgm.json` / `chapters.json` / `meta.json` / `shorts.json` / `thumbnail.json`
+  `bgm.json` / `chapters.json` / `meta.json` / `thumbnail.json`
   の編集。動画ファイル自体は触らない
+- 旧 `shorts.json` は削除済み機能のデータで、FrameWright は読み書きも自動削除も
+  しない。`validate` は移行警告を1件出すだけで成功する。縦動画は同じ収録の派生物
+  ではなく、P1以降のキャンバスを使った独立した9:16プロジェクトとして作る
 - **時刻はすべて「元収録(raw ファイル)の秒」**。カット後の時刻への換算は
   ツールが自動でやる。頭の中で引き算しないこと
 - JSON を編集したら**必ず `node src/cli.ts validate <dir>` を実行**する。
@@ -31,18 +34,16 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
   なく `remeta`(cutplan は触らず、実行前に transcript / chapters / meta を
   `backups/` へ退避する)を使う
 - **`cutplan.json` の `approved` を自分で true にしない**。承認は人間の仕事
-  (preview か GUI エディタで確認してもらう)。`shorts.json` の各ショートの
-  `approved`(ショート単位の承認意図)も同様
+  (preview か GUI エディタで確認してもらう)
 - **承認の実体は `approved` という boolean ではなく `approvals.json`**
-  (収録フォルダ直下の別ファイル。cutplan/short の keep 集合の sha256 ハッシュに
+  (収録フォルダ直下の別ファイル。cutplan の keep 集合の sha256 ハッシュに
   束縛された承認レコード)。`render` はこのレコードの hash が現内容と一致する
   ときだけ通す**strict ゲート**で、`cutplan.approved: true` を書くだけでは
   render は通らない。承認後に keep(cut の内容)を編集すると hash 不一致で
   **自動失効**し、古い内容のまま render されることはない(reason・cut
   セグメント・境界維持のままの分割・overlays/transcript/bgm の編集は失効させ
   ない=承認スコープは cut 決定のみ)。承認・取消は専用コマンドで行う:
-  `node src/cli.ts approve <dir>` / `approve <dir> --short <name>` /
-  `unapprove <dir> [--short <name>]`(`approve` は preview 確認前提の対話
+  `node src/cli.ts approve <dir>` / `unapprove <dir>`(`approve` は preview 確認前提の対話
   操作で、非対話環境では `--yes` が無いと拒否される=AI が「承認して」と
   頼まれても reflex では通らない)。**`approvals.json` は自分で書かない・
   直接編集しない**(cutplan.json 等の編集ワークフローにも中間生成物にも
@@ -52,8 +53,7 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
   収録フォルダの中身だけからは復元できず、`ingest` の再実行は `--layout` を
   知らないと `screenRegion`/`cameraRegion` を失う) /
   `cuts.auto.json` / `plan.raw.txt` / `plan.loop.json`(plan --cuts-only の
-  反復ログ。ループ有効時のみ) / `plan-shorts.raw.txt`(plan-shorts の
-  LLM 生応答の記録。plan.raw.txt と同じ用途) / `plan-materials.raw.txt`
+  反復ログ。ループ有効時のみ) / `plan-materials.raw.txt`
   (plan-materials の LLM 生応答の記録。plan.raw.txt と同じ用途) /
   `plan-effects.raw.txt`(plan-effects の LLM 生応答の記録。plan.raw.txt と同じ用途) /
   `plan-bgm.raw.txt`(plan-bgm の LLM 生応答の記録。plan.raw.txt と同じ用途) /
@@ -69,8 +69,7 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
   `full-skip`/`engine` + フォールバック理由・
   段階ごとの所要時間と成否・キャッシュヒット・
   実効 concurrency・入力スナップショットの sha256・出力プローブ・
-  ok/failed を記録する。純ローカルの副産物で外部送信しない。ショートは
-  対象外=将来対応) / `preview.mp4` /
+  ok/failed を記録する。純ローカルの副産物で外部送信しない) / `preview.mp4` /
   `preview-cut.mp4` / `preview-cut.key.json`(レガシー。エディタの
   連続プレビュー用に keep を焼き込んだ動画とそのキャッシュキー。
   **FrameWright はもう作らない**が、既存収録に残っているので `clean` が
@@ -82,7 +81,7 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
   `frames/*.ocr.json`(`frames --ocr` が書く画面 OCR のサイドカー。
   `frames` 実行のたびに PNG と同様に全消しされる) /
   `frames/index.json`(`frames` が撮影のたびに書く、撮影入力(cutplan/
-  transcript/overlays 等。経路は本編/`--short`で違う)の内容フィンガープリント。
+  transcript/overlays 等)の内容フィンガープリント。
   props.json と同じ扱いで全消し対象外。古さ判定に使う=次に編集 JSON を
   変えて `frames` を撮り直さないと、`validate`/`describe` が「frames が
   古い」と警告する) /
@@ -98,13 +97,6 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
   `render.fast/design/<key>.<role>.png` の内容アドレス式キャッシュと、
   BGM/インサート音声ミックスの一時 PCM の置き場。正常終了時の一時 PCM は消える。
   design 資産は再生成が高価な重いキャッシュなので `--cache-only` の対象) /
-  `cut.<name>.mp4`(ショート `<name>` 専用の keep 集合
-  (`shorts.json` の `ranges`)をフル解像度で結合したもの) /
-  `cut.<name>.keeps.json`(cut.<name>.mp4 の再利用可否を判定するキャッシュキー。
-  仕組みは cut.keeps.json と同じ) / `render.<name>.props.json` /
-  `render.<name>.key.json`(shorts/<name>.mp4 の再利用可否を判定するキャッシュ
-  キー。仕組みは render.key.json と同じ) / `shorts/`(`render --short` /
-  `--shorts` の出力先。`shorts/<name>.mp4`) /
   `hyperframe.<name>.key.json`(HyperFrames カード `hyperframes/<name>.html` の
   再利用可否を判定するキャッシュキー。仕組みは render.key.json と同じ
   (html の sha256・variables・width/height/fps/durationSec・codec・
@@ -247,7 +239,6 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
       "Write(**/*.key.json)",
       "Write(**/cut*.mp4)",
       "Write(**/frames/**)",
-      "Write(**/shorts/**)",
       "Write(**/materials.probe/**)",
       "Write(**/av.probe/**)"
     ]
@@ -273,16 +264,14 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
   keep 内に残った無音(間)の位置は `describe.pauses: true` で `describe` に出せる
 - `manifest.json` … 収録の長さ・解像度(読み取り専用)
 - `node src/cli.ts describe <dir>` … タイムラインの要約(keep/カットの並び・
-  各区間の発言・カット理由・演出・章を、元秒⇔出力秒の対応付きで)。
-  `shorts.json` があれば末尾にショート要約(`name` / `profile` / `approved` /
-  `ranges` / 出力尺)も出す。JSON を全部読むよりこれを先に見る
+  各区間の発言・カット理由・演出・章を、元秒⇔出力秒の対応付きで)。。JSON を全部読むよりこれを先に見る
   - **発言・タイトルを一切切り捨てずに機械的に処理したいときは `--json` を
     付ける**(例: `describe <dir> --json`)。散文(既定)は発言36字切り捨て・
     タイトル先頭3件のみだが、`--json` は編集状態から完全復元できる JSON
     (`schemaVersion` / `source` / `summary` / `keeps` / `cuts`(消える発言も
     全文)/ `captions`(全文・`pos`/`style`/`words`・元秒⇔出力秒)/
     `overlays`(素材・挿入・ワイプ・ズーム・ぼかし・色調整の全フィールド)/
-    `chapters` / `meta`(タイトル全件・概要欄全文)/ `bgm` / `shorts`)を
+    `chapters` / `meta`(タイトル全件・概要欄全文)/ `bgm`)を
     stdout に純 JSON で出す(パイプ/`JSON.parse` 可能。所要時間の診断行は
     stderr へ逃げる)。`--json` を付けない限り既存の `describe` 挙動は
     完全に不変
@@ -295,15 +284,10 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
     テロップ全件(各テロップの表示中間で1枚。どのテロップかはコマンド
     出力に付く)、`--every 10` でカット後タイムラインを10秒間隔+最終
     フレームでサンプリング
-  - `--short <name>` を付けると、`shorts.json` の当該ショートの縦レイアウト
-    (`profile` のプリセット・`ranges` の keep 集合・`captionTracks` の上書き)で
-    出す。`--t` はショートの ranges 内へスナップ、`--every` もショートの
-    出力尺基準で動く(本編 `cutplan.json` は無関係)
   - 実行のたびに `frames/` 内の古い PNG は全削除される。逆に言うと、
     JSON 編集後に frames を撮り直さず古い PNG を Read すると編集前の絵を
     見ることになるので、編集したら必ず撮り直す。これはコードでも検出される:
-    `frames` は撮影した cutplan/transcript/overlays(`--short` 時は
-    shorts/transcript/overlays)の内容フィンガープリントを `frames/index.json`
+    `frames` は撮影した cutplan/transcript/overlaysの内容フィンガープリントを `frames/index.json`
     に記録し、その後 `validate`/`describe` を実行したときに現在の JSON と
     食い違っていれば「frames を撮り直せ」と警告する(`frames/index.json` が
     無い=未撮影のときは警告しない)。ただし `config.yaml` の変更(caption
@@ -326,8 +310,7 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
     ffmpeg クロップし、Apple Vision(macOS 専用・オフライン)で OCR して
     `frames/out<秒>s.ocr.json` に書く(`text`=読み順の全文、`lines[]`=
     `text`/`confidence`/`box`。`box` は caption の `pos`・`blurs.rect` と同じ
-    出力px座標系。`--short` でも短編キャンバスではなく本編 screenRegion の
-    出力px で表現される)。stdout にも先頭数行を要約表示するので、まず
+    出力px座標系で表現される)。stdout にも先頭数行を要約表示するので、まず
     それを読めば足りることが多い。その時刻が挿入クリップ(`overlays.inserts`)
     内で画面の生映像が無い場合は自動でスキップされ(`.ocr.json` は書かれない)、
     非対応環境(macOS 以外等)では警告のうえ PNG 出力だけ続行する。
@@ -395,7 +378,7 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
     short-term LUFS 包絡・true peak・無音区間・mic/system の RMS 被りを出す。
     BGM と duck は render props から**解析的に**併記する
   - `--range <a-b>` は**出力(カット後)秒**、`--every <sec>` は motion の
-    サンプル間隔、`--short <name>` は当該ショートの ranges を対象にする。
+    サンプル間隔。
     `--motion-only` / `--sound-only` で片側だけにもできる
   - `av.probe/` は `materials.probe/` と同じ差分更新型キャッシュ。keep 集合・
     range・設定が同じなら ffmpeg を再実行せず前回 JSON を再利用する
@@ -454,7 +437,7 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
   brief.md(今回の意図)に劣後する参考情報として最後尾に置かれ、profile が
   見つからない/壊れているときは警告のうえ注入をスキップするだけで `plan` は
   止まらない。**v1 は cut 判断(`plan`/`plan --cuts-only`)だけが対象**
-  (`remeta`・`plan-shorts`・`plan-materials`・`plan-effects`・`plan-bgm`
+  (`remeta`・`plan-materials`・`plan-effects`・`plan-bgm`
   には注入しない)。詳細は docs/usage.md「plan のスタイル注入
   (config.yaml の plan.styleProfile)」参照
 - 編集の基本ループ: JSON 編集 → `validate` → `describe` か `frames` で
@@ -465,7 +448,7 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
   1バイトも書かない)。`@id`(`describe --json` / `id-stamp` で確認)を宛先に
   した高水準オペレーション列(`set`/`remove`/`add`)を第一級の入力とし、
   配列添字を書かずに編集を当てられる。`--dry-run` で書かずに変更要約だけ
-  確認できる。**`approved` は apply では変更できない**(cutplan/short の
+  確認できる。**`approved` は apply では変更できない**(cutplan の
   承認意図を変えたいときは `approve <dir>` / `unapprove <dir>` を使う。
   apply は `approvals.json` に一切触れない)。詳細は `docs/usage.md`
   「検査付きアトミック適用(apply)」参照
@@ -488,14 +471,13 @@ JSON がプロジェクトの正のデータ。**このリポジトリで「動�
 (`outlineColor: "none"` と同じ流儀)。「テロップ」と「章」でデザインを
 分けたいときは**トラック標準**(`overlays.json` の `captionTracks[].style`)で
 表現する。詳細は docs/usage.md「テロップのデザインは3層」参照。`anim` は登場/退場アニメ `{in?, out?, durationSec?}`(種別: `fade`/`slide-up`/`slide-down`/`slide-left`/`slide-right`/`pop`/`none`。省略時アニメ無し)。`karaoke` はカラオケ表示 `{activeColor?, inactiveColor?, inactiveOpacity?, mode?}`(`mode` は `word`(既定)/`fill`。`words[]` を消費し、無ければ通常表示にフォールバック)は省略可で個別上書き。`words`(語/トークン単位のタイミング。whisper `-ojf` 由来、`config.yaml` の `whisper.wordTimestamps: true` のときだけ付く。省略可・**`style.karaoke` が消費する描画専用の補助データで text/start/end が常に正**。人間が text を手編集しても words は追随しない) |
-| `overlays.json` | 演出。`overlays`(素材の表示。全画面または `rect` `{x,y,w,h}` で部分配置。`startFrom` 頭出し・`volume` 音量(省略時 0=無音)・`opacity`・`fadeInSec`/`fadeOutSec`)/ `inserts`(インサート編集。`volume`(省略時 1)・フェード付き)/ `wipeFull`(ワイプ全画面。入り/戻りは `transitionInSec`/`transitionOutSec` で独立指定でき、省略時は config の `render.wipeTransitionSec` で遷移。旧 `transitionSec` は両方向のフォールバック)/ `zooms`(ズーム。画面の一部(`rect` `{x,y,w,h}`)を全画面へ拡大。倍率は書かず `rect` から一意に決まる。区間は重ならないこと。出入りは `easeSec`(省略時 config の `render.zoom.easeSec`)で遷移。隣の区間と隙間なく接する(`end` = 次の `start`)と連鎖になり、境界で等倍へ戻らず次の `rect` へ直接パンする(次区間の `easeSec` がパンの遷移時間)。かかるのは背景(design の背景画像)+画面パネルの合成面全体で、ワイプ・テロップ・素材・blur/annotation は不動)/ `blurs`(領域ぼかし。秘匿情報の目隠し。`rect`(出力px)/ `strength`(0〜1、省略時0.5。0=効果なし)。かかるのは下層(ベース映像+挿入)だけ・テロップ/素材はぼかしの上に出る。rect は zoom に追従せず出力px固定(zoom と時間が重なると警告)。ショートには継承されない)/ `annotations`(注釈グラフィック。矢印(`arrow`: `from`/`to`)・囲み(`box`: `rect`)・スポットライト(`spotlight`: `rect`)で「ここを見ろ」を示す。独立レイヤーで最前面(テロップより上)。zoom には追従せず出力px固定(blurs と違い zoom 重なりは警告しない)。遷移の無い硬い ON/OFF。ショートには継承されない)/ `layerOrder`(重なり順)/ `captionTracks`(テロップトラックの標準位置・スタイル)/ `hideCaption` / `colorFilter`(全編一律の簡易カラー調整。`{brightness?, contrast?, saturate?}`。各キー省略可・既定 1.0。かかるのはベース映像(画面クロップ+カメラ)だけで、素材・挿入には効かない。ショートにも例外的に継承される) |
+| `overlays.json` | 演出。`overlays`(素材の表示。全画面または `rect` `{x,y,w,h}` で部分配置。`startFrom` 頭出し・`volume` 音量(省略時 0=無音)・`opacity`・`fadeInSec`/`fadeOutSec`)/ `inserts`(インサート編集。`volume`(省略時 1)・フェード付き)/ `wipeFull`(ワイプ全画面。入り/戻りは `transitionInSec`/`transitionOutSec` で独立指定でき、省略時は config の `render.wipeTransitionSec` で遷移。旧 `transitionSec` は両方向のフォールバック)/ `zooms`(ズーム。画面の一部(`rect` `{x,y,w,h}`)を全画面へ拡大。倍率は書かず `rect` から一意に決まる。区間は重ならないこと。出入りは `easeSec`(省略時 config の `render.zoom.easeSec`)で遷移。隣の区間と隙間なく接する(`end` = 次の `start`)と連鎖になり、境界で等倍へ戻らず次の `rect` へ直接パンする(次区間の `easeSec` がパンの遷移時間)。かかるのは背景(design の背景画像)+画面パネルの合成面全体で、ワイプ・テロップ・素材・blur/annotation は不動)/ `blurs`(領域ぼかし。秘匿情報の目隠し。`rect`(出力px)/ `strength`(0〜1、省略時0.5。0=効果なし)。かかるのは下層(ベース映像+挿入)だけ・テロップ/素材はぼかしの上に出る。rect は zoom に追従せず出力px固定(zoom と時間が重なると警告)。)/ `annotations`(注釈グラフィック。矢印(`arrow`: `from`/`to`)・囲み(`box`: `rect`)・スポットライト(`spotlight`: `rect`)で「ここを見ろ」を示す。独立レイヤーで最前面(テロップより上)。zoom には追従せず出力px固定(blurs と違い zoom 重なりは警告しない)。遷移の無い硬い ON/OFF。)/ `layerOrder`(重なり順)/ `captionTracks`(テロップトラックの標準位置・スタイル)/ `hideCaption` / `colorFilter`(全編一律の簡易カラー調整。`{brightness?, contrast?, saturate?}`。各キー省略可・既定 1.0。かかるのはベース映像(画面クロップ+カメラ)だけで、素材・挿入には効かない。縦プロファイルにも適用される) |
 | `bgm.json` | BGM の区間配置。`tracks[]` の `{start, end, file}`(時系列でなくてよい・重ねてよい)。覆っていない区間は無音、別 `file` の区間で曲の切り替え。`volumeDb`(省略時 config 既定)・`startFrom` 頭出し・`fadeInSec`/`fadeOutSec` は省略可。無ければ収録フォルダ直下の `bgm.*` を全編1曲で流す(後方互換) |
 | `chapters.json` | YouTube 概要欄チャプター(`start` / `title`)。動画には描画されない |
 | `meta.json` | タイトル案・概要欄の下書き。動画に影響なし |
-| `shorts.json` | ショート動画(縦)の元データ。`shorts[]` の各要素が `{name, profile?, approved, ranges[], captionTracks?}`。`name` は出力ファイル名(`shorts/<name>.mp4`)。`ranges`(元収録の秒)が本編 `cutplan.json` とは独立のこのショート専用 keep 集合(本編でカットした素材も含められる)。`profile` は `vertical`(既定)/ `vertical-cover` / `default` の組み込みレイアウト。`captionTracks` は `overlays.json` と同型の縦用テロップ位置/スタイル上書き。`approved` はこのショート単体の**承認意図の表示**(**AI は自分で true にしない**。実際の render ゲートは `approvals.json` の承認レコード) |
-| `approvals.json` | **承認レコード**(cutplan/short 単位)。`render` の唯一のゲート: keep 集合の sha256 ハッシュに束縛され、内容が変わると自動失効する。`node src/cli.ts approve` / `unapprove` コマンドと GUI エディタの保存だけが書く**第3カテゴリ**(編集ファイルにも中間生成物にも属さない)。**AI は直接編集・作成しない** |
+| `approvals.json` | **承認レコード**(cutplan)。`render` の唯一のゲート: keep 集合の sha256 ハッシュに束縛され、内容が変わると自動失効する。`node src/cli.ts approve` / `unapprove` コマンドと GUI エディタの保存だけが書く**第3カテゴリ**(編集ファイルにも中間生成物にも属さない)。**AI は直接編集・作成しない** |
 | `thumbnail.json` | サムネイル静止画(`thumbnail.png`)の元データ。`{t, texts[]}`。`t`(元収録の秒)は frames と違いスナップしない(カットされた瞬間も指定できる)。`texts[]` は `{text, pos: {x,y}, style?}`(`style` は transcript のテロップと同じ `CaptionStyle` を共有)。`overlays.json` の `wipeFull` / `zooms` / `colorFilter` は本編と同じに乗る |
-| `rules.md` | チャンネルの恒久ルール(自由 Markdown。テロップ様式・トーン/声色・禁止語・ペーシング・章の付け方・タイトルの型)。収録フォルダの**親ディレクトリ**に置くとチャンネル共通、**収録フォルダ直下**に置くとこの収録だけの上書き/追加(両方あれば連結・収録固有が優先)。`plan`/`plan --cuts-only`/`remeta`/`plan-shorts`/`plan-materials`/`plan-effects`/`plan-bgm` のプロンプトに注入される。`brief.md`(今回の見せ場・中身)とは役割が別:brief=「今回の中身」、rules=「毎回守る型」 |
+| `rules.md` | チャンネルの恒久ルール(自由 Markdown。テロップ様式・トーン/声色・禁止語・ペーシング・章の付け方・タイトルの型)。収録フォルダの**親ディレクトリ**に置くとチャンネル共通、**収録フォルダ直下**に置くとこの収録だけの上書き/追加(両方あれば連結・収録固有が優先)。`plan`/`plan --cuts-only`/`remeta`/`plan-materials`/`plan-effects`/`plan-bgm` のプロンプトに注入される。`brief.md`(今回の見せ場・中身)とは役割が別:brief=「今回の中身」、rules=「毎回守る型」 |
 
 素材ファイル(B-roll 等)は収録フォルダの `materials/` に置き、相対パスで
 参照する。BGM は `bgm.json` で区間ごとに配置(素材と同じく `materials/` の
@@ -535,7 +517,6 @@ node src/cli.ts frames <dir> --t <times>  # 指定時刻を最終合成の見た
 node src/cli.ts frames <dir> --captions   # テロップ全件を一巡監査(1件1枚)
 node src/cli.ts frames <dir> --every 10   # カット後全体を10秒間隔でサンプル
 node src/cli.ts plan <dir> --cuts-only  # カット判断だけやり直す(章・タイトル・概要欄は触らない)
-node src/cli.ts frames <dir> --short <name> --every 10  # 指定ショートの縦レイアウトで PNG に
 node src/cli.ts frames <dir> --every 10 --ocr  # 画面内テキストを Apple Vision で OCR(frames/*.ocr.json)
 node src/cli.ts frames <dir> --t 90 --full-res  # ベース映像を元収録のフル解像度にして合成 still を鮮明に
 node src/cli.ts frames-serve <dir>  # 常駐フレームサーバ(opt-in。bundle+headless Chrome を暖機。起動中は frames が自動検出)
@@ -551,7 +532,6 @@ node src/cli.ts style-profile --from <path> [--from <path> ...] [--name <名前>
 node src/cli.ts style-check <dir>  # 候補の編集が style profile の学習帯からどれだけ逸脱するかを測る(warn/info・exit 0。要 style-profile 事前実行)
 node src/cli.ts thumbnail <dir>  # thumbnail.json からサムネイル静止画を生成(thumbnail.png)
 node src/cli.ts remeta <dir>      # 章立て・タイトル案・概要欄だけ作り直す(cutplan は触らない)
-node src/cli.ts plan-shorts <dir> # LLM でショート向きの見せ場を選び shorts.json の下書きを生成(全て approved:false。承認は人間。既存 shorts.json ありは --force 必須+backups/ へ退避)
 node src/cli.ts plan-materials <dir>  # 要 materials --all 事前実行。LLM で素材配置候補を選び overlays.json の overlays[] を下書き生成(番号選択のみ・cut/承認には触れない。既存 overlays.json ありは --force 必須+backups/ へ退避)
 node src/cli.ts plan-effects <dir>  # 要 frames --ocr / av のいずれか事前実行。LLM で演出(zoom/blur/annotation)の種別を選び overlays.json の zooms/blurs/annotations を下書き生成(番号+種別選択のみ・座標は知覚由来・cut/承認には触れない。既存 zooms/blurs/annotations ありは --force 必須+backups/ へ退避)
 node src/cli.ts autozoom <dir>    # 要 record --watch のカーソルサイドカーのみ。LLM 不使用でカーソル dwell 全件を zoom として決定論配置(overlays.json の zooms のみ置換・blurs/annotations は不変・cut/承認には触れない。既存 zooms ありは --force 必須+backups/ へ退避。config の plan.cursor.autoZoom=true(既定)なら run 末尾でも非破壊に自動実行)
@@ -566,14 +546,12 @@ node src/cli.ts hyperframe-freeze <dir> --name <name>  # check 済みの hyperfr
 node src/cli.ts learn <dir>       # 直前の生成案と人間の仕上げからチャンネル rules 追記案を生成(rules.suggested.md に下書き。channel の rules.md は人間が手で採用)
 node src/cli.ts preview <dir>     # カット確認用の軽い動画(人間に見せる)
 node src/cli.ts approve <dir>     # cutplan を承認(approvals.json にレコード。対話操作。非対話は --yes 必須)
-node src/cli.ts approve <dir> --short <name>  # 指定ショートを承認
-node src/cli.ts unapprove <dir> [--short <name>]  # 承認を取り消す
 node src/cli.ts render <dir>      # 最終レンダー(approvals.json の承認レコードが必要。boolean approved だけでは通らない)
-node src/cli.ts render <dir> --short <name>  # ショート1本だけレンダー(shorts/<name>.mp4)
-node src/cli.ts render <dir> --shorts        # approved な全ショートをレンダー(未承認はスキップ)
-node src/cli.ts clean <dir>       # 中間生成物/キャッシュを安全削除(files.ts 分類由来。編集ファイル・approvals.json・materials/・元収録・成果物は触れない。ただし元収録の remux 複製(OBS が .mkv の隣に残す同一内容の .mp4)は ffprobe で内容一致を確認のうえ削除する)。--dry-run / --cache-only(重いキャッシュだけ) / --logs-only(ログ・使い捨て下書き・検品結果・preview・frames だけ。リレンダー最適化 cut/render.*・proxy・whisper-out.*・manifest・shorts は残す。--cache-only と排他) / --json
-node src/cli.ts editor <dir>      # GUI エディタ(npm run editor と同じ。終了は Ctrl+C)
+node src/cli.ts clean <dir>       # 中間生成物/キャッシュを安全削除(files.ts 分類由来。編集ファイル・approvals.json・materials/・元収録・成果物は触れない。ただし元収録の remux 複製(OBS が .mkv の隣に残す同一内容の .mp4)は ffprobe で内容一致を確認のうえ削除する)。--dry-run / --cache-only(重いキャッシュだけ) / --logs-only(ログ・使い捨て下書き・検品結果・preview・frames だけ。リレンダー最適化 cut/render.*・proxy・whisper-out.*・manifest。--cache-only と排他) / --json
+node src/cli.ts editor            # config.yaml の recordingsDir を開くプロジェクトランチャー
+node src/cli.ts editor <dir>      # 1プロジェクトを直接開くGUIエディタ(終了は Ctrl+C)
 node src/cli.ts editor <dir> --detach  # バックグラウンド起動でターミナルを返す(--status / --stop で確認・停止。待受情報とログは ~/.framewright/editor/)
+node src/cli.ts derive <dir> --name <name> --canvas portrait --range 120-165  # 元メディア/transcriptを共有し、指定source秒だけkeepする兄弟プロジェクトを作る
 node src/cli.ts mcp <dir>         # MCP サーバ(stdio。1収録フォルダに束縛。describe/validate/frames/materials/assert/apply/id-stamp だけを露出。承認/render/plan 等は露出しない)
 node src/cli.ts run <dir>         # 収録直後の初回一括(再実行は --force 必須+backups/ へ退避。末尾で config の plan.cursor.autoZoom=true(既定)+cursorサイドカー有り+zooms空のときだけ autozoom を非破壊で自動実行)
 ```
@@ -582,7 +560,7 @@ node src/cli.ts run <dir>         # 収録直後の初回一括(再実行は --f
 開かせるための常駐サーバ(標準入出力で JSON-RPC 2.0)。露出するのは
 「読む」(`describe`/`validate`/`frames`/`materials`/`assert` 相当)+
 「承認スコープ外の安全編集」(`apply`/`id-stamp` 相当)だけで、
-`approve`/`unapprove`/`render`/`plan`/`remeta`/`plan-shorts`/`plan-materials`/`plan-effects`/`plan-bgm`/`run` 等は
+`approve`/`unapprove`/`render`/`plan`/`remeta`/`plan-materials`/`plan-effects`/`plan-bgm`/`run` 等は
 tool として一切露出しない(汎用の「CLI を実行する」tool も無い)。詳細・
 tool 一覧・信頼モデル宣言は `AGENTS_CONTRACT.md` §11 と `docs/usage.md`
 「MCP サーバ(mcp)」を正とする。

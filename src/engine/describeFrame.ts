@@ -160,12 +160,12 @@ function baseSourceTimeAt(props: RenderProps, tOut: number): number | null {
  * colorFilter(ベース映像のみ)+ design 背景画像。
  *
  * カメラ(ワイプ)は wipeFull の遷移・zoom 連動縮小と不可分なのでグループ2
- * (wipeFull)側で扱う。ショート(props.layout があるとき)のパネル合成は
+ * (wipeFull)側で扱う。縦プロファイル(props.layout があるとき)のパネル合成は
  * グループ6で扱う(このグループでは何も出さない=Main.tsx が
  * `props.layout ? renderPanels(...) : <zoom 器>` で分岐するのと同じ)
  */
 export function describeBaseLayer(props: RenderProps, tOut: number): FrameItem[] {
-  if (props.layout) return []; // ショート経路はグループ6
+  if (props.layout) return []; // 縦プロファイル経路はグループ6
 
   const items: FrameItem[] = [];
   const zoomT = zoomTransformAtOut(props, tOut);
@@ -247,8 +247,7 @@ function wipeReactiveShrink(
  * グループ2: カメラ(ワイプ)+ wipeFull(全画面化の遷移)+ zoom 連動のワイプ
  * 縮小。design 有無で矩形の式が分岐する(design.camera があれば
  * wipeRectAt、無ければ props.wipe.style)し、縮小は選択アンカー基準で行う。
- * ショート(layout あり)・カメラ無し・wipeBurnedIn(render 高速パスで
- * cut.mp4 に焼き込み済み)のいずれかなら何も出さない
+ * 縦プロファイル(layout あり)・カメラ無しのいずれかなら何も出さない
  * (Main.tsx:370-372 の layerNode("wipe") 分岐の逐語移植)。
  *
  * カメラは zoom transform を受けない(zoom 器の外側にある独立レイヤー。
@@ -256,7 +255,7 @@ function wipeReactiveShrink(
  * グループ5(layerOrder)で行う(このグループでは items 配列末尾に積むだけ)
  */
 export function describeWipeLayer(props: RenderProps, tOut: number): FrameItem[] {
-  if (props.layout || !props.cameraRegion || props.wipeBurnedIn) return [];
+  if (props.layout || !props.cameraRegion) return [];
   const sourceTimeSec = baseSourceTimeAt(props, tOut);
   if (sourceTimeSec === null) return [];
 
@@ -561,7 +560,7 @@ export function describeInsertItems(props: RenderProps, tOut: number): FrameItem
 /**
  * グループ5a: 領域ぼかし(overlays.json の blurs)。Main.tsx:441-483 の
  * 逐語移植。硬い ON/OFF(遷移無し)、strength<=0 は「効果なし」で出さない。
- * rect は zoom に追従せず出力px固定。本編のみ(ショート/videoFile空は対象外)
+ * rect は zoom に追従せず出力px固定。本編のみ(縦プロファイル/videoFile空は対象外)
  */
 export function describeBlurItems(props: RenderProps, tOut: number): FrameItem[] {
   if (props.layout || props.videoFile === "") return [];
@@ -589,7 +588,7 @@ export function describeBlurItems(props: RenderProps, tOut: number): FrameItem[]
  * グループ5b: 注釈グラフィック(overlays.json の annotations)。
  * AnnotationLayer.tsx の3種別(arrow/box/spotlight)の逐語移植。硬い
  * ON/OFF(遷移無し)。zoom には追従せず出力px固定。最前面固定(layerOrder
- * には載らない)。本編のみ(ショート/videoFile空は対象外)
+ * には載らない)。本編のみ(縦プロファイル/videoFile空は対象外)
  */
 export function describeAnnotationItems(props: RenderProps, tOut: number): FrameItem[] {
   if (props.layout || props.videoFile === "") return [];
@@ -690,19 +689,15 @@ export function describeLayerOrderStack(props: RenderProps, tOut: number): Frame
 }
 
 /**
- * グループ6: ショート(props.layout がある縦プリセット経路)のパネル合成。
+ * グループ6: profile layout があるプリセット経路のパネル合成。
  * Main.tsx:245-268 の renderPanels の逐語移植。パネルは配列順(下→上)に
  * screen/camera を crop して並べるだけ(zoom・design は縦プリセットには
  * 乗らない=既存の描画分岐どおり。他方 colorFilter は renderBase を共有
  * するため例外的に乗る=CLAUDE.md の overlays.json 表の注記どおり)。
  *
- * ショート用の RenderProps 自体は呼び出し側が buildRenderProps に
- * profile を渡して構築済みのものを渡す想定(shorts.json の `name` は
- * 出力ファイル名の決定にしか使わず翻訳の数式には関与しないため、
- * describeFrame に `name` 引数は持たせない=「入口 describeShortFrame」は
- * この関数と props の組み合わせと等価)
+ * RenderProps は呼び出し側が buildRenderProps に profile を渡して構築済みのものを渡す。
  */
-export function describeShortPanelsLayer(props: RenderProps, tOut: number): FrameItem[] {
+export function describeProfilePanelsLayer(props: RenderProps, tOut: number): FrameItem[] {
   if (!props.layout || props.videoFile === "") return [];
   const sourceTimeSec = baseSourceTimeAt(props, tOut);
   if (sourceTimeSec === null) return [];
@@ -759,7 +754,7 @@ export function describeCutTransition(props: RenderProps, tOut: number): FrameIt
 export function describeFrame(props: RenderProps, tOut: number): FrameDescriptor {
   const items: FrameItem[] = [];
   items.push(...describeBaseLayer(props, tOut));
-  items.push(...describeShortPanelsLayer(props, tOut));
+  items.push(...describeProfilePanelsLayer(props, tOut));
   items.push(...describeInsertItems(props, tOut));
   items.push(...describeBlurItems(props, tOut));
   items.push(...describeLayerOrderStack(props, tOut));

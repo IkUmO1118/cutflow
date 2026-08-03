@@ -35,8 +35,7 @@
         "label": { "type": "string" },
         "type": { "const": "outDuration" },
         "op": { "$ref": "#/$defs/AssertOp" },
-        "value": { "type": "number" },
-        "short": { "type": "string" }
+        "value": { "type": "number" }
       }
     },
     "KeepCount": {

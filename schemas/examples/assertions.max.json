@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "assertions": [
     { "label": "本編は5分以内", "type": "outDuration", "op": "<=", "value": 300 },
-    { "label": "ショートは60秒以内", "type": "outDuration", "op": "<=", "value": 60, "short": "intro" },
+    { "label": "出力は60秒以内", "type": "outDuration", "op": "<=", "value": 60 },
     { "type": "keepCount", "op": ">=", "value": 3 },
     { "type": "captionVisible", "ref": "@cap_qs3bwg", "visible": true },
     { "type": "captionText", "ref": "@cap_qs3bwg", "contains": "テスト", "equals": "これはテストです" },

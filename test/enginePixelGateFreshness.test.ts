@@ -17,7 +17,7 @@ const FIXTURE_DIR = join(ROOT, "test/fixtures/engine/parity-project");
 const CONFIG_PATH = join(ROOT, "test/fixtures/engine/parity.config.yaml");
 const GOLDEN_DIR = join(ROOT, "test/fixtures/engine/pixel-golden");
 const LAST_RUN_PATH = join(GOLDEN_DIR, "last-run.json");
-const FIXTURE_FILES = ["cutplan.json", "transcript.json", "overlays.json", "shorts.json"];
+const FIXTURE_FILES = ["cutplan.json", "transcript.json", "overlays.json"];
 
 function sha256File(path: string): string {
   return createHash("sha256").update(readFileSync(path)).digest("hex");

@@ -265,7 +265,7 @@ export async function verifyPlayableVideo(mp4: string): Promise<VerifyResult> {
 }
 
 /**
- * final.mp4 / shorts(composition から期待フレーム数が既知)向けの検証。
+ * final.mp4(composition から期待フレーム数が既知)向けの検証。
  * 映像ストリームの存在・decode フレーム数の完全一致・fps 一致を見る。
  * 先頭 keyframe assert は意図的に入れない(フルレンダーにはチャンク経路の
  * ようなフォールバックが無く、false-negative で正当な render を塞ぐと
@@ -329,7 +329,7 @@ export function evaluateExactFramesProbe(
   return { ok: true, keyframeFrames: [] };
 }
 
-/** final.mp4 / shorts/<name>.mp4 が期待どおりのフレーム数・fps・durationか ffprobe で見る */
+/** final.mp4 が期待どおりのフレーム数・fps・durationか ffprobe で見る */
 export async function verifyRenderedVideo(
   mp4: string,
   expectedFrames: number,

@@ -6,7 +6,7 @@
 // id 有効なプロジェクトでのみ生成ステージ・editor 保存が新規要素へ採番し、
 // 既存 id を保つ。id が1つも無ければ何も採番しない(バイト等価)。
 
-import type { Bgm, CutPlan, Overlays, Shorts, Thumbnail, Chapters, Transcript } from "../types.ts";
+import type { Bgm, CutPlan, Overlays, Thumbnail, Chapters, Transcript } from "../types.ts";
 
 /** 種別 → 接頭辞の単一の出所。types.ts のコメントと validate の期待接頭辞が参照する */
 export const ID_PREFIX = {
@@ -22,7 +22,6 @@ export const ID_PREFIX = {
   captionTrack: "ct",
   chapter: "ch",
   bgmTrack: "bg",
-  range: "rg",
   thumbnailText: "tx",
 } as const;
 
@@ -109,7 +108,6 @@ export interface EditableDocs {
   overlays: Overlays | null;
   chapters: Chapters | null;
   bgm: Bgm | null;
-  shorts: Shorts | null;
   thumbnail: Thumbnail | null;
 }
 
@@ -133,10 +131,6 @@ function collectExistingIds(docs: EditableDocs, used: Set<string>): void {
   addAll(docs.overlays?.captionTracks);
   addAll(docs.chapters?.chapters);
   addAll(docs.bgm?.tracks);
-  for (const s of docs.shorts?.shorts ?? []) {
-    addAll(s.ranges);
-    addAll(s.captionTracks);
-  }
   addAll(docs.thumbnail?.texts);
 }
 
@@ -211,22 +205,9 @@ export function stampDocs(docs: EditableDocs): EditableDocs {
     ? { ...docs.bgm, tracks: ensureIds(docs.bgm.tracks, ID_PREFIX.bgmTrack, used) }
     : docs.bgm;
 
-  const shorts = docs.shorts
-    ? {
-        ...docs.shorts,
-        shorts: docs.shorts.shorts.map((s) => ({
-          ...s,
-          ranges: ensureIds(s.ranges, ID_PREFIX.range, used),
-          captionTracks: s.captionTracks
-            ? ensureIds(s.captionTracks, ID_PREFIX.captionTrack, used)
-            : s.captionTracks,
-        })),
-      }
-    : docs.shorts;
-
   const thumbnail = docs.thumbnail
     ? { ...docs.thumbnail, texts: ensureIds(docs.thumbnail.texts, ID_PREFIX.thumbnailText, used) }
     : docs.thumbnail;
 
-  return { cutplan, transcript, overlays, chapters, bgm, shorts, thumbnail };
+  return { cutplan, transcript, overlays, chapters, bgm, thumbnail };
 }

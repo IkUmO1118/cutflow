@@ -59,6 +59,48 @@
   --text-base: var(--oc-text-base);
 }
 
+.launcher { min-height: 100vh; padding: 32px clamp(20px, 6vw, 96px); background: hsl(var(--oc-background)); color: hsl(var(--oc-foreground)); }
+.launcherHeader { display: flex; gap: 12px; align-items: baseline; margin-bottom: 24px; font-size: 18px; }
+.launcherHeader strong { font-size: 26px; }
+.launcherHeader button { margin-left: auto; min-height: 38px; padding: 0 16px; }
+
+/* 新規作成は既定で畳んでおき、一覧を主役にする(展開はヘッダのボタン) */
+.launcherCreate { display: grid; gap: 16px; padding: 20px; margin-bottom: 24px; border: 1px solid hsl(var(--oc-border)); border-radius: 12px; background: hsl(var(--oc-card)); }
+.launcherField { display: grid; gap: 6px; }
+.launcherField > span { font-size: 12px; color: hsl(var(--oc-muted-foreground)); }
+.launcherCreate input { min-height: 38px; max-width: 420px; padding: 0 10px; border: 1px solid hsl(var(--oc-border)); border-radius: 7px; background: hsl(var(--oc-background)); color: hsl(var(--oc-foreground)); }
+.launcherActions { display: flex; gap: 12px; align-items: center; }
+.launcherActions button { min-height: 38px; padding: 0 18px; }
+.launcherActions .launcherHint { margin: 0 auto 0 0; }
+.launcherHint { font-size: 12px; color: hsl(var(--oc-muted-foreground)); }
+.launcherHint.warn { color: hsl(var(--oc-destructive)); }
+.launcherError { color: hsl(var(--oc-destructive)); }
+
+/* キャンバス選択: 比率を「形」で見せる。9種を文字だけで見分けるのは無理がある */
+.canvasTiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 10px; }
+.canvasTile { display: grid; justify-items: center; gap: 4px; padding: 12px 8px; cursor: pointer; border: 1px solid hsl(var(--oc-border)); border-radius: 10px; background: hsl(var(--oc-background)); color: inherit; text-align: center; }
+.canvasTile:hover { border-color: hsl(var(--oc-ring)); }
+.canvasTile.sel { border-color: hsl(var(--oc-ring)); box-shadow: inset 0 0 0 1px hsl(var(--oc-ring)); }
+.canvasTile strong { font-size: 13px; }
+.canvasTileShapeBox { display: flex; align-items: center; justify-content: center; width: 48px; height: 48px; }
+.canvasTileShapeBox.sm { width: 30px; height: 30px; flex: none; }
+.canvasTileShape { display: block; border-radius: 3px; background: hsl(var(--oc-muted-foreground)); opacity: 0.5; }
+.canvasTile.sel .canvasTileShape { background: hsl(var(--oc-ring)); opacity: 1; }
+.canvasTileLabel { font-size: 11px; line-height: 1.3; color: hsl(var(--oc-muted-foreground)); }
+.canvasTileDims { font-size: 10px; color: hsl(var(--oc-muted-foreground)); opacity: 0.8; }
+
+.launcherGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.projectCard { display: grid; gap: 10px; padding: 16px; color: inherit; text-decoration: none; border: 1px solid hsl(var(--oc-border)); border-radius: 10px; background: hsl(var(--oc-card)); }
+.projectCard:hover { border-color: hsl(var(--oc-ring)); }
+.projectCardTop { display: flex; gap: 10px; align-items: center; }
+.projectCardTop strong { font-size: 14px; overflow-wrap: anywhere; }
+.projectCardMeta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.projectCardDur { font-variant-numeric: tabular-nums; }
+.projectCardTodo { color: hsl(var(--oc-destructive)); }
+.projectCardBadge { padding: 1px 8px; border-radius: 999px; background: hsl(var(--oc-muted)); }
+.projectCard time, .projectCard span { color: hsl(var(--oc-muted-foreground)); font-size: 12px; }
+@media (max-width: 700px) { .launcherHeader { flex-wrap: wrap; } .launcherHeader button { margin-left: 0; } }
+
 :root {
   --oc-background: 0 0% 100%;
   --oc-foreground: 0 0% 11%;
@@ -2666,7 +2708,6 @@
   .tlClip.blur { background: #5d93ba; top: 5px; bottom: 5px; }
   .tlClip.annotation { background: #5d93ba; top: 5px; bottom: 5px; }
   .tlClip.bgm { background: #8F5DBA; }
-  .tlClip.short { background: hsl(var(--oc-warning)); }
   /* ワイプ本体・BGM は背景レイヤー表示(ポインタ素通し・選択不可) */
   .tlClip.static { pointer-events: none; border-radius: 0; opacity: 0.8; }
   .tlClip.static .tlClipLabel { color: hsl(var(--oc-muted-foreground)); }
@@ -3353,17 +3394,6 @@
   stroke: hsl(var(--oc-primary));
   stroke-width: 2;
   stroke-dasharray: 3 2;
-}
-
-.ocSidePanel .shortsPanel .panelHead {
-  min-height: 2.75rem;
-  padding: 0 0.65rem;
-  border-bottom: 1px solid hsl(var(--oc-border));
-  color: hsl(var(--oc-muted-foreground));
-}
-
-.ocSidePanel .shortsPanel .panelHead .icon {
-  margin-left: auto;
 }
 
 /* Materials behavior remains in Panels.tsx; only its existing states are skinned. */
@@ -4875,6 +4905,24 @@
 /* OpenCut classic type colors with FrameWright-only families preserved. */
 .ocTimeline .tlClip.cut { background: #3a4658; }
 .ocTimeline .tlClip.insert { background: #9a3412; }
+.ocTimeline .tlClip.insert.image { background: #854d0e; }
+.ocTimeline .tlClip.insert.video { background: #9a3412; }
+.ocTimeline .tlClip.insert .tlInsertKind {
+  flex: 0 0 auto;
+  min-width: 1rem;
+  margin-left: 0.28rem;
+  color: hsl(38 95% 92% / 0.9);
+  font-size: 0.56rem;
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+}
+.ocTimeline .tlClip.insert .tlClipLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .ocTimeline .tlClip.chapter { background: #7a5a12; }
 .ocTimeline .tlClip.caption { background: #5DBAA0; }
 .ocTimeline .tlClip.overlays { background: #BA5D7A; }
@@ -4884,7 +4932,6 @@
 .ocTimeline .tlClip.blur { background: #5d93ba; }
 .ocTimeline .tlClip.annotation { background: #5d93ba; }
 .ocTimeline .tlClip.bgm { background: #8F5DBA; }
-.ocTimeline .tlClip.short { background: hsl(32 78% 37%); }
 
 .ocTimeline .tlClip:is(.wipeFull, .zoom, .blur, .annotation) {
   top: 0.3rem;
@@ -6935,3 +6982,32 @@
   font-size: 11px;
   display: flex; align-items: center; justify-content: center;
 }
+
+.baseMediaEntry {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: hsl(var(--oc-background));
+  color: hsl(var(--oc-foreground));
+}
+.baseMediaCard {
+  width: min(680px, 100%);
+  padding: 32px;
+  border: 1px solid hsl(var(--oc-border));
+  border-radius: 14px;
+  background: hsl(var(--oc-card));
+  box-shadow: 0 18px 60px hsl(0 0% 0% / 0.22);
+}
+.baseMediaCard h1 { margin: 8px 0; font-size: 26px; }
+.baseMediaCard p { color: hsl(var(--oc-muted-foreground)); }
+.baseMediaEyebrow { color: hsl(var(--oc-primary)); font-size: 12px; font-weight: 600; }
+.baseCanvasLabel { display: grid; gap: 6px; margin: 24px 0 16px; font-size: 13px; }
+.baseCanvasLabel select { min-height: 38px; padding: 0 10px; border: 1px solid hsl(var(--oc-border)); border-radius: 7px; background: hsl(var(--oc-background)); color: inherit; }
+.baseCandidateList { display: grid; gap: 8px; }
+.baseCandidateList button { display: flex; justify-content: space-between; align-items: center; min-height: 48px; padding: 0 14px; border: 1px solid hsl(var(--oc-border)); border-radius: 8px; background: transparent; color: inherit; cursor: pointer; }
+.baseCandidateList button:hover { border-color: hsl(var(--oc-primary)); background: hsl(var(--oc-accent) / .12); }
+.baseCandidateList small, .baseDropZone small { color: hsl(var(--oc-muted-foreground)); }
+.baseDropZone { padding: 42px 20px; border: 2px dashed hsl(var(--oc-border)); border-radius: 10px; text-align: center; cursor: pointer; }
+.baseDropZone:hover { border-color: hsl(var(--oc-primary)); background: hsl(var(--oc-accent) / .08); }
+.baseMediaCard .baseMediaError { color: hsl(var(--oc-destructive)); }

@@ -16,6 +16,7 @@ import type { DiffTrackDef } from "./model.ts";
 import type { Hunk } from "../../src/lib/docDiff.ts";
 import { reviewEventStatus } from "../../src/lib/reviewEvents.ts";
 import { playhead, usePlayheadSelector } from "./playhead.ts";
+import { projectPath } from "./route.ts";
 import {
   AUDIO_EXT_RE,
   DuplicateIcon,
@@ -1320,7 +1321,7 @@ export const Timeline = ({
                       nodes.push(
                         <div
                           key={g.keys[i]}
-                          className={`tlClip ${clip.kind}${isSel(clip) ? " sel" : ""}${clip.static ? " static" : ""}${
+                          className={`tlClip ${clip.kind}${clip.mediaKind ? ` ${clip.mediaKind}` : ""}${isSel(clip) ? " sel" : ""}${clip.static ? " static" : ""}${
                             aiClipMarks?.get(`${clip.kind}:${clip.index}`)
                               ? ` aiMark ${aiClipMarks.get(`${clip.kind}:${clip.index}`)}`
                               : ""
@@ -1347,6 +1348,11 @@ export const Timeline = ({
                               className="tlEdge l"
                               onPointerDown={(e) => onClipDown(e, clip, "trim-start")}
                             />
+                          )}
+                          {clip.kind === "insert" && clip.mediaKind && (
+                            <span className="tlInsertKind" aria-hidden="true">
+                              {clip.mediaKind === "image" ? "静" : "▶"}
+                            </span>
                           )}
                           <span className="tlClipLabel">{clip.label}</span>
                           {clip.editable && !clip.noTrimEnd && (
@@ -1435,12 +1441,12 @@ export const Timeline = ({
             <div className="tlDiffHoverThumbLabel">変更前 / 変更後</div>
             <div className="tlDiffHoverThumbPair">
               <img
-                src={`/media/${encodeURIComponent(hoverThumb.still.beforeFile).replace(/%2F/g, "/")}`}
+                src={projectPath(`/media/${encodeURIComponent(hoverThumb.still.beforeFile).replace(/%2F/g, "/")}`)}
                 alt="変更前"
                 className="tlDiffHoverThumbImg"
               />
               <img
-                src={`/media/${encodeURIComponent(hoverThumb.still.afterFile).replace(/%2F/g, "/")}`}
+                src={projectPath(`/media/${encodeURIComponent(hoverThumb.still.afterFile).replace(/%2F/g, "/")}`)}
                 alt="変更後"
                 className="tlDiffHoverThumbImg"
               />

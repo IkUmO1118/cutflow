@@ -1,74 +1,103 @@
-// lib/profile.ts — 出力プロファイル(サイズ+パネル配置+字幕既定)の組み込み定数。
-// F4 で Config 依存を外し、defaultSize(manifest.video.screenRegion 相当)を
-// 直接渡す形に変わったので、名前解決とプレースホルダのサイズ差し替えだけを固定する。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PROFILES, defaultShortProfileName, profileSupportsPlain, resolveProfile } from "../src/lib/profile.ts";
+import {
+  buildLayout,
+  CANVAS_SIZES,
+  isCanvasPreset,
+  outputSize,
+  resolveBaseLayoutKind,
+  resolveCanvas,
+  screenContentRect,
+} from "../src/lib/profile.ts";
+import type { Manifest } from "../src/types.ts";
 
-const defaultSize = { w: 1920, h: 1080 };
-
-test("resolveProfile: 省略時は default = defaultSize のサイズ・layout なし", () => {
-  const profile = resolveProfile(defaultSize);
-  assert.deepEqual(profile, { width: 1920, height: 1080 });
-  assert.equal(profile.layout, undefined);
+const manifest = (canvas?: string, baseLayout?: string, camera = false): Manifest => ({
+  dir: "/tmp", source: "raw.mp4", durationSec: 10, layout: camera ? "obs-canvas" : "plain",
+  ...(canvas ? { canvas } : {}),
+  ...(baseLayout ? { baseLayout } : {}),
+  video: {
+    width: 1920,
+    height: 1080,
+    fps: 30,
+    screenRegion: { x: 0, y: 0, w: 1920, h: 1080 },
+    ...(camera ? { cameraRegion: { x: 1920, y: 0, w: 960, h: 540 } } : {}),
+  },
+  audio: { micStream: 0, systemStream: null, micWav: "mic.wav" },
+  createdAt: "2026-08-02T00:00:00Z",
 });
 
-test("resolveProfile: \"default\" 明示も defaultSize のサイズ", () => {
-  assert.deepEqual(resolveProfile({ w: 2560, h: 1440 }, "default"), { width: 2560, height: 1440 });
+test("resolveCanvas: canvas 省略は screenRegion 寸法で layout 無し", () => {
+  assert.deepEqual(resolveCanvas(manifest()), { width: 1920, height: 1080 });
 });
 
-test("resolveProfile: vertical は 1080x1920 + camera上/screen下のパネル(defaultSize は無視)", () => {
-  const profile = resolveProfile(defaultSize, "vertical");
+test("resolveCanvas: portrait + camera は 1080x1920 + camera/screen パネル", () => {
+  const profile = resolveCanvas(manifest("portrait", undefined, true));
   assert.equal(profile.width, 1080);
   assert.equal(profile.height, 1920);
-  assert.ok(profile.layout);
-  assert.equal(profile.layout?.panels.length, 2);
-  assert.equal(profile.layout?.panels[0].source, "camera");
-  assert.equal(profile.layout?.panels[1].source, "screen");
-  assert.equal(profile.layout?.caption?.fontScale, 1.6);
+  assert.deepEqual(profile.layout?.panels.map((p) => p.source), ["camera", "screen"]);
 });
 
-test("resolveProfile: vertical-cover は 1080x1920 + camera 全画面1パネル", () => {
-  const profile = resolveProfile(defaultSize, "vertical-cover");
-  assert.equal(profile.width, 1080);
-  assert.equal(profile.height, 1920);
-  assert.equal(profile.layout?.panels.length, 1);
-  assert.equal(profile.layout?.panels[0].source, "camera");
-  assert.deepEqual(profile.layout?.panels[0].rect, { x: 0, y: 0, w: 1080, h: 1920 });
+test("resolveCanvas: 未知の canvas は throw", () => {
+  assert.throws(() => resolveCanvas(manifest("not-a-canvas")), /未知の canvas/);
+  assert.throws(() => resolveCanvas(manifest("toString")), /未知の canvas/);
+  assert.throws(() => resolveCanvas(manifest("portrait", "not-a-layout")), /未知の baseLayout/);
 });
 
-test("resolveProfile: 未知のプロファイル名は throw", () => {
-  assert.throws(() => resolveProfile(defaultSize, "square"));
+test("outputSize は resolveCanvas の width/height と一致", () => {
+  for (const name of Object.keys(CANVAS_SIZES)) {
+    const profile = resolveCanvas(manifest(name));
+    assert.deepEqual(outputSize(manifest(name)), { w: profile.width, h: profile.height });
+  }
 });
 
-test("PROFILES: vertical/vertical-cover は組み込み定数として直接参照できる", () => {
-  assert.ok(PROFILES.vertical);
-  assert.ok(PROFILES["vertical-cover"]);
+test("square / portrait-4x5 は screen contain + 下部テロップ帯", () => {
+  assert.deepEqual(outputSize(manifest("square")), { w: 1080, h: 1080 });
+  assert.deepEqual(outputSize(manifest("portrait-4x5")), { w: 1080, h: 1350 });
+  assert.equal(resolveCanvas(manifest("square")).layout?.panels[0].fit, "contain");
+  assert.equal(resolveCanvas(manifest("portrait-4x5")).layout?.panels[0].fit, "contain");
 });
 
-test("resolveProfile: vertical-screen は 1080x1920 + screen 単一パネル(fit=contain)", () => {
-  const profile = resolveProfile(defaultSize, "vertical-screen");
-  assert.equal(profile.width, 1080);
-  assert.equal(profile.height, 1920);
-  assert.equal(profile.layout?.panels.length, 1);
-  assert.equal(profile.layout?.panels[0].source, "screen");
-  assert.equal(profile.layout?.panels[0].fit, "contain");
-  assert.deepEqual(profile.layout?.panels[0].rect, { x: 0, y: 0, w: 1080, h: 1440 });
-  assert.deepEqual(profile.layout?.caption, { x: 540, y: 1680, anchor: "center", fontScale: 1.6 });
+test("screenContentRect: portrait-screen 旧キーは screen contain 座標を実映像矩形へ写像", () => {
+  assert.deepEqual(screenContentRect(manifest("portrait-screen")), {
+    x: 0, y: 440.25, w: 1080, h: 607.5,
+  });
 });
 
-test("PROFILES: vertical-screen も組み込み定数として直接参照できる", () => {
-  assert.ok(PROFILES["vertical-screen"]);
+test("buildLayout: panels はキャンバス内に収まり、stack は隙間なく上下分割する", () => {
+  for (const kind of ["screen", "camera", "stack"] as const) {
+    const layout = buildLayout(kind, { width: 1080, height: 1921 });
+    for (const panel of layout.panels) {
+      const r = panel.rect!;
+      assert.ok(r.x >= 0 && r.y >= 0 && r.w > 0 && r.h > 0);
+      assert.ok(r.x + r.w <= 1080);
+      assert.ok(r.y + r.h <= 1921);
+    }
+  }
+  const stack = buildLayout("stack", { width: 1080, height: 1921 });
+  const a = stack.panels[0].rect!;
+  const b = stack.panels[1].rect!;
+  assert.equal(a.y + a.h, b.y);
+  assert.equal(b.y + b.h, stack.caption!.y * 2 - 1921);
 });
 
-test("defaultShortProfileName: camera 有り→vertical、plain→vertical-screen", () => {
-  assert.equal(defaultShortProfileName(true), "vertical");
-  assert.equal(defaultShortProfileName(false), "vertical-screen");
+test("buildLayout: 同じ kind は寸法違いでも主要比率が一致し、fontScale は幅比例", () => {
+  const square = buildLayout("screen", { width: 1080, height: 1080 });
+  const fourByFive = buildLayout("screen", { width: 1080, height: 1350 });
+  assert.equal(square.panels[0].rect!.h / 1080, fourByFive.panels[0].rect!.h / 1350);
+  assert.equal(square.caption!.y / 1080, fourByFive.caption!.y / 1350);
+  assert.equal(resolveCanvas(manifest("portrait")).layout!.caption!.fontScale! * 2, resolveCanvas(manifest("portrait-4k")).layout!.caption!.fontScale);
 });
 
-test("profileSupportsPlain: screen+camera 両持ち(vertical)だけ false、他は true", () => {
-  assert.equal(profileSupportsPlain("vertical"), false);
-  assert.equal(profileSupportsPlain("vertical-cover"), true);
-  assert.equal(profileSupportsPlain("vertical-screen"), true);
-  assert.equal(profileSupportsPlain("default"), true);
+test("旧 canvas キーは新しい canvas/baseLayout として解決される", () => {
+  assert.equal(isCanvasPreset("portrait-cover"), true);
+  assert.deepEqual(resolveCanvas(manifest("portrait-cover")).layout?.panels.map((p) => p.source), ["camera"]);
+  assert.deepEqual(resolveCanvas(manifest("portrait-screen")).layout?.panels.map((p) => p.source), ["screen"]);
+  assert.deepEqual(resolveCanvas(manifest("portrait", undefined, true)).layout?.panels.map((p) => p.source), ["camera", "screen"]);
+});
+
+test("resolveBaseLayoutKind: auto は横長 layout 無し、縦はカメラ有無で stack/screen", () => {
+  assert.equal(resolveBaseLayoutKind(manifest("landscape")), null);
+  assert.equal(resolveBaseLayoutKind(manifest("portrait", undefined, true)), "stack");
+  assert.equal(resolveBaseLayoutKind(manifest("portrait")), "screen");
+  assert.equal(resolveBaseLayoutKind(manifest("landscape", "camera")), "camera");
 });

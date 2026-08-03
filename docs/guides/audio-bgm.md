@@ -146,7 +146,7 @@ cut(`cutplan.json`)・承認(`approvals.json`)には一切触れない独立軸�
   1バイトも書かない
 - **既存 `bgm.json` は `--force` 必須**(実行前に `backups/` へ退避)
 - **承認不要・下書き扱い**: bgm の編集は承認 hash を失効させない
-  (§承認(approve/unapprove))ため、生成しても既存の cutplan/short の承認は
+  (§承認(approve/unapprove))ため、生成しても既存の cutplan 承認は
   生きたまま。ただし人間が preview / エディタで聴いて、要らなければ消す前提
 - **chapters.json が無くても動く**: 章境界アンカーが作れないだけで、
   大カット境界だけで区間割りする(区間の意味づけは薄くなる旨を告知)
@@ -229,7 +229,6 @@ node src/cli.ts validate <dir>      # 適用後、整合性を再確認
 ```sh
 node src/cli.ts av <dir>
 node src/cli.ts av <dir> --range 10-25.5
-node src/cli.ts av <dir> --short intro --sound-only
 node src/cli.ts av <dir> --full-res --motion-only
 ```
 
@@ -252,7 +251,6 @@ node src/cli.ts av <dir> --full-res --motion-only
 
 - `--range <a-b>`: **出力(カット後)秒**で部分区間を切る
 - `--every <sec>`: motion サンプル間隔
-- `--short <name>`: `shorts.json` の対象ショートの `ranges` を使う
 - `--full-res`: motion の基映像に `proxy.mp4` ではなく元収録を使う
 - `--motion-only` / `--sound-only`: 片側だけ取得
 
@@ -260,5 +258,4 @@ node src/cli.ts av <dir> --full-res --motion-only
 
 - `av.probe/` は `materials.probe/` と同じ差分更新型
 - 同じ入力 key なら JSON を再利用し、ffmpeg を再実行しない
-
 

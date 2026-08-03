@@ -15,6 +15,7 @@ import { AudioScheduler } from "../../src/engine/runtime/audioScheduler.ts";
 import type { RenderProps } from "../../src/lib/renderPropsTypes.ts";
 import { audioSignatureOf, timelineFromBaseSegments } from "./enginePreviewTimeline.ts";
 import type { PreviewMetricsSource } from "./metrics.ts";
+import { projectPath } from "./route.ts";
 
 /** App.tsx の built props memo は videoFile("media/proxy.mp4" or "")に加え、
  * overlays[].file / inserts[].file / bgm[].file / design の背景・素材ファイルを
@@ -34,7 +35,7 @@ const REPAINT_FAILURE_LIMIT = 3;
 const SEEK_SAMPLE_LIMIT = 200;
 
 function resolveUrl(sourceId: string): string {
-  return `/${encodeURIComponent(sourceId).replace(/%2F/g, "/")}`;
+  return projectPath(`/${encodeURIComponent(sourceId).replace(/%2F/g, "/")}`);
 }
 
 function sourceTimeOf(item: ExternalItem): number {
@@ -200,7 +201,7 @@ export const EnginePreview = forwardRef<PreviewHandle, EnginePreviewProps>(funct
 
   // mount 時に1回だけ GPU 初期化+AudioContext/Scheduler/Clock を組み立てる。
   // key={videoVersion}(App.tsx 側)で全体が remount される前提なので、
-  // width/height/short 切替は常にこの effect の再実行(=新規 mount)で拾う
+  // width/height 切替は常にこの effect の再実行(=新規 mount)で拾う
   useEffect(() => {
     let cancelled = false;
     const host = hostRef.current;

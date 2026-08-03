@@ -23,12 +23,15 @@ import type {
   MediaFactsData,
   PeaksData,
   ProjectData,
+  ReadyProjectData,
   ProxyResponse,
   SaveRequest,
   SaveResponse,
   ScriptData,
   UploadResult,
+  ProjectSummary,
 } from "./apiTypes.ts";
+import { projectPath } from "./route.ts";
 
 export class ApiError extends Error {
   status: number;
@@ -42,6 +45,37 @@ export class ApiError extends Error {
 
 export async function getProject(): Promise<ProjectData> {
   return (await request("/api/project", undefined)) as ProjectData;
+}
+
+export async function getProjects(): Promise<ProjectSummary[]> {
+  return (await request("/api/projects", undefined)) as ProjectSummary[];
+}
+
+export async function createProject(name: string, canvas: string, baseLayout = "auto", layout = "plain"): Promise<{ dir: string; name: string; canvas: string; layout?: string; baseLayout?: string }> {
+  return (await request("/api/projects", { name, canvas, baseLayout, layout })) as { dir: string; name: string; canvas: string; layout?: string; baseLayout?: string };
+}
+
+export async function postDerive(name: string, canvas: string, ranges: Array<{ start: number; end: number }>, baseLayout = "auto"): Promise<{ dir: string; name: string }> {
+  return (await request("/api/derive", { name, canvas, baseLayout, ranges })) as { dir: string; name: string };
+}
+
+export async function postBaseMedia(file: string, canvas: string, baseLayout = "auto"): Promise<ReadyProjectData> {
+  return (await request("/api/base-media", { file, canvas, baseLayout })) as ReadyProjectData;
+}
+
+export async function uploadBaseMedia(file: File, canvas: string, baseLayout = "auto"): Promise<ReadyProjectData> {
+  const res = await fetch(
+    projectPath(`/api/upload?as=base&name=${encodeURIComponent(file.name)}&canvas=${encodeURIComponent(canvas)}&baseLayout=${encodeURIComponent(baseLayout)}`),
+    { method: "POST", body: file },
+  );
+  const data: unknown = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg = data && typeof data === "object" && "error" in data
+      ? String((data as { error: unknown }).error)
+      : res.statusText;
+    throw new Error(msg);
+  }
+  return data as ReadyProjectData;
 }
 
 /** スクリプトタブの元データ(元収録の全文文字起こし)。タブを初めて開いた
@@ -169,6 +203,11 @@ export async function postPreview(): Promise<{ path: string }> {
   return (await request("/api/preview", {})) as { path: string };
 }
 
+/** AI に初版(transcribe→detect→plan)を作らせる。 */
+export async function postRun(force: boolean): Promise<void> {
+  await request("/api/run", { force });
+}
+
 /** 最終レンダー(final.mp4)。approved: true が必要で、数分かかることがある。
  * 入力はディスクの JSON を読むので、呼ぶ前に保存しておくこと */
 export async function postRender(): Promise<{ path: string }> {
@@ -189,7 +228,7 @@ export async function deleteMaterial(file: string): Promise<void> {
 
 /** 素材ファイルを収録フォルダの materials/ へアップロードする */
 export async function uploadMaterial(f: File): Promise<UploadResult> {
-  const res = await fetch(`/api/upload?name=${encodeURIComponent(f.name)}`, {
+  const res = await fetch(projectPath(`/api/upload?name=${encodeURIComponent(f.name)}`), {
     method: "POST",
     body: f,
   });
@@ -209,7 +248,7 @@ async function request(
   body: unknown,
   method?: "DELETE",
 ): Promise<unknown> {
-  const res = await fetch(path, body === undefined && method === undefined
+  const res = await fetch(projectPath(path), body === undefined && method === undefined
     ? undefined
     : {
         method: method ?? "POST",

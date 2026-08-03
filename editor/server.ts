@@ -32,9 +32,7 @@ import {
 import type { EngineDevAssets, MutableEditorClientAssets } from "./clientBuild.ts";
 import {
   clearCutplanApproval,
-  clearShortApproval,
   writeCutplanApproval,
-  writeShortApproval,
 } from "../src/lib/approval.ts";
 import {
   checkBaseHashes,
@@ -50,7 +48,15 @@ import { classifyBrowserDisplayable } from "../src/lib/mediaCodec.ts";
 import type { DisplayVerdict, VideoCodecFacts } from "../src/lib/mediaCodec.ts";
 import { ensureIds, hasAnyId, ID_PREFIX, usedIdsOf } from "../src/lib/ids.ts";
 import { mergeBodyOverDisk } from "../src/lib/applyEdits.ts";
+import { withoutBootstrapMarker } from "../src/lib/bootstrapArtifact.ts";
+import { PROJECT_DIRECTORY_EXCLUDES } from "../src/lib/files.ts";
+import { rerunConflicts } from "../src/lib/rerunGuard.ts";
 import { bootstrapProjectWithLayout } from "../src/stages/bootstrap.ts";
+import { ingest } from "../src/stages/ingest.ts";
+import { runDraft } from "../src/stages/runDraft.ts";
+import { deriveProject } from "../src/stages/derive.ts";
+import { listSourceCandidates } from "../src/lib/findSource.ts";
+import { isBaseLayoutPreset, isCanvasPreset, outputSize, resolveCanvas } from "../src/lib/profile.ts";
 import { EditorAiError, proposeEditorAi, refineEditorAi } from "../src/stages/editorAi.ts";
 import type { AiProposeResponse as EditorAiStageProposeResponse } from "../src/stages/editorAi.ts";
 import { reviewSpecOfProposalReview } from "../src/lib/editorAiReview.ts";
@@ -86,7 +92,6 @@ import {
   validateConfigPatch,
 } from "../src/lib/configEdit.ts";
 import type { ConfigPatch } from "../src/lib/configEdit.ts";
-import { loadShorts } from "../src/lib/shorts.ts";
 import { hasCamera, manifestCompositionFps } from "../src/types.ts";
 import { applyProposalResolution, proposalDiff } from "../src/lib/docDiff.ts";
 import { snapshotOfReviewDocs, validateReviewSpec } from "../src/lib/review.ts";
@@ -97,7 +102,6 @@ import type {
   CutPlan,
   Manifest,
   Overlays,
-  Shorts,
   Transcript,
 } from "../src/types.ts";
 import type {
@@ -111,6 +115,7 @@ import type {
   AiRefineRequest,
   AiReviewRequest,
   ProjectData,
+  ReadyProjectData,
   SaveRequest,
   ScriptData,
   ScriptSegment,
@@ -140,12 +145,18 @@ export async function startEditor(
   /** 設定画面(POST /api/config)が書き戻す config.yaml のパス */
   cfgPath: string,
   layout?: "obs-canvas" | "plain" | "auto" | "stills",
+  canvas?: string,
+  baseLayout?: string,
+  launcherMode = false,
 ): Promise<void> {
   // 動画ファイルだけの収録フォルダでも開けるように、必須3ファイルのうち
   // 無いものだけ決定的に補う(既存ファイルには触れない)。loadProject の
   // 3点チェックは最終防壁として残す
-  await bootstrapProjectWithLayout(dir, cfg, layout);
-  await prepareEditorDesignAssets(dir, cfg);
+  mkdirSync(dir, { recursive: true });
+  if (!launcherMode) {
+    await bootstrapProjectWithLayout(dir, cfg, layout, canvas, baseLayout);
+    if (existsSync(join(dir, "manifest.json"))) await prepareEditorDesignAssets(dir, cfg);
+  }
 
   const editorDir = dirname(fileURLToPath(import.meta.url));
 
@@ -175,26 +186,36 @@ export async function startEditor(
   const hub: EventHub = { clients: new Set() };
   let changed = new Set<string>();
   let notifyTimer: NodeJS.Timeout | null = null;
-  watch(dir, (_event, filename) => {
-    if (!filename || !WATCHED_FILES.includes(filename)) return;
-    changed.add(filename);
+  let projectWatcher: FSWatcher | null = null;
+  let watchedProjectDir = dir;
+  const onProjectFileChange = (filename: string | Buffer | null) => {
+    if (!filename || !WATCHED_FILES.includes(String(filename))) return;
+    changed.add(String(filename));
     notifyTimer ??= setTimeout(() => {
       const candidates = [...changed];
       changed = new Set();
       notifyTimer = null;
-      // フラッシュ時(書き込み完了後)に現ディスク内容をハッシュし、
-      // 自分が最後に書いた内容と違うものだけを「外部変更」として流す。
       const files = candidates.filter((f) =>
-        isExternalChange(fileContentHash(dir, f), lastWrittenHash.get(f)),
+        isExternalChange(fileContentHash(watchedProjectDir, f), lastWrittenHash.get(f)),
       );
       if (files.length === 0) return;
       invalidateStoredProposals();
       for (const c of hub.clients) c.write(`data: ${JSON.stringify({ files })}\n\n`);
     }, 200);
-  });
+  };
+  const watchProject = (projectDir: string) => {
+    projectWatcher?.close();
+    watchedProjectDir = projectDir;
+    projectWatcher = watch(projectDir, (_event, filename) => {
+      onProjectFileChange(filename);
+    });
+  };
+  if (!launcherMode) {
+    projectWatcher = watch(dir, (_event, filename) => onProjectFileChange(filename));
+  }
 
   const server = createServer((req, res) => {
-    handle(req, res, dir, cfg, cfgPath, assets, hub, engineDevAssets).catch((err: Error) => {
+    handle(req, res, dir, cfg, cfgPath, assets, hub, engineDevAssets, layout, canvas, baseLayout, launcherMode, watchProject).catch((err: Error) => {
       // HttpError は想定内の拒否(不正な保存=400、大きすぎる素材=413 等)。
       // それ以外は想定外なのでログに残して 500 で返す
       if (err instanceof HttpError) {
@@ -240,11 +261,12 @@ export async function startEditor(
   // フォアグラウンド起動でも同じように書くので、`editor <dir> --status` は
   // どちらの起動でも見える。プロセスがどの経路で終わっても最終段で必ず発火する
   // "exit" で同期的に消す(framesServe と同じ判断。async は exit 中に走らない)
-  writeEditorServeFile({ dir, port, pid: process.pid, startedAt: new Date().toISOString() });
+  if (!launcherMode) writeEditorServeFile({ dir, port, pid: process.pid, startedAt: new Date().toISOString() });
   process.on("exit", () => {
     clientReloader.close();
     clientWatcher?.close();
-    removeEditorServeFile(dir);
+    projectWatcher?.close();
+    if (!launcherMode) removeEditorServeFile(dir);
   });
   // シグナルで殺された場合、Node は "exit" を発火しない(既定ハンドラはプロセスを
   // そのまま終了させる)。Ctrl+C(SIGINT)と `editor --stop`(SIGTERM)を明示的に
@@ -255,7 +277,7 @@ export async function startEditor(
   process.on("SIGTERM", () => process.exit(0));
 
   const url = `http://127.0.0.1:${port}`;
-  console.log(`エディタ起動: ${url}(対象: ${dir})`);
+  console.log(`${launcherMode ? "プロジェクトランチャー" : "エディタ"}起動: ${url}(対象: ${dir})`);
   // 使い方への唯一の入口になりがちな行(GUI を開いた人は README へ戻らない)。
   // 画面内からはヘッダーの「?」でも同じ内容を引ける
   console.log("使い方: docs/guides/editor.md(画面内はヘッダーの「?」)");
@@ -275,8 +297,98 @@ export class HttpError extends Error {
   }
 }
 
+export interface ProjectSummary {
+  name: string;
+  hasManifest: boolean;
+  durationSec: number | null;
+  canvas: string;
+  rendered: boolean;
+  modifiedAt: string;
+}
+
+export function decodeProjectRouteName(encoded: string): string {
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    throw new HttpError(400, "プロジェクト名の URL encoding が不正です");
+  }
+}
+
+/** URL のプロジェクト名を root 配下の直下ディレクトリへ安全に解決する。 */
+export function resolveLauncherProject(rootDir: string, name: string): string {
+  if (!name || basename(name) !== name || name.startsWith(".") || /[\\/]/.test(name)) {
+    throw new HttpError(400, `不正なプロジェクト名です: ${name}`);
+  }
+  const root = resolve(rootDir);
+  const candidate = resolve(root, name);
+  if (!candidate.startsWith(root + sep)) throw new HttpError(400, `不正なプロジェクト名です: ${name}`);
+  return candidate;
+}
+
+export function normalizeProjectName(raw: string): string {
+  return basename(raw).replace(/[\\/:*?"<>|]/g, "_").replace(/^\.+/, "");
+}
+
+export function listProjects(rootDir: string): ProjectSummary[] {
+  mkdirSync(rootDir, { recursive: true });
+  return readdirSync(rootDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith(".") &&
+      !(PROJECT_DIRECTORY_EXCLUDES as readonly string[]).includes(entry.name))
+    .map((entry) => {
+      const projectDir = join(rootDir, entry.name);
+      const manifestPath = join(projectDir, "manifest.json");
+      const hasManifest = existsSync(manifestPath);
+      let durationSec: number | null = null;
+      let canvas = "landscape";
+      if (hasManifest) {
+        try {
+          const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Partial<Manifest>;
+          durationSec = typeof manifest.durationSec === "number" ? manifest.durationSec : null;
+          canvas = typeof manifest.canvas === "string" ? manifest.canvas : "landscape";
+        } catch {
+          // 壊れた manifest もフォルダ自体は一覧から失わせない。
+        }
+      }
+      return {
+        name: entry.name,
+        hasManifest,
+        durationSec,
+        canvas,
+        rendered: existsSync(join(projectDir, "final.mp4")),
+        modifiedAt: statSync(projectDir).mtime.toISOString(),
+      };
+    })
+    .sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt));
+}
+
+export function createProjectDirectory(
+  rootDir: string,
+  body: { name?: unknown; canvas?: unknown; layout?: unknown; baseLayout?: unknown },
+): { dir: string; name: string; canvas: string; layout?: string; baseLayout?: string } {
+  if (typeof body.name !== "string") throw new HttpError(400, "プロジェクト名を指定してください");
+  const name = normalizeProjectName(body.name);
+  if (!name) throw new HttpError(400, "プロジェクト名が空です");
+  const canvas = body.canvas === undefined ? "landscape" : String(body.canvas);
+  if (!isCanvasPreset(canvas)) throw new HttpError(400, `未知の canvas 名です: ${canvas}`);
+  const layout = body.layout === undefined ? undefined : String(body.layout);
+  if (layout !== undefined && layout !== "plain" && layout !== "obs-canvas" && layout !== "auto") {
+    throw new HttpError(400, `未知の layout です: ${layout}`);
+  }
+  const baseLayout = body.baseLayout === undefined ? undefined : String(body.baseLayout);
+  if (baseLayout !== undefined && !isBaseLayoutPreset(baseLayout)) {
+    throw new HttpError(400, `未知の baseLayout です: ${baseLayout}`);
+  }
+  mkdirSync(rootDir, { recursive: true });
+  const dir = resolveLauncherProject(rootDir, name);
+  if (existsSync(dir)) throw new HttpError(409, `プロジェクトは既に存在します: ${name}`);
+  mkdirSync(dir);
+  return { dir, name, canvas, ...(layout ? { layout } : {}), ...(baseLayout ? { baseLayout } : {}) };
+}
+
 /** 素材アップロードの上限の既定値(config で editor.maxUploadMb 未指定のとき) */
 const DEFAULT_MAX_UPLOAD_MB = 2048;
+/** ベースメディアは長尺収録を想定するため素材とは別上限にする。 */
+const DEFAULT_MAX_BASE_UPLOAD_MB = 16384;
 /** brief を含む単発 author request の JSON 上限。 */
 const HYPERFRAME_AUTHOR_JSON_OVERHEAD_BYTES = 256 * 1024;
 
@@ -286,7 +398,6 @@ const WATCHED_FILES = [
   "overlays.json",
   "transcript.json",
   "bgm.json",
-  "shorts.json",
   "chapters.json",
   "meta.json",
   "thumbnail.json",
@@ -309,7 +420,6 @@ interface StoredProposal {
   normalizedReviewSpec: ReviewSpec;
   baseDocs: ReviewDocs;
   baseDocsHash: string;
-  activeShortName: string | null;
   instruction: string;
   parentProposalId: string | null;
   refinementIteration: number;
@@ -339,9 +449,53 @@ async function handle(
   assets: MutableEditorClientAssets,
   hub: EventHub,
   engineDevAssets: EngineDevAssets,
+  layout?: "obs-canvas" | "plain" | "auto" | "stills",
+  initialCanvas?: string,
+  initialBaseLayout?: string,
+  launcherMode = false,
+  watchProject?: (dir: string) => void,
 ): Promise<void> {
   const url = new URL(req.url ?? "/", "http://localhost");
-  const path = url.pathname;
+  let path = url.pathname;
+  const rootDir = dir;
+  if (launcherMode && path.startsWith("/p/")) {
+    const match = /^\/p\/([^/]+)(\/.*)?$/.exec(path);
+    if (!match) throw new HttpError(404, "プロジェクトが見つかりません");
+    const name = decodeProjectRouteName(match[1]);
+    dir = resolveLauncherProject(rootDir, name);
+    if (!existsSync(dir) || !statSync(dir).isDirectory()) throw new HttpError(404, `プロジェクトがありません: ${name}`);
+    if (!match[2]) {
+      res.writeHead(302, { Location: `/p/${encodeURIComponent(name)}/` });
+      res.end();
+      return;
+    }
+    path = match[2];
+    const requestedCanvas = url.searchParams.get("canvas");
+    if (requestedCanvas) {
+      if (!isCanvasPreset(requestedCanvas)) throw new HttpError(400, `未知の canvas 名です: ${requestedCanvas}`);
+      initialCanvas = requestedCanvas;
+    }
+    const requestedLayout = url.searchParams.get("layout");
+    if (requestedLayout) {
+      if (requestedLayout !== "plain" && requestedLayout !== "obs-canvas" && requestedLayout !== "auto") {
+        throw new HttpError(400, `未知の layout です: ${requestedLayout}`);
+      }
+      layout = requestedLayout;
+    }
+    const requestedBaseLayout = url.searchParams.get("baseLayout") ?? url.searchParams.get("base-layout");
+    if (requestedBaseLayout) {
+      if (!isBaseLayoutPreset(requestedBaseLayout)) throw new HttpError(400, `未知の baseLayout です: ${requestedBaseLayout}`);
+      initialBaseLayout = requestedBaseLayout;
+    }
+    if (path === "/") {
+      await bootstrapProjectWithLayout(dir, cfg, layout, initialCanvas, initialBaseLayout);
+      if (existsSync(join(dir, "manifest.json"))) await prepareEditorDesignAssets(dir, cfg);
+      watchProject?.(dir);
+    }
+  } else if (launcherMode && path !== "/" && path !== "/bundle.js" && path !== "/styles.css" &&
+      path !== "/particle_loop_icon.svg" && path !== "/api/ping" && path !== "/api/projects") {
+    throw new HttpError(404, "プロジェクト URL /p/<name>/ を使用してください");
+  }
 
   // DNS rebinding・他サイトからの CSRF 対策。ローカル以外の Host は拒否し、
   // POST は Origin ヘッダがローカルのときだけ通す(ブラウザは POST に必ず
@@ -377,6 +531,16 @@ async function handle(
     sendJson(res, 200, { ok: true, pid: process.pid, dir });
     return;
   }
+  if (launcherMode && req.method === "GET" && path === "/api/projects") {
+    sendJson(res, 200, listProjects(rootDir));
+    return;
+  }
+  if (launcherMode && req.method === "POST" && path === "/api/projects") {
+    const body = await readBody(req) as { name?: unknown; canvas?: unknown; layout?: unknown; baseLayout?: unknown };
+    const created = createProjectDirectory(rootDir, body);
+    sendJson(res, 201, created);
+    return;
+  }
   if (req.method === "POST" && path === "/metrics") {
     // プレビュー体感計測(M1)のバッチ受信。保存・保存系 API(save/draft 等)とは
     // 完全に独立させる(観測専用・失敗しても編集フローに影響させない)
@@ -389,7 +553,36 @@ async function handle(
     return;
   }
   if (req.method === "GET" && path === "/api/project") {
-    sendJson(res, 200, loadProject(dir, cfg));
+    const project = loadProject(dir, cfg);
+    sendJson(res, 200, project.state === "empty" && (initialCanvas || initialBaseLayout)
+      ? { ...project, ...(initialCanvas ? { canvas: initialCanvas } : {}), ...(initialBaseLayout ? { baseLayout: initialBaseLayout } : {}) }
+      : project);
+    return;
+  }
+  if (req.method === "POST" && path === "/api/base-media") {
+    const body = (await readBody(req)) as { file?: unknown; canvas?: unknown; baseLayout?: unknown };
+    sendJson(res, 200, await selectBaseMedia(dir, cfg, body, layout, initialCanvas, initialBaseLayout));
+    return;
+  }
+  if (req.method === "POST" && path === "/api/derive") {
+    const body = await readBody(req) as { name?: unknown; canvas?: unknown; baseLayout?: unknown; ranges?: unknown };
+    if (typeof body.name !== "string" || typeof body.canvas !== "string" || !Array.isArray(body.ranges)) {
+      throw new HttpError(400, "name / canvas / ranges を指定してください");
+    }
+    const ranges = body.ranges.map((value) => {
+      if (!value || typeof value !== "object") throw new HttpError(400, "ranges が不正です");
+      const item = value as { start?: unknown; end?: unknown };
+      if (typeof item.start !== "number" || typeof item.end !== "number") throw new HttpError(400, "ranges が不正です");
+      return { start: item.start, end: item.end };
+    });
+    const baseLayout = body.baseLayout === undefined || body.baseLayout === null || body.baseLayout === ""
+      ? undefined
+      : String(body.baseLayout);
+    if (baseLayout !== undefined && !isBaseLayoutPreset(baseLayout)) {
+      throw new HttpError(400, `未知の baseLayout です: ${baseLayout}`);
+    }
+    const result = await deriveProject({ sourceDir: dir, name: body.name, canvas: body.canvas, baseLayout, ranges, cfg }, { log: console.log });
+    sendJson(res, 201, { dir: result.dir, name: basename(result.dir) });
     return;
   }
   if (req.method === "GET" && path === "/api/script") {
@@ -534,7 +727,6 @@ async function handle(
         base,
         spec,
         hashEditableDocsState(currentEditableDocs(dir)),
-        body.activeShortName ?? null,
       );
     });
     sendJson(res, 200, { proposalId: record.proposalId, proposal: record.proposal });
@@ -562,7 +754,6 @@ async function handle(
         snapshotOfReviewDocs(candidate),
         record.normalizedReviewSpec,
         {
-          shortName: record.activeShortName ?? undefined,
           secondaryObservation,
         },
       );
@@ -626,7 +817,6 @@ async function handle(
         snapshotOfReviewDocs(candidate),
         record.normalizedReviewSpec,
         {
-          shortName: record.activeShortName ?? undefined,
           secondaryObservation: body.vlm === true ? "vlm" : "none",
         },
       );
@@ -684,7 +874,6 @@ async function handle(
         record.baseDocs,
         spec,
         record.baseDocsHash,
-        record.activeShortName,
         record.proposalId,
         record.refinementIteration + 1,
         record.lineageExpiresAtMs,
@@ -710,7 +899,6 @@ async function handle(
       dir,
       { mode: "times", times, axis: body.axis ?? "source" },
       cfg,
-      body.activeShortName ?? undefined,
       body.ocr === true,
       body.fullRes === true,
     );
@@ -775,6 +963,25 @@ async function handle(
     return;
   }
   if (req.method === "POST" && path === "/api/upload") {
+    if (url.searchParams.get("as") === "base") {
+      if (existsSync(join(dir, "manifest.json"))) {
+        throw new HttpError(409, "ベースメディアは既に確定しています。別プロジェクトを作成してください");
+      }
+      const saved = await saveBaseUpload(dir, url.searchParams.get("name") ?? "", req, cfg);
+      sendJson(res, 200, await selectBaseMedia(
+        dir,
+        cfg,
+        {
+          file: saved.file,
+          canvas: url.searchParams.get("canvas") ?? initialCanvas,
+          baseLayout: url.searchParams.get("baseLayout") ?? url.searchParams.get("base-layout") ?? initialBaseLayout,
+        },
+        layout,
+        initialCanvas,
+        initialBaseLayout,
+      ));
+      return;
+    }
     const saved = await saveUpload(dir, url.searchParams.get("name") ?? "", req, cfg);
     sendJson(res, 200, saved);
     return;
@@ -825,6 +1032,15 @@ async function handle(
     const out = await proxyBuilding;
     const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")) as Manifest;
     sendJson(res, 200, { ok: true, path: out, proxyFile: proxyFileName(manifest) });
+    return;
+  }
+  if (req.method === "POST" && path === "/api/run") {
+    const body = (await readBody(req)) as { force?: unknown };
+    const force = body.force === true;
+    await runHeavyJob("run", "run", async () => {
+      await runDraft(dir, cfg, { force });
+    });
+    sendJson(res, 200, { ok: true });
     return;
   }
   if (req.method === "POST" && (path === "/api/preview" || path === "/api/render")) {
@@ -1095,6 +1311,7 @@ export function ensureHyperframeAuthorNameAvailable(dir: string, name: string): 
 }
 
 type HeavyJobStage =
+  | "run"
   | "preview"
   | "render"
   | "review"
@@ -1110,7 +1327,9 @@ const proposalStore = new Map<string, StoredProposal>();
 
 /** ジョブ名の日本語表記(409 メッセージ用) */
 const jaStage = (s: HeavyJobStage): string =>
-  s === "render"
+  s === "run"
+    ? "AI初版生成"
+    : s === "render"
     ? "レンダー"
     : s === "hyperframe-author"
       ? "AI素材の生成"
@@ -1179,7 +1398,6 @@ function hashEditableDocsState(docs: EditableDocs & { meta: unknown | null }): s
     cutplan: docs.cutplan,
     meta: docs.meta,
     overlays: docs.overlays,
-    shorts: docs.shorts,
     thumbnail: docs.thumbnail,
     transcript: docs.transcript,
   }));
@@ -1214,7 +1432,6 @@ function storeProposal(
   baseDocs: ReviewDocs,
   normalizedReviewSpec: ReviewSpec,
   baseDocsHash: string,
-  activeShortName: string | null,
   parentProposalId: string | null = null,
   refinementIteration = 0,
   lineageExpiresAtMs?: number,
@@ -1229,7 +1446,6 @@ function storeProposal(
     normalizedReviewSpec: deepClone(normalizedReviewSpec),
     baseDocs: deepClone(baseDocs),
     baseDocsHash,
-    activeShortName,
     instruction,
     parentProposalId,
     refinementIteration,
@@ -1265,7 +1481,6 @@ function currentReviewDocs(dir: string) {
     overlays: docs.overlays ?? {},
     transcript: docs.transcript,
     bgm: docs.bgm ?? null,
-    shorts: docs.shorts ?? null,
   };
 }
 
@@ -1401,7 +1616,6 @@ function validateReviewCandidate(dir: string, candidate: ReturnType<typeof curre
     bgm: candidate.bgm,
     chapters: null,
     meta: null,
-    shorts: candidate.shorts,
     thumbnail: null,
   });
   return validate.errors.map((error) => `${error.file} ${error.where}: ${error.message}`);
@@ -1477,19 +1691,32 @@ export function loadScript(dir: string): ScriptData {
   return { source: "transcript", segments };
 }
 
+function listDirFiles(dir: string): string[] {
+  return readdirSync(dir, { recursive: true, withFileTypes: true })
+    .filter((e) => e.isFile() && !e.name.startsWith("."))
+    .map((e) => {
+      const parent = (e.parentPath ?? dir).slice(dir.length).replace(/^\//, "");
+      return parent ? `${parent}/${e.name}` : e.name;
+    })
+    .sort();
+}
+
 export function loadProject(dir: string, cfg: Config): ProjectData {
-  const aiRuntime = resolveAiRuntimeConfig(cfg);
   const readJson = <T>(file: string, fallback: T): T => {
     const p = join(dir, file);
     return existsSync(p) ? (JSON.parse(readFileSync(p, "utf8")) as T) : fallback;
   };
   const manifest = readJson<Manifest | null>("manifest.json", null);
+  if (!manifest) {
+    return { state: "empty", dir, candidates: listSourceCandidates(dir), dirFiles: listDirFiles(dir) };
+  }
+  const aiRuntime = resolveAiRuntimeConfig(cfg);
   const transcript = readJson<Transcript | null>("transcript.json", null);
   const cutplan = readJson<CutPlan | null>("cutplan.json", null);
-  if (!manifest || !transcript || !cutplan) {
+  if (!transcript || !cutplan) {
     throw new Error(
       `${dir} に manifest/transcript/cutplan が揃っていません。` +
-        "先にパイプライン(run)を実行してください",
+        "破損したプロジェクトです。editor を再起動して補完してください",
     );
   }
   // plain / obs-canvas 共通で、デザインの背景取り込み(render.design/ への
@@ -1499,13 +1726,7 @@ export function loadProject(dir: string, cfg: Config): ProjectData {
   const designRenderCfg = renderCfgWithDesign(dir, cfg);
 
   // 素材選択やオーバーレイの存在チェック用にフォルダ内の全ファイルを渡す
-  const dirFiles = readdirSync(dir, { recursive: true, withFileTypes: true })
-    .filter((e) => e.isFile() && !e.name.startsWith("."))
-    .map((e) => {
-      const parent = (e.parentPath ?? dir).slice(dir.length).replace(/^\//, "");
-      return parent ? `${parent}/${e.name}` : e.name;
-    })
-    .sort();
+  const dirFiles = listDirFiles(dir);
   // 前回のセッションの未保存編集(自動退避)。壊れていたら無いものとして扱う
   let draft: DraftData | null = null;
   try {
@@ -1523,16 +1744,17 @@ export function loadProject(dir: string, cfg: Config): ProjectData {
     proxyStale = true;
   }
   return {
+    state: "ready",
     dir,
     manifest,
     transcript,
     cutplan,
     overlays: readJson<Overlays>("overlays.json", {}),
     contentHashes: contentHashesOf(dir),
+    runNeedsForce: rerunConflicts(dir, ["transcript.json", "cutplan.json", "chapters.json", "meta.json"]).length > 0,
     dirFiles,
     bgm: readJson<Bgm | null>("bgm.json", null),
     bgmFile: findBgm(dir),
-    shorts: loadShorts(dir),
     silences: readJson<AutoCuts | null>("cuts.auto.json", null)?.silences ?? null,
     silenceCutReason: cfg.detect?.silenceCutReason ?? DEFAULT_SILENCE_CUT_REASON,
     proxyFile,
@@ -1542,7 +1764,8 @@ export function loadProject(dir: string, cfg: Config): ProjectData {
     ...editorDesignAssets(dir, cfg, manifest, designRenderCfg),
     previewCfg: { width: cfg.preview.width, videoEncoder: cfg.preview.videoEncoder, engine: cfg.preview.engine },
     editorCfg: resolvedEditorCfg(cfg, DEFAULT_MAX_UPLOAD_MB),
-    output: { w: manifest.video.screenRegion.w, h: manifest.video.screenRegion.h },
+    output: outputSize(manifest),
+    canvasProfile: resolveCanvas(manifest),
     hasCamera: hasCamera(manifest),
     draft,
     planPerception: resolvePerceptionStatus(cfg),
@@ -1555,6 +1778,41 @@ export function loadProject(dir: string, cfg: Config): ProjectData {
   };
 }
 
+/** 未確定プロジェクトのベースメディアを一度だけ確定し、通常状態まで補完する。 */
+export async function selectBaseMedia(
+  dir: string,
+  cfg: Config,
+  body: { file?: unknown; canvas?: unknown; baseLayout?: unknown },
+  layout?: "obs-canvas" | "plain" | "auto" | "stills",
+  initialCanvas?: string,
+  initialBaseLayout?: string,
+): Promise<ReadyProjectData> {
+  if (existsSync(join(dir, "manifest.json"))) {
+    throw new HttpError(409, "ベースメディアは既に確定しています。別プロジェクトを作成してください");
+  }
+  if (typeof body.file !== "string" || !listSourceCandidates(dir).some((c) => c.file === body.file)) {
+    throw new HttpError(400, `ベースメディア候補ではありません: ${String(body.file ?? "")}`);
+  }
+  const canvas = body.canvas === undefined || body.canvas === null || body.canvas === ""
+    ? initialCanvas
+    : body.canvas;
+  if (canvas !== undefined && (typeof canvas !== "string" || !isCanvasPreset(canvas))) {
+    throw new HttpError(400, `キャンバスが不正です: ${String(canvas)}`);
+  }
+  const baseLayout = body.baseLayout === undefined || body.baseLayout === null || body.baseLayout === ""
+    ? initialBaseLayout
+    : body.baseLayout;
+  if (baseLayout !== undefined && (typeof baseLayout !== "string" || !isBaseLayoutPreset(baseLayout))) {
+    throw new HttpError(400, `ベース配置が不正です: ${String(baseLayout)}`);
+  }
+  await ingest(dir, body.file, cfg, layout, undefined, canvas, baseLayout);
+  await bootstrapProjectWithLayout(dir, cfg, layout, canvas, baseLayout);
+  await prepareEditorDesignAssets(dir, cfg);
+  const project = loadProject(dir, cfg);
+  if (project.state !== "ready") throw new Error("ベースメディアを確定できませんでした");
+  return project;
+}
+
 function resolvedEditorDesign(
   dir: string,
   cfg: Config,
@@ -1565,8 +1823,7 @@ function resolvedEditorDesign(
     readFileSync(join(dir, "manifest.json"), "utf8"),
   ) as Manifest;
   const currentRenderCfg = renderCfg ?? renderCfgWithDesign(dir, cfg);
-  const width = currentManifest.video.screenRegion.w;
-  const height = currentManifest.video.screenRegion.h;
+  const { w: width, h: height } = outputSize(currentManifest);
   const design = resolveDesign(currentRenderCfg.design, width, height, hasCamera(currentManifest));
   return design ? { dir, design, width, height } : undefined;
 }
@@ -1576,7 +1833,7 @@ function editorDesignAssets(
   cfg: Config,
   manifest?: Manifest,
   renderCfg?: Config["render"],
-): { designAssets?: NonNullable<ProjectData["designAssets"]> } {
+): { designAssets?: NonNullable<ReadyProjectData["designAssets"]> } {
   const resolved = resolvedEditorDesign(dir, cfg, manifest, renderCfg);
   if (!resolved) return {};
   const prepared = existingDesignAssets(resolved);
@@ -1846,15 +2103,48 @@ async function* limitBytes(
   src: AsyncIterable<Buffer>,
   maxBytes: number,
   maxMb: number,
+  label = "素材",
 ): AsyncGenerator<Buffer> {
   let total = 0;
   for await (const chunk of src) {
     total += chunk.length;
     if (total > maxBytes) {
-      throw new HttpError(413, `素材が上限(${maxMb}MB)を超えています`);
+      throw new HttpError(413, `${label}が上限(${maxMb}MB)を超えています`);
     }
     yield chunk;
   }
+}
+
+const BASE_MEDIA_EXT = /^\.(mkv|mp4|mov|mp3|m4a|wav|aac|flac|ogg)$/;
+
+export async function saveBaseUpload(
+  dir: string,
+  rawName: string,
+  req: IncomingMessage,
+  cfg: Config,
+): Promise<{ file: string }> {
+  const safe = basename(rawName).replace(/[\\/:*?"<>|]/g, "_").replace(/^\.+/, "");
+  const ext = extname(safe).toLowerCase();
+  if (!safe || !BASE_MEDIA_EXT.test(ext)) {
+    throw new HttpError(400, `ベースメディアにできない拡張子です: ${rawName}`);
+  }
+  const maxMb = cfg.editor?.maxBaseUploadMb ?? DEFAULT_MAX_BASE_UPLOAD_MB;
+  const maxBytes = maxMb * 1024 * 1024;
+  const declared = Number(req.headers["content-length"]);
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    throw new HttpError(413, `ベースメディアが上限(${maxMb}MB)を超えています`);
+  }
+  const stem = safe.slice(0, -ext.length) || "base-media";
+  let name = `${stem}${ext}`;
+  for (let i = 2; existsSync(join(dir, name)); i++) name = `${stem}-${i}${ext}`;
+  const abs = join(dir, name);
+  try {
+    await pipeline(limitBytes(req, maxBytes, maxMb, "ベースメディア"), createWriteStream(abs));
+  } catch (error) {
+    rmSync(abs, { force: true });
+    throw error;
+  }
+  return { file: name };
 }
 
 /**
@@ -1862,7 +2152,7 @@ async function* limitBytes(
  * 動画なら ffprobe で長さを測って返す(エディタが区間の初期長に使う)。
  * 同名ファイルがあれば -2, -3 … と付けて衝突を避ける
  */
-async function saveUpload(
+export async function saveUpload(
   dir: string,
   rawName: string,
   req: IncomingMessage,
@@ -1967,26 +2257,13 @@ export function stampSaveBody(
       }
     : body.overlays;
 
-  // bgm/shorts は null(削除シグナル)を pass-through する(?. と ?? はここでは
+  // bgm は null(削除シグナル)を pass-through する(?. と ?? はここでは
   // 使わない: null と undefined を区別する SaveRequest の契約を保つ)
   const bgm = body.bgm
     ? { ...body.bgm, tracks: ensureIds(body.bgm.tracks, ID_PREFIX.bgmTrack, used) }
     : body.bgm;
 
-  const shorts = body.shorts
-    ? {
-        ...body.shorts,
-        shorts: body.shorts.shorts.map((s) => ({
-          ...s,
-          ranges: ensureIds(s.ranges, ID_PREFIX.range, used),
-          captionTracks: s.captionTracks
-            ? ensureIds(s.captionTracks, ID_PREFIX.captionTrack, used)
-            : s.captionTracks,
-        })),
-      }
-    : body.shorts;
-
-  return { ...body, cutplan, transcript, overlays, bgm, shorts };
+  return { ...body, cutplan, transcript, overlays, bgm };
 }
 
 /** body が書いた/削除したファイルの保存後の内容ハッシュ(削除は null)。
@@ -2036,8 +2313,12 @@ export function saveProject(dir: string, body: SaveRequest): void {
   const idDocs = readEditableDocs(dir);
   const idEnabled = hasAnyId(idDocs);
   const stampedBody = stampSaveBody(body, idEnabled, usedIdsOf(idDocs));
+  // GUI が保存した時点で bootstrap の未編集初期値ではない。クライアントが
+  // 古いマーカーを round-trip しても永続化境界で必ず除去する。
+  if (stampedBody.cutplan) stampedBody.cutplan = withoutBootstrapMarker(stampedBody.cutplan);
+  if (stampedBody.transcript) stampedBody.transcript = withoutBootstrapMarker(stampedBody.transcript);
 
-  const write = (file: string, data: CutPlan | Overlays | Transcript | Bgm | Shorts) => {
+  const write = (file: string, data: CutPlan | Overlays | Transcript | Bgm) => {
     const json = JSON.stringify(data, null, 2);
     lastWrittenHash.set(file, hashOfString(json)); // 書いた内容のハッシュを記録
     writeFileSync(join(dir, file), json);
@@ -2061,23 +2342,6 @@ export function saveProject(dir: string, body: SaveRequest): void {
       const p = join(dir, "bgm.json");
       if (existsSync(p)) {
         lastWrittenHash.set("bgm.json", null);
-        rmSync(p);
-      }
-    }
-  }
-  // ショート: 1件以上あれば shorts.json を書き、無ければ削除する(bgm と同型)
-  if (stampedBody.shorts !== undefined) {
-    if (stampedBody.shorts && stampedBody.shorts.shorts.length > 0) {
-      write("shorts.json", stampedBody.shorts);
-      // 各ショートの approved トグルに応じて name 別の承認レコードを mint/clear
-      for (const short of stampedBody.shorts.shorts) {
-        if (short.approved) writeShortApproval(dir, short, "gui");
-        else clearShortApproval(dir, short.name);
-      }
-    } else {
-      const p = join(dir, "shorts.json");
-      if (existsSync(p)) {
-        lastWrittenHash.set("shorts.json", null);
         rmSync(p);
       }
     }

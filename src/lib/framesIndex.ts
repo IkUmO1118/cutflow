@@ -34,25 +34,17 @@ export interface FramesIndex {
 export interface FramesShot {
   /** FrameRequest["mode"](times/captions/every) */
   mode: string;
-  /** --short 指定名。本編経路は null */
-  short: string | null;
   ocr: boolean;
   fullRes: boolean;
   /** 実際に撮った枚数(unique.length) */
   count: number;
 }
 
-/** 撮影の絵を決める、AI が手編集する JSON のファイル名(経路別)。
- * 本編経路(shortName 省略): cutplan/transcript/overlays。
- * ショート経路(shortName 指定): shorts/transcript/overlays
- * (ショートは cutplan 非依存。overlays は colorFilter のみ継承だが、
- * 簡潔さのため overlays 全体をハッシュする=偽陽性は安全側なので許容)。
+/** 撮影の絵を決める、AI が手編集する JSON のファイル名。
  * manifest.json(読み取り専用)・config.yaml(スコープ外。既知の限界)は
  * 意図的に含めない */
-export function relevantInputs(shortName?: string): string[] {
-  return shortName
-    ? ["shorts.json", "transcript.json", "overlays.json"]
-    : ["cutplan.json", "transcript.json", "overlays.json"];
+export function relevantInputs(): string[] {
+  return ["cutplan.json", "transcript.json", "overlays.json"];
 }
 
 /** 内容の sha256("sha256:<hex>")。小さい JSON なので決定論的で十分安い */
@@ -122,12 +114,11 @@ export function framesFreshness(dir: string): Freshness {
 }
 
 /** frames が撮影後に呼ぶ(props.json を書くのと同じ並び)。frames/index.json
- * を書く(実行のたびに上書き)。shot.short から経路別の relevantInputs を
- * 決めて現在の内容ハッシュを記録する */
+ * を書く(実行のたびに上書き)。現在の内容ハッシュを記録する */
 export function writeFramesIndex(dir: string, shot: FramesShot): void {
   const outDir = join(dir, "frames");
   mkdirSync(outDir, { recursive: true });
-  const files = relevantInputs(shot.short ?? undefined);
+  const files = relevantInputs();
   const index: FramesIndex = {
     capturedAt: new Date().toISOString(),
     shot,

@@ -13,23 +13,29 @@
 > が個別の全オプション。「いつ使うか」で引く早見表は
 > [guides/command-reference.md](guides/command-reference.md)。
 
-FrameWright は「全部AI任せ」のツールではない。**まずエディタで全編 keep の動画を開き、
+FrameWright は「全部AI任せ」のツールではない。**まずエディタでプロジェクトを開き、
+空ならベース動画/音声とキャンバスを画面内で選び、
 必要な自動処理だけを明示実行し、以降は人間が JSON を直しながら preview / render と
 往復する**のが正しい使い方。
 
 ## 全体フロー
 
 ```
-① 収録 → ~/Movies/framewright/<日付-内容>/ に mkv を置く
+① 収録 → ~/Movies/framewright/<日付-内容>/ に mkv を置く(空フォルダから始めてもよい)
      (企画ブリーフがあれば brief.md としてコピーしておくと plan の材料になる)
 
-② node src/cli.ts editor <フォルダ>
-     自動カットなしで開く。manifest / 空 transcript / 全編 keep cutplan が無ければ作られる
+② node src/cli.ts editor                    プロジェクト一覧(ランチャー)から選ぶ・作る
+   node src/cli.ts editor <フォルダ>        フォルダを直接開く
+     フォルダが無ければ作って開く。メディアが未確定ならGUIで選ぶ
+     確定後、manifest / 空 transcript / 全編 keep cutplan が無ければ作られる
      OBS 拡張キャンバスなら: node src/cli.ts editor <フォルダ> --layout obs-canvas
+     縦プロジェクトなら: node src/cli.ts editor <フォルダ> --canvas portrait
 
 ③ 必要なら明示実行:
+     node src/cli.ts run <フォルダ>          AI に初版を作らせる(下の3段をまとめて)
      node src/cli.ts transcribe <フォルダ>   文字起こし
      node src/cli.ts plan <フォルダ>         AI カット案・章立て
+     ※ GUI ならヘッダーの「AI に初版を作らせる」が run と同じ処理
 
 ④ 人間の編集タイム(下の表のファイルを直す)
 
@@ -48,7 +54,56 @@ FrameWright は「全部AI任せ」のツールではない。**まずエディ�
        一致しないと render は拒否される)
 
 ⑧ meta.json のタイトル案・概要欄、chapters.json の章をYouTube投稿に使う
+
+⑨ 別サイズも出すなら node src/cli.ts derive <フォルダ> …
+     元メディアを共有する派生プロジェクトを作り、②〜⑦ をそちらでもう一巡
+     (→ 下の「縦動画・別キャンバスの作り方」)
 ```
+
+**1プロジェクト = 1フォルダ = 1出力。** 同じフォルダから複数の出力を出す動線
+(旧 shorts)は無く、別サイズは派生プロジェクトとして表現する。
+
+## 出力キャンバス
+
+キャンバスはプロジェクト作成時に固定する出力解像度です。ベース映像の配置は
+別軸の `baseLayout` として固定します。
+`ingest` / `editor` の初回実行、または manifest の無い旧形式フォルダでの
+`run` に `--canvas <preset>` と `--base-layout <kind>` を付けます。省略時は
+`config.yaml` の `render.canvas`、それも省略時は `landscape` で、従来どおり
+`screenRegion` の解像度を使います。`baseLayout` は省略時 `auto` です。
+
+| canvas | 出力 |
+|---|---:|---|
+| `landscape` | `screenRegion` と同じ |
+| `landscape-hd` | 1920×1080 |
+| `landscape-4k` | 3840×2160 |
+| `portrait` | 1080×1920 |
+| `portrait-4k` | 2160×3840 |
+| `square` | 1080×1080 |
+| `portrait-4x5` | 1080×1350 |
+| `cinema` | 2560×1080 |
+| `classic` | 1440×1080 |
+
+| baseLayout | ベース配置 |
+|---|---|
+| `auto` | `landscape` では従来の全面画面+ワイプ、それ以外はカメラ有りなら上下、カメラ無しなら画面のみ |
+| `screen` | 画面 contain+下部テロップ帯 |
+| `camera` | カメラ全面 |
+| `stack` | カメラ上/画面下+下部テロップ帯 |
+
+`camera` / `stack` は camera 領域を持つ `obs-canvas` 収録でだけ有効です。
+通常動画(`plain`)や音声+静止画(`stills`)では指定できません。
+エディタの新規作成 UI は `baseLayout` を表示しないため、`auto` 以外が必要な場合は
+CLI の `--base-layout camera` / `--base-layout stack` で作成してください。
+
+`manifest.json` の `canvas` / `baseLayout` は ingest が書く作成時メタデータで、
+人間や AI の編集対象ではありません。テロップや演出の座標は出力 px で保存されるため、
+エディタでは現在値を読み取り専用で表示し、後からの変更はサポートしません。
+
+旧 `portrait-cover` / `portrait-screen` は読み込み互換のため受け付けますが、
+新規 UI には出しません。`square` / `portrait-4x5` / `portrait-screen` 相当は
+P6 以降、比率から導出する共通レイアウトになり、テロップ比率と `fontScale` が
+旧プリセット表から変わります。
 
 ## detect の較正と無音圧縮 preset
 
@@ -112,10 +167,32 @@ human final がある場合だけ、従来の agreement (`exact`) / rescue (`dir
 | `chapters.json` | **概要欄チャプター用メタデータ**(`start` / `title` のみ)。動画への描画には使われない: 章タイトルは plan が「章」という名前のテロップトラックとして transcript.json に書き、以降はただのテロップとして編集する | YouTube 概要欄に載せる章タイトルの言い換え |
 | `overlays.json` | **演出**: 素材の表示(全画面または `rect` で部分配置。頭出し・音量・不透明度・フェード付き)・インサート編集・ワイプ全画面・常駐ワイプの `wipeStyle`(位置・サイズ・丸み・影。8アンカー、出力px、未指定時は config 継承)・**ズーム**(`zooms`)・**領域ぼかし**(`blurs`)・**注釈グラフィック**(`annotations`)・**簡易カラー調整**(`colorFilter`)・字幕非表示・重なり順・テロップトラック標準。zooms/blurs/annotations の `reasonId` は任意の演出分類 id(`docs/edit-skills/effects/recipes/<id>.md`。7分類)。未知 id と型/系不整合は警告、非文字列はエラー。`reasonId` は描画・承認hashに影響しない | B-roll を挟む、カメラだけの場面を作る、開発画面の API キーを隠す、画面の一点を指し示す(下の「演出」参照) |
 | `bgm.json` | **BGM**を区間ごとに配置(`tracks[]`: `{start, end, file, timebase?, volumeDb?, startFrom?, fadeInSec?, fadeOutSec?}`)。`timebase` は `"source"`(省略時)=元収録の秒 / `"output"`=出力(カット後・挿入込み)の秒。冒頭 intro・末尾 ending・挿入クリップの中へ BGM を当てるときは `"output"` を使う。覆っていない区間は無音、別ファイルの区間で曲の切り替え・重奏。無ければ収録フォルダ直下の `bgm.*` を全編1曲で流す(後方互換) | イントロだけ BGM なし、途中で曲を変える、別の BGM を足す(下の「BGM」参照) |
-| `shorts.json` | **ショート動画**の元データ(`shorts[]`: `{name, profile?, approved, ranges[], captionTracks?}`)。`name` は出力ファイル名(`shorts/<name>.mp4`)。`profile` は `default` / `vertical` / `vertical-screen` / `vertical-cover` から選ぶ組み込みレイアウト(省略時の既定は camera 有り→`vertical`、plain→`vertical-screen`)。`ranges` は元収録の秒で、本編 `cutplan.json` の keep とは独立したこのショート専用の keep 集合(本編でカットした素材も含められる)。`captionTracks` は `overlays.json` と同型の縦用テロップ位置/スタイル上書き。`approved` はこのショート(縦動画)を人間が確認したかどうかの**承認意図の表示**(**AI は自分で true にしない**。実際の render ゲートは `approvals.json` の承認レコード) | ショート動画を切り出したいとき |
 | `thumbnail.json` | **サムネイル**(`thumbnail.png`)の元データ(`{t, texts[]}`)。下記「サムネイル生成」参照 | サムネイルを作りたいとき |
 | `meta.json` | 動画には影響なし。タイトル・概要欄の**下書き** | 投稿時のコピペ元 |
-| `rules.md` | **チャンネルの恒久ルール**(自由 Markdown。テロップ表記・トーン/声色・禁止語・ペーシング・章の付け方・タイトルの型など「毎回守る型」)。収録フォルダの親ディレクトリに置くと**チャンネル共通**、収録フォルダ直下に置くと**この収録だけの上書き/追加**(両方あれば連結し、収録固有が優先)。`plan` / `plan --cuts-only` / `remeta` / `plan-shorts` / `plan-materials` / `plan-effects` / `plan-bgm` の LLM プロンプトに注入される。`brief.md`(今回の見せ場・中身)とは役割が別(下記「チャンネル rules と learn」参照) | チャンネル全体の編集方針を一貫させたい、この回だけ例外を効かせたいとき |
+| `rules.md` | **チャンネルの恒久ルール**(自由 Markdown。テロップ表記・トーン/声色・禁止語・ペーシング・章の付け方・タイトルの型など「毎回守る型」)。収録フォルダの親ディレクトリに置くと**チャンネル共通**、収録フォルダ直下に置くと**この収録だけの上書き/追加**(両方あれば連結し、収録固有が優先)。`plan` / `plan --cuts-only` / `remeta` / `plan-materials` / `plan-effects` / `plan-bgm` の LLM プロンプトに注入される。`brief.md`(今回の見せ場・中身)とは役割が別(下記「チャンネル rules と learn」参照) | チャンネル全体の編集方針を一貫させたい、この回だけ例外を効かせたいとき |
+
+旧 `shorts.json` は削除済み機能のデータで、FrameWright は読み書きも自動削除も
+しない。`validate` は移行警告を1件出すだけで成功する。縦動画はP1以降の
+キャンバスを使い、独立した9:16プロジェクトとして作成する。
+
+### 縦動画・別キャンバスの作り方
+
+`node src/cli.ts editor` を引数なしで起動すると、`config.yaml` の
+`recordingsDir` にあるプロジェクト一覧が開く。「新規プロジェクト」で
+`portrait` などのキャンバスを選び、空プロジェクトでベースメディアを選べる。
+
+既存プロジェクトの一部を使う場合は、エディタで keep クリップを選択して
+「この範囲で派生」を押すか、元収録の秒で `derive` を実行する。
+
+```sh
+node src/cli.ts derive <元プロジェクト> --name <新しい名前> \
+  --canvas portrait --range 120-165 --range 300-330
+```
+
+派生先は元プロジェクトの兄弟フォルダになる。元メディアは symlink
+(非対応なら hardlink、最後に copy)で共有し、transcript は同じ source 秒のまま
+引き継ぐ。overlays / BGM / chapters / meta / approvals はキャンバスや構成が
+異なるため引き継がず、派生先で改めて編集・承認する。
 
 `manifest.layout:"stills"` の映像なしプロジェクトでは、ナレーション音声が動画尺を決める。スライドは `overlays.json` の `overlays[]` に `rect` なしで置く(全画面表示)。`inserts[]` は intro/ending など本当に出力尺を伸ばしたいクリップ専用で、通常のスライドには使わない。
 
@@ -137,8 +214,8 @@ human final がある場合だけ、従来の agreement (`exact`) / rescue (`dir
 GUI エディタでは `timebase:"output"` の BGM は読み取り専用として表示される。
 
 **触らない第3カテゴリ**(編集ファイルにも中間生成物にも属さない):
-`approvals.json`(**承認レコード**。`cutplan.json` / `shorts.json` 各ショートの
-keep 集合の sha256 ハッシュに束縛され、`render` の唯一のゲート。内容が変わると
+`approvals.json`(**承認レコード**。`cutplan.json` の keep 集合の sha256
+ハッシュに束縛され、`render` の唯一のゲート。内容が変わると
 自動失効する。`node src/cli.ts approve` / `unapprove` コマンドと GUI エディタの
 保存(チェックボックス)だけが書く。**人間や AI が直接編集・作成しない**。
 詳細は下記「承認(approve/unapprove)」参照)。
@@ -146,8 +223,7 @@ keep 集合の sha256 ハッシュに束縛され、`render` の唯一のゲー�
 insert、BGM、演出、出力尺の変更では失効しないため、最終 render の内容確認は別途必要。
 
 **触らないファイル**(中間生成物。再実行すると上書きされる):
-`manifest.json` / `cuts.auto.json` / `plan.raw.txt` / `plan-shorts.raw.txt`
-(plan-shorts の LLM 生応答の記録) / `plan-materials.raw.txt`
+`manifest.json` / `cuts.auto.json` / `plan.raw.txt` / `plan-materials.raw.txt`
 (plan-materials の LLM 生応答の記録。用途は plan.raw.txt と同じ) / `render.props.json` /
 `whisper-out.*` / `plan-bgm.raw.txt`(plan-bgm の LLM 生応答の記録。
 用途は plan.raw.txt と同じ) / `cut.mp4` / `cut.m4a` / `cut.keeps.json`(cut.mp4/cut.m4a の再利用可否を
@@ -166,10 +242,7 @@ bgm)・hardwareAcceleration 設定が前回と同じなら render は engine 書
 システム音声(systemAudio)・ノイズ除去(denoise)・プレビュー幅・エンコーダ・
 オールイントラ設定(`preview.proxyIntra`。既定 true=GOP1の全フレーム I。
 false で従来の短 GOP に戻る)・元収録ファイルが前回の生成と同じなら陳腐化
-なしと判定する。無ければ常に「陳腐化なし」扱いになる) / `cut.<name>.mp4` / `cut.<name>.keeps.json` /
-`render.<name>.props.json` / `render.<name>.key.json`(いずれもショート
-`<name>` 専用の中間生成物。仕組みは無印の同名ファイルと同じ。詳細は下記
-「ショート動画」参照) / `rules.suggested.md`
+なしと判定する。無ければ常に「陳腐化なし」扱いになる) / `rules.suggested.md`
 (`learn` が書く下書き。使い捨てで、次回の `learn` 実行で黙って上書きされる。
 採用したい項目は人間が手で `rules.md` に転記する。詳細は下記「チャンネル
 rules と learn」参照) / `av.probe/`(`av <dir>` の差分更新型キャッシュ。
@@ -574,7 +647,8 @@ node src/cli.ts autozoom <dir> --force   # 既存 zooms を上書き(backups/ �
 ```
 
 **既定 ON の自動挿入**: `config.yaml` の `plan.cursor.autoZoom`(省略時 `true`)
-が有効なとき、`run`(ingest→transcribe→detect→plan→id-stamp)の末尾で
+が有効なとき、`run`(transcribe→detect→plan→id-stamp。manifest が無い旧形式
+フォルダだけ ingest も先行)の末尾で
 同じ決定論を非破壊に自動実行する。呼ぶのは次を**すべて**満たすときだけで、
 1 つでも欠ければ静かにスキップする(1 行 log のみ・run は止まらない):
 
@@ -670,7 +744,7 @@ FrameWright はフレーム撮影・render・HyperFrames の検査/書き出し�
 | ズーム/ぼかし/囲みの演出(overlays / plan-effects / effect-check) | [guides/effects.md](guides/effects.md) |
 | 音量・BGM・A/V フィードバック(plan-bgm / bgm-fit / av) | [guides/audio-bgm.md](guides/audio-bgm.md) |
 | スタイルの一貫性とチャンネル学習(style-profile / style-check / rules / learn) | [guides/style-and-rules.md](guides/style-and-rules.md) |
-| 承認して書き出す・ショート・サムネイル(approve / render / shorts / thumbnail) | [guides/export.md](guides/export.md) |
+| 承認して書き出す・サムネイル(approve / render / thumbnail) | [guides/export.md](guides/export.md) |
 | AI プロバイダ・MCP・GUI の AI 提案/検索をつなぐ | [guides/ai-agents.md](guides/ai-agents.md) |
 | AI やスクリプトで安全に編集する(id / apply / assert / 契約) | [guides/safe-editing.md](guides/safe-editing.md) |
 | GUI エディタ運用・frames-serve・掃除(clean) | [guides/tools-and-ops.md](guides/tools-and-ops.md) |
@@ -691,4 +765,4 @@ FrameWright はフレーム撮影・render・HyperFrames の検査/書き出し�
 | plan-effects / effect-check / 検品を閉じる(E6/E7)/ 演出(overlays.json) | [guides/effects.md](guides/effects.md) |
 | A/V(av)/ bgm-fit / 音量 / BGM / plan-bgm | [guides/audio-bgm.md](guides/audio-bgm.md) |
 | スタイルプロファイル抽出 / profile 逸脱検出 / チャンネル rules と learn | [guides/style-and-rules.md](guides/style-and-rules.md) |
-| 承認(approve/unapprove)/ ショート動画 / サムネイル生成 / render の高速化 / render 中のマシン負荷 | [guides/export.md](guides/export.md) |
+| 承認(approve/unapprove)/ サムネイル生成 / render の高速化 / render 中のマシン負荷 | [guides/export.md](guides/export.md) |

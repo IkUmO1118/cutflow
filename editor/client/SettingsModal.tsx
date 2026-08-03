@@ -106,11 +106,11 @@ export function buildConfigPatch(snap: CfgValues, cur: CfgValues): ConfigPatch |
   if (cur.editorCfg.maxUploadMb !== snap.editorCfg.maxUploadMb) {
     e.maxUploadMb = cur.editorCfg.maxUploadMb;
   }
+  if (cur.editorCfg.maxBaseUploadMb !== snap.editorCfg.maxBaseUploadMb) {
+    e.maxBaseUploadMb = cur.editorCfg.maxBaseUploadMb;
+  }
   if (cur.editorCfg.defaultImageDurationSec !== snap.editorCfg.defaultImageDurationSec) {
     e.defaultImageDurationSec = cur.editorCfg.defaultImageDurationSec;
-  }
-  if (cur.editorCfg.defaultShortRangeSec !== snap.editorCfg.defaultShortRangeSec) {
-    e.defaultShortRangeSec = cur.editorCfg.defaultShortRangeSec;
   }
   if (JSON.stringify(cur.aiCfg.review) !== JSON.stringify(snap.aiCfg.review)) {
     e.aiReview = cur.aiCfg.review;
@@ -861,19 +861,6 @@ export const SettingsModal = ({
         />
       </div>
       <div className="field">
-        <label>ショート既定尺 (秒)</label>
-        <NumInput
-          value={cfg.editorCfg.defaultShortRangeSec}
-          title="ショートを新規追加するとき、選択範囲も再生位置も無い場合に使う既定レンジ"
-          onCommit={(v) =>
-            v !== undefined &&
-            onChange({
-              editorCfg: { ...cfg.editorCfg, defaultShortRangeSec: v },
-            })
-          }
-        />
-      </div>
-      <div className="field">
         <label>アップロード上限 (MB)</label>
         <NumInput
           value={cfg.editorCfg.maxUploadMb}
@@ -881,6 +868,17 @@ export const SettingsModal = ({
           onCommit={(v) =>
             v !== undefined &&
             onChange({ editorCfg: { ...cfg.editorCfg, maxUploadMb: Math.round(v) } })
+          }
+        />
+      </div>
+      <div className="field">
+        <label>ベースメディア上限 (MB)</label>
+        <NumInput
+          value={cfg.editorCfg.maxBaseUploadMb}
+          title="プロジェクト作成時にアップロードする動画・音声1ファイルの上限"
+          onCommit={(v) =>
+            v !== undefined &&
+            onChange({ editorCfg: { ...cfg.editorCfg, maxBaseUploadMb: Math.round(v) } })
           }
         />
       </div>

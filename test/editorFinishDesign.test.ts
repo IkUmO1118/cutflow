@@ -57,25 +57,11 @@ test("shared empty and app states preserve panel callbacks and state boundaries"
   // テロップ一覧は「章」トラックを除いた rows で空判定する(全 segments ではない)
   const captionsEmpty = panels.slice(panels.indexOf("rows.length === 0"), panels.indexOf('return (\n    <div className="capList">'));
   assert.match(captionsEmpty, /<EmptyState/);
-  assert.doesNotMatch(captionsEmpty, /onClick=/);
-  const shortsEmpty = panels.slice(panels.indexOf("list.length === 0"), panels.indexOf('<div className="capList">', panels.indexOf("list.length === 0")));
-  assert.match(shortsEmpty, /<EmptyState[\s\S]*onClick=\{onAdd\}/);
-  assert.ok((panels.match(/onClick=\{onAdd\}/g) ?? []).length >= 2);
+  assert.match(captionsEmpty, /onClick=\{onAdd\}/);
   // 空判定 `rows.length === 0` はテロップ側にもあるので ScriptPanel 以降から探す
   const scriptEmptyAt = panels.indexOf("rows.length === 0", panels.indexOf("export const ScriptPanel"));
   assert.ok(panels.indexOf("if (error)") < panels.indexOf("if (!script)") && panels.indexOf("if (!script)") < scriptEmptyAt);
   assert.match(panels.slice(scriptEmptyAt, panels.indexOf('className="scriptPanel"')), /<EmptyState/);
-});
-
-test("ProjectPanel shows the OpenCut-style empty state and still injects the short section", () => {
-  const inspector = read("editor/client/Inspector.tsx");
-  const at = inspector.indexOf("const ProjectPanel");
-  const project = inspector.slice(at, inspector.indexOf("export const Inspector", at));
-  assert.match(project, /\{shortSection\}/);
-  assert.match(project, /className="inspEmpty"/);
-  assert.match(project, /className="inspEmptyIcon"/);
-  assert.match(project, /<SlidersHorizontal /);
-  assert.match(project, /<h3>ここには何もありません<\/h3>/);
 });
 
 test("P5 theme bootstrap, provider, picker, and Toaster use one resolved contract", () => {

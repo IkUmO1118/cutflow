@@ -118,6 +118,9 @@ preview:
 
 # 最終レンダー(engine 合成)のレイアウト
 render:
+  # 作成時の出力キャンバス。ingest --canvas が優先。作成後は固定
+  # landscape / portrait / portrait-cover / portrait-screen / square / portrait-4x5
+  canvas: landscape
   # 右下ワイプ(カメラ)の横幅(px、1920x1080基準)。ワイプは右下角に隙間なく配置される
   wipeWidthPx: 480
   # 字幕・テロップの画面端からの余白(px)。ワイプの位置には影響しない
@@ -297,10 +300,10 @@ editor:
   # 素材アップロード1ファイルの上限(MB)。動画素材も置けるよう大きめ。
   # ローカル限定サーバーだが、暴走したアップロードでディスクを埋めない歯止め
   maxUploadMb: 2048
+  # プロジェクト作成時のベース動画・音声アップロード上限(MB)。長尺収録向けに別枠
+  maxBaseUploadMb: 16384
   # タイムラインに置く画像素材・尺不明素材の既定の尺(秒)
   defaultImageDurationSec: 4
-  # ショート新規追加時、選択中の keep クリップもプレイヘッドも
-  # 無いときの既定レンジ長(秒)
   defaultShortRangeSec: 10
   aiReview:
     vlm: false

@@ -42,6 +42,8 @@ preview:
 
 # 最終レンダー(必須項目のみ。詳細な演出設定は config.yaml を参照)
 render:
+  # 作成時の出力キャンバス(省略時 landscape)
+  canvas: landscape
   wipeWidthPx: 480
   wipeMarginPx: 32
   captionFontSizePx: 58

@@ -84,7 +84,7 @@ test("AI propose, review, refine, apply, and warning-fix routing remains intact"
     "postAiPropose", "postAiReview", "postAiRefine", "postSave",
   ]) assert.ok(app.includes(api), `lost API client ${api}`);
   for (const contract of [
-    "instruction,\n        activeShortName,\n        selection: buildAiSelectionContext(scope)",
+    "instruction,\n        selection: buildAiSelectionContext(scope)",
     "acceptedHunkLabels: acceptedAiHunkLabels(aiWorkflowReview)",
     'secondaryObservation: withVlm ? "vlm" : "none"',
     "instruction: options.instruction?.trim() || undefined",

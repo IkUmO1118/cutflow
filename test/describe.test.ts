@@ -76,7 +76,12 @@ test("bgm.json など任意ファイルが無いフォルダでも describe が�
 test("必須ファイルが欠けていれば従来どおりエラーになる", () => {
   const empty = mkdtempSync(join(tmpdir(), "framewright-describe-empty-"));
   try {
-    assert.throws(() => describe(empty), /manifest\.json がありません/);
+    assert.throws(
+      () => describe(empty),
+      (error: unknown) => /manifest\.json がありません/.test((error as Error).message) &&
+        /editor <dir> でベースメディアを選んでください/.test((error as Error).message) &&
+        !/run/.test((error as Error).message),
+    );
   } finally {
     rmSync(empty, { recursive: true, force: true });
   }
@@ -231,27 +236,6 @@ export function buildRichFixture(dir: string): void {
       "タイトル案5",
     ],
     description: "概要欄の下書き…全文がここに入る想定のテキストです…",
-  });
-
-  write("shorts.json", {
-    shorts: [
-      {
-        name: "short-1",
-        profile: "vertical",
-        approved: true,
-        ranges: [{ start: 35, end: 45 }],
-        captionTracks: [{ track: 1, name: "短尺文字" }],
-      },
-      {
-        name: "short-2",
-        approved: false,
-        // 隣接区間(mergeIntervals で1本にまとまる)
-        ranges: [
-          { start: 110, end: 115 },
-          { start: 115, end: 120 },
-        ],
-      },
-    ],
   });
 }
 

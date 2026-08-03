@@ -7,11 +7,12 @@ import { mergeBodyOverDisk, planApply } from "../lib/applyEdits.ts";
 import type { ApplyPlan } from "../lib/applyEdits.ts";
 import type { ReviewDocs } from "../lib/docDiff.ts";
 import type { Config } from "../lib/config.ts";
+import { outputSize } from "../lib/profile.ts";
 import { sliceReviewContext, type ReviewFrameRequest, type ReviewRange } from "../lib/review.ts";
 import type { EditorAiReviewPlan } from "../lib/editorAiReview.ts";
 import { describeJson } from "./describe.ts";
 import type { DescribeProjection, CaptionEntry, MappedInterval } from "./describe.ts";
-import type { ApplyBody, ApplyPatch, Bgm, CutPlan, Manifest, Overlays, Region, Shorts, Transcript } from "../types.ts";
+import type { ApplyBody, ApplyPatch, Bgm, CutPlan, Manifest, Overlays, Region, Transcript } from "../types.ts";
 import { planIntentEdits, type EditIntent } from "../lib/editIntent.ts";
 import { retrievalSearch } from "./retrievalSearch.ts";
 
@@ -21,17 +22,15 @@ export interface AiSelectionContext {
   scope: AiScope;
   playheadSec?: number;
   outputSec?: number;
-  activeShortName?: string | null;
   selectedIds?: string[];
   selectedRange?: { startSec: number; endSec: number };
   selectedText?: string;
-  selectedKind?: "cut" | "caption" | "overlay" | "blur" | "annotation" | "short" | "range";
+  selectedKind?: "cut" | "caption" | "overlay" | "blur" | "annotation" | "range";
 }
 
 export interface AiProposeRequest {
   instruction: string;
   selection?: AiSelectionContext;
-  activeShortName?: string | null;
 }
 
 export interface AiProposeResponse {
@@ -369,20 +368,11 @@ function normalizeOverlaysDoc(value: Overlays | undefined, bounds: Region): Over
   };
 }
 
-function normalizeShortsDoc(value: Shorts | null | undefined, bounds: Region): Shorts | null | undefined {
-  if (!value) return value;
-  return {
-    ...value,
-    shorts: value.shorts.map((short) => normalizeCaptionTracks(short, bounds) as typeof short),
-  };
-}
-
 function normalizeAiApplyBody(body: ApplyBody, bounds: Region): ApplyBody {
   return {
     ...body,
     ...(body.transcript ? { transcript: normalizeTranscriptDoc(body.transcript, bounds) } : {}),
     ...(body.overlays ? { overlays: normalizeOverlaysDoc(body.overlays, bounds) } : {}),
-    ...(body.shorts !== undefined ? { shorts: normalizeShortsDoc(body.shorts, bounds) } : {}),
   };
 }
 
@@ -775,7 +765,6 @@ function sliceProjectProjection(
       summary: proj.summary,
       meta: proj.meta,
       bgm: proj.bgm,
-      shorts: proj.shorts,
       tracks: {
         captionTracks: proj.overlays.captionTracks,
         layerOrder: proj.overlays.layerOrder,
@@ -836,9 +825,6 @@ function sliceProjectProjection(
     bgm: proj.bgm.source === "bgm.json" && proj.bgm.tracks
       ? { ...proj.bgm, tracks: proj.bgm.tracks.filter((t) => overlapsRange(t, range.start, range.end)) }
       : proj.bgm,
-    shorts: selection.activeShortName
-      ? proj.shorts.filter((s) => s.name === selection.activeShortName)
-      : proj.shorts,
   };
 }
 
@@ -848,7 +834,6 @@ function reviewDocsOf(docs: ReturnType<typeof mergeBodyOverDisk>): ReviewDocs {
     overlays: (docs.overlays ?? {}) as Overlays,
     transcript: docs.transcript as Transcript,
     bgm: (docs.bgm ?? null) as Bgm | null,
-    shorts: (docs.shorts ?? null) as Shorts | null,
   };
 }
 
@@ -901,7 +886,6 @@ export function buildEditorAiPrompt(
   const selectionContext = {
     scope: req.selection?.scope ?? (req.selection ? "selection" : "global"),
     ...(req.selection ?? {}),
-    activeShortName: req.activeShortName ?? req.selection?.activeShortName ?? null,
   };
   const projectProjection = sliceProjectProjection(
     describeJson(dir, cfg),
@@ -1002,7 +986,7 @@ export function buildRefineEditorAiPrompt(
     "Rules:",
     "",
     '- Prefer `edit.mode: "tasks"` for supported operations. Use `edit.mode: "patch"` only as fallback.',
-    '- Only edit `cutplan`, `transcript`, `overlays`, `bgm`, or `shorts`.',
+    '- Only edit `cutplan`, `transcript`, `overlays`, or `bgm`.',
     '- Do not use `target: "overlays.annotations"` for `set` edits to an existing annotation.',
     '- For existing annotation item edits, use the stable item id such as `@ann_xxxxxx`, or use `replace` when a whole-array rewrite is truly necessary.',
     '- Use `target: "overlays.annotations"` only for `add`, or for clearing the whole collection with `remove`.',
@@ -1030,7 +1014,7 @@ export function planEditorAiPatch(
   dir: string,
   parsed: ParsedAiPatchResponse,
 ): AiProposeResponse {
-  const outputBounds = readManifest(dir).video.screenRegion;
+  const outputBounds = { x: 0, y: 0, ...outputSize(readManifest(dir)) };
   const intentPlan = parsed.tasks ? planIntentEdits(dir, parsed.tasks) : null;
   if (intentPlan && intentPlan.errors.length > 0 && hasPatchEdits(parsed.patch)) {
     const patchApplyPlan = planApply(dir, parsed.patch);
@@ -1092,7 +1076,6 @@ export async function proposeEditorAi(
         playheadSec: req.selection.playheadSec,
         selectedRange: req.selection.selectedRange,
         selectedIds: req.selection.selectedIds,
-        activeShortName: req.activeShortName,
       });
       parsed.review.frames = sliced.frameCandidates.map((frame) => ({
         axis: "source",

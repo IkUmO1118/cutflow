@@ -44,7 +44,6 @@ interface ServeRequestBody {
   times?: unknown;
   axis?: unknown;
   stepSec?: unknown;
-  short?: unknown;
   ocr?: unknown;
   fullRes?: unknown;
 }
@@ -52,7 +51,7 @@ interface ServeRequestBody {
 /** パース済みの撮影リクエスト(framesEngine にそのまま渡せる形) */
 export interface ParsedFramesRequest {
   req: FrameRequest;
-  opts: { short?: string; ocr?: boolean; fullRes?: boolean };
+  opts: { ocr?: boolean; fullRes?: boolean };
 }
 
 /**
@@ -90,7 +89,6 @@ export function parseFramesServeBody(body: unknown): ParsedFramesRequest {
     );
   }
   const opts = {
-    short: typeof b.short === "string" ? b.short : undefined,
     ocr: b.ocr === true,
     fullRes: b.fullRes === true,
   };
@@ -148,7 +146,7 @@ export async function startFramesServe(
     const cfg = loadConfig(explicitConfigPath);
     const shots = await framesEngine(
       dir, parsed.req, cfg,
-      parsed.opts.short, parsed.opts.ocr, parsed.opts.fullRes,
+      parsed.opts.ocr, parsed.opts.fullRes,
     );
     sendJson(res, 200, { shots });
   }

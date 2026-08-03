@@ -38,7 +38,7 @@ const CONFIG_PATH = join(repoRoot, "test/fixtures/engine/parity.config.yaml");
 const GOLDEN_DIR = join(repoRoot, "test/fixtures/engine/pixel-golden");
 const GATE_OUT_DIR = join(repoRoot, "scripts/.pixel-gate-out");
 const LAST_RUN_PATH = join(GOLDEN_DIR, "last-run.json");
-const FIXTURE_FILES = ["cutplan.json", "transcript.json", "overlays.json", "shorts.json"];
+const FIXTURE_FILES = ["cutplan.json", "transcript.json", "overlays.json"];
 
 // シーン表(§4 Phase2)の検証時刻(元収録の秒。本編11点のうち10点はそのまま
 // source axis でスナップして撮れる)。#6(インサート)だけは別枠(下記)。
@@ -50,9 +50,6 @@ const SCENE_TIMES = [1.0, 2.5, 4.0, 5.5, 7.0, 13.0, 15.0, 17.0, 19.0, 21.0];
 // 実際に検証するため、この1点だけ出力軸(--out)で挿入区間内(8.5–9.7)の
 // 出力9.0秒(=挿入クリップ自身の0.5秒地点)を直接指定する
 const INSERT_CHECK_OUT_TIME = 9.0;
-// ショート(shorts.json の s1)の検証時刻(元収録の秒。ranges [1,9] 内)
-const SHORT_NAME = "s1";
-const SHORT_TIME = 2.5;
 
 function fmtT(t) {
   return t.toFixed(2);
@@ -64,13 +61,11 @@ function sha256File(path) {
 
 function runFrames(configPath, opts) {
   const args = ["src/cli.ts", "--config", configPath, "frames", FIXTURE_DIR, "--t", opts.times.map(fmtT).join(",")];
-  if (opts.short) args.push("--short", opts.short);
   if (opts.outputAxis) args.push("--out");
   execFileSync("node", args, { cwd: repoRoot, stdio: "inherit" });
 }
 
-/** frames/ が書いた PNG を destDir へコピーする(prefix があれば衝突回避のため
- * ファイル名の前に付ける。frames は本編・ショートで同じ出力秒名を付けうる) */
+/** frames/ が書いた PNG を destDir へコピーする。 */
 function copyFramesTo(destDir, prefix) {
   mkdirSync(destDir, { recursive: true });
   const framesDir = join(FIXTURE_DIR, "frames");
@@ -111,32 +106,24 @@ async function captureOracle() {
 
   const tmpConfigDir = mkdtempSync(join(tmpdir(), "framewright-g1-oracle-config-"));
   const configPath = buildTempConfigWithRemotion(CONFIG_PATH, tmpConfigDir);
-  console.log(`[1/4] 一時config生成(engineExport:false 挿入): ${configPath}`);
+  console.log(`[1/3] 一時config生成(engineExport:false 挿入): ${configPath}`);
 
-  console.log(`[2/4] 本編 golden 捕獲(Remotionオラクル・source axis): --t ${SCENE_TIMES.map(fmtT).join(",")}`);
+  console.log(`[2/3] 本編 golden 捕獲(Remotionオラクル・source axis): --t ${SCENE_TIMES.map(fmtT).join(",")}`);
   runFrames(configPath, { times: SCENE_TIMES });
   const mainFiles = copyFramesTo(GOLDEN_DIR, "");
   console.log(`  ${mainFiles.length}枚を ${GOLDEN_DIR}/ へコピー: ${mainFiles.join(", ")}`);
 
-  console.log(`[3/4] #6 インサート golden 捕獲(output axis): --t ${fmtT(INSERT_CHECK_OUT_TIME)} --out`);
+  console.log(`[3/3] #6 インサート golden 捕獲(output axis): --t ${fmtT(INSERT_CHECK_OUT_TIME)} --out`);
   runFrames(configPath, { times: [INSERT_CHECK_OUT_TIME], outputAxis: true });
   const insertFiles = copyFramesTo(GOLDEN_DIR, "");
   console.log(`  ${insertFiles.length}枚を ${GOLDEN_DIR}/ へコピー: ${insertFiles.join(", ")}`);
-
-  console.log(`[4/4] ショート golden 捕獲(--short ${SHORT_NAME}): --t ${fmtT(SHORT_TIME)}`);
-  runFrames(configPath, { times: [SHORT_TIME], short: SHORT_NAME });
-  const shortFiles = copyFramesTo(GOLDEN_DIR, `short-${SHORT_NAME}-`);
-  console.log(`  ${shortFiles.length}枚を ${GOLDEN_DIR}/ へコピー: ${shortFiles.join(", ")}`);
 
   rmSync(tmpConfigDir, { recursive: true, force: true });
 
   // manifest.json から本編出力解像度を読む(obs-canvas の screenRegion=出力解像度)
   const manifest = JSON.parse(readFileSync(join(FIXTURE_DIR, "manifest.json"), "utf8"));
   const mainResolution = { w: manifest.video.screenRegion.w, h: manifest.video.screenRegion.h };
-  // ショート(vertical profile)の出力解像度は src/lib/profile.ts の組み込み定数
-  const shortResolution = { w: 1080, h: 1920 };
-
-  const goldenFiles = [...mainFiles, ...insertFiles, ...shortFiles].sort();
+  const goldenFiles = [...mainFiles, ...insertFiles].sort();
   const goldenHashes = {};
   for (const f of goldenFiles) goldenHashes[f] = sha256File(join(GOLDEN_DIR, f));
 
@@ -151,18 +138,15 @@ async function captureOracle() {
     fixtureFileSha256: fixtureHashes,
     goldenFileSha256: goldenHashes,
     mainResolution,
-    shortResolution,
     sceneTimes: SCENE_TIMES,
     insertCheckOutTime: INSERT_CHECK_OUT_TIME,
-    shortName: SHORT_NAME,
-    shortTime: SHORT_TIME,
   };
   writeFileSync(join(GOLDEN_DIR, "provenance.json"), JSON.stringify(provenance, null, 2));
   console.log(`\n✅ golden 捕獲完了: ${GOLDEN_DIR}/ (${goldenFiles.length}枚 + provenance.json)`);
 }
 
-/** エンジン既定経路(config の engineExport は触らない)で golden と同じ3系統
- * (本編source axis・#6インサートoutput axis・ショート)を撮り、destDir配下へ
+/** エンジン既定経路(config の engineExport は触らない)で golden と同じ2系統
+ * (本編source axis・#6インサートoutput axis)を撮り、destDir配下へ
  * golden と同じファイル名でコピーする(比較を単純な同名突き合わせにするため) */
 function captureEngineOutputs(destDir) {
   const files = [];
@@ -170,8 +154,6 @@ function captureEngineOutputs(destDir) {
   files.push(...copyFramesTo(destDir, ""));
   runFrames(CONFIG_PATH, { times: [INSERT_CHECK_OUT_TIME], outputAxis: true });
   files.push(...copyFramesTo(destDir, ""));
-  runFrames(CONFIG_PATH, { times: [SHORT_TIME], short: SHORT_NAME });
-  files.push(...copyFramesTo(destDir, `short-${SHORT_NAME}-`));
   return files;
 }
 
@@ -192,7 +174,7 @@ async function verify() {
   mkdirSync(capturedDir, { recursive: true });
   mkdirSync(goldenCopyDir, { recursive: true });
 
-  console.log("[1/4] エンジン既定経路で撮影(本編source axis + #6インサートoutput axis + ショート)");
+  console.log("[1/4] エンジン既定経路で撮影(本編source axis + #6インサートoutput axis)");
   const capturedFiles = captureEngineOutputs(capturedDir);
   console.log(`  ${capturedFiles.length}枚を撮影`);
 

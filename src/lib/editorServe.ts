@@ -149,7 +149,7 @@ function logTail(dir: string, lines: number): string {
  */
 export async function startDetachedEditor(
   dir: string,
-  opts: { layout?: string; configPath?: string },
+  opts: { layout?: string; canvas?: string; baseLayout?: string; configPath?: string },
 ): Promise<EditorServeFile> {
   const running = await liveEditor(dir);
   if (running) {
@@ -168,6 +168,8 @@ export async function startDetachedEditor(
     "editor",
     dir,
     ...(opts.layout ? ["--layout", opts.layout] : []),
+    ...(opts.canvas ? ["--canvas", opts.canvas] : []),
+    ...(opts.baseLayout ? ["--base-layout", opts.baseLayout] : []),
   ];
   const fd = openSync(logPath, "a");
   try {

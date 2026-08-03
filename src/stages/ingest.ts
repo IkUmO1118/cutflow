@@ -1,8 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { probe, extractAudio, parseFps } from "../lib/ffmpeg.ts";
-import type { Config } from "../lib/config.ts";
-import type { Manifest } from "../types.ts";
+import { DEFAULT_CANVAS, type Config } from "../lib/config.ts";
+import { hasCamera, manifestLayout, type Manifest } from "../types.ts";
+import { isBaseLayoutPreset, isCanvasPreset } from "../lib/profile.ts";
 
 /**
  * 実効レイアウトを決める。優先順: 明示引数(CLI --layout 等) > config
@@ -192,6 +193,20 @@ export function layoutChangeWarning(
   ].join("\n");
 }
 
+export function assertBaseLayoutCompatible(manifest: Manifest): void {
+  if (
+    manifest.baseLayout !== undefined &&
+    isBaseLayoutPreset(manifest.baseLayout) &&
+    (manifest.baseLayout === "camera" || manifest.baseLayout === "stack") &&
+    !hasCamera(manifest)
+  ) {
+    throw new Error(
+      `この収録にはカメラがありません(layout: ${manifestLayout(manifest)})。` +
+        `baseLayout ${manifest.baseLayout} は camera 領域を持つ obs-canvas 収録でだけ使えます`,
+    );
+  }
+}
+
 /**
  * 収録フォルダの raw ファイルを解析し、manifest.json とマイク音声
  * (16kHz mono wav)を生成する。
@@ -207,6 +222,8 @@ export async function ingest(
   cfg: Config,
   layout?: "obs-canvas" | "plain" | "auto" | "stills",
   tracks?: { micTrack?: number; systemTrack?: number },
+  canvas?: string,
+  baseLayout?: string,
 ): Promise<Manifest> {
   const sourcePath = join(dir, sourceFile);
   const info = await probe(sourcePath);
@@ -261,6 +278,14 @@ export async function ingest(
     height,
     cfg,
   );
+  const effectiveCanvas = canvas ?? cfg.render.canvas ?? DEFAULT_CANVAS;
+  if (!isCanvasPreset(effectiveCanvas)) {
+    throw new Error(`未知の canvas 名です: ${effectiveCanvas}`);
+  }
+  const effectiveBaseLayout = baseLayout ?? cfg.render.baseLayout;
+  if (effectiveBaseLayout !== undefined && !isBaseLayoutPreset(effectiveBaseLayout)) {
+    throw new Error(`未知の baseLayout 名です: ${effectiveBaseLayout}`);
+  }
 
   const videoInfo =
     effectiveLayout === "plain" || effectiveLayout === "stills"
@@ -283,6 +308,8 @@ export async function ingest(
     source: sourceFile,
     durationSec: parseFloat(info.format.duration),
     layout: effectiveLayout,
+    ...(effectiveCanvas !== DEFAULT_CANVAS ? { canvas: effectiveCanvas } : {}),
+    ...(effectiveBaseLayout !== undefined && effectiveBaseLayout !== "auto" ? { baseLayout: effectiveBaseLayout } : {}),
     video: videoInfo,
     audio: {
       micStream: micIndex,
@@ -293,6 +320,7 @@ export async function ingest(
     },
     createdAt: new Date().toISOString(),
   };
+  assertBaseLayoutCompatible(manifest);
 
   const manifestPath = join(dir, "manifest.json");
   if (existsSync(manifestPath)) {

@@ -13,25 +13,7 @@ import {
 test("parseFramesServeBody: times モード(axis 省略時は source)", () => {
   const { req, opts } = parseFramesServeBody({ mode: "times", times: [90, 120] });
   assert.deepEqual(req, { mode: "times", times: [90, 120], axis: "source" });
-  assert.deepEqual(opts, { short: undefined, ocr: false, fullRes: false });
-});
-
-test("parseFramesServeBody: times モード(axis: output・short/ocr/fullRes 込み)", () => {
-  const { req, opts } = parseFramesServeBody({
-    mode: "times",
-    times: [10],
-    axis: "output",
-    short: "intro",
-    ocr: true,
-    fullRes: true,
-  });
-  assert.deepEqual(req, { mode: "times", times: [10], axis: "output" });
-  assert.deepEqual(opts, { short: "intro", ocr: true, fullRes: true });
-});
-
-test("parseFramesServeBody: short: null は opts.short = undefined になる", () => {
-  const { opts } = parseFramesServeBody({ mode: "times", times: [1], short: null });
-  assert.equal(opts.short, undefined);
+  assert.deepEqual(opts, { ocr: false, fullRes: false });
 });
 
 test("parseFramesServeBody: captions モードは times/axis を無視する", () => {

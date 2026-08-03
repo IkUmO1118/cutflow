@@ -13,6 +13,11 @@ export interface Manifest {
    *  plain:      通常動画。カメラ無し。screenRegion は全フレーム
    *  stills:     音声のみの元ファイル。映像は inserts[] の静止画で構成 */
   layout?: "obs-canvas" | "plain" | "stills";
+  /** 作成時に固定する出力キャンバス(サイズ)。省略時は screenRegion の寸法(従来どおり)。 */
+  canvas?: string;
+  /** 作成時に固定するベース映像(画面/カメラ)の置き方。省略時 "auto"。
+   *  camera / stack はカメラのある obs-canvas 収録でのみ有効。 */
+  baseLayout?: string;
   video: {
     width: number;
     height: number;
@@ -62,6 +67,8 @@ export interface Region {
 /** transcribe が生成(transcript.json)。JSON Schema: schemas/transcript.schema.json
  * (スキーマを変えたらこのコメント・validate.ts・usage.md と揃える。§5点セット) */
 export interface Transcript {
+  /** 開くために決定論的に作った未編集の初期値。人間/AI が書けば消える。 */
+  generatedBy?: "bootstrap";
   language: string;
   model: string;
   segments: TranscriptSegment[];
@@ -307,6 +314,8 @@ export interface Interval {
 /** plan が生成、人間が編集して承認する(cutplan.json)。JSON Schema:
  * schemas/cutplan.schema.json(§5点セット) */
 export interface CutPlan {
+  /** 開くために決定論的に作った未編集の初期値。人間/AI が書けば消える。 */
+  generatedBy?: "bootstrap";
   /** 人間の承認意図の表示(GUI チェックボックスのモデル)。**render のゲートでは
    * ない**(src/lib/approval.ts を参照)。render は approvals.json の承認
    * レコード(keep 集合のハッシュに束縛)だけを見る。ここが true でもレコードが
@@ -343,16 +352,15 @@ export const MIN_PLAYBACK_SPEED = 0.25;
 export const MAX_PLAYBACK_SPEED = 4;
 export const DEFAULT_PLAYBACK_SPEED = 1;
 
-/** 承認レコード(approvals.json)。承認は cutplan/short の keep 集合の
+/** 承認レコード(approvals.json)。承認は cutplan の keep 集合の
  * ハッシュに束縛され、内容が変われば hash 不一致で自動失効する。
  * render の唯一のゲート。boolean approved は人間の意図表示に降格
- * (CutPlan.approved / Short.approved のコメント参照)。
+ * (CutPlan.approved のコメント参照)。
  * 収録フォルダ直下の別ファイルに置く(cutplan.json 等の編集ワークフローとは
  * 別行為にするため。src/lib/approval.ts が算出・読み書きする) */
 export interface Approvals {
   version: 1;
   cutplan?: ApprovalRecord;
-  shorts?: Record<string, ApprovalRecord>;
 }
 
 export interface ApprovalRecord {
@@ -480,8 +488,7 @@ export function defaultLayerOrder(n: number): LayerId[] {
 /** 従来互換の既定順(素材2トラック) */
 export const DEFAULT_LAYER_ORDER: LayerId[] = defaultLayerOrder(2);
 
-/** テロップトラックの標準設定1件。overlays.json の captionTracks と
- * shorts.json の各ショートの captionTracks で共用する */
+/** テロップトラックの標準設定1件。overlays.json の captionTracks で使う */
 export interface CaptionTrackDef {
   /** 編集をまたいで安定な永続 id(例 "ct_a1b2c3")。`@id` で人間/AI がこの要素を
    * 指す共通アドレス。文法は `<prefix>_<base36 6桁>`(src/lib/ids.ts が単一の出所)。
@@ -668,24 +675,19 @@ export interface Overlays {
    * ベース映像(画面クロップ)だけが動く)。隣の区間と隙間なく接する
    * (end === 次の start)と連鎖になり、境界で等倍へ戻らず次の rect へ
    * 直接パンする(次の区間の easeSec がパンの遷移時間。src/lib/zoom.ts)。
-   * ショート(profile の layout 経路)には効かない(overlays.json を
-   * 継承しないため) */
+   */
   zooms?: Zoom[];
   /** 簡易カラー調整(全編一律。区間指定なし)。かかるのはベース映像
    * (画面クロップ+カメラ=同一収録動画)だけで、素材オーバーレイ・
-   * 挿入クリップには効かない。ショート(profile の layout 経路)にも
-   * 例外的に継承される(本編とショートで肌色が変わる事故を防ぐため。
-   * render.ts のショート経路がここだけ拾って渡す) */
+   * 挿入クリップには効かない。 */
   colorFilter?: ColorFilter;
   /** 領域ぼかし(秘匿情報の目隠し)。かかるのはベース映像
    * (画面クロップ)だけで、素材・挿入・テロップは対象外。zoom には追従せず
-   * 出力px固定。ショート(profile 経路)には継承されない(座標が本編基準の
-   * ため。shorts があると validate が警告する) */
+   * 出力px固定。 */
   blurs?: BlurRegion[];
   /** 注釈グラフィック(矢印/囲み/スポットライト)。画面の一点/矩形を指し示す
    * 「ここを見ろ」の描画。独立レイヤーで最前面(テロップより上)。zoom 非追従の
-   * 出力px固定。硬い ON/OFF。ショート(profile 経路)には継承されない
-   * (座標が本編基準のため。shorts があると validate が警告する) */
+   * 出力px固定。硬い ON/OFF。 */
   annotations?: Annotation[];
 }
 
@@ -772,7 +774,7 @@ export const DEFAULT_ZOOM_WIPE_SCALE = 0.8;
  * PII・パスワードなど、ベース映像(画面クロップ)の一部を隠す。start/end は
  * 元収録の秒、rect は出力px({x,y,w,h}。テロップ pos・zooms rect と同座標系)。
  * かかるのはベース映像だけ。zoom には追従せず出力px固定(zoom と時間が重なる
- * と validate が警告する)。ショート(profile 経路)には継承されない */
+ * と validate が警告する)。 */
 export interface BlurRegion {
   /** 編集をまたいで安定な永続 id(例 "bl_a1b2c3")。`@id` で人間/AI がこの要素を
    * 指す共通アドレス。文法は `<prefix>_<base36 6桁>`(src/lib/ids.ts が単一の出所)。
@@ -806,8 +808,7 @@ export type SpotlightShape = "rect" | "ellipse";
  * 指し示して「ここを見ろ」を作る描画プリミティブ。start/end は元収録の秒、
  * 座標はすべて出力px(テロップ pos・zooms/blurs rect と同座標系)。
  * 独立レイヤーで最前面(テロップより上)に描く。zoom には追従せず出力px固定。
- * 遷移は無い硬い ON/OFF。ショート(profile 経路)には継承されない
- * (座標が本編基準のため。shorts があると validate が警告する) */
+ * 遷移は無い硬い ON/OFF。 */
 export type Annotation = ArrowAnnotation | BoxAnnotation | SpotlightAnnotation;
 
 interface AnnotationBase {
@@ -936,36 +937,6 @@ export interface Meta {
   description: string;
 }
 
-/** 人間が書くショート動画指定(shorts.json)。ファイルが無ければショートは
- * 無い。時刻は他の編集ファイルと同じく元動画(収録ファイル)の秒。
- * JSON Schema: schemas/shorts.schema.json(§5点セット) */
-export interface Shorts {
-  shorts: Short[];
-}
-
-export interface Short {
-  /** 出力ファイル名(shorts/<name>.mp4)。[a-z0-9-_]+ のみ・収録内で一意 */
-  name: string;
-  /** 出力プロファイル(src/lib/profile.ts の PROFILES のキー)。
-   * 省略時 "vertical" */
-  profile?: string;
-  /** 人間の承認意図の表示。**render --short のゲートではない**(cutplan.json の
-   * approved と同じく src/lib/approval.ts の承認レコードに格下げ済み。承認は
-   * 人間の仕事で AI が自分で true にしない、という原則自体は変わらない) */
-  approved: boolean;
-  /** このショートの keep 区間(元収録の秒)。本編 cutplan の keep とは独立で、
-   * mergeIntervals した集合がそのままショートの keep 集合になる(交差なし)。
-   * 飛び区間で連結でき、フィラーを飛ばしたいときはレンジを分割する */
-  /** id は "rg_a1b2c3" 形式(§Interval & id の共通仕様。src/lib/ids.ts が
-   * 単一の出所。省略可=id 未採番)。Short 自体は name が事実上の安定 id
-   * なので別の id フィールドは持たない */
-  ranges: (Interval & { id?: string })[];
-  /** 縦用テロップ位置/スタイルの上書き(任意)。overlays.captionTracks と
-   * 同型・同じ解決順(セグメント → トラック標準 → 既定)で
-   * buildRenderProps に渡す */
-  captionTracks?: CaptionTrackDef[];
-}
-
 /** 人間/AIが書くサムネイル指定(thumbnail.json)。t は元収録の秒で、
  * frames と違いスナップしない(カットされた瞬間も指定できる。サムネは
  * 動画に入っていない絵も使ってよいため)。
@@ -1004,8 +975,7 @@ export interface ApplyPatch {
   replace?: ApplyBody;
 }
 
-/** apply が書ける編集ファイルの全置換(SaveRequest 相当)。cutplan.approved /
- * shorts[].approved は型としては CutPlan/Shorts の一部のまま残るが、
+/** apply が書ける編集ファイルの全置換(SaveRequest 相当)。cutplan.approved は、
  * **apply(planApply)は常にディスク現状の値へ強制上書きする**(apply 経由で
  * 承認を true/false に変えることはできない。§論点6・§不変条件2)。
  * chapters / thumbnail は EditableDocs と違って meta.json を含まない
@@ -1019,9 +989,6 @@ export interface ApplyBody {
   /** `null` / 空 tracks は bgm.json を削除する(SaveRequest と同じセマンティクス)。
    * `undefined`(キー無し)は bgm.json を触らない */
   bgm?: Bgm | null;
-  /** `null` / 空 shorts は shorts.json を削除する。`undefined`(キー無し)は
-   * shorts.json を触らない */
-  shorts?: Shorts | null;
   thumbnail?: Thumbnail;
 }
 
@@ -1065,7 +1032,7 @@ export type AssertOp = "<=" | ">=" | "<" | ">" | "==";
  * 未実行)場合は fail ではなく error になる(docs/plans/2026-07-07-
  * visual-assertions-design.md 論点3) */
 export type Assertion =
-  | { label?: string; type: "outDuration"; op: AssertOp; value: number; short?: string }
+  | { label?: string; type: "outDuration"; op: AssertOp; value: number }
   | { label?: string; type: "keepCount"; op: AssertOp; value: number }
   | { label?: string; type: "captionVisible"; ref: string; visible?: boolean }
   | { label?: string; type: "captionText"; ref: string; contains?: string; equals?: string }

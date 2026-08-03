@@ -34,7 +34,7 @@ ai:
 ```
 
 - `text`: 自由文生成
-- `structured`: plan / remeta / plan-shorts / plan-materials / plan-effects / plan-bgm / editor AI 提案の schema 付き出力
+- `structured`: plan / remeta / plan-materials / plan-effects / plan-bgm / editor AI 提案の schema 付き出力
 - `vision`: still 比較の VLM review
 
 組み込み adapter:
@@ -87,7 +87,7 @@ before/after のペアは崩さない。
 
 ### 失敗ポリシー
 
-- plan / remeta / plan-shorts / plan-materials / plan-effects / plan-bgm / editor AI 提案: provider failure はその操作の error。
+- plan / remeta / plan-materials / plan-effects / plan-bgm / editor AI 提案: provider failure はその操作の error。
   editable JSON は変えない。
 - VLM review: optional lane。失敗しても deterministic review bundle は成功させ、
   warning として表示する。
@@ -191,7 +191,7 @@ claude mcp add framewright -- node <REPO>/src/cli.ts mcp <REC>
 | `framewright_apply` | 安全編集 | `apply <dir>`(`dryRun` 引数で `--dry-run` 相当) |
 | `framewright_id_stamp` | 安全編集 | `id-stamp <dir>` |
 
-`approve` / `unapprove` / `render` / `plan` / `remeta` / `plan-shorts` /
+`approve` / `unapprove` / `render` / `plan` / `remeta` /
 `plan-materials` / `plan-effects` / `plan-bgm` / `run` / `ingest` / `transcribe` / `detect` / `preview` / `thumbnail` /
 `editor` / `frames-serve` / `learn` は**レジストリに存在せず、tool として
 一切呼べない**(汎用の「CLI を実行する」tool も無い)。承認は人間だけの

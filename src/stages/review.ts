@@ -39,6 +39,7 @@ import {
 } from "../lib/timeline.ts";
 import { validateDocs } from "./validate.ts";
 import type { Config } from "../lib/config.ts";
+import { outputSize } from "../lib/profile.ts";
 import type { DeterministicReviewObservation, SideObservation } from "../lib/reviewObservation.ts";
 import type { RenderProps } from "../lib/renderPropsTypes.ts";
 import type { Manifest, Overlays } from "../types.ts";
@@ -68,7 +69,6 @@ export interface ReviewStill {
 }
 
 export interface ReviewKey {
-  shortName: string | null;
   proposalId?: string;
   baseHash: string;
   candidateHash: string;
@@ -116,7 +116,6 @@ export interface ReviewHooks {
 }
 
 export interface ReviewOptions {
-  shortName?: string;
   secondaryObservation?: "none" | "vlm";
   provider?: SecondaryObservationProvider;
   hooks?: ReviewHooks;
@@ -142,10 +141,9 @@ export async function reviewEdit(
   if (specErrors.length > 0) {
     throw new Error(specErrors.map((error) => `${error.where}: ${error.message}`).join(" / "));
   }
-  const shortName = opts.shortName ?? null;
   const fullRes = spec.frames.some((frame) => frame.fullRes === true);
-  const beforeCtx = buildReviewRenderContext(dir, cfg, base, shortName, fullRes);
-  const afterCtx = buildReviewRenderContext(dir, cfg, candidate, shortName, fullRes);
+  const beforeCtx = buildReviewRenderContext(dir, cfg, base, fullRes);
+  const afterCtx = buildReviewRenderContext(dir, cfg, candidate, fullRes);
   const normalized = normalizeReviewSpec(spec, {
     sourceDurationSec: beforeCtx.manifest.durationSec,
     baseOutputDurationSec: beforeCtx.durationSec,
@@ -159,7 +157,6 @@ export async function reviewEdit(
     bgm: candidate.bgm,
     chapters: null,
     meta: null,
-    shorts: candidate.shorts,
     thumbnail: null,
   });
   const warnings = [...normalized.warnings];
@@ -270,10 +267,9 @@ export async function reviewEdit(
     schemaVersion: 1,
     createdAt: new Date().toISOString(),
     key: {
-      shortName,
       baseHash: digest(base),
       candidateHash: digest(candidate),
-      specHash: digest({ spec, shortName }),
+      specHash: digest({ spec }),
     },
     range: {
       source: normalized.range.axis === "source" ? normalized.range : undefined,
@@ -303,10 +299,9 @@ function buildReviewRenderContext(
   dir: string,
   cfg: Config,
   snapshot: EditSnapshot,
-  shortName: string | null,
   fullRes = false,
 ): ReviewRenderContext {
-  const ctx = resolveSnapshotRenderContext({ dir, cfg, snapshot, fullRes, ...(shortName ? { shortName } : {}) });
+  const ctx = resolveSnapshotRenderContext({ dir, cfg, snapshot, fullRes });
   const inserts = (ctx.overlays.inserts ?? []).filter((insert) => existsSync(join(dir, insert.file)));
   return {
     manifest: ctx.manifest,
@@ -368,7 +363,7 @@ async function renderReviewStills(args: {
       ...(target.after.note ? { note: target.after.note } : {}),
     };
     if (target.frame.ocr) {
-      const region = { x: 0, y: 0, w: beforeCtx.manifest.video.screenRegion.w, h: beforeCtx.manifest.video.screenRegion.h };
+      const region = { x: 0, y: 0, ...outputSize(beforeCtx.manifest) };
       const beforeOcr = await runOcr(target.beforeFile, region, { warn: (message) => warnings.push(message) });
       const afterOcr = await runOcr(target.afterFile, region, { warn: (message) => warnings.push(message) });
       if (beforeOcr) {
@@ -700,7 +695,7 @@ async function renderHookOcr(
   },
 ): Promise<Pick<ReviewStillSide, "ocrFile">> {
   const ctx = side === "before" ? args.beforeCtx : args.afterCtx;
-  const region = { x: 0, y: 0, w: ctx.manifest.video.screenRegion.w, h: ctx.manifest.video.screenRegion.h };
+  const region = { x: 0, y: 0, ...outputSize(ctx.manifest) };
   const result = await args.runOcr(imageFile, region, { warn: (message) => args.warnings.push(message) });
   if (!result) return {};
   const file = join(args.outDir, "ocr", `${side}-out${outSec.toFixed(2)}s.json`);

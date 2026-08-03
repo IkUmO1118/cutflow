@@ -41,7 +41,6 @@ test("mergeBodyOverDisk: body に無いキーはディスク現状にフォー�
     assert.equal((docs.chapters as { chapters: unknown[] }).chapters.length, 1);
     assert.equal((docs.manifest as { durationSec: number }).durationSec, 100);
     assert.equal(docs.bgm, null);
-    assert.equal(docs.shorts, null);
     assert.equal(docs.thumbnail, null);
   });
 });
@@ -51,24 +50,6 @@ test("mergeBodyOverDisk: body にあるキーはそちらを優先する(ディ�
     const bodyCutplan = { approved: true, segments: [{ start: 0, end: 5, action: "keep" as const, reason: "上書き" }] };
     const docs = mergeBodyOverDisk(dir, { cutplan: bodyCutplan });
     assert.deepEqual(docs.cutplan, bodyCutplan);
-  });
-});
-
-test("mergeBodyOverDisk: bgm/shorts は undefined(キー無し)= ディスク現状、null = 削除シグナルとして区別する", () => {
-  withTmpProject((dir) => {
-    writeFileSync(join(dir, "bgm.json"), JSON.stringify({ tracks: [{ start: 0, end: 1, file: "bgm.mp3" }] }));
-    writeFileSync(
-      join(dir, "shorts.json"),
-      JSON.stringify({ shorts: [{ name: "s1", approved: false, ranges: [{ start: 0, end: 1 }] }] }),
-    );
-    // undefined(キー無し) → ディスク現状をそのまま返す
-    const untouched = mergeBodyOverDisk(dir, {});
-    assert.equal((untouched.bgm as { tracks: unknown[] }).tracks.length, 1);
-    assert.equal((untouched.shorts as { shorts: unknown[] }).shorts.length, 1);
-    // null(削除シグナル) → ディスクにファイルがあってもフォールバックせず null のまま
-    const deleted = mergeBodyOverDisk(dir, { bgm: null, shorts: null });
-    assert.equal(deleted.bgm, null);
-    assert.equal(deleted.shorts, null);
   });
 });
 
@@ -98,6 +79,17 @@ test("saveProject: overlays/transcript も body の内容そのままで書か�
     saveProject(dir, body);
     assert.equal(readFileSync(join(dir, "transcript.json"), "utf8"), JSON.stringify(body.transcript, null, 2));
     assert.equal(readFileSync(join(dir, "overlays.json"), "utf8"), JSON.stringify(body.overlays, null, 2));
+  });
+});
+
+test("saveProject: GUI 保存した cutplan/transcript から bootstrap marker を消す", () => {
+  withTmpProject((dir) => {
+    saveProject(dir, {
+      cutplan: { approved: false, generatedBy: "bootstrap", segments: [{ start: 0, end: 10, action: "keep", reason: "初期状態(全編)" }] },
+      transcript: { generatedBy: "bootstrap", segments: [] } as SaveRequest["transcript"],
+    });
+    assert.equal(JSON.parse(readFileSync(join(dir, "cutplan.json"), "utf8")).generatedBy, undefined);
+    assert.equal(JSON.parse(readFileSync(join(dir, "transcript.json"), "utf8")).generatedBy, undefined);
   });
 });
 

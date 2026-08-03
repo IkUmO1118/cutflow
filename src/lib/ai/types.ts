@@ -26,7 +26,7 @@ export interface AiRequest {
   parts: AiInputPart[];
   output?: { kind: "text" } | { kind: "json-schema"; format: JsonSchemaTextFormat };
   maxOutputTokens?: number;
-  purpose: "plan" | "plan-shorts" | "editor-proposal" | "vision-review" | "other";
+  purpose: "plan" | "editor-proposal" | "vision-review" | "other";
 }
 
 export interface AiResponse {
@@ -74,7 +74,7 @@ export interface AiAgenticRequest {
   maxOutputTokens?: number;
   /** 1ターンあたりの tool 呼び出し上限(有界。§H1H2design §1-5) */
   maxToolCalls: number;
-  purpose: "plan" | "plan-shorts" | "editor-proposal" | "vision-review" | "other";
+  purpose: "plan" | "editor-proposal" | "vision-review" | "other";
 }
 
 export interface AiAgenticResponse {

@@ -482,7 +482,6 @@ test("buildEditorAiPrompt: 指示と選択文脈と project projection を含め
     );
     const prompt = buildEditorAiPrompt(dir, cfg, {
       instruction: "この字幕を短く",
-      activeShortName: null,
       selection: {
         scope: "selection",
         selectedRange: { startSec: 1, endSec: 3 },
@@ -507,8 +506,7 @@ test("buildEditorAiPrompt: global scope は project-level summary に圧縮す�
   withTmpProject((dir) => {
     const prompt = buildEditorAiPrompt(dir, cfg, {
       instruction: "全体のBGMを調整",
-      activeShortName: null,
-      selection: { scope: "global", activeShortName: null },
+      selection: { scope: "global" },
     });
     assert.match(prompt, /"scope": "global"/);
     assert.match(prompt, /"counts"/);
@@ -532,8 +530,7 @@ test("buildEditorAiPrompt: global の注釈依頼にはタイミング候補を�
     );
     const prompt = buildEditorAiPrompt(dir, cfg, {
       instruction: "最適なタイミングに注釈を入れて",
-      activeShortName: null,
-      selection: { scope: "global", activeShortName: null },
+      selection: { scope: "global" },
     });
     assert.match(prompt, /timelineCandidates/);
     assert.match(prompt, /ここが重要です/);

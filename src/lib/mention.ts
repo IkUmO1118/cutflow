@@ -6,8 +6,8 @@
 
 import type { LoadedDocs } from "../stages/validate.ts";
 
-/** id/name が指す所在。file はプロジェクト内の相対ファイル名、path は
- * 表示・ログ用の人間可読パス、index は対象配列の添字(short は shorts[] の添字) */
+/** id が指す所在。file はプロジェクト内の相対ファイル名、path は
+ * 表示・ログ用の人間可読パス、index は対象配列の添字 */
 export interface MentionTarget {
   file: string;
   kind: string;
@@ -38,7 +38,6 @@ function collectFromArray(
  * docs 内の全「指せる要素」の (id, MentionTarget) を、出現順そのままに
  * 列挙する(重複 id があれば同じ id で複数エントリが並ぶ)。validate の重複
  * 検査はこれを使う(最初のエントリ=既出の所在、2件目以降=重複)。
- * short は id フィールドを持たないため name をキーにして含める。
  */
 export function collectIdOccurrences(docs: LoadedDocs): [string, MentionTarget][] {
   const out: [string, MentionTarget][] = [];
@@ -75,25 +74,6 @@ export function collectIdOccurrences(docs: LoadedDocs): [string, MentionTarget][
     collectFromArray(bgm.tracks, "bgm.json", "bgmTrack", (i) => `tracks[${i}]`, out);
   }
 
-  const shorts = docs.shorts;
-  if (isObj(shorts) && Array.isArray(shorts.shorts)) {
-    shorts.shorts.forEach((s: unknown, j: number) => {
-      if (!isObj(s)) return;
-      // Short 自体は id フィールドを持たず、name が事実上の安定 id
-      if (typeof s.name === "string" && s.name !== "") {
-        out.push([s.name, { file: "shorts.json", kind: "short", path: `shorts[${j}]`, index: j }]);
-      }
-      collectFromArray(s.ranges, "shorts.json", "range", (i) => `shorts[${j}].ranges[${i}]`, out);
-      collectFromArray(
-        s.captionTracks,
-        "shorts.json",
-        "captionTrack",
-        (i) => `shorts[${j}].captionTracks[${i}]`,
-        out,
-      );
-    });
-  }
-
   const thumbnail = docs.thumbnail;
   if (isObj(thumbnail)) {
     collectFromArray(thumbnail.texts, "thumbnail.json", "thumbnailText", (i) => `texts[${i}]`, out);
@@ -113,15 +93,14 @@ export function collectIds(docs: LoadedDocs): Map<string, MentionTarget> {
   return index;
 }
 
-/** "@cap_7x2f" / "cap_7x2f" / "@short:intro" / "@intro" を所在に解決する
- * (無ければ null)。先頭の "@" と "short:" 接頭辞は剥がしてから index を引く */
+/** "@cap_7x2f" / "cap_7x2f" を所在に解決する
+ * (無ければ null)。先頭の "@" は剥がしてから index を引く */
 export function resolveMention(
   ref: string,
   index: Map<string, MentionTarget>,
 ): MentionTarget | null {
   let r = ref.trim();
   if (r.startsWith("@")) r = r.slice(1);
-  if (r.startsWith("short:")) r = r.slice("short:".length);
   if (r === "") return null;
   return index.get(r) ?? null;
 }

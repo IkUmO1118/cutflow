@@ -43,6 +43,7 @@ import { buildScreenStill } from "../lib/screenStill.ts";
 import { createEngineSession } from "../lib/engineSession.ts";
 import type { TimelineEntry } from "../lib/timeline.ts";
 import type { Config } from "../lib/config.ts";
+import { resolveCanvas, screenContentRect } from "../lib/profile.ts";
 import type { Manifest } from "../types.ts";
 import type { RenderProps } from "../lib/renderPropsTypes.ts";
 
@@ -71,11 +72,10 @@ export async function frames(
   dir: string,
   req: FrameRequest,
   cfg: Config,
-  shortName?: string,
   ocr?: boolean,
   fullRes?: boolean,
 ): Promise<FrameShot[]> {
-  return framesEngine(dir, req, cfg, shortName, ocr, fullRes);
+  return framesEngine(dir, req, cfg, ocr, fullRes);
 }
 
 /** M4: エンジン経路の frames 実装。createEngineSession でヘッドレス Chrome を
@@ -87,7 +87,6 @@ export async function framesEngine(
   dir: string,
   req: FrameRequest,
   cfg: Config,
-  shortName?: string,
   ocr?: boolean,
   fullRes?: boolean,
   warmSession?: Awaited<ReturnType<typeof createEngineSession>>,
@@ -95,7 +94,7 @@ export async function framesEngine(
   const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")) as Manifest;
   const snapshot = readEditSnapshot(dir);
 
-  const renderCtx = resolveSnapshotRenderContext({ dir, cfg, snapshot, shortName, fullRes });
+  const renderCtx = resolveSnapshotRenderContext({ dir, cfg, snapshot, fullRes });
   const { keeps, overlays } = renderCtx;
 
   const props = await prepareDesignAssetsForProps({
@@ -166,7 +165,6 @@ export async function framesEngine(
     }
     writeFramesIndex(dir, {
       mode: req.mode,
-      short: shortName ?? null,
       ocr: ocr ?? false,
       fullRes: fullRes ?? false,
       count: unique.length,
@@ -279,8 +277,16 @@ async function ocrFrame(
     // 画面がパネルへ縮んで置かれるので、screenRegion 画素 = 出力px の恒等が
     // 崩れる。パネルへ写してから書く(design 無しでは恒等 = 従来と同じ値)
     const sr = manifest.video.screenRegion;
-    const design = resolveDesign(cfg.render.design, sr.w, sr.h, !!manifest.video.cameraRegion);
-    const panel = panelRect(design, sr.w, sr.h);
+    const canvas = resolveCanvas(manifest);
+    const canvasPanel = screenContentRect(manifest);
+    if (!canvasPanel) {
+      notes.push(`OCR: canvas ${manifest.canvas} に screen パネルが無いため座標化をスキップ`);
+      return undefined;
+    }
+    const design = canvas.layout
+      ? undefined
+      : resolveDesign(cfg.render.design, canvas.width, canvas.height, !!manifest.video.cameraRegion);
+    const panel = design ? panelRect(design, canvas.width, canvas.height) : canvasPanel;
     const mapped = {
       ...result,
       lines: result.lines.map((l) => ({ ...l, box: screenRectToOutput(l.box, panel, sr) })),

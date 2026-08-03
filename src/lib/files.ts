@@ -21,7 +21,7 @@ export const EDITABLE_FILES = [
 ] as const;
 
 /** 中間生成物のうち、収録フォルダ直下で名前が固定のもの。CLAUDE.md の
- * 「中間生成物は編集しない」一覧(ショート名で可変にならない部分)と一致させる。
+ * 「中間生成物は編集しない」一覧と一致させる。
  * `plan.first.json` / `plan-effects.first.json`(AI 初版の write-once 保存。
  * 最初の判断を記録する測定資産。既に在れば `--force` でも上書きしない・
  * 再生成不可能なため GENERATED_CACHE_FILES にも GENERATED_LOG_FILES にも
@@ -31,7 +31,6 @@ export const GENERATED_FILES = [
   "cuts.auto.json",
   "plan.raw.txt",
   "plan.loop.json",
-  "plan-shorts.raw.txt",
   "plan-materials.raw.txt",
   "plan-effects.raw.txt",
   "plan-bgm.raw.txt",
@@ -62,16 +61,8 @@ export const GENERATED_FILES = [
   "plan-effects.first.json",
 ] as const;
 
-/** 中間生成物のうち、ショート名(shorts.json の name)や HyperFrame カード名
- * (hyperframes/<name>.html の name)で可変になるファイル名パターン。
- * GENERATED_FILES と合わせて一覧を成す
- * (cut.<name>.mp4 / cut.<name>.keeps.json / render.<name>.props.json /
- * render.<name>.key.json / hyperframe.<name>.key.json) */
+/** 中間生成物のうち、HyperFrame カード名で可変になるファイル名パターン。 */
 const GENERATED_NAME_PATTERNS: readonly RegExp[] = [
-  /^cut\.[^./]+\.mp4$/,
-  /^cut\.[^./]+\.keeps\.json$/,
-  /^render\.[^./]+\.props\.json$/,
-  /^render\.[^./]+\.key\.json$/,
   /^hyperframe\.[^./]+\.key\.json$/,
 ];
 
@@ -82,10 +73,7 @@ const GENERATED_NAME_PATTERNS: readonly RegExp[] = [
  * とき、書き出しページが読める publicDir 配下へ取り込んだ背景画像のコピー。
  * 元ファイルからいつでも再取得できるので generated。materials/ に置くと
  * `materials` コマンドに「未使用素材」として計上されてしまうため別ディレクトリ)・
- * shorts/(render --short /
- * --shorts の出力先。final.mp4 相当の成果物だが CLAUDE.md は同じ
- * 「触らない」節で扱っているためここに含める)・materials.probe/(`materials
- * <dir>` が書く素材知覚の集約+キャッシュ。frames/ と違い実行のたびに
+ * materials.probe/(`materials <dir>` が書く素材知覚の集約+キャッシュ。frames/ と違い実行のたびに
  * 全消しはされない差分更新型。`materials/` 自体(人間の素材置き場)とは
  * 別名の生成ディレクトリなので "other" にはならない)・
  * style.probe/(`style-profile` が channel 直下に書くスタイルプロファイル
@@ -111,7 +99,6 @@ const GENERATED_NAME_PATTERNS: readonly RegExp[] = [
 const GENERATED_DIRS: readonly string[] = [
   "frames",
   "render.design",
-  "shorts",
   "materials.probe",
   "av.probe",
   "review.probe",
@@ -131,6 +118,9 @@ const GENERATED_DIRS_NOT_CACHE: readonly string[] = ["hyperframe-freeze.suggeste
 /** 収録フォルダ直下の承認レコードファイル名(src/lib/approval.ts の再輸出。
  * files.ts をファイル分類の唯一の出所にするため、他コードはここから参照する) */
 export const APPROVAL_FILE = APPROVALS_FILE;
+
+/** channel(recordingsDir) 直下にあるがプロジェクトではない共有/生成ディレクトリ。 */
+export const PROJECT_DIRECTORY_EXCLUDES = ["hyperframe-seeds", "style.probe"] as const;
 
 export type FileRole = "editable" | "generated" | "approval" | "other";
 
@@ -175,9 +165,8 @@ export const GENERATED_CACHE_FILES = [
 
 /** relPath が「再生成が重いキャッシュ」かどうか(--cache-only の対象判定)。
  * 前提として generated であること(generated 以外は常に false=belt)。判定:
- * 1) generated ディレクトリ配下(frames/ shorts/ *.probe/)は全て cache
- * 2) ショート名可変の描画キャッシュ(cut.<name>.mp4 / .keeps.json / render.<name>.{props,key}.json)は cache
- * 3) 固定名は GENERATED_CACHE_FILES に載るものだけ cache */
+ * 1) generated ディレクトリ配下(frames/ *.probe/)は全て cache
+ * 2) 固定名は GENERATED_CACHE_FILES に載るものだけ cache */
 export function isGeneratedCache(relPath: string): boolean {
   if (fileRole(relPath) !== "generated") return false;
   const top = relPath.split("/")[0];
@@ -191,12 +180,11 @@ export function isGeneratedCache(relPath: string): boolean {
  * 伴わない)なものの固定名。--logs-only が消す対象。ここに載らない generated は
  * 意図的に残す: whisper-out.* / transcript.system.json / *.probe/(再生成が高価)、
  * manifest.json(エディタ起動・render の必須入力)、cut.mp4 / render.* / proxy.*
- * (リレンダー最適化・proxy)、shorts/(成果物)。GENERATED_FILES の部分集合であること。 */
+ * (リレンダー最適化・proxy)。GENERATED_FILES の部分集合であること。 */
 export const GENERATED_LOG_FILES = [
   "cuts.auto.json",
   "plan.raw.txt",
   "plan.loop.json",
-  "plan-shorts.raw.txt",
   "plan-materials.raw.txt",
   "plan-effects.raw.txt",
   "plan-bgm.raw.txt",
@@ -222,7 +210,7 @@ const GENERATED_LOG_DIRS: readonly string[] = ["frames", "hyperframe-freeze.sugg
 /** relPath が「ログ・使い捨て下書き」かどうか(--logs-only の対象判定)。
  * 前提として generated であること(generated 以外は常に false=belt)。判定:
  * 1) frames/ 配下は全て log 2) 固定名は GENERATED_LOG_FILES に載るものだけ log。
- * ショート名可変のパターン(cut.<name>.mp4 等)は log ではない(リレンダー最適化)。 */
+ */
 export function isGeneratedLog(relPath: string): boolean {
   if (fileRole(relPath) !== "generated") return false;
   const top = relPath.split("/")[0];
@@ -232,7 +220,7 @@ export function isGeneratedLog(relPath: string): boolean {
 
 /** GENERATED_FILES の一員(=手編集しない中間生成物)だが、収録フォルダの中身
  * だけからは復元できないため、clean はフルでも削除しない。ingest の再実行は
- * --layout を知らないと screenRegion/cameraRegion を失う
+ * --layout / --canvas を知らないと screenRegion/cameraRegion/canvas を失う
  * (2026-07-28 に実際に事故として発生)。同じく再生成不可能な plan.first.json /
  * plan-effects.first.json は clean フルで削除される(=再生成不可能な測定資産
  * だが manifest.json のような編集不可逆損害ではない) */

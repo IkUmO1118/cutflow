@@ -63,7 +63,6 @@ test("P1 retains existing storage and mounted children while removing manual spl
   assert.match(app, /<MaterialsPanel\b/);
   assert.match(app, /<ScriptPanel\b/);
   assert.match(app, /<CaptionsPanel\b/);
-  assert.match(app, /<ShortsPanel\b/);
   assert.match(app, /<Inspector\b/);
   assert.match(app, /<Timeline\b/);
   assert.match(app, /className="viewerCol panel shellSurface" ref=\{viewerColRef\}/);

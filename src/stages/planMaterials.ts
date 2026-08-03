@@ -1,7 +1,7 @@
 // M1(+M4): 素材配置候補の生成(plan-materials コマンド)。
 // §docs/plans/2026-07-11-m1-material-placement-candidates-design.md
 //
-// plan-shorts と同じ「番号選択」方式: keep span(アンカー)× 実在素材に番号を
+// 「番号選択」方式: keep span(アンカー)× 実在素材に番号を
 // 振って LLM に渡し、LLM は (anchorId, materialId) のペアだけを返す。時刻・
 // ファイルパス・尺は一切 LLM に書かせず、実体への変換(materialAnchors.ts の
 // 純関数)と書き込み前の validate 検査(all-or-nothing)はすべてコード側で行う。
@@ -32,8 +32,7 @@ export interface PlacementsSelection {
 }
 
 /**
- * LLM 応答から JSON を取り出して配置選定に整える。plan-shorts の
- * parseShortsResponse と同じ堅牢さ(コードフェンスや前後の説明文が混ざっても
+ * LLM 応答から JSON を取り出して配置選定に整える。コードフェンスや前後の説明文が混ざっても
  * 最初の { 〜 最後の } を拾う)。壊れた/欠けたフィールドは握りつぶし、後段
  * (placementsToOverlays)の機械検証(番号存在チェック)に委ねる:
  * - placements が無い/配列でなければ空配列
@@ -215,7 +214,6 @@ export async function planMaterials(dir: string, cfg: Config): Promise<PlanMater
     bgm: readJsonOrNull<unknown>(join(dir, "bgm.json")),
     chapters: readJsonOrNull<unknown>(join(dir, "chapters.json")),
     meta: readJsonOrNull<unknown>(join(dir, "meta.json")),
-    shorts: readJsonOrNull<unknown>(join(dir, "shorts.json")),
     thumbnail: readJsonOrNull<unknown>(join(dir, "thumbnail.json")),
   };
   const checked = validateDocs(dir, loaded);

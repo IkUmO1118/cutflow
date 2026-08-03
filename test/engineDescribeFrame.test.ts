@@ -64,14 +64,6 @@ test("describeBaseLayer: videoFile が空で背景も無ければ空配列", () 
   assert.deepEqual(describeBaseLayer({ ...base, videoFile: "", design: undefined }, 0), []);
 });
 
-test("describeBaseLayer: props.layout があるショート経路は空配列(グループ6の担当)", () => {
-  const withLayout: RenderProps = {
-    ...base,
-    layout: { panels: [{ source: "screen", fit: "cover" }] },
-  };
-  assert.deepEqual(describeBaseLayer(withLayout, 5), []);
-});
-
 test("describeBaseLayer: baseSegments のギャップ(挿入クリップ中)はベース映像を出さない", () => {
   const withInsert: RenderProps = {
     ...base,

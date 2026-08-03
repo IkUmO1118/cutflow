@@ -85,7 +85,6 @@ test("P2 panel scopes remain present while Inspector and Timeline advance in lat
   assert.match(app, /<MaterialsPanel\b/);
   assert.match(app, /<ScriptPanel\b/);
   assert.match(app, /<CaptionsPanel\b/);
-  assert.match(app, /<ShortsPanel\b/);
   assert.match(app, /<Inspector\b/);
   assert.match(app, /<Timeline\b/);
   assert.match(app, /<div className="transport ocTransport">/);
@@ -109,7 +108,7 @@ test("P2 panel scopes remain present while Inspector and Timeline advance in lat
   assert.doesNotMatch(app, /テロップトラックを追加/);
 });
 
-test("P2 checkpoint 2 mounts exactly nine accessible FrameWright icon-rail tabs", () => {
+test("P2 checkpoint 2 mounts exactly eight accessible FrameWright icon-rail tabs", () => {
   const app = read("editor/client/App.tsx");
   const panels = read("editor/client/Panels.tsx");
   const tabs = app.slice(app.indexOf("const PANEL_TABS"), app.indexOf("] as const", app.indexOf("const PANEL_TABS")));
@@ -121,18 +120,13 @@ test("P2 checkpoint 2 mounts exactly nine accessible FrameWright icon-rail tabs"
     '["stickers", "ステッカー"]',
     '["effects", "エフェクト"]',
     '["adjust", "色調整"]',
-    '["shorts", "ショート"]',
     '["settings", "設定"]',
   ]) assert.ok(tabs.includes(entry), `missing rail capability ${entry}`);
   assert.ok(!tabs.includes('["sounds"'), "sounds tab should be removed (P1)");
   assert.ok(!tabs.includes('["transitions"'), "transitions tab should be removed (P2)");
-  assert.equal((tabs.match(/^\s*\["/gm) ?? []).length, 9);
+  assert.equal((tabs.match(/^\s*\["/gm) ?? []).length, 8);
   // 「AI 生成」はレール末尾の「設定」の直上(道具の並びの後ろ)
   assert.match(tabs, /\["hyperframes", "AI 生成"\][\s\S]*\["settings", "設定"\]/);
-  assert.ok(
-    tabs.indexOf('["shorts"') < tabs.indexOf('["hyperframes"'),
-    "AI 生成 must sit after the editing tools, directly above 設定",
-  );
   assert.match(app, /<nav className="tabs ocIconRail" role="tablist" aria-label="編集パネル">/);
   assert.match(app, /PANEL_TABS\.map\(\(\[id, label\]\) => \(\s*<Tooltip key=\{id\}>/);
   assert.match(app, /role="tab"[\s\S]*aria-label=\{label\}[\s\S]*aria-selected=\{tab === id\}/);
@@ -149,14 +143,13 @@ test("P2 checkpoint 2 mounts exactly nine accessible FrameWright icon-rail tabs"
     "stickers",
     "effects",
     "adjust",
-    "shorts",
     "settings",
   ]) {
     assert.match(app, new RegExp(`\\{tab === "${capability}" && `));
   }
   assert.match(panels, /export const PanelHeader = \(/);
   assert.match(panels, /export const SettingsPanel = \(/);
-  assert.match(app, /<SettingsPanel[\s\S]*onOpenFullSettings=\{openSettings\}[\s\S]*onGoShorts=\{\(\) => setTab\("shorts"\)\}/);
+  assert.match(app, /<SettingsPanel[\s\S]*onOpenFullSettings=\{openSettings\}/);
   assert.match(app, /if \(tab !== "script" \|\| script !== null \|\| scriptFetchingRef\.current\) return;/);
 });
 
@@ -350,35 +343,6 @@ test("P6.6 track creation is preserved through Inspector track selects, not add-
   assert.match(inspector, /patch\(\{ track: ovTracks \+ 1, layer: undefined \}\)/);
 });
 
-test("transport reskin preserves every playback control and shortcut title", () => {
-  const app = read("editor/client/App.tsx");
-  const start = app.indexOf('<div className="transport ocTransport">');
-  const end = app.indexOf('<ResizableHandle\n              id="right-handle"', start);
-  const transport = app.slice(start, end);
-  assert.ok(start >= 0 && end > start);
-
-  assert.match(transport, /onPointerDown=\{\(e\) => \{[\s\S]*scrubTo\(e\);/);
-  assert.match(transport, /onPointerMove=\{\(e\) => \{[\s\S]*scrubTo\(e\);/);
-  assert.match(transport, /<ScrubProgress duration=\{duration\} \/>/);
-  assert.match(transport, /<EditableTimecode seekOut=\{seekOut\} duration=\{duration\} \/>/);
-  assert.match(transport, /fmtTime\(duration\)/);
-  assert.match(transport, /title=\{`ミュート切替[\s\S]*onClick=\{toggleMute\}/);
-  assert.match(transport, /type="range"[\s\S]*value=\{volumePct\}[\s\S]*onChange=\{\(e\) => setVolumePct\(Number\(e\.target\.value\)\)\}/);
-  assert.match(transport, /onDoubleClick=\{\(\) => setVolumePct\(100\)\}/);
-  assert.match(transport, /title="先頭へ \(Home\)" onClick=\{\(\) => seekOut\(0\)\}/);
-  assert.match(transport, /title="1フレーム戻る \(←\)" onClick=\{\(\) => stepFrames\(-1\)\}/);
-  assert.match(transport, /title="再生\/停止 \(Space\)" onClick=\{togglePlay\}/);
-  assert.match(transport, /title="1フレーム進む \(→\)" onClick=\{\(\) => stepFrames\(1\)\}/);
-  assert.match(transport, /title="末尾へ \(End\)" onClick=\{\(\) => seekOut\(duration\)\}/);
-  assert.match(transport, /title="ループ再生\(プレビューのみ\)"[\s\S]*setLoop\(\(v\) => !v\)/);
-  assert.match(transport, /value=\{activeShortName \?\? ""\}[\s\S]*setActiveShortName\(e\.target\.value \|\| null\)/);
-  assert.match(transport, /value=\{playbackRate\}[\s\S]*setPlaybackRate\(Number\(e\.target\.value\)\)/);
-  assert.match(transport, /title="1秒戻る \(Shift\+←\)" onClick=\{\(\) => stepFrames\(-fps\)\}/);
-  assert.match(transport, /title="1秒進む \(Shift\+→\)" onClick=\{\(\) => stepFrames\(fps\)\}/);
-  assert.match(transport, /setMaximized\(\(v\) => !v\)/);
-  assert.match(transport, /onClick=\{toggleFullscreen\}/);
-});
-
 test("transport has a scoped deterministic 1024px wrap rule", () => {
   const css = read("editor/client/styles.css");
   assert.match(css, /@media \(max-width: 1024px\) \{[\s\S]*\.ocTransport \.tRow \{[\s\S]*flex-wrap: wrap;/);
@@ -408,7 +372,6 @@ test("P2 checkpoint 2 provenance records assets rail and transport adaptation bo
     "apps/web/src/components/ui/native-select.tsx",
     "apps/web/src/components/ui/slider.tsx",
   ]) assert.ok(provenance.includes(`${revision}/${source}`), `missing provenance ${source}`);
-  assert.match(provenance, /exactly FrameWright's four existing capabilities \(`materials`,\s+`script`, `captions`, `shorts`\)/);
   assert.match(provenance, /OS-file upload, HyperFrames AI\s+authoring/);
   assert.match(provenance, /scoped 1024px multi-row rule/);
   assert.match(provenance, /dual-axis Timeline and Inspector remain untouched/);
@@ -449,7 +412,7 @@ test("left rail presets add at playhead and drop onto a revealed track", () => {
 
   const tabsStart = app.indexOf("const PANEL_TABS");
   const tabs = app.slice(tabsStart, app.indexOf("] as const", tabsStart));
-  assert.equal((tabs.match(/^\s*\["/gm) ?? []).length, 9);
+  assert.equal((tabs.match(/^\s*\["/gm) ?? []).length, 8);
   assert.ok(!tabs.includes('["sounds"'));
   assert.ok(!tabs.includes('["transitions"'));
 

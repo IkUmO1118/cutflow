@@ -95,7 +95,7 @@ node src/cli.ts style-check <dir> --profile multi  # 別名の profile に照ら
 `.cursor/rules` の動画版。テロップ様式・トーン/声色・禁止語・ペーシング・
 章の付け方・タイトルの型など、**チャンネルで毎回守りたい恒久的な方針**を
 自由 Markdown の `rules.md` に書いておくと、`plan` / `plan --cuts-only` /
-`remeta` / `plan-shorts` / `plan-materials` / `plan-effects` / `plan-bgm` の LLM プロンプトに自動で注入される。
+`remeta` / `plan-materials` / `plan-effects` / `plan-bgm` の LLM プロンプトに自動で注入される。
 
 - `brief.md` = **今回の中身**(見せ場・狙い・絶対に切らない内容。収録ごと)
 - `rules.md` = **毎回守る型**(恒久的な様式。チャンネル + 収録固有)

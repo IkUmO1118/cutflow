@@ -54,7 +54,8 @@ import { buildFirstEffectsPlan, writeFirstEffectsPlan } from "../lib/firstEffect
 import { readRules } from "./plan.ts";
 import { validateDocs } from "./validate.ts";
 import type { LoadedDocs } from "./validate.ts";
-import { resolveProfile } from "../lib/profile.ts";
+import { outputSize, resolveCanvas, screenContentRect } from "../lib/profile.ts";
+import { screenRectToOutput } from "../lib/design.ts";
 import type { Config } from "../lib/config.ts";
 import type { CutPlan, Manifest, Overlays, Region, Transcript } from "../types.ts";
 
@@ -360,8 +361,9 @@ export function buildCursorAnchorCandidates(
     clickBoost: cursorCfg.clickBoost,
     windowMs,
   });
-  // resolveProfile(screenRegion, "default") は width/height=screenRegion.w/h
-  // そのものなので、ここでは screenRegion を直接「出力解像度」として使える
+  const out = outputSize(manifest);
+  const screenPanel = screenContentRect(manifest);
+  if (!screenPanel) return [];
   const geom = {
     layout: manifest.layout ?? ("obs-canvas" as const),
     screenRegion: manifest.video.screenRegion,
@@ -370,11 +372,21 @@ export function buildCursorAnchorCandidates(
     defaultScale: cursorCfg.defaultScale,
   };
   return candidates.map((c) => {
-    const point = cursorFocusToLocalPoint(c.focus, geom);
+    const localPoint = cursorFocusToLocalPoint(c.focus, geom);
+    const localRect = cursorFocusToRect(c.focus, geom);
+    const pointRect = screenRectToOutput(
+      { x: localPoint.x, y: localPoint.y, w: 0, h: 0 },
+      screenPanel,
+      manifest.video.screenRegion,
+    );
+    const point = { x: pointRect.x, y: pointRect.y };
     const rect = clampRect(
-      growToMinZoom(cursorFocusToRect(c.focus, geom), placementCfg.minZoomRect),
-      manifest.video.screenRegion.w,
-      manifest.video.screenRegion.h,
+      growToMinZoom(
+        screenRectToOutput(localRect, screenPanel, manifest.video.screenRegion),
+        placementCfg.minZoomRect,
+      ),
+      out.w,
+      out.h,
     );
     return {
       sourceSec: c.centerMs / 1000,
@@ -471,7 +483,7 @@ export async function planEffects(
 
   const parsed = parseDecisionsResponse(raw);
   const decisions = limitNoneDecisions(parsed.decisions, anchors.length, reasonIds.enabled);
-  const profile = resolveProfile(manifest.video.screenRegion, "default");
+  const profile = resolveCanvas(manifest);
   const overlayCfg: EffectOverlayCfg = {
     ...placementCfg,
     outW: profile.width,
@@ -496,7 +508,6 @@ export async function planEffects(
     bgm: readJsonOrNull<unknown>(join(dir, "bgm.json")),
     chapters: readJsonOrNull<unknown>(join(dir, "chapters.json")),
     meta: readJsonOrNull<unknown>(join(dir, "meta.json")),
-    shorts: readJsonOrNull<unknown>(join(dir, "shorts.json")),
     thumbnail: readJsonOrNull<unknown>(join(dir, "thumbnail.json")),
   };
   const checked = validateDocs(dir, loaded);

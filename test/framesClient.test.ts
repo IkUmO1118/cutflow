@@ -61,36 +61,10 @@ test("readServePortFile: port/pid が数値でない中身は null", () => {
   }
 });
 
-/* ---------------- toServeRequestBody ---------------- */
-
-test("toServeRequestBody: times モード(short/ocr/fullRes 省略時は既定)", () => {
-  const req: FrameRequest = { mode: "times", times: [90], axis: "source" };
-  assert.deepEqual(toServeRequestBody(req, {}), {
-    mode: "times",
-    times: [90],
-    axis: "source",
-    short: null,
-    ocr: false,
-    fullRes: false,
-  });
-});
-
-test("toServeRequestBody: short/ocr/fullRes を渡すとそのまま乗る", () => {
-  const req: FrameRequest = { mode: "every", stepSec: 10 };
-  assert.deepEqual(toServeRequestBody(req, { short: "intro", ocr: true, fullRes: true }), {
-    mode: "every",
-    stepSec: 10,
-    short: "intro",
-    ocr: true,
-    fullRes: true,
-  });
-});
-
 test("toServeRequestBody: captions モード", () => {
   const req: FrameRequest = { mode: "captions" };
   assert.deepEqual(toServeRequestBody(req, {}), {
     mode: "captions",
-    short: null,
     ocr: false,
     fullRes: false,
   });

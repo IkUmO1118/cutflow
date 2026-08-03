@@ -3,7 +3,7 @@
 // フォールバック理由・段階ごとの所要時間と成否・キャッシュヒット・
 // 実効 concurrency・入力スナップショットの
 // sha256・出力プローブ・ok/failed を機械可読に残す。純ローカルの副産物で
-// 外部送信しない。ショート(renderShort/renderShorts)は対象外(v1 スコープ)。
+// 外部送信しない。
 import { createHash } from "node:crypto";
 import { renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

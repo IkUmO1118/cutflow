@@ -3,8 +3,8 @@
 // 論点3)。stampDocs(純関数・src/lib/ids.ts)を呼び、内容が実際に変わった
 // ファイルだけ dir へ書く。approvals.json には一切触れない。
 //
-// 対象は「指せる要素」を持ちうる7ファイル: cutplan / transcript / overlays /
-// chapters / bgm / shorts / thumbnail。meta.json は id を持つ要素が無いため
+// 対象は「指せる要素」を持ちうる6ファイル: cutplan / transcript / overlays /
+// chapters / bgm / thumbnail。meta.json は id を持つ要素が無いため
 // 対象外(EDITABLE_FILES とは対象範囲が異なる=id-stamp 専用の一覧)。
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -18,19 +18,17 @@ import type {
   Chapters,
   CutPlan,
   Overlays,
-  Shorts,
   Thumbnail,
   Transcript,
 } from "../types.ts";
 
-/** id-stamp が読み書きする7ファイル(相対パス) */
+/** id-stamp が読み書きする6ファイル(相対パス) */
 const STAMP_FILE_OF: Record<keyof EditableDocs, string> = {
   cutplan: "cutplan.json",
   transcript: "transcript.json",
   overlays: "overlays.json",
   chapters: "chapters.json",
   bgm: "bgm.json",
-  shorts: "shorts.json",
   thumbnail: "thumbnail.json",
 };
 
@@ -40,7 +38,7 @@ function readJson<T>(dir: string, file: string): T | null {
   return JSON.parse(readFileSync(p, "utf8")) as T;
 }
 
-/** dir から id-stamp 対象の7ファイルを読み込む(無いファイルは null) */
+/** dir から id-stamp 対象の6ファイルを読み込む(無いファイルは null) */
 export function readEditableDocs(dir: string): EditableDocs {
   return {
     cutplan: readJson<CutPlan>(dir, STAMP_FILE_OF.cutplan),
@@ -48,7 +46,6 @@ export function readEditableDocs(dir: string): EditableDocs {
     overlays: readJson<Overlays>(dir, STAMP_FILE_OF.overlays),
     chapters: readJson<Chapters>(dir, STAMP_FILE_OF.chapters),
     bgm: readJson<Bgm>(dir, STAMP_FILE_OF.bgm),
-    shorts: readJson<Shorts>(dir, STAMP_FILE_OF.shorts),
     thumbnail: readJson<Thumbnail>(dir, STAMP_FILE_OF.thumbnail),
   };
 }
@@ -91,7 +88,6 @@ export function idStamp(dir: string): IdStampResult {
     bgm: after.bgm,
     chapters: after.chapters,
     meta: readJson<unknown>(dir, "meta.json"),
-    shorts: after.shorts,
     thumbnail: after.thumbnail,
   };
   const validate = validateDocs(dir, loaded);

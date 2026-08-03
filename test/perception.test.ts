@@ -262,12 +262,6 @@ test("renderPrompt: perception を渡すと {{rules}} の直後(区切りなし)
   assert.match(planPrompt, /ダミー\n\n## カットの判断基準/);
 });
 
-test("renderPrompt: 4引数呼び出し(plan-shorts 相当)は perception 省略でバイト等価", () => {
-  const withDefault = renderPrompt(recDir, "plan-shorts.md", numberedForPrompt, 42);
-  const withEmpty = renderPrompt(recDir, "plan-shorts.md", numberedForPrompt, 42, "");
-  assert.equal(withDefault, withEmpty);
-});
-
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

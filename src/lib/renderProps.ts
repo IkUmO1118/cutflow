@@ -134,7 +134,7 @@ export function buildRenderProps(args: {
   /** 出力解像度(通常は config の screenRegion と同じ) */
   width: number;
   height: number;
-  /** 出力プロファイル(src/lib/profile.ts の resolveProfile が返すもの)。
+  /** 出力キャンバス(src/lib/profile.ts の resolveCanvas が返すもの)。
    * layout があれば props.layout に、caption があれば captionDefaultPos と
    * caption.fontSizePx(×fontScale)に反映する。省略時は現行と同一の props
    * (横 default・下部中央テロップ) */
@@ -591,7 +591,7 @@ export function buildRenderProps(args: {
     },
     ...(overlays.colorFilter ? { colorFilter: overlays.colorFilter } : {}),
     // ベースレイアウトのデザイン(背景 + 画面パネル + カメラ円)。縦プリセット
-    // (layout)経路には載せない=ショートは従来どおりのパネル合成のまま
+    // (layout)経路には載せない=縦プロファイルは従来どおりのパネル合成のまま
     ...(design ? { design } : {}),
     ...(profile?.layout ? { layout: { panels: profile.layout.panels } } : {}),
     // 既定スタイルは config(render.caption*)→ 無ければ描画側の定数。

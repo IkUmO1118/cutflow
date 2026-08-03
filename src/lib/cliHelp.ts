@@ -27,9 +27,9 @@ export const COMMAND_GROUPS: CommandGroup[] = [
   },
   {
     title: "取り込み〜カット案",
-    note: "run は一括、以下は個別のやり直し用。plan/run の再実行には --force が要る",
+    note: "run は AI 初版の一括生成。以下は個別のやり直し用",
     commands: [
-      { name: "run", summary: "取り込み〜カット案までを一括(初回用)" },
+      { name: "run", summary: "AI に初版を作らせる(transcribe→detect→plan)" },
       { name: "ingest", summary: "収録ファイルを解析(manifest.json・音声抽出)" },
       { name: "transcribe", summary: "文字起こし(transcript.json / .srt)" },
       { name: "detect", summary: "無音からカット候補(cuts.auto.json)" },
@@ -41,10 +41,11 @@ export const COMMAND_GROUPS: CommandGroup[] = [
     title: "確認・承認・書き出し",
     commands: [
       { name: "editor", summary: "GUI エディタを開く(編集・承認・レンダーまで)" },
+      { name: "derive", summary: "選択範囲を別キャンバスの派生プロジェクトにする" },
       { name: "preview", summary: "カット確認用の軽い動画(preview.mp4)" },
       { name: "approve", summary: "カットを承認(人間の操作。render の唯一のゲート)" },
       { name: "unapprove", summary: "承認を取り消す" },
-      { name: "render", summary: "最終レンダー(final.mp4 / ショート)" },
+      { name: "render", summary: "最終レンダー(final.mp4)" },
       { name: "thumbnail", summary: "サムネイル静止画を生成(thumbnail.png)" },
       { name: "clean", summary: "中間生成物・キャッシュを安全削除" },
     ],
@@ -76,7 +77,6 @@ export const COMMAND_GROUPS: CommandGroup[] = [
     title: "AI に下書きさせる",
     note: "いずれも下書き止まり。cutplan(カット)と承認には触れない",
     commands: [
-      { name: "plan-shorts", summary: "ショート候補を下書き(shorts.json)" },
       { name: "plan-materials", summary: "素材の配置を下書き(overlays.json)" },
       { name: "plan-effects", summary: "演出(ズーム・ぼかし・注釈)を下書き" },
       { name: "plan-bgm", summary: "BGM の区間配置を下書き(bgm.json)" },
