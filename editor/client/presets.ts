@@ -7,7 +7,7 @@
 import type { AnnotationPatch } from "./model.ts";
 
 /** タイムラインのどのトラックに入るか(TrackId と一致させる) */
-export type PresetTrack = "annotation" | "zoom" | "blur" | "wipe";
+export type PresetTrack = "annotation" | "zoom" | "blur" | "wipe" | "text";
 
 export interface PresetPatch {
   /** annotation の type 切替(box → arrow / spotlight) */
@@ -20,6 +20,8 @@ export interface PresetPatch {
   /** そのまま渡す見た目フィールド(px 指定のものは出力幅 1920 基準で
    * resolvePresetPatch がスケールする) */
   style?: Omit<AnnotationPatch, "type" | "start" | "end" | "rect" | "from" | "to">;
+  text?: string;
+  captionStyle?: { fontSizePx?: number };
 }
 
 export interface EditorPreset {
@@ -30,7 +32,7 @@ export interface EditorPreset {
   /** カードの補足(title 属性。1行) */
   hint: string;
   /** 追加時に呼ぶ addByKind の種別 */
-  kind: "annotation" | "zoom" | "blur" | "wipeFull";
+  kind: "annotation" | "zoom" | "blur" | "wipeFull" | "text";
   /** 入る先のトラック(ドラッグ中に一時的に表示する行の決定に使う) */
   track: PresetTrack;
   /** 追加直後に当てる部分パッチ。省略時は add*Span の既定値そのまま */
@@ -98,6 +100,14 @@ export const ANNOTATION_PRESETS: EditorPreset[] = [
       rectRatio: { x: 1 / 3, y: 3 / 8, w: 1 / 3, h: 1 / 4 },
       style: { shape: "ellipse" },
     },
+  },
+  {
+    id: "text-basic",
+    label: "テキスト",
+    kind: "text",
+    track: "text",
+    hint: "タイトル・ラベルなど。追加後にインスペクタで文言・位置・見た目を変える",
+    patch: { text: "テキスト", captionStyle: { fontSizePx: 72 } },
   },
 ];
 

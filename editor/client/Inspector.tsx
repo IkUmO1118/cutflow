@@ -24,6 +24,7 @@ import {
   captionTrackName,
   overlayTrack,
   resolveCaptionBackground,
+  textTrack,
 } from "../../src/types.ts";
 import type {
   Annotation,
@@ -48,14 +49,13 @@ import type { TimelineEntry } from "../../src/lib/timeline.ts";
 import type { RenderProps } from "../../src/lib/renderPropsTypes.ts";
 import type { AnnotationPatch, Selection } from "./model.ts";
 import { usePlayheadSelector } from "./playhead.ts";
-import { Input } from "./components/ui/input.tsx";
 import { NativeSelect } from "./components/ui/native-select.tsx";
 import { ColorInput } from "./components/ui/color-input.tsx";
 import { Slider } from "./components/ui/slider.tsx";
 import { Switch } from "./components/ui/switch.tsx";
 import { buildCaptionAnimPatch } from "./lib/inspectorHelpers.ts";
 import { ChevronDown } from "lucide-react";
-import { Type, Move, Sparkles, Blend, Music, Clock, AudioWaveform, Scan, SquareDashed, SlidersHorizontal, Shapes, Palette, Layers, MessageSquare } from "lucide-react";
+import { Type, Move, Sparkles, Blend, Music, Clock, AudioWaveform, Scan, SquareDashed, SlidersHorizontal, Shapes, Palette, Layers, MessageSquare, Trash2 } from "lucide-react";
 import { Button } from "./components/ui/button.tsx";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./components/ui/tooltip.tsx";
 import { ScrollArea } from "./components/ui/scroll-area.tsx";
@@ -75,6 +75,7 @@ import {
 type OverlayEntry = NonNullable<Overlays["overlays"]>[number];
 type WipeFullEntry = NonNullable<Overlays["wipeFull"]>[number];
 type InsertEntry = NonNullable<Overlays["inserts"]>[number];
+type TextEntry = NonNullable<Overlays["texts"]>[number];
 type BgmTrack = Bgm["tracks"][number];
 type AnchorPoint = readonly ["l" | "c" | "r", "t" | "m" | "b"];
 
@@ -235,6 +236,7 @@ export const Inspector = ({
   materials,
   ovTracks,
   capTracks,
+  textTracks,
   stdCaptionPos,
   captionDefaults,
   output,
@@ -265,6 +267,9 @@ export const Inspector = ({
   removeBlur,
   updateAnnotation,
   removeAnnotation,
+  updateText,
+  setTextTrack,
+  removeText,
   updateInsert,
   reorderInsert,
   removeInsert,
@@ -284,6 +289,8 @@ export const Inspector = ({
   ovTracks: number;
   /** テロップトラックの本数(トラック選択肢 T1..TN) */
   capTracks: number;
+  /** テキストトラックの本数(トラック選択肢 1..N) */
+  textTracks: number;
   /** 位置未指定テロップの標準位置(数値欄のプレースホルダに使う) */
   stdCaptionPos: CaptionPos;
   /** スタイル未指定テロップの既定の見た目(config の render.caption* を
@@ -372,6 +379,9 @@ export const Inspector = ({
   removeBlur: (i: number) => void;
   updateAnnotation: (i: number, patch: AnnotationPatch, coalesceKey?: string) => void;
   removeAnnotation: (i: number) => void;
+  updateText: (i: number, patch: Partial<TextEntry>, coalesceKey?: string) => void;
+  setTextTrack: (i: number, track: number) => void;
+  removeText: (i: number) => void;
   updateInsert: (i: number, patch: Partial<InsertEntry>, coalesceKey?: string) => void;
   reorderInsert: (i: number, direction: "before" | "after") => void;
   removeInsert: (i: number) => void;
@@ -615,10 +625,14 @@ export const Inspector = ({
                 <Section title={captionTrackName(track, overlays, capTracks)} className="captionTextSec">
                   <div className="field">
                     <label>本文</label>
-                    <Input
+                    {/* input ではなく textarea。テロップは手動改行("\n")で
+                        複数行にできる(描画は refPainter の captionLines が担う)。
+                        input 要素は構造上 改行を保持できないのでここでは使わない */}
+                    <textarea
                       className="capTextInput"
-                      type="text"
+                      rows={Math.min(6, Math.max(1, s.text.split("\n").length))}
                       value={s.text}
+                      title="Enter で改行(テロップは改行位置でそのまま複数行に描画されます)"
                       onChange={(e) =>
                         updateCaption(
                           selection.index,
@@ -2144,6 +2158,146 @@ export const Inspector = ({
                     </div>
                   </Section>
                 )}
+              </div>
+            ),
+          },
+        ]}
+      />
+    );
+  }
+
+  /* ---------------- 動画内テキスト ---------------- */
+
+  if (selection.kind === "text") {
+    const t = (overlays.texts ?? [])[selection.index];
+    if (!t) return null;
+    const i = selection.index;
+    const baseStyle: CaptionStyle = {
+      fontSizePx: captionDefaults.fontSizePx,
+      color: captionDefaults.color ?? CAPTION_DEFAULT_COLOR,
+      outlineColor: captionDefaults.outlineColor ?? CAPTION_DEFAULT_OUTLINE,
+      fontFamily: captionDefaults.fontFamily ?? CAPTION_DEFAULT_FONT_FAMILY,
+      fontWeight: captionDefaults.fontWeight ?? CAPTION_DEFAULT_FONT_WEIGHT,
+      ...(captionDefaults.background ? { background: captionDefaults.background } : {}),
+    };
+    const patchStyle = (p: Partial<CaptionStyle>, key?: string) => {
+      const next: CaptionStyle = { ...(t.style ?? {}), ...p };
+      for (const k of Object.keys(next) as (keyof CaptionStyle)[]) {
+        if (next[k] === undefined) delete next[k];
+      }
+      updateText(i, { style: Object.keys(next).length > 0 ? next : undefined }, key);
+    };
+
+    return (
+      <InspectorTabs
+        groupKey="text"
+        defaultTab="text"
+        tabs={[
+          {
+            id: "text",
+            label: "本文",
+            icon: <Type size={16} />,
+            content: () => (
+              <div className="capFlat capFlatNoGap">
+                <Section title="テキスト">
+                  <textarea
+                    className="scriptText captionTextArea"
+                    value={t.text}
+                    title="Shift+Enter で改行。動画内テキストは transcript ではなく overlays.json に保存される"
+                    onChange={(e) => updateText(i, { text: e.target.value }, `text:${i}:text`)}
+                  />
+                  <div className="field">
+                    <label>トラック</label>
+                    <NativeSelect
+                      value={String(textTrack(t))}
+                      title="タイムラインのテキストトラックと連動(前面/背面はトラックの並び順)"
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        const n = v === "__new" ? textTracks + 1 : Number(v);
+                        setTextTrack(selection.index, n);
+                      }}
+                    >
+                      {Array.from({ length: textTracks }, (_, i) => (
+                        <option key={i + 1} value={i + 1}>
+                          {i + 1 > 1 ? `テキスト ${i + 1}` : "テキスト"}
+                        </option>
+                      ))}
+                      <option value="__new">＋ 新規トラック</option>
+                    </NativeSelect>
+                  </div>
+                </Section>
+              </div>
+            ),
+          },
+          {
+            id: "transform",
+            label: "配置",
+            icon: <Move size={16} />,
+            content: () => (
+              <div className="capFlat capFlatNoGap">
+                <Section title="配置">
+                  <div className="capPositionGrid">
+                    <div className="capField">
+                      <label>X</label>
+                      <NumStepper
+                        value={t.pos.x}
+                        unit="px"
+                        title="出力px。プレビュー上のドラッグでも動かせる"
+                        onCommit={(v) => updateText(i, { pos: { ...t.pos, x: Math.round(v ?? t.pos.x) } })}
+                      />
+                    </div>
+                    <div className="capField">
+                      <label>Y</label>
+                      <NumStepper
+                        value={t.pos.y}
+                        unit="px"
+                        title="出力px。プレビュー上のドラッグでも動かせる"
+                        onCommit={(v) => updateText(i, { pos: { ...t.pos, y: Math.round(v ?? t.pos.y) } })}
+                      />
+                    </div>
+                    <div className="capField wide">
+                      <label>基準</label>
+                      <Segmented
+                        value={t.anchor ?? "center"}
+                        onChange={(v: "center" | "topLeft") =>
+                          updateText(i, { anchor: v === "center" ? undefined : v })
+                        }
+                        options={[
+                          { value: "center", label: "中央", title: "pos はテキスト中心" },
+                          { value: "topLeft", label: "左上", title: "pos はテキストボックス左上" },
+                        ]}
+                      />
+                    </div>
+                  </div>
+                </Section>
+              </div>
+            ),
+          },
+          {
+            id: "design",
+            label: "見た目",
+            icon: <Palette size={16} />,
+            content: () => (
+              <div className="capFlat capFlatNoGap">
+                <CaptionDesignFields
+                  style={t.style}
+                  base={baseStyle}
+                  patch={patchStyle}
+                  keyPrefix={`text:${i}`}
+                  belowLabel="config.yaml の既定"
+                />
+              </div>
+            ),
+          },
+          {
+            id: "delete",
+            label: "削除",
+            icon: <Trash2 size={16} />,
+            content: () => (
+              <div className="capFlat capFlatNoGap">
+                <Section title="削除">
+                  <button className="danger wide" onClick={() => removeText(i)}>削除</button>
+                </Section>
               </div>
             ),
           },

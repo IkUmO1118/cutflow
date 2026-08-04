@@ -12,6 +12,7 @@ import {
   capCountOf,
   normalizeLayerOrder,
   ovCountOf,
+  textCountOf,
 } from "../../src/lib/renderProps.ts";
 import {
   buildTimeline,
@@ -55,6 +56,9 @@ import {
   ovId,
   ovNum,
   overlayTrack,
+  textId,
+  textNum,
+  textTrack,
 } from "../../src/types.ts";
 import type {
   Annotation,
@@ -254,6 +258,7 @@ type OverlayEntry = NonNullable<Overlays["overlays"]>[number];
 type WipeFullEntry = NonNullable<Overlays["wipeFull"]>[number];
 type ZoomEntry = NonNullable<Overlays["zooms"]>[number];
 type BlurEntry = NonNullable<Overlays["blurs"]>[number];
+type TextEntry = NonNullable<Overlays["texts"]>[number];
 type BgmEntry = NonNullable<Bgm["tracks"]>[number];
 type CaptionEntry = Transcript["segments"][number];
 
@@ -268,6 +273,7 @@ type Clipboard =
   | { kind: "overlays"; entry: OverlayEntry }
   | { kind: "zoom"; entry: ZoomEntry }
   | { kind: "blur"; entry: BlurEntry }
+  | { kind: "text"; entry: TextEntry }
   | { kind: "annotation"; entry: Annotation }
   | { kind: "bgm"; entry: BgmEntry };
 
@@ -330,7 +336,7 @@ const DEFAULT_ADD_SEC = 3;
 /** ⌘D(duplicateSelected)で複製できる選択 kind。caption/overlays/zoom/blur/
  * annotation/bgm は buildClip+insertClipAt 経由、insert は専用分岐(at+durationSec)。
  * wipe / 映像 keep(cut) / captionTrack は対象外 */
-const DUPLICABLE = new Set<string>(["caption", "overlays", "zoom", "blur", "annotation", "bgm", "insert"]);
+const DUPLICABLE = new Set<string>(["caption", "overlays", "zoom", "blur", "annotation", "text", "bgm", "insert"]);
 /** プレビュー表示倍率のプリセット(Fit を除く)。プレビューのみに効く */
 const PREVIEW_ZOOMS: readonly number[] = [0.25, 0.5, 0.75, 1, 1.5, 2];
 
@@ -381,6 +387,7 @@ function diffTrackIdForEvent(event: { kind: string }): string | null {
     case "overlay": return "ov1";
     case "insert": return "cut";
     case "annotation": return "annotation";
+    case "text": return "text";
     case "blur": return "blur";
     case "zoom": return "zoom";
     case "wipe": return "wipe";
@@ -439,6 +446,7 @@ const selectionValid = (sel: Selection, d: HistoryDocs): boolean => {
   if (sel.kind === "zoom") return sel.index < (d.overlays.zooms ?? []).length;
   if (sel.kind === "blur") return sel.index < (d.overlays.blurs ?? []).length;
   if (sel.kind === "annotation") return sel.index < (d.overlays.annotations ?? []).length;
+  if (sel.kind === "text") return sel.index < (d.overlays.texts ?? []).length;
   if (sel.kind === "bgm") return sel.index < (d.bgm?.tracks?.length ?? 0);
   return true; // wipe は表示専用の常駐クリップ
 };
@@ -583,7 +591,7 @@ function LauncherApp() {
     setError(null);
     try {
       const created = await createProject(name.trim(), canvas);
-      location.href = `/p/${encodeURIComponent(created.name)}/?canvas=${encodeURIComponent(canvas)}&layout=plain`;
+      location.href = `/p/${encodeURIComponent(created.name)}/?canvas=${encodeURIComponent(canvas)}`;
     } catch (e) {
       setError((e as Error).message);
       setCreating(false);
@@ -756,6 +764,11 @@ const EditorApp = () => {
   /** インライン編集中の下書き。Player の同じ字幕へ毎打鍵反映し、Canvas と
    * DOM の描画切替による位置・字形のぶれを避ける */
   const [captionTextDraft, setCaptionTextDraft] = useState<{
+    index: number;
+    text: string;
+    outT: number;
+  } | null>(null);
+  const [overlayTextDraft, setOverlayTextDraft] = useState<{
     index: number;
     text: string;
     outT: number;
@@ -1500,6 +1513,7 @@ const EditorApp = () => {
         overlays?.layerOrder,
         overlays ? ovCountOf(overlays) : 2,
         transcript ? capCountOf(transcript) : 1,
+        overlays ? textCountOf(overlays) : 1,
       ),
     [overlays, transcript],
   );
@@ -1523,6 +1537,14 @@ const EditorApp = () => {
     () => layerOrder.reduce((n, id) => Math.max(n, capNum(id) ?? 0), 0),
     [layerOrder],
   );
+  /** テキストトラックの本数(Inspector のトラック選択肢にも使う)。
+   * layerOrder だけを見てはいけない: texts が1本のときは normalizeLayerOrder が
+   * 意図的に "text" を足さないので、JSON を直接編集した収録では 0 になる。 */
+  const textTracks = useMemo(() => {
+    const fromOrder = layerOrder.reduce((n, id) => Math.max(n, textNum(id) ?? 0), 0);
+    const fromEntries = (overlays?.texts ?? []).reduce((n, t) => Math.max(n, textTrack(t)), 0);
+    return Math.max(fromOrder, fromEntries);
+  }, [layerOrder, overlays]);
   const materials = useMemo(
     () => (proj
       ? proj.dirFiles.filter(isMaterialFile).filter((file) => !file.startsWith("materials/hyperframes/"))
@@ -2062,6 +2084,19 @@ const EditorApp = () => {
         });
       });
     });
+    // 動画内テキスト(overlays.texts)。ラベルは1行目だけ出す(改行込みの
+    // 文言をそのまま出すとクリップの高さに収まらない)
+    (overlays.texts ?? []).forEach((t, i) => {
+      const parts = remapInterval(t.start, t.end, timeline);
+      const label = t.text.split("\n")[0].trim() || "テキスト";
+      parts.forEach((iv, j) => {
+        cs.push({
+          kind: "text", index: i, track: textId(textTrack(t)),
+          outStart: iv.start, outEnd: iv.end, label, editable: true,
+          noTrimStart: j > 0, noTrimEnd: j < parts.length - 1,
+        });
+      });
+    });
     // 映像(画面+マイク): keep 区間。挿入が途中に入ると割れる
     cutplan.segments.forEach((s, i) => {
       if (s.action !== "keep") return;
@@ -2199,6 +2234,7 @@ const EditorApp = () => {
       { key: "overlays.zooms", kind: "zoom", arr: overlays?.zooms },
       { key: "overlays.blurs", kind: "blur", arr: overlays?.blurs },
       { key: "overlays.annotations", kind: "annotation", arr: overlays?.annotations },
+      { key: "overlays.texts", kind: "text", arr: overlays?.texts },
       { key: "bgm.tracks", kind: "bgm", arr: bgm?.tracks },
     ];
     for (const h of aiWorkflowReview.diff.hunks) {
@@ -2315,6 +2351,7 @@ const EditorApp = () => {
     if (kind === "zoom") { const z = overlays?.zooms?.[index]; return z ? { start: z.start, end: z.end } : null; }
     if (kind === "blur") { const b = overlays?.blurs?.[index]; return b ? { start: b.start, end: b.end } : null; }
     if (kind === "annotation") { const a = overlays?.annotations?.[index]; return a ? { start: a.start, end: a.end } : null; }
+    if (kind === "text") { const t = overlays?.texts?.[index]; return t ? { start: t.start, end: t.end } : null; }
     return null;
   };
 
@@ -2429,6 +2466,13 @@ const EditorApp = () => {
         { ...an, ...sp.left, ...(an.keyframes ? { keyframes: lk } : {}) } as unknown as Annotation,
         { ...an, ...sp.right, id: undefined, ...(an.keyframes ? { keyframes: rk } : {}) } as unknown as Annotation);
       writeOv("annotations", arr); return true;
+    }
+    if (kind === "text") {
+      const tx = overlays.texts?.[index]; if (!tx) return false;
+      const sp = splitSpanAt(tx.start, tx.end, at, MIN_SPAN); if (!sp) return false;
+      const arr = [...(overlays.texts ?? [])];
+      arr.splice(index, 1, { ...tx, ...sp.left }, { ...tx, ...sp.right, id: undefined });
+      writeOv("texts", arr); return true;
     }
     return false;
   };
@@ -2671,6 +2715,67 @@ const EditorApp = () => {
       });
     },
     [captionIntervals, transcript, overlays, built, stdCaptionPosFor, overlays],
+  );
+
+  const textIntervals = useMemo(() => {
+    if (!overlays) return [];
+    return (overlays.texts ?? []).map((t, i) => ({
+      index: i,
+      empty: t.text.trim().length === 0,
+      ivs: remapInterval(t.start, t.end, timeline),
+    }));
+  }, [overlays, timeline]);
+
+  const visibleTextKey = useCallback(
+    (outT: number): string => {
+      let key = "";
+      for (const t of textIntervals) {
+        if (t.empty) continue;
+        if (t.ivs.some((iv) => outT >= iv.start && outT < iv.end)) key += `${t.index},`;
+      }
+      return key;
+    },
+    [textIntervals],
+  );
+
+  const getVisibleTexts = useCallback(
+    (outT: number): OverlayCaption[] => {
+      if (!overlays || !built) return [];
+      return textIntervals.flatMap((entry) => {
+        if (entry.empty) return [];
+        if (!entry.ivs.some((iv) => outT >= iv.start && outT < iv.end)) return [];
+        const t = (overlays.texts ?? [])[entry.index];
+        if (!t) return [];
+        const style = t.style;
+        const fontSizePx = style?.fontSizePx ?? built.props.caption.fontSizePx;
+        const outlineColor =
+          style?.outlineColor ?? built.props.caption.outlineColor ?? CAPTION_DEFAULT_OUTLINE;
+        const hasStroke = outlineColor !== "none" && outlineColor !== "transparent";
+        const strokePx = hasStroke
+          ? (style?.outlineWidthPx ?? Math.round(fontSizePx * 0.25))
+          : 0;
+        const bg = resolveCaptionBackground(style?.background, built.props.caption.background);
+        const bgPadX = bg ? (bg.paddingPx ?? Math.round(fontSizePx * 0.35)) : 0;
+        const bgPadY = bg ? Math.round(bgPadX * 0.5) : 0;
+        return [{
+          index: entry.index,
+          text: overlayTextDraft &&
+            overlayTextDraft.index === entry.index &&
+            overlayTextDraft.outT >= t.start &&
+            overlayTextDraft.outT < t.end
+            ? overlayTextDraft.text
+            : t.text.trim(),
+          pos: t.pos,
+          anchor: t.anchor === "topLeft" ? "topLeft" : "center",
+          fontSizePx,
+          fontFamily: style?.fontFamily ?? built.props.caption.fontFamily,
+          fontWeight: style?.fontWeight ?? built.props.caption.fontWeight,
+          padXPx: Math.max(strokePx / 2, bgPadX),
+          padYPx: Math.max(strokePx / 2, bgPadY),
+        }];
+      });
+    },
+    [textIntervals, overlays, built, overlayTextDraft],
   );
 
   /** 素材(overlays.overlays)ごとのカット後の表示区間。テロップと同じ流儀で
@@ -3158,6 +3263,24 @@ const EditorApp = () => {
       if (!t) return;
       arr[sel.index] = { ...sp, ...t };
       setOverlays({ ...ctx.overlays, annotations: arr });
+    } else if (sel.kind === "text") {
+      // 動画内テキスト区間の move / trim。上下のテキストトラックへ
+      // ドラッグしたら track(z-index)を移す
+      const arr = [...(ctx.overlays.texts ?? [])];
+      const sp = arr[sel.index];
+      if (!sp) return;
+      const t = retime(sp);
+      if (!t) return;
+      const entry = { ...sp, ...t };
+      if (mode === "move") {
+        const n = textNum(overTrack);
+        if (n !== null && n !== textTrack(sp)) {
+          if (n > 1) entry.track = n;
+          else delete entry.track;
+        }
+      }
+      arr[sel.index] = entry;
+      setOverlays({ ...ctx.overlays, texts: arr });
     } else if (sel.kind === "bgm") {
       // BGM 区間の move / trim。トラック間移動はない(BGM は1トラック)。
       // 後方互換の全編 BGM(bgm.json 無し)を初めて動かしたら、ここで
@@ -3319,6 +3442,39 @@ const EditorApp = () => {
     setOverlays({ ...overlays, annotations: list });
     setSelection({ kind: "annotation", index: list.length - 1 });
   };
+  const ensureTextTracks = (order: LayerId[], track: number): { order: LayerId[]; changed: boolean } => {
+    const next = [...order];
+    let changed = false;
+    for (let n = 1; n <= track; n++) {
+      if (!next.includes(textId(n))) {
+        next.push(textId(n));
+        changed = true;
+      }
+    }
+    return { order: next, changed };
+  };
+  const addTextSpan = (start: number, end: number, track = 1) => {
+    if (!overlays || !proj) return;
+    pushHistory();
+    const list = [
+      ...(overlays.texts ?? []),
+      {
+        start,
+        end,
+        text: "テキスト",
+        ...(track > 1 ? { track } : {}),
+        pos: { x: Math.round(proj.output.w / 2), y: Math.round(proj.output.h / 2) },
+        style: { fontSizePx: 72 },
+      },
+    ];
+    // layerOrder への実体化。track 本目までの text id を末尾(=最前面)へ
+    // 昇順で足す(既にあるものは触らない)
+    const { order, changed } = ensureTextTracks(layerOrder, track);
+    setOverlays(changed
+      ? { ...overlays, texts: list, layerOrder: order }
+      : { ...overlays, texts: list });
+    setSelection({ kind: "text", index: list.length - 1 });
+  };
   const addCaption = (start: number, end: number, track = 1) => {
     if (!transcript) return;
     pushHistory();
@@ -3336,6 +3492,7 @@ const EditorApp = () => {
     else if (kind === "zoom") addZoomSpan(start, end);
     else if (kind === "blur") addBlurSpan(start, end);
     else if (kind === "annotation") addAnnotationSpan(start, end);
+    else if (kind === "text") addTextSpan(start, end, track);
     else if (kind === "bgm") addBgmSpan(start, end);
     else addCaption(start, end, track);
   };
@@ -3393,7 +3550,7 @@ const EditorApp = () => {
    * 既存の別要素を誤って書き換えないようにする。layerOrder /
    * createOverlayTrack には一切触れない(§8.1.1: zoom/blur/annotation は
    * layerOrder に存在しない常在トラックなので、追加のトラック作成は不要) */
-  const addPresetAt = (preset: EditorPreset, outT: number) => {
+  const addPresetAt = (preset: EditorPreset, outT: number, options?: { track?: number }) => {
     const s = srcAt(outT);
     const e = srcAt(Math.min(duration, outT + DEFAULT_ADD_SEC));
     if (s === null || e === null || e - s < MIN_SPAN / 2) {
@@ -3407,8 +3564,10 @@ const EditorApp = () => {
           ? (overlays?.blurs ?? []).length
           : preset.kind === "annotation"
             ? (overlays?.annotations ?? []).length
+            : preset.kind === "text"
+              ? (overlays?.texts ?? []).length
             : 0;
-    addByKind(preset.kind, round2(s), round2(e));
+    addByKind(preset.kind, round2(s), round2(e), options?.track);
     if (!preset.patch || !proj) return;
     const resolved = resolvePresetPatch(preset.patch, proj.output);
     setOverlays((prev) => {
@@ -3436,6 +3595,19 @@ const EditorApp = () => {
         list[list.length - 1] = { ...list[list.length - 1], rect: resolved.rect };
         return { ...prev, blurs: list };
       }
+      if (preset.kind === "text") {
+        const patch = preset.patch;
+        if (!patch) return prev;
+        const list = [...(prev.texts ?? [])];
+        if (list.length !== beforeLen + 1) return prev;
+        const last = list[list.length - 1];
+        list[list.length - 1] = {
+          ...last,
+          ...(patch.text !== undefined ? { text: patch.text } : {}),
+          ...(patch.captionStyle !== undefined ? { style: patch.captionStyle } : {}),
+        };
+        return { ...prev, texts: list };
+      }
       return prev;
     });
   };
@@ -3456,10 +3628,14 @@ const EditorApp = () => {
       addByKind("blur", round2(s), round2(e));
     } else if (track === "annotation") {
       addByKind("annotation", round2(s), round2(e));
-    } else if (track === "bgm") {
-      addByKind("bgm", round2(s), round2(e));
-    } else if (cn !== null) {
-      addByKind("caption", round2(s), round2(e), cn);
+    } else {
+      const tn = textNum(track);
+      if (tn !== null) addByKind("text", round2(s), round2(e), tn);
+      else if (track === "bgm") {
+        addByKind("bgm", round2(s), round2(e));
+      } else if (cn !== null) {
+        addByKind("caption", round2(s), round2(e), cn);
+      }
     }
   };
 
@@ -3467,6 +3643,16 @@ const EditorApp = () => {
   const onReorderTrack = (id: TrackId, toTrackIdx: number) => {
     if (!overlays) return;
     const order = [...layerOrder];
+    // 既存収録(この機能より前に texts を足した/手書きした)は layerOrder に
+    // "text" を持たないので固定ゾーンに居る。掴まれたらまず末尾(=最前面。
+    // 実体化前の描画順と一致する)へ実体化するだけで返す。行の並びが
+    // layerOrder ゾーンへ移るため、この呼び出しで添字を動かすと下の反転計算が
+    // 狂う。ドラッグ中の次の mousemove が正しい行位置で並べ替えを続ける
+    if (textNum(id) !== null && !order.some((x) => textNum(x) !== null)) {
+      pushHistory();
+      setOverlays({ ...overlays, layerOrder: [...order, textId(textNum(id) ?? 1)] });
+      return;
+    }
     const from = order.indexOf(id as LayerId);
     if (from === -1) return;
     // トラック表示は上=前面なので添字を反転(映像・BGM 行へは端に丸める)
@@ -3488,16 +3674,24 @@ const EditorApp = () => {
 
   /** トラックを1本追加(同じ種類の一番上のトラックの直上に積む)。
    * テロップトラックは transcript には何も書かず layerOrder だけで増える */
-  const addTrack = (kind: "caption" | "overlay") => {
+  const addTrack = (kind: "caption" | "overlay" | "text") => {
     if (!overlays) return;
     pushHistory();
     const order = [...layerOrder];
     if (kind === "overlay") {
       const topIdx = order.reduce((top, id, i) => (ovNum(id) !== null ? i : top), 0);
       order.splice(topIdx + 1, 0, ovId(ovTracks + 1));
-    } else {
+    } else if (kind === "caption") {
       const topIdx = order.reduce((top, id, i) => (capNum(id) !== null ? i : top), 0);
       order.splice(topIdx + 1, 0, capId(capTracks + 1));
+    } else {
+      const nextTrack = textTracks + 1;
+      const topIdx = order.reduce((top, id, i) => (textNum(id) !== null ? i : top), -1);
+      if (topIdx === -1) {
+        for (let n = 1; n <= nextTrack; n++) order.push(textId(n));
+      } else {
+        order.splice(topIdx + 1, 0, textId(nextTrack));
+      }
     }
     setOverlays({ ...overlays, layerOrder: order });
   };
@@ -3516,9 +3710,10 @@ const EditorApp = () => {
 
   /** 空の素材/テロップトラックを削除し、上のトラックの番号を詰める */
   const removeTrack = (id: TrackId) => {
-    if (!overlays || !transcript) return;
+    if (!overlays) return;
     const n = ovNum(id);
     const cn = capNum(id);
+    const tn = textNum(id);
     if (n !== null) {
       if (ovTracks <= 1) return;
       const entries = overlays.overlays ?? [];
@@ -3540,6 +3735,7 @@ const EditorApp = () => {
       if (!overlays.overlays) delete next.overlays;
       setOverlays(next);
     } else if (cn !== null) {
+      if (!transcript) return;
       if (capTracks <= 1) return;
       const segs = transcript.segments;
       if (segs.some((s) => captionTrack(s) === cn)) return; // 空トラックのみ
@@ -3558,6 +3754,26 @@ const EditorApp = () => {
       });
       setOverlays(withLayerOrder(overlays, order));
       setTranscript({ ...transcript, segments: renumbered });
+    } else if (tn !== null) {
+      if (textTracks <= 1) return;
+      const entries = overlays.texts ?? [];
+      if (entries.some((t) => textTrack(t) === tn)) return; // 空トラックのみ
+      pushHistory();
+      const order = layerOrder
+        .filter((x) => x !== id)
+        .map((x) => {
+          const m = textNum(x);
+          return m !== null && m > tn ? textId(m - 1) : x;
+        });
+      const renumbered = entries.map((t) => {
+        const track = textTrack(t);
+        if (track <= tn) return t;
+        const { track: _t, ...rest } = t;
+        return track - 1 > 1 ? { ...rest, track: track - 1 } : rest;
+      });
+      const next = withLayerOrder({ ...overlays, texts: renumbered }, order);
+      if (!overlays.texts) delete next.texts;
+      setOverlays(next);
     }
   };
 
@@ -3948,6 +4164,38 @@ const EditorApp = () => {
       return { ...prev, annotations: arr };
     });
   };
+  const updateText = (
+    i: number,
+    patch: Partial<TextEntry>,
+    coalesceKey?: string,
+  ) => {
+    pushHistory(coalesceKey ?? null);
+    setOverlays((prev) => {
+      if (!prev) return prev;
+      const arr = [...(prev.texts ?? [])];
+      const entry = { ...arr[i], ...patch };
+      for (const k of Object.keys(patch) as (keyof typeof patch)[]) {
+        if (patch[k] === undefined) delete entry[k];
+      }
+      arr[i] = entry;
+      return { ...prev, texts: arr };
+    });
+  };
+  const setTextTrack = (i: number, track: number) => {
+    pushHistory();
+    setOverlays((prev) => {
+      if (!prev) return prev;
+      const arr = [...(prev.texts ?? [])];
+      const entry = { ...arr[i] };
+      if (track > 1) entry.track = track;
+      else delete entry.track;
+      arr[i] = entry;
+      const { order, changed } = ensureTextTracks(layerOrder, track);
+      return changed
+        ? { ...prev, texts: arr, layerOrder: order }
+        : { ...prev, texts: arr };
+    });
+  };
   const removeAnnotation = (i: number) => {
     pushHistory();
     setOverlays((prev) => {
@@ -3956,6 +4204,16 @@ const EditorApp = () => {
       // 全区間を消したら annotations キーごと削除(空配列を残さない)
       const { annotations: _drop, ...rest } = prev;
       return arr.length === 0 ? rest : { ...rest, annotations: arr };
+    });
+    setSelection(null);
+  };
+  const removeText = (i: number) => {
+    pushHistory();
+    setOverlays((prev) => {
+      if (!prev) return prev;
+      const arr = (prev.texts ?? []).filter((_, j) => j !== i);
+      const { texts: _drop, ...rest } = prev;
+      return arr.length === 0 ? rest : { ...rest, texts: arr };
     });
     setSelection(null);
   };
@@ -4062,6 +4320,7 @@ const EditorApp = () => {
     else if (selection.kind === "zoom") removeZoom(selection.index);
     else if (selection.kind === "blur") removeBlur(selection.index);
     else if (selection.kind === "annotation") removeAnnotation(selection.index);
+    else if (selection.kind === "text") removeText(selection.index);
     else if (selection.kind === "cut") {
       // 映像クリップの Delete は削除ではなくカット(記録に倒すだけ。
       // 継ぎ目の印からいつでも戻せる)
@@ -4089,6 +4348,9 @@ const EditorApp = () => {
       return s ? { kind, entry: structuredClone(s) } : null;
     } else if (kind === "annotation") {
       const s = overlays?.annotations?.[index];
+      return s ? { kind, entry: structuredClone(s) } : null;
+    } else if (kind === "text") {
+      const s = overlays?.texts?.[index];
       return s ? { kind, entry: structuredClone(s) } : null;
     } else if (kind === "bgm") {
       const s = bgm?.tracks?.[index];
@@ -4194,6 +4456,11 @@ const EditorApp = () => {
         const list = [...(overlays.blurs ?? []), entry];
         setOverlays({ ...overlays, blurs: list });
         setSelection({ kind: "blur", index: list.length - 1 });
+      } else if (clip.kind === "text") {
+        const { id: _id, ...rest } = clip.entry;
+        const list = [...(overlays.texts ?? []), { ...rest, ...shifted }];
+        setOverlays({ ...overlays, texts: list });
+        setSelection({ kind: "text", index: list.length - 1 });
       } else {
         // annotation(from/to・rect は座標なので平行移動しない)
         const { id: _id, ...rest } = clip.entry;
@@ -4380,6 +4647,10 @@ const EditorApp = () => {
       setObject("blur", overlays?.blurs?.[selection.index]);
     } else if (selection.kind === "annotation") {
       setObject("annotation", overlays?.annotations?.[selection.index]);
+    } else if (selection.kind === "text") {
+      const text = overlays?.texts?.[selection.index];
+      setObject("overlay", text);
+      if (text) ctx.selectedText = text.text;
     } else if (selection.kind === "bgm") {
       setObject("range", bgm?.tracks?.[selection.index]);
     }
@@ -4927,6 +5198,36 @@ const EditorApp = () => {
     else if (ovNum(track) !== null) void placeMaterial(file, { track, outT }, "overlay");
   };
 
+  /** ルーラー(時間軸)帯へのドロップで作られる素材トラックの番号。
+   * 「必ず新しい1本を足す」= 今ある素材トラックより上へ積む。占有の最大番号
+   * (nextOccupiedOverlayTrack)だけで決めると、layerOrder に**空のまま
+   * 残っている**素材トラック(V2/V3 など)を拾ってしまい「既存トラックに
+   * クリップが足された」ように見えるので、layerOrder 上の本数 ovTracks も
+   * 一緒に見て必ずその上を取る。素材を1つも使っていないときだけ、既定の
+   * layerOrder にある V1 をそのまま使う(空の V1 を残して V2 から始めない) */
+  const occupiedOvTracks = (overlays?.overlays ?? []).map(overlayTrack);
+  const newOverlayTrackNo =
+    occupiedOvTracks.length === 0 ? 1 : Math.max(ovTracks, ...occupiedOvTracks) + 1;
+  /** ルーラー帯へのドロップで作られるテキストトラックの番号。素材と同じ
+   * 考え方(空のまま layerOrder に残っているトラックを再利用しない) */
+  /** ルーラー帯へのドロップで作られるテキストトラックの番号。textTracks は
+   * layerOrder と texts[] の実占有の大きいほうなので、その上を取る。 */
+  const newTextTrackNo = (overlays?.texts ?? []).length === 0 ? 1 : textTracks + 1;
+
+  /** ルーラー(時間軸)帯へのドロップ = 新しいトラックを作ってそこへ置く。
+   * トラック生成のコードは書かない: まだ存在しない素材トラック番号を
+   * 渡すだけで、addOverlaySpan が track > ovTracks のときに layerOrder へ
+   * ov id を足す。音声のみは BGM(単一トラックなので「新規」は空だった
+   * BGM 行が現れることを指す)。プリセットはこの経路を通らない */
+  const onDropMaterialNewTrack = (outT: number, file: string) => {
+    if (AUDIO_ONLY_RE.test(file)) onDropMaterial("bgm", outT, file);
+    else onDropMaterial(ovId(newOverlayTrackNo), outT, file);
+  };
+  const onDropFileNewTrack = (outT: number, f: File) => {
+    if (AUDIO_ONLY_RE.test(f.name)) onDropFile("bgm", outT, f);
+    else onDropFile(ovId(newOverlayTrackNo), outT, f);
+  };
+
   /** ステッカー/エフェクト タブのプリセットをタイムラインへドロップ(§8)。
    * トラックの決定は Timeline 側が presetDragTrack(このドラッグの対象トラック)
    * で固定しているので、ここでは id → EditorPreset を引いて addPresetAt を
@@ -4934,6 +5235,18 @@ const EditorApp = () => {
   const onDropPreset = (outT: number, presetId: string) => {
     const preset = [...ANNOTATION_PRESETS, ...EFFECT_PRESETS].find((p) => p.id === presetId);
     if (preset) addPresetAt(preset, outT);
+  };
+  /** ルーラー(時間軸)帯へのプリセットのドロップ。テキストだけは新しい
+   * テキストトラックへ置く。注釈/ズーム/ぼかし/ワイプは複数トラックを
+   * 持てないので従来どおりその常在トラックへ入る */
+  const onDropPresetNewTrack = (outT: number, presetId: string) => {
+    const preset = [...ANNOTATION_PRESETS, ...EFFECT_PRESETS].find((p) => p.id === presetId);
+    if (!preset) return;
+    if (preset.kind !== "text") {
+      addPresetAt(preset, outT);
+      return;
+    }
+    addPresetAt(preset, outT, { track: newTextTrackNo });
   };
 
   /** 素材ファイルの削除(素材タブの右クリックメニュー)。参照が残ったまま
@@ -6299,6 +6612,25 @@ const EditorApp = () => {
               <LiveCaptionOverlay
                 width={built.props.width}
                 height={built.props.height}
+                getKey={visibleTextKey}
+                getCaptions={getVisibleTexts}
+                selection={selection?.kind === "text" ? selection.index : null}
+                onSelect={(i) => setSelection({ kind: "text", index: i })}
+                onMove={(i, pos) => updateText(i, { pos }, `text:${i}:drag`)}
+                onCommitText={(i, text) => updateText(i, { text }, `text:${i}:text`)}
+                onEditStart={() => playerRef.current?.pause()}
+                onEditingChange={(index, text) =>
+                  setOverlayTextDraft(
+                    index === null
+                      ? null
+                      : { index, text: text ?? "", outT: playhead.get() },
+                  )
+                }
+                storeFile="overlays.json"
+              />
+              <LiveCaptionOverlay
+                width={built.props.width}
+                height={built.props.height}
                 getKey={visibleCaptionKey}
                 getCaptions={getVisibleCaptions}
                 selection={selection?.kind === "caption" ? selection.index : null}
@@ -6579,6 +6911,7 @@ const EditorApp = () => {
               materials={materials}
               ovTracks={ovTracks}
               capTracks={capTracks}
+              textTracks={textTracks}
               stdCaptionPos={stdCaptionPos}
               captionDefaults={built.props.caption}
               output={{ w: built.props.width, h: built.props.height }}
@@ -6626,6 +6959,9 @@ const EditorApp = () => {
               removeBlur={removeBlur}
               updateAnnotation={updateAnnotation}
               removeAnnotation={removeAnnotation}
+              updateText={updateText}
+              setTextTrack={setTextTrack}
+              removeText={removeText}
               updateInsert={updateInsert}
               reorderInsert={reorderInsert}
               removeInsert={removeInsert}
@@ -6694,9 +7030,13 @@ const EditorApp = () => {
         onSelectCaptionTrack={(track) => setSelection({ kind: "captionTrack", index: track })}
         onDropFile={onDropFile}
         onDropMaterial={onDropMaterial}
+        onDropFileNewTrack={onDropFileNewTrack}
+        onDropMaterialNewTrack={onDropMaterialNewTrack}
+        newOverlayTrackId={ovId(newOverlayTrackNo)}
         dragMaterial={dragMaterial}
         presetDragTrack={presetDrag?.track ?? null}
         onDropPreset={onDropPreset}
+        onDropPresetNewTrack={onDropPresetNewTrack}
         trackMuted={trackMuted}
         onToggleTrackMute={toggleTrackMute}
         hiddenLayers={hiddenLayers}
@@ -6954,6 +7294,7 @@ const LiveCaptionOverlay = ({
   onCommitText,
   onEditStart,
   onEditingChange,
+  storeFile,
 }: {
   width: number;
   height: number;
@@ -6965,6 +7306,7 @@ const LiveCaptionOverlay = ({
   onCommitText: (index: number, text: string) => void;
   onEditStart: () => void;
   onEditingChange: (index: number | null, text?: string) => void;
+  storeFile?: string;
 }) => {
   const key = usePlayheadSelector(getKey);
   const captions = useMemo(
@@ -6983,6 +7325,7 @@ const LiveCaptionOverlay = ({
       onCommitText={onCommitText}
       onEditStart={onEditStart}
       onEditingChange={onEditingChange}
+      storeFile={storeFile}
     />
   );
 };
