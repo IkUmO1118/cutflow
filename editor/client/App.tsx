@@ -5208,8 +5208,6 @@ const EditorApp = () => {
   const occupiedOvTracks = (overlays?.overlays ?? []).map(overlayTrack);
   const newOverlayTrackNo =
     occupiedOvTracks.length === 0 ? 1 : Math.max(ovTracks, ...occupiedOvTracks) + 1;
-  /** ルーラー帯へのドロップで作られるテキストトラックの番号。素材と同じ
-   * 考え方(空のまま layerOrder に残っているトラックを再利用しない) */
   /** ルーラー帯へのドロップで作られるテキストトラックの番号。textTracks は
    * layerOrder と texts[] の実占有の大きいほうなので、その上を取る。 */
   const newTextTrackNo = (overlays?.texts ?? []).length === 0 ? 1 : textTracks + 1;
