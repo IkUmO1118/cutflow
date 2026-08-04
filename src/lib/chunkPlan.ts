@@ -247,6 +247,7 @@ export function chunkVideoKey(
     // (globalVideoProps には入れない=全域無効化を避ける。§4 タスク6)
     blurs: sortStable((props.blurs ?? []).filter((b) => overlaps(b.start, b.end))),
     annotations: sortStable((props.annotations ?? []).filter((a) => overlaps(a.start, a.end))),
+    texts: sortStable((props.texts ?? []).filter((t) => overlaps(t.start, t.end))),
     hideCaption: sortStable((props.hideCaption ?? []).filter((s) => overlaps(s.start, s.end))),
     cutTransition:
       cutBoundariesHere.length > 0 ? { sec: cutSec, boundaries: cutBoundariesHere } : null,

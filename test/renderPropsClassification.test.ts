@@ -71,6 +71,7 @@ const CLASSIFICATION = {
   // blurs は意図的に chunk-local(全域無効化を避ける。chunkPlan.ts §4 タスク6)
   blurs: { chunk: "chunk-local", fast: "fallback" },
   annotations: { chunk: "chunk-local", fast: "layer" },
+  texts: { chunk: "chunk-local", fast: "layer" },
   cutTransition: { chunk: "chunk-local", fast: "fallback" },
   cutBoundarySecs: { chunk: "chunk-local", fast: "fallback" },
   hideCaption: { chunk: "chunk-local", fast: "layer" },
@@ -113,6 +114,7 @@ const BASE: RenderProps = {
   annotations: [
     { type: "box", start: 4, end: 5, rect: { x: 50, y: 50, w: 300, h: 200 }, color: "#ff0000", widthPx: 4, radiusPx: 8 },
   ],
+  texts: [{ start: 4, end: 5, text: "テキスト", pos: { x: 960, y: 540 }, style: { fontSizePx: 72 } }],
   cutTransition: { sec: 0.5 },
   cutBoundarySecs: [5],
   hideCaption: [{ start: 8, end: 9 }],
@@ -154,6 +156,7 @@ const MUTATIONS: Record<keyof RenderProps, (p: RenderProps) => RenderProps> = {
   }),
   blurs: (p) => ({ ...p, blurs: [{ ...p.blurs![0], strength: 0.8 }] }),
   annotations: (p) => ({ ...p, annotations: [{ ...p.annotations![0], widthPx: 6 }] }),
+  texts: (p) => ({ ...p, texts: [{ ...p.texts![0], text: "変更後" }] }),
   cutTransition: (p) => ({ ...p, cutTransition: { sec: 0.9 } }),
   cutBoundarySecs: (p) => ({ ...p, cutBoundarySecs: [6] }),
   hideCaption: (p) => ({ ...p, hideCaption: [{ start: 8, end: 9.5 }] }),

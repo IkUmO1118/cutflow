@@ -23,6 +23,7 @@ import {
   capNum,
   ovNum,
   resolveCaptionBackground,
+  textNum,
 } from "../types.ts";
 import { contentHashOf } from "./hash.ts";
 import type {
@@ -40,7 +41,7 @@ import type {
   RenderedItem,
   RenderedPlacement,
 } from "./descriptor.ts";
-import type { Caption, RenderProps } from "../lib/renderPropsTypes.ts";
+import type { Caption, RenderProps, ResolvedText } from "../lib/renderPropsTypes.ts";
 
 const IDENTITY_ZOOM: ZoomTransform = { scale: 1, translateX: 0, translateY: 0 };
 
@@ -337,7 +338,7 @@ function inSpan(spans: { start: number; end: number }[], t: number): boolean {
  * 変わる契約)
  */
 function resolveCaptionContent(
-  caption: Caption,
+  caption: Pick<Caption, "text" | "style"> & Partial<Pick<Caption, "words">>,
   defaults: RenderProps["caption"],
   tOut: number,
 ): CaptionContent {
@@ -391,6 +392,13 @@ function resolveCaptionContent(
   }
 
   return content;
+}
+
+function resolveTextContent(
+  text: Pick<ResolvedText, "text" | "style">,
+  defaults: RenderProps["caption"],
+): CaptionContent {
+  return resolveCaptionContent(text, defaults, -1);
 }
 
 /** props.captions に登場するトラック番号の一覧(昇順・重複無し) */
@@ -585,7 +593,51 @@ export function describeBlurItems(props: RenderProps, tOut: number): FrameItem[]
 }
 
 /**
- * グループ5b: 注釈グラフィック(overlays.json の annotations)。
+ * グループ5b: 動画内テキスト(overlays.json の texts)。
+ * track を指定すればそのテキストトラックだけ、省略すれば全件を配列順に
+ * そのまま積む(後の要素が上)。省略が使われるのは layerOrder に text 系
+ * id が1つも無い収録の fallback 経路(describeFrame)だけ。内容は
+ * CaptionContent を組み立てて refPainter の drawCaption を共有する。
+ * karaoke は words[] を持たないので付けない。
+ *
+ * **ベース映像の有無に依存しない**。テキストはベース映像を参照しない
+ * 自己完結レイヤーなので、テロップ(captionItemForTrack)と同じく
+ * props.layout(縦プロファイル)でも videoFile 空でも描く。videoFile が
+ * 空になるのは音声主体の収録(manifest.layout = "stills"。エディタの
+ * videoFileForPreview が "" を返す)で、そこはタイトル/ラベルが最も要る
+ * 場面なので、ここで落とすと texts が丸ごと出ない。ベース映像を必要と
+ * する blurs/annotations(下層をぼかす・本編のみ)とは前提が違う。
+ */
+export function describeTextItems(
+  props: RenderProps,
+  tOut: number,
+  track?: number,
+): FrameItem[] {
+  const items: FrameItem[] = [];
+  for (const t of props.texts ?? []) {
+    if (track !== undefined && (t.track ?? 1) !== track) continue;
+    if (tOut < t.start || tOut >= t.end) continue;
+    const content = resolveTextContent(t, props.caption);
+    const anim = t.style?.anim;
+    const a = animStateAt(anim, t.start, t.end, tOut, content.fontSizePx);
+    items.push({
+      kind: "rendered",
+      content,
+      contentHash: contentHashOf(content, { w: props.width, h: props.height }),
+      placement: {
+        mode: "anchor",
+        point: { x: t.pos.x, y: t.pos.y },
+        anchor: t.anchor === "topLeft" ? "topLeft" : "center",
+      },
+      opacity: a.opacity,
+      ...(anim ? { transform: { translateX: a.translateX, translateY: a.translateY, scale: a.scale } } : {}),
+    });
+  }
+  return items;
+}
+
+/**
+ * グループ5c: 注釈グラフィック(overlays.json の annotations)。
  * AnnotationLayer.tsx の3種別(arrow/box/spotlight)の逐語移植。硬い
  * ON/OFF(遷移無し)。zoom には追従せず出力px固定。最前面固定(layerOrder
  * には載らない)。本編のみ(縦プロファイル/videoFile空は対象外)
@@ -656,7 +708,7 @@ export function describeAnnotationItems(props: RenderProps, tOut: number): Frame
 }
 
 /**
- * グループ5c: layerOrder(素材/wipe/テロップの重なり順)。
+ * グループ5d: layerOrder(素材/wipe/テロップの重なり順)。
  * normalizeLayerOrder 済みの完全な配列(props.layerOrder。無ければ
  * DEFAULT_LAYER_ORDER)を下から順に辿り、各 id に対応する現在時刻の
  * item を積む(ov<N>=そのトラックの素材、wipe=カメラ、caption/cap<N>=
@@ -683,6 +735,11 @@ export function describeLayerOrderStack(props: RenderProps, tOut: number): Frame
     }
     if (id === "wipe") {
       items.push(...describeWipeLayer(props, tOut));
+      continue;
+    }
+    const textTrackNo = textNum(id);
+    if (textTrackNo !== null) {
+      items.push(...describeTextItems(props, tOut, textTrackNo));
     }
   }
   return items;
@@ -758,6 +815,9 @@ export function describeFrame(props: RenderProps, tOut: number): FrameDescriptor
   items.push(...describeInsertItems(props, tOut));
   items.push(...describeBlurItems(props, tOut));
   items.push(...describeLayerOrderStack(props, tOut));
+  if (!(props.layerOrder ?? DEFAULT_LAYER_ORDER).some((id) => textNum(id) !== null)) {
+    items.push(...describeTextItems(props, tOut));
+  }
   items.push(...describeAnnotationItems(props, tOut));
   items.push(...describeCutTransition(props, tOut));
   return {

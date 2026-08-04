@@ -29,7 +29,7 @@ import {
   toOutputTime,
 } from "../lib/timeline.ts";
 import type { TimelineEntry } from "../lib/timeline.ts";
-import { captionTrack, hasCamera, manifestLayout, overlayTrack } from "../types.ts";
+import { captionTrack, hasCamera, manifestLayout, overlayTrack, textTrack } from "../types.ts";
 import type {
   AutoCuts,
   Annotation,
@@ -289,7 +289,8 @@ export function describe(dir: string, cfg?: Config): string {
 
   const ovList = overlays.overlays ?? [];
   const wipeList = overlays.wipeFull ?? [];
-  if (ovList.length + inserts.length + wipeList.length > 0) {
+  const textList = overlays.texts ?? [];
+  if (ovList.length + inserts.length + wipeList.length + textList.length > 0) {
     lines.push("");
     lines.push("演出:");
     for (const o of ovList) {
@@ -306,6 +307,9 @@ export function describe(dir: string, cfg?: Config): string {
     });
     for (const w of wipeList) {
       lines.push(`  ワイプ全画面 元 ${fmtT(w.start)}–${fmtT(w.end)}`);
+    }
+    for (const t of textList) {
+      lines.push(`  テキスト 元 ${fmtT(t.start)}–${fmtT(t.end)}「${quote(t.text)}」`);
     }
   }
 
@@ -522,6 +526,7 @@ export interface OverlaysProjection {
   zooms: ZoomEntry[];
   blurs: BlurEntry[];
   annotations: AnnotationEntry[];
+  texts: TextEntry[];
   hideCaption: MappedInterval[];
   colorFilter: ColorFilter | null;
   layerOrder: LayerId[] | null;
@@ -629,6 +634,15 @@ export type AnnotationEntry =
       keyframeCount?: number;
       keyframes?: KeyframeEntry[];
     } & MappedInterval);
+
+export interface TextEntry extends MappedInterval {
+  reasonId?: string;
+  text: string;
+  track?: number;
+  pos: CaptionPos;
+  anchor?: "center" | "topLeft";
+  style?: CaptionStyle;
+}
 
 export interface ChapterEntry {
   id?: string;
@@ -1189,6 +1203,19 @@ function buildProjection(inp: DescribeInputs, cfg?: Config): DescribeProjection 
     }
   });
 
+  const texts: TextEntry[] = (overlays.texts ?? []).map((t): TextEntry => ({
+    ...(t.id !== undefined ? { id: t.id } : {}),
+    start: t.start,
+    end: t.end,
+    out: remapInterval(t.start, t.end, timeline),
+    ...(t.reasonId !== undefined ? { reasonId: t.reasonId } : {}),
+    text: t.text,
+    ...(textTrack(t) > 1 ? { track: textTrack(t) } : {}),
+    pos: t.pos,
+    ...(t.anchor !== undefined ? { anchor: t.anchor } : {}),
+    ...(t.style !== undefined ? { style: t.style } : {}),
+  }));
+
   const hideCaption: MappedInterval[] = (overlays.hideCaption ?? []).map((h) => ({
     ...(h.id !== undefined ? { id: h.id } : {}),
     start: h.start,
@@ -1203,6 +1230,7 @@ function buildProjection(inp: DescribeInputs, cfg?: Config): DescribeProjection 
     zooms,
     blurs,
     annotations,
+    texts,
     hideCaption,
     colorFilter: overlays.colorFilter ?? null,
     layerOrder: overlays.layerOrder ?? null,

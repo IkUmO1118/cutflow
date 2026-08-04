@@ -14,6 +14,7 @@ import type {
   AnnotationSpotlightContent,
   BlurRegionContent,
   CaptionContent,
+  CaptionWord,
   ExternalItem,
   FillContent,
   FrameDescriptor,
@@ -123,6 +124,57 @@ function drawExternal(ctx: CanvasRenderingContext2D, item: ExternalItem, resolve
   ctx.restore();
 }
 
+/** テロップ 1 行ぶん。words はカラオケ着色があるときだけ(その行に属する語) */
+export interface CaptionLine {
+  text: string;
+  words?: CaptionWord[];
+}
+
+/**
+ * テロップの手動改行("\n")を行へ分解する純関数。
+ *
+ * カラオケ(content.words)があるときは語を行へ振り分ける。語のテキスト自身が
+ * 改行をまたぐ場合(手編集で語の途中に改行が入った等)はその語を行境界で
+ * 割る(active/fillProgress は分割後の両方へ引き継ぐ=着色の連続性を保つ)。
+ * words の連結は content.text と一致する(alignKaraoke の保証)ため、
+ * 行テキストは words から組み直さず text 側の分割をそのまま使う。
+ *
+ * 末尾の改行は空行として保持する(書き手が入れた余白を勝手に消さない)。
+ */
+export function captionLines(content: CaptionContent): CaptionLine[] {
+  const texts = content.text.split("\n");
+  if (!content.words) return texts.map((text) => ({ text }));
+
+  const lines: CaptionLine[] = texts.map((text) => ({ text, words: [] as CaptionWord[] }));
+  let li = 0;
+  let remaining = texts[0]?.length ?? 0;
+  for (const w of content.words) {
+    let rest = w.text;
+    while (rest.length > 0 && li < lines.length) {
+      if (remaining === 0 && rest.startsWith("\n")) {
+        // 行の切れ目。改行文字そのものは描かず次の行へ送る
+        rest = rest.slice(1);
+        li++;
+        remaining = texts[li]?.length ?? 0;
+        continue;
+      }
+      const take = rest.slice(0, remaining);
+      if (take.length > 0) {
+        lines[li].words!.push({ ...w, text: take });
+        rest = rest.slice(take.length);
+        remaining -= take.length;
+      }
+      if (remaining === 0 && rest.length > 0 && !rest.startsWith("\n")) {
+        // text と words がずれている(手編集で words が追随していない)。
+        // 残りはその行へ落として文字を失わない
+        lines[li].words!.push({ ...w, text: rest });
+        rest = "";
+      }
+    }
+  }
+  return lines.map((l) => (l.words && l.words.length > 0 ? l : { text: l.text }));
+}
+
 function drawCaption(ctx: CanvasRenderingContext2D, item: RenderedItem, content: CaptionContent): void {
   if (!item.placement || item.placement.mode !== "anchor") return;
   const { point, anchor, maxWidthPx } = item.placement;
@@ -132,8 +184,14 @@ function drawCaption(ctx: CanvasRenderingContext2D, item: RenderedItem, content:
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
 
-  const textW = Math.min(ctx.measureText(content.text).width, maxWidthPx ?? Infinity);
-  const textH = content.fontSizePx * 1.4;
+  // 手動改行("\n")で複数行に折る。自動折り返しはしない(どこで折るかは
+  // 書き手が決める=テロップ粒度は transcribe の captionSplit が担う)。
+  // 行高 1.4 はエディタの CaptionOverlay(lineHeight:1.4)と共通の規約
+  const lines = captionLines(content);
+  const lineH = content.fontSizePx * 1.4;
+  const lineWidths = lines.map((l) => ctx.measureText(l.text).width);
+  const textW = Math.min(Math.max(0, ...lineWidths), maxWidthPx ?? Infinity);
+  const textH = lineH * lines.length;
   let boxX: number;
   let boxY: number;
   if (anchor === "topLeft") {
@@ -163,50 +221,56 @@ function drawCaption(ctx: CanvasRenderingContext2D, item: RenderedItem, content:
     ctx.fill();
   }
 
-  const textY = boxY + textH / 2;
-  if (content.words) {
-    let cursorX = boxX;
-    for (const w of content.words) {
-      const wordW = ctx.measureText(w.text).width;
-      if (w.fillProgress !== undefined) {
-        // "fill" モードの塗り進み: clip で語の左側だけ activeColor にする近似
-        const active = content.karaokeActiveColor ?? "#ffe14d";
-        const inactive = content.karaokeInactiveColor ?? content.color;
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(cursorX, boxY, wordW * w.fillProgress, textH);
-        ctx.clip();
-        ctx.fillStyle = active;
-        ctx.fillText(w.text, cursorX, textY);
-        ctx.restore();
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(cursorX + wordW * w.fillProgress, boxY, wordW * (1 - w.fillProgress), textH);
-        ctx.clip();
-        ctx.fillStyle = inactive;
-        ctx.fillText(w.text, cursorX, textY);
-        ctx.restore();
-      } else {
-        const color = w.active ? (content.karaokeActiveColor ?? "#ffe14d") : (content.karaokeInactiveColor ?? content.color);
-        if (content.outlineColor !== "none") {
-          ctx.strokeStyle = content.outlineColor;
-          ctx.lineWidth = content.outlineWidthPx * 2;
-          ctx.strokeText(w.text, cursorX, textY);
+  lines.forEach((line, li) => {
+    const lineTop = boxY + lineH * li;
+    const textY = lineTop + lineH / 2;
+    // 各行はボックス内で中央揃え(topLeft アンカーだけ左揃え=左上規約を守る)
+    const lineX = anchor === "topLeft" ? boxX : boxX + (textW - lineWidths[li]) / 2;
+
+    if (line.words) {
+      let cursorX = lineX;
+      for (const w of line.words) {
+        const wordW = ctx.measureText(w.text).width;
+        if (w.fillProgress !== undefined) {
+          // "fill" モードの塗り進み: clip で語の左側だけ activeColor にする近似
+          const active = content.karaokeActiveColor ?? "#ffe14d";
+          const inactive = content.karaokeInactiveColor ?? content.color;
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(cursorX, lineTop, wordW * w.fillProgress, lineH);
+          ctx.clip();
+          ctx.fillStyle = active;
+          ctx.fillText(w.text, cursorX, textY);
+          ctx.restore();
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(cursorX + wordW * w.fillProgress, lineTop, wordW * (1 - w.fillProgress), lineH);
+          ctx.clip();
+          ctx.fillStyle = inactive;
+          ctx.fillText(w.text, cursorX, textY);
+          ctx.restore();
+        } else {
+          const color = w.active ? (content.karaokeActiveColor ?? "#ffe14d") : (content.karaokeInactiveColor ?? content.color);
+          if (content.outlineColor !== "none") {
+            ctx.strokeStyle = content.outlineColor;
+            ctx.lineWidth = content.outlineWidthPx * 2;
+            ctx.strokeText(w.text, cursorX, textY);
+          }
+          ctx.fillStyle = color;
+          ctx.fillText(w.text, cursorX, textY);
         }
-        ctx.fillStyle = color;
-        ctx.fillText(w.text, cursorX, textY);
+        cursorX += wordW;
       }
-      cursorX += wordW;
+    } else {
+      if (content.outlineColor !== "none") {
+        ctx.strokeStyle = content.outlineColor;
+        ctx.lineWidth = content.outlineWidthPx * 2;
+        ctx.strokeText(line.text, lineX, textY);
+      }
+      ctx.fillStyle = content.color;
+      ctx.fillText(line.text, lineX, textY);
     }
-  } else {
-    if (content.outlineColor !== "none") {
-      ctx.strokeStyle = content.outlineColor;
-      ctx.lineWidth = content.outlineWidthPx * 2;
-      ctx.strokeText(content.text, boxX, textY);
-    }
-    ctx.fillStyle = content.color;
-    ctx.fillText(content.text, boxX, textY);
-  }
+  });
   ctx.restore();
 }
 

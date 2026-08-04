@@ -43,6 +43,7 @@
             "overlays.zooms",
             "overlays.blurs",
             "overlays.annotations",
+            "overlays.texts",
             "overlays.wipeFull",
             "overlays.hideCaption",
             "overlays.captionTracks",

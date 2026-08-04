@@ -9,6 +9,7 @@ import {
   frameSpans,
   normalizeLayerOrder,
   ovCountOf,
+  textCountOf,
 } from "../src/lib/renderProps.ts";
 import { resolveCanvas } from "../src/lib/profile.ts";
 import { mergeIntervals } from "../src/lib/timeline.ts";
@@ -18,24 +19,56 @@ import type { Config } from "../src/lib/config.ts";
 import type { Manifest, Overlays, Transcript } from "../src/types.ts";
 
 test("normalizeLayerOrder: 省略時は素材トラック数なりの既定順(1本なら V2 なし)", () => {
-  assert.deepEqual(normalizeLayerOrder(undefined, 1, 1), ["ov1", "wipe", "caption"]);
-  assert.deepEqual(normalizeLayerOrder(undefined, 2, 1), ["ov1", "wipe", "ov2", "caption"]);
+  assert.deepEqual(normalizeLayerOrder(undefined, 1, 1, 1), ["ov1", "wipe", "caption"]);
+  assert.deepEqual(normalizeLayerOrder(undefined, 2, 1, 1), ["ov1", "wipe", "ov2", "caption"]);
 });
 
 test("normalizeLayerOrder: 旧形式(ovUnder/chapter)を読み替え・破棄", () => {
   // ovUnder→ov1、chapter は黙って捨てる。欠けた wipe/caption/ov2 は補完される
-  const order = normalizeLayerOrder(["ovUnder", "chapter", "wipe"], 1, 1);
+  const order = normalizeLayerOrder(["ovUnder", "chapter", "wipe"], 1, 1, 1);
   assert.ok(order.includes("ov1"));
   assert.ok(!order.includes("chapter" as never));
   assert.ok(order.includes("wipe"));
   assert.ok(order.includes("caption"));
 });
 
-test("capCountOf / ovCountOf: 参照される最大トラック番号(最低1)", () => {
+test("normalizeLayerOrder: text は既存互換を汚さず複数トラックだけ補完する", () => {
+  assert.deepEqual(normalizeLayerOrder(undefined, 1, 1, 1), ["ov1", "wipe", "caption"]);
+  assert.deepEqual(
+    normalizeLayerOrder(undefined, 1, 1, 2),
+    ["ov1", "wipe", "caption", "text", "text2"],
+  );
+  assert.deepEqual(
+    normalizeLayerOrder(["text1", "text3"], 1, 1, 1),
+    ["ov1", "text", "text2", "text3", "wipe", "caption"],
+  );
+});
+
+test("normalizeLayerOrder: text の欠番は最下層ではなく既存テキストの直下へ", () => {
+  // text2 だけを手書きした収録。text(1本目)を先頭へ落とすと ov1/wipe より
+  // 下に潜って描画順が直感に反するので、text2 の直下へ入れる
+  assert.deepEqual(
+    normalizeLayerOrder(["ov1", "wipe", "text2", "caption"], 1, 1, 2),
+    ["ov1", "wipe", "text", "text2", "caption"],
+  );
+  assert.deepEqual(
+    normalizeLayerOrder(["ov1", "wipe", "caption", "text3"], 1, 1, 3),
+    ["ov1", "wipe", "caption", "text", "text2", "text3"],
+  );
+  // 素材(ov)の補完位置は従来どおり最下段(この挙動は変えない=バイト等価)
+  assert.deepEqual(
+    normalizeLayerOrder(["wipe", "ov2", "caption"], 2, 1, 1),
+    ["ov1", "wipe", "ov2", "caption"],
+  );
+});
+
+test("capCountOf / ovCountOf / textCountOf: 参照される最大トラック番号(最低1)", () => {
   assert.equal(capCountOf({ segments: [{ start: 0, end: 1, text: "a", track: 3 }] } as Transcript), 3);
   assert.equal(capCountOf({ segments: [{ start: 0, end: 1, text: "a" }] } as Transcript), 1);
   assert.equal(ovCountOf({ overlays: [{ start: 0, end: 1, file: "x.png", track: 2 }] } as Overlays), 2);
   assert.equal(ovCountOf({} as Overlays), 1);
+  assert.equal(textCountOf({ texts: [{ start: 0, end: 1, text: "a", track: 4, pos: { x: 0, y: 0 } }] } as Overlays), 4);
+  assert.equal(textCountOf({} as Overlays), 1);
 });
 
 const manifest: Manifest = {
