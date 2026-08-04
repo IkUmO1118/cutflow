@@ -42,6 +42,18 @@ export interface Caption {
   words?: { text: string; start: number; end: number }[];
 }
 
+/** 動画内テキスト1件(overlays.json の texts。カット後の秒へ写像済み)。
+ * track は省略時 1(Caption は必須)で、pos が必須な点が Caption と違う */
+export interface ResolvedText {
+  start: number;
+  end: number;
+  text: string;
+  pos: { x: number; y: number };
+  track?: number;
+  anchor?: "topLeft";
+  style?: CaptionStyle;
+}
+
 /** 単純な時間区間(カット済みタイムラインの秒) */
 export interface Span {
   start: number;
@@ -293,6 +305,9 @@ export type RenderProps = {
    * 既定解決済み)。最前面に出力px固定で描く。省略時(空)は現行の描画と
    * 完全に同じ。props.layout(縦プロファイル)経路では描画しない(本編のみ) */
   annotations?: ResolvedAnnotation[];
+  /** 動画内テキスト(overlays.json の texts。カット後の秒へ写像済み)。
+   * 空/未指定なら本機能導入前と props はバイト等価 */
+  texts?: ResolvedText[];
   /** カット境界のディップ・トゥ・ブラック(config.yaml の render.cutTransition
    * が dip-to-black のときだけ載る)。sec は黒への往復の合計秒 */
   cutTransition?: { sec: number };

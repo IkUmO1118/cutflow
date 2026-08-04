@@ -54,7 +54,7 @@
     "radiusPx": 96,
     "shadow": true
   },
-  "layerOrder": ["ov1", "wipe", "ov2", "caption", "cap2"],
+  "layerOrder": ["ov1", "wipe", "ov2", "caption", "cap2", "text", "text2"],
   "captionTracks": [
     {
       "id": "ct_a1b2c3",
@@ -131,6 +131,36 @@
         { "at": 90, "values": { "x": 500, "y": 500, "w": 250, "h": 250, "dim": 0.6, "featherPx": 24, "radiusPx": 0 } },
         { "at": 95, "values": { "x": 520, "y": 480, "dim": 0.7 } }
       ]
+    }
+  ],
+  "texts": [
+    {
+      "id": "txt_a1b2c3",
+      "reasonId": "concept-talk",
+      "start": 100,
+      "end": 105,
+      "text": "見出し\nサブコピー",
+      "track": 2,
+      "pos": { "x": 960, "y": 540 },
+      "anchor": "center",
+      "style": {
+        "fontSizePx": 72,
+        "color": "#ffffff",
+        "outlineColor": "#003399",
+        "outlineWidthPx": 8,
+        "fontFamily": "Noto Sans JP",
+        "fontWeight": 800,
+        "background": {
+          "color": "rgba(0,0,0,0.45)",
+          "paddingPx": 28,
+          "radiusPx": 12
+        },
+        "anim": {
+          "in": "slide-up",
+          "out": "fade",
+          "durationSec": 0.25
+        }
+      }
     }
   ]
 }

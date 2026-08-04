@@ -35,6 +35,7 @@ import {
   MAX_PLAYBACK_SPEED,
   MIN_PLAYBACK_SPEED,
   ovNum,
+  textNum,
 } from "../types.ts";
 import type { CutPlan, Interval, Manifest, Transcript, WipeAnchor } from "../types.ts";
 import type { Config } from "../lib/config.ts";
@@ -208,7 +209,8 @@ export function validateDocs(
     file: string,
     where: string,
     value: unknown,
-    actualFamily: Exclude<EffectReasonFamily, "none">,
+    // null = 系を持たない配置(texts)。未知 id の警告と非文字列のエラーだけ効かせる
+    actualFamily: Exclude<EffectReasonFamily, "none"> | null,
   ): void => {
     if (value === undefined) return;
     if (typeof value !== "string") {
@@ -224,7 +226,7 @@ export function validateDocs(
       return;
     }
     const expectedFamily = EFFECT_REASON_ID_FAMILY[value as EffectReasonId];
-    if (expectedFamily !== actualFamily) {
+    if (actualFamily !== null && expectedFamily !== actualFamily) {
       warn(
         file,
         `${where}.reasonId`,
@@ -460,7 +462,7 @@ export function validateDocs(
     const f = "overlays.json";
     const KNOWN = [
       "overlays", "inserts", "wipeFull", "wipeStyle", "layerOrder", "captionTracks",
-      "hideCaption", "zooms", "colorFilter", "blurs", "annotations",
+      "hideCaption", "zooms", "colorFilter", "blurs", "annotations", "texts",
     ];
     for (const k of Object.keys(overlays)) {
       if (!KNOWN.includes(k)) warn(f, k, `不明なキーです(有効: ${KNOWN.join(" / ")})`);
@@ -701,6 +703,15 @@ export function validateDocs(
     // 見せ場(highlightSpans)による抑制はしない(それは `effect-check` の仕事。
     // validate は本数だけを見る数ミリ秒の軽量版。§設計書 §3 C)
     const densitySpans: { start: number; end: number }[] = [];
+    const checkPoint = (p: unknown): p is { x: number; y: number } =>
+      isObj(p) && isNum(p.x) && isNum(p.y);
+    const checkOutOfBounds = (rw: string, x: number, y: number): void => {
+      if (!outputRegion) return;
+      const { w: outW, h: outH } = outputRegion;
+      if (x < 0 || y < 0 || x > outW || y > outH) {
+        warn(f, rw, `座標(x${x} y${y})が出力解像度(${outW}x${outH})の外です(画面外から指す等の意図的な用途もあります)`);
+      }
+    };
     (Array.isArray(overlays.zooms) ? overlays.zooms : []).forEach((z: unknown, i: number) => {
       const w = `zooms[${i}]`;
       if (!isObj(z)) return err(f, w, "オブジェクトではありません");
@@ -856,22 +867,13 @@ export function validateDocs(
         if (a.type !== "arrow" && a.type !== "box" && a.type !== "spotlight") {
           return err(f, w, `type は "arrow" / "box" / "spotlight" のいずれかです(現在: ${JSON.stringify(a.type)})`);
         }
-        const checkPoint = (pw: string, p: unknown): p is { x: number; y: number } =>
-          isObj(p) && isNum(p.x) && isNum(p.y);
-        const checkOutOfBounds = (rw: string, x: number, y: number): void => {
-          if (!outputRegion) return;
-          const { w: outW, h: outH } = outputRegion;
-          if (x < 0 || y < 0 || x > outW || y > outH) {
-            warn(f, rw, `座標(x${x} y${y})が出力解像度(${outW}x${outH})の外です(画面外から指す等の意図的な用途もあります)`);
-          }
-        };
         if (a.type === "arrow") {
           const from = a.from;
           const to = a.to;
-          if (!checkPoint(w, from)) {
+          if (!checkPoint(from)) {
             err(f, w, `from は {x, y}(出力px の数値)です(現在: ${JSON.stringify(from)})`);
           }
-          if (!checkPoint(w, to)) {
+          if (!checkPoint(to)) {
             err(f, w, `to は {x, y}(出力px の数値)です(現在: ${JSON.stringify(to)})`);
           }
           if (isObj(from) && isNum(from.x) && isNum(from.y) && isObj(to) && isNum(to.x) && isNum(to.y)) {
@@ -937,6 +939,36 @@ export function validateDocs(
         }
       },
     );
+    if (overlays.texts !== undefined && !Array.isArray(overlays.texts)) {
+      err(f, "texts", "配列ではありません");
+    }
+    (Array.isArray(overlays.texts) ? overlays.texts : []).forEach((t: unknown, i: number) => {
+      const w = `texts[${i}]`;
+      if (!isObj(t)) return err(f, w, "オブジェクトではありません");
+      // texts は「見せる/隠す/指す」のどの系でもないので系の照合はしない
+      checkEffectReasonId(f, w, t.reasonId, null);
+      checkSpan(f, w, t, dur, err);
+      if (typeof t.text !== "string" || t.text.length === 0) {
+        err(f, w, "text は空でない文字列です");
+      }
+      if (t.track !== undefined && (!Number.isInteger(t.track) || (t.track as number) < 1)) {
+        err(f, `${w}.track`, "1以上の整数ではありません");
+      }
+      if (!checkPoint(t.pos)) {
+        err(f, w, `pos は {x, y}(出力px の数値)です(現在: ${JSON.stringify(t.pos)})`);
+      } else {
+        checkOutOfBounds(w, t.pos.x, t.pos.y);
+      }
+      if (t.anchor !== undefined && t.anchor !== "center" && t.anchor !== "topLeft") {
+        err(f, w, `anchor は "center" か "topLeft" です(現在: ${JSON.stringify(t.anchor)})`);
+      }
+      if (isNum(t.start) && isNum(t.end) && t.start < t.end && !visible(t.start, t.end)) {
+        warn(f, w, `全体がカット区間内にあり表示されません(${fmtT(t.start)}–${fmtT(t.end)})`);
+      }
+      if (isObj(t.style) && t.style.karaoke !== undefined) {
+        warn(f, w, "texts は words[] を持たないためカラオケは無視されます");
+      }
+    });
     // E5(密度ガード・軽量版): zoom/blur/annotation を合わせた開始時刻が
     // densityWindowSec の窓に maxPerWindow を超えて詰まっていたら警告する。
     // 見せ場による抑制・still での確認は `effect-check` に委ねる(§設計書 §3 C)
@@ -989,8 +1021,14 @@ export function validateDocs(
         overlays.layerOrder.forEach((id: unknown, i: number) => {
           const w = `layerOrder[${i}]`;
           if (typeof id !== "string" ||
-              (id !== "wipe" && id !== "caption" && ovNum(id) === null && capNum(id) === null)) {
-            return err(f, w, `不明なレイヤーです: ${JSON.stringify(id)}(wipe / caption / ov<N> / cap<N>)`);
+              (id !== "wipe" && ovNum(id) === null && capNum(id) === null &&
+                textNum(id) === null)) {
+            return err(
+              f,
+              w,
+              `不明なレイヤーです: ${JSON.stringify(id)}` +
+                "(wipe / caption / text / ov<N> / cap<N> / text<N>)",
+            );
           }
           if (seen.has(id)) err(f, w, `レイヤーが重複しています: ${id}`);
           seen.add(id);

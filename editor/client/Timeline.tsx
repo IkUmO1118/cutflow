@@ -190,9 +190,13 @@ export const Timeline = ({
   onSelectCaptionTrack,
   onDropFile,
   onDropMaterial,
+  onDropFileNewTrack,
+  onDropMaterialNewTrack,
+  newOverlayTrackId,
   dragMaterial,
   presetDragTrack,
   onDropPreset,
+  onDropPresetNewTrack,
   trackMuted,
   onToggleTrackMute,
   hiddenLayers,
@@ -262,6 +266,14 @@ export const Timeline = ({
   onDropFile: (track: TrackId, outT: number, file: File) => void;
   /** 素材パネルのカードのドロップ(file = プロジェクト相対パス) */
   onDropMaterial: (track: TrackId, outT: number, file: string) => void;
+  /** ルーラー(時間軸)帯へのドロップ = 新しいトラックを作ってそこへ置く。
+   * 行 id を渡さないのは、トラックの決定(音声のみ = BGM / それ以外 =
+   * 新しい素材トラック)が App 側の責務だから */
+  onDropFileNewTrack: (outT: number, file: File) => void;
+  onDropMaterialNewTrack: (outT: number, file: string) => void;
+  /** ルーラーへ落としたときに作られる素材トラックの id(実際の採番は App が
+   * 持つ。ここでは drop ゴーストの宛先表示にだけ使う) */
+  newOverlayTrackId: TrackId;
   /** 素材パネルからドラッグ中の素材(ドロップゴーストの幅・ラベルに使う)。
    * null = ドラッグしていない/OS のファイルドラッグ(尺は不明なので既定幅) */
   dragMaterial: { file: string; durationSec: number | null } | null;
@@ -274,6 +286,7 @@ export const Timeline = ({
    * presetDragTrack をそのまま使う(getData は drop イベントでしか読めない
    * ため、行の決定に使えない) */
   onDropPreset: (outT: number, presetId: string) => void;
+  onDropPresetNewTrack: (outT: number, presetId: string) => void;
   /** 音声トラック(映像・BGM)のプレビューミュート状態 */
   trackMuted: Record<AudioTrackId, boolean>;
   onToggleTrackMute: (id: AudioTrackId) => void;
@@ -484,6 +497,18 @@ export const Timeline = ({
 
   /** ルーラーの高さ(px)。CSS の .tlRuler / .tlRulerSpacer と一致させる */
   const RULER_H = 22;
+  /** ルーラー(時間軸)帯 = 新規トラック作成の的の高さ(px)。+6 は
+   * 「時間軸らへん」に落とせるための遊び(先頭トラック行の上端からもらう) */
+  const NEW_TRACK_ZONE_H = RULER_H + 6;
+  /** ポインタがルーラー帯の中か。.tlRuler は position: sticky で常に
+   * .tlScroll の上端に貼り付くので、判定はコンテンツ座標(trackIndexAt /
+   * trackAt)ではなくビューポート座標(scrollTop を足さない)で行う */
+  const inNewTrackZone = (clientY: number): boolean => {
+    const el = scrollRef.current;
+    if (!el) return false;
+    const y = clientY - el.getBoundingClientRect().top;
+    return y >= 0 && y < NEW_TRACK_ZONE_H;
+  };
 
   /** コンテンツ座標の縦位置 → トラック添字(高さと gap は可変なので累積で探す) */
   const trackIndexOfY = (y: number): number => {
@@ -767,6 +792,9 @@ export const Timeline = ({
     track: TrackId;
     t: number;
     snapLine: number | null;
+    /** true = ルーラー帯へのホバー。track は「落としたら作られるトラック」の
+     * 表示用 id で、既存の行ハイライトには一切使わない */
+    newTrack?: boolean;
   } | null>(null);
   /** ドラッグ中のファイルが音声のみか。true = BGM トラックだけがドロップ先、
    *  false = 素材・映像トラックだけ(BGM 不可)、null = 種別不明で従来どおり。
@@ -786,6 +814,10 @@ export const Timeline = ({
   const dragName = dragMaterial
     ? dragMaterial.file.replace(/^materials\//, "")
     : "ファイル";
+  /** ルーラー帯へ落としたときに作られるトラック。プリセットはその常在
+   * トラック、音声のみは BGM、それ以外は新しい素材トラック */
+  const newTrackId = (audio: boolean | null): TrackId =>
+    presetDragTrack ?? (audio === true ? "bgm" : newOverlayTrackId);
 
   /** ドラッグ中のファイルが音声のみか。素材パネルは file 名で、OS ファイルは
    *  dragover 中でも読める MIME 種別(item.type)で判定する。拡張子だけで
@@ -901,6 +933,26 @@ export const Timeline = ({
     if (!types.includes("Files") && !types.includes(MATERIAL_MIME) && !isPreset) return;
     e.preventDefault();
     dragAutoScroll(e.clientX, e.clientY);
+    // ルーラー(時間軸)帯 = 新規トラック作成の的。行を狙わなくてよい
+    if (inNewTrackZone(e.clientY)) {
+      const audio = isPreset ? null : dragIsAudioOnly(e);
+      setDropAudio((cur) => (cur === audio ? cur : audio));
+      // プリセットは行が確定していないと落とせない(従来と同じ扱い)
+      if (isPreset && !presetDragTrack) {
+        e.dataTransfer.dropEffect = "none";
+        setDrop(null);
+        return;
+      }
+      e.dataTransfer.dropEffect = "copy";
+      const { t, snapLine } = snapDropT(posToT(e.clientX));
+      const track = newTrackId(audio);
+      setDrop((cur) =>
+        cur && cur.newTrack && cur.track === track && cur.t === t && cur.snapLine === snapLine
+          ? cur
+          : { track, t, snapLine, newTrack: true },
+      );
+      return;
+    }
     // プリセットは音声/映像ヒューリスティック(dropTrackAt)を使わず、
     // ドラッグ開始時に App が確定させた presetDragTrack をそのまま行として使う
     // (getData は drop イベントでしか読めないので dragover では判定できない)
@@ -949,18 +1001,33 @@ export const Timeline = ({
     const presetId = e.dataTransfer.getData(PRESET_MIME);
     if (presetId) {
       const t = drop?.t ?? posToT(e.clientX);
+      const toNewTrack = drop?.newTrack === true || inNewTrackZone(e.clientY);
       setDrop(null);
       setDropAudio(null);
-      onDropPreset(t, presetId);
+      if (toNewTrack) onDropPresetNewTrack(t, presetId);
+      else onDropPreset(t, presetId);
       return;
     }
-    // ゴーストの位置に落とす(dragover を経ていない場合はその場で計算)
+    // ゴーストの位置に落とす(dragover を経ていない場合はその場で計算)。
+    // 新規トラック判定は drop state だけに頼らず**ドロップ時の座標でも**見る
+    // (dragover を1度も経ていない/state が消えていても取りこぼさない)
+    const newTrack = drop?.newTrack === true || inNewTrackZone(e.clientY);
     const track = drop?.track ?? dropTrackAt(e.clientY, dragIsAudioOnly(e))?.id;
     const t = drop?.t ?? posToT(e.clientX);
     setDrop(null);
     setDropAudio(null);
-    if (track === undefined) return;
     const path = e.dataTransfer.getData(MATERIAL_MIME);
+    // ルーラー帯 = 新規トラック。どのトラックを作るかは App が決めるので
+    // 行 id は渡さない
+    if (newTrack) {
+      if (path) onDropMaterialNewTrack(t, path);
+      else {
+        const nf = e.dataTransfer.files?.[0];
+        if (nf) onDropFileNewTrack(t, nf);
+      }
+      return;
+    }
+    if (track === undefined) return;
     if (path) {
       onDropMaterial(track, t, path);
       return;
@@ -1098,7 +1165,7 @@ export const Timeline = ({
                 (t.id === "wipe" && selection?.kind === "wipe");
               return (
                 <div
-                  className={`tlLabel${t.reorderable ? " reorderable" : ""}${dragLabel === t.id ? " dragging" : ""}${drop?.track === t.id ? " dropActive" : ""}${trackSelected ? " sel" : ""}${pairedTrackIds.has(t.id) ? " setBottom" : ""}`}
+                  className={`tlLabel${t.reorderable ? " reorderable" : ""}${dragLabel === t.id ? " dragging" : ""}${drop && !drop.newTrack && drop.track === t.id ? " dropActive" : ""}${trackSelected ? " sel" : ""}${pairedTrackIds.has(t.id) ? " setBottom" : ""}`}
                   key={t.id}
                   style={{ height: rowH(t.id) }}
                   title={t.hint}
@@ -1209,7 +1276,10 @@ export const Timeline = ({
           onDrop={onDropTimeline}
         >
           <div className="tlContent" style={{ width: totalW }}>
-            <div className="tlRuler" onPointerDown={onRulerDown}>
+            <div
+              className={`tlRuler${drop?.newTrack ? " dropNewTrack" : ""}`}
+              onPointerDown={onRulerDown}
+            >
               {ticks.map(({ t, major }) => (
                 <div
                   className={`tlTick${major ? "" : " tlTickMinor"}`}
@@ -1294,7 +1364,7 @@ export const Timeline = ({
                       ? " layerHidden"
                       : ""
                   }${
-                    drop === null
+                    drop === null || drop.newTrack
                       ? ""
                       : drop.track === track.id
                         ? " dropActive"
@@ -1402,7 +1472,7 @@ export const Timeline = ({
                       }}
                     />
                   )}
-                  {drop && drop.track === track.id && (
+                  {drop && !drop.newTrack && drop.track === track.id && (
                     <div
                       className={`tlDropGhost${track.id === "cut" ? " insert" : ""}`}
                       style={{

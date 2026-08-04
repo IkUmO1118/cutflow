@@ -32,6 +32,26 @@ function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+/** "@cap_xxx" / "cap_xxx" から先頭の "@" を剥がす(mention.ts の
+ * resolveMention と同じ規則)。 */
+function bareId(ref: string): string {
+  const r = ref.trim();
+  return r.startsWith("@") ? r.slice(1) : r;
+}
+
+/**
+ * target(@id)が指す要素の**現在の** draft 配列内添字を id 一致で探す。
+ * collectIds が返す MentionTarget.index は ops 処理前の元 docs 上の位置
+ * なので、同じ配列に対する remove/add が1つの patch 内で複数回起きると
+ * (splice で要素がずれる)以降の op の添字がずれてバグる。ops ごとに
+ * 現在の draft を id で引き直すことで、この drift を起こさない
+ * (要素が既に remove 済みなら -1 = 見つからない、が正しい結果になる)。
+ */
+function findLiveIndex(arr: unknown[], target: string): number {
+  const id = bareId(target);
+  return arr.findIndex((el) => isObj(el) && el.id === id);
+}
+
 /** compileOps/mergeBodyOverDisk が扱う「apply が書ける6ファイル」の共通キー
  * (ApplyBody のキーと同じ。LoadedDocs ともキー名が一致する) */
 export const APPLY_FILE_KEYS = [
@@ -70,6 +90,7 @@ const KIND_ARRAY: Partial<Record<string, { bodyKey: ApplyFileKey; arrayKey: stri
   zoom: { bodyKey: "overlays", arrayKey: "zooms" },
   blur: { bodyKey: "overlays", arrayKey: "blurs" },
   annotation: { bodyKey: "overlays", arrayKey: "annotations" },
+  text: { bodyKey: "overlays", arrayKey: "texts" },
   chapter: { bodyKey: "chapters", arrayKey: "chapters" },
   bgmTrack: { bodyKey: "bgm", arrayKey: "tracks" },
   thumbnailText: { bodyKey: "thumbnail", arrayKey: "texts" },
@@ -98,6 +119,7 @@ const ADD_SELECTORS: Record<string, { bodyKey: ApplyFileKey; arrayKey: string }>
   "overlays.zooms": { bodyKey: "overlays", arrayKey: "zooms" },
   "overlays.blurs": { bodyKey: "overlays", arrayKey: "blurs" },
   "overlays.annotations": { bodyKey: "overlays", arrayKey: "annotations" },
+  "overlays.texts": { bodyKey: "overlays", arrayKey: "texts" },
   "overlays.wipeFull": { bodyKey: "overlays", arrayKey: "wipeFull" },
   "overlays.hideCaption": { bodyKey: "overlays", arrayKey: "hideCaption" },
   "overlays.captionTracks": { bodyKey: "overlays", arrayKey: "captionTracks" },
@@ -217,11 +239,12 @@ export function compileOps(docs: LoadedDocs, ops: EditOp[]): CompileOpsResult {
         return;
       }
       const arr = fileDoc[spec.arrayKey];
-      if (!Array.isArray(arr) || resolved.index < 0 || resolved.index >= arr.length) {
+      const liveIndex = Array.isArray(arr) ? findLiveIndex(arr, target) : -1;
+      if (liveIndex < 0) {
         errors.push({ file: APPLY_FILE_NAME[spec.bodyKey], where: resolved.path, message: "対象要素が見つかりません" });
         return;
       }
-      const elem = arr[resolved.index];
+      const elem = (arr as unknown[])[liveIndex];
       if (!isObj(elem)) {
         errors.push({ file: APPLY_FILE_NAME[spec.bodyKey], where: resolved.path, message: "対象要素がオブジェクトではありません" });
         return;
@@ -289,13 +312,14 @@ export function compileOps(docs: LoadedDocs, ops: EditOp[]): CompileOpsResult {
         return;
       }
       const arr = fileDoc[spec.arrayKey];
-      if (!Array.isArray(arr) || resolved.index < 0 || resolved.index >= arr.length) {
+      const liveIndex = Array.isArray(arr) ? findLiveIndex(arr, target) : -1;
+      if (liveIndex < 0) {
         errors.push({ file: APPLY_FILE_NAME[spec.bodyKey], where: resolved.path, message: "対象要素が見つかりません" });
         return;
       }
-      const removed = arr[resolved.index];
+      const removed = (arr as unknown[])[liveIndex];
       diff.push({ ref: target, file: APPLY_FILE_NAME[spec.bodyKey], before: deepClone(removed), after: undefined });
-      arr.splice(resolved.index, 1);
+      (arr as unknown[]).splice(liveIndex, 1);
     } else if (opKind === "add") {
       const { target, value, at } = op as { op: "add"; target: unknown; value: unknown; at?: unknown };
       if (typeof target !== "string" || !(target in ADD_SELECTORS)) {

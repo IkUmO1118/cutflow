@@ -392,8 +392,11 @@ export interface Chapters {
 
 /** 画面の重なりレイヤーの識別子。overlays.json の layerOrder と
  * RenderProps で共用する。ov<N> は素材トラック(V1, V2, ... 可変個数)、
- * テロップトラックは1本目が "caption"(従来互換)、2本目以降が cap<N> */
-export type LayerId = "wipe" | "caption" | `ov${number}` | `cap${number}`;
+ * テロップトラックは1本目が "caption"(従来互換)、2本目以降が cap<N>、
+ * テキストトラックは1本目が "text"(従来互換)、2本目以降が text<N> */
+export type LayerId =
+  | "wipe" | "caption" | "text"
+  | `ov${number}` | `cap${number}` | `text${number}`;
 
 export const ovId = (n: number): LayerId => `ov${n}`;
 /** "ov3" → 3。素材トラックでなければ null */
@@ -410,6 +413,17 @@ export const capNum = (id: string): number | null => {
   const m = /^cap([1-9]\d*)$/.exec(id);
   return m ? Number(m[1]) : null;
 };
+
+/** テキストトラック n の LayerId。1本目は従来互換の "text" */
+export const textId = (n: number): LayerId => (n === 1 ? "text" : `text${n}`);
+/** "text" → 1、"text3" → 3。テキストトラックでなければ null */
+export const textNum = (id: string): number | null => {
+  if (id === "text" || id === "text1") return 1;
+  const m = /^text([1-9]\d*)$/.exec(id);
+  return m ? Number(m[1]) : null;
+};
+/** texts エントリのテキストトラック番号(1始まり) */
+export const textTrack = (t: { track?: number }): number => t.track ?? 1;
 
 /** transcript セグメントのテロップトラック番号(1始まり) */
 export const captionTrack = (s: { track?: number }): number => s.track ?? 1;
@@ -689,6 +703,37 @@ export interface Overlays {
    * 「ここを見ろ」の描画。独立レイヤーで最前面(テロップより上)。zoom 非追従の
    * 出力px固定。硬い ON/OFF。 */
   annotations?: Annotation[];
+  /** 動画に入れ込む任意テキスト(タイトル・ラベル・字幕以外の文字)。
+   * 発話に由来しないのがテロップ(transcript.json)との違い。transcribe が
+   * transcript.json を書き直しても消えず、describe / plan からは発話ではなく
+   * 演出として分離される。位置は出力px 固定で zoom には追従しない。重なり順は
+   * layerOrder の "text" / text<N>、省略時はレイヤースタックの上・注釈より下。
+   * トラックは texts[].track(省略時 1)で決まる。 */
+  texts?: TextOverlay[];
+}
+
+/** 動画に入れ込む任意テキスト1件(overlays.json の texts)。時刻は元収録の秒 */
+export interface TextOverlay {
+  /** 編集をまたいで安定な永続 id(例 "txt_a1b2c3")。`@id` で人間/AI がこの要素を
+   * 指す共通アドレス。省略可=id 未採番。render / 承認 hash には影響しない */
+  id?: string;
+  /** 演出判断の分類 id。省略可・sticky。描画と承認 hash には影響しない。 */
+  reasonId?: string;
+  /** 元収録の秒。start < end。挿入・カットの時刻写像はツールが行う */
+  start: number;
+  end: number;
+  /** 表示する文字列。"\n" で改行できる(自動折り返しはしない) */
+  text: string;
+  /** テキストトラック番号(1始まり)。省略 = 1。重なり順は layerOrder の
+   * "text"(1本目)/ text<N>(2本目以降)の位置で決まる */
+  track?: number;
+  /** 表示位置(出力px)。anchor が座標の意味を決める。必須 */
+  pos: CaptionPos;
+  /** pos の解釈。省略時 center(テキスト中心)/ topLeft(テキストボックス左上) */
+  anchor?: "center" | "topLeft";
+  /** 見た目。テロップと同じ CaptionStyle を共有する。karaoke は発話同期の機能
+   * なので texts では無視される */
+  style?: CaptionStyle;
 }
 
 /** 簡易カラー調整(overlays.json の colorFilter)。各キー省略可・既定 1.0

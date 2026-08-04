@@ -9,7 +9,7 @@
 // せず、ワイプレイヤー上の属性スパンとして表現する。字幕を
 // 隠したい場合はテロップそのものを削る・縮める(hideCaption は手書き互換)。
 
-import { capNum, ovNum } from "../../src/types.ts";
+import { capNum, ovNum, textNum } from "../../src/types.ts";
 import type { AnnotationType, CaptionPos, Interval, LayerId, PlanSegment, Region, SpotlightShape } from "../../src/types.ts";
 import type { ScriptSegment } from "./apiTypes.ts";
 import type { Hunk } from "../../src/lib/docDiff.ts";
@@ -23,14 +23,16 @@ export function videoFileForPreview(manifest: Manifest): string {
 /** overlays.json のどの配列か(hide 系はエディタ非表示の手書き互換)。
  * "zoom" はズーム演出(overlays.json の zooms)の区間。
  * "blur" は領域ぼかし(overlays.json の blurs)の区間。
- * "annotation" は注釈グラフィック(overlays.json の annotations)の区間 */
+ * "annotation" は注釈グラフィック(overlays.json の annotations)の区間。
+ * "text" は動画内テキスト(overlays.json の texts)の区間 */
 export type SpanKind =
   | "overlays"
   | "wipeFull"
   | "hideCaption"
   | "zoom"
   | "blur"
-  | "annotation";
+  | "annotation"
+  | "text";
 
 /** トラックの空き領域ドラッグで作れる区間の種類 */
 export type AddKind =
@@ -40,7 +42,8 @@ export type AddKind =
   | "bgm"
   | "zoom"
   | "blur"
-  | "annotation";
+  | "annotation"
+  | "text";
 
 /** 選択・ドラッグの対象。index は各ドキュメントの配列の添字
  * (caption は transcript.segments、insert は overlays.inserts の添字、
@@ -61,7 +64,8 @@ export type SelKind =
   | "bgm"
   | "zoom"
   | "blur"
-  | "annotation";
+  | "annotation"
+  | "text";
 export type Selection = { kind: SelKind; index: number } | null;
 
 export type DragMode = "move" | "trim-start" | "trim-end";
@@ -75,10 +79,12 @@ export type TrackId =
   | "zoom"
   | "blur"
   | "annotation"
+  | "text"
   | "cut"
   | "bgm"
   | `ov${number}`
-  | `cap${number}`;
+  | `cap${number}`
+  | `text${number}`;
 
 export interface TrackDef {
   id: TrackId;
@@ -124,6 +130,12 @@ const TRACK_DEFS = {
       "スポットライトで「ここを見ろ」を示す。ドラッグで区間を作成(既定は囲み)。" +
       "最前面(テロップより上)・ズームには追従せず出力px固定",
   },
+  text: {
+    id: "text", label: "テキスト", createKind: "text", reorderable: true, layer: "text",
+    hint:
+      "動画内テキスト(overlays.json の texts)。タイトル・ラベルなど発話に由来しない文字。" +
+      `ダブルクリックで文言を編集。${REORDER_HINT}`,
+  },
   cut: {
     id: "cut", label: "映像", audio: "cut",
     hint:
@@ -168,6 +180,22 @@ const captionTrackDef = (n: number, count: number, name?: string): TrackDef => (
     REORDER_HINT,
 });
 
+/** テキストトラック(1本目 "text", 2本目以降 text<N>)の定義。
+ * ラベルは番号だけ(テロップの "T2" と紛らわしくしない)。
+ * 名前の変更は持たない(v1 のスコープ外) */
+const textTrackDef = (n: number, count: number): TrackDef => ({
+  id: n === 1 ? "text" : `text${n}`,
+  label: count > 1 ? `テキスト ${n}` : "テキスト",
+  createKind: "text",
+  reorderable: true,
+  layer: n === 1 ? "text" : `text${n}`,
+  hint:
+    `動画内テキスト(overlays.json の texts)。タイトル・ラベルなど発話に` +
+    `由来しない文字。ダブルクリックで文言を編集。` +
+    (count > 1 ? `クリップは上下ドラッグで別のテキストトラックへ。` : "") +
+    REORDER_HINT,
+});
+
 /** 表示順(上=前面)。layerOrder(下→上)を逆順に並べ、
  * ベースの映像と BGM は最下段に固定する。
  * capName はテロップトラック名の解決(overlays.json の captionTracks) */
@@ -176,17 +204,22 @@ export const buildTracks = (
   capName?: (n: number) => string | undefined,
 ): TrackDef[] => {
   const capCount = layerOrder.filter((id) => capNum(id) !== null).length;
+  const textCount = layerOrder.filter((id) => textNum(id) !== null).length;
+  const hasTextLayer = textCount > 0;
   return [
     ...[...layerOrder].reverse().map((id) => {
       const n = ovNum(id);
       if (n !== null) return materialTrackDef(n);
       const cn = capNum(id);
       if (cn !== null) return captionTrackDef(cn, capCount, capName?.(cn));
+      const tn = textNum(id);
+      if (tn !== null) return textTrackDef(tn, textCount);
       return TRACK_DEFS[id as keyof typeof TRACK_DEFS];
     }),
     TRACK_DEFS.zoom,
     TRACK_DEFS.blur,
     TRACK_DEFS.annotation,
+    ...(hasTextLayer ? [] : [TRACK_DEFS.text]),
     TRACK_DEFS.cut,
     TRACK_DEFS.bgm,
   ];
@@ -1042,6 +1075,7 @@ function diffTrackIdForEventKind(kind: string): TrackId | null {
     case "overlay": return "ov1";
     case "insert": return "cut";
     case "annotation": return "annotation";
+    case "text": return "text";
     case "blur": return "blur";
     case "zoom": return "zoom";
     case "wipe": return "wipe";

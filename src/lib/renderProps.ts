@@ -37,6 +37,9 @@ import {
   ovId,
   ovNum,
   overlayTrack,
+  textId,
+  textNum,
+  textTrack,
 } from "../types.ts";
 import type {
   Bgm,
@@ -57,6 +60,7 @@ import type {
   OverlayItem,
   RenderProps,
   ResolvedKeyframe,
+  ResolvedText,
   Span,
 } from "./renderPropsTypes.ts";
 
@@ -507,6 +511,21 @@ export function buildRenderProps(args: {
     }),
   );
 
+  // 動画内テキストもカット後タイムラインへ写像する。keyframes は v1 では
+  // 持たないので remapInterval で断片へ割るだけ(挿入で割れた断片は
+  // 独立エントリのまま=annotations と同じ扱い)
+  const textItems: ResolvedText[] = (overlays.texts ?? []).flatMap((t) =>
+    remapInterval(t.start, t.end, timeline).map((iv) => ({
+      start: iv.start,
+      end: iv.end,
+      text: t.text,
+      pos: t.pos,
+      ...(textTrack(t) > 1 ? { track: textTrack(t) } : {}),
+      ...(t.anchor === "topLeft" ? { anchor: "topLeft" as const } : {}),
+      ...(t.style ? { style: t.style } : {}),
+    })),
+  );
+
   // ベース映像の再生区間。「カット後のどこで、動画内のどの時刻から再生
   // するか」に分割する。動画内の時刻は videoFile が何かで変わる:
   // - render の cut.mp4 は keeps のみの動画 → 挿入なし写像でのカット後時刻
@@ -631,6 +650,7 @@ export function buildRenderProps(args: {
     ...(zoomTransformTrack ? { zoomTransformTrack } : {}),
     ...(blurSpans.length > 0 ? { blurs: blurSpans } : {}),
     ...(annotationItems.length > 0 ? { annotations: annotationItems } : {}),
+    ...(textItems.length > 0 ? { texts: textItems } : {}),
     ...(renderCfg.cutTransition?.type === "dip-to-black"
       ? {
           cutTransition: { sec: renderCfg.cutTransition.sec ?? DEFAULT_CUT_TRANSITION_SEC },
@@ -642,6 +662,7 @@ export function buildRenderProps(args: {
       overlays.layerOrder,
       ovCountOf(overlays),
       capCountOf(transcript),
+      textCountOf(overlays),
       warn,
     ),
     baseSegments,
@@ -886,10 +907,16 @@ export function capCountOf(transcript: Transcript): number {
   return Math.max(1, ...transcript.segments.map(captionTrack));
 }
 
+/** texts のエントリが参照するテキストトラックの最大番号(最低1) */
+export function textCountOf(overlays: Overlays): number {
+  return Math.max(1, ...(overlays.texts ?? []).map(textTrack));
+}
+
 /**
  * overlays.json の layerOrder(手書きもあり得る)を検証して完全な並びにする。
- * 不明な値・重複は捨てる。素材トラック(ov<N>)とテロップトラック
- * ("caption" + cap<N>)はそれぞれ 1..N(N = 引数と並び内の最大の大きい方)が
+ * 不明な値・重複は捨てる。素材トラック(ov<N>)、テロップトラック
+ * ("caption" + cap<N>)、テキストトラック("text" + text<N>)はそれぞれ
+ * 1..N(N = 引数と並び内の最大の大きい方)が
  * 揃うように、欠番は1つ下の番号のトラックの直上へ補い、
  * wipe / caption が無ければ既定の相対順で末尾に補う。
  * 旧式の ovUnder / ovOver は ov1 / ov2 に、cap1 は caption に読み替え、
@@ -899,6 +926,7 @@ export function normalizeLayerOrder(
   order: string[] | undefined,
   ovCount: number,
   capCount: number,
+  textCount: number,
   warn?: (msg: string) => void,
 ): LayerId[] {
   // layerOrder を書いていないプロジェクトは素材トラック数なりの構成(素材
@@ -910,9 +938,15 @@ export function normalizeLayerOrder(
   } else {
     for (const raw of order) {
       if (raw === "chapter") continue; // 旧形式との互換(警告なしで無視)
-      const alias: Record<string, string> = { ovUnder: "ov1", ovOver: "ov2", cap1: "caption" };
+      const alias: Record<string, string> = {
+        ovUnder: "ov1",
+        ovOver: "ov2",
+        cap1: "caption",
+        text1: "text",
+      };
       const id = alias[String(raw)] ?? raw;
-      const valid = id === "wipe" || capNum(id) !== null || ovNum(id) !== null;
+      const valid =
+        id === "wipe" || textNum(id) !== null || capNum(id) !== null || ovNum(id) !== null;
       if (valid && !result.includes(id as LayerId)) result.push(id as LayerId);
       else warn?.(`overlays.json の layerOrder に不明な値があります(無視): ${String(raw)}`);
     }
@@ -930,10 +964,38 @@ export function normalizeLayerOrder(
       result.splice(below + 1, 0, idOf(k));
     }
   };
+  /** テキストトラックの欠番補完。fill と違い、1つ下の番号が無いとき先頭
+   * (=最下層)へ落とさず、既にある一番下のテキストトラックの直下へ入れる。
+   * テキストの既定はスタックの上(注釈より下)なので、先頭へ落とすと
+   * 素材・ワイプより下に潜って描画順が直感に反する(layerOrder に text2
+   * だけを手書きした収録で起きる)。ov/cap の fill は最下段が正しい既定
+   * なので**そちらの挙動は変えない**(バイト等価の維持) */
+  const fillText = (count: number) => {
+    const n = Math.max(count, ...result.map((id) => textNum(id) ?? 0));
+    for (let k = 1; k <= n; k++) {
+      if (result.includes(textId(k))) continue;
+      const below = result.findIndex((id) => id === textId(k - 1));
+      if (below >= 0) {
+        result.splice(below + 1, 0, textId(k));
+        continue;
+      }
+      const lowestText = result.findIndex((id) => textNum(id) !== null);
+      result.splice(lowestText >= 0 ? lowestText : result.length, 0, textId(k));
+    }
+  };
   fill(ovCount, ovId, ovNum);
   for (const id of ["wipe", "caption"] as const) {
     if (!result.includes(id)) result.push(id);
   }
   fill(capCount, capId, capNum);
+  // テキストトラック: layerOrder に text 系 id が1つでもあれば ov/cap と
+  // 同じ欠番補完。1つも無いときは「2本以上使っているときだけ」末尾(=最前面)
+  // へ昇順で足す。テキストを使っていない収録の並びは1バイトも変えない
+  // (defaultLayerOrder に "text" は入らない)。
+  if (result.some((id) => textNum(id) !== null)) {
+    fillText(textCount);
+  } else if (textCount > 1) {
+    for (let k = 1; k <= textCount; k++) result.push(textId(k));
+  }
   return result;
 }

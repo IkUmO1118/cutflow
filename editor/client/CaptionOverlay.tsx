@@ -49,6 +49,7 @@ export const CaptionOverlay = ({
   onCommitText,
   onEditStart,
   onEditingChange,
+  storeFile,
 }: {
   /** コンポジションの解像度 */
   width: number;
@@ -65,6 +66,8 @@ export const CaptionOverlay = ({
   onEditStart?: () => void;
   /** Player 側の字幕を編集中の下書きへ差し替えるための状態通知 */
   onEditingChange?: (index: number | null, text?: string) => void;
+  /** ツールチップに出す保存先ファイル名。省略時 "transcript.json"(テロップ) */
+  storeFile?: string;
 }) => {
   const ref = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
@@ -100,6 +103,7 @@ export const CaptionOverlay = ({
   const scale = box.w > 0 && box.h > 0 ? Math.min(box.w / width, box.h / height) : 0;
   const dx = (box.w - width * scale) / 2;
   const dy = (box.h - height * scale) / 2;
+  const store = storeFile ?? "transcript.json";
 
   const startEdit = (c: OverlayCaption) => {
     if (!onCommitText) return;
@@ -197,6 +201,7 @@ export const CaptionOverlay = ({
             fontSize: c.fontSizePx * scale,
             fontWeight: c.fontWeight ?? CAPTION_DEFAULT_FONT_WEIGHT,
             lineHeight: 1.4,
+            textAlign: (c.anchor === "topLeft" ? "left" : "center") as "left" | "center",
           };
           // center は padding 込みの中心、topLeft はテキスト左上が pos。
           // 通常枠と編集欄で必ず同じ補正を使い、編集切替時のジャンプを防ぐ。
@@ -208,6 +213,9 @@ export const CaptionOverlay = ({
                 className="capBox editing sel"
                 autoFocus
                 value={draft}
+                // Shift+Enter は下の onKeyDown で素通しし textarea 既定の改行になる。
+                // 手動改行はそのまま複数行テロップとして描画される
+                title="Shift+Enter で改行 / Enter で確定 / Esc で取消"
                 style={{
                   ...common,
                   left: common.left + off.dx,
@@ -260,8 +268,8 @@ export const CaptionOverlay = ({
               }}
               title={
                 onCommitText
-                  ? "ドラッグで移動 / ダブルクリックで文言を編集(transcript.json に保存)"
-                  : "ドラッグでテロップを移動(位置は transcript.json の pos に保存)"
+                  ? `ドラッグで移動 / ダブルクリックで文言を編集(${store} に保存)`
+                  : `ドラッグで移動(位置は ${store} の pos に保存)`
               }
               onPointerDown={(e) => onDown(e, c)}
               onDoubleClick={(e) => {

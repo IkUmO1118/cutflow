@@ -61,6 +61,7 @@ export function collectIdOccurrences(docs: LoadedDocs): [string, MentionTarget][
     collectFromArray(overlays.zooms, "overlays.json", "zoom", (i) => `zooms[${i}]`, out);
     collectFromArray(overlays.blurs, "overlays.json", "blur", (i) => `blurs[${i}]`, out);
     collectFromArray(overlays.annotations, "overlays.json", "annotation", (i) => `annotations[${i}]`, out);
+    collectFromArray(overlays.texts, "overlays.json", "text", (i) => `texts[${i}]`, out);
     collectFromArray(overlays.captionTracks, "overlays.json", "captionTrack", (i) => `captionTracks[${i}]`, out);
   }
 

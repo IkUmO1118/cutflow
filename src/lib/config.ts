@@ -156,19 +156,26 @@ export interface Config {
      *  省略時は付けない(既存挙動と完全一致。wordTimestamps と独立だが、
      *  words[] に効かせるには wordTimestamps: true が必要) */
     dtw?: string;
-    /** テロップ(transcript.json の 1 segment)を「約 maxChars 文字」の粒度へ
-     *  割り直す設定。省略時は分割しない(whisper のチャンク幅そのまま=導入前と
-     *  バイト等価)。日本語の文節末(助詞・句末表現)+ 無音ギャップ + 文字数上限で
-     *  折る決定論処理で、LLM も再文字起こしも使わない。words[] があれば分割後の
-     *  時刻は語境界そのもの。§src/lib/captionSplit.ts */
+    /** テロップ(transcript.json の 1 segment)を読みやすい粒度へ割り直す設定。
+     *  省略時は分割しない(whisper のチャンク幅そのまま=導入前とバイト等価)。
+     *  LLM も再文字起こしも使わない決定論処理。区切りの強さ(句点 > 述語の終止形 >
+     *  接続助詞 > 格助詞 > 連体の「の」)と無音の「間」を合成してスコア化し、
+     *  Knuth-Plass 型の動的計画法で全体のコストが最小になる分割を選ぶ。
+     *  words[] があれば分割後の時刻は語境界そのもの。§src/lib/captionSplit.ts */
     captionSplit?: {
-      /** これ(code point 数)を超える segment だけを分割する。0 以下で無効 */
+      /** これ(code point 数)を超える segment だけを分割する。分割後の断片も
+       *  この長さを超えない(単一の語がこれより長い病的ケースだけ例外)。0 以下で無効。
+       *  テロップは 1 行で描かれ自動折り返しをしないので、実質は「1 行に収まる字数」 */
       maxChars: number;
-      /** 分割後の断片がこれ未満にならないよう soft-break を選ぶ下限。
+      /** 分割後の断片がこれ未満だと強い減点を受ける(ハード禁止ではない)。
        *  省略時 floor(maxChars * 0.4) */
       minChars?: number;
-      /** 語間ギャップ(秒)がこれ以上なら「間」= 分割候補。省略時 0.3 */
+      /** 語間ギャップ(秒)がこれ未満なら「間」として数えない。省略時 0.3 */
       gapSec?: number;
+      /** この秒数の語間ギャップで「間」の強さが最大になる。省略時 0.8 */
+      pauseFullSec?: number;
+      /** 断片の表示秒がこれ未満だと減点する(一瞬で消えるテロップの抑制)。省略時 0.9 */
+      minDurationSec?: number;
     };
     /** システム音声(ingest.systemTrack)も第2トラックとして文字起こしし、
      *  知覚専用の transcript.system.json を書くか。省略時 false(既存挙動と

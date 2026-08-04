@@ -109,6 +109,10 @@ const RESEEK_SETTLE_MS = 150;
  *  先読みとスケジュール間隔のバランスが取れる。 */
 const WINDOW_SEC = 1.0;
 
+/** file → 開き済みの Input/AudioBufferSink */
+type SinkCacheValue = { input: InstanceType<typeof Input>; sink: AudioBufferSink };
+type SinkCache = Map<string, SinkCacheValue>;
+
 export interface CreateBuffer {
   createBuffer(channels: number, length: number, sampleRate: number): AudioBuffer;
 }
@@ -136,25 +140,49 @@ export function concatAudioBuffers(
   return out;
 }
 
-export function splitEntryIntoWindows(entry: TimelineEntry, windowSec: number): TimelineEntry[] {
+/** entry を windowSec で割ったときの窓の個数(splitEntryIntoWindows と同じ数え方) */
+export function windowCountOf(entry: TimelineEntry, windowSec: number): number {
   const dur = entry.outputEnd - entry.outputStart;
-  if (dur <= windowSec) return [entry];
-  const count = Math.ceil(dur / windowSec);
-  const result: TimelineEntry[] = [];
-  for (let i = 0; i < count; i++) {
-    const outputStart = entry.outputStart + i * windowSec;
-    const outputEnd = Math.min(entry.outputEnd, outputStart + windowSec);
-    const relStart = (i * windowSec) * entry.speed;
-    const relEnd = relStart + (outputEnd - outputStart) * entry.speed;
-    result.push({
-      outputStart,
-      outputEnd,
-      sourceStart: entry.sourceStart + relStart,
-      sourceEnd: entry.sourceStart + relEnd,
-      speed: entry.speed,
-    });
-  }
-  return result;
+  return dur <= windowSec ? 1 : Math.ceil(dur / windowSec);
+}
+
+/** entry の i 番目の窓だけを作る(splitEntryIntoWindows(entry, w)[i] と厳密に同値) */
+export function windowAt(entry: TimelineEntry, windowSec: number, i: number): TimelineEntry {
+  const outputStart = entry.outputStart + i * windowSec;
+  const outputEnd = Math.min(entry.outputEnd, outputStart + windowSec);
+  const relStart = (i * windowSec) * entry.speed;
+  const relEnd = relStart + (outputEnd - outputStart) * entry.speed;
+  return {
+    outputStart,
+    outputEnd,
+    sourceStart: entry.sourceStart + relStart,
+    sourceEnd: entry.sourceStart + relEnd,
+    speed: entry.speed,
+  };
+}
+
+export function splitEntryIntoWindows(entry: TimelineEntry, windowSec: number): TimelineEntry[] {
+  const n = windowCountOf(entry, windowSec);
+  return Array.from({ length: n }, (_, i) => windowAt(entry, windowSec, i));
+}
+
+export async function ensureCached<T>(
+  cache: Map<string, T>,
+  inflight: Map<string, Promise<T | null>>,
+  key: string,
+  open: () => Promise<T | null>,
+): Promise<T | null> {
+  if (cache.has(key)) return cache.get(key) ?? null;
+  const pending = inflight.get(key);
+  if (pending) return pending;
+  const promise = (async () => {
+    const item = await open();
+    if (item) cache.set(key, item);
+    return item;
+  })();
+  inflight.set(key, promise);
+  void promise.catch(() => {}).finally(() => { inflight.delete(key); });
+  return promise;
 }
 
 export interface AudioSchedulerOptions {
@@ -184,9 +212,18 @@ export class AudioScheduler {
   private baseInput: InstanceType<typeof Input> | null = null;
   private baseSink: AudioBufferSink | null = null;
   private baseSinkFailed = false;
-  private readonly bgmSinks = new Map<string, { input: InstanceType<typeof Input>; sink: AudioBufferSink }>();
-  private readonly overlaySinks = new Map<string, { input: InstanceType<typeof Input>; sink: AudioBufferSink }>();
-  private readonly insertSinks = new Map<string, { input: InstanceType<typeof Input>; sink: AudioBufferSink }>();
+  /** 進行中の base sink 生成。**結果だけでなく途中の Promise もキャッシュする**
+   * のが要点(下の SinkCache のコメント参照) */
+  private baseSinkPromise: Promise<AudioBufferSink | null> | null = null;
+  private readonly bgmSinks: SinkCache = new Map();
+  private readonly overlaySinks: SinkCache = new Map();
+  private readonly insertSinks: SinkCache = new Map();
+  /** sink キャッシュごとの「進行中の生成」。ensure*Sink は結果しか
+   * キャッシュしないと、同じファイルに対する同時呼び出しが全部
+   * すり抜けて `new Input()` + `getPrimaryAudioTrack()` を独立に走らせる
+   * (=同じプロキシを何十回も取得・解析する)。先頭の窓の予約がその競合で
+   * 間に合わなくなり、再生開始直後の音が丸ごと落ちる原因になっていた */
+  private readonly inflightSinks = new WeakMap<SinkCache, Map<string, Promise<SinkCacheValue | null>>>();
   private readonly overlayAudioItems: OverlayItem[];
   private readonly insertAudioItems: NonNullable<RenderProps["inserts"]>;
 
@@ -229,9 +266,17 @@ export class AudioScheduler {
     );
   }
 
-  private async ensureBaseSink(): Promise<AudioBufferSink | null> {
-    if (this.baseSink) return this.baseSink;
-    if (this.baseSinkFailed) return null;
+  private ensureBaseSink(): Promise<AudioBufferSink | null> {
+    if (this.baseSink) return Promise.resolve(this.baseSink);
+    if (this.baseSinkFailed) return Promise.resolve(null);
+    this.baseSinkPromise ??= this.openBaseSink();
+    void this.baseSinkPromise.catch(() => {}).finally(() => {
+      this.baseSinkPromise = null;
+    });
+    return this.baseSinkPromise;
+  }
+
+  private async openBaseSink(): Promise<AudioBufferSink | null> {
     const input = new Input({ source: new UrlSource(this.opts.baseAudioUrl), formats: ALL_FORMATS });
     let track;
     try {
@@ -259,36 +304,30 @@ export class AudioScheduler {
     return this.baseSink;
   }
 
-  private async ensureBgmSink(file: string, resolveUrl: (file: string) => string): Promise<AudioBufferSink | null> {
-    const existing = this.bgmSinks.get(file);
-    if (existing) return existing.sink;
-    const input = new Input({ source: new UrlSource(resolveUrl(file)), formats: ALL_FORMATS });
-    const track = await input.getPrimaryAudioTrack();
-    if (!track) {
-      input.dispose();
-      return null;
-    }
-    const sink = new AudioBufferSink(track);
-    this.bgmSinks.set(file, { input, sink });
-    return sink;
+  private ensureBgmSink(file: string, resolveUrl: (file: string) => string): Promise<AudioBufferSink | null> {
+    return this.ensureClipSink(file, resolveUrl, this.bgmSinks);
   }
 
-  private async ensureClipSink(
+  private ensureClipSink(
     file: string,
     resolveUrl: (file: string) => string,
-    cache: Map<string, { input: InstanceType<typeof Input>; sink: AudioBufferSink }>,
+    cache: SinkCache,
   ): Promise<AudioBufferSink | null> {
-    const existing = cache.get(file);
-    if (existing) return existing.sink;
-    const input = new Input({ source: new UrlSource(resolveUrl(file)), formats: ALL_FORMATS });
-    const track = await input.getPrimaryAudioTrack();
-    if (!track) {
-      input.dispose();
-      return null;
+    let inflight = this.inflightSinks.get(cache);
+    if (!inflight) {
+      inflight = new Map();
+      this.inflightSinks.set(cache, inflight);
     }
-    const sink = new AudioBufferSink(track);
-    cache.set(file, { input, sink });
-    return sink;
+    return ensureCached(cache, inflight, file, async () => {
+      const input = new Input({ source: new UrlSource(resolveUrl(file)), formats: ALL_FORMATS });
+      const track = await input.getPrimaryAudioTrack();
+      if (!track) {
+        input.dispose();
+        return null;
+      }
+      const sink = new AudioBufferSink(track);
+      return { input, sink };
+    }).then((item) => item?.sink ?? null);
   }
 
   /** bgm/overlay/insert の track-level GainNode をゲイン自動化込みで
@@ -467,23 +506,26 @@ export class AudioScheduler {
 
     if (!this.mutedBase) {
       this.opts.timeline.forEach((entry, index) => {
-        const key = String(index);
-        if (this.scheduledBaseKeys.has(key)) return;
         if (!shouldScheduleEntry(entry, currentSec, windowEnd)) return;
-        this.scheduledBaseKeys.add(key);
-        const windows = splitEntryIntoWindows(entry, WINDOW_SEC);
-        for (let wi = 0; wi < windows.length; wi++) {
-          void this.scheduleBaseEntry(windows[wi], sessionId);
+        const from = Math.max(0, Math.floor((currentSec - entry.outputStart) / WINDOW_SEC));
+        const to = Math.min(
+          windowCountOf(entry, WINDOW_SEC) - 1,
+          Math.floor((windowEnd - entry.outputStart) / WINDOW_SEC),
+        );
+        for (let wi = from; wi <= to; wi++) {
+          const key = `${index}:${wi}`;
+          if (this.scheduledBaseKeys.has(key)) continue;
+          const w = windowAt(entry, WINDOW_SEC, wi);
+          if (!shouldScheduleEntry(w, currentSec, windowEnd)) continue;
+          this.scheduledBaseKeys.add(key);
+          void this.scheduleBaseEntry(w, sessionId);
         }
       });
     }
 
     if (!this.mutedBgm) {
       this.opts.bgm.forEach((track, index) => {
-        const key = String(index);
-        if (this.scheduledBgmKeys.has(key)) return;
         if (!shouldScheduleEntry({ outputStart: track.start, outputEnd: track.end }, currentSec, windowEnd)) return;
-        this.scheduledBgmKeys.add(key);
         const srcEntry: TimelineEntry = {
           outputStart: track.start,
           outputEnd: track.end,
@@ -491,19 +533,25 @@ export class AudioScheduler {
           sourceEnd: (track.startFrom ?? 0) + (track.end - track.start),
           speed: 1,
         };
-        const windows = splitEntryIntoWindows(srcEntry, WINDOW_SEC);
-        for (let wi = 0; wi < windows.length; wi++) {
-          void this.scheduleBgmTrack(track, windows[wi], sessionId, index, resolveUrl);
+        const from = Math.max(0, Math.floor((currentSec - srcEntry.outputStart) / WINDOW_SEC));
+        const to = Math.min(
+          windowCountOf(srcEntry, WINDOW_SEC) - 1,
+          Math.floor((windowEnd - srcEntry.outputStart) / WINDOW_SEC),
+        );
+        for (let wi = from; wi <= to; wi++) {
+          const key = `${index}:${wi}`;
+          if (this.scheduledBgmKeys.has(key)) continue;
+          const w = windowAt(srcEntry, WINDOW_SEC, wi);
+          if (!shouldScheduleEntry(w, currentSec, windowEnd)) continue;
+          this.scheduledBgmKeys.add(key);
+          void this.scheduleBgmTrack(track, w, sessionId, index, resolveUrl);
         }
       });
     }
 
     if (!this.mutedBase) {
       this.overlayAudioItems.forEach((o, index) => {
-        const key = String(index);
-        if (this.scheduledOverlayKeys.has(key)) return;
         if (!shouldScheduleEntry({ outputStart: o.start, outputEnd: o.end }, currentSec, windowEnd)) return;
-        this.scheduledOverlayKeys.add(key);
         const srcEntry: TimelineEntry = {
           outputStart: o.start,
           outputEnd: o.end,
@@ -511,19 +559,25 @@ export class AudioScheduler {
           sourceEnd: (o.startFrom ?? 0) + (o.end - o.start),
           speed: 1,
         };
-        const windows = splitEntryIntoWindows(srcEntry, WINDOW_SEC);
-        for (let wi = 0; wi < windows.length; wi++) {
-          void this.scheduleClipEntry(o.file, windows[wi], sessionId, index, resolveUrl, this.overlaySinks, this.overlayGainNodes, this.queuedOverlayNodes, false);
+        const from = Math.max(0, Math.floor((currentSec - srcEntry.outputStart) / WINDOW_SEC));
+        const to = Math.min(
+          windowCountOf(srcEntry, WINDOW_SEC) - 1,
+          Math.floor((windowEnd - srcEntry.outputStart) / WINDOW_SEC),
+        );
+        for (let wi = from; wi <= to; wi++) {
+          const key = `${index}:${wi}`;
+          if (this.scheduledOverlayKeys.has(key)) continue;
+          const w = windowAt(srcEntry, WINDOW_SEC, wi);
+          if (!shouldScheduleEntry(w, currentSec, windowEnd)) continue;
+          this.scheduledOverlayKeys.add(key);
+          void this.scheduleClipEntry(o.file, w, sessionId, index, resolveUrl, this.overlaySinks, this.overlayGainNodes, this.queuedOverlayNodes, false);
         }
       });
     }
 
     if (!this.mutedBase) {
       this.insertAudioItems.forEach((ins, index) => {
-        const key = String(index);
-        if (this.scheduledInsertKeys.has(key)) return;
         if (!shouldScheduleEntry({ outputStart: ins.start, outputEnd: ins.end }, currentSec, windowEnd)) return;
-        this.scheduledInsertKeys.add(key);
         const srcEntry: TimelineEntry = {
           outputStart: ins.start,
           outputEnd: ins.end,
@@ -531,9 +585,18 @@ export class AudioScheduler {
           sourceEnd: (ins.startFrom ?? 0) + (ins.end - ins.start),
           speed: 1,
         };
-        const windows = splitEntryIntoWindows(srcEntry, WINDOW_SEC);
-        for (let wi = 0; wi < windows.length; wi++) {
-          void this.scheduleClipEntry(ins.file, windows[wi], sessionId, index, resolveUrl, this.insertSinks, this.insertGainNodes, this.queuedInsertNodes, false);
+        const from = Math.max(0, Math.floor((currentSec - srcEntry.outputStart) / WINDOW_SEC));
+        const to = Math.min(
+          windowCountOf(srcEntry, WINDOW_SEC) - 1,
+          Math.floor((windowEnd - srcEntry.outputStart) / WINDOW_SEC),
+        );
+        for (let wi = from; wi <= to; wi++) {
+          const key = `${index}:${wi}`;
+          if (this.scheduledInsertKeys.has(key)) continue;
+          const w = windowAt(srcEntry, WINDOW_SEC, wi);
+          if (!shouldScheduleEntry(w, currentSec, windowEnd)) continue;
+          this.scheduledInsertKeys.add(key);
+          void this.scheduleClipEntry(ins.file, w, sessionId, index, resolveUrl, this.insertSinks, this.insertGainNodes, this.queuedInsertNodes, false);
         }
       });
     }
@@ -724,12 +787,16 @@ export class AudioScheduler {
     this.baseInput?.dispose();
     this.baseInput = null;
     this.baseSink = null;
+    this.baseSinkPromise = null;
     for (const { input } of this.bgmSinks.values()) input.dispose();
     for (const { input } of this.overlaySinks.values()) input.dispose();
     for (const { input } of this.insertSinks.values()) input.dispose();
     this.bgmSinks.clear();
     this.overlaySinks.clear();
     this.insertSinks.clear();
+    this.inflightSinks.delete(this.bgmSinks);
+    this.inflightSinks.delete(this.overlaySinks);
+    this.inflightSinks.delete(this.insertSinks);
     this.masterGain.disconnect();
   }
 }

@@ -178,6 +178,7 @@ export async function startEditor(
     ),
   });
   let clientWatcher: FSWatcher | null = null;
+  let engineWatcher: FSWatcher | null = null;
 
   // 編集 JSON の外部変更(Claude Code や手編集)を検知して SSE で通知する。
   // GUI 自身の保存(/api/save)による変更は lastWrittenHash(自分が最後に
@@ -251,8 +252,22 @@ export async function startEditor(
     clientWatcher.on("error", (error) => {
       console.error("editor/client の監視に失敗しました。", error);
     });
+    // client バンドルは editor/client だけでは閉じない: EnginePreview は
+    // src/engine/(describeFrame・compositor 等)を、model/apiTypes は
+    // src/lib・src/types.ts を直接 import している。ここを監視しないと
+    // 「DOM オーバーレイだけホットリロードされ、キャンバスの描画は古いまま」
+    // という切り分けの難しい状態になる(実際に踏んだ。2026-08-04)
+    engineWatcher = watch(join(editorDir, "..", "src"), { recursive: true }, () => {
+      clientReloader.schedule();
+    });
+    engineWatcher.on("error", (error) => {
+      console.error("src の監視に失敗しました。", error);
+    });
   } catch (error) {
     clientReloader.close();
+    // engineWatcher の生成で落ちたときに clientWatcher を残さない
+    clientWatcher?.close();
+    engineWatcher?.close();
     await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
     throw error;
   }
@@ -265,6 +280,7 @@ export async function startEditor(
   process.on("exit", () => {
     clientReloader.close();
     clientWatcher?.close();
+    engineWatcher?.close();
     projectWatcher?.close();
     if (!launcherMode) removeEditorServeFile(dir);
   });

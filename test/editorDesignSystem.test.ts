@@ -69,9 +69,24 @@ test("server integrates the recursive client watcher without reusing the JSON wa
   const clientWatchAt = server.indexOf('clientWatcher = watch(join(editorDir, "client"), { recursive: true }');
   assert.ok(listenAt >= 0 && clientWatchAt > listenAt);
   assert.match(server, /clientReloader\.schedule\(\)/);
-  assert.match(server, /catch \(error\) \{\s+clientReloader\.close\(\);\s+await new Promise<void>\(\(resolveClose\) => server\.close/);
+  // catch は「reloader を閉じる → 生成済み watcher を閉じる → server を閉じる」。
+  // watcher の後片付けが間に挟まるので緩く繋ぐ(順序と両端は固定したまま)
+  assert.match(server, /catch \(error\) \{\s+clientReloader\.close\(\);[\s\S]*?await new Promise<void>\(\(resolveClose\) => server\.close/);
   assert.match(server, /clientWatcher\?\.close\(\)/);
   assert.match(server, /watch\(dir, \(_event, filename\) =>/);
+  // client バンドルは editor/client だけで閉じない(EnginePreview が
+  // src/engine/describeFrame を import している)。src を監視しないと
+  // 「DOM オーバーレイだけ更新され、キャンバスの描画は古いまま」になる
+  assert.match(server, /engineWatcher = watch\(join\(editorDir, "\.\.", "src"\), \{ recursive: true \}/);
+  assert.match(server, /engineWatcher\?\.close\(\)/);
+});
+
+test("CaptionOverlay aligns multiline topLeft text like the renderer", () => {
+  const overlay = read("editor/client/CaptionOverlay.tsx");
+  assert.match(
+    overlay,
+    /textAlign: \(c\.anchor === "topLeft" \? "left" : "center"\) as "left" \| "center"/,
+  );
 });
 
 test("OpenCut provenance pins exact sources, adaptation, and the MIT notice", () => {

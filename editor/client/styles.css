@@ -1925,7 +1925,11 @@
   .insp .capEdit:focus { outline: none; border-color: hsl(var(--oc-primary)); }
   .insp .capTextInput {
     width: 100%;
-    height: 32px;
+    /* textarea(手動改行で複数行になる)なので固定高ではなく行数に追随させる */
+    min-height: 32px;
+    height: auto;
+    line-height: 1.4;
+    resize: vertical;
     margin-bottom: 0;
     padding: 6px 9px;
     background: hsl(var(--oc-background));
@@ -2771,6 +2775,12 @@
   .tlDropGhost.insert::before {
     content: ""; position: absolute; left: 0; top: 0; bottom: 0;
     width: 2px; background: #fb923c;
+  }
+  /* ---- ルーラー(時間軸)帯へのドロップ = 新規トラック作成 ---- */
+  /* 目印はルーラーの下線が青くなることだけ(帯は塗らない・ゴーストも出さない)。
+     border ではなく inset shadow なのでルーラーの高さが動かない */
+  .tlRuler.dropNewTrack {
+    box-shadow: inset 0 -2px 0 hsl(var(--oc-primary));
   }
   /* クリップ境界・再生ヘッドへ吸着したときのスナップ線 */
   .tlSnapLine {
@@ -4136,7 +4146,12 @@
   background: hsl(var(--oc-input));   /* OpenCut filled bg-input surface */
   font-size: var(--oc-text-xs);
 }
-.ocInspector .capTextInput { min-height: var(--insp-control-h); height: auto; }
+.ocInspector .capTextInput {
+  min-height: var(--insp-control-h);
+  height: auto;
+  line-height: 1.4;
+  resize: vertical;
+}
 .ocInspector .capTextInput:focus,
 .ocInspector .capEdit:focus {
   outline: none;
@@ -5011,6 +5026,13 @@
   background: hsl(var(--oc-muted) / 0.22);
   outline: 1px dashed hsl(var(--oc-muted-foreground) / 0.55);
   outline-offset: -1px;
+}
+
+/* ルーラー(時間軸)帯へのドロップ = 新規トラック作成。この skin は
+   .tlRuler の border-bottom を none にしているので、下線はドラッグ中だけ
+   青く現れる(inset shadow なのでルーラーの高さは動かない) */
+.ocTimeline .tlRuler.dropNewTrack {
+  box-shadow: inset 0 -2px 0 hsl(var(--oc-primary));
 }
 
 .ocTimeline .tlSnapLine {

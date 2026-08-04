@@ -87,6 +87,25 @@ test("必須ファイルが欠けていれば従来どおりエラーになる",
   }
 });
 
+test("describe: texts は1件1行・元秒付きで出る", () => {
+  const textDir = mkdtempSync(join(tmpdir(), "framewright-describe-text-"));
+  try {
+    buildRichFixture(textDir);
+    const overlays = JSON.parse(readFileSync(join(textDir, "overlays.json"), "utf8")) as {
+      texts?: unknown[];
+    };
+    overlays.texts = [
+      { start: 12, end: 14.5, text: "見出し\nサブコピー", pos: { x: 960, y: 540 } },
+    ];
+    writeFileSync(join(textDir, "overlays.json"), JSON.stringify(overlays, null, 2), "utf8");
+    const out = describe(textDir);
+    assert.match(out, /  テキスト 元 0:12\.0–0:14\.5「見出し サブコピー」/);
+    assert.doesNotMatch(out, /テキスト 1件/);
+  } finally {
+    rmSync(textDir, { recursive: true, force: true });
+  }
+});
+
 /* ------------------------------------------------------------------ */
 /* 「全部入り」リッチ fixture(タスク1〜3・5 で共用)                    */
 /* ------------------------------------------------------------------ */

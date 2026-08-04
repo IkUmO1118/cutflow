@@ -335,12 +335,13 @@ test("P6.6 track creation is preserved through Inspector track selects, not add-
   const inspector = read("editor/client/Inspector.tsx");
   const timeline = read("editor/client/Timeline.tsx");
 
-  assert.match(app, /const addTrack = \(kind: "caption" \| "overlay"\) =>/);
+  assert.match(app, /const addTrack = \(kind: "caption" \| "overlay" \| "text"\) =>/);
   assert.doesNotMatch(app, /onAddTrack=\{addTrack\}/);
   assert.doesNotMatch(timeline, /onAddTrack|addMenuOpen|トラックを追加\(種類を選択\)/);
   assert.match(inspector, /<option value="__new">＋ 新規トラック<\/option>/);
   assert.match(inspector, /updateCaption\(selection\.index, \{ track: capTracks \+ 1 \}\)/);
   assert.match(inspector, /patch\(\{ track: ovTracks \+ 1, layer: undefined \}\)/);
+  assert.match(inspector, /setTextTrack\(selection\.index, n\)/);
 });
 
 test("transport has a scoped deterministic 1024px wrap rule", () => {
@@ -433,12 +434,12 @@ test("left rail presets add at playhead and drop onto a revealed track", () => {
     assert.ok(presets.includes(kind), `effect presets missing ${kind}`);
 
   // addPresetAt: srcAt -> addByKind order, shared with the + button and DnD
-  const addPresetAtStart = app.indexOf("const addPresetAt = (preset: EditorPreset, outT: number)");
+  const addPresetAtStart = app.indexOf("const addPresetAt = (preset: EditorPreset, outT: number");
   assert.ok(addPresetAtStart >= 0);
   const addPresetAtEnd = app.indexOf("\n  };", addPresetAtStart);
   const addPresetAtBody = app.slice(addPresetAtStart, addPresetAtEnd);
   assert.match(addPresetAtBody, /srcAt\(outT\)/);
-  assert.match(addPresetAtBody, /addByKind\(preset\.kind, round2\(s\), round2\(e\)\)/);
+  assert.match(addPresetAtBody, /addByKind\(preset\.kind, round2\(s\), round2\(e\), options\?\.track\)/);
   // §8.1.1 regression pin: the preset add path never touches layerOrder/track creation
   assert.ok(!addPresetAtBody.includes("layerOrder"), "addPresetAt must not touch layerOrder");
   assert.ok(!addPresetAtBody.includes("createOverlayTrack"), "addPresetAt must not create tracks");
@@ -461,6 +462,7 @@ test("left rail presets add at playhead and drop onto a revealed track", () => {
   assert.ok(dropBody.indexOf("getData(PRESET_MIME)") < dropBody.indexOf("getData(MATERIAL_MIME)"));
   assert.match(timeline, /presetDragTrack: TrackId \| null;/);
   assert.match(timeline, /onDropPreset: \(outT: number, presetId: string\) => void;/);
+  assert.match(timeline, /onDropPresetNewTrack: \(outT: number, presetId: string\) => void;/);
   assert.match(timeline, /ocTrackDropLane/);
 
   // CSS pins for the preset panel/card shell and the drop-lane row styling

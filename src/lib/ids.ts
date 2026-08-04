@@ -23,6 +23,7 @@ export const ID_PREFIX = {
   chapter: "ch",
   bgmTrack: "bg",
   thumbnailText: "tx",
+  text: "txt",
 } as const;
 
 /** id の文法: `<prefix>_<base36 6桁>`。prefix は2〜3文字の小文字 */
@@ -128,6 +129,7 @@ function collectExistingIds(docs: EditableDocs, used: Set<string>): void {
   addAll(docs.overlays?.zooms);
   addAll(docs.overlays?.blurs);
   addAll(docs.overlays?.annotations);
+  addAll(docs.overlays?.texts);
   addAll(docs.overlays?.captionTracks);
   addAll(docs.chapters?.chapters);
   addAll(docs.bgm?.tracks);
@@ -191,6 +193,9 @@ export function stampDocs(docs: EditableDocs): EditableDocs {
         annotations: docs.overlays.annotations
           ? ensureIds(docs.overlays.annotations, ID_PREFIX.annotation, used)
           : docs.overlays.annotations,
+        texts: docs.overlays.texts
+          ? ensureIds(docs.overlays.texts, ID_PREFIX.text, used)
+          : docs.overlays.texts,
         captionTracks: docs.overlays.captionTracks
           ? ensureIds(docs.overlays.captionTracks, ID_PREFIX.captionTrack, used)
           : docs.overlays.captionTracks,

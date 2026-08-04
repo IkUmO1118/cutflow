@@ -11,8 +11,11 @@ import {
   buildClipGainAutomation,
   concatAudioBuffers,
   contextTimeForOutputSec,
+  ensureCached,
   shouldScheduleEntry,
   splitEntryIntoWindows,
+  windowAt,
+  windowCountOf,
 } from "../src/engine/runtime/audioScheduler.ts";
 
 /** AudioScheduler が constructor で使う分(createGain/destination)だけを
@@ -270,6 +273,82 @@ test("splitEntryIntoWindows: 窓長が区間と一致すると1個", () => {
   const e = entry({ outputStart: 0, outputEnd: 1, sourceStart: 0, sourceEnd: 1 });
   const w = splitEntryIntoWindows(e, 1);
   assert.equal(w.length, 1);
+});
+
+test("windowAt: splitEntryIntoWindows の各要素と厳密に一致する", () => {
+  const cases = [
+    entry({ outputStart: 0, outputEnd: 0.5, sourceStart: 10, sourceEnd: 10.5 }),
+    entry({ outputStart: 0, outputEnd: 4, sourceStart: 0, sourceEnd: 4, speed: 1 }),
+    entry({ outputStart: 0, outputEnd: 3.7, sourceStart: 5, sourceEnd: 8.7, speed: 1 }),
+    entry({ outputStart: 2, outputEnd: 9, sourceStart: 100, sourceEnd: 114, speed: 2 }),
+  ];
+  for (const e of cases) {
+    const windows = splitEntryIntoWindows(e, 1);
+    for (let i = 0; i < windows.length; i++) assert.deepEqual(windowAt(e, 1, i), windows[i]);
+  }
+});
+
+test("windowCountOf: splitEntryIntoWindows の length と一致する", () => {
+  const cases = [
+    entry({ outputStart: 0, outputEnd: 0.5 }),
+    entry({ outputStart: 0, outputEnd: 4 }),
+    entry({ outputStart: 0, outputEnd: 3.7 }),
+    entry({ outputStart: 2, outputEnd: 9, speed: 2 }),
+  ];
+  for (const e of cases) assert.equal(windowCountOf(e, 1), splitEntryIntoWindows(e, 1).length);
+});
+
+test("ensureCached: 同一 key の同時呼び出しは open を1回だけ呼ぶ", async () => {
+  const cache = new Map<string, string>();
+  const inflight = new Map<string, Promise<string | null>>();
+  let calls = 0;
+  const open = async () => {
+    calls++;
+    await new Promise((r) => setTimeout(r, 10));
+    return "value";
+  };
+  const [a, b] = await Promise.all([
+    ensureCached(cache, inflight, "k", open),
+    ensureCached(cache, inflight, "k", open),
+  ]);
+  assert.equal(a, "value");
+  assert.equal(b, "value");
+  assert.equal(calls, 1);
+});
+
+test("ensureCached: reject 後は次回再試行する", async () => {
+  const cache = new Map<string, string>();
+  const inflight = new Map<string, Promise<string | null>>();
+  let calls = 0;
+  await assert.rejects(
+    ensureCached(cache, inflight, "k", async () => {
+      calls++;
+      throw new Error("boom");
+    }),
+  );
+  assert.equal(inflight.has("k"), false);
+  assert.equal(await ensureCached(cache, inflight, "k", async () => {
+    calls++;
+    return "ok";
+  }), "ok");
+  assert.equal(calls, 2);
+});
+
+test("ensureCached: null 後は次回再試行する", async () => {
+  const cache = new Map<string, string>();
+  const inflight = new Map<string, Promise<string | null>>();
+  let calls = 0;
+  assert.equal(await ensureCached(cache, inflight, "k", async () => {
+    calls++;
+    return null;
+  }), null);
+  assert.equal(inflight.has("k"), false);
+  assert.equal(cache.has("k"), false);
+  assert.equal(await ensureCached(cache, inflight, "k", async () => {
+    calls++;
+    return "ok";
+  }), "ok");
+  assert.equal(calls, 2);
 });
 
 function track(overrides: Partial<Parameters<typeof buildBgmGainAutomation>[0]> = {}) {

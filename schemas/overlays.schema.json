@@ -177,6 +177,22 @@
         }
       }
     },
+    "TextOverlay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end", "text", "pos"],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/id" },
+        "reasonId": { "enum": ["tiny-target", "focus-shift", "secret-exposure", "attention-scatter", "already-legible", "concept-talk", "motion-carries"] },
+        "start": { "type": "number" },
+        "end": { "type": "number" },
+        "text": { "type": "string", "minLength": 1 },
+        "track": { "type": "integer", "minimum": 1 },
+        "pos": { "$ref": "common.schema.json#/$defs/CaptionPos" },
+        "anchor": { "enum": ["center", "topLeft"] },
+        "style": { "$ref": "common.schema.json#/$defs/CaptionStyle" }
+      }
+    },
     "WipeFull": {
       "type": "object",
       "additionalProperties": false,
@@ -268,7 +284,7 @@
       "type": "array",
       "items": {
         "type": "string",
-        "pattern": "^(wipe|caption|ov[1-9][0-9]*|cap[1-9][0-9]*)$"
+        "pattern": "^(wipe|caption|text|ov[1-9][0-9]*|cap[1-9][0-9]*|text[1-9][0-9]*)$"
       }
     },
     "captionTracks": {
@@ -337,6 +353,10 @@
           { "$ref": "#/$defs/SpotlightAnnotation" }
         ]
       }
+    },
+    "texts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/TextOverlay" }
     }
   }
 }

@@ -40,7 +40,7 @@ your editor/validator config.
 |---|---|---|
 | `cutplan.json` | `schemas/cutplan.schema.json` | Which spans of the raw recording survive (`segments[].action: "keep"/"cut"`), each with a human-readable `reason`. `generatedBy: "bootstrap"` is present only on the untouched, deterministic all-keep initial value and is removed by GUI/API/AI writes; absence is conservatively treated as human-edited. Normally segments align to the candidate grid the numbered-selection prompt saw; when `plan.harness.applySplit` (opt-in, default off) is enabled, a segment can also be a word-boundary sub-span produced by the agentic loop's `split_candidate` tool, written only after `validate`+`assert` pass (rolled back otherwise). `segments[].reasonId` (optional, sticky) tags a decision with one of the 13 classification ids in `docs/edit-skills/recipes/*.md` (single source of truth: `src/lib/reasonIds.ts`'s `CUT_REASON_IDS`); `plan.reasonIds.enabled` (config.yaml key, opt-in, default off) lets `plan --cuts-only`'s single-shot path ask the LLM for it (never the loop/harness paths) and also for a bounded `keeps` list (cut-tempting-but-kept spans only). `reasonId` never affects `render`/the approval hash (`cutplanApprovalHash` only looks at keep `[start, end]`) |
 | `transcript.json` | `schemas/transcript.schema.json` | Caption text, timing, per-caption position/style/track, and karaoke word timing. `generatedBy: "bootstrap"` exists only on the untouched empty initial value and is removed on the first GUI/API/AI write. |
-| `overlays.json` | `schemas/overlays.schema.json` | All visual production: material overlays, inserts, camera wipe, zooms, blurs, annotations (arrow/box/spotlight), caption track defaults, layer order, color filter. `zooms[]` / `blurs[]` / `annotations[]` may carry optional sticky `reasonId` values from the 7 effect recipes (`src/lib/effectReasonIds.ts` is the closed source). `validate` errors on non-strings and warns on unknown ids or effect-family mismatches. With `plan.reasonIds.enabled` (shared with cut planning), `plan-effects` asks for `effectReasonId`; off preserves its prior prompt/schema bytes. The metadata is projected out of render props and never enters the cut approval hash. |
+| `overlays.json` | `schemas/overlays.schema.json` | All visual production: material overlays, inserts, camera wipe, zooms, blurs, annotations (arrow/box/spotlight), non-speech video text (`texts[]` for titles/labels that survive re-transcribe and are not read as spoken transcript), caption track defaults, layer order, color filter. `zooms[]` / `blurs[]` / `annotations[]` / `texts[]` may carry optional sticky `reasonId` values from the 7 effect recipes (`src/lib/effectReasonIds.ts` is the closed source). `validate` errors on non-strings and warns on unknown ids or effect-family mismatches (the family cross-check does not apply to `texts[]`, which belongs to no effect family). With `plan.reasonIds.enabled` (shared with cut planning), `plan-effects` asks for `effectReasonId`; off preserves its prior prompt/schema bytes. The metadata is projected out of render props and never enters the cut approval hash. |
 | `bgm.json` | `schemas/bgm.schema.json` | Background music placement per time range. `timebase` is a document property: omitted/`source` means raw-recording seconds; `output` means post-cut/post-insert seconds. Output-time tracks are read-only in the GUI editor. |
 | `chapters.json` | `schemas/chapters.schema.json` | YouTube description chapter markers (not rendered into the video) |
 | `meta.json` | `schemas/meta.schema.json` | Draft titles and description text (does not affect the rendered video) |
@@ -294,8 +294,8 @@ requires a preview review; it refuses to run non-interactively without
 ## 6. Addressing with `@id`
 
 Elements across the editable files (cutplan segments, captions, overlays,
-inserts, zooms, blurs, wipes, hide-caption spans, caption track defs,
-chapters, BGM tracks, thumbnail texts) may carry a stable
+inserts, zooms, blurs, annotations, video texts, wipes, hide-caption spans,
+caption track defs, chapters, BGM tracks, thumbnail texts) may carry a stable
 `id?` field of the form `<prefix>_<6 lowercase base36 chars>`
 (for example `seg_a1b2c3`). IDs are **opt-in and sticky**: a project with no
 IDs anywhere behaves byte-identically to before this feature existed; once
@@ -320,6 +320,7 @@ Prefix per element kind:
 | chapter | `ch` |
 | BGM track | `bg` |
 | thumbnail text | `tx` |
+| video text | `txt` |
 
 Discover current IDs with `node src/cli.ts describe <dir> --json`. Assign
 IDs to elements that don't have one yet with `node src/cli.ts id-stamp <dir>`.
