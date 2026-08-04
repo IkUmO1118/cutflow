@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { quadToTransform, splitLayersForBlur } from "../src/engine/runtime/compositor.ts";
-import { externalTextureId } from "../src/engine/runtime/textureCache.ts";
+import { externalTextureId, renderedTextureId } from "../src/engine/runtime/textureCache.ts";
 import type { ExternalItem, FrameItem, RenderedItem } from "../src/engine/descriptor.ts";
 
 test("quadToTransform: 中心/幅高さへ変換する", () => {
@@ -140,4 +140,50 @@ test("externalTextureId: quadの寸法の違いがIDに効く(同じsourceRect�
   const a = externalTextureId("media/proxy.mp4", 0, undefined, rect, { w: 100, h: 100 }, undefined);
   const b = externalTextureId("media/proxy.mp4", 0, undefined, rect, { w: 200, h: 200 }, undefined);
   assert.notEqual(a, b);
+});
+
+// rendered 側にも external(§1.1)と同じ罠がある: ensureRendered は item を
+// フルフレームへ**絶対座標で**焼くのに、旧IDは contentHash(content+解像度)
+// だけだった。文言を変えずに動かすとIDが一致し、古い座標のテクスチャが
+// 再利用されて画が動かない(エディタでテロップ/テキストを D&D しても
+// キャンバス上の文字が移動せず、リロードするまで直らない)。
+// 既存の captionItem() を「動かす」ヘルパ(contentHash は据え置き=
+// 文言・スタイルを変えずに配置だけ動かした状況を作る)
+function movedCaption(overrides: Partial<RenderedItem>): RenderedItem {
+  return { ...captionItem(), ...overrides };
+}
+
+test("renderedTextureId: 同一contentHashでも placement が違えばIDが異なる(D&Dでキャンバスが追従しない再発防止)", () => {
+  const before = captionItem();
+  const after = movedCaption({
+    placement: { mode: "anchor", point: { x: 505, y: 1200 }, anchor: "center" },
+  });
+  assert.equal(before.contentHash, after.contentHash, "前提: 文言を変えずに動かすと contentHash は一致する");
+  assert.notEqual(renderedTextureId(before), renderedTextureId(after));
+});
+
+test("renderedTextureId: anchor だけの違いもIDに効く(同じ点でも描かれる場所が変わる)", () => {
+  // 点は据え置きで anchor だけ差し替える(anchor 単独の寄与を測る)
+  const bottomCenter = captionItem();
+  const topLeft = movedCaption({
+    placement: { mode: "anchor", point: { x: 960, y: 1000 }, anchor: "topLeft" },
+  });
+  assert.notEqual(renderedTextureId(bottomCenter), renderedTextureId(topLeft));
+});
+
+test("renderedTextureId: opacity の違いがIDに効く(anim フェードが最初の1枚で凍らない)", () => {
+  assert.notEqual(
+    renderedTextureId(movedCaption({ opacity: 0.2 })),
+    renderedTextureId(movedCaption({ opacity: 1 })),
+  );
+});
+
+test("renderedTextureId: transform の違いがIDに効く(anim スライド/ポップが凍らない)", () => {
+  const still = captionItem();
+  const moved = movedCaption({ transform: { translateX: 0, translateY: -40, scale: 1 } });
+  assert.notEqual(renderedTextureId(still), renderedTextureId(moved));
+});
+
+test("renderedTextureId: content・placement・opacity・transform が全て同一ならIDが一致する(キャッシュが効く)", () => {
+  assert.equal(renderedTextureId(captionItem()), renderedTextureId(captionItem()));
 });

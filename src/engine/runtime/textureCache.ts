@@ -3,7 +3,8 @@
 // contentHash/座標が変わらない限り再アップロードを省く(母艦§9「M3a方針確定」):
 //   - external: 「sourceId + サンプル timestamp + colorFilter 値 + そのテクスチャの
 //     画(え)を決める全入力(sourceRect・quadの寸法・radiusPx。R4 Phase2)」
-//   - rendered: contentHash そのもの
+//   - rendered: contentHash + drawRendered が item から読む残り全部
+//     (placement・opacity・transform)
 // blur 2パスの中間テクスチャ(下層スナップショット)は `ensureRaw` で
 // 同じキャッシュ機構に相乗りさせる。
 //
@@ -18,6 +19,7 @@
 // ブラウザ専用(webgpuBackend・OffscreenCanvas 前提)。
 import { releaseTexture, uploadTexture } from "./webgpuBackend.ts";
 import { drawRendered } from "../refPainter.ts";
+import { fnv1a64, stableStringify } from "../hash.ts";
 import type { ColorFilterEffect, Rect, RenderedItem } from "../descriptor.ts";
 
 /** そのテクスチャの画(え)を決める全入力(§2 決定2)。sourceRect は
@@ -43,8 +45,32 @@ export function externalTextureId(
   return `ext:${sourceId}@${sampleTimestamp.toFixed(6)}:${cf}:crop=${crop}:quad=${quad}:r=${radius}`;
 }
 
+/**
+ * rendered item のテクスチャID。external 側(R4 §1.1)と同じ原則で
+ * 「画(え)を決める全入力」をキーに含める。
+ *
+ * ensureRendered は item を**フルフレームサイズのキャンバスへ絶対座標で**
+ * ラスタライズする(drawRendered → drawCaption 等は item.placement の点/
+ * anchor へ描き、item.opacity を globalAlpha に、item.transform を器の変換に
+ * 焼き込む)。ところが contentHash の材料は content + 出力解像度だけで、
+ * これらは1つも入っていない。テロップ/テキストを**文言を変えずに動かす**と
+ * contentHash が変わらないため「アップロード済み」と誤判定され、古い座標で
+ * 焼かれたテクスチャが再利用されて画が動かなくなる(=エディタで D&D しても
+ * キャンバス上の文字が移動せず、リロードするまで直らない)。anim の
+ * フェード(opacity)・スライド/ポップ(transform)も同じ経路で凍る。
+ *
+ * contentHash はそのまま前置きして残す(可読性=どの content かが ID から
+ * 追える)。追加分は長さが暴れないよう畳んで付ける
+ */
 export function renderedTextureId(item: RenderedItem): string {
-  return `rnd:${item.contentHash}`;
+  const geometry = fnv1a64(
+    stableStringify({
+      placement: item.placement,
+      opacity: item.opacity,
+      transform: item.transform,
+    }),
+  );
+  return `rnd:${item.contentHash}:${geometry}`;
 }
 
 export class TextureCache {
@@ -56,8 +82,10 @@ export class TextureCache {
   }
 
   /** rendered item を(未アップロードなら)フルフレームサイズでラスタライズ
-   * してアップロードする。同じ contentHash が既にアップロード済みなら
-   * ラスタライズ自体をスキップする(§2 不変条件) */
+   * してアップロードする。同じ renderedTextureId(contentHash + 座標・
+   * opacity・transform)が既にアップロード済みならラスタライズ自体を
+   * スキップする(§2 不変条件)。キーは contentHash だけでは足りない
+   * (座標はテクスチャに焼き込まれる。renderedTextureId の注記を参照) */
   ensureRendered(item: RenderedItem, frameSize: { w: number; h: number }): string {
     const id = renderedTextureId(item);
     this.markUsed(id);

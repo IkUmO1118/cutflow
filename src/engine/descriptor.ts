@@ -210,8 +210,11 @@ export interface RenderedItem {
   kind: "rendered";
   content: RenderedContent;
   /** content(+出力解像度)の安定ハッシュ(hash.ts の contentHashOf)。
-   * 同一ハッシュ = 同一ラスタ結果になることがバックエンドのテクスチャ
-   * キャッシュ判定の前提 */
+   * 同一ハッシュ = 同一の「内容」。**ラスタ結果まで同一とは限らない**
+   * (placement/opacity/transform は content の外にあり、ラスタライズ時に
+   * テクスチャへ焼き込まれる)。テクスチャキャッシュのキーにはこれ単体では
+   * 足りず、runtime/textureCache.ts の renderedTextureId が座標側も
+   * 合わせて畳む */
   contentHash: string;
   /** content 自身に幾何が無い(caption のテキスト・fill の単色矩形)ときだけ
    * 指定する。annotation(box/spotlight/arrow)・blurRegion は rect/from-to を
