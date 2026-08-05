@@ -581,7 +581,34 @@ const EDITOR_AI_RESPONSE_SCHEMA: JsonSchemaTextFormat = {
                 additionalProperties: false,
                 properties: {
                   ops: { type: "array", items: EDITOR_AI_PATCH_ITEM_SCHEMA },
-                  replace: { type: "object" },
+                  // 最小ガード: 中身の詳細な形は validateDocs に委ねるが、
+                  // 「配列であるべき箇所が配列でない」というクラスの壊れ方
+                  // (§transcript.segments 等)だけは構造化出力の時点で塞ぐ。
+                  // ここに各ドキュメントの完全な形を複製すると CLAUDE.md の
+                  // スキーマ変更5点セットに6箇所目が増えてしまうため、
+                  // トップレベルの配列プロパティの型だけに留める。
+                  replace: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      cutplan: {
+                        type: "object",
+                        required: ["segments"],
+                        properties: { segments: { type: "array" } },
+                      },
+                      transcript: {
+                        type: "object",
+                        required: ["segments"],
+                        properties: { segments: { type: "array" } },
+                      },
+                      overlays: { type: "object" },
+                      bgm: {
+                        type: "object",
+                        required: ["tracks"],
+                        properties: { tracks: { type: "array" } },
+                      },
+                    },
+                  },
                 },
               },
             },
@@ -926,6 +953,12 @@ function isAiProposalRetryCandidate(message: string): boolean {
       || /\(patch\).*overlays\.overlays/.test(message)
       || /\(patch\).*overlays\.inserts/.test(message)
       || /@ann_/.test(message)
+      // replace で書いたドキュメントの必須配列(segments/tracks 等)が
+      // 配列でない/オブジェクトでない類の壊れ方。スキーマ側の最小ガードを
+      // すり抜けた(strict:false のため保証ではない)場合の保険として、
+      // エラー文面をそのまま次回プロンプトへ渡して自己修正させる
+      || /配列ではありません/.test(message)
+      || /オブジェクトではありません/.test(message)
     );
 }
 

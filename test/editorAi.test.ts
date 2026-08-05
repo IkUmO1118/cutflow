@@ -1073,6 +1073,72 @@ test("proposeEditorAi: overlays.inserts の collection target 失敗でも patch
   }
 });
 
+test("proposeEditorAi: replace.transcript.segments が配列でない失敗でも再試行して自己修正できる", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    let calls = 0;
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      calls += 1;
+      const body = JSON.parse(String(init?.body ?? "{}")) as { input?: string };
+      const prompt = body.input ?? "";
+      if (calls === 1) {
+        return {
+          ok: true,
+          json: async () => ({
+            output_text: JSON.stringify({
+              title: "全体の字幕を整理",
+              summary: ["segments を誤った形で書いた失敗例"],
+              edit: {
+                mode: "patch",
+                patch: {
+                  // 壊れた出力を意図的に再現: segments が配列ではなくオブジェクト
+                  replace: { transcript: { language: "ja", model: "test", segments: { cap_aaaaaa: "短く" } } },
+                },
+              },
+              review: { frames: [], notes: [] },
+            }),
+          }),
+          text: async () => "",
+        } as Response;
+      }
+      // 2回目は失敗理由がプロンプトへ渡り、正しい形で自己修正できていることを確認
+      assert.match(prompt, /Patch-only requirement:/);
+      assert.match(prompt, /transcript\.json segments: 配列ではありません/);
+      return {
+        ok: true,
+        json: async () => ({
+          output_text: JSON.stringify({
+            title: "全体の字幕を整理(修正版)",
+            summary: ["segments を配列のまま維持"],
+            edit: {
+              mode: "patch",
+              patch: { ops: [{ op: "set", target: "@cap_aaaaaa", field: "text", value: "短い字幕" }] },
+            },
+            review: { frames: [], notes: [] },
+          }),
+        }),
+        text: async () => "",
+      } as Response;
+    }) as typeof fetch;
+    await withEnv({ OPENAI_API_KEY: "test-openai" }, async () => {
+      await withTmpProjectAsync(async (dir) => {
+        const proposal = await proposeEditorAi(
+          dir,
+          { ...cfg, ai: { provider: "openai", model: "gpt-x" } } as Config,
+          {
+            instruction: "全体の字幕を短く整理して",
+            selection: { scope: "global" },
+          },
+        );
+        assert.equal(proposal.proposedDocs.transcript.segments[0].text, "短い字幕");
+      });
+    });
+    assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("proposeEditorAi: annotation request は patch-only を要求し intent 失敗時も再試行する", async () => {
   const originalFetch = globalThis.fetch;
   try {

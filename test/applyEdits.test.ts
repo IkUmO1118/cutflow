@@ -466,3 +466,42 @@ test("planApply: diff に @id 単位の変更(set/remove/add)が積まれる", (
     assert.equal(plan.diff[0].after, "更新後");
   });
 });
+
+// 壊れた patch.replace(AI 応答の replace はスキーマ上ただの object なので
+// 任意の JSON が来る)を採番より先に検査する。以前は planApply が
+// validateDocs より前に stampDocs を通していたため、segments が配列でない
+// body で `arr is not iterable` の TypeError が editor まで抜けていた
+test("planApply: 壊れた replace は throw せず errors として返る(採番は検査の後)", () => {
+  withTmpProject((dir) => {
+    const broken: ApplyPatch[] = [
+      // transcript ドキュメントではなく segments 配列そのものを渡した
+      { replace: { transcript: [{ start: 0, end: 1, text: "x" }] } as never },
+      // segments を失った transcript
+      { replace: { transcript: { language: "ja" } } as never },
+      // segments を失った cutplan
+      { replace: { cutplan: { approved: false } } as never },
+    ];
+    for (const patch of broken) {
+      const plan = planApply(dir, patch);
+      assert.ok(plan.errors.length > 0, `errors が空: ${JSON.stringify(patch)}`);
+    }
+    // 相2 も同じく throw せず、1バイトも書かない
+    const before = readRaw(dir, "transcript.json");
+    const res = applyEdits(dir, broken[0]);
+    assert.deepEqual(res.written, []);
+    assert.equal(readRaw(dir, "transcript.json"), before);
+  });
+});
+
+test("planApply: 検査を通った add は従来どおり採番される(順序変更の回帰)", () => {
+  withTmpProject((dir) => {
+    const patch: ApplyPatch = {
+      ops: [{ op: "add", target: "transcript.segments", value: { start: 5, end: 6, text: "追記" } }],
+    };
+    const plan = planApply(dir, patch);
+    assert.deepEqual(plan.errors, []);
+    const segs = (plan.body.transcript as { segments: { id?: string }[] }).segments;
+    assert.equal(segs.length, 2);
+    assert.ok(ID_RE.test(segs[1].id ?? ""), `採番されていない: ${JSON.stringify(segs[1])}`);
+  });
+});
