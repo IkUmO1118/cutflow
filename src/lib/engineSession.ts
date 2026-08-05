@@ -29,6 +29,20 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 // Export ページ(bundle + HTML + HTTP サーバ)
 // ---------------------------------------------------------------------------
 
+/** 同梱の日本語可変フォント。エクスポートページに @font-face で登録して、
+ * fontWeight の中間ウェイトを実グリフとして描き分けられるようにする
+ * (システムフォントは数値ウェイトを丸める。詳細は types.ts の
+ * CAPTION_DEFAULT_FONT_FAMILY / CAPTION_MINCHO_FONT_FAMILY のコメント)。
+ * weight レンジは各フォントの fvar wght 軸そのもの */
+export const BUNDLED_FONTS: { family: string; file: string; weightRange: string }[] = [
+  { family: "Noto Sans JP", file: "NotoSansJP.woff2", weightRange: "100 900" },
+  { family: "Noto Serif JP", file: "NotoSerifJP.woff2", weightRange: "200 900" },
+];
+
+function fontFaceCss(font: (typeof BUNDLED_FONTS)[number]): string {
+  return `@font-face{font-family:"${font.family}";src:url("/${font.file}") format("woff2");font-weight:${font.weightRange};font-display:block}`;
+}
+
 function bundleExporterFile(outDir: string): string {
   const entry = join(outDir, "_entry.mjs");
   writeFileSync(entry, `import "${join(repoRoot, "src/engine/runtime/exporter.ts").replace(/\\/g, "/")}";\n`);
@@ -42,11 +56,13 @@ function bundleExporterFile(outDir: string): string {
 
 function buildExportHtml(outDir: string, configJson: string): void {
   bundleExporterFile(outDir);
-  copyFileSync(join(repoRoot, "assets/fonts/NotoSansJP.woff2"), join(outDir, "NotoSansJP.woff2"));
+  for (const font of BUNDLED_FONTS) {
+    copyFileSync(join(repoRoot, "assets/fonts", font.file), join(outDir, font.file));
+  }
   const bundleName = "export-bundle.js";
   const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>FrameWright Engine</title>
-<style>@font-face{font-family:"Noto Sans JP";src:url("/NotoSansJP.woff2") format("woff2");font-weight:100 900;font-display:block}
+<style>${BUNDLED_FONTS.map(fontFaceCss).join("\n")}
 body{margin:0;background:#000;overflow:hidden}
 #canvas-host{position:absolute;top:0;left:0}
 #export-status{position:fixed;top:8px;left:8px;color:#fff;font:12px monospace}
@@ -64,7 +80,11 @@ function startExportServer(dir: string, outDir: string) {
     { path: "/", file: join(outDir, "export.html"), contentType: "text/html" },
     { path: "/export.html", file: join(outDir, "export.html"), contentType: "text/html" },
     { path: "/export-bundle.js", file: join(outDir, "export-bundle.js"), contentType: "text/javascript" },
-    { path: "/NotoSansJP.woff2", file: join(outDir, "NotoSansJP.woff2"), contentType: "font/woff2" },
+    ...BUNDLED_FONTS.map((font) => ({
+      path: `/${font.file}`,
+      file: join(outDir, font.file),
+      contentType: "font/woff2",
+    })),
   ]);
 }
 

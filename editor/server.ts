@@ -30,6 +30,7 @@ import {
   editorAssetResponse,
 } from "./clientBuild.ts";
 import type { EngineDevAssets, MutableEditorClientAssets } from "./clientBuild.ts";
+import { BUNDLED_FONTS } from "../src/lib/engineSession.ts";
 import {
   clearCutplanApproval,
   writeCutplanApproval,
@@ -512,6 +513,7 @@ async function handle(
       watchProject?.(dir);
     }
   } else if (launcherMode && path !== "/" && path !== "/bundle.js" && path !== "/styles.css" &&
+      !path.startsWith("/fonts/") &&
       path !== "/particle_loop_icon.svg" && path !== "/api/ping" && path !== "/api/projects") {
     throw new HttpError(404, "プロジェクト URL /p/<name>/ を使用してください");
   }
@@ -542,6 +544,23 @@ async function handle(
     res.writeHead(200, { "Content-Type": "image/svg+xml; charset=utf-8" });
     res.end(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "client/particle_loop_icon.svg"), "utf8"));
     return;
+  }
+  if (req.method === "GET" && path.startsWith("/fonts/")) {
+    // 同梱の日本語可変フォント(styles.css の @font-face が参照する)。
+    // ここで配らないとプレビューがシステムフォントへ落ち、ヒラギノが数値
+    // ウェイトを丸めるぶん render と絵が食い違う。engine の export ページと
+    // 同じ assets/fonts/ を配る=両者で必ず同じフォントになる
+    const font = BUNDLED_FONTS.find((f) => path === `/fonts/${f.file}`);
+    if (font) {
+      const file = join(dirname(fileURLToPath(import.meta.url)), "../assets/fonts", font.file);
+      res.writeHead(200, {
+        "Content-Type": "font/woff2",
+        // 内容が変わらない同梱資産。リロードのたびに 6MB 読み直させない
+        "Cache-Control": "public, max-age=31536000, immutable",
+      });
+      res.end(readFileSync(file));
+      return;
+    }
   }
   if (req.method === "GET" && path === "/api/ping") {
     // 生存確認(editor --stop / --status が portfile の pid/port を検証する)。
