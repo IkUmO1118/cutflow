@@ -205,6 +205,7 @@ export const Timeline = ({
   diffTracks,
   onDiffSetHunk,
   onDiffPreview,
+  onDiffInspect,
   diffStills,
   aiClipMarks,
   aiWorkflowHunks,
@@ -298,6 +299,8 @@ export const Timeline = ({
   diffTracks?: DiffTrackDef[];
   onDiffSetHunk?: (hunks: Hunk[], side: "theirs" | "mine") => void;
   onDiffPreview?: (event: import("../../src/lib/reviewEvents.ts").ReviewEvent) => void;
+  /** diff クリップを開いた=「比較を見に行った」という意思表示。 */
+  onDiffInspect?: () => void;
   diffStills?: { eventId: string; beforeFile: string; afterFile: string }[];
   /** F7: AI提案の影響を受ける本体クリップ。キーは `${kind}:${index}` */
   aiClipMarks?: Map<string, "remove" | "modify">;
@@ -1340,6 +1343,7 @@ export const Timeline = ({
                           }
                           onClick={(e) => {
                             e.stopPropagation();
+                            onDiffInspect?.();
                             setPopoverEvent({ event, x: e.clientX, y: e.clientY });
                           }}
                           onPointerEnter={(e) => {

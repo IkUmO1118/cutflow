@@ -59,6 +59,7 @@ import {
   buildDiffTracks,
   resolutionForOnly,
   shouldEnterCopilotMode,
+  shouldRequestAiReview,
   DIFF_TRACK_PREFIX,
 } from "../editor/client/model.ts";
 import type { ReviewEvent } from "../src/lib/reviewEvents.ts";
@@ -86,6 +87,31 @@ describe("AI Copilot Diff: モード遷移(F6)", () => {
     );
   });
 
+});
+
+describe("shouldRequestAiReview", () => {
+  it("reviewing かつ未生成・未失効・未要求なら true", () => {
+    assert.equal(
+      shouldRequestAiReview({
+        phase: "reviewing",
+        hasBundle: false,
+        stale: false,
+        alreadyRequested: false,
+      }),
+      true,
+    );
+  });
+
+  it("reviewing 以外では false", () => {
+    assert.equal(shouldRequestAiReview({ phase: "verifying", hasBundle: false, stale: false, alreadyRequested: false }), false);
+    assert.equal(shouldRequestAiReview({ phase: "refining", hasBundle: false, stale: false, alreadyRequested: false }), false);
+  });
+
+  it("既に比較がある・失効中・要求済みなら false", () => {
+    assert.equal(shouldRequestAiReview({ phase: "reviewing", hasBundle: true, stale: false, alreadyRequested: false }), false);
+    assert.equal(shouldRequestAiReview({ phase: "reviewing", hasBundle: false, stale: true, alreadyRequested: false }), false);
+    assert.equal(shouldRequestAiReview({ phase: "reviewing", hasBundle: false, stale: false, alreadyRequested: true }), false);
+  });
 });
 
 describe("AI Copilot Diff: diffレーンの組み立て(F2/F3)", () => {

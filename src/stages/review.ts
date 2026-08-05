@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
+import { throwIfAborted } from "../lib/abort.ts";
 import { resolveAvCfg } from "../lib/config.ts";
 import { resolveAiReviewCfg } from "../lib/config.ts";
 import { run } from "../lib/exec.ts";
@@ -119,6 +120,9 @@ export interface ReviewOptions {
   secondaryObservation?: "none" | "vlm";
   provider?: SecondaryObservationProvider;
   hooks?: ReviewHooks;
+  /** 中断シグナル。未指定なら中断判定は一切行わない(既存挙動と等価)。
+   *  判定は決めた seam でだけ行い、ファイル書き込みの途中では中断しない */
+  signal?: AbortSignal;
 }
 
 interface ReviewRenderContext {
@@ -165,6 +169,7 @@ export async function reviewEdit(
   mkdirSync(join(outDir, "before"), { recursive: true });
   mkdirSync(join(outDir, "after"), { recursive: true });
   mkdirSync(join(outDir, "ocr"), { recursive: true });
+  throwIfAborted(opts.signal);
 
   const runOcr = opts.hooks?.runOcr ?? defaultRunOcr;
   const stills = await renderReviewStills({
@@ -176,7 +181,9 @@ export async function reviewEdit(
     hooks: opts.hooks,
     runOcr,
     warnings,
+    signal: opts.signal,
   });
+  throwIfAborted(opts.signal);
 
   const needDerivedClip =
     normalized.clip !== null || normalized.observations.motion || normalized.observations.sound;
@@ -195,9 +202,11 @@ export async function reviewEdit(
         warnings,
       })
     : {};
+  throwIfAborted(opts.signal);
 
   const beforeObservation = structureObservationOf(base, beforeCtx.props as never);
   const afterObservation = structureObservationOf(candidate, afterCtx.props as never);
+  throwIfAborted(opts.signal);
   if (normalized.observations.motion) {
     beforeObservation.motion = clipFiles.beforeFile
       ? (await analyzeMotion(clipFiles.beforeFile, cfg, opts.hooks)) ?? undefined
@@ -206,6 +215,7 @@ export async function reviewEdit(
       ? (await analyzeMotion(clipFiles.afterFile, cfg, opts.hooks)) ?? undefined
       : undefined;
   }
+  throwIfAborted(opts.signal);
   if (normalized.observations.sound) {
     beforeObservation.sound = clipFiles.beforeFile
       ? (await analyzeSound(clipFiles.beforeFile, cfg, opts.hooks)) ?? undefined
@@ -231,6 +241,7 @@ export async function reviewEdit(
   });
   warnings.push(...candidateValidate.warnings.map((warning) => `${warning.file} ${warning.where}: ${warning.message}`));
   let secondaryObservation: SecondaryObservation | undefined;
+  throwIfAborted(opts.signal);
   if (opts.secondaryObservation === "vlm") {
     const aiReview = resolveAiReviewCfg(cfg);
     if (!aiReview.vlm) {
@@ -321,6 +332,7 @@ async function renderReviewStills(args: {
   hooks?: ReviewHooks;
   runOcr: typeof defaultRunOcr;
   warnings: string[];
+  signal?: AbortSignal;
 }): Promise<ReviewStill[]> {
   const { dir, outDir, beforeCtx, afterCtx, frames, hooks, runOcr, warnings } = args;
   if (hooks?.renderStill) {
@@ -340,12 +352,14 @@ async function renderReviewStills(args: {
     props: beforeCtx.props,
     durationSec: beforeCtx.durationSec,
     shots: targets.map((target) => ({ outSec: target.before.outSec, outFile: target.beforeFile })),
+    signal: args.signal,
   });
   await captureEngineStills({
     dir,
     props: afterCtx.props,
     durationSec: afterCtx.durationSec,
     shots: targets.map((target) => ({ outSec: target.after.outSec, outFile: target.afterFile })),
+    signal: args.signal,
   });
 
   const out: ReviewStill[] = [];
@@ -391,9 +405,11 @@ async function renderReviewStillsWithHooks(args: {
   hooks?: ReviewHooks;
   runOcr: typeof defaultRunOcr;
   warnings: string[];
+  signal?: AbortSignal;
 }): Promise<ReviewStill[]> {
   const out: ReviewStill[] = [];
   for (let index = 0; index < args.frames.length; index++) {
+    throwIfAborted(args.signal);
     const frame = args.frames[index];
     const before = resolveFrameTarget(frame, args.beforeCtx);
     const after = resolveFrameTarget(frame, args.afterCtx);

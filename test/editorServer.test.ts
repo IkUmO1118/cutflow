@@ -23,6 +23,7 @@ import {
   validateRefineRequest,
   validateHyperframeRenderRequest,
   validateReviewRequest,
+  saveHeavyJobDecision,
 } from "../editor/server.ts";
 import { ID_RE } from "../src/lib/ids.ts";
 import type { AiProfileStatus, Config } from "../src/lib/config.ts";
@@ -38,6 +39,21 @@ import {
   hyperframeAuthorReadiness,
   validateHyperframeAuthorRequest,
 } from "../src/lib/hyperframeAuthor.ts";
+
+test("saveHeavyJobDecision: review だけ中止して保存を通す", () => {
+  assert.equal(saveHeavyJobDecision(null), "allow");
+  assert.equal(saveHeavyJobDecision("review"), "cancel");
+  for (const stage of [
+    "run",
+    "preview",
+    "render",
+    "propose",
+    "hyperframe-render",
+    "hyperframe-author",
+  ] as const) {
+    assert.equal(saveHeavyJobDecision(stage), "reject", stage);
+  }
+});
 
 const authorProfile = (overrides: Partial<AiProfileStatus> = {}): AiProfileStatus => ({
   name: "local",

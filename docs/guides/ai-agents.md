@@ -254,8 +254,13 @@ cp docs/examples/claude-settings-deny.json <あなたのプロジェクト>/.cla
 
 ## AI提案の比較・高水準編集・ローカル検索
 
-GUIのAI提案では、保存前にbefore/after still、任意の30秒以内のclip、
-structure/motion/sound/OCRの決定論的checkを生成できる。画像対応API providerを
+GUIのAI提案では、比較を見に行ったときだけbefore/after still、任意の30秒以内の
+clip、structure/motion/sound/OCRの決定論的checkを生成する。比較を生成しないまま
+承認・保存してよい。比較は自動では走らず、サマリーバーの「比較を生成」、diff
+クリップを開く操作、差分プレビューで走る。
+
+比較の生成中に保存すると、保存が優先される。生成中の比較は中止され、
+`review.probe` は破棄され、保存成立により提案は失効する。画像対応API providerを
 使う場合だけ、次を明示設定したうえで比較画面のチェックボックスを有効にすると、
 最大4枚を長辺1600px以下へ縮小して外部APIへ送る。既定はoffで、VLMの失敗は
 保存や決定論的reviewを失敗させない。
@@ -277,5 +282,4 @@ node src/cli.ts search "ログイン画面" --kind material --json
 MCPでは`framewright_review`、`framewright_edit`、`framewright_search`を利用できる。
 `framewright_edit`は`dryRun`が必須で、書き込み時も既存の`planApply`検査を通る。
 検索はread-onlyで、結果に絶対pathを含めず、他recordingの素材をコピーしない。
-
 

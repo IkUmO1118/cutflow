@@ -1099,6 +1099,21 @@ export function shouldEnterCopilotMode(args: {
 }
 
 /**
+ * 比較(before/after still)の生成を、暗黙のトリガ(diff popover を
+ * 開く / 差分プレビュー)で走らせてよいか。
+ */
+export function shouldRequestAiReview(args: {
+  phase: string;
+  hasBundle: boolean;
+  stale: boolean;
+  alreadyRequested: boolean;
+}): boolean {
+  if (args.phase !== "reviewing") return false;
+  if (args.hasBundle || args.stale) return false;
+  return !args.alreadyRequested;
+}
+
+/**
  * F8: 単一(または複数)hunk だけを当てるための resolution を作る。
  * applyProposalResolution は resolution に無い hunk を既定で "theirs" として
  * 当ててしまうので、当てたいもの以外を明示的に "mine" で塞ぐ必要がある
