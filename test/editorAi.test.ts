@@ -502,7 +502,7 @@ test("buildEditorAiPrompt: 指示と選択文脈と project projection を含め
   });
 });
 
-test("buildEditorAiPrompt: global scope は project-level summary に圧縮する", () => {
+test("buildEditorAiPrompt: global scope は project-level summary + 全件タイムライン候補を渡す", () => {
   withTmpProject((dir) => {
     const prompt = buildEditorAiPrompt(dir, cfg, {
       instruction: "全体のBGMを調整",
@@ -510,11 +510,13 @@ test("buildEditorAiPrompt: global scope は project-level summary に圧縮す�
     });
     assert.match(prompt, /"scope": "global"/);
     assert.match(prompt, /"counts"/);
-    assert.doesNotMatch(prompt, /こんにちは、ええと、世界/);
+    assert.match(prompt, /timelineCandidates/);
+    // キーワードに依存せず、global scope なら常に全キャプションが候補として渡る
+    assert.match(prompt, /こんにちは、ええと、世界/);
   });
 });
 
-test("buildEditorAiPrompt: global の注釈依頼にはタイミング候補を含める", () => {
+test("buildEditorAiPrompt: global のタイムライン候補はキーワードに依存せず動画全体をカバーする", () => {
   withTmpProject((dir) => {
     writeFileSync(
       join(dir, "transcript.json"),
@@ -528,12 +530,14 @@ test("buildEditorAiPrompt: global の注釈依頼にはタイミング候補を�
       }, null, 2),
       "utf8",
     );
+    // 「タイミング/注釈」等のトリガーキーワードを含まない指示でも候補は付く
     const prompt = buildEditorAiPrompt(dir, cfg, {
-      instruction: "最適なタイミングに注釈を入れて",
+      instruction: "全体のテンポを整えて",
       selection: { scope: "global" },
     });
     assert.match(prompt, /timelineCandidates/);
     assert.match(prompt, /ここが重要です/);
+    assert.match(prompt, /次に設定を確認します/);
     assert.match(prompt, /Do not refuse merely because the user did not provide an exact timecode/);
     assert.match(prompt, /Choose a best-effort timing from the candidates/);
     assert.doesNotMatch(prompt, /Ask for a narrower scope if exact local timing context is needed/);

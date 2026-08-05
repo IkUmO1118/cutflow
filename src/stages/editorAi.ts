@@ -669,7 +669,9 @@ function refineContextJson(input: RefineEditorAiInput): string {
 
 const PLAYHEAD_CONTEXT_SEC = 12;
 const SELECTION_CONTEXT_PAD_SEC = 4;
-const GLOBAL_TIMELINE_LIMIT = 24;
+// 通常の収録では絶対に届かない値の安全弁。間引きではなく、病的に長い収録での
+// メモリ/トークン爆発だけを防ぐためのもの(§global scope は全件渡す方針)。
+const GLOBAL_TIMELINE_SAFETY_CAP = 5000;
 
 function overlapsRange(v: { start: number; end: number }, start: number, end: number): boolean {
   return Math.min(v.end, end) - Math.max(v.start, start) > 0.05;
@@ -711,16 +713,10 @@ function captionsInRange(captions: CaptionEntry[], start: number, end: number): 
   return captions.filter((c) => overlapsRange(c, start, end) || outOverlapsRange(c, start, end));
 }
 
-function wantsGlobalTimelineContext(req: AiProposeRequest): boolean {
-  if (req.selection && req.selection.scope !== "global") return false;
-  return /(最適|タイミング|注釈|annotation|arrow|box|spotlight|ここ|強調|目立|示|指|highlight|callout)/i
-    .test(req.instruction);
-}
-
 function globalTimelineCandidates(proj: DescribeProjection): unknown {
   const visibleCaptions = proj.captions
     .filter((c) => c.visible)
-    .slice(0, GLOBAL_TIMELINE_LIMIT)
+    .slice(0, GLOBAL_TIMELINE_SAFETY_CAP)
     .map((c) => ({
       kind: "caption",
       ...(c.id ? { id: c.id } : {}),
@@ -729,7 +725,7 @@ function globalTimelineCandidates(proj: DescribeProjection): unknown {
       text: c.text,
       out: c.out,
     }));
-  const keeps = proj.keeps.slice(0, GLOBAL_TIMELINE_LIMIT).map((k) => ({
+  const keeps = proj.keeps.slice(0, GLOBAL_TIMELINE_SAFETY_CAP).map((k) => ({
     kind: "keep",
     index: k.index,
     start: k.start,
@@ -738,7 +734,7 @@ function globalTimelineCandidates(proj: DescribeProjection): unknown {
     outStart: k.outStart,
     outEnd: k.outEnd,
   }));
-  const chapters = proj.chapters.slice(0, GLOBAL_TIMELINE_LIMIT).map((c) => ({
+  const chapters = proj.chapters.slice(0, GLOBAL_TIMELINE_SAFETY_CAP).map((c) => ({
     kind: "chapter",
     ...(c.id ? { id: c.id } : {}),
     start: c.start,
@@ -746,7 +742,7 @@ function globalTimelineCandidates(proj: DescribeProjection): unknown {
     title: c.title,
   }));
   return {
-    note: "Use these candidates to choose best-effort timing for global edit requests. Do not claim local context is unavailable when these candidates are present.",
+    note: "Use these candidates to choose best-effort timing for global edit requests. These cover the entire recording, not just its beginning. Do not claim local context is unavailable when these candidates are present.",
     visibleCaptions,
     keeps,
     chapters,
@@ -756,7 +752,6 @@ function globalTimelineCandidates(proj: DescribeProjection): unknown {
 function sliceProjectProjection(
   proj: DescribeProjection,
   selection: AiSelectionContext,
-  options: { includeGlobalTimeline?: boolean } = {},
 ): unknown {
   if (selection.scope === "global") {
     return {
@@ -780,10 +775,8 @@ function sliceProjectProjection(
         blurs: proj.overlays.blurs.length,
         annotations: proj.overlays.annotations.length,
       },
-      note: options.includeGlobalTimeline
-        ? "This is a project-level summary with timeline candidates. Choose a best-effort timing from the candidates for global edit requests."
-        : "This is a project-level summary. Ask for a narrower scope if exact local timing context is needed.",
-      ...(options.includeGlobalTimeline ? { timelineCandidates: globalTimelineCandidates(proj) } : {}),
+      note: "This is a project-level summary with timeline candidates covering the whole recording. Choose a best-effort timing from the candidates for global edit requests.",
+      timelineCandidates: globalTimelineCandidates(proj),
     };
   }
 
@@ -887,11 +880,7 @@ export function buildEditorAiPrompt(
     scope: req.selection?.scope ?? (req.selection ? "selection" : "global"),
     ...(req.selection ?? {}),
   };
-  const projectProjection = sliceProjectProjection(
-    describeJson(dir, cfg),
-    selectionContext,
-    { includeGlobalTimeline: wantsGlobalTimelineContext(req) },
-  );
+  const projectProjection = sliceProjectProjection(describeJson(dir, cfg), selectionContext);
   const wantsRetrieval = /(素材|B-?roll|過去|以前|似た|画像|動画)/i.test(req.instruction);
   const retrieval = wantsRetrieval
     ? retrievalSearch(cfg.recordingsDir, {
