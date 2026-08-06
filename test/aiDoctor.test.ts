@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { aiDoctor } from "../src/stages/aiDoctor.ts";
+import { LEGACY_AI_PROFILE } from "../src/lib/config.ts";
 import type { Config } from "../src/lib/config.ts";
 
 test("aiDoctor: openai-compatible profile の text/structured/image を検査できる", async () => {
@@ -55,5 +56,29 @@ test("aiDoctor: openai-compatible profile の text/structured/image を検査で
     assert.equal(result.checks.image.status, "ok");
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test("aiDoctor: legacy/既定経路(予約 profile 名)でも検査が走る(合成 config では別名にする)", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => ({
+    ok: true,
+    status: 200,
+    headers: new Headers({ "content-type": "application/json" }),
+    json: async () => ({ output_text: "framewright-ok" }),
+  }) as Response) as typeof fetch;
+  const originalKey = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = "test-key";
+  try {
+    const [result] = await aiDoctor({ ai: { provider: "openai", model: "gpt-x" } } as Config);
+    assert.equal(result!.profile, LEGACY_AI_PROFILE);
+    // 予約名がそのまま合成 config へ入ると「予約済みです」で全 check が error になる
+    assert.equal(result!.checks.text.status, "ok");
+    assert.notEqual(result!.checks.structured.status, "error");
+    assert.notEqual(result!.checks.image.status, "error");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = originalKey;
   }
 });

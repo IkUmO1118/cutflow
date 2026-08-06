@@ -100,7 +100,11 @@ export interface ResolvedAiConfig {
     structured: string;
     vision?: string;
   };
-  source: "routed" | "legacy-ai" | "legacy-llm" | "default";
+  /** "unconfigured" = ai も llm も未設定で、API キーも1つも見つからない状態。
+   *  profiles/routes は形だけ既定候補の先頭で埋まるが、実際の AI 呼び出しは
+   *  lib/ai/client.ts が AI_UNCONFIGURED_MESSAGE で止める(知覚系の
+   *  supportsImageReview 等は例外ではなく「AI 無し」として優雅に劣化する) */
+  source: "routed" | "legacy-ai" | "legacy-llm" | "default" | "unconfigured";
 }
 
 export interface AiProfileStatus {
@@ -112,11 +116,11 @@ export interface AiProfileStatus {
   capabilities: AiCapabilities;
 }
 
-let repoEnvLoadedForStatus = false;
+let repoEnvLoaded = false;
 
-function loadRepoEnvForStatus(): void {
-  if (repoEnvLoadedForStatus) return;
-  repoEnvLoadedForStatus = true;
+function loadRepoEnv(): void {
+  if (repoEnvLoaded) return;
+  repoEnvLoaded = true;
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
   try {
     process.loadEnvFile?.(join(repoRoot, ".env"));
@@ -791,7 +795,8 @@ export const DEFAULT_AI_MAX_RETRIES = 1;
 export const DEFAULT_AI_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 export const DEFAULT_AI_MAX_OUTPUT_TOKENS = 8192;
 export const MAX_AI_IMAGES = 4;
-const LEGACY_AI_PROFILE = "legacy-default";
+/** legacy(ai.provider)/既定経路が使う内部 profile 名。ユーザーは使えない(予約語) */
+export const LEGACY_AI_PROFILE = "legacy-default";
 
 export function resolveHyperframeAssetLimits(cfg: Config): {
   maxBytes: number;
@@ -1240,9 +1245,10 @@ export function resolvePlanHarnessCfg(cfg: Config): {
 /** plan.harness.agentic かつ、対象(structured route)プロファイルのアダプタが
  * tool-use(completeAgentic)対応のときだけ true。非対応アダプタでは false=
  * 既存の単発/pushループ経路へ自動フォールバックする(§H1H2design §1-4) */
-export function planHarnessEnabled(cfg: Config): boolean {
+export function planHarnessEnabled(cfg: Config, env?: NodeJS.ProcessEnv): boolean {
   if (!resolvePlanHarnessCfg(cfg).agentic) return false;
-  const runtime = resolveAiRuntimeConfig(cfg);
+  const runtime = resolveAiRuntimeConfig(cfg, env);
+  if (runtime.source === "unconfigured") return false;
   const profile = profileForRoute(runtime, "structured");
   const adapter = adapterFor(profile.adapter);
   return typeof adapter.completeAgentic === "function";
@@ -1747,6 +1753,30 @@ function legacyRuntime(provider: AiProvider, model: string, source: ResolvedAiCo
   };
 }
 
+/** ai / llm を一切書かないときの既定候補。CLI(claude-code / codex)ではなく
+ *  API を既定にし、どの API を使うかは env にある鍵で決める(先頭から順に見る)。
+ *  API アダプタは model の明示を要求する(requireExplicitModel)ので、
+ *  既定モデルもここで持つ。CLI を使いたい場合は config.yaml で
+ *  adapter: claude-code / codex を明示する */
+export const DEFAULT_AI_CANDIDATES: readonly { adapter: AiProvider; apiKeyEnv: string; model: string }[] = [
+  { adapter: "anthropic", apiKeyEnv: "ANTHROPIC_API_KEY", model: "claude-sonnet-5" },
+  { adapter: "openai", apiKeyEnv: "OPENAI_API_KEY", model: "gpt-5.4-mini" },
+];
+
+export const AI_UNCONFIGURED_MESSAGE =
+  "AI の接続先が未設定です。config.yaml の ai を設定するか、"
+  + `${DEFAULT_AI_CANDIDATES.map((c) => c.apiKeyEnv).join(" / ")} のいずれかを .env に入れてください`
+  + "(Claude Code / Codex CLI を使う場合は ai.profiles で adapter: claude-code / codex を明示してください)";
+
+function defaultRuntime(env: NodeJS.ProcessEnv): ResolvedAiConfig {
+  const found = DEFAULT_AI_CANDIDATES.find((candidate) => (env[candidate.apiKeyEnv] ?? "").trim() !== "");
+  if (found) return legacyRuntime(found.adapter, found.model, "default");
+  // 鍵が1つも無くても throw しない: 収録フォルダを開くだけ・決定論チェックだけ
+  // の経路(editor の project load / effect-check の非 VLM 部分)を壊さないため。
+  // 形だけ先頭候補で埋め、実際の AI 呼び出しは client.ts が止める
+  return { ...legacyRuntime(DEFAULT_AI_CANDIDATES[0]!.adapter, DEFAULT_AI_CANDIDATES[0]!.model, "default"), source: "unconfigured" };
+}
+
 function unknownKeys(value: Record<string, unknown>, allowed: string[]): string[] {
   return Object.keys(value).filter((key) => !allowed.includes(key));
 }
@@ -1864,7 +1894,7 @@ export function validateAiConfig(value: unknown): string[] {
 }
 
 export function aiProfileStatuses(cfg: Config): AiProfileStatus[] {
-  loadRepoEnvForStatus();
+  loadRepoEnv();
   const runtime = resolveAiRuntimeConfig(cfg);
   return [...runtime.profiles.values()].map((profile) => ({
     name: profile.name,
@@ -1881,7 +1911,9 @@ export function aiProfileStatuses(cfg: Config): AiProfileStatus[] {
   }));
 }
 
-export function resolveAiRuntimeConfig(cfg: Config): ResolvedAiConfig {
+/** `env` を渡すと既定解決(ai/llm 未設定時)の鍵探索をその環境で行う。
+ *  省略時はリポジトリ直下の .env を読み込んだうえで process.env を見る */
+export function resolveAiRuntimeConfig(cfg: Config, env?: NodeJS.ProcessEnv): ResolvedAiConfig {
   if (cfg.ai && "provider" in cfg.ai && "profiles" in cfg.ai) {
     throw new Error("ai.provider と ai.profiles は併記できません");
   }
@@ -1912,7 +1944,9 @@ export function resolveAiRuntimeConfig(cfg: Config): ResolvedAiConfig {
   if (cfg.llm?.backend === "api") {
     return legacyRuntime("anthropic", cfg.llm.model || "auto", "legacy-llm");
   }
-  return legacyRuntime("claude-code", "auto", "default");
+  if (env) return defaultRuntime(env);
+  loadRepoEnv();
+  return defaultRuntime(process.env);
 }
 
 export function profileForRoute(runtime: ResolvedAiConfig, route: AiRoute): ResolvedAiProfile {
@@ -1923,8 +1957,11 @@ export function profileForRoute(runtime: ResolvedAiConfig, route: AiRoute): Reso
   return profile;
 }
 
-export function aiCapabilities(cfg: Config, route: AiRoute): AiCapabilities | null {
-  const runtime = resolveAiRuntimeConfig(cfg);
+export function aiCapabilities(cfg: Config, route: AiRoute, env?: NodeJS.ProcessEnv): AiCapabilities | null {
+  const runtime = resolveAiRuntimeConfig(cfg, env);
+  // 未設定は「その route は使えない」= route 未設定と同じ扱い。VLM 経路は
+  // これを見て決定論のみへ優雅に劣化する(例外を投げない)
+  if (runtime.source === "unconfigured") return null;
   const profileName = runtime.routes[route];
   if (!profileName) return null;
   return runtime.profiles.get(profileName)?.capabilities ?? null;

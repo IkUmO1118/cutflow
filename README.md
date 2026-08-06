@@ -101,10 +101,12 @@ node src/cli.ts doctor    # リンク不要。リポジトリのルートから
 > 確認できます(whisper は同梱しないので warn=想定内)。収録フォルダは
 > `-v ~/Movies/framewright:/recordings` でマウントして編集します。
 
-> **既定の AI provider `claude-code` は `claude` CLI(Claude Code)の
-> インストールと認証(ログイン)が前提です。** 未導入だと `plan` 段で
-> `コマンド 'claude' が見つかりません` で止まります。Claude Code を入れて
-> `claude` にログインしておくか、Codex CLI / 従量課金 API に切り替えてください
+> **AI の既定は API です。** `config.yaml` に `ai:` を書かない場合、
+> `.env` か環境変数の `ANTHROPIC_API_KEY`(無ければ `OPENAI_API_KEY`)で
+> 接続先が決まります。どちらも無いと `plan` 段で「config.yaml の ai を
+> 設定するか、鍵を .env に入れてください」で止まります。`claude` CLI
+> (Claude Code)や Codex CLI を使いたい場合は `ai.profiles` で
+> `adapter: claude-code` / `codex` を明示してください
 > (→ [設定](#設定) の「AI provider」)。文字起こし・無音検出・レンダーは
 > LLM 不要です。
 
@@ -283,10 +285,12 @@ node src/cli.ts run    <dir> --layout obs-canvas
 閾値、whisper モデル、AI provider 等)。コード側にハードコードされた
 設定はありません。
 
-AI provider:
+AI provider(`ai:` 省略時の既定は **API**。`ANTHROPIC_API_KEY` があれば
+`anthropic` / `claude-sonnet-5`、無くて `OPENAI_API_KEY` があれば `openai` /
+`gpt-5.4-mini`、どちらも無ければ AI 呼び出し時にエラー):
 
-- `claude-code`(デフォルト): `claude` CLI をサブプロセス実行。API キー不要
-- `codex`: `codex exec` を read-only で実行。Codex CLI 認証が必要(実験的)
+- `claude-code`: `claude` CLI をサブプロセス実行。API キー不要(明示設定が必要)
+- `codex`: `codex exec` を read-only で実行。Codex CLI 認証が必要(実験的・明示設定が必要)
 - `anthropic`: Anthropic API。`.env` または環境変数に `ANTHROPIC_API_KEY`、
   `ai.model` にモデル名を指定
 - `openai`: OpenAI API。`.env` または環境変数に `OPENAI_API_KEY`、

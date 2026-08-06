@@ -10,6 +10,31 @@ AI は未設定でも deterministic な CLI / editor / render は動く。AI を
 `ai.provider` / `ai.model` と `llm.backend` はそのまま動くが、**新規設定は
 profiles + routes を推奨**する。
 
+### 既定(`ai:` を書かないとき)
+
+**既定は API**。`ai:` も `llm:` も書かないときは、環境変数(リポジトリ直下の
+`.env` も読む)にある API キーで接続先が決まる。
+
+| 条件 | 解決される既定 |
+|---|---|
+| `ANTHROPIC_API_KEY` あり | `anthropic` / `claude-sonnet-5`(text・structured・vision) |
+| なし + `OPENAI_API_KEY` あり | `openai` / `gpt-5.4-mini`(text・structured・vision) |
+| どちらも無し | AI 呼び出し時に「config.yaml の ai を設定するか、鍵を .env に入れてください」で停止。決定論だけの経路(editor のプロジェクト読み込み・effect-check の非 VLM 部分など)は従来どおり動く |
+
+**Claude Code / Codex CLI を使いたい場合は明示設定が必要**(既定では選ばれない)。
+
+```yaml
+ai:
+  profiles:
+    cli:
+      adapter: claude-code # または codex
+  routes:
+    text: cli
+    structured: cli
+    # vision は CLI では担当できない(下の表を参照)。VLM を使うなら
+    # vision だけ API profile を割り当てる
+```
+
 ```yaml
 ai:
   profiles:

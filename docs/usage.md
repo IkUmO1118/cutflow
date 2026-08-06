@@ -143,7 +143,9 @@ human final がある場合だけ、従来の agreement (`exact`) / rescue (`dir
 ## 最小 config スターター(config.minimal.yaml)
 
 初回に本当に触る必要があるのは3点だけ: `recordingsDir`(収録の置き場所)/
-`ai.provider`(生成 AI の入口。`claude-code` は APIキー不要の既定)/
+`ai`(生成 AI の接続先。**省略時の既定は API** で、`ANTHROPIC_API_KEY` →
+`OPENAI_API_KEY` の順に env/`.env` を見て決まる。`claude` / `codex` CLI を
+使うときだけ `adapter: claude-code` / `codex` を明示する)/
 `ingest.layout`(収録レイアウト。`plain`=通常動画 / `obs-canvas`=画面+カメラ / `stills`=音声のみを元に全画面スライド overlay で構成)。音声ファイルだけのフォルダは自動的に `stills` になり、canvas は `ingest.stills`(省略時1920x1080/30fps)を使う。
 リポジトリ直下の `config.yaml`(全項目版・333行)を最初から読む必要はなく、
 同じくリポジトリ直下にある `config.minimal.yaml`(必須セクションだけの完結ファイル・

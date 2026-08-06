@@ -480,8 +480,14 @@ bgmFit:
   minChaptersForVariety: 3 # 章がこの数以上あると BGM 単調を警告
   # AI(意味カット・章立て・タイトル案・AI提案)
 ai:
-  # claude-code: Claude Code の `claude` CLI を使う(APIキー不要)
-  # codex:       Codex CLI の `codex exec` を使う(実験的)
+  # このセクションを丸ごと省略したときの既定は API(CLI ではない):
+  #   ANTHROPIC_API_KEY があれば anthropic / claude-sonnet-5
+  #   無くて OPENAI_API_KEY があれば openai / gpt-5.4-mini
+  #   どちらも無ければ AI 呼び出し時にエラー(決定論だけの経路は動く)
+  # CLI(claude-code / codex)を使いたいときは下のように明示する
+  #
+  # claude-code: Claude Code の `claude` CLI を使う(APIキー不要・画像は不可)
+  # codex:       Codex CLI の `codex exec` を使う(実験的・画像は不可)
   # anthropic:   Anthropic API を使う(ANTHROPIC_API_KEY と model が必要)
   # openai:      OpenAI API を使う(OPENAI_API_KEY と model が必要)
   profiles:
