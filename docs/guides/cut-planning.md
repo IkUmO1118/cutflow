@@ -81,9 +81,9 @@ plan:
 - どちらも LLM に算術はさせない(値はこちらで丸めて記述文として渡し、番号選択
   だけをさせる)
 - 画像(スクリーンショット)そのものを LLM に渡すマルチモーダル入力は
-  **やらない**(既定 provider の claude-code では画像添付が難しく、provider 非依存の
-  `complete` 設計に反するため。開発系チャンネルは画面の主役が文字なので OCR で
-  代替する)
+  **やらない**(CLI provider(claude-code / codex)では画像添付ができず、
+  provider 非依存の `complete` 設計に反するため。開発系チャンネルは画面の
+  主役が文字なので OCR で代替する)
 - `systemSpeech`: システム音声(デモ音・再生動画・TTS)の発話を各区間へ添える。
   `whisper.systemAudio: true`(下記)で `transcript.system.json` を先に作っておく
   必要があり、無ければ自動で省略(劣化)する

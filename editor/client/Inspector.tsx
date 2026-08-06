@@ -5,6 +5,7 @@ import {
   CAPTION_DEFAULT_FONT_FAMILY,
   CAPTION_DEFAULT_FONT_WEIGHT,
   CAPTION_DEFAULT_OUTLINE,
+  CAPTION_MINCHO_FONT_FAMILY,
   DEFAULT_ANNOTATION_COLOR,
   DEFAULT_ARROW_HEAD_PX,
   DEFAULT_ARROW_WIDTH_PX,
@@ -3694,11 +3695,13 @@ export const FONT_PRESETS: { label: string; value: string }[] = [
     label: "丸ゴシック",
     value: '"Hiragino Maru Gothic ProN", "Hiragino Sans", sans-serif',
   },
-  { label: "明朝", value: '"Hiragino Mincho ProN", "Yu Mincho", serif' },
+  { label: "明朝(Noto Serif JP)", value: CAPTION_MINCHO_FONT_FAMILY },
 ];
 
-/** 文字の太さ(fontWeight)の選択肢。既定フォント Noto Sans JP は可変フォント
- * なので 300〜900 の中間ウェイトも実グリフとして描き分けられる。値は CSS の
+/** 文字の太さ(fontWeight)の選択肢。同梱の Noto Sans JP / Noto Serif JP は
+ * 可変フォントなので 300〜900 の中間ウェイトも実グリフとして描き分けられる。
+ * FONT_PRESETS のヒラギノ系を選ぶと、そのフォントが持つウェイトへ丸められる
+ * (ヒラギノ明朝は W3/W6 の2つだけ=600 以上が同じ絵になる)。値は CSS の
  * font-weight。共通化して3箇所(個別・一括・トラック標準)の select で使う */
 /** フォントサイズ(px)の ▾ プリセット。Figma 風に代表値を並べる(直接入力・
  * ↑↓増減も可)。テロップは視認性優先で大きめ中心 */

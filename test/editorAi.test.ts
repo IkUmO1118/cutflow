@@ -502,7 +502,7 @@ test("buildEditorAiPrompt: 指示と選択文脈と project projection を含め
   });
 });
 
-test("buildEditorAiPrompt: global scope は project-level summary に圧縮する", () => {
+test("buildEditorAiPrompt: global scope は project-level summary + 全件タイムライン候補を渡す", () => {
   withTmpProject((dir) => {
     const prompt = buildEditorAiPrompt(dir, cfg, {
       instruction: "全体のBGMを調整",
@@ -510,11 +510,13 @@ test("buildEditorAiPrompt: global scope は project-level summary に圧縮す�
     });
     assert.match(prompt, /"scope": "global"/);
     assert.match(prompt, /"counts"/);
-    assert.doesNotMatch(prompt, /こんにちは、ええと、世界/);
+    assert.match(prompt, /timelineCandidates/);
+    // キーワードに依存せず、global scope なら常に全キャプションが候補として渡る
+    assert.match(prompt, /こんにちは、ええと、世界/);
   });
 });
 
-test("buildEditorAiPrompt: global の注釈依頼にはタイミング候補を含める", () => {
+test("buildEditorAiPrompt: global のタイムライン候補はキーワードに依存せず動画全体をカバーする", () => {
   withTmpProject((dir) => {
     writeFileSync(
       join(dir, "transcript.json"),
@@ -528,12 +530,14 @@ test("buildEditorAiPrompt: global の注釈依頼にはタイミング候補を�
       }, null, 2),
       "utf8",
     );
+    // 「タイミング/注釈」等のトリガーキーワードを含まない指示でも候補は付く
     const prompt = buildEditorAiPrompt(dir, cfg, {
-      instruction: "最適なタイミングに注釈を入れて",
+      instruction: "全体のテンポを整えて",
       selection: { scope: "global" },
     });
     assert.match(prompt, /timelineCandidates/);
     assert.match(prompt, /ここが重要です/);
+    assert.match(prompt, /次に設定を確認します/);
     assert.match(prompt, /Do not refuse merely because the user did not provide an exact timecode/);
     assert.match(prompt, /Choose a best-effort timing from the candidates/);
     assert.doesNotMatch(prompt, /Ask for a narrower scope if exact local timing context is needed/);
@@ -1058,6 +1062,72 @@ test("proposeEditorAi: overlays.inserts の collection target 失敗でも patch
           {
             instruction: "挿入クリップを調整して",
             selection: { scope: "selection", selectedKind: "range" },
+          },
+        );
+        assert.equal(proposal.proposedDocs.transcript.segments[0].text, "短い字幕");
+      });
+    });
+    assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("proposeEditorAi: replace.transcript.segments が配列でない失敗でも再試行して自己修正できる", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    let calls = 0;
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      calls += 1;
+      const body = JSON.parse(String(init?.body ?? "{}")) as { input?: string };
+      const prompt = body.input ?? "";
+      if (calls === 1) {
+        return {
+          ok: true,
+          json: async () => ({
+            output_text: JSON.stringify({
+              title: "全体の字幕を整理",
+              summary: ["segments を誤った形で書いた失敗例"],
+              edit: {
+                mode: "patch",
+                patch: {
+                  // 壊れた出力を意図的に再現: segments が配列ではなくオブジェクト
+                  replace: { transcript: { language: "ja", model: "test", segments: { cap_aaaaaa: "短く" } } },
+                },
+              },
+              review: { frames: [], notes: [] },
+            }),
+          }),
+          text: async () => "",
+        } as Response;
+      }
+      // 2回目は失敗理由がプロンプトへ渡り、正しい形で自己修正できていることを確認
+      assert.match(prompt, /Patch-only requirement:/);
+      assert.match(prompt, /transcript\.json segments: 配列ではありません/);
+      return {
+        ok: true,
+        json: async () => ({
+          output_text: JSON.stringify({
+            title: "全体の字幕を整理(修正版)",
+            summary: ["segments を配列のまま維持"],
+            edit: {
+              mode: "patch",
+              patch: { ops: [{ op: "set", target: "@cap_aaaaaa", field: "text", value: "短い字幕" }] },
+            },
+            review: { frames: [], notes: [] },
+          }),
+        }),
+        text: async () => "",
+      } as Response;
+    }) as typeof fetch;
+    await withEnv({ OPENAI_API_KEY: "test-openai" }, async () => {
+      await withTmpProjectAsync(async (dir) => {
+        const proposal = await proposeEditorAi(
+          dir,
+          { ...cfg, ai: { provider: "openai", model: "gpt-x" } } as Config,
+          {
+            instruction: "全体の字幕を短く整理して",
+            selection: { scope: "global" },
           },
         );
         assert.equal(proposal.proposedDocs.transcript.segments[0].text, "短い字幕");

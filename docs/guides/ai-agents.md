@@ -10,6 +10,31 @@ AI は未設定でも deterministic な CLI / editor / render は動く。AI を
 `ai.provider` / `ai.model` と `llm.backend` はそのまま動くが、**新規設定は
 profiles + routes を推奨**する。
 
+### 既定(`ai:` を書かないとき)
+
+**既定は API**。`ai:` も `llm:` も書かないときは、環境変数(リポジトリ直下の
+`.env` も読む)にある API キーで接続先が決まる。
+
+| 条件 | 解決される既定 |
+|---|---|
+| `ANTHROPIC_API_KEY` あり | `anthropic` / `claude-sonnet-5`(text・structured・vision) |
+| なし + `OPENAI_API_KEY` あり | `openai` / `gpt-5.4-mini`(text・structured・vision) |
+| どちらも無し | AI 呼び出し時に「config.yaml の ai を設定するか、鍵を .env に入れてください」で停止。決定論だけの経路(editor のプロジェクト読み込み・effect-check の非 VLM 部分など)は従来どおり動く |
+
+**Claude Code / Codex CLI を使いたい場合は明示設定が必要**(既定では選ばれない)。
+
+```yaml
+ai:
+  profiles:
+    cli:
+      adapter: claude-code # または codex
+  routes:
+    text: cli
+    structured: cli
+    # vision は CLI では担当できない(下の表を参照)。VLM を使うなら
+    # vision だけ API profile を割り当てる
+```
+
 ```yaml
 ai:
   profiles:
@@ -254,8 +279,13 @@ cp docs/examples/claude-settings-deny.json <あなたのプロジェクト>/.cla
 
 ## AI提案の比較・高水準編集・ローカル検索
 
-GUIのAI提案では、保存前にbefore/after still、任意の30秒以内のclip、
-structure/motion/sound/OCRの決定論的checkを生成できる。画像対応API providerを
+GUIのAI提案では、比較を見に行ったときだけbefore/after still、任意の30秒以内の
+clip、structure/motion/sound/OCRの決定論的checkを生成する。比較を生成しないまま
+承認・保存してよい。比較は自動では走らず、サマリーバーの「比較を生成」、diff
+クリップを開く操作、差分プレビューで走る。
+
+比較の生成中に保存すると、保存が優先される。生成中の比較は中止され、
+`review.probe` は破棄され、保存成立により提案は失効する。画像対応API providerを
 使う場合だけ、次を明示設定したうえで比較画面のチェックボックスを有効にすると、
 最大4枚を長辺1600px以下へ縮小して外部APIへ送る。既定はoffで、VLMの失敗は
 保存や決定論的reviewを失敗させない。
@@ -277,5 +307,4 @@ node src/cli.ts search "ログイン画面" --kind material --json
 MCPでは`framewright_review`、`framewright_edit`、`framewright_search`を利用できる。
 `framewright_edit`は`dryRun`が必須で、書き込み時も既存の`planApply`検査を通る。
 検索はread-onlyで、結果に絶対pathを含めず、他recordingの素材をコピーしない。
-
 

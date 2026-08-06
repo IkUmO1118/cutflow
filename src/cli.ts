@@ -23,6 +23,7 @@ import {
   resolveLogCfg,
   resolvePlanLoopSecondaryObservationCfg,
   resolveAiRuntimeConfig,
+  AI_UNCONFIGURED_MESSAGE,
 } from "./lib/config.ts";
 import { editorLogFilePath, liveEditor, startDetachedEditor, stopEditor } from "./lib/editorServe.ts";
 import { setLogLevel } from "./lib/obs.ts";
@@ -316,6 +317,7 @@ function ensurePlanVlmReady(cfg: Parameters<typeof loadConfig>[0] extends never 
     throw new Error("plan.loop.secondaryObservation.enabled=true が必要です");
   }
   const runtime = resolveAiRuntimeConfig(cfg);
+  if (runtime.source === "unconfigured") throw new Error(AI_UNCONFIGURED_MESSAGE);
   if (!runtime.routes.vision) {
     throw new Error("vision route が未設定です");
   }

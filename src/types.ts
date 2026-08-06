@@ -235,6 +235,15 @@ export const CAPTION_DEFAULT_FONT_FAMILY =
   '"Noto Sans JP", "Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif';
 export const CAPTION_DEFAULT_FONT_WEIGHT = 700;
 
+// 明朝の既定も同じ理由で同梱の可変フォント(assets/fonts/NotoSerifJP.woff2、
+// wght 200〜900)を先頭に置く。ヒラギノ明朝 ProN は W3(400)と W6(600)の
+// 2ウェイトしか無いため、600 以上を指定しても実フェイスが W6 に丸められ、
+// かつ 600 の実フェイスが在るぶん合成ボールドも掛からず 600〜900 が
+// すべて同じ絵になる(=太さ指定が効かない)。ヒラギノ明朝は同梱フォントの
+// 読み込み失敗時のフォールバックとして残す。
+export const CAPTION_MINCHO_FONT_FAMILY =
+  '"Noto Serif JP", "Hiragino Mincho ProN", "Yu Mincho", serif';
+
 /** CaptionAnim.durationSec 未指定時の既定(秒)。in/out 共通。描画側の最終フォールバック */
 export const DEFAULT_CAPTION_ANIM_SEC = 0.3;
 /** CaptionKaraoke.activeColor 未指定時の既定(発話済みの語の色) */

@@ -194,6 +194,7 @@ import {
   sameAtInsertNeighbor,
   snapToKeep,
   shouldEnterCopilotMode,
+  shouldRequestAiReview,
   splitSpanAt,
   videoFileForPreview,
 } from "./model.ts";
@@ -4765,26 +4766,50 @@ const EditorApp = () => {
       return res.bundle;
     } catch (e) {
       const apiError = e instanceof ApiError ? e : null;
-      const message =
-        apiError?.code === "proposal_expired" || apiError?.code === "proposal_stale"
-          ? `比較は失効しました: ${apiError.message}`
+      const canceled = apiError?.code === "review_canceled";
+      const expired = apiError?.code === "proposal_expired" || apiError?.code === "proposal_stale";
+      const message = canceled
+        ? "保存したため比較の生成を中止しました"
+        : expired
+          ? `比較は失効しました: ${apiError!.message}`
           : `比較の生成に失敗しました: ${(e as Error).message}`;
       setAiWorkflow((prev) =>
         prev && isAiWorkflowReviewState(prev)
           ? {
               ...prev,
               phase: "reviewing",
-              error: message,
+              ...(canceled ? {} : { error: message }),
               autoReviewRequested: true,
-              reviewStale: apiError?.code === "proposal_expired" || apiError?.code === "proposal_stale"
-                ? true
-                : prev.reviewStale,
+              reviewStale: canceled || expired ? true : prev.reviewStale,
             }
           : prev,
       );
-      setError(message);
+      if (canceled) {
+        addToast({ kind: "info", message, ttlMs: TOAST_TTL_MS.info });
+      } else {
+        setError(message);
+      }
       return null;
     }
+  };
+
+  /** 暗黙トリガ(diff popover を開く / 差分プレビュー)からの比較生成。
+   *  条件を満たさなければ黙って何もしない */
+  const requestAiReviewOnDemand = () => {
+    const review = aiWorkflowReview;
+    if (!review) return;
+    if (
+      !shouldRequestAiReview({
+        phase: review.phase,
+        hasBundle: Boolean(review.reviewBundle),
+        stale: review.reviewStale === true,
+        alreadyRequested: review.autoReviewRequested === true,
+      })
+    ) return;
+    setAiWorkflow((prev) =>
+      prev && prev.phase === "reviewing" ? { ...prev, autoReviewRequested: true } : prev,
+    );
+    void generateAiReview({ withVlm: false });
   };
 
   const refineAiWorkflow = async (
@@ -5687,18 +5712,6 @@ const EditorApp = () => {
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  useEffect(() => {
-    if (!aiWorkflow || aiWorkflow.phase !== "reviewing") return;
-    if (aiWorkflow.reviewBundle || aiWorkflow.reviewStale) return;
-    if (aiWorkflow.autoReviewRequested) return;
-    setAiWorkflow((prev) =>
-      prev && prev.phase === "reviewing"
-        ? { ...prev, autoReviewRequested: true }
-        : prev,
-    );
-    void generateAiReview({ withVlm: false });
-  }, [aiWorkflow]);
-
   /* ---------------- 描画 ---------------- */
 
   if (emptyProj) {
@@ -6140,6 +6153,18 @@ const EditorApp = () => {
             onClick={() => settleAiHunks(pendingHunks, "mine")}
           >
             すべて却下
+          </button>
+          <button
+            className="aiSummaryBulk"
+            disabled={aiWorkflowReview.phase === "verifying" || (Boolean(aiWorkflowReview.reviewBundle) && !aiReviewStale)}
+            title="変更前/変更後の静止画と決定論チェックを生成します(見ないなら生成不要です)"
+            onClick={() => void generateAiReview({ withVlm: false })}
+          >
+            {aiWorkflowReview.phase === "verifying"
+              ? "比較を生成中…"
+              : aiWorkflowReview.reviewBundle
+                ? (aiReviewStale ? "比較を更新" : "比較は最新")
+                : "比較を生成"}
           </button>
         </div>
       )}
@@ -7045,6 +7070,7 @@ const EditorApp = () => {
                 settleAiHunks(hunks, side);
               }}
               onDiffPreview={(event) => {
+                requestAiReviewOnDemand();
                 if (!event.timeRange) return;
                 // F2: seekOut はカット後秒を取るので、先に換算する
                 const mapped = diffTimeToOutput(
@@ -7066,6 +7092,7 @@ const EditorApp = () => {
               }}
               aiClipMarks={aiEditEnabled ? aiClipMarks : undefined}
               diffStills={aiEditEnabled ? diffStills : []}
+              onDiffInspect={requestAiReviewOnDemand}
               aiWorkflowHunks={aiWorkflowReview?.diff.hunks}
               aiResolution={aiWorkflowReview?.resolution}
             />

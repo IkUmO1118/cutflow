@@ -14,6 +14,7 @@ import {
   type EditSnapshot,
 } from "../src/lib/review.ts";
 import { reviewEdit } from "../src/stages/review.ts";
+import { AbortedError } from "../src/lib/abort.ts";
 import type { Config } from "../src/lib/config.ts";
 
 async function withTmpProject(fn: (dir: string) => Promise<void> | void): Promise<void> {
@@ -221,6 +222,75 @@ test("reviewEdit: editable files と approval を変えずに review.probe を�
     assert.equal(bundle.stills.length, 2);
     assert.ok(bundle.warnings.some((warning) => warning.includes("clip failed")));
     assert.ok(existsSync(join(dir, "review.probe", "index.json")));
+    assert.equal(statSync(join(dir, "transcript.json")).mtimeMs, transcriptBefore);
+    assert.equal(readFileSync(join(dir, "approvals.json"), "utf8"), approvalsBefore);
+  });
+});
+
+test("reviewEdit: 中止済み signal では still を1枚も描かずに AbortedError で止まる", async () => {
+  await withTmpProject(async (dir) => {
+    const base = readEditSnapshot(dir);
+    const candidate: EditSnapshot = {
+      ...base,
+      transcript: {
+        ...base.transcript,
+        segments: [{ id: "cap_aaaaaa", start: 2, end: 4, text: "changed caption" }],
+      },
+    };
+    const controller = new AbortController();
+    controller.abort();
+    let renderStillCalls = 0;
+
+    await assert.rejects(
+      () => reviewEdit(dir, cfg, base, candidate, {
+        frames: [{ axis: "source", atSec: 2, reason: "caption" }],
+      }, {
+        signal: controller.signal,
+        hooks: {
+          async renderStill({ outFile }) {
+            renderStillCalls++;
+            writeFileSync(outFile, "still");
+          },
+        },
+      }),
+      (error) => error instanceof AbortedError,
+    );
+    assert.equal(renderStillCalls, 0);
+  });
+});
+
+test("reviewEdit: 途中で中止すると次の seam で止まり index.json を書かない", async () => {
+  await withTmpProject(async (dir) => {
+    const transcriptBefore = statSync(join(dir, "transcript.json")).mtimeMs;
+    const approvalsBefore = readFileSync(join(dir, "approvals.json"), "utf8");
+    const base = readEditSnapshot(dir);
+    const candidate: EditSnapshot = {
+      ...base,
+      transcript: {
+        ...base.transcript,
+        segments: [{ id: "cap_aaaaaa", start: 2, end: 4, text: "changed caption" }],
+      },
+    };
+    const controller = new AbortController();
+    let renderStillCalls = 0;
+
+    await assert.rejects(
+      () => reviewEdit(dir, cfg, base, candidate, {
+        frames: [{ axis: "source", atSec: 2, reason: "caption" }],
+      }, {
+        signal: controller.signal,
+        hooks: {
+          async renderStill({ outFile }) {
+            renderStillCalls++;
+            if (renderStillCalls === 1) controller.abort();
+            writeFileSync(outFile, "still");
+          },
+        },
+      }),
+      (error) => error instanceof AbortedError,
+    );
+    assert.equal(renderStillCalls, 2);
+    assert.equal(existsSync(join(dir, "review.probe", "index.json")), false);
     assert.equal(statSync(join(dir, "transcript.json")).mtimeMs, transcriptBefore);
     assert.equal(readFileSync(join(dir, "approvals.json"), "utf8"), approvalsBefore);
   });

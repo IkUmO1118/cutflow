@@ -30,6 +30,7 @@ import {
   editorAssetResponse,
 } from "./clientBuild.ts";
 import type { EngineDevAssets, MutableEditorClientAssets } from "./clientBuild.ts";
+import { BUNDLED_FONTS } from "../src/lib/engineSession.ts";
 import {
   clearCutplanApproval,
   writeCutplanApproval,
@@ -44,6 +45,7 @@ import {
 } from "../src/lib/contentVersion.ts";
 import { removeEditorServeFile, writeEditorServeFile } from "../src/lib/editorServe.ts";
 import { run } from "../src/lib/exec.ts";
+import { AbortedError } from "../src/lib/abort.ts";
 import { classifyBrowserDisplayable } from "../src/lib/mediaCodec.ts";
 import type { DisplayVerdict, VideoCodecFacts } from "../src/lib/mediaCodec.ts";
 import { ensureIds, hasAnyId, ID_PREFIX, usedIdsOf } from "../src/lib/ids.ts";
@@ -65,6 +67,7 @@ import { buildProxy, isProxyStale } from "../src/stages/proxy.ts";
 import { preview } from "../src/stages/preview.ts";
 import { findBgm, render } from "../src/stages/render.ts";
 import { reviewEdit } from "../src/stages/review.ts";
+import type { ReviewBundle } from "../src/stages/review.ts";
 import { validateDocs } from "../src/stages/validate.ts";
 import { aiDoctor } from "../src/stages/aiDoctor.ts";
 import {
@@ -454,6 +457,7 @@ const PROPOSAL_TTL_MS = 30 * 60 * 1000;
 const MAX_STORED_PROPOSALS = 32;
 const PROPOSAL_EXPIRED_CODE = "proposal_expired";
 const PROPOSAL_STALE_CODE = "proposal_stale";
+const REVIEW_CANCELED_CODE = "review_canceled";
 const SECONDARY_OBSERVATION_UNAVAILABLE_CODE = "SECONDARY_OBSERVATION_UNAVAILABLE";
 
 async function handle(
@@ -509,6 +513,7 @@ async function handle(
       watchProject?.(dir);
     }
   } else if (launcherMode && path !== "/" && path !== "/bundle.js" && path !== "/styles.css" &&
+      !path.startsWith("/fonts/") &&
       path !== "/particle_loop_icon.svg" && path !== "/api/ping" && path !== "/api/projects") {
     throw new HttpError(404, "プロジェクト URL /p/<name>/ を使用してください");
   }
@@ -539,6 +544,23 @@ async function handle(
     res.writeHead(200, { "Content-Type": "image/svg+xml; charset=utf-8" });
     res.end(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "client/particle_loop_icon.svg"), "utf8"));
     return;
+  }
+  if (req.method === "GET" && path.startsWith("/fonts/")) {
+    // 同梱の日本語可変フォント(styles.css の @font-face が参照する)。
+    // ここで配らないとプレビューがシステムフォントへ落ち、ヒラギノが数値
+    // ウェイトを丸めるぶん render と絵が食い違う。engine の export ページと
+    // 同じ assets/fonts/ を配る=両者で必ず同じフォントになる
+    const font = BUNDLED_FONTS.find((f) => path === `/fonts/${f.file}`);
+    if (font) {
+      const file = join(dirname(fileURLToPath(import.meta.url)), "../assets/fonts", font.file);
+      res.writeHead(200, {
+        "Content-Type": "font/woff2",
+        // 内容が変わらない同梱資産。リロードのたびに 6MB 読み直させない
+        "Cache-Control": "public, max-age=31536000, immutable",
+      });
+      res.end(readFileSync(file));
+      return;
+    }
   }
   if (req.method === "GET" && path === "/api/ping") {
     // 生存確認(editor --stop / --status が portfile の pid/port を検証する)。
@@ -703,8 +725,14 @@ async function handle(
     // しないよう)body を Record<string, unknown> として読む。SaveRequest は
     // interface(index signature 無し)なので、その交差型として cast する
     const body = (await readBody(req)) as SaveRequest & Record<string, unknown>;
-    if (heavyJob) {
-      throw new HttpError(409, `${jaStage(heavyJob.stage)}を実行中です。完了までお待ちください`);
+    const decision = saveHeavyJobDecision(heavyJob?.stage ?? null);
+    if (decision === "reject") {
+      throw new HttpError(409, `${jaStage(heavyJob!.stage)}を実行中です。完了までお待ちください`);
+    }
+    if (decision === "cancel") {
+      // 比較(review)は保存より優先度が低い。保存が成立すれば proposal は
+      // どのみち失効して比較は無意味になるので、待たずに中止させて先へ進む
+      heavyJob!.abort();
     }
     // 内容バージョンゲート: baseHashes が付いていれば、書き込み対象ファイルの
     // 現ディスク内容が client が読んだ版と一致するときだけ通す(§8.3)。
@@ -756,46 +784,57 @@ async function handle(
     const secondaryObservation = body.secondaryObservation === "vlm" ? "vlm" : "none";
     const key = `review:${reviewRequestKey(record, body.acceptedHunkLabels, cfg, secondaryObservation)}`;
     if (proxyBuilding) await proxyBuilding;
-    const bundle = await runHeavyJob("review", key, async () => {
-      const currentHash = hashEditableDocsState(currentEditableDocs(dir));
-      if (currentHash !== record.baseDocsHash) {
-        expireStoredProposal(record.proposalId);
-        throw new HttpError(409, "proposal の基準状態が変化しました。再提案してください", PROPOSAL_STALE_CODE);
-      }
-      const candidate = buildAiReviewCandidateFromStoredProposal(dir, record, body.acceptedHunkLabels);
-      const bundle = await reviewEdit(
-        dir,
-        cfg,
-        snapshotOfReviewDocs(record.baseDocs),
-        snapshotOfReviewDocs(candidate),
-        record.normalizedReviewSpec,
-        {
-          secondaryObservation,
-        },
-      );
-      const finalHash = hashEditableDocsState(currentEditableDocs(dir));
-      if (finalHash !== record.baseDocsHash) {
+    let bundle: ReviewBundle;
+    try {
+      bundle = await runHeavyJob("review", key, async (signal) => {
+        const currentHash = hashEditableDocsState(currentEditableDocs(dir));
+        if (currentHash !== record.baseDocsHash) {
+          expireStoredProposal(record.proposalId);
+          throw new HttpError(409, "proposal の基準状態が変化しました。再提案してください", PROPOSAL_STALE_CODE);
+        }
+        const candidate = buildAiReviewCandidateFromStoredProposal(dir, record, body.acceptedHunkLabels);
+        const bundle = await reviewEdit(
+          dir,
+          cfg,
+          snapshotOfReviewDocs(record.baseDocs),
+          snapshotOfReviewDocs(candidate),
+          record.normalizedReviewSpec,
+          {
+            secondaryObservation,
+            signal,
+          },
+        );
+        const finalHash = hashEditableDocsState(currentEditableDocs(dir));
+        if (finalHash !== record.baseDocsHash) {
+          rmSync(join(dir, "review.probe"), { recursive: true, force: true });
+          expireStoredProposal(record.proposalId);
+          throw new HttpError(409, "proposal の基準状態が変化しました。再提案してください", PROPOSAL_STALE_CODE);
+        }
+        bundle.key.proposalId = record.proposalId;
+        bundle.key.acceptedLabelsHash = acceptedLabelsHash(body.acceptedHunkLabels);
+        bundle.key.acceptedLabels = [...new Set(body.acceptedHunkLabels)].sort();
+        bundle.key.baseHash = record.baseDocsHash;
+        bundle.key.candidateHash = hashReviewDocs(candidate);
+        record.lastReview = {
+          key: {
+            candidateHash: bundle.key.candidateHash,
+            specHash: bundle.key.specHash,
+            acceptedLabelsHash: bundle.key.acceptedLabelsHash,
+          },
+          acceptedHunkLabels: [...new Set(body.acceptedHunkLabels)].sort(),
+          primary: bundle.observation,
+          ...(bundle.secondaryObservation ? { secondary: bundle.secondaryObservation } : {}),
+        };
+        return bundle;
+      });
+    } catch (error) {
+      if (error instanceof AbortedError) {
         rmSync(join(dir, "review.probe"), { recursive: true, force: true });
         expireStoredProposal(record.proposalId);
-        throw new HttpError(409, "proposal の基準状態が変化しました。再提案してください", PROPOSAL_STALE_CODE);
+        throw new HttpError(409, "保存したため比較の生成を中止しました", REVIEW_CANCELED_CODE);
       }
-      bundle.key.proposalId = record.proposalId;
-      bundle.key.acceptedLabelsHash = acceptedLabelsHash(body.acceptedHunkLabels);
-      bundle.key.acceptedLabels = [...new Set(body.acceptedHunkLabels)].sort();
-      bundle.key.baseHash = record.baseDocsHash;
-      bundle.key.candidateHash = hashReviewDocs(candidate);
-      record.lastReview = {
-        key: {
-          candidateHash: bundle.key.candidateHash,
-          specHash: bundle.key.specHash,
-          acceptedLabelsHash: bundle.key.acceptedLabelsHash,
-        },
-        acceptedHunkLabels: [...new Set(body.acceptedHunkLabels)].sort(),
-        primary: bundle.observation,
-        ...(bundle.secondaryObservation ? { secondary: bundle.secondaryObservation } : {}),
-      };
-      return bundle;
-    });
+      throw error;
+    }
     sendJson(res, 200, { bundle });
     return;
   }
@@ -1326,7 +1365,7 @@ export function ensureHyperframeAuthorNameAvailable(dir: string, name: string): 
   }
 }
 
-type HeavyJobStage =
+export type HeavyJobStage =
   | "run"
   | "preview"
   | "render"
@@ -1335,9 +1374,19 @@ type HeavyJobStage =
   | "hyperframe-render"
   | "hyperframe-author";
 
+/** 保存要求が来たときに、実行中の重いジョブをどう扱うか。 */
+export type SaveHeavyJobDecision = "allow" | "cancel" | "reject";
+
+export function saveHeavyJobDecision(stage: HeavyJobStage | null): SaveHeavyJobDecision {
+  if (stage === null) return "allow";
+  return stage === "review" ? "cancel" : "reject";
+}
+
 /** 実行中の重いジョブ(preview / render / review)。同時に1つだけ走らせ、
  * 同じ key の二重起動はプロミスを共有、別 key は 409 で拒否する */
-let heavyJob: { stage: HeavyJobStage; key: string; promise: Promise<unknown> } | null = null;
+let heavyJob:
+  | { stage: HeavyJobStage; key: string; promise: Promise<unknown>; abort: () => void }
+  | null = null;
 
 const proposalStore = new Map<string, StoredProposal>();
 
@@ -1360,7 +1409,7 @@ const jaStage = (s: HeavyJobStage): string =>
 async function runHeavyJob<T>(
   stage: HeavyJobStage,
   key: string,
-  task: () => Promise<T>,
+  task: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
   if (heavyJob) {
     if (heavyJob.key !== key) {
@@ -1368,10 +1417,11 @@ async function runHeavyJob<T>(
     }
     return await heavyJob.promise as T;
   }
-  const promise = task().finally(() => {
+  const controller = new AbortController();
+  const promise = task(controller.signal).finally(() => {
     if (heavyJob?.key === key) heavyJob = null;
   });
-  heavyJob = { stage, key, promise };
+  heavyJob = { stage, key, promise, abort: () => controller.abort() };
   return await promise;
 }
 

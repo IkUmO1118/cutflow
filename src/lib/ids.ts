@@ -73,6 +73,20 @@ export function ensureIds<T extends { id?: string }>(
   });
 }
 
+/** ensureIds の防御ラッパ。配列でないものは触らずそのまま返す。
+ * 壊れた入力(patch.replace の任意 JSON・手編集で segments を失った
+ * transcript.json など)でも純関数が throw しないようにするためのもので、
+ * 形の不正の報告は validate(src/stages/validate.ts)の責務。
+ * overlays 配下の各配列が `? :` で素通ししているのと同じ流儀を、
+ * 必須配列(segments / chapters / tracks / texts)にも揃える */
+function ensureIdsIfArray<T extends { id?: string }>(
+  arr: T[],
+  prefix: string,
+  used: Set<string>,
+): T[] {
+  return Array.isArray(arr) ? ensureIds(arr, prefix, used) : arr;
+}
+
 /** 生成ステージ用: 旧配列の id を、keyFn が一致する新要素へ運ぶ(採番はしない)。
  * plan は keyFn=(x)=>`${start}:${end}`、chapters は title、transcribe は
  * start:end:text。同じ key が複数あっても id を使い回さない(キューで消費)。
@@ -116,8 +130,9 @@ export interface EditableDocs {
  * hasAnyId の判定の両方で使う内部ヘルパ) */
 function collectExistingIds(docs: EditableDocs, used: Set<string>): void {
   const addAll = (arr?: readonly { id?: string }[] | null): void => {
-    for (const x of arr ?? []) {
-      if (x.id !== undefined) used.add(x.id);
+    if (!Array.isArray(arr)) return;
+    for (const x of arr) {
+      if (x !== null && typeof x === "object" && x.id !== undefined) used.add(x.id);
     }
   };
   addAll(docs.cutplan?.segments);
@@ -159,13 +174,16 @@ export function stampDocs(docs: EditableDocs): EditableDocs {
   collectExistingIds(docs, used);
 
   const cutplan = docs.cutplan
-    ? { ...docs.cutplan, segments: ensureIds(docs.cutplan.segments, ID_PREFIX.cutSegment, used) }
+    ? {
+        ...docs.cutplan,
+        segments: ensureIdsIfArray(docs.cutplan.segments, ID_PREFIX.cutSegment, used),
+      }
     : docs.cutplan;
 
   const transcript = docs.transcript
     ? {
         ...docs.transcript,
-        segments: ensureIds(docs.transcript.segments, ID_PREFIX.caption, used),
+        segments: ensureIdsIfArray(docs.transcript.segments, ID_PREFIX.caption, used),
       }
     : docs.transcript;
 
@@ -173,45 +191,51 @@ export function stampDocs(docs: EditableDocs): EditableDocs {
     ? {
         ...docs.overlays,
         overlays: docs.overlays.overlays
-          ? ensureIds(docs.overlays.overlays, ID_PREFIX.material, used)
+          ? ensureIdsIfArray(docs.overlays.overlays, ID_PREFIX.material, used)
           : docs.overlays.overlays,
         inserts: docs.overlays.inserts
-          ? ensureIds(docs.overlays.inserts, ID_PREFIX.insert, used)
+          ? ensureIdsIfArray(docs.overlays.inserts, ID_PREFIX.insert, used)
           : docs.overlays.inserts,
         wipeFull: docs.overlays.wipeFull
-          ? ensureIds(docs.overlays.wipeFull, ID_PREFIX.wipeFull, used)
+          ? ensureIdsIfArray(docs.overlays.wipeFull, ID_PREFIX.wipeFull, used)
           : docs.overlays.wipeFull,
         hideCaption: docs.overlays.hideCaption
-          ? ensureIds(docs.overlays.hideCaption, ID_PREFIX.hideCaption, used)
+          ? ensureIdsIfArray(docs.overlays.hideCaption, ID_PREFIX.hideCaption, used)
           : docs.overlays.hideCaption,
         zooms: docs.overlays.zooms
-          ? ensureIds(docs.overlays.zooms, ID_PREFIX.zoom, used)
+          ? ensureIdsIfArray(docs.overlays.zooms, ID_PREFIX.zoom, used)
           : docs.overlays.zooms,
         blurs: docs.overlays.blurs
-          ? ensureIds(docs.overlays.blurs, ID_PREFIX.blur, used)
+          ? ensureIdsIfArray(docs.overlays.blurs, ID_PREFIX.blur, used)
           : docs.overlays.blurs,
         annotations: docs.overlays.annotations
-          ? ensureIds(docs.overlays.annotations, ID_PREFIX.annotation, used)
+          ? ensureIdsIfArray(docs.overlays.annotations, ID_PREFIX.annotation, used)
           : docs.overlays.annotations,
         texts: docs.overlays.texts
-          ? ensureIds(docs.overlays.texts, ID_PREFIX.text, used)
+          ? ensureIdsIfArray(docs.overlays.texts, ID_PREFIX.text, used)
           : docs.overlays.texts,
         captionTracks: docs.overlays.captionTracks
-          ? ensureIds(docs.overlays.captionTracks, ID_PREFIX.captionTrack, used)
+          ? ensureIdsIfArray(docs.overlays.captionTracks, ID_PREFIX.captionTrack, used)
           : docs.overlays.captionTracks,
       }
     : docs.overlays;
 
   const chapters = docs.chapters
-    ? { ...docs.chapters, chapters: ensureIds(docs.chapters.chapters, ID_PREFIX.chapter, used) }
+    ? {
+        ...docs.chapters,
+        chapters: ensureIdsIfArray(docs.chapters.chapters, ID_PREFIX.chapter, used),
+      }
     : docs.chapters;
 
   const bgm = docs.bgm
-    ? { ...docs.bgm, tracks: ensureIds(docs.bgm.tracks, ID_PREFIX.bgmTrack, used) }
+    ? { ...docs.bgm, tracks: ensureIdsIfArray(docs.bgm.tracks, ID_PREFIX.bgmTrack, used) }
     : docs.bgm;
 
   const thumbnail = docs.thumbnail
-    ? { ...docs.thumbnail, texts: ensureIds(docs.thumbnail.texts, ID_PREFIX.thumbnailText, used) }
+    ? {
+        ...docs.thumbnail,
+        texts: ensureIdsIfArray(docs.thumbnail.texts, ID_PREFIX.thumbnailText, used),
+      }
     : docs.thumbnail;
 
   return { cutplan, transcript, overlays, chapters, bgm, thumbnail };

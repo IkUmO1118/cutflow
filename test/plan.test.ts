@@ -519,11 +519,11 @@ test("plan --cuts-only: plan.harness.agentic=false は harness 追加前と完�
   });
 });
 
-test("plan --cuts-only: harness.agentic=true でも structured route アダプタが completeAgentic 非対応(既定 claude-code)なら警告のうえ単発/pushループ経路へフォールバックする", async () => {
+test("plan --cuts-only: harness.agentic=true でも structured route アダプタが completeAgentic 非対応(claude-code)なら警告のうえ単発/pushループ経路へフォールバックする", async () => {
   await withPlanDir(async (dir) => {
     // loop も設定しないので、harness が有効(≒maxIterations>=2 に昇格)扱いに
     // ならなければ従来の generateCutsOnce(1ショット)のまま plan.loop.json は書かれない
-    const cfg = { plan: { harness: { agentic: true } } } as Config;
+    const cfg = { ai: { provider: "claude-code" }, plan: { harness: { agentic: true } } } as Config;
     const warnings: string[] = [];
     const originalWarn = console.warn;
     console.warn = (msg: string) => warnings.push(String(msg));

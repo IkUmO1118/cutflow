@@ -18,6 +18,24 @@
 @import "tailwindcss/utilities.css" layer(utilities);
 
 @source "./**/*.{html,ts,tsx}";
+
+/* 同梱の日本語可変フォント。エディタサーバの /fonts/* が assets/fonts/ から
+ * 配信する(engine の export ページと同じ資産・同じ weight レンジ)。
+ * これが無いとプレビューはシステムフォントへ落ち、ヒラギノは数値ウェイトを
+ * 丸めるため fontWeight の中間・明朝の 600 超がプレビューだけ効かなくなる
+ * (= render と絵が食い違う)。詳細は src/types.ts のコメント */
+@font-face {
+  font-family: "Noto Sans JP";
+  src: url("/fonts/NotoSansJP.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Noto Serif JP";
+  src: url("/fonts/NotoSerifJP.woff2") format("woff2");
+  font-weight: 200 900;
+  font-display: swap;
+}
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*

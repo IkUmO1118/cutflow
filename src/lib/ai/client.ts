@@ -1,7 +1,7 @@
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { profileForRoute, resolveAiRuntimeConfig } from "../config.ts";
+import { AI_UNCONFIGURED_MESSAGE, profileForRoute, resolveAiRuntimeConfig } from "../config.ts";
 import { run } from "../exec.ts";
 import { logAi } from "../obs.ts";
 import { AiProviderError, aiRequestSummary } from "./http.ts";
@@ -80,6 +80,7 @@ function validateRequest(request: AiRequest, profile: ResolvedAiProfile): void {
 export async function completeAi(req: AiRequest, cfg: Config): Promise<AiResponse> {
   loadRepoEnv();
   const runtime = resolveAiRuntimeConfig(cfg);
+  if (runtime.source === "unconfigured") throw new Error(AI_UNCONFIGURED_MESSAGE);
   const profile = profileForRoute(runtime, req.route);
   assertRouteCapabilities(profile, req);
   validateRequest(req, profile);

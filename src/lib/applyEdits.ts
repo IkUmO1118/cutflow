@@ -518,8 +518,9 @@ export interface ApplyResult {
 /**
  * 相1(検査・書かない)。dir の編集ファイルを読み、patch.ops を全置換パッチへ
  * コンパイルし(compileOps)、patch.replace を重ね、approved をディスク現状へ
- * 強制し(enforceApprovedUnchanged)、id 採番(stampNewElements)を経た最終
- * body を作って validateDocs で検査する。**ファイルシステムへは read しか
+ * 強制し(enforceApprovedUnchanged)、その body を validateDocs で検査してから
+ * **検査を通ったときだけ** id 採番(stampNewElements)を行う。この順序が
+ * 不変条件: 採番は検査済みの形にしか触らない。**ファイルシステムへは read しか
  * 行わない**(errors の有無に関わらず一切書かない)。
  */
 export function planApply(dir: string, patch: ApplyPatch): ApplyPlan {
@@ -559,7 +560,6 @@ export function planApply(dir: string, patch: ApplyPatch): ApplyPlan {
 
   let body: ApplyBody = { ...opsBody, ...replace };
   body = enforceApprovedUnchanged(docs, body, errors);
-  body = stampNewElements(dir, body);
   // apply が触った文書は bootstrap 初期値ではない。全置換/ops のどちらでも
   // マーカーを永続化境界で確実に落とす。
   if (body.cutplan !== undefined) body.cutplan = withoutBootstrapMarker(body.cutplan);
@@ -568,6 +568,19 @@ export function planApply(dir: string, patch: ApplyPatch): ApplyPlan {
   const merged = mergeBodyOverDisk(dir, body);
   const { errors: valErrors, warnings } = validateDocs(dir, merged);
   errors.push(...valErrors);
+
+  // 採番は**検査を通ったときだけ**行う。stampDocs(src/lib/ids.ts)は
+  // 「segments / tracks / texts が配列である」ことを前提にした純関数なので、
+  // 未検査の body(特に patch.replace は AI や手書きの任意 JSON)を先に
+  // 通すと `arr is not iterable` の TypeError で落ち、validateDocs が返す
+  // はずの読めるエラーが失われる(§editorAi の
+  // EDITOR_AI_RESPONSE_SCHEMA コメント「boundary planning が唯一の
+  // authoritative validator」)。errors があれば書き込みは起きない
+  // (applyEdits 相2)ので、採番されていない body を返して構わない。
+  // 検査を通った body への採番は id を足すだけで、validateDocs の
+  // 結果(errors / warnings)を変えない(checkIds は既存 id しか見ず、
+  // 採番される id は一意・正規表現準拠・接頭辞一致)。
+  if (errors.length === 0) body = stampNewElements(dir, body);
 
   const changedFiles = APPLY_FILE_KEYS.filter((k) => k in body).map((k) => APPLY_FILE_NAME[k]);
 

@@ -1,4 +1,5 @@
 import { writeFileSync } from "node:fs";
+import { throwIfAborted } from "./abort.ts";
 import { createEngineSession } from "./engineSession.ts";
 import type { RenderProps } from "./renderPropsTypes.ts";
 
@@ -18,6 +19,7 @@ export async function captureEngineStills(args: {
   props: RenderProps;
   durationSec: number;
   shots: { outSec: number; outFile: string }[];
+  signal?: AbortSignal;
 }): Promise<void> {
   const session = await createEngineSession(args.dir, {
     props: args.props,
@@ -25,6 +27,7 @@ export async function captureEngineStills(args: {
   });
   try {
     for (const shot of args.shots) {
+      throwIfAborted(args.signal);
       const pngBase64 = await session.renderAndCapture(shot.outSec);
       writeFileSync(shot.outFile, Buffer.from(pngBase64, "base64"));
     }

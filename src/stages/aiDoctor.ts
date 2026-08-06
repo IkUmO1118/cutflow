@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
 import { completeAi } from "../lib/ai/client.ts";
 import { originOfProfile, resolveCredential } from "../lib/ai/http.ts";
-import { profileForRoute, resolveAiRuntimeConfig, validateAiConfig } from "../lib/config.ts";
+import { LEGACY_AI_PROFILE, profileForRoute, resolveAiRuntimeConfig, validateAiConfig } from "../lib/config.ts";
 import type { AiAdapterKind, AiRoute, Config, ResolvedAiProfile } from "../lib/config.ts";
 
 export interface DoctorCheck {
@@ -230,6 +230,15 @@ export async function aiDoctor(cfg: Config, opts: AiDoctorOptions = {}): Promise
   }
 }
 
+/** legacy/default 経路の内部 profile 名は予約語なので、doctor が組み立てる
+ *  合成 config ではそのまま使えない(resolveAiRuntimeConfig が弾く)。
+ *  合成側だけ別名にする(レポートに出す名前は元のまま) */
+const DOCTOR_PROFILE_ALIAS = "probe";
+
+function aliasProfileName(name: string): string {
+  return name === LEGACY_AI_PROFILE ? DOCTOR_PROFILE_ALIAS : name;
+}
+
 function routeConfig(cfg: Config, profileName: string): Config {
   const runtime = resolveAiRuntimeConfig(cfg);
   const profile = runtime.profiles.get(profileName);
@@ -237,7 +246,7 @@ function routeConfig(cfg: Config, profileName: string): Config {
   return {
     ...cfg,
     ai: {
-      profiles: Object.fromEntries([...runtime.profiles.entries()].map(([name, item]) => [name, {
+      profiles: Object.fromEntries([...runtime.profiles.entries()].map(([name, item]) => [aliasProfileName(name), {
         adapter: item.adapter,
         model: item.model,
         ...(item.protocol === "chat-completions" || item.protocol === "responses" ? { protocol: item.protocol } : {}),
@@ -254,9 +263,9 @@ function routeConfig(cfg: Config, profileName: string): Config {
         maxResponseBytes: item.maxResponseBytes,
       }])),
       routes: {
-        text: profileName,
-        structured: profileName,
-        ...(profile.capabilities.imageInput ? { vision: profileName } : {}),
+        text: aliasProfileName(profileName),
+        structured: aliasProfileName(profileName),
+        ...(profile.capabilities.imageInput ? { vision: aliasProfileName(profileName) } : {}),
       },
     },
   } as Config;

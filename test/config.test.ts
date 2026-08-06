@@ -14,6 +14,7 @@ import {
 } from "../src/lib/configEdit.ts";
 import {
   aiCapabilities,
+  DEFAULT_AI_CANDIDATES,
   DEFAULT_CANDIDATES_FILLERS,
   DEFAULT_CANDIDATES_MIN_CANDIDATE_SEC,
   DEFAULT_CANDIDATES_MIN_SPLIT_GAP_SEC,
@@ -760,8 +761,8 @@ test("resolvePlanHarnessCfg: 明示値を解決し個別 tool の on/off を保�
   });
 });
 
-test("planHarnessEnabled: agentic=true でも既定アダプタ(claude-code)は completeAgentic 非対応なので false", () => {
-  const cfg = { plan: { harness: { agentic: true } } } as Config;
+test("planHarnessEnabled: agentic=true でも claude-code は completeAgentic 非対応なので false", () => {
+  const cfg = { ai: { provider: "claude-code" }, plan: { harness: { agentic: true } } } as Config;
   assert.equal(planHarnessEnabled(cfg), false);
 });
 
@@ -1264,8 +1265,7 @@ test("resolveDescribePausesCfg: 部分指定で他は既定のまま", () => {
   );
 });
 
-test("resolveAiCfg: ai.provider を優先し、省略時は claude-code auto", () => {
-  assert.deepEqual(resolveAiCfg({} as Config), { provider: "claude-code", model: "auto" });
+test("resolveAiCfg: ai.provider を優先する", () => {
   assert.deepEqual(
     resolveAiCfg({ ai: { provider: "codex" } } as Config),
     { provider: "codex", model: "auto" },
@@ -1288,6 +1288,42 @@ test("resolveAiCfg: 旧 llm 設定を互換解決する", () => {
     resolveAiCfg({ llm: { backend: "api", model: "claude-x" } } as Config),
     { provider: "anthropic", model: "claude-x" },
   );
+});
+
+test("resolveAiRuntimeConfig: ai/llm 未設定の既定は CLI ではなく API(env の鍵で選ぶ)", () => {
+  const anthropic = resolveAiRuntimeConfig({} as Config, { ANTHROPIC_API_KEY: "x", OPENAI_API_KEY: "y" });
+  assert.equal(anthropic.source, "default");
+  assert.deepEqual(anthropic.routes, { text: "legacy-default", structured: "legacy-default", vision: "legacy-default" });
+  const anthropicProfile = anthropic.profiles.get("legacy-default")!;
+  assert.equal(anthropicProfile.adapter, "anthropic");
+  assert.equal(anthropicProfile.model, DEFAULT_AI_CANDIDATES[0]!.model);
+  assert.equal(anthropicProfile.capabilities.imageInput, true);
+
+  // ANTHROPIC が無ければ次の候補(openai)へ落ちる
+  const openai = resolveAiRuntimeConfig({} as Config, { OPENAI_API_KEY: "y" });
+  assert.equal(openai.source, "default");
+  assert.equal(openai.profiles.get("legacy-default")!.adapter, "openai");
+  assert.equal(openai.profiles.get("legacy-default")!.model, DEFAULT_AI_CANDIDATES[1]!.model);
+
+  // 空文字の鍵は「無い」と同じ扱い
+  assert.equal(resolveAiRuntimeConfig({} as Config, { ANTHROPIC_API_KEY: "  " }).source, "unconfigured");
+});
+
+test("resolveAiRuntimeConfig: 鍵が1つも無ければ unconfigured(投げずに知覚系は劣化する)", () => {
+  const runtime = resolveAiRuntimeConfig({} as Config, {});
+  assert.equal(runtime.source, "unconfigured");
+  // VLM 経路は「AI 無し」として決定論のみへ落ちる(例外にしない)
+  assert.equal(aiCapabilities({} as Config, "vision", {}), null);
+  assert.equal(planHarnessEnabled({ plan: { harness: { agentic: true } } } as Config, {}), false);
+});
+
+test("resolveAiRuntimeConfig: 明示設定は env より優先される(CLI も従来どおり選べる)", () => {
+  const runtime = resolveAiRuntimeConfig(
+    { ai: { provider: "claude-code" } } as Config,
+    { ANTHROPIC_API_KEY: "x" },
+  );
+  assert.equal(runtime.source, "legacy-ai");
+  assert.equal(runtime.profiles.get("legacy-default")!.adapter, "claude-code");
 });
 
 test("resolveAiRuntimeConfig: routed ai config を route/profile へ解決する", () => {
@@ -1341,7 +1377,9 @@ test("resolveAiRuntimeConfig: openai-compatible は capability 明示必須", ()
 });
 
 test("aiCapabilities: vision route 未設定なら null、設定なら capability を返す", () => {
-  assert.equal(aiCapabilities({} as Config, "vision"), null);
+  // 既定は env の鍵で決まるので、鍵無しの環境を明示して未設定側を固定する
+  assert.equal(aiCapabilities({} as Config, "vision", {}), null);
+  assert.equal(aiCapabilities({ ai: { provider: "claude-code" } } as Config, "vision"), null);
   const caps = aiCapabilities({
     ai: {
       profiles: {
