@@ -1,6 +1,7 @@
 # FrameWright 最小スターター設定
 # ── まず触るのはここだけ(3点)──────────────────────────
 #   1. recordingsDir … 収録データの置き場所(1収録=1フォルダ)
+#      複数の置き場所をランチャーで横断する場合は recordingsDirs を使う
 #   2. ai.provider   … 生成 AI の入口(claude-code は APIキー不要の既定)
 #   3. ingest.layout … 収録レイアウト(plain=通常動画 / obs-canvas=画面+カメラ)
 # 上の3つを埋めれば ingest → plan → render まで動く。細かな調整は
@@ -10,6 +11,10 @@
 # ─────────────────────────────────────────────────────
 
 # 1. 収録データの置き場所(リポジトリ外。~ はホームに展開)
+# 複数 root の例:
+# recordingsDirs:
+#   main: ~/Movies/framewright
+#   usb-a: /Volumes/FootageSSD/framewright
 recordingsDir: ~/Movies/framewright
 
 # 3. 収録レイアウトと領域・音声トラック

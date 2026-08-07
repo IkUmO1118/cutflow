@@ -83,10 +83,11 @@ import type {
   EmptyProjectData,
   ReadyProjectData,
   ProjectSummary,
+  RootStatus,
   SaveRequest,
   ScriptData,
 } from "./apiTypes.ts";
-import { initialCanvasFromSearch, isLauncherRoute, projectPath, projectPrefix } from "./route.ts";
+import { initialCanvasFromSearch, isLauncherRoute, projectPath, projectPrefix, recordingRootMode } from "./route.ts";
 import type { ReviewBundle } from "../../src/stages/review.ts";
 import type { ReviewFrameRequest } from "../../src/lib/review.ts";
 import { CANVAS_SIZES } from "../../src/lib/profile.ts";
@@ -570,6 +571,8 @@ function defaultProjectName(): string {
 
 function LauncherApp() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [roots, setRoots] = useState<RootStatus[]>([]);
+  const [selectedRoot, setSelectedRoot] = useState<string | undefined>(undefined);
   const [name, setName] = useState(defaultProjectName);
   const [canvas, setCanvas] = useState("landscape");
   const [error, setError] = useState<string | null>(null);
@@ -577,22 +580,32 @@ function LauncherApp() {
   const [open, setOpen] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    getProjects().then(setProjects).catch((e) => setError((e as Error).message));
+    getProjects()
+      .then((r) => {
+        setProjects(r.projects);
+        setRoots(r.roots);
+      })
+      .catch((e) => setError((e as Error).message));
   }, []);
   useEffect(() => {
     if (open) nameRef.current?.focus();
   }, [open]);
   const trimmed = name.trim();
+  const effectiveRoot = selectedRoot ?? roots.find((r) => r.available)?.key ?? roots[0]?.key;
+  const selectedRootAvailable = roots.length === 0 || roots.some((r) => r.key === effectiveRoot && r.available);
   // 409 を待たずにその場で伝える。サーバ側の衝突検査は残したまま、UI の応答だけ早める
-  const duplicate = projects.some((p) => p.name === trimmed);
-  const canCreate = trimmed.length > 0 && !duplicate && !creating;
+  const duplicate = projects.some((p) => p.name === trimmed && (roots.length <= 1 || p.root === effectiveRoot));
+  const canCreate = trimmed.length > 0 && !duplicate && !creating && selectedRootAvailable;
   const create = async () => {
     if (!canCreate) return;
     setCreating(true);
     setError(null);
     try {
-      const created = await createProject(name.trim(), canvas);
-      location.href = `/p/${encodeURIComponent(created.name)}/?canvas=${encodeURIComponent(canvas)}`;
+      const created = await createProject(name.trim(), canvas, "auto", "plain", effectiveRoot);
+      const target = recordingRootMode() === "multi"
+        ? `/p/${encodeURIComponent(created.root)}/${encodeURIComponent(created.name)}/?canvas=${encodeURIComponent(canvas)}`
+        : `/p/${encodeURIComponent(created.name)}/?canvas=${encodeURIComponent(canvas)}`;
+      location.href = target;
     } catch (e) {
       setError((e as Error).message);
       setCreating(false);
@@ -611,6 +624,13 @@ function LauncherApp() {
           {open ? "キャンセル" : "+ 新規プロジェクト"}
         </button>
       </header>
+
+      {roots.some((r) => !r.available) && (
+        <p className="launcherHint warn">
+          未接続: {roots.filter((r) => !r.available).map((r) => r.key).join(", ")}
+          (接続後にページを再読み込みしてください)
+        </p>
+      )}
 
       {open && (
         <section className="launcherCreate" aria-label="新規プロジェクト">
@@ -657,6 +677,23 @@ function LauncherApp() {
             </div>
           </div>
 
+          {roots.length > 1 && (
+            <label className="launcherField">
+              <span>保存先</span>
+              <select
+                aria-label="保存先ルート"
+                value={effectiveRoot}
+                onChange={(e) => setSelectedRoot(e.target.value)}
+              >
+                {roots.map((r) => (
+                  <option key={r.key} value={r.key} disabled={!r.available}>
+                    {r.key}{r.available ? "" : "(未接続)"}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
           {error && <p className="launcherError">{error}</p>}
           <div className="launcherActions">
             <p className="launcherHint">作成後、次の画面で元になる動画・音声を選びます。</p>
@@ -675,7 +712,13 @@ function LauncherApp() {
           const box = aspectBox(preset?.aspect ?? "16:9");
           const ready = project.hasManifest && project.durationSec !== null;
           return (
-            <a className="projectCard" key={project.name} href={`/p/${encodeURIComponent(project.name)}/`}>
+            <a
+              className="projectCard"
+              key={`${project.root}/${project.name}`}
+              href={recordingRootMode() === "multi"
+                ? `/p/${encodeURIComponent(project.root)}/${encodeURIComponent(project.name)}/`
+                : `/p/${encodeURIComponent(project.name)}/`}
+            >
               <span className="projectCardTop">
                 <span className="canvasTileShapeBox sm">
                   <span className="canvasTileShape" style={{ width: box.w * 0.8, height: box.h * 0.8 }} />
@@ -687,6 +730,7 @@ function LauncherApp() {
                   ? <span className="projectCardDur">{fmtTime(project.durationSec!)}</span>
                   : <span className="projectCardTodo">メディア未選択</span>}
                 <span>{preset?.aspect ?? project.canvas}</span>
+                {roots.length > 1 && <span className="projectCardBadge">{project.root}</span>}
                 {project.rendered && <span className="projectCardBadge">書き出し済み</span>}
               </span>
               <time>{new Date(project.modifiedAt).toLocaleString()}</time>

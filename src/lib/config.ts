@@ -131,6 +131,8 @@ function loadRepoEnv(): void {
 
 export interface Config {
   recordingsDir: string;
+  /** 複数ルート運用(opt-in)。recordingsDir と併記不可。 */
+  recordingsDirs?: Record<string, string>;
   ingest: {
     screenRegion: Region;
     cameraRegion: Region;
@@ -1555,6 +1557,28 @@ function validateWorkflowConfig(cfg: Config): string[] {
       errors.push('log.level は "quiet" | "normal" | "verbose" で指定してください');
     }
   }
+  if (cfg.recordingsDirs !== undefined) {
+    if (typeof cfg.recordingsDir === "string") {
+      errors.push("recordingsDir と recordingsDirs は併記できません");
+    }
+    if (cfg.recordingsDirs === null || typeof cfg.recordingsDirs !== "object" || Array.isArray(cfg.recordingsDirs)) {
+      errors.push("recordingsDirs は object で指定してください");
+    } else {
+      const entries = Object.entries(cfg.recordingsDirs as Record<string, unknown>);
+      if (entries.length === 0) errors.push("recordingsDirs は最低1件必要です");
+      if (entries.length > 16) errors.push("recordingsDirs は最大16件です(用途を分けてください)");
+      for (const [key, value] of entries) {
+        if (!/^[a-z][a-z0-9-]{0,31}$/.test(key)) {
+          errors.push(`recordingsDirs のキー "${key}" が不正です(英小文字始まり、英数字と "-" のみ、32文字以内)`);
+        }
+        if (typeof value !== "string" || value.trim().length === 0) {
+          errors.push(`recordingsDirs.${key} は空でない string(パス)で指定してください`);
+        }
+      }
+    }
+  } else if (typeof cfg.recordingsDir !== "string" || cfg.recordingsDir.trim().length === 0) {
+    errors.push("recordingsDir が必要です(または recordingsDirs)");
+  }
   return errors;
 }
 
@@ -1980,6 +2004,22 @@ export function expandHome(p: string): string {
   return p;
 }
 
+export interface RecordingRoot {
+  /** "main"(単一ルート運用時の暗黙キー)またはユーザー定義キー。 */
+  key: string;
+  /** 展開済み絶対パス */
+  path: string;
+}
+
+export function resolveRecordingRoots(
+  cfg: Pick<Config, "recordingsDir" | "recordingsDirs">,
+): RecordingRoot[] {
+  if (cfg.recordingsDirs) {
+    return Object.entries(cfg.recordingsDirs).map(([key, path]) => ({ key, path }));
+  }
+  return [{ key: "main", path: cfg.recordingsDir }];
+}
+
 /**
  * config.yaml のパスを解決する。探す順序:
  * 1. --config で明示されたパス
@@ -2012,7 +2052,14 @@ export function loadConfig(explicitPath?: string): Config {
   if (workflowErrors.length > 0) {
     throw new Error(`Workflow config error:\n- ${workflowErrors.join("\n- ")}`);
   }
-  cfg.recordingsDir = expandHome(cfg.recordingsDir);
+  if (cfg.recordingsDirs) {
+    cfg.recordingsDirs = Object.fromEntries(
+      Object.entries(cfg.recordingsDirs).map(([key, path]) => [key, expandHome(path)]),
+    );
+    cfg.recordingsDir = Object.values(cfg.recordingsDirs)[0];
+  } else {
+    cfg.recordingsDir = expandHome(cfg.recordingsDir);
+  }
   cfg.whisper.model = expandHome(cfg.whisper.model);
   cfg.whisper.wordTimestamps ??= true;
   cfg.whisper.systemAudio ??= false;

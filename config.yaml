@@ -2,7 +2,14 @@
 # パスの ~ はホームディレクトリに展開されます
 
 # 収録データの置き場所(リポジトリ外に置く。1収録=1フォルダ、中に raw.mkv)
-recordingsDir: ~/Movies/framewright
+# 複数の置き場所をランチャーで横断したい場合は recordingsDir の代わりに
+# recordingsDirs を使う(併記不可)。先頭のキーが primary root になる。
+# usb-siro1 は USB_SIRO1 が接続されているときだけランチャーに現れ、
+# 未接続時は「未接続」表示で一覧からグレーアウトされる(落ちない)。
+recordingsDirs:
+  main: ~/Movies/framewright
+  usb-siro1: /Volumes/USB_SIRO1/framewright
+  usb-siro2: /Volumes/USB_SIRO2/framewright
 
 # 収録レイアウトの設定。既定は通常動画(plain)。
 # OBS拡張キャンバスを使う場合は各コマンドで --layout obs-canvas を指定するか、

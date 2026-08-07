@@ -86,8 +86,8 @@ import {
   validateHyperframeAuthorRequest,
 } from "../src/lib/hyperframeAuthor.ts";
 import { readEditableDocs } from "../src/stages/idStamp.ts";
-import { aiProfileStatuses, profileForRoute, resolveAiReviewCfg, resolveAiRuntimeConfig, resolveHyperframeAssetLimits, resolvePerceptionStatus } from "../src/lib/config.ts";
-import type { Config } from "../src/lib/config.ts";
+import { aiProfileStatuses, profileForRoute, resolveAiReviewCfg, resolveAiRuntimeConfig, resolveHyperframeAssetLimits, resolvePerceptionStatus, resolveRecordingRoots } from "../src/lib/config.ts";
+import type { Config, RecordingRoot } from "../src/lib/config.ts";
 import {
   applyConfigEdits,
   resolvedEditorCfg,
@@ -152,11 +152,19 @@ export async function startEditor(
   baseLayout?: string,
   launcherMode = false,
 ): Promise<void> {
-  // 動画ファイルだけの収録フォルダでも開けるように、必須3ファイルのうち
-  // 無いものだけ決定的に補う(既存ファイルには触れない)。loadProject の
-  // 3点チェックは最終防壁として残す
-  mkdirSync(dir, { recursive: true });
-  if (!launcherMode) {
+  if (launcherMode) {
+    for (const root of resolveRecordingRoots(cfg)) {
+      try {
+        mkdirSync(root.path, { recursive: true });
+      } catch (error) {
+        console.warn(`警告: recordingsDirs.${root.key}(${root.path})を作成できません(未接続の可能性): ${(error as Error).message}`);
+      }
+    }
+  } else {
+    // 動画ファイルだけの収録フォルダでも開けるように、必須3ファイルのうち
+    // 無いものだけ決定的に補う(既存ファイルには触れない)。loadProject の
+    // 3点チェックは最終防壁として残す
+    mkdirSync(dir, { recursive: true });
     await bootstrapProjectWithLayout(dir, cfg, layout, canvas, baseLayout);
     if (existsSync(join(dir, "manifest.json"))) await prepareEditorDesignAssets(dir, cfg);
   }
@@ -317,12 +325,24 @@ export class HttpError extends Error {
 }
 
 export interface ProjectSummary {
+  root: string;
   name: string;
   hasManifest: boolean;
   durationSec: number | null;
   canvas: string;
   rendered: boolean;
   modifiedAt: string;
+}
+
+export interface RootStatus {
+  key: string;
+  available: boolean;
+  reason?: string;
+}
+
+export interface ProjectsResponse {
+  roots: RootStatus[];
+  projects: ProjectSummary[];
 }
 
 export function decodeProjectRouteName(encoded: string): string {
@@ -348,7 +368,7 @@ export function normalizeProjectName(raw: string): string {
   return basename(raw).replace(/[\\/:*?"<>|]/g, "_").replace(/^\.+/, "");
 }
 
-export function listProjects(rootDir: string): ProjectSummary[] {
+export function listProjects(rootDir: string, rootKey: string): ProjectSummary[] {
   mkdirSync(rootDir, { recursive: true });
   return readdirSync(rootDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && !entry.name.startsWith(".") &&
@@ -369,6 +389,7 @@ export function listProjects(rootDir: string): ProjectSummary[] {
         }
       }
       return {
+        root: rootKey,
         name: entry.name,
         hasManifest,
         durationSec,
@@ -378,6 +399,28 @@ export function listProjects(rootDir: string): ProjectSummary[] {
       };
     })
     .sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt));
+}
+
+/** URL の rootKey を検証し、対応する RecordingRoot を返す(無ければ 404)。 */
+export function findRecordingRoot(roots: RecordingRoot[], key: string): RecordingRoot {
+  const root = roots.find((r) => r.key === key);
+  if (!root) throw new HttpError(404, `不明なルートです: ${key}`);
+  return root;
+}
+
+export function listProjectsAcrossRoots(roots: RecordingRoot[]): ProjectsResponse {
+  const rootStatuses: RootStatus[] = [];
+  const projects: ProjectSummary[] = [];
+  for (const root of roots) {
+    try {
+      projects.push(...listProjects(root.path, root.key));
+      rootStatuses.push({ key: root.key, available: true });
+    } catch (error) {
+      rootStatuses.push({ key: root.key, available: false, reason: (error as Error).message });
+    }
+  }
+  projects.sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt));
+  return { roots: rootStatuses, projects };
 }
 
 export function createProjectDirectory(
@@ -478,18 +521,29 @@ async function handle(
   const url = new URL(req.url ?? "/", "http://localhost");
   let path = url.pathname;
   const rootDir = dir;
+  const recordingRoots = resolveRecordingRoots(cfg);
+  const multiRoot = cfg.recordingsDirs !== undefined;
   if (launcherMode && path.startsWith("/p/")) {
-    const match = /^\/p\/([^/]+)(\/.*)?$/.exec(path);
+    const match = multiRoot
+      ? /^\/p\/([^/]+)\/([^/]+)(\/.*)?$/.exec(path)
+      : /^\/p\/([^/]+)(\/.*)?$/.exec(path);
     if (!match) throw new HttpError(404, "プロジェクトが見つかりません");
-    const name = decodeProjectRouteName(match[1]);
-    dir = resolveLauncherProject(rootDir, name);
-    if (!existsSync(dir) || !statSync(dir).isDirectory()) throw new HttpError(404, `プロジェクトがありません: ${name}`);
-    if (!match[2]) {
-      res.writeHead(302, { Location: `/p/${encodeURIComponent(name)}/` });
+    const root = multiRoot ? findRecordingRoot(recordingRoots, match[1]) : { key: "main", path: rootDir };
+    const name = decodeProjectRouteName(multiRoot ? match[2] : match[1]);
+    const rest = multiRoot ? match[3] : match[2];
+    dir = resolveLauncherProject(root.path, name);
+    if (!existsSync(dir) || !statSync(dir).isDirectory()) {
+      throw new HttpError(404, `プロジェクトがありません: ${multiRoot ? `${root.key}/${name}` : name}`);
+    }
+    if (!rest) {
+      const location = multiRoot
+        ? `/p/${encodeURIComponent(root.key)}/${encodeURIComponent(name)}/`
+        : `/p/${encodeURIComponent(name)}/`;
+      res.writeHead(302, { Location: location });
       res.end();
       return;
     }
-    path = match[2];
+    path = rest;
     const requestedCanvas = url.searchParams.get("canvas");
     if (requestedCanvas) {
       if (!isCanvasPreset(requestedCanvas)) throw new HttpError(400, `未知の canvas 名です: ${requestedCanvas}`);
@@ -515,7 +569,7 @@ async function handle(
   } else if (launcherMode && path !== "/" && path !== "/bundle.js" && path !== "/styles.css" &&
       !path.startsWith("/fonts/") &&
       path !== "/particle_loop_icon.svg" && path !== "/api/ping" && path !== "/api/projects") {
-    throw new HttpError(404, "プロジェクト URL /p/<name>/ を使用してください");
+    throw new HttpError(404, multiRoot ? "プロジェクト URL /p/<root>/<name>/ を使用してください" : "プロジェクト URL /p/<name>/ を使用してください");
   }
 
   // DNS rebinding・他サイトからの CSRF 対策。ローカル以外の Host は拒否し、
@@ -536,6 +590,13 @@ async function handle(
     ? editorAssetResponse(path, assets.current)
     : null;
   if (clientAsset) {
+    if (path === "/") {
+      const modeScript = `<script>window.__FW_RECORDING_ROOT_MODE__=${JSON.stringify(multiRoot ? "multi" : "single")};</script>`;
+      const html = (clientAsset.body as string).replace("</head>", `${modeScript}</head>`);
+      res.writeHead(200, clientAsset.headers);
+      res.end(html);
+      return;
+    }
     res.writeHead(200, clientAsset.headers);
     res.end(clientAsset.body);
     return;
@@ -570,13 +631,20 @@ async function handle(
     return;
   }
   if (launcherMode && req.method === "GET" && path === "/api/projects") {
-    sendJson(res, 200, listProjects(rootDir));
+    sendJson(res, 200, listProjectsAcrossRoots(recordingRoots));
     return;
   }
   if (launcherMode && req.method === "POST" && path === "/api/projects") {
-    const body = await readBody(req) as { name?: unknown; canvas?: unknown; layout?: unknown; baseLayout?: unknown };
-    const created = createProjectDirectory(rootDir, body);
-    sendJson(res, 201, created);
+    const body = await readBody(req) as { name?: unknown; canvas?: unknown; layout?: unknown; baseLayout?: unknown; root?: unknown };
+    const rootKey = typeof body.root === "string" && body.root ? body.root : recordingRoots[0].key;
+    const root = findRecordingRoot(recordingRoots, rootKey);
+    try {
+      mkdirSync(root.path, { recursive: true });
+    } catch (error) {
+      throw new HttpError(409, `ルート "${root.key}" は現在使用できません: ${(error as Error).message}`);
+    }
+    const created = createProjectDirectory(root.path, body);
+    sendJson(res, 201, { ...created, root: root.key });
     return;
   }
   if (req.method === "POST" && path === "/metrics") {
