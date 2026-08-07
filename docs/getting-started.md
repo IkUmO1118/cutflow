@@ -161,6 +161,7 @@ npm run sample        # ffmpeg で数秒のサンプルを合成し examples/sam
 ```sh
 # ⓪ プロジェクト一覧(ランチャー)から始める場合
 #    config.yaml の recordingsDir(既定 ~/Movies/framewright)が開く
+#    recordingsDirs を使うと複数の保存先を横断できる
 node src/cli.ts editor
 #    → 「+ 新規プロジェクト」で名前とキャンバスを選ぶ → 空プロジェクトが開く
 #    → 画面内でベースにする動画/音声を選ぶ(ドラッグ&ドロップでも可)
@@ -294,7 +295,7 @@ node src/cli.ts run    <dir> --layout obs-canvas
 
 | コマンド | 何をするか | 使う場面 |
 |---|---|---|
-| `editor` (引数なし) | `recordingsDir` のプロジェクト一覧(ランチャー)を開く | どのプロジェクトを開くか選ぶ / 新規プロジェクトを作る |
+| `editor` (引数なし) | `recordingsDir` / `recordingsDirs` のプロジェクト一覧(ランチャー)を開く | どのプロジェクトを開くか選ぶ / 新規プロジェクトを作る |
 | `run <dir>` | **AI に初版を作らせる**(transcribe→detect→plan)。`manifest.json` が無いフォルダでは `ingest` から始める | 文字起こし+自動カット案を一気に作りたいとき。手編集済みのファイルを上書きする場合だけ `--force` が必要(実行前に `backups/` へ退避) |
 | `derive <dir> --name … --canvas … --range …` | 元メディアと transcript を共有する**派生プロジェクト**を作る | 同じ収録から縦ショートなど別サイズも出したいとき |
 | `ingest <dir>` | 映像解析・マイク音声抽出 → manifest.json | config を変えて部分的にやり直すとき |
@@ -368,7 +369,7 @@ node src/cli.ts run    <dir> --layout obs-canvas
 ### 起動
 
 ```sh
-# プロジェクト一覧(ランチャー)。config.yaml の recordingsDir を開く
+# プロジェクト一覧(ランチャー)。config.yaml の recordingsDir / recordingsDirs を開く
 node src/cli.ts editor
 
 # 1つのプロジェクトを直接開く(まだ無いフォルダ名でも作って開く)

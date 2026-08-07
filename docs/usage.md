@@ -142,7 +142,8 @@ human final がある場合だけ、従来の agreement (`exact`) / rescue (`dir
 
 ## 最小 config スターター(config.minimal.yaml)
 
-初回に本当に触る必要があるのは3点だけ: `recordingsDir`(収録の置き場所)/
+初回に本当に触る必要があるのは3点だけ: `recordingsDir`(収録の置き場所。複数の
+保存先をランチャーで横断したい場合だけ、代わりに `recordingsDirs` を使う)/
 `ai`(生成 AI の接続先。**省略時の既定は API** で、`ANTHROPIC_API_KEY` →
 `OPENAI_API_KEY` の順に env/`.env` を見て決まる。`claude` / `codex` CLI を
 使うときだけ `adapter: claude-code` / `codex` を明示する)/
@@ -180,8 +181,9 @@ human final がある場合だけ、従来の agreement (`exact`) / rescue (`dir
 ### 縦動画・別キャンバスの作り方
 
 `node src/cli.ts editor` を引数なしで起動すると、`config.yaml` の
-`recordingsDir` にあるプロジェクト一覧が開く。「新規プロジェクト」で
-`portrait` などのキャンバスを選び、空プロジェクトでベースメディアを選べる。
+`recordingsDir`(または `recordingsDirs`) にあるプロジェクト一覧が開く。
+「新規プロジェクト」で `portrait` などのキャンバスを選び、空プロジェクトで
+ベースメディアを選べる。`recordingsDirs` の場合は保存先 root も選べる。
 
 既存プロジェクトの一部を使う場合は、エディタで keep クリップを選択して
 「この範囲で派生」を押すか、元収録の秒で `derive` を実行する。

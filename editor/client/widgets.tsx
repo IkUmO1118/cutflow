@@ -23,13 +23,13 @@ import type {
   MediaFactsData,
   PeaksData,
   ProjectData,
+  ProjectsResponse,
   ReadyProjectData,
   ProxyResponse,
   SaveRequest,
   SaveResponse,
   ScriptData,
   UploadResult,
-  ProjectSummary,
 } from "./apiTypes.ts";
 import { projectPath } from "./route.ts";
 
@@ -47,12 +47,19 @@ export async function getProject(): Promise<ProjectData> {
   return (await request("/api/project", undefined)) as ProjectData;
 }
 
-export async function getProjects(): Promise<ProjectSummary[]> {
-  return (await request("/api/projects", undefined)) as ProjectSummary[];
+export async function getProjects(): Promise<ProjectsResponse> {
+  return (await request("/api/projects", undefined)) as ProjectsResponse;
 }
 
-export async function createProject(name: string, canvas: string, baseLayout = "auto", layout = "plain"): Promise<{ dir: string; name: string; canvas: string; layout?: string; baseLayout?: string }> {
-  return (await request("/api/projects", { name, canvas, baseLayout, layout })) as { dir: string; name: string; canvas: string; layout?: string; baseLayout?: string };
+export async function createProject(
+  name: string,
+  canvas: string,
+  baseLayout = "auto",
+  layout = "plain",
+  root?: string,
+): Promise<{ dir: string; name: string; canvas: string; layout?: string; baseLayout?: string; root: string }> {
+  return (await request("/api/projects", { name, canvas, baseLayout, layout, root })) as
+    { dir: string; name: string; canvas: string; layout?: string; baseLayout?: string; root: string };
 }
 
 export async function postDerive(name: string, canvas: string, ranges: Array<{ start: number; end: number }>, baseLayout = "auto"): Promise<{ dir: string; name: string }> {

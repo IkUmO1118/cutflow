@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import {
   HttpError,
   createProjectDirectory,
+  findRecordingRoot,
+  listProjectsAcrossRoots,
   listProjects,
   normalizeProjectName,
   resolveLauncherProject,
@@ -20,7 +22,7 @@ test("project launcher: 直下ディレクトリを列挙し共有/hiddenを除�
     for (const name of ["empty", "ready", "hyperframe-seeds", "style.probe", ".hidden"]) mkdirSync(join(root, name));
     writeFileSync(join(root, "ready", "manifest.json"), JSON.stringify({ durationSec: 42, canvas: "portrait" }));
     writeFileSync(join(root, "ready", "final.mp4"), "done");
-    const projects = listProjects(root);
+    const projects = listProjects(root, "main");
     assert.deepEqual(projects.map((p) => p.name).sort(), ["empty", "ready"]);
     const empty = projects.find((p) => p.name === "empty")!;
     assert.equal(empty.hasManifest, false);
@@ -34,6 +36,38 @@ test("project launcher: 直下ディレクトリを列挙し共有/hiddenを除�
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("project launcher: 複数ルートを横断して一覧し、未接続ルートを落とさず警告する", () => {
+  const rootA = mkdtempSync(join(tmpdir(), "framewright-launcher-a-"));
+  const blocker = mkdtempSync(join(tmpdir(), "framewright-launcher-blocker-"));
+  const blockerFile = join(blocker, "not-a-dir");
+  writeFileSync(blockerFile, "x");
+  const unreachable = join(blockerFile, "framewright");
+  try {
+    mkdirSync(join(rootA, "talk-a"));
+    writeFileSync(join(rootA, "talk-a", "manifest.json"), JSON.stringify({ durationSec: 10, canvas: "landscape" }));
+    const result = listProjectsAcrossRoots([
+      { key: "main", path: rootA },
+      { key: "usb-a", path: unreachable },
+    ]);
+    assert.deepEqual(result.roots.map((r) => r.key), ["main", "usb-a"]);
+    assert.equal(result.roots[0].available, true);
+    assert.equal(result.roots[1].available, false);
+    assert.ok(result.roots[1].reason);
+    assert.equal(result.projects.length, 1);
+    assert.equal(result.projects[0].root, "main");
+    assert.equal(result.projects[0].name, "talk-a");
+  } finally {
+    rmSync(rootA, { recursive: true, force: true });
+    rmSync(blocker, { recursive: true, force: true });
+  }
+});
+
+test("project launcher: findRecordingRoot は未知キーを 404 で拒否する", () => {
+  const roots = [{ key: "main", path: "/tmp/a" }, { key: "usb-a", path: "/tmp/b" }];
+  assert.equal(findRecordingRoot(roots, "usb-a").path, "/tmp/b");
+  assert.throws(() => findRecordingRoot(roots, "nope"), (e) => e instanceof HttpError && e.status === 404);
 });
 
 test("project launcher: 新規作成は正規化し、衝突と traversal を拒否する", () => {
@@ -61,12 +95,12 @@ test("project creation UI hides baseLayout inputs while API helpers keep default
   assert.doesNotMatch(app, /window\.prompt\("ベース配置/);
   assert.doesNotMatch(app, /initialBaseLayoutFromSearch/);
   assert.doesNotMatch(app, /baseLayout=\$\{encodeURIComponent\(baseLayout\)\}/);
-  assert.match(app, /createProject\(name\.trim\(\), canvas\)/);
+  assert.match(app, /createProject\(name\.trim\(\), canvas, "auto", "plain", effectiveRoot\)/);
   assert.match(app, /postBaseMedia\(file, baseCanvas\)/);
   assert.match(app, /uploadBaseMedia\(file, baseCanvas\)/);
   assert.match(app, /postDerive\(name, canvas, \[\{ start: segment\.start, end: segment\.end \}\]\)/);
 
-  assert.match(widgets, /createProject\(name: string, canvas: string, baseLayout = "auto", layout = "plain"\)/);
+  assert.match(widgets, /createProject\(\s*name: string,\s*canvas: string,\s*baseLayout = "auto",\s*layout = "plain",\s*root\?: string,\s*\)/);
   assert.match(widgets, /postDerive\(name: string, canvas: string, ranges: Array<\{ start: number; end: number \}>, baseLayout = "auto"\)/);
   assert.match(widgets, /postBaseMedia\(file: string, canvas: string, baseLayout = "auto"\)/);
   assert.match(widgets, /uploadBaseMedia\(file: File, canvas: string, baseLayout = "auto"\)/);

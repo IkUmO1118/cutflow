@@ -1,8 +1,20 @@
 import { isCanvasPreset } from "../../src/lib/profile.ts";
 
-/** ランチャー配下では API/絶対 media URL を現在の /p/<name> に束縛する。 */
+declare global {
+  interface Window {
+    __FW_RECORDING_ROOT_MODE__?: "single" | "multi";
+  }
+}
+
+/** サーバーが index.html に埋め込むモードフラグ。未注入は従来の single 扱い。 */
+export function recordingRootMode(): "single" | "multi" {
+  return typeof window !== "undefined" && window.__FW_RECORDING_ROOT_MODE__ === "multi" ? "multi" : "single";
+}
+
+/** ランチャー配下では API/絶対 media URL を現在のプロジェクトへ束縛する。 */
 export function projectPrefix(pathname = location.pathname): string {
-  const match = /^\/p\/[^/]+/.exec(pathname);
+  const re = recordingRootMode() === "multi" ? /^\/p\/[^/]+\/[^/]+/ : /^\/p\/[^/]+/;
+  const match = re.exec(pathname);
   return match?.[0] ?? "";
 }
 

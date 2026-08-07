@@ -42,7 +42,7 @@
 
 | コマンド | 使う場面 |
 |---|---|
-| `editor`(引数なし) | **どのプロジェクトを開くか選びたい / 新しく作りたい**とき。`config.yaml` の `recordingsDir` 直下のプロジェクト一覧(ランチャー)をブラウザで開く。カードから開くと `/p/<フォルダ名>/` へ移る。「+ 新規プロジェクト」は名前とキャンバスを決めてフォルダを作るだけ(`ingest` は走らず、次の画面でベースメディアを選ぶ)。`--detach` / `--status` / `--stop` はプロジェクト単位の機能なので引数なしでは使えない |
+| `editor`(引数なし) | **どのプロジェクトを開くか選びたい / 新しく作りたい**とき。`config.yaml` の `recordingsDir` 直下、または `recordingsDirs` の全 root のプロジェクト一覧(ランチャー)をブラウザで開く。単一 root ではカードから `/p/<フォルダ名>/`、複数 root では `/p/<root>/<フォルダ名>/` へ移る。「+ 新規プロジェクト」は名前・キャンバス・保存先 root(複数 root 時)を決めてフォルダを作るだけ(`ingest` は走らず、次の画面でベースメディアを選ぶ)。`--detach` / `--status` / `--stop` はプロジェクト単位の機能なので引数なしでは使えない |
 | `editor <dir>` | **GUI で編集したい**とき。カット境界のドラッグ・テロップの配置と文言・素材の挿入・AI 初版生成・派生プロジェクト作成・承認・プレビュー生成・レンダーまでブラウザで完結する。**まだ無いフォルダを指定しても作って開ける**。ベースメディアが未確定なら画面内で選ぶ(候補が複数あってもファイル名から推測せず人間が選ぶ)。外部(手編集や AI)の JSON 変更はホットリロードで反映される。`--detach` でバックグラウンド起動(`--status` / `--stop`)。**画面と操作の一覧は [editor.md](editor.md)**(画面内はヘッダーの「?」) |
 | `derive <dir> --name <名前> --canvas <preset> --range <開始-終了>` | **同じ収録から別サイズの出力も作りたい**とき(縦ショート等。旧 shorts 動線の後継)。元プロジェクトの兄弟フォルダに新しいプロジェクトを作り、ベースメディアを symlink(非対応ならハードリンク → コピー)で共有し `transcript.json` を引き継ぐ。`--range` は**元収録の秒**で複数指定でき、その範囲が keep になる。`overlays` / `bgm` / `chapters` / `meta` / `approvals` は引き継がない。派生先が既にあればエラー(`--force` は無い)。エディタでは keep 区間を選んでヘッダーの「この範囲で派生」 |
 | `preview <dir>` | cutplan.json を編集するたび。承認前でも動く |
@@ -74,7 +74,7 @@
 | `materials <dir>` | **素材(B-roll)の中身を知りたい**とき(尺・解像度・fps・音声有無・`overlays.json`/`bgm.json` との参照クロスリンク・未使用/dangling 検出)。既定は ffprobe だけ。`--frames`/`--ocr`/`--transcribe`/`--all` で見た目・画面文字・音声発話まで opt-in で取得 |
 | `av <dir>` | **keep 後タイムラインの動きと音を知りたい**とき。`av.probe/motion.json` / `sound.json` / `motion.strip.png` に motion(scene score・freeze・フィルムストリップ)と sound(LUFS 包絡・無音・mic/system 被り・BGM/duck 設定)を出す。`--range`(出力秒)/ `--every` / `--full-res` / `--motion-only` / `--sound-only` |
 | `record --watch` | **カーソル座標を収録と一緒に記録したい**とき(`autozoom` / `plan-effects` のカーソル dwell アンカーの元データ)。録画ボタンに連動して `<収録ファイル名>.cursor.json` を収録ファイルの隣に書く常駐 watcher。macOS 専用・ingest より前に走る |
-| `index` / `search <query>` | **収録をまたいで探したい**とき。`index` が `recordingsDir` のローカル検索インデックスを更新し、`search` が収録・素材の metadata / OCR / 文字起こしを横断検索する(収録フォルダ引数を取らない) |
+| `index` / `search <query>` | **収録をまたいで探したい**とき。`index` が `recordingsDir` のローカル検索インデックスを更新し、`search` が収録・素材の metadata / OCR / 文字起こしを横断検索する(収録フォルダ引数を取らない)。`recordingsDirs` 設定時も検索対象は primary root のみで、複数 root 横断はランチャーだけが対応する |
 | `review <dir>` | **before/after の差分を人間がレビューできる形で束ねたい**とき。決定論のレビュー束を `review.probe/index.json` に書く |
 
 ## AI に下書きさせる

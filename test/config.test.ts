@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "yaml";
 import {
@@ -61,6 +61,7 @@ import {
   resolvePlanHarnessCfg,
   resolvePlanLoopCfg,
   resolvePlanLoopSecondaryObservationCfg,
+  resolveRecordingRoots,
   resolveReasonIdsCfg,
   resolveStyleProfileCfg,
   resolveStyleProfileStatus,
@@ -386,6 +387,54 @@ test("loadConfig: hyperframe.assets の未知キー・非正値・逆転した�
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("loadConfig: recordingsDir と recordingsDirs は併記できない", () => {
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
+  try {
+    const path = join(dir, "config.yaml");
+    writeFileSync(path, `${RAW}\nrecordingsDirs:\n  usb-a: /Volumes/FootageSSD/framewright\n`);
+    assert.throws(() => loadConfig(path), /recordingsDir と recordingsDirs は併記できません/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig: recordingsDirs のキー形式・空件数を検証する", () => {
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
+  try {
+    const path = join(dir, "config.yaml");
+    const base = RAW.replace(/^recordingsDir: .*\n/m, "");
+    writeFileSync(path, `recordingsDirs:\n  Bad-Key: /tmp/a\n${base}`);
+    assert.throws(() => loadConfig(path), /recordingsDirs のキー "Bad-Key" が不正です/);
+    writeFileSync(path, `recordingsDirs: {}\n${base}`);
+    assert.throws(() => loadConfig(path), /recordingsDirs は最低1件必要です/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig: recordingsDirs は全ルートを ~ 展開し、先頭が recordingsDir 互換の primary になる", () => {
+  const dir = mkdtempSync(join(tmpdir(), "framewright-config-"));
+  try {
+    const path = join(dir, "config.yaml");
+    const base = RAW.replace(/^recordingsDir: .*\n/m, "");
+    writeFileSync(path, `recordingsDirs:\n  main: ~/Movies/framewright\n  usb-a: /Volumes/FootageSSD/framewright\n${base}`);
+    const cfg = loadConfig(path);
+    assert.equal(cfg.recordingsDir, join(homedir(), "Movies/framewright"));
+    assert.deepEqual(resolveRecordingRoots(cfg), [
+      { key: "main", path: join(homedir(), "Movies/framewright") },
+      { key: "usb-a", path: "/Volumes/FootageSSD/framewright" },
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("resolveRecordingRoots: recordingsDirs 未指定なら単一ルート(key=main)を返す", () => {
+  const cfg = parse(RAW) as Config;
+  cfg.recordingsDir = "/abs/Movies/framewright";
+  assert.deepEqual(resolveRecordingRoots(cfg), [{ key: "main", path: "/abs/Movies/framewright" }]);
 });
 
 test("loadConfig: whisper.wordTimestamps 未指定時は true(語タイムスタンプ既定資産化=W0)", () => {

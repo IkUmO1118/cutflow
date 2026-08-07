@@ -149,6 +149,7 @@ export interface ReadyProjectData {
 export type ProjectData = EmptyProjectData | ReadyProjectData;
 
 export interface ProjectSummary {
+  root: string;
   name: string;
   hasManifest: boolean;
   durationSec: number | null;
@@ -156,6 +157,17 @@ export interface ProjectSummary {
   baseLayout?: string;
   rendered: boolean;
   modifiedAt: string;
+}
+
+export interface RootStatus {
+  key: string;
+  available: boolean;
+  reason?: string;
+}
+
+export interface ProjectsResponse {
+  roots: RootStatus[];
+  projects: ProjectSummary[];
 }
 
 export type PlanPerceptionStatus = PerceptionStatus;
