@@ -1130,3 +1130,22 @@ export function resolutionForOnly(
 
 /** diffレーンの行高(px)。開閉は無く常にこの高さ(F3) */
 export const DIFF_ROW_H = 28;
+
+/**
+ * プレビュー上のインライン編集(ダブルクリック)中の下書きを、Player へ渡す
+ * props のどのエントリへ当てるか。編集枠(textarea)は color:transparent で、
+ * 打鍵の見た目は Player 側の字幕が担うので、ここが外れると「確定するまで
+ * 何も変わらない」ように見える。
+ *
+ * 判定はトラック一致+「下書きを取った時刻がそのエントリの表示区間内」。
+ * **時刻はカット後(出力)の秒**で比べること(transcript / overlays.json が
+ * 持つ元収録の秒と混ぜると、カットのあるプロジェクトで当たらなくなる)。
+ */
+export function isInlineDraftTarget(
+  item: { start: number; end: number; track?: number },
+  editingTrack: number | null,
+  outT: number,
+): boolean {
+  if (editingTrack === null) return false;
+  return (item.track ?? 1) === editingTrack && outT >= item.start && outT < item.end;
+}
