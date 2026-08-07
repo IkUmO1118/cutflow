@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { accessSync, constants, existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -2018,6 +2018,43 @@ export function resolveRecordingRoots(
     return Object.entries(cfg.recordingsDirs).map(([key, path]) => ({ key, path }));
   }
   return [{ key: "main", path: cfg.recordingsDir }];
+}
+
+/** 収録ルートが「今そこにあるか」。
+ * - `present`: 実在する(そのまま使える)
+ * - `creatable`: まだ無いが、実在する親が書き込み可能=作れば使える
+ * - `disconnected`: 作れる場所ですらない(未接続の外付け/未マウントの
+ *   ネットワークボリューム)。設定ミスではなく**繋げば直る**状態 */
+export type RecordingRootState = "present" | "creatable" | "disconnected";
+
+/**
+ * 収録ルートの状態を調べる(read-only。作成はしない)。
+ *
+ * 外付け USB は未接続だとマウント点(macOS なら `/Volumes/<ラベル>`)ごと
+ * 存在せず、`mkdir -p` は `/Volumes` 自体を作ろうとして EACCES で落ちる。
+ * これを「エラー」として毎回出すと、繋いでいないときの起動が常に警告まみれに
+ * なるので、実在する直近の祖先が書き込み可能かどうかで
+ * 「作れば使える(creatable)」と「未接続(disconnected)」を分ける。
+ */
+export function recordingRootState(path: string): RecordingRootState {
+  const abs = resolve(expandHome(path));
+  if (existsSync(abs)) return "present";
+  let dir = abs;
+  for (;;) {
+    const parent = dirname(dir);
+    // ファイルシステムのルートまで遡っても実在しない(通常は起こらない)
+    if (parent === dir) return "disconnected";
+    if (existsSync(parent)) {
+      try {
+        accessSync(parent, constants.W_OK);
+        return "creatable";
+      } catch {
+        // 親はあるが書けない(= /Volumes 直下等)。未接続として扱う
+        return "disconnected";
+      }
+    }
+    dir = parent;
+  }
 }
 
 /**

@@ -3,7 +3,7 @@
 // 「書き戻し後の YAML からメモリ上 cfg を取り込み直す(cfg の参照は保つ)」を固定する。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "yaml";
@@ -61,6 +61,7 @@ import {
   resolvePlanHarnessCfg,
   resolvePlanLoopCfg,
   resolvePlanLoopSecondaryObservationCfg,
+  recordingRootState,
   resolveRecordingRoots,
   resolveReasonIdsCfg,
   resolveStyleProfileCfg,
@@ -1570,4 +1571,40 @@ test("config.minimal.yaml は loadConfig で読めて必須セクションが揃
   // 任意調整セクションを省いても resolve* が既定を返す(crash しない)
   assert.equal(resolvePerceptionCfg(cfg).audio, false);
   assert.equal(cfg.whisper.wordTimestamps, true); // loadConfig の ??= true が効く
+});
+
+// ---- 収録ルートの接続状態(未接続の外付けを「エラー」にしない) ----
+
+test("recordingRootState: 実在するルートは present", () => {
+  const dir = mkdtempSync(join(tmpdir(), "framewright-root-"));
+  try {
+    assert.equal(recordingRootState(dir), "present");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("recordingRootState: 未作成でも書ける親の下なら creatable(初回起動でそのまま作る)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "framewright-root-"));
+  try {
+    assert.equal(recordingRootState(join(dir, "framewright")), "creatable");
+    // 数段深くても、実在する直近の祖先が書ければ creatable
+    assert.equal(recordingRootState(join(dir, "a", "b", "framewright")), "creatable");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("recordingRootState: 書けない親の下(未マウントのマウント点相当)は disconnected", (t) => {
+  // /Volumes 直下に mkdir できないのと同じ状況を、書き込み不可の親で再現する。
+  // root で実行すると W_OK が常に通ってしまうので、その場合だけスキップ
+  if (process.getuid?.() === 0) return t.skip("root ではパーミッション判定にならない");
+  const dir = mkdtempSync(join(tmpdir(), "framewright-root-"));
+  try {
+    chmodSync(dir, 0o500);
+    assert.equal(recordingRootState(join(dir, "USB_LABEL", "framewright")), "disconnected");
+  } finally {
+    chmodSync(dir, 0o700);
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

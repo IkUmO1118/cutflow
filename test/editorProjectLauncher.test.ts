@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -108,4 +108,28 @@ test("project creation UI hides baseLayout inputs while API helpers keep default
   assert.match(app, /baseLayout=\{proj\.manifest\.baseLayout \?\? "auto"\}/);
   assert.match(panels, /<span className="ocSettingsLabel">ベース配置<\/span>/);
   assert.match(panels, /<span className="ocSettingsValue mono">\{baseLayout\}<\/span>/);
+});
+
+test("project launcher: 未接続ルートは探しに行かず「未接続」として返す(生の EACCES を見せない)", (t) => {
+  if (process.getuid?.() === 0) return t.skip("root ではパーミッション判定にならない");
+  const rootA = mkdtempSync(join(tmpdir(), "framewright-launcher-ok-"));
+  // 書き込み不可の親 = 未マウントのマウント点(/Volumes 直下)相当
+  const mountBase = mkdtempSync(join(tmpdir(), "framewright-launcher-mount-"));
+  try {
+    mkdirSync(join(rootA, "talk-a"));
+    chmodSync(mountBase, 0o500);
+    const result = listProjectsAcrossRoots([
+      { key: "main", path: rootA },
+      { key: "usb-siro1", path: join(mountBase, "USB_SIRO1", "framewright") },
+    ]);
+    assert.equal(result.roots[0].available, true);
+    assert.equal(result.roots[1].available, false);
+    assert.equal(result.roots[1].reason, "未接続(マウントされていません)");
+    // 未接続でも一覧そのものは成功し、繋がっているルートは普通に出る
+    assert.deepEqual(result.projects.map((p) => p.name), ["talk-a"]);
+  } finally {
+    chmodSync(mountBase, 0o700);
+    rmSync(rootA, { recursive: true, force: true });
+    rmSync(mountBase, { recursive: true, force: true });
+  }
 });
