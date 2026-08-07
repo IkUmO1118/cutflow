@@ -86,7 +86,7 @@ import {
   validateHyperframeAuthorRequest,
 } from "../src/lib/hyperframeAuthor.ts";
 import { readEditableDocs } from "../src/stages/idStamp.ts";
-import { aiProfileStatuses, profileForRoute, resolveAiReviewCfg, resolveAiRuntimeConfig, resolveHyperframeAssetLimits, resolvePerceptionStatus, resolveRecordingRoots } from "../src/lib/config.ts";
+import { aiProfileStatuses, profileForRoute, resolveAiReviewCfg, resolveAiRuntimeConfig, resolveHyperframeAssetLimits, resolvePerceptionStatus, recordingRootState, resolveRecordingRoots } from "../src/lib/config.ts";
 import type { Config, RecordingRoot } from "../src/lib/config.ts";
 import {
   applyConfigEdits,
@@ -154,10 +154,13 @@ export async function startEditor(
 ): Promise<void> {
   if (launcherMode) {
     for (const root of resolveRecordingRoots(cfg)) {
+      // 未接続の外付け/未マウントは黙って飛ばす(繋げばそのまま使える状態で、
+      // 設定ミスではない)。ランチャーは一覧側で「未接続」として扱う
+      if (recordingRootState(root.path) !== "creatable") continue;
       try {
         mkdirSync(root.path, { recursive: true });
       } catch (error) {
-        console.warn(`警告: recordingsDirs.${root.key}(${root.path})を作成できません(未接続の可能性): ${(error as Error).message}`);
+        console.warn(`警告: recordingsDirs.${root.key}(${root.path})を作成できません: ${(error as Error).message}`);
       }
     }
   } else {
@@ -412,6 +415,12 @@ export function listProjectsAcrossRoots(roots: RecordingRoot[]): ProjectsRespons
   const rootStatuses: RootStatus[] = [];
   const projects: ProjectSummary[] = [];
   for (const root of roots) {
+    // 未接続(未マウント)は探しに行かない。mkdir を試すと /Volumes 直下の
+    // EACCES が reason に載って「壊れている」ように見えるため、状態として返す
+    if (recordingRootState(root.path) === "disconnected") {
+      rootStatuses.push({ key: root.key, available: false, reason: "未接続(マウントされていません)" });
+      continue;
+    }
     try {
       projects.push(...listProjects(root.path, root.key));
       rootStatuses.push({ key: root.key, available: true });

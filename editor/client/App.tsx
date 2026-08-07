@@ -188,6 +188,7 @@ import {
   cutSourceRange,
   buildDiffTracks,
   defaultCaptionPos,
+  isInlineDraftTarget,
   isLaneWorthy,
   resolutionForOnly,
   fitZoomSpan,
@@ -1795,16 +1796,29 @@ const EditorApp = () => {
         : null;
       const captions = captionTextDraft
         ? source.props.captions.map((caption) =>
-            caption.track === editingTrack &&
-            captionTextDraft.outT >= caption.start &&
-            captionTextDraft.outT < caption.end
+            isInlineDraftTarget(caption, editingTrack, captionTextDraft.outT)
               ? { ...caption, text: captionTextDraft.text, words: undefined }
               : caption,
           )
         : source.props.captions;
+      // 動画内テキスト(overlays.texts)のインライン編集もテロップと同じ流儀で
+      // Player 側へ毎打鍵反映する。編集枠(textarea)は color:transparent なので、
+      // ここを繋がないと確定(Enter)まで打鍵が一切見えない
+      const editingTextTrack = overlayTextDraft
+        ? textTrack((overlays?.texts ?? [])[overlayTextDraft.index] ?? {})
+        : null;
+      const texts =
+        overlayTextDraft && source.props.texts
+          ? source.props.texts.map((t) =>
+              isInlineDraftTarget(t, editingTextTrack, overlayTextDraft.outT)
+                ? { ...t, text: overlayTextDraft.text }
+                : t,
+            )
+          : source.props.texts;
       return {
         ...source.props,
         captions,
+        ...(texts ? { texts } : {}),
         muteBase: trackMuted.cut,
         muteBgm: trackMuted.bgm,
         hiddenLayers,
@@ -1816,7 +1830,9 @@ const EditorApp = () => {
       trackMuted,
       hiddenLayers,
       captionTextDraft,
+      overlayTextDraft,
       transcript,
+      overlays,
       aiEditEnabled,
       diffPreviewMode,
     ],
@@ -2804,10 +2820,13 @@ const EditorApp = () => {
         const bgPadY = bg ? Math.round(bgPadX * 0.5) : 0;
         return [{
           index: entry.index,
+          // 下書きの照合は**カット後の秒**で行う(entry.ivs と同じ時間軸)。
+          // t.start/t.end は元収録の秒なので直接 outT と比べてはいけない
           text: overlayTextDraft &&
             overlayTextDraft.index === entry.index &&
-            overlayTextDraft.outT >= t.start &&
-            overlayTextDraft.outT < t.end
+            entry.ivs.some(
+              (iv) => overlayTextDraft.outT >= iv.start && overlayTextDraft.outT < iv.end,
+            )
             ? overlayTextDraft.text
             : t.text.trim(),
           pos: t.pos,

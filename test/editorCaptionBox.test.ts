@@ -7,7 +7,11 @@ import assert from "node:assert/strict";
 import { describeCaptionLayer } from "../src/engine/describeFrame.ts";
 import { defaultProps } from "../src/lib/renderPropsTypes.ts";
 import type { Caption, RenderProps } from "../src/lib/renderPropsTypes.ts";
-import { captionBoxOffset, defaultCaptionPos } from "../editor/client/model.ts";
+import {
+  captionBoxOffset,
+  defaultCaptionPos,
+  isInlineDraftTarget,
+} from "../editor/client/model.ts";
 
 const FONT = 48;
 const base: RenderProps = {
@@ -131,4 +135,37 @@ test("captionBoxOffset: center は不変・topLeft は padding ぶん左上へ",
   // topLeft: refPainter は pos をテキストボックスの左上に置き、座布団は
   // その外側(x-pad, y-pad/2)へはみ出す。枠は padding ぶん左上へ広げて一致する
   assert.deepEqual(captionBoxOffset("topLeft", 52, 26), { dx: -52, dy: -26 });
+});
+
+// ---- インライン編集(ダブルクリック)の下書きを Player へ当てる判定 ----
+// 編集枠(textarea)は color:transparent で、打鍵の見た目は Player 側の字幕が
+// 担う。ここが外れると「Enter で確定するまで何も変わらない」ように見える。
+
+test("isInlineDraftTarget: トラック一致+表示区間内のときだけ当てる", () => {
+  const item = { start: 10, end: 12, track: 2 };
+  assert.equal(isInlineDraftTarget(item, 2, 11), true);
+  // 区間は [start, end)
+  assert.equal(isInlineDraftTarget(item, 2, 10), true);
+  assert.equal(isInlineDraftTarget(item, 2, 12), false);
+  assert.equal(isInlineDraftTarget(item, 2, 9.9), false);
+  // 別トラックの同時刻には当てない(テロップは複数トラックが重なる)
+  assert.equal(isInlineDraftTarget(item, 1, 11), false);
+  // 非編集中(editingTrack=null)は常に対象外
+  assert.equal(isInlineDraftTarget(item, null, 11), false);
+});
+
+test("isInlineDraftTarget: track 省略は 1 とみなす(texts は track:1 を持たない)", () => {
+  // renderProps は textTrack(t) > 1 のときだけ track を書く
+  assert.equal(isInlineDraftTarget({ start: 0, end: 5 }, 1, 1), true);
+  assert.equal(isInlineDraftTarget({ start: 0, end: 5 }, 2, 1), false);
+});
+
+test("isInlineDraftTarget: 比較はカット後の秒(元収録の秒と混ぜない)", () => {
+  // 元収録 120-125 秒のテキストが、カットで出力 10-15 秒へ写像された場合。
+  // Player へ渡る props は出力秒なので、下書きの outT(=再生ヘッド)も出力秒。
+  // 元収録の秒(120-125)で持っていた区間と突き合わせると当たらない
+  const mapped = { start: 10, end: 15 };
+  const source = { start: 120, end: 125 };
+  assert.equal(isInlineDraftTarget(mapped, 1, 12), true);
+  assert.equal(isInlineDraftTarget(source, 1, 12), false);
 });

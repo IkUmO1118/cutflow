@@ -72,9 +72,14 @@ export const CaptionOverlay = ({
   const ref = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [dragging, setDragging] = useState(false);
-  // インライン編集中のテロップ添字と下書き(null=非編集)
+  // インライン編集中のテロップ添字(null=非編集)
   const [editing, setEditing] = useState<number | null>(null);
-  const [draft, setDraft] = useState("");
+  // 編集中の下書き。textarea は **非制御**(defaultValue)にして React が
+  // value を書き戻さないようにする(制御コンポーネントだと IME の未確定
+  // 文字を再描画が壊しうる)。打鍵の見た目は Player 側の字幕が担うので、
+  // 最新値はこの ref と textarea 自身から読めば足りる
+  const draftRef = useRef("");
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
   // ドラッグ中の一時的な位置(pointerup で 1 回だけ onMove に確定させる。
   // move の間はこれだけを更新する。テキスト編集用の draft/setDraft とは別物
   // (名前衝突を避けるため posDraft と呼ぶ)
@@ -105,17 +110,24 @@ export const CaptionOverlay = ({
   const dy = (box.h - height * scale) / 2;
   const store = storeFile ?? "transcript.json";
 
+  /** 下書きを更新し、Player 側の字幕へ即座に反映する(打鍵が見える唯一の経路) */
+  const syncDraft = (index: number, text: string) => {
+    draftRef.current = text;
+    onEditingChange?.(index, text);
+  };
   const startEdit = (c: OverlayCaption) => {
     if (!onCommitText) return;
     onEditStart?.();
     onSelect(c.index);
     setDragging(false);
-    setDraft(c.text);
+    draftRef.current = c.text;
     setEditing(c.index);
     onEditingChange?.(c.index, c.text);
   };
   const commitEdit = () => {
-    if (editing !== null) onCommitText?.(editing, draft);
+    // 非制御なので確定値は textarea 自身から読む(compositionend 直後など、
+    // ref への同期より先に blur が来ても取りこぼさない)
+    if (editing !== null) onCommitText?.(editing, taRef.current?.value ?? draftRef.current);
     setEditing(null);
     onEditingChange?.(null);
   };
@@ -210,9 +222,10 @@ export const CaptionOverlay = ({
             return (
               <textarea
                 key={c.index}
+                ref={taRef}
                 className="capBox editing sel"
                 autoFocus
-                value={draft}
+                defaultValue={draftRef.current}
                 // Shift+Enter は下の onKeyDown で素通しし textarea 既定の改行になる。
                 // 手動改行はそのまま複数行テロップとして描画される
                 title="Shift+Enter で改行 / Enter で確定 / Esc で取消"
@@ -228,13 +241,24 @@ export const CaptionOverlay = ({
                 }}
                 // 編集中はドラッグ・グローバルショートカットを止める
                 onPointerDown={(e) => e.stopPropagation()}
-                onChange={(e) => {
-                  setDraft(e.target.value);
-                  onEditingChange?.(c.index, e.target.value);
+                onChange={(e) => syncDraft(c.index, e.target.value)}
+                // IME の未確定文字。ブラウザによっては変換中に input(onChange)が
+                // 出ないため、compositionupdate でも拾う。この時点では value が
+                // まだ更新前なので次フレームで読む
+                onCompositionUpdate={(e) => {
+                  const el = e.currentTarget;
+                  requestAnimationFrame(() => {
+                    if (taRef.current === el) syncDraft(c.index, el.value);
+                  });
                 }}
+                onCompositionEnd={(e) => syncDraft(c.index, e.currentTarget.value)}
                 onBlur={commitEdit}
                 onKeyDown={(e) => {
                   e.stopPropagation();
+                  // 変換中の Enter/Esc は「変換の確定/取消」であって編集の
+                  // 確定・取消ではない(ここで確定すると最初の変換で編集欄が
+                  // 閉じてしまう)。keyCode 229 は isComposing 非対応環境の保険
+                  if ((e.nativeEvent as KeyboardEvent).isComposing || e.keyCode === 229) return;
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
                     commitEdit();
